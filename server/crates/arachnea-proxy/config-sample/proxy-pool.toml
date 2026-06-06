@@ -1,0 +1,34 @@
+# Local HTTP/SOCKS proxy routing outbound traffic through the first working pool member.
+
+[server]
+listen_http = "127.0.0.1:8080"
+listen_socks = "127.0.0.1:1080"
+allow_unsafe_public_bind_without_acl = false
+
+[server.network]
+allow_clients = ["127.0.0.0/8", "::1/128"]
+deny_clients = []
+max_connections = 1024
+
+[core]
+profile = "advanced"
+
+[core.routing]
+default_chain = "pooled-egress"
+allow_direct_fallback = false
+
+[[core.egress_pools]]
+name = "default-pool"
+strategy = "first_available"
+test_batch_size = 32
+proxy_nodes = [
+  { name = "pool-http-a", kind = "http_proxy", endpoint = "proxy-a.example:8080" },
+  { name = "pool-socks-b", kind = "socks5", endpoint = "proxy-b.example:1080", dns_resolution = "proxy_then_local_fallback" },
+]
+
+[[core.chains]]
+name = "pooled-egress"
+strategy = "fixed_order"
+nodes = [
+  { name = "default-pool", kind = "proxy_pool" },
+]

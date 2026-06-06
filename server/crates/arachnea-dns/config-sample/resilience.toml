@@ -1,0 +1,41 @@
+profile = "resilience"
+
+[server]
+enabled = true
+listen_udp = "127.0.0.1:5353"
+listen_tcp = "127.0.0.1:5353"
+
+[resolver]
+mode = "forwarder"
+timeout_ms = 1500
+retries = 2
+parallel_upstreams = false
+allow_insecure_fallback = true
+upstream_strategy = "failover"
+nxdomain_strategy = "fallback_on_nxdomain"
+# Recursive mode uses embedded root hints by default. Override with:
+# root_hints_file = "/etc/arachnea/root_hints.txt"
+# root_hints = ["198.41.0.4", "2001:503:ba3e::2:30"]
+
+[[upstreams]]
+name = "system"
+transport = "system"
+endpoint = { kind = "system" }
+verify_tls = true
+
+[[upstreams]]
+name = "quad9-udp"
+transport = "udp"
+endpoint = { kind = "socket", value = "9.9.9.9:53" }
+timeout_ms = 1500
+verify_tls = true
+
+[cache]
+enabled = true
+max_entries = 50000
+min_ttl_seconds = 0
+max_ttl_seconds = 86400
+negative_cache = true
+serve_stale = true
+max_stale_seconds = 86400
+stale_response_ttl_seconds = 30

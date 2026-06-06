@@ -1,0 +1,4 @@
+interface:
+  display_name: "Update README"
+  short_description: "Keep README.md in sync with repository-local Cargo commands, npm scripts, and the skills list."
+  default_prompt: "Update README.md for Arachnea with current repository-local Cargo commands, npm commands, and the skills list. Trigger when the user types #update-readme."

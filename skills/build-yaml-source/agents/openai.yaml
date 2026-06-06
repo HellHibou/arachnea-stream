@@ -1,0 +1,4 @@
+interface:
+  display_name: "Build YAML Source"
+  short_description: "Build or update source YAML."
+  default_prompt: "Use $build-yaml-source to create or update a Arachnea source YAML from these URLs, prefer a YAML-only solution, list optional additions, and stop before any Rust changes."

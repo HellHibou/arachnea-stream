@@ -1,0 +1,351 @@
+//! Internal HTTP engine adapters.
+
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use bytes::Bytes;
+use http::{HeaderMap, Method, StatusCode};
+
+use crate::{
+    config::{ArachneaHttpConfig, CloudflareBrowserSolverKind},
+    error::ArachneaHttpError,
+};
+
+#[cfg(feature = "chaser-cf")]
+pub mod chaser_cf;
+#[cfg(feature = "ghostwire")]
+pub mod ghostwire;
+pub mod rquest;
+#[cfg(feature = "tauri-cloudflare-solver")]
+pub mod tauri_cloudflare;
+
+/// Shared dynamic HTTP engine handle.
+pub type DynHttpEngine = Arc<dyn HttpEngine>;
+
+/// Internal header used to return a solver-observed browser user-agent.
+pub(crate) const SOLVER_USER_AGENT_HEADER: &str = "x-arachnea-solver-user-agent";
+
+/// Engine-normalized HTTP request.
+#[derive(Debug, Clone)]
+pub struct EngineRequest {
+    /// HTTP method.
+    pub method: Method,
+    /// Absolute request URL.
+    pub url: String,
+    /// Request headers.
+    pub headers: HeaderMap,
+    /// Optional request body.
+    pub body: Option<Bytes>,
+}
+
+/// Engine-normalized HTTP response.
+#[derive(Debug, Clone)]
+pub struct EngineResponse {
+    /// Final URL reported by the engine.
+    pub url: String,
+    /// HTTP status code.
+    pub status: StatusCode,
+    /// Response headers.
+    pub headers: HeaderMap,
+    /// Complete response body.
+    pub body: Bytes,
+}
+
+/// Common interface implemented by all HTTP engine adapters.
+#[async_trait]
+pub trait HttpEngine: Send + Sync {
+    /// Returns a stable engine name for logs and errors.
+    ///
+    /// # Returns
+    ///
+    /// A short engine identifier.
+    fn name(&self) -> &'static str;
+
+    /// Sends one normalized request.
+    ///
+    /// # Parameters
+    ///
+    /// - `request`: Request to execute.
+    ///
+    /// # Returns
+    ///
+    /// A normalized response with headers and body materialized.
+    ///
+    /// # Errors
+    ///
+    /// Returns engine-specific failures mapped to `ArachneaHttpError`.
+    async fn send(&self, request: EngineRequest) -> Result<EngineResponse, ArachneaHttpError>;
+
+    /// Refreshes Cloudflare state for one normalized request.
+    ///
+    /// Solver engines can override this method to avoid collecting a page body
+    /// when only cookies and browser metadata are needed. The default behavior
+    /// sends the request normally.
+    ///
+    /// # Parameters
+    ///
+    /// - `request`: Request used to refresh the Cloudflare session.
+    ///
+    /// # Returns
+    ///
+    /// A normalized response containing any cookies or solver metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns engine-specific failures mapped to `ArachneaHttpError`.
+    async fn refresh_cloudflare(
+        &self,
+        request: EngineRequest,
+    ) -> Result<EngineResponse, ArachneaHttpError> {
+        self.send(request).await
+    }
+
+    /// Refreshes Cloudflare state while bypassing engine-specific caches.
+    ///
+    /// Browser-backed solvers can override this method to force a fresh browser
+    /// solve after an actively blocked response proves cached cookies are not
+    /// accepted by the target. The default behavior uses the normal refresh
+    /// path.
+    ///
+    /// # Parameters
+    ///
+    /// - `request`: Request used to refresh the Cloudflare session.
+    ///
+    /// # Returns
+    ///
+    /// A normalized response containing fresh cookies or solver metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns engine-specific failures mapped to `ArachneaHttpError`.
+    async fn refresh_cloudflare_fresh(
+        &self,
+        request: EngineRequest,
+    ) -> Result<EngineResponse, ArachneaHttpError> {
+        self.refresh_cloudflare(request).await
+    }
+
+    /// Builds an HTTP client configuration that uses this solver engine.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP configuration builder rejects the provided
+    /// engine instance or any default configuration value.
+    fn config(self) -> Result<ArachneaHttpConfig, ArachneaHttpError>
+    where
+        Self: Sized + 'static,
+    {
+        return ArachneaHttpConfig::builder().engine_instance(self).build();
+    }
+}
+
+/// Builds the automatic smart Cloudflare solver.
+///
+/// # Parameters
+///
+/// - `config`: Client configuration used to configure the engine.
+///
+/// # Returns
+///
+/// Ghostwire when the `ghostwire` feature is enabled, otherwise `None`.
+///
+/// # Errors
+///
+/// Returns construction failures from the selected engine.
+pub(crate) async fn build_auto_smart_cloudflare_solver(
+    config: &ArachneaHttpConfig,
+) -> Result<Option<DynHttpEngine>, ArachneaHttpError> {
+    #[cfg(feature = "ghostwire")]
+    {
+        return build_ghostwire_engine(config).await.map(Some);
+    }
+
+    #[cfg(not(feature = "ghostwire"))]
+    {
+        let _ = config;
+        Ok(None)
+    }
+}
+
+/// Builds the configured browser-backed Cloudflare solver.
+///
+/// # Parameters
+///
+/// - `config`: Client configuration used to configure the engine.
+/// - `solver`: Browser solver selection.
+///
+/// # Returns
+///
+/// A dynamic browser solver when one is enabled and available.
+///
+/// # Errors
+///
+/// Returns `CloudflareSolverUnavailable` for unavailable explicit selections,
+/// or construction failures from the selected engine.
+pub(crate) async fn build_browser_cloudflare_solver(
+    config: &ArachneaHttpConfig,
+    solver: &CloudflareBrowserSolverKind,
+) -> Result<Option<DynHttpEngine>, ArachneaHttpError> {
+    match solver {
+        CloudflareBrowserSolverKind::Disabled => Ok(None),
+        CloudflareBrowserSolverKind::Engine(engine) => Ok(Some(engine.clone())),
+        CloudflareBrowserSolverKind::Auto => get_default_cloudflare_solver(config).await,
+        CloudflareBrowserSolverKind::ChaserCf => build_explicit_chaser_cf_engine(config).await,
+        CloudflareBrowserSolverKind::TauriCloudflareSolver => {
+            build_explicit_tauri_cloudflare_engine(config).await
+        }
+    }
+}
+
+/// Builds the default browser-backed Cloudflare solver.
+///
+/// # Parameters
+///
+/// - `config`: Client configuration used to configure the engine.
+///
+/// # Returns
+///
+/// The selected default browser-backed Cloudflare solver when one is available.
+///
+/// # Errors
+///
+/// Returns construction failures from the selected engine.
+pub(crate) async fn get_default_cloudflare_solver(
+    config: &ArachneaHttpConfig,
+) -> Result<Option<DynHttpEngine>, ArachneaHttpError> {
+    #[cfg(feature = "tauri-cloudflare-solver")]
+    {
+        return build_tauri_cloudflare_engine(config).await.map(Some);
+    }
+
+    #[cfg(all(not(feature = "tauri-cloudflare-solver"), feature = "chaser-cf"))]
+    {
+        return build_chaser_cf_engine(config).await.map(Some);
+    }
+
+    #[cfg(not(any(feature = "chaser-cf", feature = "tauri-cloudflare-solver")))]
+    {
+        let _ = config;
+        Ok(None)
+    }
+}
+
+/// Builds chaser-cf for an explicit browser solver selection.
+///
+/// # Parameters
+///
+/// - `config`: Client configuration used to configure the engine.
+///
+/// # Returns
+///
+/// A dynamic chaser-cf engine.
+///
+/// # Errors
+///
+/// Returns `CloudflareSolverUnavailable` when the `chaser-cf` feature is not
+/// enabled, or construction failures from chaser-cf.
+async fn build_explicit_chaser_cf_engine(
+    config: &ArachneaHttpConfig,
+) -> Result<Option<DynHttpEngine>, ArachneaHttpError> {
+    #[cfg(feature = "chaser-cf")]
+    {
+        return build_chaser_cf_engine(config).await.map(Some);
+    }
+
+    #[cfg(not(feature = "chaser-cf"))]
+    {
+        let _ = config;
+        Err(ArachneaHttpError::CloudflareSolverUnavailable)
+    }
+}
+
+/// Builds the Tauri/Wry solver for an explicit browser solver selection.
+///
+/// # Parameters
+///
+/// - `config`: Client configuration used to configure the engine.
+///
+/// # Returns
+///
+/// A dynamic Tauri/Wry engine.
+///
+/// # Errors
+///
+/// Returns `CloudflareSolverUnavailable` when the
+/// `tauri-cloudflare-solver` feature is not enabled.
+async fn build_explicit_tauri_cloudflare_engine(
+    config: &ArachneaHttpConfig,
+) -> Result<Option<DynHttpEngine>, ArachneaHttpError> {
+    #[cfg(feature = "tauri-cloudflare-solver")]
+    {
+        return build_tauri_cloudflare_engine(config).await.map(Some);
+    }
+
+    #[cfg(not(feature = "tauri-cloudflare-solver"))]
+    {
+        let _ = config;
+        Err(ArachneaHttpError::CloudflareSolverUnavailable)
+    }
+}
+
+/// Builds a Ghostwire engine.
+///
+/// # Parameters
+///
+/// - `config`: Client configuration used to configure the engine.
+///
+/// # Returns
+///
+/// A dynamic Ghostwire engine.
+///
+/// # Errors
+///
+/// Returns a construction failure from the Ghostwire adapter.
+#[cfg(feature = "ghostwire")]
+pub(crate) async fn build_ghostwire_engine(
+    config: &ArachneaHttpConfig,
+) -> Result<DynHttpEngine, ArachneaHttpError> {
+    Ok(Arc::new(ghostwire::GhostwireEngine::new(config)?))
+}
+
+/// Builds a chaser-cf engine.
+///
+/// # Parameters
+///
+/// - `config`: Client configuration used to configure the engine.
+///
+/// # Returns
+///
+/// A dynamic chaser-cf engine.
+///
+/// # Errors
+///
+/// Returns a construction failure from the chaser-cf adapter.
+#[cfg(feature = "chaser-cf")]
+pub(crate) async fn build_chaser_cf_engine(
+    config: &ArachneaHttpConfig,
+) -> Result<DynHttpEngine, ArachneaHttpError> {
+    Ok(Arc::new(chaser_cf::ChaserCfEngine::new(config)?))
+}
+
+/// Builds an interactive Tauri/Wry Cloudflare solver engine.
+///
+/// # Parameters
+///
+/// - `config`: Client configuration used to configure the solver.
+///
+/// # Returns
+///
+/// A dynamic Tauri/Wry solver engine.
+///
+/// # Errors
+///
+/// Returns a construction failure from the Tauri/Wry adapter.
+#[cfg(feature = "tauri-cloudflare-solver")]
+pub(crate) async fn build_tauri_cloudflare_engine(
+    config: &ArachneaHttpConfig,
+) -> Result<DynHttpEngine, ArachneaHttpError> {
+    Ok(Arc::new(
+        tauri_cloudflare::TauriCloudflareSolverEngine::new(config),
+    ))
+}

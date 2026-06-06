@@ -1,0 +1,33 @@
+# Route requests carrying `Arachnea-Proxy-Country: US` to a named chain.
+
+[server]
+listen_http = "127.0.0.1:8080"
+listen_socks = "127.0.0.1:1080"
+
+[server.network]
+allow_clients = ["127.0.0.0/8", "::1/128"]
+
+[core]
+profile = "advanced"
+
+[core.routing]
+default_chain = "direct"
+allow_direct_fallback = true
+
+[[core.routing.rules]]
+match_client_parameter = "country"
+match_client_value = { type = "string", value = "US" }
+chain = "us-egress"
+
+[[core.chains]]
+name = "direct"
+nodes = [
+  { name = "direct", kind = "direct" },
+]
+
+[[core.chains]]
+name = "us-egress"
+nodes = [
+  { name = "us-socks", kind = "socks5", endpoint = "127.0.0.1:9050", send_hostname = true },
+]
+

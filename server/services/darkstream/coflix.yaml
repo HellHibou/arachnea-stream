@@ -1,0 +1,612 @@
+id: coflix
+title: Coflix
+logo: "{base_url}/wp-content/uploads/2023/01/cropped-coflix.png"
+description:
+  fr: "Films, Séries et Animés en streaming VF/HD."
+
+http:
+  mode: auto
+
+parameters:
+  - name: base_url
+    value: https://coflix.cymru/
+    description: "Base URL — update on domain change"
+
+shared:
+
+  media_types_coflix: &media_types_coflix
+    - video/movie
+    - video/show/serie
+    - video/show/anime
+
+  # Extracts a protocol-relative or absolute src URL from an HTML img tag string
+  # e.g. '<img src="//cdn.coflix.../img.jpg">' or '<img src="https://...">'
+  actions_img_html_to_url: &actions_img_html_to_url
+    - type: regex_find_all
+      pattern: 'src="(?:https?:)?(//[^"]+)'
+      format: "https:{1}"
+
+  actions_get_href_resolve: &actions_get_href_resolve
+    - type: get_attribut
+      argument: href
+    - type: resolve_url
+
+  actions_get_src_resolve: &actions_get_src_resolve
+    - type: get_attribut
+      argument: src
+    - type: resolve_url
+
+  optional_html_entry: &optional_html_entry
+    - type: map
+      default: "{}"
+      argument:
+        "false": null
+
+  entries_catalog_item: &entries_catalog_item
+    - name: title
+      pointer: "/name"
+    - name: link
+      pointer: "/url"
+    - name: web-link
+      pointer: "/url"
+    - name: img/poster > link
+      pointer: "/path"
+      actions: *actions_img_html_to_url
+    - name: img/poster > link
+      pointer: "/image"
+      actions: *actions_img_html_to_url
+    - name: media-type
+      pointer: "/ts"
+      actions:
+        - type: map
+          argument:
+            movies: "video/movie"
+            series: "video/show/serie"
+            animes: "video/show/anime"
+    - name: year
+      pointer: "/release"
+      actions:
+        - type: map
+          default: "{}"
+          argument:
+            "false": null
+    - name: description
+      pointer: "/excerpt"
+      actions: *optional_html_entry
+    - name: score
+      pointer: "/rating"
+    - name: director
+      pointer: "/director"
+      actions: *optional_html_entry
+    - name: casting
+      pointer: "/casts"
+      actions: *optional_html_entry
+
+  entries_search_item: &entries_search_item
+    - name: title
+      pointer: "/title"
+    - name: link
+      pointer: "/url"
+    - name: web-link
+      pointer: "/url"
+    - name: img/poster > link
+      pointer: "/image"
+      actions: *actions_img_html_to_url
+    - name: media-type
+      pointer: "/post_type"
+      actions:
+        - type: map
+          argument:
+            movies: "video/movie"
+            series: "video/show/serie"
+            animes: "video/show/anime"
+    - name: year
+      pointer: "/year"
+      actions:
+      - type: map
+        default: "{}"
+        argument:
+          "false": null
+    - name: description
+      pointer: "/excerpt"
+
+queries:
+
+  # ---------------------------------------------------------------
+  - name: service_stream_metadata
+    scraper_type: static
+    entries:
+      - name: id
+        value: "{service_id}"
+      - name: title
+        value: "{service_title}"
+      - name: logo
+        value: "{service_logo}"
+      - name: description
+        value: "{service_description}"
+
+  # ---------------------------------------------------------------
+  # Search via suggest API — returns a root JSON array
+  # Response: [{title, ID, url, post_type, year, excerpt, image}, ...]
+  #
+  # Wrapped into the standard search result shape:
+  # {source, current_page, have_more, entries: [...]}
+  # ---------------------------------------------------------------
+  - name: search
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{base_url}/suggest.php?query={search_terms}"
+    media_types: *media_types_coflix
+    row_pointer: "/"
+    entries:
+    - name: source
+      actions:
+        - type: format_text
+          argument: "{source}"
+    - name: current_page
+      actions:
+        - type: format_text
+          argument: "1"
+    - name: have_more
+      actions:
+        - type: format_text
+          argument: "false"
+    - name: entries
+      pointer: "/*"
+      entries: *entries_search_item
+
+
+  # ---------------------------------------------------------------
+  # Home page: static categories pointing to the REST API
+  # ---------------------------------------------------------------
+  - name: load_home
+    scraper_type: html
+    media_types: *media_types_coflix
+    base_url: "{base_url}"
+    query_url: "{base_url}"
+    row_selector: "html"
+    entries:
+      - name: source
+        actions:
+          - type: format_text
+            argument: "{source}"
+
+      - name: banners
+        selector: 'article.splide__slide'
+        entries: 
+          - name: title
+            selector: "h2"
+            actions:
+              - type: get_text
+          - name: image
+            selector: "figure.bg > img"
+            select: all
+            actions:
+              - type: get_attribut
+                argument: data-splide-lazy
+              - type: format_text
+                argument: "https:{}"
+          - name: link
+            selector: ul > li > a.btn
+            actions:
+              - type: get_attribut
+                argument: href
+          - name: web-link
+            selector: ul > li > a.btn
+            actions:
+              - type: get_attribut
+                argument: href
+          - name: description
+            selector: "div.entry-content > p"
+            actions:
+              - type: get_text
+          - name: theme
+            selector: "span.categories > div > a"
+            actions:
+              - type: get_text
+
+      - name: categories
+        entries:
+          - name: key
+            actions:
+              - type: format_text
+                argument: "movies"
+          - name: label
+            actions:
+              - type: format_text
+                argument: "Films"
+          - name: request > query_url
+            actions:
+              - type: format_text
+                argument: "{base_url}/wp-json/apiflix/v1/options/?post_type=movies&sort=1"
+      - name: categories
+        entries:
+          - name: key
+            actions:
+              - type: format_text
+                argument: "series"
+          - name: label
+            actions:
+              - type: format_text
+                argument: "Séries"
+          - name: request > query_url
+            actions:
+              - type: format_text
+                argument: "{base_url}/wp-json/apiflix/v1/options/?post_type=series&sort=1"
+      - name: categories
+        entries:
+          - name: key
+            actions:
+              - type: format_text
+                argument: "animes"
+          - name: label
+            actions:
+              - type: format_text
+                argument: "Animés"
+          - name: request > query_url
+            actions:
+              - type: format_text
+                argument: "{base_url}/wp-json/apiflix/v1/options/?post_type=animes&sort=1"
+      - name: sections
+        selector: ".main > section.wdgt_home_movies"
+        select: all
+        entries:
+          - name: label
+            selector: "header > div"
+            actions:
+                - type: get_text
+          - name: entries
+            selector: "div.movie-lst > div"
+            select: all
+            entries:
+              - name: title
+                selector: a
+                actions: 
+                  - type: get_attribut
+                    argument: "aria-label"
+              - name: link
+                selector: a
+                actions: 
+                  - type: get_attribut
+                    argument: href
+              - name: web-link
+                selector: a
+                actions: 
+                  - type: get_attribut
+                    argument: href
+              - name: img/poster > link
+                selector: div > figure > img
+                actions:
+                  - type: get_attribut
+                    argument: src
+                  - type: format_text
+                    argument: "http:{}"
+              - name: year
+                selector: .yearyear
+                actions:
+                  - type: get_text
+              - name: rating
+                selector: .imdb > span
+                actions:
+                  - type: get_text
+
+  # ---------------------------------------------------------------
+  # Category listing via REST API
+  # Response: {results: [{name, uuid, url, ts, release, excerpt, path}, ...]}
+  # query_url comes from load_home categories (without page suffix)
+  #
+  # Wraps results into the standard {source, sections: [{entries: [...]}]} shape.
+  # ---------------------------------------------------------------
+  - name: get_category
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{query_url}&page={page}"
+    media_types: *media_types_coflix
+    row_pointer: "/"
+    entries:
+      - name: source
+        select: first
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: sections
+        entries:
+          - name: current_page
+            actions:
+              - type: format_text
+                argument: "{page}"
+          - name: have_more
+            pointer: "/next"
+          - name: page_size
+            actions:
+              - type: format_text
+                argument: "20"
+          - name: link
+            actions:
+              - type: format_text
+                argument: "{query_url}"
+          - name: entries
+            pointer: "/results/*"
+            select: all
+            entries:
+              - name: title
+                pointer: "/name"
+              - name: link
+                pointer: "/url"
+              - name: web-link
+                pointer: "/url"
+              - name: img/poster > link
+                pointer: "/path"
+                actions:
+                  - type: regex_find_all
+                    pattern: 'src="(?:https?:)?(//[^"]+)'
+                    format: "https:{1}"
+              - name: img/poster > link
+                pointer: "/image"
+                actions:
+                  - type: regex_find_all
+                    pattern: 'src="(?:https?:)?(//[^"]+)'
+                    format: "https:{1}"
+              - name: media-type
+                pointer: "/ts"
+                actions:
+                  - type: map
+                    argument:
+                      movies: "video/movie"
+                      series: "video/show/serie"
+                      animes: "video/show/anime"
+              - name: year
+                pointer: "/release"
+                actions:
+                  - type: map
+                    default: "{}"
+                    argument:
+                      "false": null
+              - name: description
+                pointer: "/excerpt"
+                actions:
+                  - type: map
+                    default: "{}"
+                    argument:
+                      "false": null
+              - name: score
+                pointer: "/rating"
+              - name: director
+                pointer: "/director"
+                actions:
+                  - type: map
+                    default: "{}"
+                    argument:
+                      "false": null
+              - name: casting
+                pointer: "/casts"
+                actions:
+                  - type: map
+                    default: "{}"
+                    argument:
+                      "false": null
+
+  # ---------------------------------------------------------------
+  # Category listing via REST API
+  # Response: {results: [{name, uuid, url, ts, release, excerpt, path}, ...]}
+  # query_url comes from load_home categories (without page suffix)
+  #
+  # Wraps results into the standard {source, sections: [{entries: [...]}]} shape.
+  # ---------------------------------------------------------------
+  - name: get_section
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{query_url}&page={page}"
+    media_types: *media_types_coflix
+    row_pointer: "/"
+    post_process:
+      - type: derive_pagination
+        total_pages_field: total_pages
+        remove_fields:
+          - total_pages
+    entries:
+      - name: total_pages
+        pointer: /total
+      - name: source
+        select: first
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: current_page
+        actions:
+          - type: format_text
+            argument: "{page}"
+      - name: have_more
+        pointer: "/next"
+      - name: page_size
+        actions:
+          - type: format_text
+            argument: "20"
+      - name: entries
+        pointer: "/results/*"
+        select: all
+        entries:
+          - name: source
+            actions:
+              - type: format_text
+                argument: "{source}"
+          - name: title
+            pointer: "/name"
+          - name: link
+            pointer: "/url"
+          - name: web-link
+            pointer: "/url"
+          - name: img/poster > link
+            pointer: "/path"
+            actions:
+              - type: regex_find_all
+                pattern: 'src="(?:https?:)?(//[^"]+)'
+                format: "https:{1}"
+          - name: img/poster > link
+            pointer: "/image"
+            actions:
+              - type: regex_find_all
+                pattern: 'src="(?:https?:)?(//[^"]+)'
+                format: "https:{1}"
+          - name: media-type
+            pointer: "/ts"
+            actions:
+              - type: map
+                argument:
+                  movies: "video/movie"
+                  series: "video/show/serie"
+                  animes: "video/show/anime"
+          - name: year
+            pointer: "/release"
+            actions:
+              - type: map
+                default: "{}"
+                argument:
+                  "false": null
+          - name: description
+            pointer: "/excerpt"
+            actions:
+              - type: map
+                default: "{}"
+                argument:
+                  "false": null
+          - name: score
+            pointer: "/rating"
+          - name: director
+            pointer: "/director"
+            actions:
+              - type: map
+                default: "{}"
+                argument:
+                  "false": null
+          - name: casting
+            pointer: "/casts"
+            actions:
+              - type: map
+                default: "{}"
+                argument:
+                  "false": null                     
+
+  # ---------------------------------------------------------------
+  # Detail page for a movie or series (HTML)
+  # For series: extracts season buttons (data-season + post-id attributes)
+  # For movies:  extracts the iframe embed src as players > embed-link
+  #
+  # NOTE: movie player resolution requires a further HTTP step + base64 decode
+  # (coflix player page → showVideo('base64url') → actual hoster URL).
+  # The iframe src is returned as embed-link and may be usable as a Coflix player embed.
+  # Full hoster resolution is not supported by the current YAML action set.
+  # ---------------------------------------------------------------
+  - name: get_entry
+    scraper_type: html
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    media_types: *media_types_coflix
+    row_selector: "html"
+    entries:
+      - name: source
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: title
+        selector: "h1.entry-title, h1"
+        actions:
+          - type: get_text
+      - name: description
+        selector: "div.summary p"
+        actions:
+          - type: get_text
+      - name: img/poster > link
+        selector: "figure > img"
+        actions: *actions_get_src_resolve
+      - name: year
+        selector: ".year, span.release-year, .date"
+        actions:
+          - type: get_text
+          - type: regex_find_all
+            pattern: '(\d{4})'
+            format: "{1}"
+      # Seasons: button[name="seasons"] data-season="N" [...] post-id="X"
+      # Label is the button text ("Saison 1", etc.)
+      - name: season > label
+        selector: 'button[name="seasons"]'
+        select: all
+        actions:
+          - type: get_text
+      # Season API URL built from both data-season and post-id attributes via response body regex
+      - name: season > link
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: 'name="seasons"\s[^>]*data-season="(\d+)"\s[^>]*post-id="(\d+)'
+            format: "{base_url}/wp-json/apiflix/v1/series/{2}/{1}"
+      # Movie player: extract the iframe src (Coflix player page)
+      - name: players > embed-link
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: '<iframe[^>]+src="([^"]+)'
+            format: "{1}"
+      - name: rating
+        selector: "span.imdb > span"
+        actions:
+            - type: get_text
+      - name: casting
+        selector: p.cast > a
+        select: all
+        actions:
+          - type: get_text
+      - name: director
+        selector: aside.title-content > p > a
+        select: all
+        actions:
+          - type: get_text
+
+      - name: year
+        selector: "h1 + span"
+        actions:
+          - type: get_text
+      - name: theme
+        selector: "header > div > div > a"
+        select: all
+        actions:
+          - type: get_text
+
+
+  # ---------------------------------------------------------------
+  # Season detail via REST API
+  # URL: {base_url}/wp-json/apiflix/v1/series/{post_id}/{season_num}
+  # (built by get_entry from season > link)
+  # Response: {episodes: [{id, title, number, season, image}, ...]}
+  #
+  # NOTE: episode embed-link is the player API URL
+  # (wp-json/apiflix/v1/playerepisode?post_id={episode_id}).
+  # This returns JSON ({links: {online: [{link: "..."}]}}), not a direct embed.
+  # Each link in online[] leads to a Coflix player page containing base64-encoded
+  # hoster URLs — full resolution not supported by current YAML action set.
+  #
+  # Wrapped into the standard section result shape:
+  # {source, current_page, have_more, entries: [...]}
+  # ---------------------------------------------------------------
+  - name: get_season
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    media_types:
+      - video/show/series
+      - video/show/anime
+    row_pointer: "/episodes/*"
+    entries:
+      - name: title
+        pointer: "/title"
+      - name: episode-number
+        pointer: "/number"
+      - name: img/thumbnail > link
+        pointer: "/image"
+        actions: *actions_img_html_to_url
+      # Intermediate player API URL — see NOTE above
+      - name: players > embed-link
+        pointer: "/id"
+        actions:
+          - type: format_text
+            argument: "{base_url}/wp-json/apiflix/v1/playerepisode?post_id={}"

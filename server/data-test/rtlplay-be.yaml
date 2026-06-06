@@ -1,0 +1,64 @@
+queries:
+  - name: service_stream_metadata
+    fields_result:
+      - id
+      - title
+      - logo
+      - description
+
+  - name: search
+    fields_result:
+      - source
+      - title
+      - theme
+      - media-type
+      - link
+      - web-link
+      - img/poster > link
+
+  - name: load_home
+    fields_result:
+      - source
+      - banners > key
+      - banners > title
+      - banners > image
+      - banners > web-link
+      - banners > link
+      - banners > logo
+      - categories > key
+      - categories > label
+      - categories > image
+      - categories > request > query_url
+      - sections > label
+      - sections > entries > title
+      - sections > entries > link
+      - sections > entries > web-link
+      - sections > entries > img/poster > link
+
+    fields_optional:
+      - banners > subtitle
+      - banners > description
+      - banners > logo
+      - banners > video
+     
+  - name: get_entry
+    fields_result:
+      - title
+      - description
+      - media-type
+      - subtitles
+      - link
+      - web-link
+      - img/logo > link
+      - img/poster > link
+      - video/trailer
+      - players > embed-link
+      - count-season
+      - season > label
+      - season > link
+    fields_optional:
+      - director
+      - casting
+      - theme
+      - language
+      - content-advisor

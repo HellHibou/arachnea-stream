@@ -1,0 +1,779 @@
+id: rtbf-auvio-be
+title: RTBF Auvio
+logo: https://auvio.rtbf.be/images/icons/auvio_192x192.png
+description:
+  fr: "RTBF Auvio est la plateforme de streaming du groupe audiovisuel belge RTBF, offrant un large catalogue de programmes télévisés, films, séries, documentaires et contenus exclusifs en ligne. Les utilisateurs peuvent accéder à leurs émissions préférées en direct ou à la demande, avec des fonctionnalités de recherche avancées et une interface conviviale pour une expérience de visionnage optimale."
+
+http:
+  mode: direct
+
+parameters:
+  - name: page_size
+    value: 20
+    description: Default number of catalog entries requested for one paged section.
+  - name: search_pagination
+    value: true
+    description: Whether search supports reliable page-based pagination.
+
+shared:
+  # ================== TYPES DE MÉDIAS & ACTIONS COMMUNES ==================
+  media_types_rtbf: &media_types_rtbf
+    - audio/show
+    - audio/show/serie
+    - audio/other
+    - video/show/serie
+    - video/show/other
+    - video/movie
+    - video/live
+
+  actions_resolve_url: &actions_resolve_url
+    - type: resolve_url
+
+  actions_format_rtbf_pages: &actions_format_rtbf_pages
+    - type: format_text
+      argument: "https://bff-service.rtbf.be/auvio/v1.23/pages{}"
+
+  actions_get_date_dd_mm_yy: &actions_get_date_dd_mm_yy
+    - type: get_date
+      format: dd_mm_yy
+
+  actions_get_date_yyyy_mm_dd: &actions_get_date_yyyy_mm_dd
+    - type: get_date
+      format: yyyy_mm_dd
+
+  actions_get_date_yyyy_mm_dd_hh_mm_ss: &actions_get_date_yyyy_mm_dd_hh_mm_ss
+    - type: get_date
+      format: yyyy_mm_dd_hh_mm_ss
+
+  rtbf_live_player_entries: &rtbf_live_player_entries
+    - name: name
+      actions:
+        - type: format_text
+          argument: "RTBF Auvio"
+    - name: resolver
+      entries:
+        - name: kind
+          actions:
+            - type: format_text
+              argument: "rtbf-auvio-live"
+        - name: stream
+          entries:
+            - name: kind
+              actions:
+                - type: format_text
+                  argument: "redbee-license-proxy"
+        - name: target_id
+
+  actions_media_type: &actions_media_type
+    - type: map
+      default: "other/{}"
+      argument:
+        SERIE: video/show/serie
+        SHOW: video/show/other
+        AUDIO_SHOW: audio/show
+        VIDEO: video/show/other
+        AUDIO_SERIE: audio/show/serie
+        AUDIO: audio/other
+        STANDALONE: video/movie
+
+  map_true_vf: &map_true_vf
+    - type: map
+      argument: { "true": "VF", "false": null }
+
+  map_true_vo: &map_true_vo
+    - type: map
+      argument: { "true": "VO", "false": null }
+
+  map_true_ad: &map_true_ad
+    - type: map
+      argument: { "true": "AD", "false": null }
+
+  map_null_false_default_true: &map_null_false_default_true
+    - type: map
+      argument: { null: false }
+      default: true
+
+  rtbf_episode_entries: &rtbf_episode_entries
+    - name: link
+      pointer: /path
+    - name: title
+      pointer: /subtitle
+    - name: description
+      pointer: /description
+    - name: duration
+      pointer: /duration
+    - name: release-date
+      pointer: /releaseDate
+      actions: *actions_get_date_dd_mm_yy
+    - name: expire
+      pointer: /publishedTo
+      actions: *actions_get_date_yyyy_mm_dd
+    - name: players
+      entries:
+        - name: resolver
+          entries:
+            - name: kind
+              actions:
+                - type: format_text
+                  argument: "rtbf-auvio-video"
+            - name: stream
+              entries:
+                - name: kind
+                  actions:
+                    - type: format_text
+                      argument: "redbee-license-proxy"
+            - name: target_id
+              pointer: /assetId
+    - name: season-name
+      pointer: /title
+    - name: img/poster > link
+      pointer: /illustration/m
+
+  rtbf_program_episode_sub_query: &rtbf_program_episode_sub_query
+    context_pointer: /data/widgets/*
+    filters:
+      /type:
+        - TAB_LIST
+    request_pointer: /contentPath
+    row_pointer: /data/content/*
+    entries:
+      - name: season > label
+        pointer: /title
+      - name: season > link
+        pointer: /contentPath
+    sub_queries:
+      - filters:
+          /type:
+            - MEDIA_LIST
+        request_pointer: /contentPath
+        request_actions:
+          - type: format_text
+            argument: "{}&_page=1&_limit=50&_embed=content&includeFastTv=true"
+        row_pointer: /data/content/*[resourceType=MEDIA]
+        entries:
+          - name: episode
+            entries: *rtbf_episode_entries
+      - filters:
+          /type:
+            - MEDIA_LIST
+        request_pointer: /contentPath
+        request_actions:
+          - type: format_text
+            argument: "{}&_page=2&_limit=50&_embed=content&includeFastTv=true"
+        row_pointer: /data/content/*[resourceType=MEDIA]
+        entries:
+          - name: episode
+            entries: *rtbf_episode_entries
+
+  # ================== SUB-QUERIES COMMUNES (load_home + get_category) ==================
+  home_sub_queries: &home_sub_queries
+    - context_pointer: /widgets/*
+      filters:
+        /type:
+          - CATEGORY_LIST
+      request_pointer: /contentPath
+      row_pointer: /data
+      entries:
+        - name: categories
+          pointer: /content/*
+          select: all
+          entries:
+            - name: key
+              pointer: /label
+              actions:
+                - type: map
+                  default: "{}"
+                  argument:
+                    "Séries": series
+                    Films: films
+                    Sport: sport
+                    Info: info
+                    Kids: kids
+                    Documentaires: documentaires
+            - name: label
+              pointer: /label
+            - name: image
+              pointer: /illustration/m
+            - name: request > query_url
+              pointer: /path
+              actions: *actions_format_rtbf_pages
+
+    - context_pointer: /widgets/*
+      filters:
+        /type:
+          - PROMOBOX
+      request_pointer: /contentPath
+      row_pointer: /data/content/*
+      target: banners
+      entries:
+        - name: key          
+          pointer: /mediaId
+        - name: title        
+          pointer: /title
+        - name: subtitle     
+          pointer: /subtitle
+        - name: description  
+          pointer: /description
+        - name: image        
+          pointer: /image/xl
+        - name: link
+          pointer: /deeplink
+          actions: *actions_format_rtbf_pages
+        - name: web-link
+          pointer: /deeplink
+          actions: *actions_resolve_url
+      sub_queries:
+        - context_pointer: /mediaId
+          request_actions:
+            - type: format_text
+              argument: "https://auvio.rtbf.be/embed/arachnea/generic/media/{}"
+          extract_next_data: true
+          row_pointer: /props/pageProps
+          entries: []
+          sub_queries:
+            - request_pointer: /initialState
+              request_actions:
+                 - type: regex_find_all
+                   pattern: '\\?"assetId\\?":\\?"([^"\\]+)'
+                   format: "{1}"
+                 - type: format_text
+                   argument: "https://exposure.api.redbee.live:443/v2/customer/RTBF/businessunit/Auvio/auth/anonymous?assetId={}"
+              request_method: post
+              request_body_pointer: /initialState
+              request_body_actions:
+                - type: regex_find_all
+                  pattern: '\\?"deviceId\\?":\\?"([^"\\]+)'
+                  format: "{1}"
+                - type: format_text
+                  argument: '{"device":{"name":"Browser","type":"WEB"},"deviceId":"{}"}'
+              request_headers:
+                - name: accept
+                  actions:
+                    - type: format_text
+                      argument: "application/json"
+                - name: content-type
+                  actions:
+                    - type: format_text
+                      argument: "application/json"
+              row_pointer: /
+              entries: []
+              sub_queries:
+                - request_pointer: /sessionToken
+                  request_actions:
+                    - type: get_request_url
+                    - type: regex_find_all
+                      pattern: '[?&]assetId=([^&]+)'
+                      format: "{1}"
+                    - type: format_text
+                      argument: "https://exposure.api.redbee.live:443/v2/customer/RTBF/businessunit/Auvio/entitlement/{}/play"
+                  request_headers:
+                    - name: Authorization
+                      pointer: /sessionToken
+                      actions:
+                        - type: format_text
+                          argument: "Bearer {}"
+                  row_pointer: /formats/*
+                  row_filters:
+                    /format:
+                      - HLS
+                  entries:
+                    - name: video
+                      pointer: /mediaLocator
+
+    - context_pointer: /widgets/*
+      filters:
+        /type:
+          - BANNER
+          - MEDIA_TRAILER
+      request_pointer: /contentPath
+      row_pointer: /data
+      entries:
+        - name: banners
+          entries:
+            - name: key          
+              pointer: /id
+            - name: title        
+              pointer: /title
+            - name: subtitle     
+              pointer: /subtitle
+            - name: description  
+              pointer: /description
+            - name: description  
+              pointer: /programDescription
+            - name: image        
+              pointer: /image/xl
+            - name: image        
+              pointer: /illustration/xl
+            - name: video        
+              pointer: /video/url
+            - name: video        
+              pointer: /media/url
+            - name: video        
+              pointer: /url
+            - name: video        
+              pointer: /trailerUrl
+            - name: video        
+              pointer: /trailer/url
+            - name: video
+              pointer: /embedPath
+              actions: *actions_resolve_url
+            - name: link
+              pointer: /deepLink
+              actions: *actions_format_rtbf_pages
+            - name: link
+              pointer: /path
+              actions: *actions_format_rtbf_pages
+            - name: web-link
+              pointer: /deepLink
+              actions: *actions_resolve_url
+            - name: web-link
+              pointer: /path
+              actions: *actions_resolve_url
+
+# ==========================================================
+# Queries
+# ==========================================================
+queries:
+  - name: service_stream_metadata
+    scraper_type: static
+    entries:
+      - name: id
+        value: "{service_id}"
+      - name: title
+        value: "{service_title}"
+      - name: logo
+        value: "{service_logo}"
+      - name: description
+        value: "{service_description}"
+
+  - name: search
+    scraper_type: json
+    base_url: https://auvio.rtbf.be
+    query_url: "https://bff-service.rtbf.be/auvio/v1.23/mosaic/search?dataResourceType=MEDIA_LIST&query={search_terms}&includeFastTv=true&_page={page}&_limit={page_size}"
+    media_types: *media_types_rtbf
+    row_pointer: /data/*
+    entries:
+      - name: source
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: current_page
+        actions:
+          - type: format_text
+            argument: "{page}"
+      - name: total_pages
+        pointer: /meta/page/last
+      - name: entries
+        entries:
+          - name: id
+            pointer: /id
+          - name: title
+            pointer: /title
+          - name: subtitle
+            pointer: /subtitle
+          - name: description
+            pointer: /description
+          - name: link
+            pointer: /path
+            actions: *actions_format_rtbf_pages
+          - name: web-link
+            pointer: /path
+            actions: *actions_resolve_url
+          - name: embed-link
+            pointer: /embedPath
+            actions: *actions_resolve_url
+          - name: media-type
+            pointer: /type
+            actions: *actions_media_type
+          - name: release-date
+            pointer: /releaseDate
+            actions: *actions_get_date_dd_mm_yy
+          - name: expire
+            pointer: /publishedTo
+            actions: *actions_get_date_yyyy_mm_dd
+          - name: duration
+            pointer: /duration
+          - name: channel
+            pointer: /channelLabel
+          - name: theme
+            pointer: /categoryLabel
+          - name: img/poster > link
+            pointer: /illustration/m
+    post_process:
+      - type: derive_pagination
+        total_pages_field: total_pages
+        remove_fields:
+          - total_pages
+
+  - name: get_entry
+    scraper_type: json
+    base_url: https://auvio.rtbf.be
+    query_url: "{query_url}"
+    media_types: *media_types_rtbf
+    row_pointer: /
+    entries:
+      - name: title
+        pointer: /data/content/title
+      - name: title
+        pointer: /data/content/0/title
+      - name: title/alt
+        pointer: /data/content/subtitle
+      - name: title/alt
+        pointer: /data/content/media/subtitle
+      - name: title/alt
+        pointer: /data/content/0/subtitle
+      - name: description
+        pointer: /data/content/description
+      - name: description
+        pointer: /data/content/0/description
+      - name: img/poster > link
+        pointer: /data/content/background/xl
+      - name: img/poster > link
+        pointer: /data/content/0/illustration/xl
+      - name: img/logo > link
+        pointer: /data/content/logo/m
+
+      - name: players
+        entries:
+          - name: resolver
+            entries:
+              - name: kind
+                actions:
+                  - type: format_text
+                    argument: "rtbf-auvio-video"
+              - name: stream
+                entries:
+                  - name: kind
+                    actions:
+                      - type: format_text
+                        argument: "redbee-license-proxy"
+              - name: target_id
+                pointer: /data/content/assetId
+              - name: target_id
+                pointer: /data/content/media/assetId
+              - name: target_id
+                pointer: /data/content/0/assetId
+      - name: web-link
+        pointer: /meta/seo/canonical
+      - name: web-link
+        pointer: /data/content/0/path
+
+      - name: duration
+        pointer: /data/content/duration
+      - name: duration
+        pointer: /data/content/media/duration
+      - name: duration
+        pointer: /data/content/0/duration
+
+      - name: lang/subtitles
+        pointer: /data/content/hasSubtitles
+        actions: *map_true_vf
+      - name: lang/subtitles
+        pointer: /data/content/media/hasSubtitles
+        actions: *map_true_vf
+      - name: lang/subtitles
+        pointer: /data/content/0/hasSubtitles
+        actions: *map_true_vf
+
+      - name: lang/audio
+        pointer: /data/content/hasMultilingualVersions
+        actions: *map_true_vf
+      - name: lang/audio
+        pointer: /data/content/media/hasMultilingualVersions
+        actions: *map_true_vf
+      - name: lang/audio
+        pointer: /data/content/0/hasMultilingualVersions
+        actions: *map_true_vf
+
+      - name: lang/audio
+        pointer: /data/content/hasMultilingualVersions
+        actions: *map_true_vo
+      - name: lang/audio
+        pointer: /data/content/media/hasMultilingualVersions
+        actions: *map_true_vo
+      - name: lang/audio
+        pointer: /data/content/0/hasMultilingualVersions
+        actions: *map_true_vo
+
+      - name: lang/audio
+        pointer: /data/content/hasAudioDescriptions
+        actions: *map_true_ad
+      - name: lang/audio
+        pointer: /data/content/media/hasAudioDescriptions
+        actions: *map_true_ad
+      - name: lang/audio
+        pointer: /data/content/0/hasAudioDescriptions
+        actions: *map_true_ad
+
+      - name: release-date
+        pointer: /data/content/releaseDate
+        actions: *actions_get_date_dd_mm_yy
+      - name: release-date
+        pointer: /data/content/media/releaseDate
+        actions: *actions_get_date_dd_mm_yy
+      - name: release-date
+        pointer: /data/content/0/releaseDate
+        actions: *actions_get_date_dd_mm_yy
+      - name: release-date
+        pointer: /data/content/publishedFrom
+        actions: *actions_get_date_yyyy_mm_dd
+      - name: release-date
+        pointer: /data/content/media/publishedFrom
+        actions: *actions_get_date_yyyy_mm_dd
+      - name: release-date
+        pointer: /data/content/0/publishedFrom
+        actions: *actions_get_date_yyyy_mm_dd
+
+      - name: expire
+        pointer: /data/content/publishedTo
+        actions: *actions_get_date_yyyy_mm_dd
+      - name: expire
+        pointer: /data/content/media/publishedTo
+        actions: *actions_get_date_yyyy_mm_dd
+      - name: expire
+        pointer: /data/content/0/publishedTo
+        actions: *actions_get_date_yyyy_mm_dd
+
+      - name: count-season
+        pointer: /data/content/seasonCount
+      - name: theme
+        pointer: /data/content/category/label
+      - name: theme
+        pointer: /data/content/media/categoryLabel
+      - name: theme
+        pointer: /data/content/0/categoryLabel
+      - name: content-advisor
+        pointer: /data/content/rating
+      - name: content-advisor
+        pointer: /data/content/media/rating
+      - name: content-advisor
+        pointer: /data/content/0/rating
+      - name: casting
+        pointer: /data/content/casting/*/name
+        select: all
+
+    sub_queries:
+      - context_pointer: /data/content/program/path
+        request_actions: *actions_format_rtbf_pages
+        row_pointer: /
+        entries: []
+        sub_queries:
+          - *rtbf_program_episode_sub_query
+      - *rtbf_program_episode_sub_query
+
+  - name: load_home
+    scraper_type: json
+    base_url: https://auvio.rtbf.be
+    query_url: "https://bff-service.rtbf.be/auvio/v1.23/pages/home"
+    sibling_sub_query_concurrency: 6
+    sub_query_context_concurrency: 6
+    sub_query_fetch_concurrency: 8
+    media_types: *media_types_rtbf
+    row_pointer: /data
+    entries:
+      - name: sections
+        pointer: /widgets/*[type=MEDIA_LIST]
+        select: all
+        entries:
+          - name: label
+            pointer: /title
+          - name: link
+            pointer: /contentPath
+      - name: sections
+        pointer: /widgets/*[type=PROGRAM_LIST]
+        select: all
+        entries:
+          - name: label
+            pointer: /title
+          - name: link
+            pointer: /contentPath
+    sub_queries: *home_sub_queries
+
+  - name: get_category
+    scraper_type: json
+    base_url: https://auvio.rtbf.be
+    query_url: "{query_url}"
+    sibling_sub_query_concurrency: 6
+    sub_query_context_concurrency: 6
+    sub_query_fetch_concurrency: 8
+    media_types: *media_types_rtbf
+    row_pointer: /data
+    entries:
+      - name: sections
+        pointer: /widgets/*[type=MEDIA_LIST]
+        select: all
+        entries:
+          - name: label
+            pointer: /title
+          - name: link
+            pointer: /contentPath
+      - name: sections
+        pointer: /widgets/*[type=PROGRAM_LIST]
+        select: all
+        entries:
+          - name: label
+            pointer: /title
+          - name: link
+            pointer: /contentPath
+    sub_queries: *home_sub_queries
+
+  - name: get_section
+    scraper_type: json
+    base_url: https://auvio.rtbf.be
+    query_url: "{query_url}{query_separator}_page={page}&_limit={page_size}"
+    media_types: *media_types_rtbf
+    row_pointer: /
+    entries:
+      - name: current_page
+        pointer: /meta/page/current
+      - name: have_more
+        pointer: /links/next
+        actions: *map_null_false_default_true
+      - name: entries
+        pointer: /data/content/*
+        select: all
+        entries:
+          - name: source
+            actions:
+              - type: format_text
+                argument: "{source}"
+          - name: title
+            pointer: /title
+          - name: title/alt
+            pointer: /subtitle
+          - name: description
+            pointer: /description
+          - name: link
+            pointer: /path
+            actions: *actions_format_rtbf_pages
+          - name: web-link
+            pointer: /path
+            actions: *actions_resolve_url
+          - name: media-type
+            pointer: /type
+            actions: *actions_media_type
+          - name: release-date
+            pointer: /releaseDate
+            actions: *actions_get_date_dd_mm_yy
+          - name: expire
+            pointer: /publishedTo
+            actions: *actions_get_date_yyyy_mm_dd
+          - name: duration
+            pointer: /duration
+          - name: channel
+            pointer: /channelLabel
+          - name: theme
+            pointer: /categoryLabel
+          - name: img/poster > link
+            pointer: /illustration/m
+
+  - name: get_season
+    scraper_type: json
+    base_url: https://auvio.rtbf.be
+    query_url: "{query_url}{query_separator}_page={page}&_limit=20"
+    media_types: *media_types_rtbf
+    row_pointer: /data/content/*
+    entries:
+      - name: current_page
+        pointer: /meta/page/current
+      - name: have_more
+        pointer: /links/next
+        actions: *map_null_false_default_true
+
+      # === ÉPISODES (utilise les champs communs de l’ancre) ===
+      - name: episodes
+        entries:
+          - name: link
+            pointer: /path
+          - name: title
+            pointer: /subtitle
+          - name: description
+            pointer: /description
+          - name: duration
+            pointer: /duration
+          - name: release-date
+            pointer: /releaseDate
+            actions: *actions_get_date_dd_mm_yy
+          - name: expire
+            pointer: /publishedTo
+            actions: *actions_get_date_yyyy_mm_dd
+          - name: players
+            entries:
+              - name: resolver
+                entries:
+                  - name: kind
+                    actions:
+                      - type: format_text
+                        argument: "rtbf-auvio-video"
+                  - name: stream
+                    entries:
+                      - name: kind
+                        actions:
+                          - type: format_text
+                            argument: "redbee-license-proxy"
+                  - name: target_id
+                    pointer: /assetId
+          - name: episode-number
+            pointer: /subtitle
+            actions:
+              - type: regex_find_all
+                pattern: '^(\d+)'
+                format: "{1}"
+          - name: img/poster
+            pointer: /illustration/m
+
+  - name: list_lives
+    scraper_type: json
+    base_url: https://auvio.rtbf.be
+    query_url: "https://bff-service.rtbf.be/auvio/v1.23/widgets/18989?_page=1&_limit=30&_embed=content&includeFastTv=true&disable_cache=1"
+    media_types:
+      - video/live
+    row_pointer: /data/content/*
+    entries:
+      - name: title
+        pointer: /title
+      - name: title/alt
+        pointer: /subtitle
+      - name: key
+        pointer: /assetId
+      - name: key
+        pointer: /streamId
+      - name: media-type
+        actions:
+          - type: format_text
+            argument: "video/live"
+      - name: link
+        pointer: /path
+        actions: *actions_format_rtbf_pages
+      - name: web-link
+        pointer: /path
+        actions: 
+        - type: format_text
+          argument: "https://auvio.rtbf.be{}"
+      - name: release-date
+        pointer: /scheduledFrom
+        actions: *actions_get_date_yyyy_mm_dd_hh_mm_ss
+      - name: expire
+        pointer: /scheduledTo
+        actions: *actions_get_date_yyyy_mm_dd_hh_mm_ss
+      - name: channel
+        pointer: /channelLabel
+      - name: img/poster > link
+        pointer: /illustration/m
+      - name: img/landscape > link
+        pointer: /illustration/xl
+
+  - name: get_live
+    scraper_type: json
+    base_url: https://auvio.rtbf.be
+    query_url: "{channel}"
+    media_types:
+      - video/live
+    row_pointer: /
+    entries:
+      - name: players
+        pointer: /data/content/assetId
+        entries: *rtbf_live_player_entries
+      - name: players
+        pointer: /data/content/streamId
+        entries: *rtbf_live_player_entries

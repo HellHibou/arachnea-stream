@@ -1,0 +1,20 @@
+profile = "system_relay"
+
+[server]
+enabled = true
+listen_udp = "127.0.0.1:5353"
+listen_tcp = "127.0.0.1:5353"
+
+[cache]
+enabled = true
+max_entries = 10000
+min_ttl_seconds = 0
+max_ttl_seconds = 3600
+negative_cache = true
+serve_stale = false
+max_stale_seconds = 3600
+stale_response_ttl_seconds = 30
+
+[[local_records]]
+name = "nas.home"
+records = ["A 192.168.1.20 300"]

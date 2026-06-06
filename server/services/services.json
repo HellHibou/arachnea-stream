@@ -1,0 +1,53 @@
+[
+  {
+    "path": "rtlplay-be.yaml",
+    "enabled": false
+  },
+  {
+    "path": "rtbf-auvio-be.yaml",
+    "enabled": false
+  },
+  {
+    "path": "tf1-fr.yaml",
+    "enabled": false,
+    "parameters": [
+      {
+        "name": "catalog_code",
+        "value": "fr-be"
+      }
+    ]
+  },
+  {
+    "path": "m6play-fr.yaml",
+    "enabled": false
+  },
+  {
+    "path":"francetv.yaml",
+    "enabled": false
+  },
+    {
+    "path": "anime-sama.yaml",
+    "enabled": false,
+    "parameters": [
+      {
+        "name": "base_url",
+        "value": "https://anime-sama.to"
+      }
+    ]
+  }, {
+    "path": "papystreaming.yaml",
+    "enabled": false
+  },
+  {
+    "path": "darkstream/coflix.yaml",
+    "enabled": true
+  },
+  {
+    "path": "darkstream/frenchanimes.yaml",
+    "enabled": false
+  },
+  {
+    "path": "darkstream/animeultime.yaml",
+    "enabled": false
+  }
+]

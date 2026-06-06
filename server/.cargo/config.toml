@@ -1,0 +1,3 @@
+[alias]
+build-doc = "doc --no-deps"
+show-doc = "doc --no-deps --open"

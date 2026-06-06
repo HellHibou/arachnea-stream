@@ -1,0 +1,795 @@
+id: francetv
+title: France TV
+logo: https://www.france.tv/favicons/favicon-192.png
+description:
+  fr: "France TV est le groupe audiovisuel public français, offrant une large gamme de contenus télévisés, de films, de séries, de documentaires et d'émissions en ligne. La plateforme de streaming de France TV permet aux utilisateurs d'accéder à leurs programmes préférés en direct ou à la demande, avec une interface conviviale et des fonctionnalités de recherche avancées pour une expérience de visionnage optimale."
+
+http:
+  mode: direct
+  user_agent_profile: firefox
+
+parameters:
+  - name: base_url
+    value: https://www.france.tv
+    description: Public website base URL for france.tv.
+  - name: api_mobile
+    value: https://api-mobile.yatta.francetv.fr
+    description: Mobile/catalog API used by the FranceTV Kodi source.
+  - name: api_front
+    value: https://api-front.yatta.francetv.fr
+    description: Front API used to resolve a Yatta content id into media metadata.
+  - name: country_code
+    value: FR
+    description: Country code passed to the FranceTV playback API.
+
+shared:
+  media_types_francetv: &media_types_francetv
+    - video/movie
+    - video/show/serie
+    - video/show/documentary
+    - video/show/sport
+    - video/news
+    - video/show/other
+    - video/live
+
+  generic_request_headers: &generic_request_headers []
+
+  actions_francetv_category_media_type: &actions_francetv_category_media_type
+    - type: map
+      default: video/show/other
+      argument:
+        series-et-fictions: video/show/serie
+        documentaires: video/show/documentary
+        films: video/movie
+        societe: video/news
+        info: video/news
+        sport: video/show/sport
+        spectacles-et-culture: video/show/other
+        jeux-et-divertissements: video/show/other
+        enfants: video/show/other
+
+  actions_francetv_item_media_type: &actions_francetv_item_media_type
+    - type: map
+      default: video/show/other
+      argument:
+        integrale: video/show/other
+        unitaire: video/show/other
+        extrait: video/show/other
+        resume: video/show/other
+        bonus: video/show/other
+        bande-annonce: video/show/other
+        program: video/show/other
+        collection: video/show/other
+        categorie: video/show/other
+        sous_categorie: video/show/other
+        event: video/show/other
+        live: video/live
+
+  actions_program_web_link: &actions_program_web_link
+    - type: regex_find_all
+      pattern: '^([^_]+)_(.+)$'
+      format: "{1}/{2}"
+    - type: format_text
+      argument: "{base_url}/{}"
+
+  actions_api_program_link: &actions_api_program_link
+    - type: format_text
+      argument: "{api_mobile}/apps/program/{}?platform=apps&page=0"
+
+  actions_api_collection_link: &actions_api_collection_link
+    - type: format_text
+      argument: "{api_mobile}/apps/collections/{}?platform=apps&page=0"
+
+  actions_api_category_link: &actions_api_category_link
+    - type: format_text
+      argument: "{api_mobile}/apps/categories/{}?platform=apps&page=0"
+
+  actions_api_sub_category_link: &actions_api_sub_category_link
+    - type: format_text
+      argument: "{api_mobile}/apps/sub-categories/{}?platform=apps&page=0"
+
+  actions_api_event_link: &actions_api_event_link
+    - type: format_text
+      argument: "{api_mobile}/apps/events/{}?platform=apps&page=0"
+
+  actions_api_front_content_link: &actions_api_front_content_link
+    - type: format_text
+      argument: "{api_front}/standard/publish/contents/{}"
+
+  source_entry: &source_entry
+    name: source
+    actions:
+      - type: format_text
+        argument: "{source}"
+
+  common_image_poster_3x4: &common_image_poster_3x4
+    name: img/poster > link
+    pointer: /images/*[type=vignette_3x4]/urls/w:1024
+    select: first
+
+  common_image_poster_2x3: &common_image_poster_2x3
+    name: img/poster > link
+    pointer: /images/*[type=vignette_2x3]/urls/w:2000
+    select: first
+
+  common_image_poster_square: &common_image_poster_square
+    name: img/poster > link
+    pointer: /images/*[type=carre]/urls/w:800
+    select: first
+
+  common_image_landscape_background: &common_image_landscape_background
+    name: img/landscape > link
+    pointer: /images/*[type=background_16x9]/urls/w:2500
+    select: first
+
+  common_image_landscape_thumbnail: &common_image_landscape_thumbnail
+    name: img/landscape > link
+    pointer: /images/*[type=vignette_16x9]/urls/w:1024
+    select: first
+
+  common_image_logo: &common_image_logo
+    name: img/logo > link
+    pointer: /images/*[type=logo]/urls/w:450
+    select: first
+
+  item_image_poster_3x4: &item_image_poster_3x4
+    name: img/poster > link
+    pointer: /item/images/*[type=vignette_3x4]/urls/w:1024
+    select: first
+
+  item_image_poster_2x3: &item_image_poster_2x3
+    name: img/poster > link
+    pointer: /item/images/*[type=vignette_2x3]/urls/w:2000
+    select: first
+
+  item_image_poster_square: &item_image_poster_square
+    name: img/poster > link
+    pointer: /item/images/*[type=carre]/urls/w:800
+    select: first
+
+  item_image_landscape_background: &item_image_landscape_background
+    name: img/landscape > link
+    pointer: /item/images/*[type=background_16x9]/urls/w:2500
+    select: first
+
+  item_image_landscape_thumbnail: &item_image_landscape_thumbnail
+    name: img/landscape > link
+    pointer: /item/images/*[type=vignette_16x9]/urls/w:1024
+    select: first
+
+  item_image_logo: &item_image_logo
+    name: img/logo > link
+    pointer: /item/images/*[type=logo]/urls/w:450
+    select: first
+
+  program_card_entries: &program_card_entries
+    - *source_entry
+    - name: title
+      pointer: /label
+    - name: description
+      pointer: /description
+    - name: description
+      pointer: /synopsis
+    - name: media-type
+      pointer: /category/url_complete
+      actions: *actions_francetv_category_media_type
+    - name: media-type
+      pointer: /type
+      actions: *actions_francetv_item_media_type
+    - name: link
+      pointer: /program_path
+      actions: *actions_api_program_link
+    - name: web-link
+      pointer: /program_path
+      actions: *actions_program_web_link
+    - name: theme
+      pointer: /categories/*/label
+      select: all
+    - name: theme
+      pointer: /sub_categories/*/label
+      select: all
+    - name: count-season
+      pointer: /number_of_seasons
+    - name: count-season
+      pointer: /number_of_episodes
+    - *common_image_poster_3x4
+    - *common_image_poster_2x3
+    - *common_image_poster_square
+    - *common_image_landscape_background
+    - *common_image_landscape_thumbnail
+    - *common_image_logo
+
+  collection_card_entries: &collection_card_entries
+    - *source_entry
+    - name: title
+      pointer: /label
+    - name: description
+      pointer: /description
+    - name: description
+      pointer: /subtitle
+    - name: media-type
+      pointer: /category/url_complete
+      actions: *actions_francetv_category_media_type
+    - name: media-type
+      pointer: /type
+      actions: *actions_francetv_item_media_type
+    - name: link
+      pointer: /collection_path
+      actions: *actions_api_collection_link
+    - name: theme
+      pointer: /category/label
+    - *common_image_poster_3x4
+    - *common_image_poster_2x3
+    - *common_image_poster_square
+    - *common_image_landscape_background
+    - *common_image_landscape_thumbnail
+    - *common_image_logo
+
+  category_card_entries: &category_card_entries
+    - *source_entry
+    - name: title
+      pointer: /label
+    - name: description
+      pointer: /description
+    - name: description
+      pointer: /synopsis
+    - name: media-type
+      pointer: /url_complete
+      actions: *actions_francetv_category_media_type
+    - name: link
+      pointer: /url_complete
+      actions: *actions_api_sub_category_link
+    - name: web-link
+      pointer: /url_complete
+      actions:
+        - type: format_text
+          argument: "{base_url}/{}"
+    - *common_image_poster_3x4
+    - *common_image_poster_2x3
+    - *common_image_poster_square
+    - *common_image_landscape_background
+    - *common_image_landscape_thumbnail
+    - *common_image_logo
+
+  event_card_entries: &event_card_entries
+    - *source_entry
+    - name: title
+      pointer: /label
+    - name: description
+      pointer: /description
+    - name: media-type
+      pointer: /category/url_complete
+      actions: *actions_francetv_category_media_type
+    - name: media-type
+      pointer: /type
+      actions: *actions_francetv_item_media_type
+    - name: link
+      pointer: /url_complete
+      actions: *actions_api_event_link
+    - name: theme
+      pointer: /sub_categories/*/label
+      select: all
+    - *common_image_poster_3x4
+    - *common_image_poster_2x3
+    - *common_image_poster_square
+    - *common_image_landscape_background
+    - *common_image_landscape_thumbnail
+    - *common_image_logo
+
+  video_card_entries: &video_card_entries
+    - *source_entry
+    - name: title
+      pointer: /episode_title
+    - name: title
+      pointer: /title
+    - name: title/alt
+      pointer: /program/label
+    - name: description
+      pointer: /description
+    - name: description
+      pointer: /text
+    - name: media-type
+      pointer: /category/url_complete
+      actions: *actions_francetv_category_media_type
+    - name: media-type
+      pointer: /type
+      actions: *actions_francetv_item_media_type
+    - name: link
+      pointer: /id
+      actions: *actions_api_front_content_link
+    - name: duration
+      pointer: /duration
+    - name: content-advisor
+      pointer: /rating_csa
+    - name: content-advisor
+      pointer: /rating_csa_code
+    - name: theme
+      pointer: /category/label
+    - name: theme
+      pointer: /sub_categories/*/label
+      select: all
+    - name: channel
+      pointer: /channel/label
+    - name: director
+      pointer: /director
+    - name: casting
+      pointer: /casting
+    - *common_image_poster_3x4
+    - *common_image_poster_2x3
+    - *common_image_poster_square
+    - *common_image_landscape_background
+    - *common_image_landscape_thumbnail
+    - *common_image_logo
+
+  episode_entries: &episode_entries
+    - name: title
+      pointer: /episode_title
+    - name: title
+      pointer: /title
+    - name: title/alt
+      pointer: /program/label
+    - name: description
+      pointer: /description
+    - name: duration
+      pointer: /duration
+    - name: season-name
+      pointer: /season
+      actions:
+        - type: format_text
+          argument: "Season {}"
+    - name: episode-number
+      pointer: /episode
+    - name: content-advisor
+      pointer: /rating_csa
+    - name: content-advisor
+      pointer: /rating_csa_code
+    - name: channel
+      pointer: /channel/label
+    - name: link
+      pointer: /id
+      actions: *actions_api_front_content_link
+    - name: players
+      pointer: /si_id
+      entries:
+        - name: name
+          actions:
+            - type: format_text
+              argument: "FranceTV"
+        - name: resolver > kind
+          actions:
+            - type: format_text
+              argument: "francetv-video"
+        - name: resolver > stream > kind
+          actions:
+            - type: format_text
+              argument: "francetv-license-proxy"
+        - name: resolver > target_id
+    - name: img/preview > link
+      pointer: /images/*[type=vignette_16x9]/urls/w:1024
+      select: first
+    - name: img/poster > link
+      pointer: /images/*[type=vignette_3x4]/urls/w:1024
+      select: first
+
+  live_item_entries: &live_item_entries
+    - name: title
+      pointer: /channel/label
+    - name: title
+      pointer: /partner/label
+    - name: title/alt
+      pointer: /program/label
+    - name: title/alt
+      pointer: /title
+    - name: description
+      pointer: /program/description
+    - name: description
+      pointer: /description
+    - name: key
+      pointer: /channel/channel_path
+    - name: key
+      pointer: /partner/partner_path
+    - name: key
+      pointer: /channel/si_id
+    - name: key
+      pointer: /partner/si_id
+    - name: media-type
+      actions:
+        - type: format_text
+          argument: "video/live"
+    - name: link
+      pointer: /channel/si_id
+    - name: link
+      pointer: /partner/si_id
+    - name: web-link
+      pointer: /channel/channel_path
+      actions:
+        - type: format_text
+          argument: "{base_url}/{}/direct.html"
+    - name: web-link
+      pointer: /partner/partner_path
+      actions:
+        - type: format_text
+          argument: "{base_url}/{}/direct"
+    - name: channel
+      pointer: /channel/label
+    - name: channel
+      pointer: /partner/label
+    - name: img/poster > link
+      pointer: /images/*[type=vignette_16x9]/urls/w:1024
+      select: first
+    - name: img/poster > link
+      pointer: /program/images/*[type=vignette_16x9]/urls/w:1024
+      select: first
+    - name: img/landscape > link
+      pointer: /images/*[type=background_16x9]/urls/w:2500
+      select: first
+    - name: img/landscape > link
+      pointer: /program/images/*[type=background_16x9]/urls/w:2500
+      select: first
+
+  live_player_entries: &live_player_entries
+    - name: name
+      actions:
+        - type: format_text
+          argument: "FranceTV"
+    - name: resolver
+      entries:
+        - name: kind
+          actions:
+            - type: format_text
+              argument: "francetv-live"
+        - name: stream
+          entries:
+            - name: kind
+              actions:
+                - type: format_text
+                  argument: "francetv-license-proxy"
+        - name: target_id
+          actions:
+            - type: format_text
+              argument: "{channel}"
+
+  section_entries: &section_entries
+    - name: label
+      pointer: /label
+    - name: current_page
+      actions:
+        - type: format_text
+          argument: "{page}"
+    - name: have_more
+      actions:
+        - type: format_text
+          argument: "false"
+    - name: entries
+      pointer: /items/*[type=program]
+      select: all
+      entries: *program_card_entries
+    - name: entries
+      pointer: /items/*[type=collection]
+      select: all
+      entries: *collection_card_entries
+    - name: entries
+      pointer: /items/*[type=categorie]
+      select: all
+      entries: *category_card_entries
+    - name: entries
+      pointer: /items/*[type=sous_categorie]
+      select: all
+      entries: *category_card_entries
+    - name: entries
+      pointer: /items/*[type=event]
+      select: all
+      entries: *event_card_entries
+    - name: entries
+      pointer: /items/*[type=integrale]
+      select: all
+      entries: *video_card_entries
+    - name: entries
+      pointer: /items/*[type=unitaire]
+      select: all
+      entries: *video_card_entries
+    - name: entries
+      pointer: /items/*[type=extrait]
+      select: all
+      entries: *video_card_entries
+    - name: entries
+      pointer: /items/*[type=resume]
+      select: all
+      entries: *video_card_entries
+    - name: entries
+      pointer: /items/*[type=bonus]
+      select: all
+      entries: *video_card_entries
+    - name: entries
+      pointer: /items/*[type=bande-annonce]
+      select: all
+      entries: *video_card_entries
+
+queries:
+  - name: service_stream_metadata
+    scraper_type: static
+    entries:
+      - name: id
+        value: "{service_id}"
+      - name: title
+        value: "{service_title}"
+      - name: logo
+        value: "{service_logo}"
+      - name: description
+        value: "{service_description}"
+
+  - name: search
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{api_mobile}/apps/search?platform=apps&filters=with-collections&term={search_terms}"
+    request_headers: *generic_request_headers
+    media_types: *media_types_francetv
+    row_pointer: /
+    entries:
+      - *source_entry
+      - name: current_page
+        actions:
+          - type: format_text
+            argument: "{page}"
+      - name: have_more
+        actions:
+          - type: format_text
+            argument: "false"
+      - name: entries
+        pointer: /collections/*/items/*[type=program]
+        select: all
+        entries: *program_card_entries
+      - name: entries
+        pointer: /collections/*/items/*[type=collection]
+        select: all
+        entries: *collection_card_entries
+      - name: entries
+        pointer: /collections/*/items/*[type=categorie]
+        select: all
+        entries: *category_card_entries
+      - name: entries
+        pointer: /collections/*/items/*[type=sous_categorie]
+        select: all
+        entries: *category_card_entries
+      - name: entries
+        pointer: /collections/*/items/*[type=event]
+        select: all
+        entries: *event_card_entries
+      - name: entries
+        pointer: /collections/*/items/*[type=integrale]
+        select: all
+        entries: *video_card_entries
+      - name: entries
+        pointer: /collections/*/items/*[type=unitaire]
+        select: all
+        entries: *video_card_entries
+      - name: entries
+        pointer: /collections/*/items/*[type=extrait]
+        select: all
+        entries: *video_card_entries
+      - name: entries
+        pointer: /collections/*/items/*[type=resume]
+        select: all
+        entries: *video_card_entries
+      - name: entries
+        pointer: /collections/*/items/*[type=bonus]
+        select: all
+        entries: *video_card_entries
+      - name: entries
+        pointer: /collections/*/items/*[type=bande-annonce]
+        select: all
+        entries: *video_card_entries
+
+  - name: load_home
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{api_mobile}/generic/homepage?platform=apps_tv"
+    request_headers: *generic_request_headers
+    media_types: *media_types_francetv
+    row_pointer: /
+    entries:
+      - *source_entry
+      - name: categories
+        pointer: /collections/*[type=playlist_categories]/items/*
+        select: all
+        entries:
+          - name: key
+            pointer: /url_complete
+          - name: label
+            pointer: /label
+          - name: image
+            pointer: /images/*[type=background_16x9]/urls/w:1024
+            select: first
+          - name: request > name
+            actions:
+              - type: format_text
+                argument: "{source}"
+          - name: request > source
+            actions:
+              - type: format_text
+                argument: "{source}"
+          - name: request > query_url
+            pointer: /url_complete
+            actions: *actions_api_category_link
+      - name: sections
+        pointer: /collections/*[type=mise_en_avant]
+        select: all
+        entries: *section_entries
+      - name: sections
+        pointer: /collections/*[type=playlist_mixed]
+        select: all
+        entries: *section_entries
+      - name: sections
+        pointer: /collections/*[type=playlist_top_10]
+        select: all
+        entries: *section_entries
+      - name: sections
+        pointer: /collections/*[type=playlist_program]
+        select: all
+        entries: *section_entries
+      - name: sections
+        pointer: /collections/*[type=playlist_video]
+        select: all
+        entries: *section_entries
+
+  - name: get_category
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{query_url}{query_separator}page={page}"
+    request_headers: *generic_request_headers
+    media_types: *media_types_francetv
+    row_pointer: /
+    entries:
+      - *source_entry
+      - name: sections
+        pointer: /collections/*
+        select: all
+        entries: *section_entries
+
+  - name: list_lives
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{api_mobile}/generic/directs?platform=apps"
+    request_headers: *generic_request_headers
+    media_types:
+      - video/live
+    row_pointer: /items/*
+    entries: *live_item_entries
+
+  - name: get_live
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{api_mobile}/generic/directs?platform=apps"
+    request_headers: *generic_request_headers
+    media_types:
+      - video/live
+    row_pointer: /
+    entries:
+      - name: players
+        entries: *live_player_entries
+
+  - name: get_entry
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    request_headers: *generic_request_headers
+    media_types: *media_types_francetv
+    row_pointer: /
+    entries:
+      - name: title
+        pointer: /item/label
+      - name: title
+        pointer: /item/title
+      - name: title
+        pointer: /label
+      - name: title
+        pointer: /title
+      - name: description
+        pointer: /item/description
+      - name: description
+        pointer: /item/synopsis
+      - name: description
+        pointer: /description
+      - name: description
+        pointer: /text
+      - name: media-type
+        pointer: /item/category/url_complete
+        actions: *actions_francetv_category_media_type
+      - name: media-type
+        pointer: /category/url_complete
+        actions: *actions_francetv_category_media_type
+      - name: media-type
+        pointer: /item/type
+        actions: *actions_francetv_item_media_type
+      - name: media-type
+        pointer: /type
+        actions: *actions_francetv_item_media_type
+      - name: link
+        pointer: /item/program_path
+        actions: *actions_program_web_link
+      - name: link
+        pointer: /path
+        actions:
+          - type: format_text
+            argument: "{base_url}/{}/"
+      - name: web-link
+        pointer: /item/program_path
+        actions: *actions_program_web_link
+      - name: web-link
+        pointer: /path
+        actions:
+          - type: format_text
+            argument: "{base_url}/{}/"
+      - name: count-season
+        pointer: /item/number_of_seasons
+      - name: count-season
+        pointer: /item/number_of_episodes
+      - name: theme
+        pointer: /item/categories/*/label
+        select: all
+      - name: theme
+        pointer: /item/sub_categories/*/label
+        select: all
+      - name: theme
+        pointer: /content_has_taxonomys/*/taxonomy/label
+        select: all
+      - name: director
+        pointer: /item/director
+      - name: director
+        pointer: /director
+      - name: casting
+        pointer: /item/casting
+      - name: casting
+        pointer: /casting
+      - name: content-advisor
+        pointer: /item/rating_csa_code
+      - name: content-advisor
+        pointer: /content_has_medias/0/media/rating_csa_code
+      - name: duration
+        pointer: /content_has_medias/0/media/duration
+      - name: players
+        pointer: /content_has_medias/0/media/si_id
+        entries:
+          - name: name
+            actions:
+              - type: format_text
+                argument: "FranceTV"
+          - name: resolver > kind
+            actions:
+              - type: format_text
+                argument: "francetv-video"
+          - name: resolver > stream > kind
+            actions:
+              - type: format_text
+                argument: "francetv-license-proxy"
+          - name: resolver > target_id
+      - *item_image_poster_3x4
+      - *item_image_poster_2x3
+      - *item_image_poster_square
+      - *item_image_landscape_background
+      - *item_image_landscape_thumbnail
+      - *item_image_logo
+      - name: episode
+        pointer: /collections/*/items/*[type=integrale]
+        select: all
+        entries: *episode_entries
+      - name: episode
+        pointer: /collections/*/items/*[type=unitaire]
+        select: all
+        entries: *episode_entries
+      - name: episode
+        pointer: /collections/*/items/*[type=extrait]
+        select: all
+        entries: *episode_entries
+      - name: episode
+        pointer: /collections/*/items/*[type=resume]
+        select: all
+        entries: *episode_entries
+      - name: episode
+        pointer: /collections/*/items/*[type=bonus]
+        select: all
+        entries: *episode_entries
+      - name: episode
+        pointer: /collections/*/items/*[type=bande-annonce]
+        select: all
+        entries: *episode_entries

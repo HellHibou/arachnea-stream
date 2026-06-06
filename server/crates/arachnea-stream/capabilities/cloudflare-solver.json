@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "cloudflare-solver-capability",
+  "description": "Allows Cloudflare solver windows to report page state back to the backend.",
+  "windows": ["arachnea-cloudflare-solver-*"],
+  "remote": {
+    "urls": ["https://*", "http://*"]
+  },
+  "permissions": ["core:event:allow-emit"]
+}

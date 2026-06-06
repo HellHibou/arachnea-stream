@@ -1,0 +1,510 @@
+id: animeultime
+title: Anime Ultime
+logo: "{base_url}/favicon.ico"
+description:
+  fr: "Animés, Dramas et Tokusatsu en streaming et Direct Download."
+
+http:
+  mode: auto
+
+parameters:
+  - name: base_url
+    value: http://www.anime-ultime.net
+    description: "Base URL — update on domain change"
+
+shared:
+
+  media_types_default: &media_types_default
+    - video/show/anime
+    - video/movie
+
+  actions_get_href_resolve: &actions_get_href_resolve
+    - type: get_attribut
+      argument: href
+    - type: resolve_url
+
+  actions_get_src_resolve: &actions_get_src_resolve
+    - type: get_attribut
+      argument: src
+    - type: resolve_url
+
+  # Extrait le poster depuis l'attribut onmouseover d'un <a>
+  # Format: montre('<img src=../img_resize.php?img=images/xxx.jpg />')
+  actions_poster_from_onmouseover: &actions_poster_from_onmouseover
+    - type: get_attribut
+      argument: onmouseover
+    - type: regex_find_all
+      pattern: "img=([^\"'\\s]+)"
+      format: "{1}"
+    - type: format_text
+      argument: "{base_url}/img_resize.php?img={}"
+
+  # Entrées pour un item de top-list (dans un <div class="main_box">)
+  entries_top_item: &entries_top_item
+    - name: title
+      actions:
+        - type: get_text
+        - type: regex_find_all
+          pattern: "^(?:\\d+\\.\\s*)?(.*)"
+          format: "{1}"
+    - name: link
+      actions:
+        - type: get_attribut
+          argument: href
+        - type: format_text
+          argument: "{base_url}/{}"
+    - name: web-link
+      actions:
+        - type: get_attribut
+          argument: href
+        - type: format_text
+          argument: "{base_url}/{}"
+    - name: img/poster > link
+      actions: *actions_poster_from_onmouseover
+    - name: source
+      actions:
+        - type: format_text
+          argument: "animeultime"
+
+  # Entrées pour un item de la table "Derniers ajouts"
+  entries_latest_item: &entries_latest_item
+    - name: title
+      selector: "td + td a"
+      actions:
+        - type: get_text
+    - name: link
+      selector: "td + td a"
+      actions:
+        - type: get_attribut
+          argument: href
+        - type: format_text
+          argument: "{base_url}/{}"
+    - name: web-link
+      selector: "td + td a"
+      actions:
+        - type: get_attribut
+          argument: href
+        - type: format_text
+          argument: "{base_url}/{}"
+    - name: img/poster > link
+      selector: "td + td a"
+      actions: *actions_poster_from_onmouseover
+    - name: media-type
+      selector: "td[align=center]:nth-of-type(1)"
+      actions:
+        - type: get_text
+    - name: source
+      actions:
+        - type: format_text
+          argument: "animeultime"
+
+queries:
+
+  # ---------------------------------------------------------------
+  - name: service_stream_metadata
+    scraper_type: static
+    entries:
+      - name: id
+        value: "{service_id}"
+      - name: title
+        value: "{service_title}"
+      - name: logo
+        value: "{service_logo}"
+      - name: description
+        value: "{service_description}"
+
+  # ---------------------------------------------------------------
+  # Search via GET querystring
+  # URL: /search-0-1+{terms}
+  # ---------------------------------------------------------------
+  - name: search
+    scraper_type: html
+    base_url: "{base_url}"
+    query_url: "{base_url}/search-0-1+{search_terms}"
+    media_types: *media_types_default
+    row_selector: "tr:not(:first-child)"
+    entries:
+      - name: title
+        selector: "a"
+        actions:
+          - type: get_text
+      - name: link
+        selector: "a"
+        actions:
+          - type: get_attribut
+            argument: href
+          - type: format_text
+            argument: "{base_url}/{}"
+      - name: web-link
+        selector: "a"
+        actions:
+          - type: get_attribut
+            argument: href
+          - type: format_text
+            argument: "{base_url}/{}"
+      # Poster image est cachée dans l'attribut onmouseover du <a>
+      # Format: montre('<img src=../img_resize.php?img=images/xxx.jpg />')
+      # On extrait le paramètre img directement pour éviter les domaines CDN instables
+      - name: img/poster > link
+        selector: "a"
+        actions:
+          - type: get_attribut
+            argument: onmouseover
+          - type: regex_find_all
+            pattern: "img=([^\"'\\s]+)"
+            format: "{1}"
+          - type: format_text
+            argument: "{base_url}/img_resize.php?img={}"
+      # Media type depuis le 2ème <td align="center">
+      - name: media-type
+        selector: "td[align=center]"
+        actions:
+          - type: get_text
+      - name: source
+        actions:
+          - type: format_text
+            argument: "animeultime"
+
+  # ---------------------------------------------------------------
+  # Home page — categories + sections
+  # Structure HTML de la page d'accueil :
+  #   <div class="title_add">Derniers ajouts :</div>
+  #   <table class="jtable"> ... </table>
+  #   <div class="contain_stats">
+  #     <div class="pub_square"></div>                        ← enfant 1
+  #     <div class="title_box">Statistiques :</div>           ← enfant 2
+  #     <div class="main_box">...</div>                       ← enfant 3
+  #     <div class="title_box">Top animes :</div>             ← enfant 4
+  #     <div class="main_box">01. <a>...</a><br/>...</div>   ← enfant 5
+  #     <div class="title_box">Top dramas :</div>             ← enfant 6
+  #     <div class="main_box">01. <a>...</a><br/>...</div>   ← enfant 7
+  #     <div class="title_box">Top tokusatsu :</div>          ← enfant 8
+  #     <div class="main_box">01. <a>...</a><br/>...</div>   ← enfant 9
+  #   </div>
+  # ---------------------------------------------------------------
+  - name: load_home
+    scraper_type: html
+    base_url: "{base_url}"
+    query_url: "{base_url}"
+    media_types: *media_types_default
+    row_selector: "html"
+    entries:
+      - name: source
+        select: first
+        actions:
+          - type: format_text
+            argument: "{source}"
+
+      # ---- Categories (menu de navigation) ----
+      - name: categories
+        entries:
+          - name: key
+            actions:
+              - type: format_text
+                argument: "animes"
+          - name: label
+            actions:
+              - type: format_text
+                argument: "Animés"
+          - name: request > query_url
+            actions:
+              - type: format_text
+                argument: "{base_url}/series-0-1/anime/0---"
+      - name: categories
+        entries:
+          - name: key
+            actions:
+              - type: format_text
+                argument: "dramas"
+          - name: label
+            actions:
+              - type: format_text
+                argument: "Dramas"
+          - name: request > query_url
+            actions:
+              - type: format_text
+                argument: "{base_url}/series-0-1/drama/0---"
+      - name: categories
+        entries:
+          - name: key
+            actions:
+              - type: format_text
+                argument: "tokusatsu"
+          - name: label
+            actions:
+              - type: format_text
+                argument: "Tokusatsu"
+          - name: request > query_url
+            actions:
+              - type: format_text
+                argument: "{base_url}/series-0-1/tokusatsu/0---"
+
+      # ---- Section: Derniers ajouts ----
+      - name: sections
+        entries:
+          - name: label
+            selector: "div.title_add"
+            select: first
+            actions:
+              - type: get_text
+              - type: regex_find_all
+                pattern: "^([^:]+)"
+                format: "{1}"
+          - name: id
+            actions:
+              - type: format_text
+                argument: "latest-additions"
+          - name: items
+            selector: "table.jtable tr:nth-child(n+2)"
+            select: all
+            entries: *entries_latest_item
+
+      # ---- Section: Top animes ---- enfant 4 (titre) et 5 (items)
+      - name: sections
+        entries:
+          - name: label
+            selector: "div.contain_stats > :nth-child(4)"
+            select: first
+            actions:
+              - type: get_text
+              - type: regex_find_all
+                pattern: "^([^:]+)"
+                format: "{1}"
+          - name: id
+            actions:
+              - type: format_text
+                argument: "top-animes"
+          - name: items
+            selector: "div.contain_stats > :nth-child(5) > a"
+            select: all
+            entries: *entries_top_item
+
+      # ---- Section: Top dramas ---- enfant 6 (titre) et 7 (items)
+      - name: sections
+        entries:
+          - name: label
+            selector: "div.contain_stats > :nth-child(6)"
+            select: first
+            actions:
+              - type: get_text
+              - type: regex_find_all
+                pattern: "^([^:]+)"
+                format: "{1}"
+          - name: id
+            actions:
+              - type: format_text
+                argument: "top-dramas"
+          - name: items
+            selector: "div.contain_stats > :nth-child(7) > a"
+            select: all
+            entries: *entries_top_item
+
+      # ---- Section: Top tokusatsu ---- enfant 8 (titre) et 9 (items)
+      - name: sections
+        entries:
+          - name: label
+            selector: "div.contain_stats > :nth-child(8)"
+            select: first
+            actions:
+              - type: get_text
+              - type: regex_find_all
+                pattern: "^([^:]+)"
+                format: "{1}"
+          - name: id
+            actions:
+              - type: format_text
+                argument: "top-tokusatsu"
+          - name: items
+            selector: "div.contain_stats > :nth-child(9) > a"
+            select: all
+            entries: *entries_top_item
+
+  # ---------------------------------------------------------------
+  # Category listing — table-based catalog with entries
+  # URL: /series-0-1/{type}/{filter}---
+  # ---------------------------------------------------------------
+  - name: get_category
+    scraper_type: html
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    media_types: *media_types_default
+    row_selector: "html"
+    entries:
+      - name: source
+        select: first
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: sections
+        entries:
+        - name: entries
+          selector: tr
+          select: all
+          entries: 
+            - name: title
+              selector: td + td > a
+              actions:
+                - type: get_text
+            - name: description
+              selector: strong
+              actions:
+                - type: get_text
+            - name: link
+              selector: "a"
+              actions:
+                - type: get_attribut
+                  argument: href
+                - type: format_text
+                  argument: "{base_url}/{}"
+            - name: web-link
+              selector: "a"
+              actions:
+                - type: get_attribut
+                  argument: href
+                - type: format_text
+                  argument: "{base_url}/{}"
+            # Poster image est cachée dans l'attribut onmouseover du <a>
+            # Format: montre('<img src=../img_resize.php?img=images/xxx.jpg />')
+            # On extrait le paramètre img directement puis on reconstruit l'URL complète
+            - name: img/poster > link
+              selector: "td > a"
+              select: first
+              actions:
+                - type: get_attribut
+                  argument: onmouseover
+                - type: regex_find_all
+                  pattern: "img=([^\"'\\s]+)"
+                  format: "{1}"
+                - type: format_text
+                  argument: "{base_url}/img_resize.php?img={}"
+            # Media type depuis le 2ème <td align="center">
+            - name: media-type
+              selector: "td[align=center]"
+              actions:
+                - type: get_text
+            - name: source
+              actions:
+                - type: format_text
+                  argument: "animeultime"
+
+  # ---------------------------------------------------------------
+  # Entry detail page
+  # Structure HTML :
+  #   <h1>Titre</h1>
+  #   <meta property="og:image" content="...">
+  #   Synopsis dans le texte avant le span des métadonnées
+  #   <span style="color: #006600">
+  #     TITRE ORIGINAL : ...
+  #     ANNÉES DE PRODUCTION : 2010 - 2011
+  #     STUDIO : [SUNRISE]
+  #     GENRE : [CYBER & MECHA]
+  #   </span>
+  #   <table class="jtable"> avec les épisodes :
+  #     <tr>
+  #       <td>date</td>
+  #       <td>nom épisode</td>
+  #       <td>fansub</td>
+  #       <td>uploader</td>
+  #       <td><a href="info-...">Télécharger</a> - <a href="info-...#stream">Stream</a></td>
+  #     </tr>
+  # ---------------------------------------------------------------
+  - name: get_entry
+    scraper_type: html
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    media_types: *media_types_default
+    row_selector: "html"
+    entries:
+      - name: title
+        selector: "h1"
+        actions:
+          - type: get_text
+      - name: title/alt
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: "TITRE ORIGINAL\\s*:\\s*([^<]+?)(?:<br|$)"
+            format: "{1}"
+      - name: year
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: "ANN.?ES DE PRODUCTION\\s*:\\s*(\\d{4})"
+            format: "{1}"
+      - name: director
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: "STUDIO\\s*:\\s*\\[([^\\]]+)\\]"
+            format: "{1}"
+      - name: theme
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: "GENRES?\\s*:\\s*(.*?)(?:<br|$)"
+            format: "{1}"
+          - type: regex_find_all
+            pattern: "\\[([^\\]]+)\\]"
+            format: "{1}"
+      - name: description
+        selector: strong
+        actions:
+          - type: get_text
+      - name: img/poster > link
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: '<meta property="og:image" content="([^"]+)"'
+            format: "{1}"
+      - name: playlists
+        entries:
+          - name: link
+            actions:
+              - type: get_response_body
+              - type: regex_find_all
+                pattern: "'file'\\s*:\\s*'(/playlist-[^']+\\.xml)'"
+                format: "{base_url}{1}"
+    post_process:
+      - type: fetch_regex_items_from_items
+        source: playlists
+        request_field: link
+        target: episode
+        pattern: '(?s)<item>.*?<title>([^<]+)</title>.*?<pubDate>([^<]+)</pubDate>.*?<media:content[^>]+url="([^"]+)"[^>]+duration="([^"]+)".*?<media:thumbnail[^>]+url="([^"]+)".*?<jwplayer:mediaid>([^<]+)</jwplayer:file>.*?<jwplayer:file>([^<]+)</jwplayer:file>.*?<jwplayer:hd.file>([^<]+)</jwplayer:hd.file>.*?</item>'
+        entries:
+          - name: title
+            capture_group: 1
+          - name: episode-number
+            capture_group: 1
+            actions:
+              - type: regex_find_all
+                pattern: '(?:^|\\s)(\\d+)\\s*$'
+                format: "{1}"
+          - name: release-date
+            capture_group: 2
+            actions:
+              - type: get_date
+                format: yyyy_mm_dd_hh_mm_ss
+          - name: duration
+            capture_group: 4
+          - name: img/preview > link
+            capture_group: 5
+          - name: link
+            capture_group: 6
+            actions:
+              - type: format_text
+                argument: "{base_url}/info-0-1/{}#stream"
+          - name: players > name
+            actions:
+              - type: format_text
+                argument: "HD"
+          - name: players > direct-link
+            capture_group: 8
+          - name: players > name
+            actions:
+              - type: format_text
+                argument: "SD"
+          - name: players > direct-link
+            capture_group: 7
+      - type: derive_pagination
+        remove_fields:
+          - playlists

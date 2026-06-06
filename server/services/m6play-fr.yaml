@@ -1,0 +1,637 @@
+id: m6play-fr
+title: M6 Play
+logo: https://www.m6.fr/assets/images/icons/touch/apple-touch-icon-ipad-retina.png
+description:
+  fr: "M6 Play est la plateforme de streaming du groupe audiovisuel français M6, offrant un large catalogue de programmes télévisés, films, séries, documentaires et contenus exclusifs en ligne. Les utilisateurs peuvent accéder à leurs émissions préférées en direct ou à la demande, avec des fonctionnalités de recherche avancées et une interface conviviale pour une expérience de visionnage optimale."
+http:
+  mode: direct
+  user_agent_profile: firefox
+
+parameters:
+  - name: base_url
+    value: https://www.6play.fr
+    description: Public website base URL for the 6play service.
+  - name: api_root
+    value: https://android.middleware.6play.fr/6play/v2/platforms/m6group_androidmob/services
+    description: Base URL of the public 6play Android middleware API.
+  - name: image_root
+    value: https://images.6play.fr/v1/images
+    description: Base URL used to build image assets from external keys.
+  - name: max_banners
+    value: 5
+    description: Maximum number of banners to fetch.
+  - name: page_size
+    value: 18
+    description: Default number of catalog entries requested for one paged section.
+  - name: live_channels
+    value: "M6,W9,6T,gulli"
+    description: Comma-separated list of 6play live channel identifiers for the API.
+  - name: search_pagination
+    value: true
+    description: Whether search supports reliable page-based pagination.
+
+shared:
+  media_types_6play: &media_types_6play
+    - video/movie
+    - video/show/serie
+    - video/show/documentary
+    - video/show/other
+
+  generic_request_headers: &generic_request_headers []
+
+  actions_default_media_type: &actions_default_media_type
+    - type: map
+      default: "video/other/{}"
+      argument:
+        sport: video/show/sport
+        magazine: video/news
+        divertissement: video/show/other
+        serie: video/show/serie
+        series: video/show/serie
+        documentaire: video/show/documentary
+        "dessin-anime": video/show/anime
+        "episode": video/show/serie
+
+  actions_image_key_to_url: &actions_image_key_to_url
+    - type: format_text
+      argument: "{image_root}/{}/raw"
+
+  actions_extract_release_date: &actions_extract_release_date
+    - type: get_date
+      format: yyyy_mm_dd_hh_mm_ss
+
+queries:
+  - name: service_stream_metadata
+    scraper_type: static
+    entries:
+      - name: id
+        value: "{service_id}"
+      - name: title
+        value: "{service_title}"
+      - name: logo
+        value: "{service_logo}"
+      - name: description
+        value: "{service_description}"
+
+  - name: search
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "https://nhacvivxxk-dsn.algolia.net/1/indexes/*/queries?x-algolia-agent=Algolia%20for%20JavaScript%20(4.24.0)%3B%20Browser"
+    request_method: post
+    request_headers:
+      - name: content-type
+        actions:
+          - type: format_text
+            argument: "application/json"
+      - name: x-algolia-api-key
+        actions:
+          - type: format_text
+            argument: "6ef59fc6d78ac129339ab9c35edd41fa"
+      - name: x-algolia-application-id
+        actions:
+          - type: format_text
+            argument: "NHACVIVXXK"
+    request_body_actions:
+      - type: format_text
+        argument: '{"requests":[{"indexName":"rtlmutu_prod_bedrock_layout_items_v2_m6web_main","query":{search_query_json},"params":"clickAnalytics=true&hitsPerPage={page_size}&page={page_index}&facetFilters=[[\"metadata.item_type:program\"],[\"metadata.platforms_assets:m6group_web\"]]"}]}'
+    media_types: *media_types_6play
+    row_pointer: /results/*/hits/*
+    entries:
+      - name: source
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: current_page
+        actions:
+          - type: format_text
+            argument: "{page}"
+      - name: total_pages
+        pointer: /results/0/nbPages
+      - name: entries
+        entries:
+          - name: title
+            pointer: /item/itemContent/title
+          - name: description
+            pointer: /item/itemContent/description
+          - name: media-type
+            pointer: /metadata/tags/type
+            actions: *actions_default_media_type
+          - name: link
+            pointer: /content/id
+          - name: img/poster > link
+            pointer: /item/itemContent/image/id
+            actions: *actions_image_key_to_url
+          - name: img/poster > link
+            pointer: /item/itemContent/secondaryImage/id
+            actions: *actions_image_key_to_url
+          - name: theme
+            pointer: /item/itemContent/extraDetails
+            actions:
+              - type: split
+                argument: " | "
+          - name: release-date
+            pointer: /metadata/last_activity_date
+            actions: *actions_extract_release_date
+    post_process:
+      - type: derive_pagination
+        total_pages_field: total_pages
+        remove_fields:
+          - total_pages
+
+  - name: load_home
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{api_root}/m6replay/folders?limit=10&offset=0"
+    request_headers: *generic_request_headers
+    media_types: *media_types_6play
+    row_pointer: /
+    entries:
+      - name: categories
+        entries:
+          - name: key
+            actions:
+              - type: format_text
+                argument: "m6"
+          - name: label
+            actions:
+              - type: format_text
+                argument: "M6"
+          - name: description
+            actions:
+              - type: format_text
+                argument: "Replay catalogue for M6."
+          - name: request > query_url
+            actions:
+              - type: format_text
+                argument: "{api_root}/m6replay/folders?limit=999&offset=0"
+
+      - name: categories
+        entries:
+          - name: key
+            actions:
+              - type: format_text
+                argument: "w9"
+          - name: label
+            actions:
+              - type: format_text
+                argument: "W9"
+          - name: description
+            actions:
+              - type: format_text
+                argument: "Replay catalogue for W9."
+          - name: request > query_url
+            actions:
+              - type: format_text
+                argument: "{api_root}/w9replay/folders?limit=999&offset=0"
+
+      - name: categories
+        entries:
+          - name: key
+            actions:
+              - type: format_text
+                argument: "6ter"
+          - name: label
+            actions:
+              - type: format_text
+                argument: "6ter"
+          - name: description
+            actions:
+              - type: format_text
+                argument: "Replay catalogue for 6ter."
+          - name: request > query_url
+            actions:
+              - type: format_text
+                argument: "{api_root}/6terreplay/folders?limit=999&offset=0"
+
+      - name: categories
+        entries:
+          - name: key
+            actions:
+              - type: format_text
+                argument: "gulli"
+          - name: label
+            actions:
+              - type: format_text
+                argument: "Gulli"
+          - name: description
+            actions:
+              - type: format_text
+                argument: "Replay catalogue for Gulli."
+          - name: request > query_url
+            actions:
+              - type: format_text
+                argument: "{api_root}/gulli/folders?limit=999&offset=0"
+
+      - name: sections
+        pointer: /*
+        select: all
+        entries:
+          - name: label
+            pointer: /name
+          - name: link
+            pointer: /id
+            actions:
+              - type: format_text
+                argument: "{api_root}/6play/folders/{}/programs?csa=6&with=parentcontext"
+    sub_queries:
+      - request_actions:
+          - type: format_text
+            argument: "{api_root}/m6replay/programs?limit={max_banners}&offset=0&csa=6&sort=last_video_publication&with=layout"
+        request_headers: *generic_request_headers
+        row_pointer: /*
+        target: banners
+        entries:
+          - name: key
+            pointer: /id
+          - name: title
+            pointer: /title
+          - name: description
+            pointer: /description
+          - name: link
+            pointer: /id
+          - name: entryUrl
+            pointer: /id
+          - name: web-link
+            pointer: /id
+          - name: image
+            pointer: /images_with_context/defaults/banner_31/external_key
+            actions: *actions_image_key_to_url
+          - name: logo 
+            pointer: /images_with_context/defaults/logo/external_key
+            actions: *actions_image_key_to_url
+          - name: expire
+            pointer: publication_date_vi/date_start_max
+            actions: *actions_extract_release_date
+          - name: year
+            pointer: /year_copyright
+            select: all
+          - name: year
+            pointer: /year_production
+          - name: release-date
+            pointer: year_copyright
+
+  - name: get_category
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    request_headers: *generic_request_headers
+    media_types: *media_types_6play
+    row_pointer: /
+    entries:
+      - name: sections
+        pointer: /*
+        select: all
+        entries:
+          - name: label
+            pointer: /name
+          - name: link
+            pointer: /id
+            actions:
+              - type: format_text
+                argument: "{api_root}/6play/folders/{}/programs?csa=6&with=parentcontext"
+
+  - name: get_section
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{query_url}&limit={page_size}&offset={offset}"
+    request_headers: *generic_request_headers
+    media_types: *media_types_6play
+    row_pointer: /
+    entries:
+      - name: current_page
+        actions:
+          - type: format_text
+            argument: "{page}"
+      - name: have_more
+        actions:
+          - type: format_text
+            argument: "false"
+      - name: page_size
+        actions:
+          - type: format_text
+            argument: "{page_size}"
+      - name: infer_have_more_from_full_page
+        actions:
+          - type: format_text
+            argument: "true"
+      - name: entries
+        pointer: /*
+        select: all
+        entries:
+          - name: source
+            actions:
+              - type: format_text
+                argument: "{source}"
+          - name: title
+            pointer: /title
+          - name: description
+            pointer: /description
+          - name: duration
+            pointer: /duration
+          - name: release-date
+            pointer: /product/last_diffusion
+            actions: *actions_extract_release_date
+          - name: release-date
+            pointer: update_date
+            actions: *actions_extract_release_date
+          - name: media-type
+            pointer: /neustar/category
+            actions: *actions_default_media_type
+          - name: media-type
+            pointer: /program_type_wording/code
+            actions: *actions_default_media_type
+          - name: link
+            pointer: /id
+          - name: web-link
+            pointer: /id
+          - name: img/poster > link
+            pointer: /images/*[role=cover]/external_key
+            select: all
+            actions: *actions_image_key_to_url
+          - name: img/landscape > link
+            pointer: /images/*[role=vignette]/external_key
+            select: all
+            actions: *actions_image_key_to_url
+          - name: year
+            pointer: /year_copyright
+            select: all
+          - name: year
+            pointer: /year_production
+          - name: release-date
+            pointer: year_copyright
+    post_process:
+      - type: derive_pagination
+        total_pages_field: total_pages
+        page_size_field: page_size
+        infer_from_full_page_field: infer_have_more_from_full_page
+        remove_fields:
+          - total_pages
+          - page_size
+          - infer_have_more_from_full_page
+
+  - name: get_entry
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{api_root}/6play/programs/{query_url}?with=links,subcats,rights"
+    request_headers: *generic_request_headers
+    media_types: *media_types_6play
+    row_pointer: /
+    entries:
+      - name: title
+        pointer: /title
+      - name: description
+        pointer: /description
+      - name: media-type
+        actions: *actions_default_media_type
+      - name: img/poster > link
+        pointer: /images/*[role=cover]/external_key
+        select: all
+        actions: *actions_image_key_to_url
+      - name: img/landscape > link
+        pointer: /images/*[role=box]/external_key
+        select: all
+        actions: *actions_image_key_to_url
+      - name: img/logo > link
+        pointer: /images/*[role=logo]/external_key
+        select: all
+        actions: *actions_image_key_to_url
+      - name: year
+        pointer: /year_copyright
+        select: all
+      - name: year
+        pointer: /year_production
+        select: all
+      - name: content-advisor 
+        pointer: /csa/label
+      - name: release-date
+        pointer: first_local_air_date/date
+        actions: *actions_extract_release_date
+      - name: duration
+        pointer: /duration
+      - name: expire
+        pointer: publication_date_vi/date_end_max
+        actions: *actions_extract_release_date
+      - name: link
+        pointer: /code
+        actions:
+          - type: format_text
+            argument: "{base_url}/{}-p_{query_url}"
+      - name: web-link
+        pointer: /code
+        actions:
+          - type: format_text
+            argument: "{base_url}/{}-p_{query_url}"
+      - name: season
+        entries:
+          - name: label
+            actions:
+              - type: format_text
+                argument: "All videos"
+          - name: link
+            actions:
+              - type: format_text
+                argument: "{query_url}/videos?"
+
+      - name: season
+        pointer: /program_subcats/*
+        select: all
+        entries:
+           - name: label
+             pointer: /title
+           - name: link
+             pointer: /id
+             actions:
+               - type: format_text
+                 argument: "{query_url}/videos?subcat={}"
+
+  - name: get_season
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{api_root}/6play/programs/{query_url}&csa=6&with=clips,freemiumpacks&type=vi,vc,playlist&sort=episode_asc&limit=999&offset=0"
+    request_headers: *generic_request_headers
+    media_types: *media_types_6play
+    row_pointer: /*
+    entries:
+      - name: current_page
+        actions:
+          - type: format_text
+            argument: "1"
+      - name: have_more
+        actions:
+          - type: format_text
+            argument: "false"
+      - name: episodes
+        entries:
+          - name: title
+            pointer: /title
+          - name: description
+            pointer: /clips/0/description
+          - name: description
+            pointer: /description
+          - name: duration
+            pointer: /clips/0/duration
+          - name: duration
+            pointer: /duration
+          - name: season-name
+            pointer: /clips/0/product/season_title
+          - name: season-name
+            pointer: /product/season_title
+          - name: release-date
+            pointer: /clips/0/product/last_diffusion
+            actions: *actions_extract_release_date
+          - name: release-date
+            pointer: /product/last_diffusion
+            actions: *actions_extract_release_date
+          - name: players > name
+            actions:
+              - type: format_text
+                argument: "M6+"
+
+          - name: players > storyboard > link
+            pointer: /images/*[role=storyboard]/external_key
+            select: all
+            actions: *actions_image_key_to_url
+
+          - name: players > storyboard > width
+            pointer: /images/*[role=storyboard]/external_key
+            select: all
+            actions:
+              - type: format_text
+                argument: "200"
+          - name: players > storyboard > height
+            pointer: /images/*[role=storyboard]/external_key
+            select: all
+            actions:
+              - type: format_text
+                argument: "112"
+          - name: players > storyboard > columns
+            pointer: /images/*[role=storyboard]/external_key
+            select: all
+            actions:
+              - type: format_text
+                argument: "300"
+
+          - name: players > resolver > kind
+            actions:
+              - type: format_text
+                argument: "m6play-video"
+          - name: players > resolver > stream > kind
+            actions:
+              - type: format_text
+                argument: "widevine-license-proxy"
+          - name: players > resolver > target_id
+            pointer: /id
+          - name: link
+            actions:
+              - type: build_url
+                base: "https://www.m6.fr/{prg}-p_{query_url}/{prg}-c_{cid}"
+                fields:
+                  prg: /code
+                  cid: /clips/0/id
+          - name: players > embed-link
+            actions:
+              - type: build_url
+                base: "https://www.m6.fr/{prg}-p_{query_url}/{prg}-c_{cid}"
+                fields:
+                  prg: /code
+                  cid: /clips/0/id
+              - type: regex_find_all
+                pattern: '^(https://www\.m6\.fr/[^/]+-p_[^/]+)/videos\?/(.+)$'
+                format: "{1}/{2}"
+          - name: img/preview > link
+            pointer: /display_image/external_key
+            actions: *actions_image_key_to_url
+          - name: img/preview > link
+            pointer: /clips/0/images/*/external_key
+            select: all
+            actions: *actions_image_key_to_url
+          - name: img/preview > link
+            pointer: /images/*[role=vignette]/external_key
+            select: all
+            actions: *actions_image_key_to_url
+    post_process:
+      - type: compute_items_field
+        source: episodes
+        nested_source: players
+        target: storyboard > interval
+        expression: "{durationSeconds} / {columns}"
+        variables:
+          durationSeconds:
+            path: duration
+            scope: parent
+          columns:
+            path: storyboard > columns
+            scope: current
+
+  - name: list_lives
+    scraper_type: json
+    base_url: ""
+    query_url: "{api_root}/6play/live?channel={live_channels}&with=service_display_images,nextdiffusion,extra_data"
+    request_headers: *generic_request_headers
+    media_types:
+      - video/live
+    row_pointer: "/*/*"
+    entries:
+      - name: title
+        pointer: /service_display/title
+      - name: title/alt
+        pointer: /title
+      - name: key
+        pointer: /live/channel/code_url
+      - name: description
+        pointer: /description
+      - name: link
+        pointer: /live/channel/code_url
+        actions:
+          - type: map
+            default: "{}"
+            argument:
+              m6: M6
+              w9: W9
+              6ter: 6T
+              gulli: gulli
+      - name: web-link
+        pointer: /live/channel/code_url
+        actions:
+          - type: format_text
+            argument: "{base_url}/{}/direct"
+      - name: img/poster > link
+        pointer: /display_image/external_key
+        actions: *actions_image_key_to_url
+      - name: release-date
+        pointer: /diffusion_start_date
+        actions: *actions_extract_release_date
+      - name: expire
+        pointer: /diffusion_end_date
+        actions: *actions_extract_release_date
+
+  - name: get_live
+    scraper_type: json
+    base_url: ""
+    query_url: "{api_root}/6play/live?channel={channel}&with=service_display_images,nextdiffusion,extra_data"
+    request_headers: *generic_request_headers
+    media_types:
+      - video/live
+    row_pointer: "/*/*"
+    entries:
+      - name: players
+        entries:
+          - name: embed-link
+            pointer: /live/channel/code_url
+            actions:
+              - type: format_text
+                argument: "{base_url}/{}/direct"
+          - name: resolver
+            entries:
+              - name: kind
+                actions:
+                  - type: format_text
+                    argument: "m6play-live"
+              - name: stream
+                entries:
+                  - name: kind
+                    actions:
+                      - type: format_text
+                        argument: "widevine-license-proxy"
+              - name: target_id
+                pointer: /live/channel/code_url

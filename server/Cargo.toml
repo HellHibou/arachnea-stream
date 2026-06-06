@@ -1,0 +1,63 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/arachnea-core",
+    "crates/arachnea-dns",
+    "crates/arachnea-http",
+    "crates/arachnea-proxy",
+    "crates/arachnea-scrapyfy",
+    "crates/arachnea-stream",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+aes-gcm = "0.10"
+anyhow = "1.0"
+async-trait = "0.1"
+base64 = "0.22"
+bytes = "1"
+chaser-cf = "0.2.1"
+chaser-oxide = "0.2.4"
+chrono = "0.4"
+clap = { version = "4.5", features = ["derive"] }
+cookie = "0.18"
+futures = "0.3"
+ghostwire = "1.1"
+hickory-proto = "0.25.2"
+hickory-resolver = "0.25.2"
+http = "1.3"
+httpdate = "1.0"
+ipnet = { version = "2.11", features = ["serde"] }
+mathexpr = "0.1.1"
+regex = "1.10"
+rquest = { package = "newwreq", version = "5.1.7", features = ["json", "cookies", "gzip"] }
+rand = "0.9.3"
+rustls = "0.23"
+scopeguard = "1.2.0"
+scraper = "0.20"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_urlencoded = "0.7"
+serde_yaml = "0.9"
+thiserror = "2.0"
+tauri = { version = "2.10.3", features = [] }
+tauri-plugin-opener = "2"
+tokio = { version = "1", features = ["full"] }
+tokio-rustls = "0.26"
+toml = "0.8"
+tower-service = "0.3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json",  "time"] }
+time = { version = "0.3", features = ["formatting", "macros"] }
+tao = "0.35.2"
+url = "2"
+urlencoding = "2.1"
+warp = "0.3"
+webpki-roots = "1.0"
+wry = "0.55.1"
+
+tauri-build = { version = "2.5.6", features = [] }

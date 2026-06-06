@@ -1,0 +1,27 @@
+profile = "secure"
+
+[server]
+enabled = true
+listen_udp = "127.0.0.1:5353"
+listen_tcp = "127.0.0.1:5353"
+
+[resolver]
+mode = "forwarder"
+timeout_ms = 3000
+retries = 2
+parallel_upstreams = false
+allow_insecure_fallback = false
+upstream_strategy = "fixed_order"
+nxdomain_strategy = "trust_first"
+
+[[upstreams]]
+name = "cloudflare-udp"
+transport = "udp"
+endpoint = { kind = "socket", value = "1.1.1.1:53" }
+timeout_ms = 3000
+verify_tls = true
+
+[security]
+dnssec = "strict"
+dns_cookies = false
+rate_limit_per_client_per_second = 50

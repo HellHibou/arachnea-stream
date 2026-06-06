@@ -1,0 +1,7 @@
+{
+    "files.exclude": {
+        "**/._*": true
+    },
+    "explorer.excludeGitIgnore": false,
+    "claude-code.provider": "claude"
+}

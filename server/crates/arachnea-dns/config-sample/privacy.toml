@@ -1,0 +1,39 @@
+profile = "privacy"
+
+[server]
+enabled = true
+listen_udp = "127.0.0.1:5353"
+listen_tcp = "127.0.0.1:5353"
+
+[resolver]
+mode = "forwarder"
+timeout_ms = 2000
+retries = 2
+parallel_upstreams = false
+allow_insecure_fallback = false
+upstream_strategy = "fixed_order"
+nxdomain_strategy = "trust_first"
+
+[[upstreams]]
+name = "private-doh"
+transport = "doh"
+endpoint = { kind = "url", value = "https://dns.example.net/dns-query" }
+timeout_ms = 2000
+verify_tls = true
+
+[privacy]
+qname_minimisation = false
+ecs = "disabled"
+odoh = false
+query_padding = true
+log_qnames = false
+
+[cache]
+enabled = false
+max_entries = 100000
+min_ttl_seconds = 0
+max_ttl_seconds = 86400
+negative_cache = true
+serve_stale = false
+max_stale_seconds = 86400
+stale_response_ttl_seconds = 30

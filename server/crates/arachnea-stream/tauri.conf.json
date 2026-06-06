@@ -1,0 +1,33 @@
+{
+  "$schema": "../../gen/schemas/desktop-schema.json",
+  "productName": "Arachnéa",
+  "version": "0.1.0",
+  "identifier": "hell-hibou.arachnea.app",
+  "mainBinaryName": "arachnea",
+  "build": {
+    "beforeBuildCommand": "cd ../../../front && npm run build",
+    "frontendDist": "../../../front/dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "security": {
+      "csp": null,
+      "capabilities": ["main-capability", "cloudflare-solver-capability"]
+    },
+    "windows": [
+      {
+        "label": "main",
+        "fullscreen": false,
+        "resizable": true,
+        "title": "Arachnéa",
+        "width": 800,
+        "height": 600
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.png", "icons/icon.ico"]
+  }
+}

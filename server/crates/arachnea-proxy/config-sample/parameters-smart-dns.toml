@@ -1,0 +1,38 @@
+# Smart DNS hint consumption through the generic request-parameter mechanism.
+#
+# HTTP example:
+#   curl -x http://127.0.0.1:8080 -H "Arachnea-Proxy-Smart-Dns: streaming-us" https://video.example
+#
+# SOCKS5 example:
+#   curl --socks5 smart_dns=streaming-us:anything@127.0.0.1:1080 https://video.example
+
+[server]
+listen_http = "127.0.0.1:8080"
+listen_socks = "127.0.0.1:1080"
+
+[server.network]
+allow_clients = ["127.0.0.0/8", "::1/128"]
+
+[core]
+profile = "advanced"
+
+[core.routing]
+default_chain = "direct"
+allow_direct_fallback = true
+
+[[core.parameter_handlers]]
+kind = "smart_dns"
+parameter_name = "smart_dns"
+http_header = "Arachnea-Proxy-Smart-Dns"
+forward_header = false
+stop_on_match = true
+
+[[core.parameter_handlers.routes]]
+value = "streaming-us"
+proxy = { name = "smart-dns-us", kind = "https_proxy", endpoint = "127.0.0.1:8443", send_hostname = true }
+
+[[core.chains]]
+name = "direct"
+nodes = [
+  { name = "direct", kind = "direct" },
+]

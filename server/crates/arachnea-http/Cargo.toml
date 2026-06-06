@@ -1,0 +1,42 @@
+[package]
+name = "arachnea-http"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+autoexamples = false
+
+[features]
+default = []
+ghostwire = ["dep:ghostwire"]
+chaser-cf = ["dep:chaser-cf", "dep:chaser-oxide", "dep:rand"]
+tauri-cloudflare-solver = ["dep:cookie", "dep:tao", "dep:tauri", "dep:wry"]
+tauri-cloudflare-solver-devtools = ["tauri-cloudflare-solver", "wry/devtools"]
+
+[dependencies]
+arachnea-core = { path = "../arachnea-core" }
+anyhow.workspace = true
+async-trait.workspace = true
+bytes.workspace = true
+chaser-cf = { workspace = true, optional = true }
+chaser-oxide = { workspace = true, optional = true }
+cookie = { workspace = true, optional = true }
+ghostwire = { workspace = true, optional = true }
+encoding_rs = "0.8"
+http.workspace = true
+httpdate.workspace = true
+rand = { workspace = true, optional = true }
+rquest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tao = { workspace = true, optional = true }
+tauri = { workspace = true, features = [], optional = true }
+url.workspace = true
+wry = { workspace = true, optional = true }
+
+[[example]]
+name = "cloudflare_hybrid"
+path = "examples/cloudflare_hybrid.rs"
+required-features = ["chaser-cf"]

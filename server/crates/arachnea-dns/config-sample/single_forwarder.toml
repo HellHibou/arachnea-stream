@@ -1,0 +1,23 @@
+profile = "single_forwarder"
+
+[server]
+enabled = true
+listen_udp = "127.0.0.1:5353"
+listen_tcp = "127.0.0.1:5353"
+
+[forwarder]
+name = "cloudflare-udp"
+transport = "udp"
+endpoint = "1.1.1.1:53"
+timeout_ms = 2000
+verify_tls = true
+
+[cache]
+enabled = false
+max_entries = 100000
+min_ttl_seconds = 0
+max_ttl_seconds = 86400
+negative_cache = true
+serve_stale = false
+max_stale_seconds = 86400
+stale_response_ttl_seconds = 30

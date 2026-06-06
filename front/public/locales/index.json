@@ -1,0 +1,7 @@
+{
+  "defaultLanguage": "en",
+  "languages": [
+    { "code": "en", "label": "English" },
+    { "code": "fr", "label": "Francais" }
+  ]
+}

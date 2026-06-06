@@ -1,0 +1,14 @@
+profile = "single_forwarder"
+
+[server]
+enabled = true
+listen_udp = "127.0.0.1:5353"
+listen_tcp = "127.0.0.1:5353"
+
+[forwarder]
+name = "cloudflare-doq"
+transport = "doq"
+host = "cloudflare-dns.com"
+port = 853
+timeout_ms = 5000
+verify_tls = true

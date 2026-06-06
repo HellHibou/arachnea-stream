@@ -1,0 +1,869 @@
+id: rtlplay-be
+title: RTL Play
+logo: https://www.rtlplay.be/rtlplay/img/rtlplay/logo-large.svg
+description:
+  fr: "RTL Play est la plateforme de streaming du groupe audiovisuel belge RTL Belgium, offrant un large catalogue de programmes télévisés, films, séries, documentaires et contenus exclusifs en ligne. Les utilisateurs peuvent accéder à leurs émissions préférées en direct ou à la demande, avec des fonctionnalités de recherche avancées et une interface conviviale pour une expérience de visionnage optimale."
+
+http:
+  mode: direct
+  user_agent: "RTL_PLAY/{api_version_major}.{api_version_minor} (com.tapptic.rtl.tvi; build:{api_version_build}; Android 30)"
+
+parameters:
+  - name: base_url
+    value: https://www.rtlplay.be
+    description: Public RTL Play website base URL.
+  - name: api_root
+    value: https://lfvp-api.dpgmedia.net/RTL_PLAY
+    description: RTL Play LFVP API root used by the Android application.
+  - name: api_version_major # RTL Play Android application major version
+    value: "25"
+  - name: api_version_minor # RTL Play Android application minor version
+    value: "260415"
+  - name: api_version_build # RTL Play Android application build version
+    value: "30644"
+  - name: search_limit
+    value: 50
+    description: Maximum exact search results requested from the non-paginated search endpoint.
+
+shared:
+  media_types_rtlplay: &media_types_rtlplay
+    - video/movie
+    - video/show/serie
+    - video/show/documentary
+    - video/show/other
+    - audio/show
+    - video/news
+    - video/live
+
+  rtlplay_request_headers: &rtlplay_request_headers
+    - name: accept
+      actions:
+        - type: format_text
+          argument: "*/*"
+    - name: accept-encoding
+      actions:
+        - type: format_text
+          argument: "gzip"
+    - name: connection
+      actions:
+        - type: format_text
+          argument: "Keep-Alive"
+    - name: content-type
+      actions:
+        - type: format_text
+          argument: "application/json; charset=UTF-8"
+    - name: lfvp-device-segment
+      actions:
+        - type: format_text
+          argument: "TV>Android"
+    - name: x-app-version
+      actions:
+        - type: format_text
+          argument: "{api_version_major}"
+
+  actions_program_link: &actions_program_link
+    - type: format_text
+      argument: "{api_root}/detail3/{}"
+
+  actions_program_web_link: &actions_program_web_link
+    - type: format_text
+      argument: "{base_url}/rtlplay/detail/{}"
+
+  actions_row_detail_link: &actions_row_detail_link
+    - type: format_text
+      argument: "{api_root}/storefronts/accueil/detail/{}"
+
+  actions_storefront_link: &actions_storefront_link
+    - type: format_text
+      argument: "{api_root}/storefronts/{}?temsPerSwimlane=20"
+
+  actions_default_media_type: &actions_default_media_type
+    - type: format_text
+      argument: "video/show/other"
+
+  actions_release_date_label: &actions_release_date_label
+    - type: regex_find_all
+      pattern: '((?:\p{L}+\.\s+)?\d{1,2}\s+\p{L}+\.?\s+\d{4})'
+      format: "{1}"
+    - type: get_date
+      format: dd_month_yyyy
+      months:
+        janvier: 1
+        janv: 1
+        fevrier: 2
+        "février": 2
+        fevr: 2
+        "févr": 2
+        mars: 3
+        avril: 4
+        avr: 4
+        mai: 5
+        juin: 6
+        juillet: 7
+        juil: 7
+        aout: 8
+        "août": 8
+        septembre: 9
+        sept: 9
+        octobre: 10
+        oct: 10
+        novembre: 11
+        nov: 11
+        decembre: 12
+        "décembre": 12
+        dec: 12
+        "déc": 12
+
+  actions_expire_label: &actions_expire_label
+    - type: regex_find_all
+      pattern: '(?:Plus que|Encore|Disponible jusqu''à)\s+([0-9]+|minuit)(?:\s+jour(?:s)?)?'
+      format: "{1}"
+    - type: map
+      default: '{}'
+      argument:
+        minuit: '0'
+    - type: get_date
+      format: days_from_today
+
+  actions_language_label: &actions_language_label
+    - type: map
+      default: '{}'
+      argument:
+        "français": "VF"
+
+  actions_normalize_live_channel: &actions_normalize_live_channel
+    - type: map
+      default: '{}'
+      argument:
+        rtl_tvi: tvi
+        club_rtl: club
+        plug_rtl: plug
+        rtl_play: rtlplay
+        rtl_district: RTLdistrict
+
+  teaser_entries: &teaser_entries
+    - name: title
+      pointer: /title
+    - name: title/alt
+      pointer: /name
+    - name: description
+      pointer: /description
+    - name: subtitle
+      pointer: /editorialByline
+    - name: key
+      pointer: /detailId
+    - name: link
+      pointer: /detailId
+      actions: *actions_program_link
+    - name: web-link
+      pointer: /detailId
+      actions: *actions_program_web_link
+    - name: media-type
+      actions: *actions_default_media_type
+    - name: theme
+      pointer: /genre
+    - name: genre
+      pointer: /genre
+    - name: year
+      pointer: /labels/*[accessibilityLabel=Année de production]/label
+      select: all
+    - name: duration
+      pointer: /labels/*[accessibilityLabel=Durée]/label
+      select: all
+    - name: release-date
+      pointer: /labels/*[accessibilityLabel=Date de diffusion]/label
+      select: all
+      actions: *actions_release_date_label
+    - name: expire
+      pointer: /labels/*/label
+      select: all
+      actions: *actions_expire_label
+    - name: count-season
+      pointer: /labels/*/label
+      select: all
+      actions:
+        - type: regex_find_all
+          pattern: '^([0-9]+)\s+saisons?$'
+          format: "{1}"
+    - name: img/poster > link
+      pointer: /imageUrl
+    - name: img/poster > link
+      pointer: /portraitImageUrl
+    - name: img/poster > link
+      pointer: /portraitOverlayImageUrl
+    - name: img/poster > link
+      pointer: /overlayImageUrl
+    - name: img/landscape > link
+      pointer: /landscapeImageUrl
+    - name: img/landscape > link
+      pointer: /heroImageUrl
+    - name: img/logo > link
+      pointer: /titleArtImageUrl
+
+  live_entries: &live_entries
+    - name: title
+      pointer: /title
+    - name: title/alt
+      pointer: /name
+    - name: key
+      pointer: /channelSeoKey
+      actions: *actions_normalize_live_channel
+    - name: channel-id
+      pointer: /channelId
+    - name: description
+      pointer: /description
+    - name: subtitle
+      pointer: /editorialByline
+    - name: media-type
+      actions:
+        - type: format_text
+          argument: "video/live"
+    - name: link
+      pointer: /channelSeoKey
+      actions: *actions_normalize_live_channel
+    - name: web-link
+      pointer: /channelSeoKey
+      actions:
+        - type: map
+          default: '{}'
+          argument:
+            rtl_tvi: tvi
+            club_rtl: club
+            plug_rtl: plug
+            rtl_play: rtlplay
+            rtl_district: RTLdistrict
+        - type: format_text
+          argument: "{base_url}/rtlplay/direct/{}"
+    - name: year
+      pointer: /labels/*[accessibilityLabel=Année de production]/label
+      select: all
+    - name: duration
+      pointer: /labels/*[accessibilityLabel=Durée]/label
+      select: all
+    - name: release-date
+      pointer: /labels/*[accessibilityLabel=Date de diffusion]/label
+      select: all
+      actions: *actions_release_date_label
+    - name: release-date
+      pointer: /startsAt
+      actions:
+        - type: get_date
+          format: yyyy_mm_dd
+    - name: expire
+      pointer: /endsAt
+      actions:
+        - type: get_date
+          format: yyyy_mm_dd
+    - name: count-season
+      pointer: /labels/*/label
+      select: all
+      actions:
+        - type: regex_find_all
+          pattern: '^([0-9]+)\s+saisons?$'
+          format: "{1}"
+    - name: theme
+      pointer: /labels/*[accessibilityLabel=Genre]/label
+      select: all
+    - name: genre
+      pointer: /labels/*[accessibilityLabel=Genre]/label
+      select: all
+    - name: img/poster > link
+      pointer: /teaserImageUrl
+    - name: img/poster > link
+      pointer: /overlayImageUrl
+    - name: img/landscape > link
+      pointer: /heroImageUrl
+    - name: img/logo > link
+      pointer: /titleArtImageUrl
+
+  detail_episode_entries: &detail_episode_entries
+    - name: title
+      pointer: /title
+    - name: description
+      pointer: /description
+    - name: duration
+      pointer: /durationSeconds
+    - name: episode-number
+      pointer: /index
+    - name: release-date
+      pointer: /labels/*[accessibilityLabel=Date de diffusion]/label
+      select: all
+      actions: *actions_release_date_label
+    - name: expire
+      pointer: /labels/*/label
+      select: all
+      actions: *actions_expire_label
+    - name: link
+      pointer: /id
+      actions:
+        - type: format_text
+          argument: "{base_url}/rtlplay/player/{}"
+    - name: players > name
+      pointer: /id
+      actions:
+        - type: format_text
+          argument: "RTL Play"
+    - name: players > resolver > kind
+      pointer: /id
+      actions:
+        - type: format_text
+          argument: "rtlplay-video"
+    - name: players > resolver > stream > kind
+      pointer: /id
+      actions:
+        - type: format_text
+          argument: "widevine-license-proxy"
+    - name: players > resolver > target_id
+      pointer: /id
+    - name: img/preview > link
+      pointer: /imageUrl
+    - name: img/preview > link
+      pointer: /overlayImageUrl
+
+  section_entries: &section_entries
+    - name: banners
+      pointer: /rows/*[rowType=TOP_BANNER]/teaser
+      select: all
+      entries:
+        - name: key
+          pointer: /target/id
+        - name: title
+          pointer: /title
+        - name: title/alt
+          pointer: /target/name
+        - name: subtitle
+          pointer: /byline
+        - name: description
+          pointer: /editorialByline
+        - name: image
+          pointer: /largeImageUrl
+        - name: image
+          pointer: /mediumImageUrl
+        - name: image
+          pointer: /mobileImageUrl
+        - name: image
+          pointer: /mobileCompressedImageUrl
+        - name: image
+          pointer: /smartTvImageUrl
+        - name: logo
+          pointer: /titleArtImageUrl
+        - name: link
+          pointer: /target/id
+          actions: *actions_program_link
+        - name: web-link
+          pointer: /target/id
+          actions: *actions_program_web_link
+
+    - name: categories
+      pointer: /rows/*[rowType=SPRINGBOARD]/tiles/*
+      select: all
+      entries:
+        - name: key
+          pointer: /target/storefront
+        - name: key
+          pointer: /target/rowId
+        - name: label
+          pointer: /title
+        - name: image
+          pointer: /imageUrl
+        - name: image
+          pointer: /hoverImageUrl
+        - name: request > query_url
+          pointer: /target/rowId
+          actions: *actions_row_detail_link
+        - name: request > query_url
+          pointer: /target/storefront
+          actions: *actions_storefront_link
+
+    - name: sections
+      pointer: /row
+      select: all
+      entries:
+        - name: key
+          pointer: /id
+        - name: label
+          pointer: /title
+        - name: entries
+          pointer: /teasers/*
+          select: all
+          entries: *teaser_entries
+
+    - name: sections
+      pointer: /rows/*[rowType=SWIMLANE_LANDSCAPE]
+      select: all
+      entries:
+        - name: key
+          pointer: /id
+        - name: label
+          pointer: /title
+        - name: entries
+          pointer: /teasers/*
+          select: all
+          entries: *teaser_entries
+
+    - name: sections
+      pointer: /rows/*[rowType=SWIMLANE_PORTRAIT]
+      select: all
+      entries:
+        - name: key
+          pointer: /id
+        - name: label
+          pointer: /title
+        - name: entries
+          pointer: /teasers/*
+          select: all
+          entries: *teaser_entries
+
+    - name: sections
+      pointer: /rows/*[rowType=SWIMLANE_TOP10]
+      select: all
+      entries:
+        - name: key
+          pointer: /id
+        - name: label
+          pointer: /title
+        - name: entries
+          pointer: /teasers/*
+          select: all
+          entries: *teaser_entries
+
+    - name: sections
+      pointer: /rows/*[rowType=LIVE_CHANNELS]
+      select: all
+      entries:
+        - name: key
+          pointer: /id
+        - name: label
+          pointer: /title
+        - name: entries
+          pointer: /teasers/*
+          select: all
+          entries: *live_entries
+
+  storefront_entries: &storefront_entries
+    - name: banners
+      pointer: /rows/*[rowType=TOP_BANNER]/teaser
+      select: all
+      entries:
+        - name: key
+          pointer: /target/id
+        - name: title
+          pointer: /title
+        - name: title/alt
+          pointer: /target/name
+        - name: subtitle
+          pointer: /byline
+        - name: description
+          pointer: /editorialByline
+        - name: image
+          pointer: /largeImageUrl
+        - name: image
+          pointer: /mediumImageUrl
+        - name: image
+          pointer: /mobileImageUrl
+        - name: image
+          pointer: /mobileCompressedImageUrl
+        - name: image
+          pointer: /smartTvImageUrl
+        - name: logo
+          pointer: /titleArtImageUrl
+        - name: link
+          pointer: /target/id
+          actions: *actions_program_link
+        - name: web-link
+          pointer: /target/id
+          actions: *actions_program_web_link
+
+    - name: categories
+      pointer: /rows/*[rowType=SPRINGBOARD]/tiles/*
+      select: all
+      entries:
+        - name: key
+          pointer: /target/storefront
+        - name: key
+          pointer: /target/rowId
+        - name: label
+          pointer: /title
+        - name: image
+          pointer: /imageUrl
+        - name: image
+          pointer: /hoverImageUrl
+        - name: request > query_url
+          pointer: /target/rowId
+          actions: *actions_row_detail_link
+        - name: request > query_url
+          pointer: /target/storefront
+          actions: *actions_storefront_link
+
+    - name: sections
+      pointer: /rows/*[rowType=SWIMLANE_LANDSCAPE]
+      select: all
+      entries:
+        - name: key
+          pointer: /id
+        - name: label
+          pointer: /title
+        - name: entries
+          pointer: /teasers/*
+          select: all
+          entries: *teaser_entries
+
+    - name: sections
+      pointer: /rows/*[rowType=SWIMLANE_PORTRAIT]
+      select: all
+      entries:
+        - name: key
+          pointer: /id
+        - name: label
+          pointer: /title
+        - name: entries
+          pointer: /teasers/*
+          select: all
+          entries: *teaser_entries
+
+    - name: sections
+      pointer: /rows/*[rowType=SWIMLANE_TOP10]
+      select: all
+      entries:
+        - name: key
+          pointer: /id
+        - name: label
+          pointer: /title
+        - name: entries
+          pointer: /teasers/*
+          select: all
+          entries: *teaser_entries
+
+queries:
+  - name: service_stream_metadata
+    scraper_type: static
+    entries:
+      - name: id
+        value: "{service_id}"
+      - name: title
+        value: "{service_title}"
+      - name: logo
+        value: "{service_logo}"
+      - name: description
+        value: "{service_description}"
+
+  - name: search
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{api_root}/search?query={search_terms}&limit={search_limit}"
+    request_headers: *rtlplay_request_headers
+    media_types: *media_types_rtlplay
+    row_pointer: /results/*[type=exact]/teasers/*
+    entries:
+      - name: source
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: current_page
+        actions:
+          - type: format_text
+            argument: "{page}"
+      - name: have_more
+        actions:
+          - type: format_text
+            argument: "false"
+      - name: entries
+        entries:
+          - name: title
+            pointer: /title
+          - name: title/alt
+            pointer: /name
+          - name: description
+            pointer: /description
+          - name: subtitle
+            pointer: /editorialByline
+          - name: key
+            pointer: /detailId
+          - name: link
+            pointer: /detailId
+            actions: *actions_program_link
+          - name: web-link
+            pointer: /detailId
+            actions: *actions_program_web_link
+          - name: media-type
+            actions: *actions_default_media_type
+          - name: theme
+            pointer: /genre
+          - name: genre
+            pointer: /genre
+          - name: year
+            pointer: /labels/*[accessibilityLabel=Année de production]/label
+            select: all
+          - name: duration
+            pointer: /labels/*[accessibilityLabel=Durée]/label
+            select: all
+          - name: release-date
+            pointer: /labels/*[accessibilityLabel=Date de diffusion]/label
+            select: all
+            actions: *actions_release_date_label
+          - name: expire
+            pointer: /labels/*/label
+            select: all
+            actions: *actions_expire_label
+          - name: count-season
+            pointer: /labels/*/label
+            select: all
+            actions:
+              - type: regex_find_all
+                pattern: '^([0-9]+)\s+saisons?$'
+                format: "{1}"
+          - name: img/poster > link
+            pointer: /imageUrl
+          - name: img/poster > link
+            pointer: /portraitImageUrl
+          - name: img/poster > link
+            pointer: /portraitOverlayImageUrl
+          - name: img/poster > link
+            pointer: /overlayImageUrl
+          - name: img/landscape > link
+            pointer: /landscapeImageUrl
+          - name: img/landscape > link
+            pointer: /heroImageUrl
+          - name: img/logo > link
+            pointer: /titleArtImageUrl
+
+  - name: load_home
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{api_root}/storefronts/accueil?temsPerSwimlane=20"
+    request_headers: *rtlplay_request_headers
+    media_types: *media_types_rtlplay
+    row_pointer: /
+    entries: *storefront_entries
+
+  - name: get_category
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    request_headers: *rtlplay_request_headers
+    media_types: *media_types_rtlplay
+    row_pointer: /
+    entries: *section_entries
+
+  - name: get_entry
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    request_headers: *rtlplay_request_headers
+    media_types: *media_types_rtlplay
+    row_pointer: /
+    entries:
+      - name: title
+        pointer: /title/label
+      - name: title/alt
+        pointer: /linkedTitle/label
+      - name: description
+        pointer: /description
+      - name: media-type
+        actions: *actions_default_media_type
+      - name: link
+        pointer: /primaryButton/playableId
+        actions:
+          - type: format_text
+            argument: "{base_url}/rtlplay/player/{}"
+      - name: web-link
+        pointer: /share/url
+      - name: web-link
+        pointer: /id
+        actions:
+          - type: format_text
+            argument: "{base_url}/rtlplay/~{}"
+      - name: img/poster > link
+        pointer: /landscapeTeaserImageUrl
+      - name: img/poster > link
+        pointer: /share/imageUrl
+      - name: img/landscape > link
+        pointer: /backgroundImageUrl
+      - name: img/logo > link
+        pointer: /title/imageUrl
+      - name: img/logo > link
+        pointer: /broadcasterLogo/imageUrl
+      - name: year
+        pointer: /headerLabels/*[accessibilityLabel=Année de production]/label
+        select: all
+      - name: duration
+        pointer: /durationSeconds
+      - name: duration
+        pointer: /headerLabels/*[accessibilityLabel=Durée]/label
+        select: all
+      - name: expire
+        pointer: /headerLabels/*/label
+        select: all
+        actions: *actions_expire_label
+      - name: count-season
+        pointer: /headerLabels/*/label
+        select: all
+        actions:
+          - type: regex_find_all
+            pattern: '^([0-9]+)\s+saisons?$'
+            format: "{1}"
+      - name: theme
+        pointer: /headerLabels/*[accessibilityLabel=Genre]/label
+        select: all
+      - name: theme
+        pointer: /moreInfo/meta/*[label=Genre]/items/*/label
+        select: all
+      - name: genre
+        pointer: /headerLabels/*[accessibilityLabel=Genre]/label
+        select: all
+      - name: genre
+        pointer: /moreInfo/meta/*[label=Genre]/items/*/label
+        select: all
+      - name: casting
+        pointer: /moreInfo/meta/*[label=Rôles]/items/*/label
+        select: all
+      - name: casting
+        pointer: /moreInfo/meta/*[label=Présentation]/items/*/label
+        select: all
+      - name: director
+        pointer: /moreInfo/meta/*[label=Réalisation]/items/*/label
+        select: all
+      - name: language
+        pointer: /moreInfo/meta/*[label=Langue]/items/*/label
+        select: all
+        actions: *actions_language_label
+      - name: content-advisor
+        pointer: /ratingIcons/*
+        select: all
+
+      - name: players > name
+        pointer: /primaryButton/playableId
+        actions:
+          - type: format_text
+            argument: "RTL Play"
+      - name: players > resolver > kind
+        pointer: /primaryButton/playableId
+        actions:
+          - type: format_text
+            argument: "rtlplay-video"
+      - name: players > resolver > stream > kind
+        pointer: /primaryButton/playableId
+        actions:
+          - type: format_text
+            argument: "widevine-license-proxy"
+      - name: players > resolver > target_id
+        pointer: /primaryButton/playableId
+
+      - name: season
+        pointer: /seasonPicker/indices/*
+        select: all
+        entries:
+          - name: label
+            actions:
+              - type: format_text
+                argument: "Saison {}"
+          - name: link
+            actions:
+              - type: format_text
+                argument: "{request_url}?selectedSeasonIndex={}"
+
+      - name: episode
+        pointer: /seasonPicker/selected/episodes/*
+        select: all
+        entries: *detail_episode_entries
+
+  - name: get_season
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    request_headers: *rtlplay_request_headers
+    media_types: *media_types_rtlplay
+    row_pointer: /seasonPicker/selected/episodes/*
+    entries:
+      - name: current_page
+        actions:
+          - type: format_text
+            argument: "1"
+      - name: have_more
+        actions:
+          - type: format_text
+            argument: "false"
+      - name: episodes
+        entries: *detail_episode_entries
+
+  - name: list_lives
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{api_root}/storefronts/accueil?temsPerSwimlane=20"
+    request_headers: *rtlplay_request_headers
+    media_types:
+      - video/live
+    row_pointer: /
+    result_item_field: entries
+    entries:
+      - name: entries
+        pointer: /rows/*[rowType=LIVE_CHANNELS]/teasers/*
+        select: all
+        entries: *live_entries
+    post_process:
+      - type: append_static_items
+        target: entries
+        unique_field: link
+        items:
+          - title: RTL tvi
+            key: tvi
+            link: tvi
+            web-link: "{base_url}/rtlplay/direct/tvi"
+            media-type: video/live
+          - title: RTL club
+            key: club
+            link: club
+            web-link: "{base_url}/rtlplay/direct/club"
+            media-type: video/live
+          - title: RTL plug
+            key: plug
+            link: plug
+            web-link: "{base_url}/rtlplay/direct/plug"
+            media-type: video/live
+          - title: bel RTL
+            key: bel
+            link: bel
+            web-link: "{base_url}/rtlplay/direct/bel"
+            media-type: video/live
+          - title: Radio Contact
+            key: contact
+            link: contact
+            web-link: "{base_url}/rtlplay/direct/contact"
+            media-type: video/live
+          - title: RTL District
+            key: RTLdistrict
+            link: RTLdistrict
+            web-link: "{base_url}/rtlplay/direct/RTLdistrict"
+            media-type: video/live
+
+  - name: get_live
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{api_root}/storefronts/accueil?temsPerSwimlane=1&hideBannerRow=true"
+    request_headers: *rtlplay_request_headers
+    media_types:
+      - video/live
+    row_pointer: /
+    entries:
+      - name: players
+        entries:
+          - name: name
+            actions:
+              - type: format_text
+                argument: "RTL Play"
+          - name: resolver
+            entries:
+              - name: kind
+                actions:
+                  - type: format_text
+                    argument: "rtlplay-live"
+              - name: stream
+                entries:
+                  - name: kind
+                    actions:
+                      - type: format_text
+                        argument: "widevine-license-proxy"
+              - name: target_id
+                actions:
+                  - type: format_text
+                    argument: "{channel}"

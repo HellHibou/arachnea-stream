@@ -1,0 +1,7 @@
+/target
+Cargo.lock
+._*
+.DS_Store
+.idea/
+docs/*/
+credentials.json

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-capability",
+  "description": "Allows the main window to access the Tauri core APIs and open safe external URLs.",
+  "windows": ["main"],
+  "permissions": ["core:default", "opener:allow-open-url", "opener:allow-default-urls"]
+}

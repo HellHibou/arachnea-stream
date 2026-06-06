@@ -1,0 +1,34 @@
+profile = "secure"
+
+[server]
+enabled = true
+listen_udp = "127.0.0.1:5353"
+listen_tcp = "127.0.0.1:5353"
+
+[resolver]
+mode = "forwarder"
+timeout_ms = 2000
+retries = 2
+parallel_upstreams = false
+allow_insecure_fallback = false
+upstream_strategy = "fixed_order"
+nxdomain_strategy = "trust_first"
+
+[[upstreams]]
+name = "secure-dot"
+transport = "dot"
+endpoint = { kind = "host_port", value = { host = "dns.quad9.net", port = 853 } }
+timeout_ms = 2000
+verify_tls = true
+
+[security]
+dnssec = "report_only"
+dns_cookies = true
+rate_limit_per_client_per_second = 50
+
+[privacy]
+qname_minimisation = false
+ecs = "disabled"
+odoh = false
+query_padding = false
+log_qnames = false

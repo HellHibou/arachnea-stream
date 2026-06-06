@@ -1,0 +1,25 @@
+# Local HTTP/SOCKS proxy routing outbound traffic through a SOCKS5 upstream.
+
+[server]
+listen_http = "127.0.0.1:8080"
+listen_socks = "127.0.0.1:1080"
+allow_unsafe_public_bind_without_acl = false
+
+[server.network]
+allow_clients = ["127.0.0.0/8", "::1/128"]
+deny_clients = []
+max_connections = 1024
+
+[core]
+profile = "single_forwarder"
+
+[core.routing]
+default_chain = "tor"
+allow_direct_fallback = false
+
+[[core.chains]]
+name = "tor"
+strategy = "fixed_order"
+nodes = [
+  { name = "tor", kind = "socks5", endpoint = "127.0.0.1:9050", dns_resolution = "proxy_then_local_fallback" },
+]

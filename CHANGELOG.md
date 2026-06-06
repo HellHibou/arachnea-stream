@@ -1,0 +1,54 @@
+# Changelog
+
+All notable changes to the server workspace are recorded here. Add new entries at the end of the file so the history remains append-only.
+
+## Unreleased
+
+- Refactored the Rust backend into a Cargo workspace with `arachnea-stream`, `arachnea-core`, and `arachnea-scrapyfy` crates.
+- Moved `arachnea-stream` into `server/crates/arachnea-stream` as a dedicated workspace member.
+- Moved Tauri application configuration, capabilities, and icons into the `arachnea-stream` crate.
+- Renamed `arachnea-stream` resolver module directory from `service` to `services` and moved the stream scraper facade to the crate source root.
+- Converted `TODO.txt` to `TODO.md` and documented maintenance expectations for TODO and changelog updates.
+- Merged the former `NoVPN` Rust workspace into `server`, adding `arachnea-dns`, `arachnea-http`, and `arachnea-proxy` as backend workspace crates.
+- Migrated the former `NoVPN` README and TODO content into the main repository documentation.
+- Removed the standalone `NoVPN` directory after migrating its crates and workspace manifest settings.
+- Decoupled `arachnea-core` from `arachnea-stream` Tauri application paths by moving generated Tauri context ownership to `arachnea-stream` and passing app-specific scheme, API prefix, and embedded assets into the core Tauri controller.
+- Documented cross-platform build commands and platform-specific CMake installation notes for Windows, macOS, and Linux.
+- Replaced direct backend `reqwest` usage with `rquest`, including scraper, stream resolver, DNS-over-HTTPS, and proxy loopback paths.
+- Added per-request `arachnea-http` modes for direct `rquest`, automatic Cloudflare fallback, Ghostwire-backed smart refresh, and browser-backed Cloudflare refresh with feature-gated solver selection.
+- Made browser-backed Cloudflare refresh bypass engine-specific session caches after an active block so the fallback can open a fresh solver window.
+- Added `ArachneaHttpClient::default().await?` as a default-configuration convenience constructor.
+- Documented the planned `arachnea-scrapyfy` HTTP wrapper migration to `arachnea-http`.
+- Migrated `arachnea-scrapyfy::HttpClient` onto `arachnea-http`, including facade-managed redirects, shared cookies, YAML HTTP modes and user-agent configuration, and removal of the scraper GET response cache.
+- Fixed RTL Play SSO callback extraction when the login redirect is carried in the `#/continue` URL fragment.
+- Fixed RTL Play SSO authentication by preserving the `rquest` cookie jar for the final OIDC exchange instead of rebuilding the `Cookie` header manually.
+- Aligned `arachnea-scrapyfy` feature forwarding so Cloudflare solver features enable `ghostwire` and propagate to `arachnea-http`.
+- Allowed the Tauri/Wry Cloudflare solver to create its Tao event loop from Windows server worker threads.
+- Updated the Cloudflare hybrid example to demonstrate direct browser-response solver selection without forcing a current-thread Tokio runtime.
+- Deferred Tauri/Wry solver navigation until the WebView event loop starts to avoid blank WebView2 solver windows.
+- Switched the Cloudflare hybrid chaser-cf example path to direct browser-response mode instead of rquest cookie handoff.
+- Documented the Tauri/Wry Cloudflare solver configuration helper.
+- Documented the shared backend logger initialization helper.
+- Reworked chaser-cf direct browser sends to solve Cloudflare and collect GET HTML from the same Chrome page, removing the page-source collection toggle.
+- Made chaser-cf direct browser sends reload the target URL after `cf_clearance` before collecting HTML, avoiding Cloudflare interstitial bodies.
+- Made chaser-cf direct browser sends wait for a complete and stable final DOM before returning GET HTML.
+- Fixed `ChaserCfEngine::default()` compilation by keeping default chaser-cf construction synchronous while preserving lazy browser initialization.
+- Added release-profile logger fallback override support through `set_default_log_level_release!`.
+- Centralized automatic browser-backed Cloudflare solver selection behind `get_default_cloudflare_solver` while keeping explicit solver overrides available.
+- Reworked the chaser-cf adapter to keep Cloudflare solving and stable HTML capture in a single browser tab with automatic Turnstile clicks.
+- Added a browser-solver response fallback when Cloudflare rejects the `rquest` cookie handoff after a browser-backed solve.
+- Added a direct `chaser-oxide` dependency for the chaser-cf adapter's single-tab browser control path.
+- Fixed Tauri/Wry Cloudflare solver teardown so verification windows are destroyed before the solver event loop exits.
+- Added a shared main-thread dispatcher abstraction and installed controller-backed dispatchers for REST and Tauri runtimes.
+- Routed the Tauri/Wry Cloudflare solver through the shared main-thread dispatcher, using Tauri `WebviewWindow` sessions inside desktop runtimes and the Wry event loop on REST main-thread dispatchers.
+- Kept desktop Tauri Cloudflare handoff user-agents aligned and waited longer after `cf_clearance` before closing solver windows.
+- Added a restricted desktop Tauri solver capability so Cloudflare solver windows can return their final page state before closing.
+- Added YAML service metadata support, a generic `scraper_type: static` query, a `get_service` backend endpoint, and frontend source metadata rendering.
+- Moved frontend source logos out of action buttons and into media hover/details artwork overlays.
+- Allowed static scraper values to emit multiple YAML values and accepted list-form query parameter mappings.
+- Fixed media card poster overlays so the audio badge sits to the left of the source logo when both are visible.
+- Documented the planned frontend localization layer and dynamic theme filter migration.
+- Added frontend localization assets, runtime language selection, and metadata-driven search filter labels.
+- Fixed the frontend production build by removing top-level await from the app bootstrap path.
+- Documented the French Animes DarkStream YAML implementation and normalized the new DarkStream YAML media-type formatting.
+- Added Anime Ultime playlist extraction in `get_entry` so player-backed episodes expose direct video links for the internal player.

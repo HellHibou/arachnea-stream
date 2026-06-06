@@ -1,0 +1,61 @@
+profile = "advanced"
+
+[server]
+enabled = true
+listen_udp = "127.0.0.1:5353"
+listen_tcp = "127.0.0.1:5353"
+
+[server.network]
+allow_clients = ["127.0.0.1/32"]
+deny_clients = []
+allow_recursion = ["127.0.0.1/32"]
+
+[resolver]
+mode = "forwarder"
+timeout_ms = 2000
+retries = 2
+parallel_upstreams = false
+allow_insecure_fallback = false
+upstream_strategy = "fixed_order"
+nxdomain_strategy = "trust_first"
+# Used when mode = "recursive"; direct list wins over file, file wins over embedded defaults.
+# root_hints_file = "/etc/arachnea/root_hints.txt"
+# root_hints = ["198.41.0.4", "2001:503:ba3e::2:30"]
+
+[[upstreams]]
+name = "local-lab"
+transport = "udp"
+endpoint = { kind = "socket", value = "192.0.2.53:53" }
+timeout_ms = 2000
+verify_tls = true
+
+[privacy]
+qname_minimisation = false
+ecs = "disabled"
+odoh = false
+query_padding = false
+log_qnames = false
+
+[security]
+dnssec = "off"
+dns_cookies = false
+rate_limit_per_client_per_second = 50
+
+[cache]
+enabled = true
+max_entries = 100000
+min_ttl_seconds = 0
+max_ttl_seconds = 86400
+negative_cache = true
+serve_stale = true
+max_stale_seconds = 86400
+stale_response_ttl_seconds = 30
+
+[[local_records]]
+name = "home.internal"
+records = ["A 192.168.1.10 300", "AAAA fd00::10 300"]
+
+[[blocklists]]
+name = "local-ads"
+source = "ads.example"
+action = "nxdomain"

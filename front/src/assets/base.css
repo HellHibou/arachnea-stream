@@ -1,0 +1,33 @@
+@import './variables.css';
+
+:root {
+  color-scheme: dark;
+  font-family:
+    'Avenir Next',
+    'Montserrat',
+    'Segoe UI',
+    sans-serif;
+  background: var(--bg-base);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+}
+
+html,
+body {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+body {
+  line-height: 1.5;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: var(--bg-base);
+  color: var(--text-primary);
+}

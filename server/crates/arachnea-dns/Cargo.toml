@@ -1,0 +1,64 @@
+[package]
+name = "arachnea-dns"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["core", "dot", "doh", "doq", "dnssec", "odoh" ]
+core = ["recursive"]
+server = ["core"]
+recursive = []
+dot = ["dep:rustls", "dep:tokio-rustls", "dep:webpki-roots"]
+doh = ["dep:rquest"]
+doq = ["dep:hickory-resolver", "hickory-resolver/quic-ring", "hickory-resolver/webpki-roots"]
+odoh = []
+dnssec = ["dep:hickory-resolver", "hickory-resolver/dnssec-ring"]
+android = []
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+clap.workspace = true
+hickory-proto.workspace = true
+hickory-resolver = { workspace = true, optional = true }
+ipnet.workspace = true
+rquest = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-rustls = { workspace = true, optional = true }
+toml.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+webpki-roots = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[[bin]]
+name = "arachnea-dns-server"
+path = "src/server/bin/arachnea-dns-server.rs"
+required-features = ["server"]
+
+[[example]]
+name = "single_forwarder"
+required-features = ["core", "doh"]
+
+[[example]]
+name = "privacy"
+required-features = ["core", "doh"]
+
+[[example]]
+name = "secure"
+required-features = ["core", "doh", "dnssec"]
+
+[[example]]
+name = "dnssec"
+required-features = ["core", "dnssec"]
+
+[[example]]
+name = "doq"
+required-features = ["core", "doq"]
