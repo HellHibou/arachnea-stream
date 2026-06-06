@@ -17,8 +17,8 @@ pub mod actions;
 pub use actions::{GetDateSource, GetDateSources, ScraperAction};
 
 /// Post-process transformations applied after raw extraction.
-pub mod scraper_post_process;
-pub use scraper_post_process::{ScraperPostProcess, ScraperPostProcessContext};
+pub mod post_processes;
+pub use post_processes::{ScraperPostProcess, ScraperPostProcessContext};
 
 /// HTML field extractor definitions.
 pub mod html_scraper_entry;
