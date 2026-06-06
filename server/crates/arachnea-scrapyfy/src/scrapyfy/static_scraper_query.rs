@@ -9,9 +9,12 @@ use crate::scrapyfy::query_helpers;
 /// Raw configuration definition of one static field or list of static objects.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StaticScraperEntryRaw {
+    /// Entry name, supporting `>`-separated hierarchical paths.
     pub name: String,
+    /// Optional scalar YAML value rendered through template placeholders.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<Value>,
+    /// Optional list of static objects whose values are also template-rendered.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub items: Vec<HashMap<String, Value>>,
 }
@@ -19,9 +22,12 @@ pub struct StaticScraperEntryRaw {
 /// Raw configuration definition for a static query.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StaticScraperQueryRaw {
+    /// Query identifier used as the lookup key in a collection.
     pub name: String,
+    /// Content types this query produces.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub media_types: Vec<String>,
+    /// Static entries rendered at query execution time.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub entries: Vec<StaticScraperEntryRaw>,
 }
@@ -32,6 +38,16 @@ impl StaticScraperQueryRaw {
         self.name.clone()
     }
 
+    /// Validates that all template placeholders in entry values can be resolved
+    /// against the collection-level parameters.
+    ///
+    /// # Arguments
+    ///
+    /// * `params` - Collection-level template parameters.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a placeholder is missing from `params`.
     pub(crate) fn resolve_collection_params(
         &mut self,
         params: &HashMap<String, String>,
@@ -79,6 +95,17 @@ pub struct StaticScraperQuery {
 
 impl StaticScraperQuery {
     /// Creates a static query from validated configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Query identifier used as the lookup key in a collection.
+    /// * `media_types` - Content types this query produces.
+    /// * `entries` - Static entries rendered at query execution time.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the name is empty, an entry name is empty, or an
+    /// entry defines both `value` and `items`.
     pub fn try_new(
         name: String,
         media_types: Vec<String>,
@@ -147,6 +174,15 @@ impl StaticScraperQuery {
     }
 
     /// Executes the static query and returns one row.
+    ///
+    /// Template placeholders in entry values are resolved against the provided
+    /// parameters. The result is filtered out when it does not match `fields_filters`.
+    ///
+    /// # Arguments
+    ///
+    /// * `params` - Runtime parameters used to resolve template placeholders.
+    /// * `fields_filters` - Optional per-field filter list; when present the row is
+    ///   discarded if it does not match.
     pub async fn execute_query(
         &self,
         params: &HashMap<String, String>,
@@ -189,12 +225,18 @@ impl StaticScraperQuery {
 impl TryFrom<StaticScraperQueryRaw> for StaticScraperQuery {
     type Error = anyhow::Error;
 
+    /// Converts a raw static query definition into a validated runtime query.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the name is empty or entries are inconsistent.
     fn try_from(config: StaticScraperQueryRaw) -> Result<Self> {
         StaticScraperQuery::try_new(config.name, config.media_types, config.entries)
     }
 }
 
 impl From<&StaticScraperQuery> for StaticScraperQueryRaw {
+    /// Converts a runtime static query back into its raw YAML representation.
     fn from(query: &StaticScraperQuery) -> Self {
         Self {
             name: query.name.clone(),
@@ -205,6 +247,7 @@ impl From<&StaticScraperQuery> for StaticScraperQueryRaw {
 }
 
 impl Serialize for StaticScraperQuery {
+    /// Serializes the static query through its raw YAML representation.
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -213,6 +256,11 @@ impl Serialize for StaticScraperQuery {
     }
 }
 
+/// Splits a `>`-separated path into trimmed, non-empty segments.
+///
+/// # Arguments
+///
+/// * `path` - Hierarchical path string.
 fn split_static_path(path: &str) -> Vec<&str> {
     path.split('>')
         .map(str::trim)
@@ -220,10 +268,22 @@ fn split_static_path(path: &str) -> Vec<&str> {
         .collect()
 }
 
+/// Renders a single template string through the query parameter set.
+///
+/// # Arguments
+///
+/// * `value` - Template string containing `{placeholder}` tokens.
+/// * `params` - Runtime parameters used for placeholder resolution.
 fn render_static_value(value: &str, params: &HashMap<String, String>) -> Result<String> {
     query_helpers::format_query_template("", value, params)
 }
 
+/// Renders one YAML value into an optional string, returning `None` for null values.
+///
+/// # Arguments
+///
+/// * `value` - YAML value to convert and render.
+/// * `params` - Runtime parameters used for placeholder resolution.
 fn render_yaml_value(value: &Value, params: &HashMap<String, String>) -> Result<Option<String>> {
     let Some(value) = yaml_value_to_template(value) else {
         return Ok(None);
@@ -232,6 +292,12 @@ fn render_yaml_value(value: &Value, params: &HashMap<String, String>) -> Result<
     Ok(Some(render_static_value(&value, params)?))
 }
 
+/// Renders a YAML value into a list of strings, expanding sequences element by element.
+///
+/// # Arguments
+///
+/// * `value` - YAML value to convert and render.
+/// * `params` - Runtime parameters used for placeholder resolution.
 fn render_yaml_values(value: &Value, params: &HashMap<String, String>) -> Result<Vec<String>> {
     yaml_value_to_templates(value)
         .into_iter()
@@ -239,6 +305,11 @@ fn render_yaml_values(value: &Value, params: &HashMap<String, String>) -> Result
         .collect()
 }
 
+/// Extracts template strings from a YAML value, expanding sequences into individual entries.
+///
+/// # Arguments
+///
+/// * `value` - YAML value to extract templates from.
 fn yaml_value_to_templates(value: &Value) -> Vec<String> {
     match value {
         Value::Null => Vec::new(),
@@ -247,6 +318,12 @@ fn yaml_value_to_templates(value: &Value) -> Vec<String> {
     }
 }
 
+/// Converts a single YAML value into a template string, returning `None` for null
+/// and serializing complex types as JSON.
+///
+/// # Arguments
+///
+/// * `value` - YAML value to convert.
 fn yaml_value_to_template(value: &Value) -> Option<String> {
     match value {
         Value::Null => None,

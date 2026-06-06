@@ -25,6 +25,10 @@ pub struct ScraperDataNode {
 
 impl ScraperDataNode {
     /// Creates a node containing only values and no children.
+    ///
+    /// # Arguments
+    ///
+    /// * `values` - Scalar values stored directly on the new node.
     pub fn from_values(values: Vec<String>) -> Self {
         Self {
             values,
@@ -35,7 +39,10 @@ impl ScraperDataNode {
 
     /// Pushes one scalar value under the provided `>`-split path.
     ///
+    /// Intermediate child nodes are created on demand.
+    ///
     /// # Arguments
+    ///
     /// * `path` - Ordered path segments where the value is stored.
     /// * `value` - Value appended to the resolved target node.
     pub fn push_value(&mut self, path: &[&str], value: String) {
@@ -52,6 +59,13 @@ impl ScraperDataNode {
     }
 
     /// Appends one nested node under the provided path as an explicit array item.
+    ///
+    /// Intermediate child nodes are created on demand.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Ordered path segments where the node is stored.
+    /// * `node` - Nested data node appended to the resolved target.
     pub fn push_node(&mut self, path: &[&str], node: ScraperDataNode) {
         if path.is_empty() {
             return;
@@ -69,6 +83,10 @@ impl ScraperDataNode {
     ///
     /// Scalar values and explicit items are appended, while child nodes are
     /// merged recursively by key.
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - Node whose values, children, and items are merged into `self`.
     pub fn merge(&mut self, other: ScraperDataNode) {
         self.values.extend(other.values);
 
@@ -79,6 +97,11 @@ impl ScraperDataNode {
         self.items.extend(other.items);
     }
 
+    /// Returns the aligned array length when the node can be serialized as a
+    /// flat array of objects, or `None` otherwise.
+    ///
+    /// A node qualifies when it has no explicit items, at least two children
+    /// without nested children, and the maximum child value count exceeds one.
     fn array_len(&self) -> Option<usize> {
         if !self.items.is_empty() {
             return None;
@@ -112,6 +135,8 @@ impl ScraperDataNode {
 }
 
 impl Serialize for ScraperDataNode {
+    /// Serializes the node through its raw representation, choosing the most
+    /// compact JSON shape.
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -120,6 +145,10 @@ impl Serialize for ScraperDataNode {
     }
 }
 
+/// Raw JSON-compatible representation of a [`ScraperDataNode`].
+///
+/// The `#[serde(untagged)]` attribute lets serde pick the first variant that
+/// deserializes successfully, which mirrors the serialization shape.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 enum ScraperDataNodeRaw {
@@ -131,6 +160,9 @@ enum ScraperDataNodeRaw {
 }
 
 impl From<&ScraperDataNode> for ScraperDataNodeRaw {
+    /// Converts a runtime node into its raw JSON shape, selecting the most
+    /// compact representation (null, values array, flat array of objects,
+    /// nested array, or plain object).
     fn from(node: &ScraperDataNode) -> Self {
         if !node.items.is_empty() {
             return ScraperDataNodeRaw::Array(
@@ -180,6 +212,7 @@ impl From<&ScraperDataNode> for ScraperDataNodeRaw {
 }
 
 impl From<ScraperDataNode> for ScraperDataNodeRaw {
+    /// Converts an owned node into its raw JSON shape.
     fn from(node: ScraperDataNode) -> Self {
         ScraperDataNodeRaw::from(&node)
     }
@@ -188,6 +221,12 @@ impl From<ScraperDataNode> for ScraperDataNodeRaw {
 impl TryFrom<ScraperDataNodeRaw> for ScraperDataNode {
     type Error = String;
 
+    /// Converts a raw JSON representation back into a runtime [`ScraperDataNode`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a `_` key inside an object variant does not hold
+    /// a string array.
     fn try_from(raw: ScraperDataNodeRaw) -> Result<Self, Self::Error> {
         match raw {
             ScraperDataNodeRaw::Null => Ok(ScraperDataNode::default()),

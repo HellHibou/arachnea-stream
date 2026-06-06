@@ -9,18 +9,28 @@ use urlencoding::encode;
 
 use super::ScraperDataNode;
 
+/// Compiled regex matching `{placeholder}` tokens in template strings.
 static PLACEHOLDER_REGEX: OnceLock<Regex> = OnceLock::new();
 
+/// Defines how one source parameter is mapped into a target parameter through
+/// a value translation table.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryTemplateParamMapping {
+    /// Output parameter name receiving the mapped value.
     pub target_param: String,
+    /// Input parameter name whose comma-separated values are translated.
     pub source_param: String,
+    /// Translation table mapping each source value to its target replacement.
+    /// A `{}` token in the replacement is substituted with the URL-encoded source value.
     #[serde(deserialize_with = "deserialize_mapping_values")]
     pub values: HashMap<String, String>,
+    /// Suffix appended to every translated item before concatenation.
     #[serde(default)]
     pub item_suffix: String,
 }
 
+/// Intermediate deserialization helper that accepts either a single map or a list
+/// of maps for the `values` field of [`QueryTemplateParamMapping`].
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum QueryTemplateParamMappingValues {
@@ -28,6 +38,14 @@ enum QueryTemplateParamMappingValues {
     MapList(Vec<HashMap<String, String>>),
 }
 
+/// Deserializes the `values` field accepting both a single map and a list of maps.
+///
+/// When a list is provided, all entries are flattened into a single map with
+/// later entries overriding earlier ones.
+///
+/// # Arguments
+///
+/// * `deserializer` - Serde deserializer reading the YAML/JSON value.
 fn deserialize_mapping_values<'de, D>(deserializer: D) -> Result<HashMap<String, String>, D::Error>
 where
     D: Deserializer<'de>,
@@ -42,6 +60,17 @@ where
     )
 }
 
+/// Applies parameter mappings to produce a resolved template parameter map.
+///
+/// Each mapping takes a comma-separated source parameter, translates each
+/// fragment through the mapping's value table (URL-encoding it when `{}` is
+/// present), appends the item suffix, and inserts the concatenated result
+/// under the target parameter name.
+///
+/// # Arguments
+///
+/// * `params` - Runtime template parameters to read source values from.
+/// * `mappings` - Ordered list of parameter mappings to apply.
 pub fn build_template_params(
     params: &HashMap<String, String>,
     mappings: &[QueryTemplateParamMapping],
@@ -112,6 +141,11 @@ pub fn resolve_required_template(
 }
 
 /// Returns the resolved template when present, otherwise the original template.
+///
+/// # Arguments
+///
+/// * `template` - Original template string used as fallback.
+/// * `resolved` - Optional pre-resolved value.
 pub fn resolved_or_template(template: &str, resolved: Option<String>) -> String {
     resolved.unwrap_or_else(|| template.to_string())
 }
@@ -120,6 +154,11 @@ pub fn resolved_or_template(template: &str, resolved: Option<String>) -> String 
 ///
 /// Missing keys are preserved verbatim in the rendered output and returned as a
 /// deduplicated list.
+///
+/// # Arguments
+///
+/// * `template` - Template string containing `{placeholder}` tokens.
+/// * `params` - Runtime parameters used to replace placeholders.
 pub fn replace_template_placeholders(
     template: &str,
     params: &HashMap<String, String>,
@@ -147,6 +186,12 @@ pub fn replace_template_placeholders(
     (rendered, missing_keys)
 }
 
+/// Iteratively resolves nested template placeholders until no further expansion
+/// occurs, preventing infinite loops by capping at `params.len() + 1` passes.
+///
+/// # Arguments
+///
+/// * `params` - Template parameters that may reference other parameters.
 fn resolve_nested_template_params(params: &HashMap<String, String>) -> HashMap<String, String> {
     let mut resolved = params.clone();
     let max_iterations = resolved.len().saturating_add(1);
@@ -175,6 +220,16 @@ fn resolve_nested_template_params(params: &HashMap<String, String>) -> HashMap<S
 /// Replaces `{placeholders}` in a query template with runtime parameters.
 ///
 /// `{base_url}` is reserved and always resolved from `base_url`.
+///
+/// # Arguments
+///
+/// * `base_url` - Base URL injected as `{base_url}` when absent from `params`.
+/// * `template` - Query URL template containing `{placeholder}` tokens.
+/// * `params` - Runtime parameters used to replace placeholders.
+///
+/// # Errors
+///
+/// Returns an error if any placeholder is missing from the resolved parameter set.
 pub fn format_query_template(
     base_url: &str,
     template: &str,
@@ -197,6 +252,12 @@ pub fn format_query_template(
 /// Builds the runtime template map used by query URLs and actions.
 ///
 /// This applies query-specific param mappings and always exposes `{base_url}`.
+///
+/// # Arguments
+///
+/// * `base_url` - Base URL injected as `{base_url}` when absent from `params`.
+/// * `params` - Runtime parameters to apply mappings against.
+/// * `mappings` - Query-specific parameter mappings to apply.
 pub fn build_query_execution_params(
     base_url: &str,
     params: &HashMap<String, String>,
@@ -213,6 +274,10 @@ pub fn build_query_execution_params(
 ///
 /// This helper is used when a root query needs to resolve request headers or a
 /// request body before any remote payload exists.
+///
+/// # Arguments
+///
+/// * `params` - Runtime template parameters to convert.
 pub fn build_params_json_value(params: &HashMap<String, String>) -> Value {
     let mut entries = serde_json::Map::new();
 
@@ -224,6 +289,14 @@ pub fn build_params_json_value(params: &HashMap<String, String>) -> Value {
 }
 
 /// Returns whether one root node should be filtered out using root-level filters.
+///
+/// A root is considered filtered when any required key is missing or when no
+/// value for a required key matches the expected list.
+///
+/// # Arguments
+///
+/// * `root` - Extracted data node to test.
+/// * `fields_filters` - Map of field names to acceptable value lists.
 pub fn is_root_filtered(
     root: &ScraperDataNode,
     fields_filters: &HashMap<String, Vec<String>>,

@@ -25,6 +25,7 @@ pub struct ScraperAggregatorSourceEntry {
     pub parameters: Vec<ScraperQueryCollectionParameter>,
 }
 
+/// Returns `true` — the default enabled state for a source entry.
 fn default_enabled() -> bool {
     true
 }
@@ -174,6 +175,10 @@ impl ScraperAgregator {
     }
 
     /// Returns the configured parameters for one loaded source.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Source name to look up.
     pub fn query_collection_parameters(
         &self,
         name: &str,
@@ -186,6 +191,10 @@ impl ScraperAgregator {
 
     #[cfg(any(test, feature = "test-support"))]
     /// Returns one loaded query collection by source name.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Source name to look up.
     pub fn get_query_collection(&self, name: &str) -> Option<&ScraperQueryCollection> {
         for entry in &self.queries_collection {
             if entry.name() == name {
@@ -202,6 +211,7 @@ impl ScraperAgregator {
     ///
     /// * `query_name` - Name of the query to execute on every configured source.
     /// * `params` - Runtime values passed to each source-specific query template.
+    /// * `source_params` - Optional per-source parameter overrides merged into `params`.
     /// * `scrapper_list` - Optional list of source names to execute. When `None`, every
     ///   configured source is queried.
     /// * `query_media_type_filter` - Filter on media_type query.

@@ -132,6 +132,13 @@ impl HtmlScraperEntry {
         names
     }
 
+    /// Recursively collects leaf field names into `names`, prefixing each with the
+    /// group hierarchy separated by ` > `.
+    ///
+    /// # Arguments
+    ///
+    /// * `prefix` - Optional group path prefix prepended to each collected name.
+    /// * `names` - Accumulator receiving the collected field names.
     #[cfg(any(test, feature = "test-support"))]
     fn collect_field_names(&self, prefix: Option<&str>, names: &mut Vec<String>) {
         let full_name = match prefix {
@@ -206,6 +213,18 @@ impl HtmlScraperEntry {
         }
     }
 
+    /// Parses an optional CSS selector string into a compiled [`scraper::Selector`].
+    ///
+    /// Returns `None` when the input is `None` or empty.
+    ///
+    /// # Arguments
+    ///
+    /// * `_name` - Entry name kept for consistent call-site signatures but unused here.
+    /// * `selector` - Raw CSS selector string to compile.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `selector` is non-empty but not a valid CSS selector.
     fn parse_selector(_name: &str, selector: Option<&str>) -> Result<Option<scraper::Selector>> {
         let selector = match selector {
             Some(selector) if !selector.trim().is_empty() => Some(
@@ -218,6 +237,16 @@ impl HtmlScraperEntry {
         Ok(selector)
     }
 
+    /// Validates every action in the entry against the entry-level contract.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Entry name used in diagnostic messages.
+    /// * `actions` - Ordered extraction steps to validate.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any action fails validation for the `"entry"` context.
     fn validate_actions(name: &str, actions: &[ScraperAction]) -> Result<()> {
         for action in actions {
             action.validate(name, "entry")?;
@@ -226,12 +255,24 @@ impl HtmlScraperEntry {
         Ok(())
     }
 
+    /// Normalizes an optional selector template by trimming and discarding empty strings.
+    ///
+    /// # Arguments
+    ///
+    /// * `selector` - Raw selector template string to normalize.
     fn normalize_selector_template(selector: Option<&str>) -> Option<String> {
         selector
             .filter(|selector| !selector.trim().is_empty())
             .map(str::to_string)
     }
 
+    /// Produces the CSS selector string used during serialization, preferring
+    /// the original template when available and falling back to the compiled selector.
+    ///
+    /// # Arguments
+    ///
+    /// * `selector_template` - Original template string preserved from YAML.
+    /// * `selector` - Compiled CSS selector used at runtime.
     fn serialize_selector(
         selector_template: &Option<String>,
         selector: &Option<scraper::Selector>,
@@ -241,6 +282,20 @@ impl HtmlScraperEntry {
             .or_else(|| selector.as_ref().map(Selector::to_css_string))
     }
 
+    /// Builds a [`HtmlScraperEntry::Field`] variant with an optional CSS selector.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Output field name used in the extracted metadata map.
+    /// * `selector_template` - Original template string kept for serialization.
+    /// * `resolved_selector` - Resolved CSS selector compiled at construction time.
+    /// * `select` - Whether to use the first match or all matches.
+    /// * `actions` - Ordered extraction steps executed on the selected node.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `resolved_selector` is not a valid CSS selector or if
+    /// any action fails validation.
     fn try_new_field_with_optional_selector(
         name: &str,
         selector_template: Option<&str>,
@@ -259,6 +314,19 @@ impl HtmlScraperEntry {
         })
     }
 
+    /// Builds a [`HtmlScraperEntry::Group`] variant with an optional CSS selector.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Group name used to build the output path.
+    /// * `selector_template` - Original template string kept for serialization.
+    /// * `resolved_selector` - Resolved CSS selector compiled at construction time.
+    /// * `select` - Whether to use the first match or all matches.
+    /// * `entries` - Child entries applied to each matched element.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `resolved_selector` is not a valid CSS selector.
     fn try_new_group_with_optional_selector(
         name: &str,
         selector_template: Option<&str>,
@@ -275,6 +343,16 @@ impl HtmlScraperEntry {
         })
     }
 
+    /// Iterates over the CSS selector matches on `card` and invokes `callback` for each.
+    ///
+    /// When no selector is provided the callback is invoked once on the card itself.
+    ///
+    /// # Arguments
+    ///
+    /// * `selector` - Compiled CSS selector applied to the card element.
+    /// * `select` - Whether to use the first match or all matches.
+    /// * `card` - Root HTML element to search within.
+    /// * `callback` - Function invoked for each selected element.
     fn for_each_selected<F>(
         selector: &Option<scraper::Selector>,
         select: HtmlScraperSelectMode,
@@ -302,6 +380,12 @@ impl HtmlScraperEntry {
 impl TryFrom<HtmlScraperEntryRaw> for HtmlScraperEntry {
     type Error = anyhow::Error;
 
+    /// Converts a raw YAML entry definition into a validated runtime entry.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the entry defines both `actions` and `entries`,
+    /// or when it defines neither.
     fn try_from(config: HtmlScraperEntryRaw) -> Result<Self> {
         let HtmlScraperEntryRaw {
             name,
@@ -342,6 +426,7 @@ impl TryFrom<HtmlScraperEntryRaw> for HtmlScraperEntry {
 }
 
 impl From<&HtmlScraperEntry> for HtmlScraperEntryRaw {
+    /// Converts a runtime entry back into its raw YAML-compatible representation.
     fn from(entry: &HtmlScraperEntry) -> Self {
         match entry {
             HtmlScraperEntry::Field {
@@ -377,6 +462,7 @@ impl From<&HtmlScraperEntry> for HtmlScraperEntryRaw {
 }
 
 impl Serialize for HtmlScraperEntry {
+    /// Serializes the entry through its raw YAML representation.
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,

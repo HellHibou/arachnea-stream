@@ -10,13 +10,21 @@ use super::*;
 /// One collection-level default parameter available to every query.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScraperQueryCollectionParameter {
+    /// Parameter name used as a `{placeholder}` in query templates.
     pub name: String,
+    /// Default value for this parameter.
     pub value: String,
+    /// Optional human-readable description of the parameter's purpose.
     #[serde(default)]
     pub description: Option<String>,
 }
 
 impl ScraperQueryCollectionParameter {
+    /// Validates and normalizes this parameter, returning the trimmed name and raw value.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the parameter name is empty after trimming.
     fn validate_and_normalize(&self) -> Result<(String, String)> {
         let parameter_name = self.name.trim();
         if parameter_name.is_empty() {
@@ -31,18 +39,25 @@ impl ScraperQueryCollectionParameter {
 /// Raw configuration structure describing the queries available for one source.
 #[derive(Serialize, Deserialize)]
 pub struct ScraperQueryCollectionRaw {
+    /// Unique source identifier.
     #[serde(alias = "name")]
     pub id: String,
+    /// Optional human-readable title for the source.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    /// Optional logo URL or path for the source.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub logo: Option<String>,
+    /// Optional multi-language description map.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub description: HashMap<String, String>,
+    /// Collection-level default parameters merged into every query execution.
     #[serde(default, alias = "parametres", skip_serializing_if = "Vec::is_empty")]
     pub parameters: Vec<ScraperQueryCollectionParameter>,
+    /// HTTP configuration shared across all queries in this collection.
     #[serde(default, skip_serializing_if = "ScraperHttpConfig::is_empty")]
     pub http: ScraperHttpConfig,
+    /// Query definitions available for this source.
     pub queries: Vec<ScraperQueryDefinitionRaw>,
 }
 
@@ -74,6 +89,11 @@ impl ScraperQueryDefinitionRaw {
         }
     }
 
+    /// Resolves collection-level placeholders in the inner query configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `params` - Collection-level template parameters used for placeholder resolution.
     fn resolve_collection_params(&mut self, params: &HashMap<String, String>) -> Result<()> {
         match self {
             ScraperQueryDefinitionRaw::Html { query } => query.resolve_collection_params(params),
@@ -82,6 +102,11 @@ impl ScraperQueryDefinitionRaw {
         }
     }
 
+    /// Propagates the collection-level HTTP configuration into the inner query.
+    ///
+    /// # Arguments
+    ///
+    /// * `http` - HTTP configuration inherited from the parent collection.
     fn apply_collection_http(&mut self, http: &ScraperHttpConfig) {
         match self {
             ScraperQueryDefinitionRaw::Html { query } => query.apply_collection_http(http),
@@ -91,7 +116,7 @@ impl ScraperQueryDefinitionRaw {
     }
 }
 
-/// Runtime query wrapper supporting both HTML and JSON scraping backends.
+/// Runtime query wrapper supporting both HTML, JSON, and static scraping backends.
 #[derive(Deserialize)]
 #[serde(try_from = "ScraperQueryDefinitionRaw")]
 pub enum ScraperQueryDefinition {
@@ -130,6 +155,9 @@ impl ScraperQueryDefinition {
     }
 
     /// Executes the query and returns the extracted rows.
+    ///
+    /// When `result_item_field` is set, the returned rows are flattened by
+    /// promoting the group's items to top-level entries.
     pub async fn execute_query(
         &self,
         params: &HashMap<String, String>,
@@ -156,6 +184,12 @@ impl ScraperQueryDefinition {
     }
 }
 
+/// Flattens a group field's items into top-level entries when `result_item_field` is set.
+///
+/// # Arguments
+///
+/// * `rows` - Original query result rows.
+/// * `target` - Name of the group field whose items should become top-level entries.
 fn flatten_result_item_field(
     rows: Vec<HashMap<String, ScraperDataNode>>,
     target: &str,
@@ -182,6 +216,11 @@ fn flatten_result_item_field(
 impl TryFrom<ScraperQueryDefinitionRaw> for ScraperQueryDefinition {
     type Error = anyhow::Error;
 
+    /// Converts a raw query definition into its validated runtime variant.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the inner query definition is invalid.
     fn try_from(config: ScraperQueryDefinitionRaw) -> Result<Self> {
         match config {
             ScraperQueryDefinitionRaw::Html { query } => Ok(Self::Html(query.try_into()?)),
@@ -192,6 +231,7 @@ impl TryFrom<ScraperQueryDefinitionRaw> for ScraperQueryDefinition {
 }
 
 impl From<&ScraperQueryDefinition> for ScraperQueryDefinitionRaw {
+    /// Converts a runtime query definition back into its raw YAML-compatible representation.
     fn from(query: &ScraperQueryDefinition) -> Self {
         match query {
             ScraperQueryDefinition::Html(query) => Self::Html {
@@ -208,6 +248,7 @@ impl From<&ScraperQueryDefinition> for ScraperQueryDefinitionRaw {
 }
 
 impl Serialize for ScraperQueryDefinition {
+    /// Serializes the query definition through its raw YAML representation.
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -235,6 +276,9 @@ impl ScraperQueryCollection {
     /// # Arguments
     ///
     /// * `name` - Collection name, typically matching the source identifier.
+    /// * `title` - Human-readable title for the source.
+    /// * `logo` - Logo URL or path for the source.
+    /// * `description` - Multi-language description map.
     /// * `parameters` - Collection-level default parameters merged into every execution.
     /// * `parameter_defaults` - Validated parameter defaults indexed by parameter name.
     /// * `queries` - Query definitions indexed by their individual names.
@@ -276,6 +320,10 @@ impl ScraperQueryCollection {
 
     #[cfg(any(test, feature = "test-support"))]
     /// Returns one query definition by name for test assertions.
+    ///
+    /// # Arguments
+    ///
+    /// * `query_name` - Name of the query to look up.
     pub fn get_query(&self, query_name: &str) -> Option<&ScraperQueryDefinition> {
         return self.queries.get(query_name);
     }
@@ -373,6 +421,15 @@ impl ScraperQueryCollection {
         }
     }
 
+    /// Validates all collection parameters and builds a defaults map.
+    ///
+    /// # Arguments
+    ///
+    /// * `parameters` - Collection-level parameters to validate.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a parameter name is empty or if duplicate names exist.
     fn build_parameter_defaults(
         parameters: &[ScraperQueryCollectionParameter],
     ) -> Result<HashMap<String, String>> {
@@ -392,6 +449,14 @@ impl ScraperQueryCollection {
         Ok(defaults)
     }
 
+    /// Builds service metadata defaults from the collection identity and description.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Source identifier.
+    /// * `title` - Human-readable source title.
+    /// * `logo` - Logo URL or path.
+    /// * `description` - Multi-language description map serialized as JSON.
     fn build_service_metadata_defaults(
         id: &str,
         title: &str,
@@ -409,6 +474,12 @@ impl ScraperQueryCollection {
         Ok(defaults)
     }
 
+    /// Merges collection parameter defaults with runtime parameters, then
+    /// enriches the result with pagination and query separator helpers.
+    ///
+    /// # Arguments
+    ///
+    /// * `runtime_params` - Caller-provided parameters that override defaults.
     fn build_execution_params(
         &self,
         runtime_params: &HashMap<String, String>,
@@ -425,6 +496,11 @@ impl ScraperQueryCollection {
         merged_params
     }
 
+    /// Derives `page_index` and `offset` from `page` and `page_size` parameters.
+    ///
+    /// # Arguments
+    ///
+    /// * `params` - Mutable parameter map enriched in place.
     fn enrich_pagination_params(params: &mut HashMap<String, String>) {
         let page = params
             .get("page")
@@ -453,6 +529,12 @@ impl ScraperQueryCollection {
         }
     }
 
+    /// Inserts a `query_separator` parameter (`?`, `&`, or empty) derived from
+    /// the `query_url` or `link` parameter.
+    ///
+    /// # Arguments
+    ///
+    /// * `params` - Mutable parameter map enriched in place.
     fn enrich_query_separator_params(params: &mut HashMap<String, String>) {
         let Some(query_url) = params
             .get("query_url")
@@ -469,6 +551,11 @@ impl ScraperQueryCollection {
     }
 }
 
+/// Returns the URL query-parameter separator needed to append further parameters.
+///
+/// # Arguments
+///
+/// * `url` - URL string to inspect.
 fn query_parameter_separator(url: &str) -> &'static str {
     let url_without_fragment = url.split('#').next().unwrap_or(url);
 
@@ -484,6 +571,15 @@ fn query_parameter_separator(url: &str) -> &'static str {
 impl TryFrom<ScraperQueryCollectionRaw> for ScraperQueryCollection {
     type Error = anyhow::Error;
 
+    /// Converts a raw YAML collection definition into a validated runtime collection.
+    ///
+    /// Resolves collection-level parameters and HTTP config into each query before
+    /// converting them to their runtime variants.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the collection id is empty, parameters are invalid,
+    /// or any query definition fails to convert.
     fn try_from(config: ScraperQueryCollectionRaw) -> Result<Self> {
         let ScraperQueryCollectionRaw {
             id,
@@ -535,6 +631,7 @@ impl TryFrom<ScraperQueryCollectionRaw> for ScraperQueryCollection {
 }
 
 impl From<&ScraperQueryCollection> for ScraperQueryCollectionRaw {
+    /// Converts a runtime collection back into its raw YAML-compatible representation.
     fn from(collection: &ScraperQueryCollection) -> Self {
         let mut queries = collection
             .queries
@@ -560,6 +657,7 @@ impl From<&ScraperQueryCollection> for ScraperQueryCollectionRaw {
 }
 
 impl Serialize for ScraperQueryCollection {
+    /// Serializes the collection through its raw YAML representation.
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,

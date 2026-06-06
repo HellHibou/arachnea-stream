@@ -101,6 +101,13 @@ impl JsonScraperEntry {
         matches!(self, JsonScraperEntry::Group { .. })
     }
 
+    /// Recursively collects leaf field names into `names`, prefixing each with the
+    /// group hierarchy separated by ` > `.
+    ///
+    /// # Arguments
+    ///
+    /// * `prefix` - Optional group path prefix prepended to each collected name.
+    /// * `names` - Accumulator receiving the collected field names.
     #[cfg(any(test, feature = "test-support"))]
     fn collect_field_names(&self, prefix: Option<&str>, names: &mut Vec<String>) {
         let full_name = match prefix {
@@ -126,6 +133,16 @@ impl JsonScraperEntry {
         }
     }
 
+    /// Validates every action in the entry against the entry-level contract.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Entry name used in diagnostic messages.
+    /// * `actions` - Ordered extraction steps to validate.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any action fails validation for the `"entry"` context.
     fn validate_actions(name: &str, actions: &[ScraperAction]) -> Result<()> {
         for action in actions {
             action.validate(name, "entry")?;
@@ -138,6 +155,11 @@ impl JsonScraperEntry {
 impl TryFrom<JsonScraperEntryRaw> for JsonScraperEntry {
     type Error = anyhow::Error;
 
+    /// Converts a raw YAML entry definition into a validated runtime entry.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a group entry defines actions alongside sub-entries.
     fn try_from(config: JsonScraperEntryRaw) -> Result<Self> {
         let JsonScraperEntryRaw {
             name,
@@ -177,6 +199,7 @@ impl TryFrom<JsonScraperEntryRaw> for JsonScraperEntry {
 }
 
 impl From<&JsonScraperEntry> for JsonScraperEntryRaw {
+    /// Converts a runtime entry back into its raw YAML-compatible representation.
     fn from(entry: &JsonScraperEntry) -> Self {
         match entry {
             JsonScraperEntry::Field {
@@ -208,6 +231,7 @@ impl From<&JsonScraperEntry> for JsonScraperEntryRaw {
 }
 
 impl Serialize for JsonScraperEntry {
+    /// Serializes the entry through its raw YAML representation.
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -218,7 +242,18 @@ impl Serialize for JsonScraperEntry {
 
 /// Selects JSON values using a pointer-like syntax with wildcard support.
 ///
-/// Examples:
+/// The pointer is split on `/` and each token is resolved against the current
+/// set of JSON values.  Tokens may contain array-filter syntax such as
+/// `*[role=mea]` or `0[status=active]`.
+///
+/// # Arguments
+///
+/// * `root` - Root JSON value to navigate from.
+/// * `pointer` - Slash-separated path, optionally starting with `/`.
+/// * `select` - Whether to return only the first match or all matches.
+///
+/// # Examples
+///
 /// - `/data/0/title`
 /// - `/data/*/content/*`
 pub(crate) fn select_json_values<'a>(
@@ -234,6 +269,13 @@ pub(crate) fn select_json_values<'a>(
     selected
 }
 
+/// Navigates the JSON tree using the full pointer, expanding wildcards and
+/// array filters at each level.
+///
+/// # Arguments
+///
+/// * `root` - Root JSON value to navigate from.
+/// * `pointer` - Slash-separated path, optionally starting with `/`.
 fn select_json_values_all<'a>(root: &'a Value, pointer: Option<&str>) -> Vec<&'a Value> {
     let Some(pointer) = pointer.map(str::trim).filter(|pointer| !pointer.is_empty()) else {
         return vec![root];
@@ -300,12 +342,23 @@ fn select_json_values_all<'a>(root: &'a Value, pointer: Option<&str>) -> Vec<&'a
     current
 }
 
+/// Decodes RFC 6901 pointer escape sequences (`~1` → `/`, `~0` → `~`).
+///
+/// # Arguments
+///
+/// * `token` - Raw pointer token to decode.
 fn decode_pointer_token(token: &str) -> String {
     token.replace("~1", "/").replace("~0", "~")
 }
 
-/// Parses a token that may contain array filtering syntax like "*[role=mea]" or "0[status=active]".
-/// Returns (selector, filter) if filtering syntax is detected, None otherwise.
+/// Parses a token that may contain array filtering syntax like `*[role=mea]`
+/// or `0[status=active]`.
+///
+/// Returns `(selector, filter)` if filtering syntax is detected, `None` otherwise.
+///
+/// # Arguments
+///
+/// * `token` - Pointer token that may contain `[filter]` suffix.
 fn parse_array_filter(token: &str) -> Option<(String, String)> {
     if let Some(start) = token.find('[') {
         if let Some(end) = token.rfind(']') {
@@ -319,7 +372,12 @@ fn parse_array_filter(token: &str) -> Option<(String, String)> {
     None
 }
 
-/// Checks if a JSON value matches a filter condition like "role=mea".
+/// Checks if a JSON value matches a filter condition like `"role=mea"`.
+///
+/// # Arguments
+///
+/// * `value` - JSON object to test against the filter.
+/// * `filter` - Condition string in `field=expected` format.
 fn matches_filter(value: &Value, filter: &str) -> bool {
     if let Some((field, expected)) = parse_filter_condition(filter) {
         if let Some(obj) = value.as_object() {
@@ -336,7 +394,11 @@ fn matches_filter(value: &Value, filter: &str) -> bool {
     false
 }
 
-/// Parses a filter condition like "role=mea" into (field, value).
+/// Parses a filter condition like `"role=mea"` into `(field, value)`.
+///
+/// # Arguments
+///
+/// * `filter` - Condition string in `field=expected` format.
 fn parse_filter_condition(filter: &str) -> Option<(String, String)> {
     if let Some(eq_pos) = filter.find('=') {
         let field = filter[..eq_pos].trim().to_string();
@@ -347,6 +409,15 @@ fn parse_filter_condition(filter: &str) -> Option<(String, String)> {
     }
 }
 
+/// Converts a JSON value into a flat list of string representations.
+///
+/// Strings and numbers are returned as-is, booleans are stringified,
+/// arrays are recursively flattened, objects are serialized to JSON, and
+/// null values produce an empty list.
+///
+/// # Arguments
+///
+/// * `value` - JSON value to convert.
 pub(crate) fn json_value_to_strings(value: &Value) -> Vec<String> {
     match value {
         Value::Null => Vec::new(),

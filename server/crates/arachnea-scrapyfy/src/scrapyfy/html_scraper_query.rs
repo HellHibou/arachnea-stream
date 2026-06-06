@@ -83,6 +83,7 @@ impl HtmlScraperQueryRaw {
         Ok(())
     }
 
+    /// Merges the collection-level HTTP configuration into this query's own config.
     pub(crate) fn apply_collection_http(&mut self, collection_http: &ScraperHttpConfig) {
         self.http = collection_http.merge(&self.http);
     }
@@ -114,14 +115,17 @@ pub struct HtmlScraperQuery {
     http_client: HttpClient,
 }
 
+/// Defaults to [`HtmlScraperSelectMode::All`].
 fn default_html_select_mode() -> HtmlScraperSelectMode {
     HtmlScraperSelectMode::All
 }
 
+/// Defaults to [`ScraperRequestMethod::Get`].
 fn default_html_request_method() -> ScraperRequestMethod {
     ScraperRequestMethod::Get
 }
 
+/// Defaults to `4`.
 fn default_html_row_concurrency() -> usize {
     4
 }
@@ -140,6 +144,16 @@ fn collect_ordered_results<T>(results: Vec<Result<(usize, T)>>) -> Result<Vec<T>
 }
 
 impl HtmlScraperQuery {
+    /// Validates every request-body action against the query-level contract.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Query name used in diagnostic messages.
+    /// * `actions` - Request body actions to validate.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any action fails validation for the `"query"` context.
     fn validate_request_actions(name: &str, actions: &[ScraperAction]) -> Result<()> {
         for action in actions {
             action.validate(name, "query")?;
@@ -263,6 +277,15 @@ impl HtmlScraperQuery {
         self
     }
 
+    /// Resolves the full set of request headers from templates and collection params.
+    ///
+    /// Each header value is derived from its JSON pointer against the params context,
+    /// then processed through the header's action pipeline.
+    ///
+    /// # Arguments
+    ///
+    /// * `params` - Runtime template parameters available for header value resolution.
+    /// * `query_url` - Fully resolved request URL passed to action pipelines.
     fn resolve_request_headers(
         &self,
         params: &HashMap<String, String>,
@@ -280,6 +303,13 @@ impl HtmlScraperQuery {
         headers
     }
 
+    /// Builds the optional request body by selecting a JSON pointer value from the
+    /// params context and applying the configured body actions.
+    ///
+    /// # Arguments
+    ///
+    /// * `params` - Runtime template parameters used for pointer selection and actions.
+    /// * `query_url` - Fully resolved request URL passed to action pipelines.
     fn resolve_request_body(
         &self,
         params: &HashMap<String, String>,
@@ -305,6 +335,19 @@ impl HtmlScraperQuery {
             .find(|value| !value.is_empty())
     }
 
+    /// Runs the post-process pipeline on a single root node and optionally filters it.
+    ///
+    /// Returns `None` when the node is excluded by `fields_filters`.
+    ///
+    /// # Arguments
+    ///
+    /// * `root_index` - Original index used to restore ordering after async processing.
+    /// * `root` - Extracted data node to post-process.
+    /// * `params` - Runtime template parameters forwarded to post-processors.
+    /// * `query_url` - Fully resolved request URL forwarded to post-processors.
+    /// * `html` - Raw HTML response body available to post-processors.
+    /// * `fields_filters` - Optional per-field filter list; when present the root is
+    ///   discarded if it does not match.
     async fn process_root(
         &self,
         root_index: usize,
@@ -450,6 +493,11 @@ impl ScraperQuery for HtmlScraperQuery {
 impl TryFrom<HtmlScraperQueryRaw> for HtmlScraperQuery {
     type Error = anyhow::Error;
 
+    /// Converts a raw YAML query definition into a validated runtime query.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the row selector, entries, or request headers are invalid.
     fn try_from(config: HtmlScraperQueryRaw) -> Result<Self> {
         let HtmlScraperQueryRaw {
             name,
@@ -517,6 +565,7 @@ impl TryFrom<HtmlScraperQueryRaw> for HtmlScraperQuery {
 }
 
 impl From<&HtmlScraperQuery> for HtmlScraperQueryRaw {
+    /// Converts a runtime query back into its raw YAML-compatible representation.
     fn from(query: &HtmlScraperQuery) -> Self {
         Self {
             name: query.name.clone(),
@@ -550,6 +599,7 @@ impl From<&HtmlScraperQuery> for HtmlScraperQueryRaw {
 }
 
 impl Serialize for HtmlScraperQuery {
+    /// Serializes the query through its raw YAML representation.
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,

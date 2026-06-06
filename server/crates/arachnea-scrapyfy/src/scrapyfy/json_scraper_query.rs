@@ -78,6 +78,11 @@ impl JsonScraperQueryRaw {
         Ok(())
     }
 
+    /// Merges the collection-level HTTP configuration into this query and its sub-queries.
+    ///
+    /// # Arguments
+    ///
+    /// * `collection_http` - HTTP configuration inherited from the parent collection.
     pub(crate) fn apply_collection_http(&mut self, collection_http: &ScraperHttpConfig) {
         self.http = collection_http.merge(&self.http);
 
@@ -117,22 +122,27 @@ pub struct JsonScraperQuery {
     http_client: HttpClient,
 }
 
+/// Defaults to [`HtmlScraperSelectMode::All`].
 fn default_json_select_mode() -> HtmlScraperSelectMode {
     HtmlScraperSelectMode::All
 }
 
+/// Defaults to [`ScraperRequestMethod::Get`].
 fn default_json_request_method() -> ScraperRequestMethod {
     ScraperRequestMethod::Get
 }
 
+/// Defaults to `4`.
 fn default_json_sibling_sub_query_concurrency() -> usize {
     4
 }
 
+/// Defaults to `4`.
 fn default_json_sub_query_context_concurrency() -> usize {
     4
 }
 
+/// Defaults to `8`.
 fn default_json_sub_query_fetch_concurrency() -> usize {
     8
 }
@@ -150,6 +160,12 @@ fn collect_ordered_results<T>(results: Vec<Result<(usize, T)>>) -> Result<Vec<T>
     Ok(ordered.into_iter().map(|(_, value)| value).collect())
 }
 
+/// Checks whether a JSON row satisfies every filter condition.
+///
+/// # Arguments
+///
+/// * `row` - JSON value to test against the filter map.
+/// * `filters` - Map of JSON pointer to expected value strings; every entry must match.
 fn matches(row: &serde_json::Value, filters: &HashMap<String, Vec<String>>) -> bool {
     filters.iter().all(|(pointer, expected_values)| {
         let actual_values =
@@ -164,6 +180,7 @@ fn matches(row: &serde_json::Value, filters: &HashMap<String, Vec<String>>) -> b
     })
 }
 
+/// Concurrency limits forwarded to sub-query execution.
 #[derive(Clone, Copy)]
 struct JsonScraperExecutionOptions {
     sibling_sub_query_concurrency: usize,
@@ -180,6 +197,11 @@ pub(crate) enum ScraperRequestMethod {
 }
 
 impl ScraperRequestMethod {
+    /// Converts this enum variant into the corresponding [`http::Method`].
+    ///
+    /// # Arguments
+    ///
+    /// * `self` - The request method variant to convert.
     pub(crate) fn as_http_method(self) -> Method {
         match self {
             Self::Get => Method::GET,
@@ -255,6 +277,11 @@ pub struct JsonScraperSubQuery {
 }
 
 impl JsonScraperSubQueryRaw {
+    /// Propagates the parent HTTP configuration into this sub-query and its children.
+    ///
+    /// # Arguments
+    ///
+    /// * `parent_http` - HTTP configuration inherited from the parent query.
     fn apply_parent_http(&mut self, parent_http: &ScraperHttpConfig) {
         self.http = parent_http.merge(&self.http);
 
@@ -263,6 +290,12 @@ impl JsonScraperSubQueryRaw {
         }
     }
 
+    /// Resolves collection-level placeholders in this sub-query's HTTP config.
+    ///
+    /// # Arguments
+    ///
+    /// * `parent_name` - Parent query name used in diagnostic messages.
+    /// * `params` - Collection-level template parameters.
     fn resolve_collection_params(
         &mut self,
         parent_name: &str,
@@ -322,6 +355,16 @@ impl JsonScraperSubQuery {
         names
     }
 
+    /// Validates every action against the sub-query-level contract.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Identifier used in diagnostic messages.
+    /// * `actions` - Actions to validate.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any action fails validation for the `"sub-query"` context.
     fn validate_actions(name: &str, actions: &[ScraperAction]) -> Result<()> {
         for action in actions {
             action.validate(name, "sub-query")?;
@@ -330,6 +373,20 @@ impl JsonScraperSubQuery {
         Ok(())
     }
 
+    /// Executes this sub-query for a given context row.
+    ///
+    /// Selects context values, issues follow-up HTTP requests, extracts rows,
+    /// and merges the results into `root`.
+    ///
+    /// # Arguments
+    ///
+    /// * `root` - Data node receiving the merged sub-query results.
+    /// * `context_row` - Parent JSON row providing context values.
+    /// * `params` - Runtime template parameters.
+    /// * `context_request_url` - URL of the parent request for action resolution.
+    /// * `base_url` - Base URL used to build follow-up request URLs.
+    /// * `http_client` - Shared HTTP client.
+    /// * `execution_options` - Concurrency limits applied to follow-up requests.
     async fn execute(
         &self,
         root: &mut ScraperDataNode,
@@ -372,6 +429,17 @@ impl JsonScraperSubQuery {
     }
 
     /// Executes sibling sub-queries concurrently and merges their outputs in configuration order.
+    ///
+    /// # Arguments
+    ///
+    /// * `sub_queries` - Sub-queries to execute in parallel.
+    /// * `root` - Data node receiving the merged results.
+    /// * `context_row` - Parent JSON row providing context values.
+    /// * `params` - Runtime template parameters.
+    /// * `context_request_url` - URL of the parent request for action resolution.
+    /// * `base_url` - Base URL used to build follow-up request URLs.
+    /// * `http_client` - Shared HTTP client.
+    /// * `execution_options` - Concurrency limits applied to follow-up requests.
     async fn execute_siblings(
         sub_queries: &[JsonScraperSubQuery],
         root: &mut ScraperDataNode,
@@ -408,6 +476,19 @@ impl JsonScraperSubQuery {
         Ok(())
     }
 
+    /// Executes this sub-query for a single context value.
+    ///
+    /// Returns the merged [`ScraperDataNode`] produced by all rows fetched
+    /// for this context.
+    ///
+    /// # Arguments
+    ///
+    /// * `context` - JSON value used as the context for follow-up requests.
+    /// * `params` - Runtime template parameters.
+    /// * `context_request_url` - URL of the parent request for action resolution.
+    /// * `base_url` - Base URL used to build follow-up request URLs.
+    /// * `http_client` - Shared HTTP client.
+    /// * `execution_options` - Concurrency limits applied to follow-up requests.
     async fn execute_context(
         &self,
         context: &serde_json::Value,
@@ -528,6 +609,17 @@ impl JsonScraperSubQuery {
         Ok(context_root)
     }
 
+    /// Wraps [`execute_context`](Self::execute_context) with an index tag for ordering.
+    ///
+    /// # Arguments
+    ///
+    /// * `context_index` - Position index used to restore ordering after async processing.
+    /// * `context` - JSON value used as the context for follow-up requests.
+    /// * `params` - Runtime template parameters.
+    /// * `context_request_url` - URL of the parent request.
+    /// * `base_url` - Base URL for follow-up requests.
+    /// * `http_client` - Shared HTTP client.
+    /// * `execution_options` - Concurrency limits.
     async fn execute_indexed_context(
         &self,
         context_index: usize,
@@ -551,6 +643,18 @@ impl JsonScraperSubQuery {
         Ok((context_index, node))
     }
 
+    /// Executes a single sibling sub-query and tags the result with its index.
+    ///
+    /// # Arguments
+    ///
+    /// * `sub_query_index` - Position index used to restore ordering.
+    /// * `sub_query` - Sub-query to execute.
+    /// * `context_row` - Parent JSON row providing context values.
+    /// * `params` - Runtime template parameters.
+    /// * `context_request_url` - URL of the parent request.
+    /// * `base_url` - Base URL for follow-up requests.
+    /// * `http_client` - Shared HTTP client.
+    /// * `execution_options` - Concurrency limits.
     async fn execute_indexed_sibling(
         sub_query_index: usize,
         sub_query: &JsonScraperSubQuery,
@@ -576,6 +680,21 @@ impl JsonScraperSubQuery {
         Ok((sub_query_index, partial))
     }
 
+    /// Builds the output [`ScraperDataNode`] for a single fetched row.
+    ///
+    /// When `target` is set, entries are nested under that path; otherwise
+    /// they are placed at the root level.
+    ///
+    /// # Arguments
+    ///
+    /// * `context` - Parent JSON context value.
+    /// * `row` - Current fetched JSON row.
+    /// * `params` - Runtime template parameters.
+    /// * `context_request_url` - URL of the parent request.
+    /// * `request_url` - URL used to fetch this row.
+    /// * `base_url` - Base URL for follow-up requests.
+    /// * `http_client` - Shared HTTP client.
+    /// * `execution_options` - Concurrency limits.
     async fn build_row_node(
         &self,
         context: &serde_json::Value,
@@ -639,6 +758,13 @@ impl JsonScraperSubQuery {
         Ok(row_root)
     }
 
+    /// Resolves request headers from the context row and template parameters.
+    ///
+    /// # Arguments
+    ///
+    /// * `context_row` - Parent JSON value used for header pointer resolution.
+    /// * `params` - Runtime template parameters.
+    /// * `context_request_url` - URL of the parent request for action pipelines.
     fn resolve_request_headers(
         &self,
         context_row: &serde_json::Value,
@@ -656,6 +782,13 @@ impl JsonScraperSubQuery {
         headers
     }
 
+    /// Builds the optional request body from the context row and body actions.
+    ///
+    /// # Arguments
+    ///
+    /// * `context_row` - Parent JSON value used for body pointer resolution.
+    /// * `params` - Runtime template parameters.
+    /// * `context_request_url` - URL of the parent request for action pipelines.
     fn resolve_request_body(
         &self,
         context_row: &serde_json::Value,
@@ -681,6 +814,11 @@ impl JsonScraperSubQuery {
             .find(|value| !value.is_empty())
     }
 
+    /// Splits a `>`-separated target path into trimmed path segments.
+    ///
+    /// # Arguments
+    ///
+    /// * `target` - Hierarchical target path string.
     fn split_target_path(target: &str) -> Vec<&str> {
         target
             .split('>')
@@ -691,6 +829,16 @@ impl JsonScraperSubQuery {
 }
 
 impl ScraperRequestHeader {
+    /// Validates every action against the header-level contract.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Header name used in diagnostic messages.
+    /// * `actions` - Actions to validate.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any action fails validation for the `"sub-query header"` context.
     fn validate_actions(name: &str, actions: &[ScraperAction]) -> Result<()> {
         for action in actions {
             action.validate(name, "sub-query header")?;
@@ -699,6 +847,15 @@ impl ScraperRequestHeader {
         Ok(())
     }
 
+    /// Resolves this header's value from the context row and template parameters.
+    ///
+    /// Returns `None` when the resolved value is empty.
+    ///
+    /// # Arguments
+    ///
+    /// * `row` - Parent JSON value used for pointer resolution.
+    /// * `params` - Runtime template parameters.
+    /// * `request_url` - URL of the parent request for action pipelines.
     pub(crate) fn resolve(
         &self,
         row: &serde_json::Value,
@@ -731,6 +888,16 @@ impl ScraperRequestHeader {
 }
 
 impl JsonScraperQuery {
+    /// Validates every request-body action against the query-level contract.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Query name used in diagnostic messages.
+    /// * `actions` - Request body actions to validate.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any action fails validation for the `"query"` context.
     fn validate_request_actions(name: &str, actions: &[ScraperAction]) -> Result<()> {
         for action in actions {
             action.validate(name, "query")?;
@@ -905,6 +1072,12 @@ impl JsonScraperQuery {
         self
     }
 
+    /// Resolves the full set of request headers from templates and collection params.
+    ///
+    /// # Arguments
+    ///
+    /// * `params` - Runtime template parameters available for header value resolution.
+    /// * `query_url` - Fully resolved request URL passed to action pipelines.
     fn resolve_request_headers(
         &self,
         params: &HashMap<String, String>,
@@ -922,6 +1095,13 @@ impl JsonScraperQuery {
         headers
     }
 
+    /// Builds the optional request body by selecting a JSON pointer value from the
+    /// params context and applying the configured body actions.
+    ///
+    /// # Arguments
+    ///
+    /// * `params` - Runtime template parameters used for pointer selection and actions.
+    /// * `query_url` - Fully resolved request URL passed to action pipelines.
     fn resolve_request_body(
         &self,
         params: &HashMap<String, String>,
@@ -947,6 +1127,7 @@ impl JsonScraperQuery {
             .find(|value| !value.is_empty())
     }
 
+    /// Builds the concurrency options forwarded to sub-query execution.
     fn execution_options(&self) -> JsonScraperExecutionOptions {
         JsonScraperExecutionOptions {
             sibling_sub_query_concurrency: self.sibling_sub_query_concurrency,
@@ -1134,6 +1315,7 @@ impl JsonScraperQuery {
         Ok(results)
     }
 
+    /// Returns `true` when at least one scraper entry is a group entry.
     fn has_group_entries(&self) -> bool {
         self.scraper_entries.iter().any(JsonScraperEntry::is_group)
     }
@@ -1142,6 +1324,11 @@ impl JsonScraperQuery {
 impl TryFrom<JsonScraperQueryRaw> for JsonScraperQuery {
     type Error = anyhow::Error;
 
+    /// Converts a raw YAML query definition into a validated runtime query.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the row pointer, entries, sub-queries, or request headers are invalid.
     fn try_from(config: JsonScraperQueryRaw) -> Result<Self> {
         let JsonScraperQueryRaw {
             name,
@@ -1219,6 +1406,7 @@ impl TryFrom<JsonScraperQueryRaw> for JsonScraperQuery {
 }
 
 impl From<&JsonScraperQuery> for JsonScraperQueryRaw {
+    /// Converts a runtime query back into its raw YAML-compatible representation.
     fn from(query: &JsonScraperQuery) -> Self {
         Self {
             name: query.name.clone(),
@@ -1260,6 +1448,7 @@ impl From<&JsonScraperQuery> for JsonScraperQueryRaw {
 }
 
 impl Serialize for JsonScraperQuery {
+    /// Serializes the query through its raw YAML representation.
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -1271,6 +1460,12 @@ impl Serialize for JsonScraperQuery {
 impl TryFrom<JsonScraperSubQueryRaw> for JsonScraperSubQuery {
     type Error = anyhow::Error;
 
+    /// Converts a raw YAML sub-query definition into a validated runtime sub-query.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the row pointer is empty, the target is empty, or
+    /// actions fail validation.
     fn try_from(config: JsonScraperSubQueryRaw) -> Result<Self> {
         let JsonScraperSubQueryRaw {
             context_pointer,
@@ -1349,6 +1544,7 @@ impl TryFrom<JsonScraperSubQueryRaw> for JsonScraperSubQuery {
 }
 
 impl From<&JsonScraperSubQuery> for JsonScraperSubQueryRaw {
+    /// Converts a runtime sub-query back into its raw YAML-compatible representation.
     fn from(sub_query: &JsonScraperSubQuery) -> Self {
         Self {
             context_pointer: sub_query.context_pointer.clone(),
@@ -1393,6 +1589,11 @@ impl From<&JsonScraperSubQuery> for JsonScraperSubQueryRaw {
 impl TryFrom<ScraperRequestHeaderRaw> for ScraperRequestHeader {
     type Error = anyhow::Error;
 
+    /// Converts a raw YAML header definition into a validated runtime header.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the header name is empty or actions fail validation.
     fn try_from(config: ScraperRequestHeaderRaw) -> Result<Self> {
         let ScraperRequestHeaderRaw {
             name,
@@ -1417,6 +1618,7 @@ impl TryFrom<ScraperRequestHeaderRaw> for ScraperRequestHeader {
 }
 
 impl From<&ScraperRequestHeader> for ScraperRequestHeaderRaw {
+    /// Converts a runtime header back into its raw YAML-compatible representation.
     fn from(header: &ScraperRequestHeader) -> Self {
         Self {
             name: header.name.clone(),
@@ -1428,6 +1630,7 @@ impl From<&ScraperRequestHeader> for ScraperRequestHeaderRaw {
 }
 
 impl Serialize for ScraperRequestHeader {
+    /// Serializes the header through its raw YAML representation.
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,

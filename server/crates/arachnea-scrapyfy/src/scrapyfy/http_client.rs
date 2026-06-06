@@ -19,7 +19,10 @@ use crate::scrapyfy::query_helpers;
 /// Optional mock router used in tests to intercept outgoing HTTP calls.
 pub type RouterFn = Box<dyn Fn(&HttpClient, &str) -> Result<String> + Send + Sync + 'static>;
 
+/// Global optional mock router installed by [`set_router`] for testing.
 static HTTP_CLIENT_ROUTER: OnceLock<Mutex<Option<RouterFn>>> = OnceLock::new();
+
+/// Compiled regex used to extract the `__NEXT_DATA__` JSON payload from HTML pages.
 static NEXT_DATA_REGEX: OnceLock<Regex> = OnceLock::new();
 
 /// YAML-selectable request mode for scraper HTTP calls.
@@ -33,6 +36,7 @@ pub enum ScraperHttpMode {
 }
 
 impl From<ScraperHttpMode> for HttpRequestMode {
+    /// Converts the scraper-level mode into the [`HttpRequestMode`] expected by `arachnea-http`.
     fn from(mode: ScraperHttpMode) -> Self {
         match mode {
             ScraperHttpMode::Auto => Self::Auto,
@@ -54,6 +58,7 @@ pub enum ScraperHttpUserAgentProfile {
 }
 
 impl From<ScraperHttpUserAgentProfile> for BrowserProfile {
+    /// Converts the scraper-level profile into the [`BrowserProfile`] expected by `arachnea-http`.
     fn from(profile: ScraperHttpUserAgentProfile) -> Self {
         match profile {
             ScraperHttpUserAgentProfile::Chrome | ScraperHttpUserAgentProfile::ChromeStable => {
@@ -102,10 +107,12 @@ impl ScraperHttpConfig {
         }
     }
 
+    /// Returns the [`HttpRequestMode`] derived from this configuration.
     fn request_mode(&self) -> HttpRequestMode {
         self.mode.unwrap_or(ScraperHttpMode::Auto).into()
     }
 
+    /// Returns the [`BrowserProfile`] derived from user-agent or user-agent profile.
     fn browser_profile(&self) -> BrowserProfile {
         self.user_agent
             .as_ref()
@@ -237,6 +244,7 @@ impl HttpClient {
         Ok(())
     }
 
+    /// Lazily initializes and returns the underlying [`ArachneaHttpClient`].
     async fn http_client(&self) -> Result<&ArachneaHttpClient> {
         self.client
             .get_or_try_init(|| async {
@@ -468,6 +476,22 @@ impl HttpClient {
             .with_context(|| format!("Invalid __NEXT_DATA__ JSON payload returned by {}", url))
     }
 
+    /// Sends an HTTP request using the configured mode, headers, and optional body.
+    ///
+    /// When a mock router is installed, the request is intercepted. `file://` URLs
+    /// are read from disk.
+    ///
+    /// # Arguments
+    ///
+    /// * `method` - HTTP verb used for the request.
+    /// * `url` - Absolute URL to request.
+    /// * `request_headers` - Additional headers applied to this request only.
+    /// * `request_body` - Optional request body used as-is.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails, if the response body cannot be read,
+    /// or if one custom header is invalid.
     async fn send_for_request(
         &self,
         method: Method,
