@@ -13,8 +13,8 @@ pub use http_client::HttpClient;
 pub use http_client::{ScraperHttpConfig, ScraperHttpMode, ScraperHttpUserAgentProfile};
 
 /// Text extraction and normalization actions.
-pub mod scraper_action;
-pub use scraper_action::ScraperAction;
+pub mod actions;
+pub use actions::{GetDateSource, GetDateSources, ScraperAction};
 
 /// Post-process transformations applied after raw extraction.
 pub mod scraper_post_process;
