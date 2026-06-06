@@ -1888,17 +1888,7 @@ function resolveAssetUrl(value: string | null, source: string | null): string | 
     return `https:${value}`
   }
 
-  const baseUrl = getSourceBaseUrl(source)
-
-  if (!baseUrl) {
-    return value
-  }
-
-  try {
-    return new URL(value, `${baseUrl}/`).toString()
-  } catch {
-    return value
-  }
+   return value
 }
 
 /**
@@ -1926,39 +1916,9 @@ function resolveEntryUrl(value: string | null, source: string | null): string | 
     return `https:${normalizedValue}`
   }
 
-  const baseUrl = getSourceBaseUrl(source)
-  if (!baseUrl) {
-    return normalizedValue
-  }
-
-  try {
-    return new URL(normalizedValue, `${baseUrl}/`).toString()
-  } catch {
-    return normalizedValue
-  }
+  return normalizedValue
 }
 
-/**
- * Returns the canonical base URL associated with a supported source.
- *
- * @param source Backend source key.
- * @returns Source base URL when known.
- */
-function getSourceBaseUrl(source: string | null): string | null {
-  if (source === 'anime-sama') {
-    return 'https://anime-sama.to'
-  }
-
-  if (source === 'rtlplay-be') {
-    return 'https://www.rtlplay.be'
-  }
-
-  if (source === 'rtbf-auvio-be') {
-    return 'https://auvio.rtbf.be'
-  }
-
-  return null
-}
 
 /**
  * Formats a season count extracted from the backend entry.

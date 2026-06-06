@@ -48,7 +48,7 @@ queries:
             argument:
               Film: "video/movie"
               "Série": "video/show/serie"
-      - name: score
+      - name: rating
         selector: "div.absolute.top-3.right-3"
         actions:
           - type: get_text

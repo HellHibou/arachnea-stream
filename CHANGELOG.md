@@ -52,3 +52,4 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - Fixed the frontend production build by removing top-level await from the app bootstrap path.
 - Documented the French Animes DarkStream YAML implementation and normalized the new DarkStream YAML media-type formatting.
 - Added Anime Ultime playlist extraction in `get_entry` so player-backed episodes expose direct video links for the internal player.
+- Added the `html_to_text` scraper action that converts HTML content (from a selected element on HTML scrapers or from existing string values on JSON scrapers) into plain text using `quick_html2md` with all markdown features disabled; `<br>` tags are pre-processed into newline markers and the output is normalized (collapsed whitespace, trimmed lines).

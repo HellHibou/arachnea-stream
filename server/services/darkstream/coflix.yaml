@@ -73,7 +73,7 @@ shared:
     - name: description
       pointer: "/excerpt"
       actions: *optional_html_entry
-    - name: score
+    - name: rating
       pointer: "/rating"
     - name: director
       pointer: "/director"
@@ -109,6 +109,14 @@ shared:
           "false": null
     - name: description
       pointer: "/excerpt"
+    - name: rating
+      pointer: "/rating"
+    - name: director
+      pointer: "/director"
+      actions: *optional_html_entry
+    - name: casting
+      pointer: "/cast"
+      actions: *optional_html_entry
 
 queries:
 
@@ -127,10 +135,9 @@ queries:
 
   # ---------------------------------------------------------------
   # Search via suggest API — returns a root JSON array
-  # Response: [{title, ID, url, post_type, year, excerpt, image}, ...]
+  # Response: [{title, ID, url, post_type, year, excerpt, image, rating, director, cast}, ...]
   #
-  # Wrapped into the standard search result shape:
-  # {source, current_page, have_more, entries: [...]}
+  # Each array element becomes one result row.
   # ---------------------------------------------------------------
   - name: search
     scraper_type: json
@@ -140,20 +147,63 @@ queries:
     row_pointer: "/"
     entries:
     - name: source
+      pointer: "/0"
+      select: first
       actions:
         - type: format_text
           argument: "{source}"
     - name: current_page
+      pointer: "/0"
+      select: first
       actions:
         - type: format_text
           argument: "1"
     - name: have_more
+      pointer: "/0"
+      select: first
       actions:
         - type: format_text
           argument: "false"
     - name: entries
       pointer: "/*"
-      entries: *entries_search_item
+      select: all
+      entries:
+        - name: title
+          pointer: "/title"
+        - name: link
+          pointer: "/url"
+        - name: web-link
+          pointer: "/url"
+        - name: img/poster > link
+          pointer: "/image"
+          actions: *actions_img_html_to_url
+        - name: media-type
+          pointer: "/post_type"
+          actions:
+            - type: map
+              argument:
+                movies: "video/movie"
+                series: "video/show/serie"
+                animes: "video/show/anime"
+        - name: year
+          pointer: "/year"
+          actions:
+          - type: map
+            default: "{}"
+            argument:
+              "false": null
+        - name: description
+          pointer: "/excerpt"
+          actions:
+            - type: html_to_text
+        - name: rating
+          pointer: "/rating"
+        - name: director
+          pointer: "/director"
+          actions: *optional_html_entry
+        - name: casting
+          pointer: "/cast"
+          actions: *optional_html_entry
 
 
   # ---------------------------------------------------------------
@@ -365,12 +415,13 @@ queries:
               - name: description
                 pointer: "/excerpt"
                 actions:
+                  - type: html_to_text
                   - type: map
                     default: "{}"
                     argument:
                       "false": null
-              - name: score
-                pointer: "/rating"
+              - name: rating
+                pointer: "/ranking"
               - name: director
                 pointer: "/director"
                 actions:
@@ -466,11 +517,12 @@ queries:
           - name: description
             pointer: "/excerpt"
             actions:
+              - type: html_to_text
               - type: map
                 default: "{}"
                 argument:
                   "false": null
-          - name: score
+          - name: rating
             pointer: "/rating"
           - name: director
             pointer: "/director"

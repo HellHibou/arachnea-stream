@@ -141,9 +141,19 @@ function handleSelect() {
         {{ item.title }}
       </h2>
 
-      <p v-if="item.episodeLabel" class="media-card__episode">
-        {{ item.episodeLabel }}
-      </p>
+      <div v-if="formattedRating != null || item.episodeLabel" class="media-card__meta-row">
+        <span
+          v-if="formattedRating != null"
+          class="media-card__content-rating"
+          :class="ratingClass"
+        >
+          {{ formattedRating }}
+        </span>
+
+        <p v-if="item.episodeLabel" class="media-card__episode">
+          {{ item.episodeLabel }}
+        </p>
+      </div>
     </div>
 
     <MediaCardPreviewPanel
@@ -212,9 +222,32 @@ function handleSelect() {
   -webkit-line-clamp: 2;
 }
 
+.media-card__meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.media-card__content-rating {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  flex: 0 0 auto;
+}
+
 .media-card__episode {
   display: -webkit-box;
   overflow: hidden;
+  margin: 0;
   color: var(--text-secondary);
   font-size: 0.92rem;
   line-height: 1.28;
@@ -231,6 +264,12 @@ function handleSelect() {
 
 .media-card--landscape .media-card__release-date {
   font-size: 0.82rem;
+}
+
+.media-card--landscape .media-card__content-rating {
+  font-size: 0.82rem;
+  min-height: 24px;
+  padding: 0 10px;
 }
 
 .media-card--landscape .media-card__episode {
