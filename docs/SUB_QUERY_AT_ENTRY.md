@@ -446,7 +446,7 @@ Résultat : `players > embed-link` contient le 1er paramètre de `showVideo(...)
 #### 2e passe — Implémentation du trait unifié (À FAIRE, PR dédiée)
 
 7. [ ] **Étape 6** — Découper `scraper_json/query.rs` en `config.rs`, `response_parser.rs`, `pointer.rs`, `row_extractor.rs`.
-8. [ ] **Étape 7** — Découper `scraper_html/query.rs` en `config.rs`, `response_parser.rs`, `row_extractor.rs`.
+8. [x] **Étape 7** — Découper `scraper_html/query.rs` en `config.rs`, `response_parser.rs`, `row_extractor.rs`.
 9. [ ] **Étape 8** — Renommer l'ancien `ScraperQuery` (async_trait) en `ScraperManagerQuery` (ou autre) et le déplacer hors de `scrapyfy/mod.rs` (vers `scraper_manager.rs` qui en est le propriétaire légitime).
 10. [ ] **Étape 9** — Compléter le trait `scraper::ScraperQuery` avec les méthodes manquantes (`request_method`, `request_headers`, `http_config`).
 11. [ ] **Étape 10** — Implémenter `ScraperQuery` pour `JsonScraperQuery` et `JsonScraperSubQuery`.
@@ -535,6 +535,8 @@ Les YAMLs existants continuent de fonctionner sans modification :
 | 2026-06-07 | **Distinction `filters` vs `row_filters`** conservée. | `filters` porte sur le **context row** (avant fetch : "est-ce que je lance la requête ?"). `row_filters` porte sur les **rows fetched** (après fetch : "est-ce que je garde cette row ?"). Sémantiques différentes, conservées dans `SubQuerySpec`. |
 | 2026-06-07 | **Squelette du trait `ScraperQuery` laissé minimal** dans la 1ère passe. | Le trait contient les méthodes essentielles (identification, request, row_locator, entries, sub_queries, sub_query_spec). Les méthodes `request_method()`, `request_headers()`, `http_config()` seront ajoutées dans la 2e passe pour éviter les stubs non-compilables. |
 | 2026-06-07 | **Une lib par type de scraper** validée. | `scraper_static/`, `scraper_html/`, `scraper_json/`, plus un module commun `scraper/`. Permet d'ajouter facilement un futur type (GraphQL, XML, RSS) en créant un nouveau sous-module implémentant les traits de `scraper/`. |
+| 2026-06-07 | **Découpage de `scraper_html/query.rs`** (étape 7) en 3 modules satellites. | `config.rs` contient `HtmlScraperQueryRaw` + defaults + conversions `TryFrom`/`From`/`Serialize`. `response_parser.rs` contient `collect_ordered_results` et `parse_html_rows` (extraction des rows via CSS selector). `row_extractor.rs` contient `process_root` (post-process + filtre). `query.rs` conserve le struct `HtmlScraperQuery`, ses méthodes, et l'impl `ScraperManagerQuery`. Les champs du struct sont passés en `pub(crate)` pour permettre à `config.rs` d'accéder directement aux champs privés lors de la conversion `TryFrom`. |
+| 2026-06-07 | **Erreur préexistante `scraper` module non déclaré** corrigée lors de l'étape 7. | `scraper_static/query.rs` référençait `crate::scrapyfy::scraper::*` mais le module n'était pas déclaré dans `scrapyfy/mod.rs`. Correction : (1) ajout de `pub(crate) mod scraper;` dans `scrapyfy/mod.rs`, (2) remplacement de `scraper::Selector` par `::scraper::Selector` dans `entry.rs` et `query.rs` pour lever l'ambiguïté avec le module interne, (3) correction de l'import `ScraperFieldMapping` dans `sub_query_spec.rs` (chemin `post_processes::` au lieu de `scraper_query_collection::`). `cargo check --workspace` passe avec succès. |
 
 ---
 

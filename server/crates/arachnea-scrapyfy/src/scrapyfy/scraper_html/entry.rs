@@ -1,28 +1,54 @@
+//! HTML entry definitions and field extractors.
+//!
+//! An [`HtmlScraperEntry`] describes a single field or group of fields
+//! extracted from each result row via CSS selectors and ordered actions.
+//! Raw YAML deserialization and the validated runtime type are both defined here.
+//!
+//! See [`HtmlScraperEntryRaw`] for the YAML shape and [`HtmlScraperEntry`]
+//! for the validated runtime enum.
+
 use anyhow::Result;
-use scraper::{selector::ToCss, ElementRef, Selector};
+use ::scraper::{selector::ToCss, ElementRef, Selector};
 use serde::{Deserialize, Serialize, Serializer};
 
 use crate::scrapyfy::*;
 use crate::scrapyfy::query_helpers;
 
 /// Raw configuration definition of one field or grouped field extracted from each result row.
+///
+/// Deserialized from YAML and converted into [`HtmlScraperEntry`] via
+/// [`TryFrom`].
 #[derive(Serialize, Deserialize)]
 pub struct HtmlScraperEntryRaw {
+    /// Entry name, supporting `>`-separated hierarchical paths.
     name: String,
+    /// Optional CSS selector applied relative to each result row.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     selector: Option<String>,
+    /// Resolved selector after collection-level placeholder substitution.
     #[serde(skip)]
     resolved_selector: Option<String>,
+    /// Whether to use the first match or all matches.
     #[serde(default)]
     select: HtmlScraperSelectMode,
+    /// Ordered extraction steps executed on the selected node.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     actions: Vec<ScraperAction>,
+    /// Child entries for group entries (mutually exclusive with `actions`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     entries: Vec<HtmlScraperEntryRaw>,
 }
 
 impl HtmlScraperEntryRaw {
     /// Resolves collection-level placeholders used by selectors in this entry tree.
+    ///
+    /// # Arguments
+    ///
+    /// * `params` - Collection-level template parameters.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a required placeholder is missing from `params`.
     pub(crate) fn resolve_collection_params(
         &mut self,
         params: &HashMap<String, String>,
@@ -60,18 +86,30 @@ pub enum HtmlScraperSelectMode {
 #[derive(Deserialize)]
 #[serde(try_from = "HtmlScraperEntryRaw")]
 pub enum HtmlScraperEntry {
+    /// A leaf field that extracts one or more values via actions.
     Field {
+        /// Output field name used in the extracted metadata map.
         name: String,
+        /// Original CSS selector template preserved from YAML.
         selector_template: Option<String>,
-        selector: Option<scraper::Selector>,
+        /// Compiled CSS selector used at runtime.
+        selector: Option<::scraper::Selector>,
+        /// Whether to use the first match or all matches.
         select: HtmlScraperSelectMode,
+        /// Ordered extraction steps executed on the selected node.
         actions: Vec<ScraperAction>,
     },
+    /// A group entry that contains child entries applied to each matched element.
     Group {
+        /// Group name used to build the output path.
         name: String,
+        /// Original CSS selector template preserved from YAML.
         selector_template: Option<String>,
-        selector: Option<scraper::Selector>,
+        /// Compiled CSS selector used at runtime.
+        selector: Option<::scraper::Selector>,
+        /// Whether to use the first match or all matches.
         select: HtmlScraperSelectMode,
+        /// Child entries applied to each matched element.
         entries: Vec<HtmlScraperEntry>,
     },
 }
@@ -159,6 +197,14 @@ impl HtmlScraperEntry {
     /// Applies this entry to the provided result root.
     ///
     /// Group entries append explicit array items, while field entries append values.
+    ///
+    /// # Arguments
+    ///
+    /// * `root` - Output data node where extracted values are appended.
+    /// * `card` - Parent HTML element to search within.
+    /// * `params` - Runtime template parameters forwarded to actions.
+    /// * `request_url` - Fully resolved request URL forwarded to actions.
+    /// * `response_body` - Optional raw response body available to actions.
     pub fn apply_to(
         &self,
         root: &mut ScraperDataNode,
@@ -213,7 +259,7 @@ impl HtmlScraperEntry {
         }
     }
 
-    /// Parses an optional CSS selector string into a compiled [`scraper::Selector`].
+    /// Parses an optional CSS selector string into a compiled [`Selector`](::scraper::Selector).
     ///
     /// Returns `None` when the input is `None` or empty.
     ///
@@ -225,7 +271,7 @@ impl HtmlScraperEntry {
     /// # Errors
     ///
     /// Returns an error if `selector` is non-empty but not a valid CSS selector.
-    fn parse_selector(_name: &str, selector: Option<&str>) -> Result<Option<scraper::Selector>> {
+    fn parse_selector(_name: &str, selector: Option<&str>) -> Result<Option<::scraper::Selector>> {
         let selector = match selector {
             Some(selector) if !selector.trim().is_empty() => Some(
                 Selector::parse(selector)
@@ -275,7 +321,7 @@ impl HtmlScraperEntry {
     /// * `selector` - Compiled CSS selector used at runtime.
     fn serialize_selector(
         selector_template: &Option<String>,
-        selector: &Option<scraper::Selector>,
+        selector: &Option<::scraper::Selector>,
     ) -> Option<String> {
         selector_template
             .clone()
@@ -354,7 +400,7 @@ impl HtmlScraperEntry {
     /// * `card` - Root HTML element to search within.
     /// * `callback` - Function invoked for each selected element.
     fn for_each_selected<F>(
-        selector: &Option<scraper::Selector>,
+        selector: &Option<::scraper::Selector>,
         select: HtmlScraperSelectMode,
         card: ElementRef,
         mut callback: F,

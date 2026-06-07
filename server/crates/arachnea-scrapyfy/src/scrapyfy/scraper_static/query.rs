@@ -3,6 +3,9 @@ use serde::{Deserialize, Serialize, Serializer};
 use serde_yaml::Value;
 use std::collections::HashMap;
 
+use crate::scrapyfy::scraper::{RowLocator, ScraperEntrySpec, ScraperQuery, ScraperType, SubQuerySpec};
+use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
+use crate::scrapyfy::scraper_json::query::{ScraperRequestHeader, ScraperRequestMethod};
 use crate::scrapyfy::*;
 use crate::scrapyfy::query_helpers;
 
@@ -91,6 +94,9 @@ pub struct StaticScraperQuery {
     name: String,
     media_types: Vec<String>,
     entries: Vec<StaticScraperEntryRaw>,
+    /// HTTP configuration placeholder — static queries never issue HTTP requests
+    /// but the [`ScraperQuery`] trait surface requires a stable reference.
+    http_config: ScraperHttpConfig,
 }
 
 impl StaticScraperQuery {
@@ -133,6 +139,7 @@ impl StaticScraperQuery {
             name,
             media_types,
             entries,
+            http_config: ScraperHttpConfig::default(),
         })
     }
 
@@ -253,6 +260,129 @@ impl Serialize for StaticScraperQuery {
         S: Serializer,
     {
         StaticScraperQueryRaw::from(self).serialize(serializer)
+    }
+}
+
+impl ScraperEntrySpec for StaticScraperEntryRaw {
+    /// Returns the entry name.
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Returns the entry type discriminant (Static).
+    fn entry_type(&self) -> ScraperType {
+        ScraperType::Static
+    }
+
+    /// Returns `None` (static entries have no JSON pointer).
+    fn pointer(&self) -> Option<&str> {
+        None
+    }
+
+    /// Returns `None` (static entries have no CSS selector).
+    fn selector(&self) -> Option<&str> {
+        None
+    }
+
+    /// Returns the default selection mode (static entries resolve to a single value).
+    fn select(&self) -> HtmlScraperSelectMode {
+        HtmlScraperSelectMode::First
+    }
+
+    /// Returns an empty action list (static entries do not run actions).
+    fn actions(&self) -> &[ScraperAction] {
+        const EMPTY: &[ScraperAction] = &[];
+        EMPTY
+    }
+
+    /// Returns the nested sub-entries (always empty for static entries).
+    fn sub_entries(&self) -> Vec<&dyn ScraperEntrySpec> {
+        Vec::new()
+    }
+
+    /// Returns `true` when this entry defines a list of static items.
+    fn is_group(&self) -> bool {
+        !self.items.is_empty()
+    }
+
+    /// Returns an empty sub-query list (static entries do not attach sub-queries).
+    fn sub_queries(&self) -> Vec<&dyn ScraperQuery> {
+        Vec::new()
+    }
+}
+
+impl ScraperQuery for StaticScraperQuery {
+    fn scraper_type(&self) -> ScraperType {
+        ScraperType::Static
+    }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn media_types(&self) -> &[String] {
+        &self.media_types
+    }
+
+    fn is_media_type(&self, media_types: &[String]) -> bool {
+        StaticScraperQuery::is_media_type(self, media_types)
+    }
+
+    fn base_url(&self) -> &str {
+        ""
+    }
+
+    fn query_url(&self) -> &str {
+        ""
+    }
+
+    fn request_method(&self) -> ScraperRequestMethod {
+        ScraperRequestMethod::Get
+    }
+
+    fn request_pointer(&self) -> Option<&str> {
+        None
+    }
+
+    fn request_select(&self) -> HtmlScraperSelectMode {
+        HtmlScraperSelectMode::First
+    }
+
+    fn request_actions(&self) -> &[ScraperAction] {
+        const EMPTY: &[ScraperAction] = &[];
+        EMPTY
+    }
+
+    fn request_headers(&self) -> &[ScraperRequestHeader] {
+        const EMPTY: &[ScraperRequestHeader] = &[];
+        EMPTY
+    }
+
+    fn http_config(&self) -> &ScraperHttpConfig {
+        &self.http_config
+    }
+
+    fn extract_next_data(&self) -> bool {
+        false
+    }
+
+    fn row_locator(&self) -> RowLocator {
+        RowLocator::Single
+    }
+
+    fn entries(&self) -> Vec<&dyn ScraperEntrySpec> {
+        self.entries
+            .iter()
+            .map(|entry| entry as &dyn ScraperEntrySpec)
+            .collect()
+    }
+
+    fn sub_queries(&self) -> Vec<&dyn ScraperQuery> {
+        Vec::new()
+    }
+
+    fn sub_query_spec(&self) -> Option<&SubQuerySpec> {
+        None
     }
 }
 

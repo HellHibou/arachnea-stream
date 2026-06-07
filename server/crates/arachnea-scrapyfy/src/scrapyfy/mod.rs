@@ -23,7 +23,8 @@ pub use post_processes::{ScraperPostProcess, ScraperPostProcessContext};
 /// HTML query definitions, executors, and field extractors.
 pub mod scraper_html;
 pub use scraper_html::entry::{HtmlScraperEntry, HtmlScraperEntryRaw, HtmlScraperSelectMode};
-pub use scraper_html::query::{HtmlScraperQuery, HtmlScraperQueryRaw};
+pub use scraper_html::query::HtmlScraperQuery;
+pub use scraper_html::config::HtmlScraperQueryRaw;
 
 /// JSON query definitions, executors, and field extractors.
 pub mod scraper_json;
@@ -33,6 +34,9 @@ pub use scraper_json::query::{JsonScraperQuery, JsonScraperQueryRaw};
 /// Static query definitions and executors.
 pub mod scraper_static;
 pub use scraper_static::query::{StaticScraperEntryRaw, StaticScraperQuery, StaticScraperQueryRaw};
+
+/// Shared traits, spec types, and execution engine for scraper queries.
+pub(crate) mod scraper;
 
 /// Shared helpers for query URL formatting and filtering.
 pub mod query_helpers;

@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use crate::scrapyfy::actions::ScraperAction;
 use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
-use crate::scrapyfy::scraper_query_collection::ScraperFieldMapping;
+use crate::scrapyfy::post_processes::ScraperFieldMapping;
 use crate::scrapyfy::ScraperHttpConfig;
 
 /// Spec sub-query — présente sur sub_queries, absente sur racines.

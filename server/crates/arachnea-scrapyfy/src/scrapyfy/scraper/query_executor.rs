@@ -33,6 +33,15 @@ pub struct QueryContext<'a> {
 ///
 /// The full implementation lands in steps 6+ and replaces the legacy
 /// `JsonScraperSubQuery::execute` path.
+///
+/// # Arguments
+///
+/// * `query` - The scraper query to execute.
+/// * `context` - Runtime context forwarded to sub-query execution.
+///
+/// # Errors
+///
+/// Always returns an error — this is a placeholder until step 6+.
 pub async fn execute_query(
     _query: &dyn ScraperQuery,
     _context: &QueryContext<'_>,
@@ -40,12 +49,20 @@ pub async fn execute_query(
     anyhow::bail!("execute_query is not implemented yet; see step 6 of the sub_query_at_entry refactor")
 }
 
-/// Helper kept for symmetry with the trait contract (consumed by step 6+).
+/// Returns the optional [`SubQuerySpec`] attached to the given query.
+///
+/// # Arguments
+///
+/// * `query` - The scraper query to inspect.
 pub fn resolve_sub_query_spec(_query: &dyn ScraperQuery) -> Option<&SubQuerySpec> {
     _query.sub_query_spec()
 }
 
-/// Helper kept for symmetry with the trait contract (consumed by step 6+).
+/// Returns the HTTP configuration associated with the given query.
+///
+/// # Arguments
+///
+/// * `query` - The scraper query whose HTTP config is returned.
 pub fn http_config(_query: &dyn ScraperQuery) -> &ScraperHttpConfig {
     _query.http_config()
 }

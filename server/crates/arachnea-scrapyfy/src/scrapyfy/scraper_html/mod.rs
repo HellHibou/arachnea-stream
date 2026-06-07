@@ -3,12 +3,14 @@
 //! An HTML query fetches an HTML page from a remote endpoint (or a sibling
 //! sub-query context) and extracts typed rows via CSS selectors.
 //!
-//! See [`query`] for the runtime and raw configuration types of
-//! [`HtmlScraperQuery`], and [`entry`] for the runtime and raw configuration
-//! types of [`HtmlScraperEntry`].
+//! - [`config`] — Raw YAML configuration types and validated runtime conversions.
+//! - [`entry`] — Runtime and raw configuration types of [`HtmlScraperEntry`].
+//! - [`query`] — Runtime query type and [`ScraperManagerQuery`] implementation.
 
+pub mod config;
 pub mod entry;
 pub mod query;
 
 pub use entry::{HtmlScraperEntry, HtmlScraperEntryRaw, HtmlScraperSelectMode};
-pub use query::{HtmlScraperQuery, HtmlScraperQueryRaw};
+pub use config::HtmlScraperQueryRaw;
+pub use query::HtmlScraperQuery;

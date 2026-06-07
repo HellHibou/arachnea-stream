@@ -14,8 +14,8 @@ pub mod entry_trait;
 pub mod row_locator;
 pub mod sub_query_spec;
 
-mod query_executor;
-mod query_trait;
+pub(crate) mod query_executor;
+pub(crate) mod query_trait;
 
 pub use entry_trait::ScraperEntrySpec;
 pub use query_trait::ScraperQuery;
