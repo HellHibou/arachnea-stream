@@ -541,7 +541,7 @@ queries:
 
   # ---------------------------------------------------------------
   # Detail page for a movie or series (HTML)
-  # For series: extracts season buttons (data-season + post-id attributes)
+  # For series: extracts season radio inputs (data-season + post-id attributes)
   # For movies:  extracts the iframe embed src as players > embed-link
   #
   # NOTE: movie player resolution requires a further HTTP step + base64 decode
@@ -578,10 +578,10 @@ queries:
           - type: regex_find_all
             pattern: '(\d{4})'
             format: "{1}"
-      # Seasons: button[name="seasons"] data-season="N" [...] post-id="X"
-      # Label is the button text ("Saison 1", etc.)
+      # Seasons: radio input[name="seasons"] data-season="N" post-id="X"
+      # Label is the span text next to the radio ("La Sorcière invincible tueuse de Slime depuis 300 ans - Season 1", etc.)
       - name: season > label
-        selector: 'button[name="seasons"]'
+        selector: 'input[name="seasons"] + span'
         select: all
         actions:
           - type: get_text
@@ -625,20 +625,21 @@ queries:
           - type: get_text
 
 
-  # ---------------------------------------------------------------
+# ---------------------------------------------------------------
   # Season detail via REST API
   # URL: {base_url}/wp-json/apiflix/v1/series/{post_id}/{season_num}
   # (built by get_entry from season > link)
-  # Response: {episodes: [{id, title, number, season, image}, ...]}
+  # Response: {post_id, title, episodes: [{id, title, number, season, image, links}, ...]}
   #
-  # NOTE: episode embed-link is the player API URL
-  # (wp-json/apiflix/v1/playerepisode?post_id={episode_id}).
-  # This returns JSON ({links: {online: [{link: "..."}]}}), not a direct embed.
-  # Each link in online[] leads to a Coflix player page containing base64-encoded
-  # hoster URLs — full resolution not supported by current YAML action set.
+  # Each episode's embed-link is resolved via a sub-query:
+  # 1. Build the player API URL from the episode ID:
+  #    {base_url}wp-json/apiflix/v1/playerepisode?post_id={}
+  # 2. Fetch the JSON response:
+  #    {term_id, links: {online: [{i, lang, quality, server, link, date}, ...]}}
+  # 3. Extract the "link" field from each online entry as embed-link
   #
   # Wrapped into the standard section result shape:
-  # {source, current_page, have_more, entries: [...]}
+  # {source, current_page, have_more, episodes: [...]}
   # ---------------------------------------------------------------
   - name: get_season
     scraper_type: json
@@ -647,18 +648,38 @@ queries:
     media_types:
       - video/show/series
       - video/show/anime
-    row_pointer: "/episodes/*"
+    row_pointer: "/"
     entries:
-      - name: title
-        pointer: "/title"
-      - name: episode-number
-        pointer: "/number"
-      - name: img/thumbnail > link
-        pointer: "/image"
-        actions: *actions_img_html_to_url
-      # Intermediate player API URL — see NOTE above
-      - name: players > embed-link
-        pointer: "/id"
+      - name: current_page
         actions:
           - type: format_text
-            argument: "{base_url}/wp-json/apiflix/v1/playerepisode?post_id={}"
+            argument: "1"
+      - name: have_more
+        actions:
+          - type: format_text
+            argument: "false"
+    sub_queries:
+      - context_pointer: "/episodes/*"
+        target: episodes
+        request_pointer: "/id"
+        request_actions:
+          - type: format_text
+            argument: "{base_url}wp-json/apiflix/v1/playerepisode?post_id={}"
+        row_pointer: "/"
+        context_entries:
+          - name: id
+            pointer: "/id"
+          - name: title
+            pointer: "/title"
+          - name: episode-number
+            pointer: "/number"
+          - name: img/preview > link
+            pointer: "/image"
+            actions: *actions_img_html_to_url
+        entries:
+          - name: players > embed-link
+            pointer: "/links/online/*/link"
+            select: all
+          - name: release-date
+            pointer: "/links/online/*/date"
+            select: first
