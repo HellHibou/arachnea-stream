@@ -2,8 +2,8 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::Value;
 
-use super::*;
-use crate::scrapyfy::html_scraper_entry::HtmlScraperSelectMode;
+use crate::scrapyfy::*;
+use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
 
 /// Raw configuration definition of one field or grouped field extracted from a JSON result row.
 #[derive(Serialize, Deserialize)]

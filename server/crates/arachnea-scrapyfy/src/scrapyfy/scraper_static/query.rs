@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize, Serializer};
 use serde_yaml::Value;
 use std::collections::HashMap;
 
-use super::*;
+use crate::scrapyfy::*;
 use crate::scrapyfy::query_helpers;
 
 /// Raw configuration definition of one static field or list of static objects.

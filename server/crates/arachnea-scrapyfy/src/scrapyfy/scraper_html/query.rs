@@ -5,10 +5,10 @@ use scraper::Selector;
 use serde::{Deserialize, Serialize, Serializer};
 use std::collections::HashMap;
 
-use super::*;
-use crate::scrapyfy::html_scraper_entry::HtmlScraperSelectMode;
-use crate::scrapyfy::json_scraper_entry::{json_value_to_strings, select_json_values};
-use crate::scrapyfy::json_scraper_query::{
+use crate::scrapyfy::*;
+use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
+use crate::scrapyfy::scraper_json::entry::{json_value_to_strings, select_json_values};
+use crate::scrapyfy::scraper_json::query::{
     ScraperRequestHeader, ScraperRequestHeaderRaw, ScraperRequestMethod,
 };
 use crate::scrapyfy::query_helpers::{self, QueryTemplateParamMapping};

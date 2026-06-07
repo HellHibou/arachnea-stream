@@ -20,29 +20,19 @@ pub use actions::{GetDateSource, GetDateSources, ScraperAction};
 pub mod post_processes;
 pub use post_processes::{ScraperPostProcess, ScraperPostProcessContext};
 
-/// HTML field extractor definitions.
-pub mod html_scraper_entry;
-pub use html_scraper_entry::HtmlScraperEntry;
-pub use html_scraper_entry::HtmlScraperEntryRaw;
+/// HTML query definitions, executors, and field extractors.
+pub mod scraper_html;
+pub use scraper_html::entry::{HtmlScraperEntry, HtmlScraperEntryRaw, HtmlScraperSelectMode};
+pub use scraper_html::query::{HtmlScraperQuery, HtmlScraperQueryRaw};
 
-/// HTML query definitions and executors.
-pub mod html_scraper_query;
-pub use html_scraper_query::HtmlScraperQuery;
-pub use html_scraper_query::HtmlScraperQueryRaw;
-
-/// JSON field extractor definitions.
-pub mod json_scraper_entry;
-pub use json_scraper_entry::JsonScraperEntry;
-pub use json_scraper_entry::JsonScraperEntryRaw;
-
-/// JSON query definitions and executors.
-pub mod json_scraper_query;
-pub use json_scraper_query::JsonScraperQuery;
-pub use json_scraper_query::JsonScraperQueryRaw;
+/// JSON query definitions, executors, and field extractors.
+pub mod scraper_json;
+pub use scraper_json::entry::{JsonScraperEntry, JsonScraperEntryRaw};
+pub use scraper_json::query::{JsonScraperQuery, JsonScraperQueryRaw};
 
 /// Static query definitions and executors.
-pub mod static_scraper_query;
-pub use static_scraper_query::{StaticScraperEntryRaw, StaticScraperQuery, StaticScraperQueryRaw};
+pub mod scraper_static;
+pub use scraper_static::query::{StaticScraperEntryRaw, StaticScraperQuery, StaticScraperQueryRaw};
 
 /// Shared helpers for query URL formatting and filtering.
 pub mod query_helpers;

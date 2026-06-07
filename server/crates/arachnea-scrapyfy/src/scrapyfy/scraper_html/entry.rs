@@ -2,7 +2,7 @@ use anyhow::Result;
 use scraper::{selector::ToCss, ElementRef, Selector};
 use serde::{Deserialize, Serialize, Serializer};
 
-use super::*;
+use crate::scrapyfy::*;
 use crate::scrapyfy::query_helpers;
 
 /// Raw configuration definition of one field or grouped field extracted from each result row.

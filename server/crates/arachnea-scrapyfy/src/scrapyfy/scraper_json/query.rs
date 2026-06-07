@@ -4,9 +4,9 @@ use http::Method;
 use serde::{Deserialize, Serialize, Serializer};
 use std::collections::{HashMap, HashSet};
 
-use super::*;
-use crate::scrapyfy::html_scraper_entry::HtmlScraperSelectMode;
-use crate::scrapyfy::json_scraper_entry::{json_value_to_strings, select_json_values};
+use crate::scrapyfy::*;
+use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
+use crate::scrapyfy::scraper_json::entry::{json_value_to_strings, select_json_values};
 use crate::scrapyfy::query_helpers::{self, QueryTemplateParamMapping};
 
 /// Raw configuration definition of one JSON query endpoint.
