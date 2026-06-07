@@ -53,7 +53,7 @@ pub use scraper_manager::ScraperManager;
 
 /// Shared contract for scraper queries that can format a request and extract rows.
 #[async_trait]
-pub trait ScraperQuery {
+pub trait ScraperManagerQuery {
     /// Returns the query name used as the lookup key in a collection.
     fn name(&self) -> String;
 

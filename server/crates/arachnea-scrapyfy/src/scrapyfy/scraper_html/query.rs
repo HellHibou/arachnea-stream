@@ -387,7 +387,7 @@ impl HtmlScraperQuery {
 }
 
 #[async_trait]
-impl ScraperQuery for HtmlScraperQuery {
+impl ScraperManagerQuery for HtmlScraperQuery {
     fn name(&self) -> String {
         self.name.clone()
     }
