@@ -1163,8 +1163,9 @@ function normalizeEntryDetails(entry: unknown, source: string, entryUrl: string)
      directorLabels: dedupeDisplayStrings(readStringList(record.director)),
      seasons,
      episodes,
+     score: firstNumber(record.rating),
    }
- }
+  }
 
 /**
  * Converts raw backend player records into normalized embedded player entries.

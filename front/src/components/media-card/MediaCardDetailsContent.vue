@@ -26,14 +26,45 @@ interface Props {
    * Display title for the backend service attached to the previewed item.
    */
   serviceTitle?: string | null
+  /**
+   * Logo URL for the backend service attached to the previewed item.
+   */
+  serviceLogo?: string | null
 }
 
 const props = withDefaults(defineProps<Props>(), {
   variant: 'preview',
   showDurationFact: false,
   serviceTitle: null,
+  serviceLogo: null,
 })
 const { t } = useI18n()
+
+/**
+ * CSS class for score color based on rating value (matches other components).
+ */
+const scoreClass = computed(() => {
+  if (props.item.rating == null) {
+    return ''
+  }
+  if (props.item.rating >= 4) {
+    return 'media-card__rating--good'
+  }
+  if (props.item.rating >= 3) {
+    return 'media-card__rating--average'
+  }
+  return 'media-card__rating--low'
+})
+
+/**
+ * Formatted rating value for display (raw rating with 1 decimal, comma as decimal separator).
+ */
+const formattedRating = computed(() => {
+  if (props.item.rating == null) {
+    return null
+  }
+  return props.item.rating.toFixed(1).replace('.', ',')
+})
 
 /**
  * Indicates whether any labeled fact should be rendered.
@@ -43,7 +74,8 @@ const showFacts = computed(() =>
     (props.showDurationFact && props.item.durationLabel) ||
       props.serviceTitle ||
       props.item.releaseDateLabel ||
-      props.item.expireLabel,
+      props.item.expireLabel ||
+      (props.variant === 'list' && props.item.rating != null),
   ),
 )
 
@@ -88,14 +120,13 @@ const hasDetails = computed(() =>
         {{ ' ' }}{{ item.durationLabel }}
       </p>
 
-      <p
-        v-if="serviceTitle"
-        class="media-card-details__fact"
-        :class="{ 'media-card-details__fact--list': variant === 'list' }"
+      <div
+        v-if="serviceTitle && variant === 'list'"
+        class="media-card-details__fact media-card-details__fact--list media-card-details__source"
       >
         <span class="media-card-details__fact-label">{{ t('media.source') }} :</span>
-        {{ ' ' }}{{ serviceTitle }}
-      </p>
+        <span class="media-card-details__source-title">{{ serviceTitle }}</span>
+      </div>
 
       <p
         v-if="item.releaseDateLabel"
@@ -114,6 +145,14 @@ const hasDetails = computed(() =>
         <span class="media-card-details__fact-label">{{ t('media.availableUntil') }} :</span>
         {{ ' ' }}{{ item.expireLabel }}
       </p>
+
+      <div
+        v-if="formattedRating && variant === 'list'"
+        class="media-card-details__fact media-card-details__fact--list media-card-details__score"
+      >
+        <span class="media-card-details__fact-label">{{ t('media.score') }} :</span>
+        <span class="media-card-details__score-value" :class="scoreClass">{{ formattedRating }}</span>
+      </div>
     </div>
 
     <p v-if="item.episodeLabel" class="media-card-details__episode">
@@ -187,6 +226,67 @@ const hasDetails = computed(() =>
   text-align: left;
   text-wrap: pretty;
   hyphens: auto;
+}
+
+.media-card-details__source {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.3;
+}
+
+.media-card-details__source-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+}
+
+.media-card-details__source-logo {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  object-fit: contain;
+  background: var(--bg-surface);
+  flex-shrink: 0;
+}
+
+.media-card-details__score {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+  line-height: 1.3;
+}
+
+.media-card-details__score-value {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.media-card-details__score-value.media-card__rating--good {
+  background: var(--bg-rating-good);
+  color: var(--text-on-rating-good);
+}
+
+.media-card-details__score-value.media-card__rating--average {
+  background: var(--bg-rating-average);
+  color: var(--text-on-rating-average);
+}
+
+.media-card-details__score-value.media-card__rating--low {
+  background: var(--bg-rating-low);
+  color: var(--text-on-rating-low);
 }
 
 @media (max-width: 720px) {

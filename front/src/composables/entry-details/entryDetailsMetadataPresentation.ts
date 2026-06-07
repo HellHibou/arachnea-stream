@@ -50,6 +50,8 @@ export function entryDetailsMetadataPresentation(
     })
   })
 
+  const score = computed(() => options.details.value?.score ?? null)
+
   return {
     metadataBadges,
     genreText,
@@ -60,5 +62,6 @@ export function entryDetailsMetadataPresentation(
     directorText: computed(() =>
       options.details.value?.directorLabels.slice(0, 6).join(', ') || null,
     ),
+    score,
   }
 }

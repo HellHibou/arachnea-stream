@@ -112,4 +112,5 @@ export interface EntryDetails {
   directorLabels: string[]
   seasons: EntrySeason[]
   episodes: EntryEpisode[]
+  score: number | null
 }

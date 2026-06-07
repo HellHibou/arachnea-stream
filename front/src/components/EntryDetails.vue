@@ -16,70 +16,71 @@ import type { ThumbnailImageFit } from '@/types/media'
 /**
   * Props accepted by the shared entry details shell.
   */
- interface Props {
-   errorMessage: string | null
-   isLoading: boolean
-   hasContent: boolean
-   loadingTitle?: string
-   loadingDescription?: string
-   backgroundVideoUrl: string | null
-   heroBackgroundUrl: string | null
-   heroBackgroundPortraitUrl: string | null
-   heroBackgroundLandscapeUrl: string | null
-   isBackgroundAnimated?: boolean
-   backgroundImageFit?: ThumbnailImageFit
-   useCatalogBannersAsBackground?: boolean
-   displayTitle: string
-  posterFrameImageUrl: string | null
-  posterFrameUsesContain: boolean
-  showTrailerAction: boolean
-  trailerActionLabel: string
-  entryUrl: string | null
-  source: string | null
-  alternativeTitleLabel: string | null
-  selectedPlayableTitle: string | null
-  showAdjacentNavigation?: boolean
-  hasPreviousPlayable?: boolean
-  hasNextPlayable?: boolean
-  showBookmarkAction?: boolean
-  isBookmarked?: boolean
-  showTrailerPlayer: boolean
-  showMediaPlayer: boolean
-  trailerMediaSource: ResolvedPlayerMediaSource | null
-  mediaSource: ResolvedPlayerMediaSource | null
-  mediaOpenUrl: string | null
-  isMediaPlayerLoading: boolean
-  mediaPlayerErrorMessage: string | null
-  showPlayerControls: boolean
-  showLanguageSelector: boolean
-  showPlayerSelector: boolean
-  availableLanguages: EntryPlayerLanguageOption[]
-  activeLanguageKey: string | null
-  filteredPlayers: EntryPlayer[]
-  activePlayerId: string | null
-  mediaPosterUrl: string | null
-  trailerPosterUrl: string | null
-  mediaOverlayLogoUrl: string | null
-  displayDescription: string
-  initialPlaybackTime: number | null
-  mediaAutoplay: boolean
-  preferPersistedMediaSurface: boolean
-  showAutoplayToggle?: boolean
-  isAutoplayEnabled?: boolean
-  isFullWidthContent?: boolean
-  metadataBadges: string[]
-  topicChips: string[]
-  genreText: string | null
-  yearLabel: string | null
-  displayReleaseDateLabel: string | null
-  displayExpireLabel: string | null
-  contentAdvisorLabel: string | null
-  audioLanguageLabel: string | null
-  subtitleLanguageLabel: string | null
-  displayDurationLabel: string | null
-  castingText: string | null
-  directorText: string | null
-}
+  interface Props {
+    errorMessage: string | null
+    isLoading: boolean
+    hasContent: boolean
+    loadingTitle?: string
+    loadingDescription?: string
+    backgroundVideoUrl: string | null
+    heroBackgroundUrl: string | null
+    heroBackgroundPortraitUrl: string | null
+    heroBackgroundLandscapeUrl: string | null
+    isBackgroundAnimated?: boolean
+    backgroundImageFit?: ThumbnailImageFit
+    useCatalogBannersAsBackground?: boolean
+    displayTitle: string
+   posterFrameImageUrl: string | null
+   posterFrameUsesContain: boolean
+   showTrailerAction: boolean
+   trailerActionLabel: string
+   entryUrl: string | null
+   source: string | null
+   alternativeTitleLabel: string | null
+   selectedPlayableTitle: string | null
+   showAdjacentNavigation?: boolean
+   hasPreviousPlayable?: boolean
+   hasNextPlayable?: boolean
+   showBookmarkAction?: boolean
+   isBookmarked?: boolean
+   showTrailerPlayer: boolean
+   showMediaPlayer: boolean
+   trailerMediaSource: ResolvedPlayerMediaSource | null
+   mediaSource: ResolvedPlayerMediaSource | null
+   mediaOpenUrl: string | null
+   isMediaPlayerLoading: boolean
+   mediaPlayerErrorMessage: string | null
+   showPlayerControls: boolean
+   showLanguageSelector: boolean
+   showPlayerSelector: boolean
+   availableLanguages: EntryPlayerLanguageOption[]
+   activeLanguageKey: string | null
+   filteredPlayers: EntryPlayer[]
+   activePlayerId: string | null
+   mediaPosterUrl: string | null
+   trailerPosterUrl: string | null
+   mediaOverlayLogoUrl: string | null
+   displayDescription: string
+   initialPlaybackTime: number | null
+   mediaAutoplay: boolean
+   preferPersistedMediaSurface: boolean
+   showAutoplayToggle?: boolean
+   isAutoplayEnabled?: boolean
+   isFullWidthContent?: boolean
+   metadataBadges: string[]
+   topicChips: string[]
+   genreText: string | null
+   yearLabel: string | null
+   displayReleaseDateLabel: string | null
+   displayExpireLabel: string | null
+   contentAdvisorLabel: string | null
+   audioLanguageLabel: string | null
+   subtitleLanguageLabel: string | null
+   displayDurationLabel: string | null
+   castingText: string | null
+   directorText: string | null
+   score: number | null
+ }
 
 const props = withDefaults(defineProps<Props>(), {
    isBackgroundAnimated: false,
@@ -237,6 +238,7 @@ const emit = defineEmits<{
              :display-duration-label="props.displayDurationLabel"
              :casting-text="props.castingText"
              :director-text="props.directorText"
+             :score="props.score"
            />
 
            <slot />

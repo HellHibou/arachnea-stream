@@ -98,6 +98,8 @@ defineEmits<{
       :display-title="displayTitle"
       :formatted-rating="formattedRating"
       :rating-class="ratingClass"
+      :service-title="serviceTitle"
+      :service-logo="serviceLogo"
     />
 
     <div class="media-card__list-action">

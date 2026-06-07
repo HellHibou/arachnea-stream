@@ -174,6 +174,7 @@ const details = computed<EntryDetailsModel | null>(() => {
     directorLabels: [],
     seasons: [],
     episodes: [],
+    score: null,
   }
 })
 
@@ -565,9 +566,10 @@ void loadLiveItems()
     :content-advisor-label="null"
     :audio-language-label="details?.audioLanguageLabel ?? null"
     :subtitle-language-label="null"
-    :display-duration-label="details?.durationLabel ?? null"
-    :casting-text="null"
-    :director-text="null"
+     :display-duration-label="details?.durationLabel ?? null"
+     :casting-text="null"
+     :director-text="null"
+     :score="null"
     @toggle-trailer="handleTrailerToggle"
     @update:active-language-key="handleActiveLanguageKeyUpdate"
     @remember-current-language="rememberCurrentLanguage"

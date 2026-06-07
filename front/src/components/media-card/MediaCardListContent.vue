@@ -23,47 +23,43 @@ interface Props {
    * CSS class applied to the rating badge.
    */
   ratingClass: string
+  /**
+   * Display title for the backend service attached to this item.
+   */
+  serviceTitle: string | null
+  /**
+   * Logo URL for the backend service attached to this item.
+   */
+  serviceLogo: string | null
 }
 
-defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), {
+  serviceTitle: null,
+  serviceLogo: null,
+})
 </script>
 
 <template>
   <div class="media-card__list-copy">
     <div class="media-card__list-body">
-      <div
-        v-if="item.mediaTypeLabel || item.audioLabel || formattedRating != null"
-        class="media-card__list-badges"
-      >
-        <span v-if="item.mediaTypeLabel" class="media-card__list-badge">
-          {{ item.mediaTypeLabel }}
-        </span>
-
-        <span v-if="item.audioLabel" class="media-card__list-badge">
-          {{ item.audioLabel }}
-        </span>
-
-        <span
-          v-if="formattedRating != null"
-          class="media-card__list-badge media-card__list-badge--rating"
-          :class="ratingClass"
-        >
-          {{ formattedRating }}
-        </span>
+      <div v-if="item.audioLabel" class="media-card__list-badges">
+        <span class="media-card__list-badge">{{ item.audioLabel }}</span>
       </div>
 
       <h2 class="media-card__preview-title media-card__preview-title--list">
         {{ displayTitle }}
       </h2>
 
-<p v-if="item.alternativeTitleLabel" class="media-card__preview-subtitle">
-  <em class="media-card__alternative-title-value">{{ item.alternativeTitleLabel }}</em>
-</p>
+      <p v-if="item.alternativeTitleLabel" class="media-card__preview-subtitle">
+        <em class="media-card__alternative-title-value">{{ item.alternativeTitleLabel }}</em>
+      </p>
 
       <MediaCardDetailsContent
         :item="item"
         variant="list"
         :show-duration-fact="true"
+        :service-title="serviceTitle"
+        :service-logo="serviceLogo"
       />
     </div>
   </div>

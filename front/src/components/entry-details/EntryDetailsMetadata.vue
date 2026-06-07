@@ -18,6 +18,7 @@ interface Props {
   displayDurationLabel: string | null
   castingText: string | null
   directorText: string | null
+  score: number | null
 }
 
 
@@ -51,6 +52,11 @@ defineProps<Props>()
       <div v-if="yearLabel" class="entry-details__fact">
         <dt>{{ t('media.year') }}</dt>
         <dd>{{ yearLabel }}</dd>
+      </div>
+
+      <div v-if="score !== null" class="entry-details__fact">
+        <dt>{{ t('media.score') }}</dt>
+        <dd>{{ score }}</dd>
       </div>
 
       <div v-if="displayReleaseDateLabel" class="entry-details__fact">
