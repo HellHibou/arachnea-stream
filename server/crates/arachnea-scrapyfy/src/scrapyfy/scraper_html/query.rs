@@ -14,6 +14,10 @@ use serde::Deserialize;
 use std::collections::HashMap;
 
 use crate::scrapyfy::*;
+use crate::scrapyfy::scraper::entry_trait::ScraperEntrySpec;
+use crate::scrapyfy::scraper::query_trait::ScraperQuery;
+use crate::scrapyfy::scraper::row_locator::{RowLocator, ScraperType};
+use crate::scrapyfy::scraper::sub_query_spec::SubQuerySpec;
 use crate::scrapyfy::scraper_html::config::HtmlScraperQueryRaw;
 use crate::scrapyfy::scraper_html::entry::{HtmlScraperEntry, HtmlScraperSelectMode};
 use crate::scrapyfy::scraper_json::entry::{json_value_to_strings, select_json_values};
@@ -298,7 +302,9 @@ impl ScraperManagerQuery for HtmlScraperQuery {
     fn is_media_type(&self, media_types: &[String]) -> bool {
         media_types
             .iter()
-            .any(|media_type| self.media_types().contains(media_type))
+            .any(|media_type| {
+                ScraperManagerQuery::media_types(self).contains(media_type)
+            })
     }
 
     #[cfg(any(test, feature = "test-support"))]
@@ -315,13 +321,13 @@ impl ScraperManagerQuery for HtmlScraperQuery {
         fields_filters: Option<&HashMap<String, Vec<String>>>,
     ) -> Result<Vec<HashMap<String, ScraperDataNode>>> {
         let resolved_params = query_helpers::build_query_execution_params(
-            self.base_url(),
+            ScraperManagerQuery::base_url(self),
             params,
             &self.query_param_mappings,
         );
         let query_url = query_helpers::format_query_template(
-            self.base_url(),
-            self.query_url(),
+            ScraperManagerQuery::base_url(self),
+            ScraperManagerQuery::query_url(self),
             &resolved_params,
         )?;
         let request_headers = self.resolve_request_headers(&resolved_params, &query_url);
@@ -461,6 +467,210 @@ fn collect_ordered_results<T>(results: Vec<Result<(usize, T)>>) -> Result<Vec<T>
 /// * `entries` - Field extractors applied to every matched row.
 /// * `params` - Runtime template parameters forwarded to entry actions.
 /// * `query_url` - Fully resolved request URL forwarded to entry actions.
+// ---------------------------------------------------------------------------
+// HtmlScraperSubQuery
+// ---------------------------------------------------------------------------
+
+/// Runtime definition of one chained HTML follow-up request.
+///
+/// An `HtmlScraperSubQuery` fetches an HTML page derived from a parent row,
+/// selects rows via a CSS selector, and merges the extracted fields into the
+/// parent data tree.  This type implements [`ScraperQuery`] so it can be
+/// executed by the unified executor.
+pub struct HtmlScraperSubQuery {
+    /// Optional CSS selector scoping the context rows that seed follow-up requests.
+    pub(crate) context_pointer: Option<String>,
+    /// Selection mode for the context pointer.
+    pub(crate) context_select: HtmlScraperSelectMode,
+    /// Filters applied to the context row before issuing the follow-up request.
+    pub(crate) filters: HashMap<String, Vec<String>>,
+    /// Filters applied to the fetched rows (after the HTTP response).
+    pub(crate) row_filters: HashMap<String, Vec<String>>,
+    /// Entries extracted from the context row rather than from fetched rows.
+    pub(crate) context_entries: Vec<HtmlScraperEntry>,
+    /// Path where the sub-query result is nested (default: root level).
+    pub(crate) target: Option<String>,
+    /// Pointer selecting the request URL from the context row.
+    pub(crate) request_pointer: Option<String>,
+    /// Selection mode for the request pointer.
+    pub(crate) request_select: HtmlScraperSelectMode,
+    /// Actions applied to the selected request URLs.
+    pub(crate) request_actions: Vec<ScraperAction>,
+    /// HTTP method used for the follow-up request.
+    pub(crate) request_method: ScraperRequestMethod,
+    /// HTTP headers attached to the follow-up request.
+    pub(crate) request_headers: Vec<ScraperRequestHeader>,
+    /// HTTP client configuration for the follow-up request.
+    pub(crate) http_config: ScraperHttpConfig,
+    /// CSS selector matching each result row in the response.
+    pub(crate) row_selector: String,
+    /// Compiled CSS selector for efficient matching.
+    pub(crate) row_selector_compiled: Selector,
+    /// Field extractors executed for every matched row.
+    pub(crate) entries: Vec<HtmlScraperEntry>,
+    /// Post-processing steps applied to each extracted row.
+    pub(crate) post_processes: Vec<ScraperPostProcess>,
+}
+
+impl ScraperQuery for HtmlScraperQuery {
+    fn scraper_type(&self) -> ScraperType {
+        ScraperType::Html
+    }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn media_types(&self) -> &[String] {
+        &self.media_types
+    }
+
+    fn is_media_type(&self, media_types: &[String]) -> bool {
+        ScraperManagerQuery::is_media_type(self, media_types)
+    }
+
+    fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
+    fn query_url(&self) -> &str {
+        &self.query_url
+    }
+
+    fn request_method(&self) -> ScraperRequestMethod {
+        self.request_method
+    }
+
+    fn request_pointer(&self) -> Option<&str> {
+        self.request_body_pointer.as_deref()
+    }
+
+    fn request_select(&self) -> HtmlScraperSelectMode {
+        self.request_body_select
+    }
+
+    fn request_actions(&self) -> &[ScraperAction] {
+        &self.request_body_actions
+    }
+
+    fn request_headers(&self) -> &[ScraperRequestHeader] {
+        &self.request_headers
+    }
+
+    fn http_config(&self) -> &ScraperHttpConfig {
+        &self.http_config
+    }
+
+    fn extract_next_data(&self) -> bool {
+        false
+    }
+
+    fn row_locator(&self) -> RowLocator {
+        RowLocator::Selector {
+            selector: self.row_selector_template.clone(),
+            select: HtmlScraperSelectMode::All,
+        }
+    }
+
+    fn entries(&self) -> Vec<&dyn ScraperEntrySpec> {
+        self.scraper_entries
+            .iter()
+            .map(|entry| entry as &dyn ScraperEntrySpec)
+            .collect()
+    }
+
+    fn sub_queries(&self) -> Vec<&dyn ScraperQuery> {
+        Vec::new()
+    }
+
+    fn sub_query_spec(&self) -> Option<&SubQuerySpec> {
+        None
+    }
+}
+
+impl ScraperQuery for HtmlScraperSubQuery {
+    fn scraper_type(&self) -> ScraperType {
+        ScraperType::Html
+    }
+
+    fn name(&self) -> &str {
+        "html-sub-query"
+    }
+
+    fn media_types(&self) -> &[String] {
+        &[]
+    }
+
+    fn is_media_type(&self, _media_types: &[String]) -> bool {
+        true
+    }
+
+    fn base_url(&self) -> &str {
+        ""
+    }
+
+    fn query_url(&self) -> &str {
+        ""
+    }
+
+    fn request_method(&self) -> ScraperRequestMethod {
+        self.request_method
+    }
+
+    fn request_pointer(&self) -> Option<&str> {
+        self.request_pointer.as_deref()
+    }
+
+    fn request_select(&self) -> HtmlScraperSelectMode {
+        self.request_select
+    }
+
+    fn request_actions(&self) -> &[ScraperAction] {
+        &self.request_actions
+    }
+
+    fn request_headers(&self) -> &[ScraperRequestHeader] {
+        &self.request_headers
+    }
+
+    fn http_config(&self) -> &ScraperHttpConfig {
+        &self.http_config
+    }
+
+    fn extract_next_data(&self) -> bool {
+        false
+    }
+
+    fn row_locator(&self) -> RowLocator {
+        RowLocator::Selector {
+            selector: self.row_selector.clone(),
+            select: HtmlScraperSelectMode::All,
+        }
+    }
+
+    fn entries(&self) -> Vec<&dyn ScraperEntrySpec> {
+        let mut all: Vec<&dyn ScraperEntrySpec> = self
+            .context_entries
+            .iter()
+            .map(|entry| entry as &dyn ScraperEntrySpec)
+            .collect();
+        all.extend(
+            self.entries
+                .iter()
+                .map(|entry| entry as &dyn ScraperEntrySpec),
+        );
+        all
+    }
+
+    fn sub_queries(&self) -> Vec<&dyn ScraperQuery> {
+        Vec::new()
+    }
+
+    fn sub_query_spec(&self) -> Option<&SubQuerySpec> {
+        None
+    }
+}
+
 fn parse_html_rows(
     html: &str,
     row_selector: &Selector,

@@ -13,6 +13,9 @@ use serde::{Deserialize, Serialize, Serializer};
 
 use crate::scrapyfy::*;
 use crate::scrapyfy::query_helpers;
+use crate::scrapyfy::scraper::entry_trait::ScraperEntrySpec;
+use crate::scrapyfy::scraper::query_trait::ScraperQuery;
+use crate::scrapyfy::scraper::row_locator::ScraperType;
 
 /// Raw configuration definition of one field or grouped field extracted from each result row.
 ///
@@ -98,6 +101,11 @@ pub enum HtmlScraperEntry {
         select: HtmlScraperSelectMode,
         /// Ordered extraction steps executed on the selected node.
         actions: Vec<ScraperAction>,
+        /// Sub-queries attached to this entry (recursion across scraper types).
+        ///
+        /// Always empty at the moment — the field is wired in step 14, the
+        /// YAML exposure lands with the executor in step 15+.
+        sub_queries: Vec<Box<dyn ScraperQuery>>,
     },
     /// A group entry that contains child entries applied to each matched element.
     Group {
@@ -111,6 +119,11 @@ pub enum HtmlScraperEntry {
         select: HtmlScraperSelectMode,
         /// Child entries applied to each matched element.
         entries: Vec<HtmlScraperEntry>,
+        /// Sub-queries attached to this entry (recursion across scraper types).
+        ///
+        /// Always empty at the moment — the field is wired in step 14, the
+        /// YAML exposure lands with the executor in step 15+.
+        sub_queries: Vec<Box<dyn ScraperQuery>>,
     },
 }
 
@@ -220,6 +233,7 @@ impl HtmlScraperEntry {
                 selector,
                 select,
                 actions,
+                ..
             } => {
                 let path: Vec<&str> = name.split('>').map(|s| s.trim()).collect();
                 Self::for_each_selected(selector, *select, card, |selected| {
@@ -246,6 +260,7 @@ impl HtmlScraperEntry {
                 selector,
                 select,
                 entries,
+                ..
             } => {
                 let path: Vec<&str> = name.split('>').map(|s| s.trim()).collect();
                 Self::for_each_selected(selector, *select, card, |selected| {
@@ -357,6 +372,7 @@ impl HtmlScraperEntry {
             selector: Self::parse_selector(name, resolved_selector)?,
             select,
             actions: actions.to_vec(),
+            sub_queries: Vec::new(),
         })
     }
 
@@ -386,6 +402,7 @@ impl HtmlScraperEntry {
             selector: Self::parse_selector(name, resolved_selector)?,
             select,
             entries,
+            sub_queries: Vec::new(),
         })
     }
 
@@ -471,6 +488,65 @@ impl TryFrom<HtmlScraperEntryRaw> for HtmlScraperEntry {
     }
 }
 
+impl ScraperEntrySpec for HtmlScraperEntry {
+    fn name(&self) -> &str {
+        match self {
+            HtmlScraperEntry::Field { name, .. } => name,
+            HtmlScraperEntry::Group { name, .. } => name,
+        }
+    }
+
+    fn entry_type(&self) -> ScraperType {
+        ScraperType::Html
+    }
+
+    fn pointer(&self) -> Option<&str> {
+        None
+    }
+
+    fn selector(&self) -> Option<&str> {
+        None
+    }
+
+    fn select(&self) -> HtmlScraperSelectMode {
+        match self {
+            HtmlScraperEntry::Field { select, .. } => *select,
+            HtmlScraperEntry::Group { select, .. } => *select,
+        }
+    }
+
+    fn actions(&self) -> &[ScraperAction] {
+        match self {
+            HtmlScraperEntry::Field { actions, .. } => actions,
+            HtmlScraperEntry::Group { .. } => &[],
+        }
+    }
+
+    fn sub_entries(&self) -> Vec<&dyn ScraperEntrySpec> {
+        match self {
+            HtmlScraperEntry::Field { .. } => Vec::new(),
+            HtmlScraperEntry::Group { entries, .. } => {
+                entries.iter().map(|e| e as &dyn ScraperEntrySpec).collect()
+            }
+        }
+    }
+
+    fn is_group(&self) -> bool {
+        matches!(self, HtmlScraperEntry::Group { .. })
+    }
+
+    fn sub_queries(&self) -> Vec<&dyn crate::scrapyfy::scraper::query_trait::ScraperQuery> {
+        match self {
+            HtmlScraperEntry::Field { sub_queries, .. } => {
+                sub_queries.iter().map(|b| &**b as &dyn ScraperQuery).collect()
+            }
+            HtmlScraperEntry::Group { sub_queries, .. } => {
+                sub_queries.iter().map(|b| &**b as &dyn ScraperQuery).collect()
+            }
+        }
+    }
+}
+
 impl From<&HtmlScraperEntry> for HtmlScraperEntryRaw {
     /// Converts a runtime entry back into its raw YAML-compatible representation.
     fn from(entry: &HtmlScraperEntry) -> Self {
@@ -481,6 +557,7 @@ impl From<&HtmlScraperEntry> for HtmlScraperEntryRaw {
                 selector,
                 select,
                 actions,
+                ..
             } => Self {
                 name: name.clone(),
                 selector: HtmlScraperEntry::serialize_selector(selector_template, selector),
@@ -495,6 +572,7 @@ impl From<&HtmlScraperEntry> for HtmlScraperEntryRaw {
                 selector,
                 select,
                 entries,
+                ..
             } => Self {
                 name: name.clone(),
                 selector: HtmlScraperEntry::serialize_selector(selector_template, selector),

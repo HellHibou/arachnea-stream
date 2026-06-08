@@ -1,335 +1,96 @@
+//! Runtime JSON query and sub-query types.
+//!
+//! This module defines the validated runtime types [`JsonScraperQuery`] and
+//! [`JsonScraperSubQuery`], along with their execution logic (HTTP fetch,
+//! row extraction, entry application, sub-query recursion).  Raw YAML
+//! configuration types and conversions live in [`super::config`] and are
+//! re-exported here so that existing import paths continue to work.
+
+// Re-export shared types that moved to `config` so that references like
+// `use crate::scrapyfy::scraper_json::query::{ScraperRequestMethod, …}`
+// still resolve.
+pub use super::config::{JsonScraperQueryRaw, JsonScraperSubQueryRaw};
+pub(crate) use super::config::{
+    JsonScraperExecutionOptions, ScraperRequestHeader, ScraperRequestHeaderRaw,
+    ScraperRequestMethod,
+};
+
 use anyhow::Result;
 use futures::stream::{self, StreamExt};
-use http::Method;
-use serde::{Deserialize, Serialize, Serializer};
+use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 
 use crate::scrapyfy::*;
+use crate::scrapyfy::scraper::entry_trait::ScraperEntrySpec;
+use crate::scrapyfy::scraper::query_trait::ScraperQuery;
+use crate::scrapyfy::scraper::row_locator::{RowLocator, ScraperType};
+use crate::scrapyfy::scraper::sub_query_spec::SubQuerySpec;
 use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
 use crate::scrapyfy::scraper_json::entry::{json_value_to_strings, select_json_values};
+use crate::scrapyfy::scraper_json::response_parser::{collect_ordered_results, matches};
 use crate::scrapyfy::query_helpers::{self, QueryTemplateParamMapping};
 
-/// Raw configuration definition of one JSON query endpoint.
-#[derive(Serialize, Deserialize)]
-pub struct JsonScraperQueryRaw {
-    name: String,
-    base_url: String,
-    #[serde(skip)]
-    resolved_base_url: Option<String>,
-    media_types: Vec<String>,
-    query_url: String,
-    #[serde(default)]
-    extract_next_data: bool,
-    #[serde(default = "default_json_request_method")]
-    request_method: ScraperRequestMethod,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    request_body_pointer: Option<String>,
-    #[serde(default = "default_json_select_mode")]
-    request_body_select: HtmlScraperSelectMode,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    request_body_actions: Vec<ScraperAction>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    request_headers: Vec<ScraperRequestHeaderRaw>,
-    #[serde(default, skip_serializing_if = "ScraperHttpConfig::is_empty")]
-    http: ScraperHttpConfig,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    query_param_mappings: Vec<QueryTemplateParamMapping>,
-    #[serde(default = "default_json_sibling_sub_query_concurrency")]
-    sibling_sub_query_concurrency: usize,
-    #[serde(default = "default_json_sub_query_context_concurrency")]
-    sub_query_context_concurrency: usize,
-    #[serde(default = "default_json_sub_query_fetch_concurrency")]
-    sub_query_fetch_concurrency: usize,
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    filters: HashMap<String, Vec<String>>,
-    row_pointer: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    result_item_field: Option<String>,
-    entries: Vec<JsonScraperEntryRaw>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    sub_queries: Vec<JsonScraperSubQueryRaw>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    post_process: Vec<ScraperPostProcess>,
-}
-
-impl JsonScraperQueryRaw {
-    /// Returns the query name used as the lookup key in a collection.
-    pub fn name(&self) -> String {
-        self.name.clone()
-    }
-
-    /// Resolves collection-level placeholders used by this JSON query config.
-    pub(crate) fn resolve_collection_params(
-        &mut self,
-        params: &HashMap<String, String>,
-    ) -> Result<()> {
-        self.resolved_base_url = Some(query_helpers::resolve_required_template(
-            "JSON query",
-            &self.name,
-            "base_url",
-            &self.base_url,
-            params,
-        )?);
-        self.http
-            .resolve_collection_params("JSON query", &self.name, params)?;
-        for sub_query in &mut self.sub_queries {
-            sub_query.resolve_collection_params(&self.name, params)?;
-        }
-        Ok(())
-    }
-
-    /// Merges the collection-level HTTP configuration into this query and its sub-queries.
-    ///
-    /// # Arguments
-    ///
-    /// * `collection_http` - HTTP configuration inherited from the parent collection.
-    pub(crate) fn apply_collection_http(&mut self, collection_http: &ScraperHttpConfig) {
-        self.http = collection_http.merge(&self.http);
-
-        for sub_query in &mut self.sub_queries {
-            sub_query.apply_parent_http(&self.http);
-        }
-    }
-}
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 /// A query definition for one JSON source and one result shape.
 #[derive(Deserialize)]
 #[serde(try_from = "JsonScraperQueryRaw")]
 pub struct JsonScraperQuery {
-    name: String,
-    base_url: String,
-    base_url_template: String,
-    media_types: Vec<String>,
-    query_url: String,
-    extract_next_data: bool,
-    request_method: ScraperRequestMethod,
-    request_body_pointer: Option<String>,
-    request_body_select: HtmlScraperSelectMode,
-    request_body_actions: Vec<ScraperAction>,
-    request_headers: Vec<ScraperRequestHeader>,
-    http_config: ScraperHttpConfig,
-    query_param_mappings: Vec<QueryTemplateParamMapping>,
-    sibling_sub_query_concurrency: usize,
-    sub_query_context_concurrency: usize,
-    sub_query_fetch_concurrency: usize,
-    filters: HashMap<String, Vec<String>>,
-    row_pointer: String,
-    result_item_field: Option<String>,
-    scraper_entries: Vec<JsonScraperEntry>,
-    sub_queries: Vec<JsonScraperSubQuery>,
-    post_processes: Vec<ScraperPostProcess>,
+    pub(crate) name: String,
+    pub(crate) base_url: String,
+    pub(crate) base_url_template: String,
+    pub(crate) media_types: Vec<String>,
+    pub(crate) query_url: String,
+    pub(crate) extract_next_data: bool,
+    pub(crate) request_method: ScraperRequestMethod,
+    pub(crate) request_body_pointer: Option<String>,
+    pub(crate) request_body_select: HtmlScraperSelectMode,
+    pub(crate) request_body_actions: Vec<ScraperAction>,
+    pub(crate) request_headers: Vec<ScraperRequestHeader>,
+    pub(crate) http_config: ScraperHttpConfig,
+    pub(crate) query_param_mappings: Vec<QueryTemplateParamMapping>,
+    pub(crate) sibling_sub_query_concurrency: usize,
+    pub(crate) sub_query_context_concurrency: usize,
+    pub(crate) sub_query_fetch_concurrency: usize,
+    pub(crate) filters: HashMap<String, Vec<String>>,
+    pub(crate) row_pointer: String,
+    pub(crate) result_item_field: Option<String>,
+    pub(crate) scraper_entries: Vec<JsonScraperEntry>,
+    pub(crate) sub_queries: Vec<JsonScraperSubQuery>,
+    pub(crate) post_processes: Vec<ScraperPostProcess>,
 
-    http_client: HttpClient,
+    pub(crate) http_client: HttpClient,
 }
 
-/// Defaults to [`HtmlScraperSelectMode::All`].
-fn default_json_select_mode() -> HtmlScraperSelectMode {
-    HtmlScraperSelectMode::All
-}
-
-/// Defaults to [`ScraperRequestMethod::Get`].
-fn default_json_request_method() -> ScraperRequestMethod {
-    ScraperRequestMethod::Get
-}
-
-/// Defaults to `4`.
-fn default_json_sibling_sub_query_concurrency() -> usize {
-    4
-}
-
-/// Defaults to `4`.
-fn default_json_sub_query_context_concurrency() -> usize {
-    4
-}
-
-/// Defaults to `8`.
-fn default_json_sub_query_fetch_concurrency() -> usize {
-    8
-}
-
-/// Restores the original iteration order after collecting indexed async results.
-fn collect_ordered_results<T>(results: Vec<Result<(usize, T)>>) -> Result<Vec<T>> {
-    let mut ordered = Vec::with_capacity(results.len());
-
-    for result in results {
-        ordered.push(result?);
-    }
-
-    ordered.sort_by_key(|(index, _)| *index);
-
-    Ok(ordered.into_iter().map(|(_, value)| value).collect())
-}
-
-/// Checks whether a JSON row satisfies every filter condition.
-///
-/// # Arguments
-///
-/// * `row` - JSON value to test against the filter map.
-/// * `filters` - Map of JSON pointer to expected value strings; every entry must match.
-fn matches(row: &serde_json::Value, filters: &HashMap<String, Vec<String>>) -> bool {
-    filters.iter().all(|(pointer, expected_values)| {
-        let actual_values =
-            select_json_values(row, Some(pointer.as_str()), HtmlScraperSelectMode::All)
-                .into_iter()
-                .flat_map(json_value_to_strings)
-                .collect::<Vec<_>>();
-
-        expected_values
-            .iter()
-            .any(|expected| actual_values.iter().any(|actual| actual == expected))
-    })
-}
-
-/// Concurrency limits forwarded to sub-query execution.
-#[derive(Clone, Copy)]
-struct JsonScraperExecutionOptions {
-    sibling_sub_query_concurrency: usize,
-    sub_query_context_concurrency: usize,
-    sub_query_fetch_concurrency: usize,
-}
-
-/// Supported HTTP methods for root and follow-up scraper requests.
-#[derive(Clone, Copy, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum ScraperRequestMethod {
-    Get,
-    Post,
-}
-
-impl ScraperRequestMethod {
-    /// Converts this enum variant into the corresponding [`http::Method`].
-    ///
-    /// # Arguments
-    ///
-    /// * `self` - The request method variant to convert.
-    pub(crate) fn as_http_method(self) -> Method {
-        match self {
-            Self::Get => Method::GET,
-            Self::Post => Method::POST,
-        }
-    }
-}
-
-/// Raw configuration definition of one chained JSON follow-up request.
-#[derive(Serialize, Deserialize)]
-pub struct JsonScraperSubQueryRaw {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    context_pointer: Option<String>,
-    #[serde(default = "default_json_select_mode")]
-    context_select: HtmlScraperSelectMode,
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    filters: HashMap<String, Vec<String>>,
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    row_filters: HashMap<String, Vec<String>>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    context_entries: Vec<JsonScraperEntryRaw>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    target: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    request_pointer: Option<String>,
-    #[serde(default = "default_json_select_mode")]
-    request_select: HtmlScraperSelectMode,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    request_actions: Vec<ScraperAction>,
-    #[serde(default = "default_json_request_method")]
-    request_method: ScraperRequestMethod,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    request_body_pointer: Option<String>,
-    #[serde(default = "default_json_select_mode")]
-    request_body_select: HtmlScraperSelectMode,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    request_body_actions: Vec<ScraperAction>,
-    #[serde(default)]
-    extract_next_data: bool,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    request_headers: Vec<ScraperRequestHeaderRaw>,
-    #[serde(default, skip_serializing_if = "ScraperHttpConfig::is_empty")]
-    http: ScraperHttpConfig,
-    row_pointer: String,
-    entries: Vec<JsonScraperEntryRaw>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    sub_queries: Vec<JsonScraperSubQueryRaw>,
-}
+// ---------------------------------------------------------------------------
+// JsonScraperSubQuery
+// ---------------------------------------------------------------------------
 
 /// Runtime definition of one chained JSON follow-up request.
 #[derive(Deserialize)]
 #[serde(try_from = "JsonScraperSubQueryRaw")]
 pub struct JsonScraperSubQuery {
-    context_pointer: Option<String>,
-    context_select: HtmlScraperSelectMode,
-    filters: HashMap<String, Vec<String>>,
-    row_filters: HashMap<String, Vec<String>>,
-    context_entries: Vec<JsonScraperEntry>,
-    target: Option<String>,
-    request_pointer: Option<String>,
-    request_select: HtmlScraperSelectMode,
-    request_actions: Vec<ScraperAction>,
-    request_method: ScraperRequestMethod,
-    request_body_pointer: Option<String>,
-    request_body_select: HtmlScraperSelectMode,
-    request_body_actions: Vec<ScraperAction>,
-    extract_next_data: bool,
-    request_headers: Vec<ScraperRequestHeader>,
-    http_config: ScraperHttpConfig,
-    row_pointer: String,
-    entries: Vec<JsonScraperEntry>,
-    sub_queries: Vec<JsonScraperSubQuery>,
-}
-
-impl JsonScraperSubQueryRaw {
-    /// Propagates the parent HTTP configuration into this sub-query and its children.
-    ///
-    /// # Arguments
-    ///
-    /// * `parent_http` - HTTP configuration inherited from the parent query.
-    fn apply_parent_http(&mut self, parent_http: &ScraperHttpConfig) {
-        self.http = parent_http.merge(&self.http);
-
-        for sub_query in &mut self.sub_queries {
-            sub_query.apply_parent_http(&self.http);
-        }
-    }
-
-    /// Resolves collection-level placeholders in this sub-query's HTTP config.
-    ///
-    /// # Arguments
-    ///
-    /// * `parent_name` - Parent query name used in diagnostic messages.
-    /// * `params` - Collection-level template parameters.
-    fn resolve_collection_params(
-        &mut self,
-        parent_name: &str,
-        params: &HashMap<String, String>,
-    ) -> Result<()> {
-        self.http
-            .resolve_collection_params("JSON sub-query", parent_name, params)?;
-        for sub_query in &mut self.sub_queries {
-            sub_query.resolve_collection_params(parent_name, params)?;
-        }
-        Ok(())
-    }
-}
-
-/// Raw configuration definition of one header added to a scraper request.
-#[derive(Serialize, Deserialize)]
-pub(crate) struct ScraperRequestHeaderRaw {
-    name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pointer: Option<String>,
-    #[serde(default = "default_json_select_mode")]
-    select: HtmlScraperSelectMode,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    actions: Vec<ScraperAction>,
-}
-
-/// Runtime definition of one header added to a scraper request.
-#[derive(Deserialize)]
-#[serde(try_from = "ScraperRequestHeaderRaw")]
-pub(crate) struct ScraperRequestHeader {
-    name: String,
-    pointer: Option<String>,
-    select: HtmlScraperSelectMode,
-    actions: Vec<ScraperAction>,
+    pub(crate) context_pointer: Option<String>,
+    pub(crate) context_select: HtmlScraperSelectMode,
+    pub(crate) filters: HashMap<String, Vec<String>>,
+    pub(crate) row_filters: HashMap<String, Vec<String>>,
+    pub(crate) context_entries: Vec<JsonScraperEntry>,
+    pub(crate) target: Option<String>,
+    pub(crate) request_pointer: Option<String>,
+    pub(crate) request_select: HtmlScraperSelectMode,
+    pub(crate) request_actions: Vec<ScraperAction>,
+    pub(crate) request_method: ScraperRequestMethod,
+    pub(crate) request_body_pointer: Option<String>,
+    pub(crate) request_body_select: HtmlScraperSelectMode,
+    pub(crate) request_body_actions: Vec<ScraperAction>,
+    pub(crate) extract_next_data: bool,
+    pub(crate) request_headers: Vec<ScraperRequestHeader>,
+    pub(crate) http_config: ScraperHttpConfig,
+    pub(crate) row_pointer: String,
+    pub(crate) entries: Vec<JsonScraperEntry>,
+    pub(crate) sub_queries: Vec<JsonScraperSubQuery>,
 }
 
 impl JsonScraperSubQuery {
@@ -365,7 +126,7 @@ impl JsonScraperSubQuery {
     /// # Errors
     ///
     /// Returns an error if any action fails validation for the `"sub-query"` context.
-    fn validate_actions(name: &str, actions: &[ScraperAction]) -> Result<()> {
+    pub(crate) fn validate_actions(name: &str, actions: &[ScraperAction]) -> Result<()> {
         for action in actions {
             action.validate(name, "sub-query")?;
         }
@@ -387,7 +148,7 @@ impl JsonScraperSubQuery {
     /// * `base_url` - Base URL used to build follow-up request URLs.
     /// * `http_client` - Shared HTTP client.
     /// * `execution_options` - Concurrency limits applied to follow-up requests.
-    async fn execute(
+    pub(crate) async fn execute(
         &self,
         root: &mut ScraperDataNode,
         context_row: &serde_json::Value,
@@ -440,7 +201,7 @@ impl JsonScraperSubQuery {
     /// * `base_url` - Base URL used to build follow-up request URLs.
     /// * `http_client` - Shared HTTP client.
     /// * `execution_options` - Concurrency limits applied to follow-up requests.
-    async fn execute_siblings(
+    pub(crate) async fn execute_siblings(
         sub_queries: &[JsonScraperSubQuery],
         root: &mut ScraperDataNode,
         context_row: &serde_json::Value,
@@ -828,64 +589,9 @@ impl JsonScraperSubQuery {
     }
 }
 
-impl ScraperRequestHeader {
-    /// Validates every action against the header-level contract.
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - Header name used in diagnostic messages.
-    /// * `actions` - Actions to validate.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if any action fails validation for the `"sub-query header"` context.
-    fn validate_actions(name: &str, actions: &[ScraperAction]) -> Result<()> {
-        for action in actions {
-            action.validate(name, "sub-query header")?;
-        }
-
-        Ok(())
-    }
-
-    /// Resolves this header's value from the context row and template parameters.
-    ///
-    /// Returns `None` when the resolved value is empty.
-    ///
-    /// # Arguments
-    ///
-    /// * `row` - Parent JSON value used for pointer resolution.
-    /// * `params` - Runtime template parameters.
-    /// * `request_url` - URL of the parent request for action pipelines.
-    pub(crate) fn resolve(
-        &self,
-        row: &serde_json::Value,
-        params: &HashMap<String, String>,
-        request_url: &str,
-    ) -> Option<(String, String)> {
-        let mut values = Vec::new();
-
-        for selected in select_json_values(row, self.pointer.as_deref(), self.select) {
-            let mut selected_values = json_value_to_strings(selected);
-            for action in &self.actions {
-                selected_values =
-                    action.apply(&None, selected_values, params, request_url, None, None);
-            }
-            values.extend(selected_values);
-        }
-
-        let resolved_values = values
-            .into_iter()
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
-            .collect::<Vec<_>>();
-
-        if resolved_values.is_empty() {
-            return None;
-        }
-
-        Some((self.name.clone(), resolved_values.join(", ")))
-    }
-}
+// ---------------------------------------------------------------------------
+// JsonScraperQuery
+// ---------------------------------------------------------------------------
 
 impl JsonScraperQuery {
     /// Validates every request-body action against the query-level contract.
@@ -898,7 +604,7 @@ impl JsonScraperQuery {
     /// # Errors
     ///
     /// Returns an error if any action fails validation for the `"query"` context.
-    fn validate_request_actions(name: &str, actions: &[ScraperAction]) -> Result<()> {
+    pub(crate) fn validate_request_actions(name: &str, actions: &[ScraperAction]) -> Result<()> {
         for action in actions {
             action.validate(name, "query")?;
         }
@@ -935,9 +641,9 @@ impl JsonScraperQuery {
             base_url,
             media_types,
             query_url,
-            default_json_sibling_sub_query_concurrency(),
-            default_json_sub_query_context_concurrency(),
-            default_json_sub_query_fetch_concurrency(),
+            4,
+            4,
+            8,
             HashMap::new(),
             row_pointer,
             scraper_entries,
@@ -999,6 +705,7 @@ impl JsonScraperQuery {
     /// * `sub_query_fetch_concurrency` - Max number of follow-up HTTP requests executed together.
     /// * `row_pointer` - JSON pointer-like path matching each result row.
     /// * `scraper_entries` - Field extractors executed for every matched row.
+    /// * `sub_queries` - Follow-up sub-queries attached to this query.
     ///
     /// # Errors
     ///
@@ -1038,9 +745,9 @@ impl JsonScraperQuery {
             http_config: ScraperHttpConfig::default(),
             query_url: query_url.to_string(),
             extract_next_data: false,
-            request_method: default_json_request_method(),
+            request_method: ScraperRequestMethod::Get,
             request_body_pointer: None,
-            request_body_select: default_json_select_mode(),
+            request_body_select: HtmlScraperSelectMode::All,
             request_body_actions: Vec::new(),
             request_headers: Vec::new(),
             query_param_mappings: Vec::new(),
@@ -1321,320 +1028,165 @@ impl JsonScraperQuery {
     }
 }
 
-impl TryFrom<JsonScraperQueryRaw> for JsonScraperQuery {
-    type Error = anyhow::Error;
+// ---------------------------------------------------------------------------
+// ScraperQuery trait implementations
+// ---------------------------------------------------------------------------
 
-    /// Converts a raw YAML query definition into a validated runtime query.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the row pointer, entries, sub-queries, or request headers are invalid.
-    fn try_from(config: JsonScraperQueryRaw) -> Result<Self> {
-        let JsonScraperQueryRaw {
-            name,
-            base_url,
-            resolved_base_url,
-            media_types,
-            query_url,
-            extract_next_data,
-            request_method,
-            request_body_pointer,
-            request_body_select,
-            request_body_actions,
-            request_headers,
-            http,
-            query_param_mappings,
-            sibling_sub_query_concurrency,
-            sub_query_context_concurrency,
-            sub_query_fetch_concurrency,
-            filters,
-            row_pointer,
-            result_item_field,
-            entries,
-            sub_queries,
-            post_process,
-        } = config;
-        let resolved_base_url = query_helpers::resolved_or_template(&base_url, resolved_base_url);
+impl ScraperQuery for JsonScraperQuery {
+    fn scraper_type(&self) -> ScraperType {
+        ScraperType::Json
+    }
 
-        let entries = entries
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<Vec<_>>>()?;
-        let sub_queries = sub_queries
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<Vec<_>>>()?;
-        let request_headers = request_headers
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<Vec<_>>>()?;
+    fn name(&self) -> &str {
+        &self.name
+    }
 
-        JsonScraperQuery::validate_request_actions(&name, &request_body_actions)?;
+    fn media_types(&self) -> &[String] {
+        &self.media_types
+    }
 
-        let mut query = JsonScraperQuery::try_new(
-            &name,
-            &resolved_base_url,
-            media_types,
-            &query_url,
-            sibling_sub_query_concurrency,
-            sub_query_context_concurrency,
-            sub_query_fetch_concurrency,
-            filters,
-            &row_pointer,
-            entries,
-            sub_queries,
-        )?;
-        query.base_url_template = base_url;
-        query.extract_next_data = extract_next_data;
-        query.request_method = request_method;
-        query.request_body_pointer = request_body_pointer;
-        query.request_body_select = request_body_select;
-        query.request_body_actions = request_body_actions;
-        query.request_headers = request_headers;
-        query.http_config = http.clone();
-        query.http_client = HttpClient::with_http_config(http);
-        query.query_param_mappings = query_param_mappings;
-        query.result_item_field = result_item_field;
+    fn is_media_type(&self, media_types: &[String]) -> bool {
+        self.is_media_type(media_types)
+    }
 
-        for post_process in post_process {
-            post_process.validate(&name)?;
-            query.post_processes.push(post_process);
-        }
+    fn base_url(&self) -> &str {
+        &self.base_url
+    }
 
-        Ok(query)
+    fn query_url(&self) -> &str {
+        &self.query_url
+    }
+
+    fn request_method(&self) -> ScraperRequestMethod {
+        self.request_method
+    }
+
+    fn request_pointer(&self) -> Option<&str> {
+        self.request_body_pointer.as_deref()
+    }
+
+    fn request_select(&self) -> HtmlScraperSelectMode {
+        self.request_body_select
+    }
+
+    fn request_actions(&self) -> &[ScraperAction] {
+        &self.request_body_actions
+    }
+
+    fn request_headers(&self) -> &[ScraperRequestHeader] {
+        &self.request_headers
+    }
+
+    fn http_config(&self) -> &ScraperHttpConfig {
+        &self.http_config
+    }
+
+    fn extract_next_data(&self) -> bool {
+        self.extract_next_data
+    }
+
+    fn row_locator(&self) -> RowLocator {
+        RowLocator::Pointer(self.row_pointer.clone())
+    }
+
+    fn entries(&self) -> Vec<&dyn ScraperEntrySpec> {
+        self.scraper_entries
+            .iter()
+            .map(|entry| entry as &dyn ScraperEntrySpec)
+            .collect()
+    }
+
+    fn sub_queries(&self) -> Vec<&dyn ScraperQuery> {
+        self.sub_queries
+            .iter()
+            .map(|sub| sub as &dyn ScraperQuery)
+            .collect()
+    }
+
+    fn sub_query_spec(&self) -> Option<&SubQuerySpec> {
+        None
     }
 }
 
-impl From<&JsonScraperQuery> for JsonScraperQueryRaw {
-    /// Converts a runtime query back into its raw YAML-compatible representation.
-    fn from(query: &JsonScraperQuery) -> Self {
-        Self {
-            name: query.name.clone(),
-            base_url: query.base_url_template.clone(),
-            resolved_base_url: None,
-            media_types: query.media_types.clone(),
-            query_url: query.query_url.clone(),
-            extract_next_data: query.extract_next_data,
-            request_method: query.request_method,
-            request_body_pointer: query.request_body_pointer.clone(),
-            request_body_select: query.request_body_select,
-            request_body_actions: query.request_body_actions.clone(),
-            request_headers: query
-                .request_headers
-                .iter()
-                .map(ScraperRequestHeaderRaw::from)
-                .collect(),
-            http: query.http_config.clone(),
-            query_param_mappings: query.query_param_mappings.clone(),
-            sibling_sub_query_concurrency: query.sibling_sub_query_concurrency,
-            sub_query_context_concurrency: query.sub_query_context_concurrency,
-            sub_query_fetch_concurrency: query.sub_query_fetch_concurrency,
-            filters: query.filters.clone(),
-            row_pointer: query.row_pointer.clone(),
-            result_item_field: query.result_item_field.clone(),
-            entries: query
-                .scraper_entries
-                .iter()
-                .map(JsonScraperEntryRaw::from)
-                .collect(),
-            sub_queries: query
-                .sub_queries
-                .iter()
-                .map(JsonScraperSubQueryRaw::from)
-                .collect(),
-            post_process: query.post_processes.clone(),
-        }
+impl ScraperQuery for JsonScraperSubQuery {
+    fn scraper_type(&self) -> ScraperType {
+        ScraperType::Json
     }
-}
 
-impl Serialize for JsonScraperQuery {
-    /// Serializes the query through its raw YAML representation.
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        JsonScraperQueryRaw::from(self).serialize(serializer)
+    fn name(&self) -> &str {
+        "json-sub-query"
     }
-}
 
-impl TryFrom<JsonScraperSubQueryRaw> for JsonScraperSubQuery {
-    type Error = anyhow::Error;
-
-    /// Converts a raw YAML sub-query definition into a validated runtime sub-query.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the row pointer is empty, the target is empty, or
-    /// actions fail validation.
-    fn try_from(config: JsonScraperSubQueryRaw) -> Result<Self> {
-        let JsonScraperSubQueryRaw {
-            context_pointer,
-            context_select,
-            filters,
-            row_filters,
-            context_entries,
-            target,
-            request_pointer,
-            request_select,
-            request_actions,
-            request_method,
-            request_body_pointer,
-            request_body_select,
-            request_body_actions,
-            extract_next_data,
-            request_headers,
-            http,
-            row_pointer,
-            entries,
-            sub_queries,
-        } = config;
-
-        if row_pointer.trim().is_empty() {
-            anyhow::bail!("Invalid JSON sub-query: row_pointer cannot be empty");
-        }
-        if target
-            .as_deref()
-            .is_some_and(|target| target.trim().is_empty())
-        {
-            anyhow::bail!("Invalid JSON sub-query: target cannot be empty");
-        }
-
-        JsonScraperSubQuery::validate_actions(&row_pointer, &request_actions)?;
-        JsonScraperSubQuery::validate_actions(&row_pointer, &request_body_actions)?;
-
-        let entries = entries
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<Vec<_>>>()?;
-        let context_entries = context_entries
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<Vec<_>>>()?;
-        let request_headers = request_headers
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<Vec<_>>>()?;
-        let sub_queries = sub_queries
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<Vec<_>>>()?;
-
-        Ok(Self {
-            context_pointer,
-            context_select,
-            filters,
-            row_filters,
-            context_entries,
-            target,
-            request_pointer,
-            request_select,
-            request_actions,
-            request_method,
-            request_body_pointer,
-            request_body_select,
-            request_body_actions,
-            extract_next_data,
-            request_headers,
-            http_config: http,
-            row_pointer,
-            entries,
-            sub_queries,
-        })
+    fn media_types(&self) -> &[String] {
+        &[]
     }
-}
 
-impl From<&JsonScraperSubQuery> for JsonScraperSubQueryRaw {
-    /// Converts a runtime sub-query back into its raw YAML-compatible representation.
-    fn from(sub_query: &JsonScraperSubQuery) -> Self {
-        Self {
-            context_pointer: sub_query.context_pointer.clone(),
-            context_select: sub_query.context_select,
-            filters: sub_query.filters.clone(),
-            row_filters: sub_query.row_filters.clone(),
-            context_entries: sub_query
-                .context_entries
+    fn is_media_type(&self, _media_types: &[String]) -> bool {
+        true
+    }
+
+    fn base_url(&self) -> &str {
+        ""
+    }
+
+    fn query_url(&self) -> &str {
+        ""
+    }
+
+    fn request_method(&self) -> ScraperRequestMethod {
+        self.request_method
+    }
+
+    fn request_pointer(&self) -> Option<&str> {
+        self.request_pointer.as_deref()
+    }
+
+    fn request_select(&self) -> HtmlScraperSelectMode {
+        self.request_select
+    }
+
+    fn request_actions(&self) -> &[ScraperAction] {
+        &self.request_actions
+    }
+
+    fn request_headers(&self) -> &[ScraperRequestHeader] {
+        &self.request_headers
+    }
+
+    fn http_config(&self) -> &ScraperHttpConfig {
+        &self.http_config
+    }
+
+    fn extract_next_data(&self) -> bool {
+        self.extract_next_data
+    }
+
+    fn row_locator(&self) -> RowLocator {
+        RowLocator::Pointer(self.row_pointer.clone())
+    }
+
+    fn entries(&self) -> Vec<&dyn ScraperEntrySpec> {
+        let mut all: Vec<&dyn ScraperEntrySpec> = self
+            .context_entries
+            .iter()
+            .map(|entry| entry as &dyn ScraperEntrySpec)
+            .collect();
+        all.extend(
+            self.entries
                 .iter()
-                .map(JsonScraperEntryRaw::from)
-                .collect(),
-            target: sub_query.target.clone(),
-            request_pointer: sub_query.request_pointer.clone(),
-            request_select: sub_query.request_select,
-            request_actions: sub_query.request_actions.clone(),
-            request_method: sub_query.request_method,
-            request_body_pointer: sub_query.request_body_pointer.clone(),
-            request_body_select: sub_query.request_body_select,
-            request_body_actions: sub_query.request_body_actions.clone(),
-            extract_next_data: sub_query.extract_next_data,
-            request_headers: sub_query
-                .request_headers
-                .iter()
-                .map(ScraperRequestHeaderRaw::from)
-                .collect(),
-            http: sub_query.http_config.clone(),
-            row_pointer: sub_query.row_pointer.clone(),
-            entries: sub_query
-                .entries
-                .iter()
-                .map(JsonScraperEntryRaw::from)
-                .collect(),
-            sub_queries: sub_query
-                .sub_queries
-                .iter()
-                .map(JsonScraperSubQueryRaw::from)
-                .collect(),
-        }
+                .map(|entry| entry as &dyn ScraperEntrySpec),
+        );
+        all
     }
-}
 
-impl TryFrom<ScraperRequestHeaderRaw> for ScraperRequestHeader {
-    type Error = anyhow::Error;
-
-    /// Converts a raw YAML header definition into a validated runtime header.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the header name is empty or actions fail validation.
-    fn try_from(config: ScraperRequestHeaderRaw) -> Result<Self> {
-        let ScraperRequestHeaderRaw {
-            name,
-            pointer,
-            select,
-            actions,
-        } = config;
-
-        if name.trim().is_empty() {
-            anyhow::bail!("Invalid JSON sub-query header: name cannot be empty");
-        }
-
-        ScraperRequestHeader::validate_actions(&name, &actions)?;
-
-        Ok(Self {
-            name,
-            pointer,
-            select,
-            actions,
-        })
+    fn sub_queries(&self) -> Vec<&dyn ScraperQuery> {
+        self.sub_queries
+            .iter()
+            .map(|sub| sub as &dyn ScraperQuery)
+            .collect()
     }
-}
 
-impl From<&ScraperRequestHeader> for ScraperRequestHeaderRaw {
-    /// Converts a runtime header back into its raw YAML-compatible representation.
-    fn from(header: &ScraperRequestHeader) -> Self {
-        Self {
-            name: header.name.clone(),
-            pointer: header.pointer.clone(),
-            select: header.select,
-            actions: header.actions.clone(),
-        }
-    }
-}
-
-impl Serialize for ScraperRequestHeader {
-    /// Serializes the header through its raw YAML representation.
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        ScraperRequestHeaderRaw::from(self).serialize(serializer)
+    fn sub_query_spec(&self) -> Option<&SubQuerySpec> {
+        None
     }
 }
