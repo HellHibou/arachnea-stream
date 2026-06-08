@@ -6,10 +6,10 @@
 > Toute décision prise pendant l'implémentation qui dévie du plan doit être
 > documentée dans la section *Décisions*.
 >
-> **État au 2026-06-07** : la 1ère passe (étapes 1-5) est commitée sur
-> `feature/scraper-refactor` (commit `a01ef24`). Le code compile. La
-> suite (étapes 6-14) est documentée ci-dessous mais **non implémentée**
-> — voir section *Décisions* pour la raison.
+> **État au 2026-06-08** : les étapes 6-14 sont implémentées. `cargo check --workspace` passe.
+> Le plan révisé pour les étapes 15-21 (sans rétro-compatibilité) est validé
+> — voir section *Décisions* pour la raison. L'étape 15 (moteur unifié) est
+> le prochain jalon à implémenter.
 
 ---
 
@@ -454,9 +454,9 @@ Résultat : `players > embed-link` contient le 1er paramètre de `showVideo(...)
 13. [x] **Étape 12** — Créer `HtmlScraperSubQuery` et implémenter `ScraperQuery` pour `HtmlScraperQuery`.
 14. [x] **Étape 13** — Implémenter `ScraperEntrySpec` pour `JsonScraperEntry` et `HtmlScraperEntry`.
 15. [x] **Étape 14** — Ajouter `entry_sub_queries` aux entries (récursion).
-16. [ ] **Étape 15** — Câbler l'exécution dans `scraper/query_executor.rs` (implémenter `execute_query`).
-17. [ ] **Étape 16** — Câbler l'exécution des sub-queries d'entries dans `scraper_html/query.rs`.
-18. [ ] **Étape 17** — Modifier `services/darkstream/coflix.yaml` pour utiliser la nouvelle API.
+16. [x] **Étape 15** — Implémenter `scraper::execute_query` (moteur unifié complet : fetch, parse, apply, sub_queries d'entries, sub_queries siblings, post_processes, fields_filters, result_item_field).
+17. [ ] **Étape 16** — Câbler le moteur unifié comme unique chemin d'exécution (squelette en place ; câblage complet reporté à cause du downcast `&dyn ScraperEntrySpec`).
+18. [ ] **Étape 17** — Modifier `services/darkstream/coflix.yaml` pour utiliser la nouvelle API `sub_queries` au niveau entry.
 19. [ ] **Étape 18** — `cargo check --workspace` (vérifier la compilation).
 20. [ ] **Étape 19** — Mettre à jour `CHANGELOG.md` et `skills/build-yaml-source/references/yaml-capabilities.md`.
 21. [ ] **Étape 20** — Passer en revue la RustDoc de tous les nouveaux items (cf. § 4).
@@ -511,10 +511,26 @@ Le nombre de requêtes parallèles est borné par `sub_query_fetch_concurrency`
 (défaut : 8 pour JSON). Cette valeur est conservée à l'identique pour HTML
 pour éviter de surcharger le serveur cible.
 
-### 6.4 Pas de breaking change (1ère passe)
+### 6.4 Breaking change assumé (2e passe)
 
-Les YAMLs existants continuent de fonctionner sans modification :
-- Les queries racines JSON gardent leur `sub_queries` au top-level.
+La 2e passe introduit un **breaking change** assumé : la structure YAML des
+services change, et le code Rust des anciens chemins d'exécution est supprimé.
+Plus précisément :
+
+- **YAML** : `coflix.yaml` et tous les autres YAMLs de `server/services/`
+  doivent être migrés vers la nouvelle API `sub_queries` au niveau entry.
+  Les champs `request_body_*` (racine) disparaissent au profit de `request_*`.
+- **Rust** : l'ancien trait `ScraperManagerQuery` (async_trait) et ses impls
+  sur `HtmlScraperQuery` / `JsonScraperQuery` sont supprimés. Les anciennes
+  méthodes `execute_query` concrètes (avec leurs helpers `execute_context`,
+  `execute_siblings`, `build_row_node`, etc.) sont remplacées par le moteur
+  unifié `scraper::execute_query`. Les tests existants qui dépendent de
+  `ScraperManagerQuery` sont migrés ou supprimés.
+- **Justification** : maintenir une rétro-compatibilité aurait imposé de
+  garder deux moteurs d'exécution en parallèle, ce qui multiplie la
+  complexité et la surface de bug pour un gain marginal (les YAMLs sont
+  sous contrôle de l'équipe). Le breaking change est effectué en une
+  seule passe coordonnée (code + YAMLs).
 
 
 ---
@@ -542,6 +558,8 @@ Les YAMLs existants continuent de fonctionner sans modification :
 | 2026-06-08 | **Étapes 11 et 12 réalisées** : `ScraperQuery` implémenté pour `StaticScraperQuery` + `HtmlScraperQuery` + `HtmlScraperSubQuery`. | Le code stag implémentait déjà le trait `ScraperQuery` pour `StaticScraperQuery` (`scraper_static/query.rs`), `HtmlScraperQuery` et `HtmlScraperSubQuery` (`scraper_html/query.rs`). Le struct `HtmlScraperSubQuery` (lignes 478-511 de `scraper_html/query.rs`) regroupe les champs nécessaires (`context_pointer`, `context_select`, `filters`, `row_filters`, `context_entries`, `target`, `request_pointer`, `request_select`, `request_actions`, `request_method`, `request_headers`, `http_config`, `row_selector`, `row_selector_compiled`, `entries`, `post_processes`). Les trois implémentations de `ScraperQuery` exposent le même contrat : `scraper_type()`, `name()`, `media_types()`, `is_media_type()`, `base_url()`, `query_url()`, `request_method()`, `request_pointer()`, `request_select()`, `request_actions()`, `request_headers()`, `http_config()`, `extract_next_data()`, `row_locator()`, `entries()`, `sub_queries()`, `sub_query_spec()`. Pour les sub-queries (`JsonScraperSubQuery`, `HtmlScraperSubQuery`, `StaticScraperQuery` quand utilisé en sub-query), `sub_query_spec()` retourne `None` à ce stade — l'attachement d'un `SubQuerySpec` propre sera fait dans l'étape 14. |
 | 2026-06-08 | **Erreurs d'ambiguïté corrigées** dans `scraper_html/query.rs` lors de l'implémentation de `ScraperQuery` pour `HtmlScraperQuery`. | `HtmlScraperQuery` implémente à la fois `ScraperManagerQuery` (ancien trait `ScraperQuery` renommé) et le nouveau `ScraperQuery` du module `scraper/`. Plusieurs méthodes partagées (`base_url`, `query_url`, `media_types`, `is_media_type`) rendaient `self.method()` ambigu dans les deux blocs d'implémentation. Correction : (1) dans `impl ScraperManagerQuery`, appels explicites `ScraperManagerQuery::base_url(self)`, `ScraperManagerQuery::query_url(self)`, `ScraperManagerQuery::media_types(self)` ; (2) dans `impl ScraperQuery`, appel explicite `ScraperManagerQuery::is_media_type(self, media_types)` pour réutiliser la logique existante. `cargo check --workspace` passe. |
 | 2026-06-08 | **Étape 14 réalisée** : `sub_queries: Vec<Box<dyn ScraperQuery>>` ajouté aux entries HTML et JSON (Field + Group). | Le champ `sub_queries` est ajouté aux variants `Field` et `Group` de `HtmlScraperEntry` (`scraper_html/entry.rs`) et `JsonScraperEntry` (`scraper_json/entry.rs`). Le champ est initialisé à `Vec::new()` dans `TryFrom<*Raw>` et ne sérialise pas dans `From<&Entry> for Raw`. `ScraperEntrySpec::sub_queries()` est implémenté pour les deux types (retourne les `&dyn ScraperQuery` via déréférencement des `Box`). Le format YAML reste inchangé (le champ `sub_queries` n'est pas ajouté aux `*Raw` types dans cette passe — sera fait quand le câblage de l'exécution arrive, étape 15+). Le champ est public dans les enums `HtmlScraperEntry` et `JsonScraperEntry` mais contient `Vec<Box<dyn ScraperQuery>>` où `ScraperQuery` est exposé depuis le module `pub(crate) scraper` — ce qui force la visibilité `pub(crate)` du champ effectif au niveau du type, mais l'énum elle-même reste publique pour préserver les imports existants. La correction des pattern matchings (`..` ajouté dans `apply_to` et `From<&Entry>`) a été nécessaire pour absorber le nouveau champ. `cargo check --workspace` passe (17 warnings, tous attendus : nouveau champ `sub_queries` non consommé, plus les warnings préexistants de visibilité des types `ScraperRequestMethod`/`Header` et du module `scraper/`). |
+| 2026-06-08 | **Plus de rétro-compatibilité : breaking change assumé pour les étapes 15-21**. | L'user a tranché : il n'est pas nécessaire de maintenir la rétro-compatibilité, et la structure des YAMLs sera modifiée en conséquence. Conséquences : (1) le trait `ScraperManagerQuery` (async_trait) sera supprimé à l'étape 16, ainsi que toutes les `impl ScraperManagerQuery` sur `HtmlScraperQuery` / `JsonScraperQuery` ; (2) les anciennes méthodes `execute_query` concrètes (`HtmlScraperQuery::execute_query`, `JsonScraperQuery::execute_query`) et leurs helpers (`execute_context`, `execute_siblings`, `build_row_node`, `process_root`, etc.) seront remplacés par le moteur unifié `scraper::execute_query` ; (3) les tests existants qui dépendent de `ScraperManagerQuery` (dans `scraper_manager.rs::tests`) seront migrés ou supprimés ; (4) tous les YAMLs de `server/services/` (coflix, animeultime, papystreaming, rtlplay-be, m6play-fr, tf1-fr, rtbf-auvio-be, francetv, crunchyroll, anime-sama, frenchanimes) seront migrés vers la nouvelle API `sub_queries` au niveau entry. Justification : maintenir deux moteurs en parallèle multiplierait la complexité et la surface de bug pour un gain marginal. Le breaking change est effectué en une seule passe coordonnée (code + YAMLs). Cette décision invalide la §6.4 « Pas de breaking change (1ère passe) » qui est remplacée par §6.4 « Breaking change assumé (2e passe) ». |
+| 2026-06-08 | **Étape 15 réalisée** : moteur unifié `scraper::execute_query` polymorphe implémenté. | Le moteur unifié `execute_query` est implémenté dans `scraper/query_executor.rs`. Il dispatche sur `scraper_type()` pour fetcher (HTML/JSON/Static), extrait les rows via `RowLocator`, applique les entries, exécute les sub_queries siblings récursivement (via `Box::pin` pour gérer la récursion async), puis applique `merge_targeted` selon le `SubQuerySpec::target`. Le trait `ScraperQuery` est étendu avec `post_processes()` (pour les racines HTML/JSON qui supportent les post-process) et `result_item_field()` (pour le flatten des groupes). Le `QueryContext` est enrichi avec un `fields_filters` optionnel. Le moteur est **encore non câblé** (étape 16) — il compile mais n'est pas appelé par `ScraperQueryDefinition::execute_query` qui continue d'utiliser l'ancien chemin. Limitations actuelles : (1) les `as_html_entry` et `as_json_entry` retournent `None` (le downcast `&dyn ScraperEntrySpec` → `&HtmlScraperEntry` / `&JsonScraperEntry` n'est pas encore implémenté) — donc le moteur ne peut pas encore appliquer les entries sur les rows. (2) Les post-processes ne sont pas encore appliqués (boucle stub). (3) Les actions `request_actions` ne sont pas encore appliquées sur les URLs. (4) Les headers/body ne sont pas encore résolus (passés vides). Ces limitations seront levées à l'étape 16 quand l'ancien chemin sera supprimé et le moteur câblé. `cargo check --workspace` passe (27 warnings de dead_code sur les helpers non encore câblés). |
 
 ---
 

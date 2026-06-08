@@ -1089,6 +1089,14 @@ impl ScraperQuery for JsonScraperQuery {
         RowLocator::Pointer(self.row_pointer.clone())
     }
 
+    fn post_processes(&self) -> &[crate::scrapyfy::ScraperPostProcess] {
+        &self.post_processes
+    }
+
+    fn result_item_field(&self) -> Option<&str> {
+        self.result_item_field.as_deref()
+    }
+
     fn entries(&self) -> Vec<&dyn ScraperEntrySpec> {
         self.scraper_entries
             .iter()
@@ -1163,6 +1171,15 @@ impl ScraperQuery for JsonScraperSubQuery {
 
     fn row_locator(&self) -> RowLocator {
         RowLocator::Pointer(self.row_pointer.clone())
+    }
+
+    fn post_processes(&self) -> &[crate::scrapyfy::ScraperPostProcess] {
+        const EMPTY: &[crate::scrapyfy::ScraperPostProcess] = &[];
+        EMPTY
+    }
+
+    fn result_item_field(&self) -> Option<&str> {
+        None
     }
 
     fn entries(&self) -> Vec<&dyn ScraperEntrySpec> {

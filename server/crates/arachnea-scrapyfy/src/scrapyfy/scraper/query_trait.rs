@@ -1,13 +1,12 @@
 //! [`ScraperQuery`] — uniform contract for root, sub-query, and entry-level
 //! sub-queries across every scraper type.
 //!
-//! Step 5 ships the skeleton of the trait. Steps 6+ will add the accessors
-//! needed by the unified executor (`request_method`, `request_headers`,
-//! `http_config`, ...) and provide concrete implementations for
-//! `JsonScraperQuery`, `JsonScraperSubQuery`, `HtmlScraperQuery`, and
-//! `StaticScraperQuery`.
+//! Implemented by every query type (HTML, JSON, Static) and exposed to the
+//! unified [`execute_query`](super::query_executor::execute_query) executor
+//! for polymorphic dispatch.
 
 use crate::scrapyfy::actions::ScraperAction;
+use crate::scrapyfy::post_processes::ScraperPostProcess;
 use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
 use crate::scrapyfy::scraper_json::query::{ScraperRequestHeader, ScraperRequestMethod};
 use crate::scrapyfy::ScraperHttpConfig;
@@ -19,7 +18,8 @@ use super::sub_query_spec::SubQuerySpec;
 /// Implémenté par toute query : racine, sub-query, sub-query d'entry,
 /// en HTML, JSON ou Static.
 ///
-/// Le moteur d'exécution unifié (voir [`execute_query`](super::query_executor::execute_query))
+/// Le moteur d'exécution unifié
+/// (voir [`execute_query`](super::query_executor::execute_query))
 /// consomme ce trait pour piloter aussi bien les queries racines que les
 /// sub-queries récursives (sub-queries siblings, sub-queries d'entry).
 pub trait ScraperQuery: Send + Sync {
@@ -70,6 +70,18 @@ pub trait ScraperQuery: Send + Sync {
 
     /// Returns the row locator (CSS selector, JSON pointer, or single row).
     fn row_locator(&self) -> RowLocator;
+
+    // --- Post-processing ---
+
+    /// Returns the post-processing steps applied to each extracted row.
+    ///
+    /// Empty for query types that do not support post-processing at the
+    /// query level (e.g. JSON sub-queries).
+    fn post_processes(&self) -> &[ScraperPostProcess];
+
+    /// Returns the optional group field whose items should be promoted to
+    /// top-level entries.
+    fn result_item_field(&self) -> Option<&str>;
 
     // --- Entries ---
 

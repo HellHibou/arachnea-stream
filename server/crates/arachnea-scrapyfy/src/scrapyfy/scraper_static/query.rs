@@ -370,6 +370,15 @@ impl ScraperQuery for StaticScraperQuery {
         RowLocator::Single
     }
 
+    fn post_processes(&self) -> &[crate::scrapyfy::ScraperPostProcess] {
+        const EMPTY: &[crate::scrapyfy::ScraperPostProcess] = &[];
+        EMPTY
+    }
+
+    fn result_item_field(&self) -> Option<&str> {
+        None
+    }
+
     fn entries(&self) -> Vec<&dyn ScraperEntrySpec> {
         self.entries
             .iter()

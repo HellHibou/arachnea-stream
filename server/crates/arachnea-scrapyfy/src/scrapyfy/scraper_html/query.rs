@@ -572,6 +572,14 @@ impl ScraperQuery for HtmlScraperQuery {
         }
     }
 
+    fn post_processes(&self) -> &[crate::scrapyfy::ScraperPostProcess] {
+        &self.post_processes
+    }
+
+    fn result_item_field(&self) -> Option<&str> {
+        self.result_item_field.as_deref()
+    }
+
     fn entries(&self) -> Vec<&dyn ScraperEntrySpec> {
         self.scraper_entries
             .iter()
@@ -646,6 +654,14 @@ impl ScraperQuery for HtmlScraperSubQuery {
             selector: self.row_selector.clone(),
             select: HtmlScraperSelectMode::All,
         }
+    }
+
+    fn post_processes(&self) -> &[crate::scrapyfy::ScraperPostProcess] {
+        &self.post_processes
+    }
+
+    fn result_item_field(&self) -> Option<&str> {
+        None
     }
 
     fn entries(&self) -> Vec<&dyn ScraperEntrySpec> {
