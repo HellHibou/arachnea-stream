@@ -193,13 +193,14 @@ async fn execute_query_internal(
                         .as_any()
                         .downcast_ref::<JsonScraperSubQuery>()
                     {
-                        // The parent row is the *raw response* of the
-                        // current query (not the item we just built): the
-                        // legacy `JsonScraperSubQuery::execute` walks it via
+                        // The parent row is the row extracted by the
+                        // current query's `row_pointer`, not the raw HTTP
+                        // response. The legacy
+                        // `JsonScraperSubQuery::execute` walks it via
                         // `context_pointer` to find the per-context values
-                        // (e.g. `/episodes/*`). Passing the item would drop
-                        // the `episodes` array.
-                        let parent_row = response_parent_row(&response);
+                        // (e.g. `/data/widgets/*` for `load_home`,
+                        // `/episodes/*` for `coflix:get_season`).
+                        let parent_row = response_parent_row(query, &response);
                         let execution_options = query_level_execution_options();
                         let sub_client = context
                             .http_client
@@ -609,19 +610,41 @@ fn _dedupe_urls(urls: Vec<String>) -> Vec<String> {
     out
 }
 
-/// Builds a `serde_json::Value` representation of the **raw response** that
+/// Builds a `serde_json::Value` representation of the **parent row** that
 /// the query-level sub-query iterates over via its `context_pointer`.
 ///
 /// The legacy `JsonScraperSubQuery::execute` walks the parent row with
 /// `select_json_values(context_row, context_pointer, context_select)`. For a
-/// root-level sub-query, the parent row is the **root response** of the
-/// parent query (e.g. the season API payload containing `episodes: [...]`).
-/// For HTML and Static we wrap the body in a `Value::Null` so the legacy
-/// sub-query short-circuits without attempting a JSON walk.
-fn response_parent_row(response: &FetchedResponse) -> Value {
-    match response {
-        FetchedResponse::Json(value) => value.clone(),
-        FetchedResponse::Html(_) | FetchedResponse::Static => Value::Null,
+/// root-level sub-query, the parent row is the **row extracted by the
+/// parent query's `row_pointer`** — not the raw HTTP response. For
+/// example, `rtbf-auvio-be.yaml::load_home` declares `row_pointer: /data`,
+/// so the sub-query must walk `/data/widgets/*` (not the bare
+/// `/widgets/*` which would not match the API response shape).
+///
+/// The function therefore applies the parent query's `row_locator()` to
+/// the JSON response. When the locator is a `Pointer`, the first matching
+/// row is used; for HTML and Static scrapers no JSON walk is possible, so
+/// a `Value::Null` is returned and the legacy sub-query short-circuits.
+fn response_parent_row(query: &dyn ScraperQuery, response: &FetchedResponse) -> Value {
+    let FetchedResponse::Json(value) = response else {
+        return Value::Null;
+    };
+
+    match query.row_locator() {
+        RowLocator::Pointer(pointer) => {
+            // Take the first row matching the parent's `row_pointer`.
+            // Legacy semantics iterate sub-queries per row, but the
+            // query-level dispatch operates on a single parent row (the
+            // first match is sufficient because sub-query results are
+            // merged by `target` path, not by row).
+            select_json_values(value, Some(&pointer), HtmlScraperSelectMode::First)
+                .into_iter()
+                .next()
+                .cloned()
+                .unwrap_or_else(|| value.clone())
+        }
+        // HTML selectors / Single: no JSON walk possible.
+        _ => value.clone(),
     }
 }
 
