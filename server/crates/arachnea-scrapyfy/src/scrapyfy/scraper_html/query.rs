@@ -304,6 +304,9 @@ pub struct HtmlScraperSubQuery {
     pub(crate) entries: Vec<HtmlScraperEntry>,
     /// Post-processing steps applied to each extracted row.
     pub(crate) post_processes: Vec<ScraperPostProcess>,
+    /// Nested sub-queries (recursion). Polymorphic slot allowing
+    /// heterogeneous composition at the entry level.
+    pub(crate) sub_queries: Vec<Box<dyn ScraperQuery>>,
     /// HTTP client for follow-up requests.
     pub(crate) http_client: HttpClient,
 }
@@ -487,7 +490,10 @@ impl ScraperQuery for HtmlScraperSubQuery {
     }
 
     fn sub_queries(&self) -> Vec<&dyn ScraperQuery> {
-        Vec::new()
+        self.sub_queries
+            .iter()
+            .map(|sub| &**sub as &dyn ScraperQuery)
+            .collect()
     }
 
     fn sub_query_spec(&self) -> Option<&SubQuerySpec> {

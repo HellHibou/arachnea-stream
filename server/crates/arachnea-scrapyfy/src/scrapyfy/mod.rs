@@ -26,6 +26,7 @@ pub use scraper_html::config::HtmlScraperQueryRaw;
 
 /// JSON query definitions, executors, and field extractors.
 pub mod scraper_json;
+pub use scraper_json::config::EntrySubQueryRaw;
 pub use scraper_json::entry::{JsonScraperEntry, JsonScraperEntryRaw};
 pub use scraper_json::query::{JsonScraperQuery, JsonScraperQueryRaw};
 

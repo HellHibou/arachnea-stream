@@ -19,7 +19,7 @@
   },
   {
     "path": "m6play-fr.yaml",
-    "enabled": true
+    "enabled": false
   },
   {
     "path":"francetv.yaml",
@@ -39,7 +39,7 @@
   }, 
   {
     "path": "darkstream/coflix.yaml",
-    "enabled": false
+    "enabled": true
   },
   {
     "path": "darkstream/frenchanimes.yaml",

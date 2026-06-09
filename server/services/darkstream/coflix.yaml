@@ -194,8 +194,6 @@ queries:
               "false": null
         - name: description
           pointer: "/excerpt"
-          actions:
-            - type: html_to_text
         - name: rating
           pointer: "/rating"
         - name: director

@@ -117,111 +117,6 @@ impl ScraperQueryDefinitionRaw {
     }
 }
 
-/// Raw configuration of one sub-query attached to an entry (YAML `sub_queries` field).
-///
-/// Tagged by `scraper_type` — only `html` and `json` are valid at the entry level.
-#[derive(Serialize, Deserialize)]
-#[serde(tag = "scraper_type", rename_all = "snake_case")]
-pub enum EntrySubQueryRaw {
-    /// HTML follow-up request seeded by the parent entry value.
-    Html {
-        /// CSS selector matching each result row in the follow-up response.
-        #[serde(default)]
-        row_selector: String,
-        /// Field extractors executed for every matched row.
-        #[serde(default)]
-        entries: Vec<HtmlScraperEntryRaw>,
-    },
-    /// JSON follow-up request seeded by the parent entry value.
-    Json {
-        /// JSON pointer matching each result row in the follow-up response.
-        #[serde(default)]
-        row_pointer: String,
-        /// Field extractors executed for every matched row.
-        #[serde(default)]
-        entries: Vec<JsonScraperEntryRaw>,
-    },
-}
-
-impl EntrySubQueryRaw {
-    /// Converts this raw sub-query into a polymorphic `Box<dyn ScraperQuery>`.
-    ///
-    /// # Arguments
-    ///
-    /// * `http_client` - Shared HTTP client used for follow-up requests.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the entries cannot be converted or no selector/pointer is provided.
-    pub(crate) fn into_boxed_query(self, base_url: &str) -> Result<Box<dyn ScraperQuery>> {
-        match self {
-            Self::Html { row_selector, entries } if row_selector.is_empty() => {
-                anyhow::bail!("HTML entry sub-query must define a row_selector");
-            }
-            Self::Html { row_selector, entries } => {
-                let selector = ::scraper::Selector::parse(&row_selector)
-                    .map_err(|e| anyhow::anyhow!("Invalid row_selector '{}': {}", row_selector, e))?;
-                let entries: Vec<HtmlScraperEntry> = entries
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<Vec<_>>>()?;
-                let query = crate::scrapyfy::scraper_html::query::HtmlScraperSubQuery {
-                    context_pointer: None,
-                    context_select: crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode::All,
-                    filters: std::collections::HashMap::new(),
-                    row_filters: std::collections::HashMap::new(),
-                    context_entries: Vec::new(),
-                    target: None,
-                    request_pointer: None,
-                    request_select: crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode::First,
-                    request_actions: Vec::new(),
-                    request_method: crate::scrapyfy::scraper_json::query::ScraperRequestMethod::Get,
-                    request_headers: Vec::new(),
-                    http_config: crate::scrapyfy::ScraperHttpConfig::default(),
-                    row_selector: row_selector.clone(),
-                    row_selector_compiled: selector,
-                    entries,
-                    post_processes: Vec::new(),
-                    http_client: crate::scrapyfy::HttpClient::new(base_url),
-                };
-                Ok(Box::new(query))
-            }
-            Self::Json { row_pointer, entries } if row_pointer.is_empty() => {
-                anyhow::bail!("JSON entry sub-query must define a row_pointer");
-            }
-            Self::Json { row_pointer, entries } => {
-                let entries: Vec<crate::scrapyfy::scraper_json::entry::JsonScraperEntry> = entries
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<Vec<_>>>()?;
-                let query = crate::scrapyfy::scraper_json::query::JsonScraperSubQuery {
-                    context_pointer: None,
-                    context_select: crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode::All,
-                    filters: std::collections::HashMap::new(),
-                    row_filters: std::collections::HashMap::new(),
-                    context_entries: Vec::new(),
-                    target: None,
-                    request_pointer: None,
-                    request_select: crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode::First,
-                    request_actions: Vec::new(),
-                    request_method: crate::scrapyfy::scraper_json::query::ScraperRequestMethod::Get,
-                    request_body_pointer: None,
-                    request_body_select: crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode::All,
-                    request_body_actions: Vec::new(),
-                    extract_next_data: false,
-                    request_headers: Vec::new(),
-                    http_config: crate::scrapyfy::ScraperHttpConfig::default(),
-                    row_pointer,
-                    entries,
-                    sub_queries: Vec::new(),
-                    http_client: crate::scrapyfy::HttpClient::new(base_url),
-                };
-                Ok(Box::new(query))
-            }
-        }
-    }
-}
-
 /// Runtime query wrapper supporting both HTML, JSON, and static scraping backends.
 #[derive(Deserialize)]
 #[serde(try_from = "ScraperQueryDefinitionRaw")]
@@ -609,7 +504,7 @@ impl ScraperQueryCollection {
         Self::enrich_pagination_params(&mut merged_params);
         Self::enrich_query_separator_params(&mut merged_params);
 
-        merged_params
+        crate::scrapyfy::query_helpers::resolve_nested_template_params(&merged_params)
     }
 
     /// Derives `page_index` and `offset` from `page` and `page_size` parameters.
@@ -785,6 +680,7 @@ impl Serialize for ScraperQueryCollection {
 #[cfg(test)]
 mod tests {
 
+    use anyhow::Context;
     use arachnea_core::persistence::resources;
 
     /// Verifies that the YAML configuration can be deserialized
@@ -795,12 +691,22 @@ mod tests {
 
         for entry in std::fs::read_dir(services_path)? {
             let path = entry?.path();
+            if path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with('.'))
+            {
+                continue;
+            }
             if path.extension().and_then(|value| value.to_str()) != Some("yaml") {
                 continue;
             }
 
-            let collection =
-                super::ScraperQueryCollection::from_file_with(path, serde_yaml::from_reader)?;
+            let collection = super::ScraperQueryCollection::from_file_with(
+                path.as_path(),
+                serde_yaml::from_reader,
+            )
+            .with_context(|| format!("while parsing {}", path.display()))?;
             println!("Parsed service config: {}", collection.name());
         }
 

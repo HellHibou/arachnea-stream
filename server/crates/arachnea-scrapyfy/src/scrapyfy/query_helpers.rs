@@ -192,7 +192,7 @@ pub fn replace_template_placeholders(
 /// # Arguments
 ///
 /// * `params` - Template parameters that may reference other parameters.
-fn resolve_nested_template_params(params: &HashMap<String, String>) -> HashMap<String, String> {
+pub(crate) fn resolve_nested_template_params(params: &HashMap<String, String>) -> HashMap<String, String> {
     let mut resolved = params.clone();
     let max_iterations = resolved.len().saturating_add(1);
 
@@ -316,4 +316,35 @@ pub fn is_root_filtered(
     }
 
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_nested_template_params_resolves_chained_collection_params() {
+        let params = HashMap::from([
+            ("catalog_code".to_string(), "fr-fr".to_string()),
+            (
+                "android_graphql_url".to_string(),
+                "https://app-api.tf1.fr/graphql/{catalog_code}/android".to_string(),
+            ),
+            (
+                "android_home_covers_url".to_string(),
+                "{android_graphql_url}?id=abc".to_string(),
+            ),
+        ]);
+
+        let resolved = resolve_nested_template_params(&params);
+
+        assert_eq!(
+            resolved.get("android_graphql_url").map(String::as_str),
+            Some("https://app-api.tf1.fr/graphql/fr-fr/android")
+        );
+        assert_eq!(
+            resolved.get("android_home_covers_url").map(String::as_str),
+            Some("https://app-api.tf1.fr/graphql/fr-fr/android?id=abc")
+        );
+    }
 }

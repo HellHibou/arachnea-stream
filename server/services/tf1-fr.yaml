@@ -917,28 +917,28 @@ queries:
     row_pointer: /data/programById
     entries:
       - name: title
-        pointer: /data/programById/decoration/label
+        pointer: decoration/label
       - name: description
-        pointer: /data/programById/decoration/description
+        pointer: decoration/description
       - name: media-type
-        pointer: /data/programById/typology
+        pointer: typology
         actions: *actions_typology_media_type
       - name: language
-        pointer: /data/programById/hasDescriptionTrack/total
+        pointer: hasDescriptionTrack/total
         actions:
           - type: map
             default: AD
             argument:
               0: ""
       - name: subtitles
-        pointer: /data/programById/hasFrenchDeafSubtitles/total
+        pointer: hasFrenchDeafSubtitles/total
         actions:
           - type: map
             default: VF
             argument:
               0: ""
       - name: subtitles
-        pointer: /data/programById/hasFrenchSubtitles/total
+        pointer: hasFrenchSubtitles/total
         actions:
           - type: map
             default: VF
@@ -961,29 +961,29 @@ queries:
           - type: format_text
             argument: "{base_url}/{}"
       - name: img/logo > link
-        pointer: /data/programById/decoration/logoImage/logo/0/url
+        pointer: decoration/logoImage/logo/0/url
       - name: img/logo > link
-        pointer: /data/programById/decoration/logo/logo/0/url
+        pointer: decoration/logo/logo/0/url
       - name: img/poster > link
-        pointer: /data/programById/decoration/image/sourcesWithScales/0/url
+        pointer: decoration/image/sourcesWithScales/0/url
       - name: count-season
-        pointer: /data/programById/decoration/subLabel
+        pointer: decoration/subLabel
         actions:
           - type: regex_find_all
             pattern: '([0-9]+)'
             format: '{1}'
       - name: theme
-        pointer: /data/programById/topics/*
+        pointer: topics/*
         select: all
       - name: director
-        pointer: /data/programById/editorialSections/*/directors/*/members/*
+        pointer: editorialSections/*/directors/*/members/*
         select: all
         actions:
           - type: regex_find_all
             pattern: '"firstName":"([^"]*)","lastName":"([^"]*)"'
             format: "{1} {2}"
       - name: casting
-        pointer: /data/programById/editorialSections/*/actors/*/members/*
+        pointer: editorialSections/*/actors/*/members/*
         select: all
         actions:
           - type: regex_find_all

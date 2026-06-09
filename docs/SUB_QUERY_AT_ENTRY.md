@@ -6,7 +6,9 @@
 > Toute décision prise pendant l'implémentation qui dévie du plan doit être
 > documentée dans la section *Décisions*.
 >
-> **État au 2026-06-08** : les étapes 6-17 sont implémentées. `cargo check --workspace` passe.
+> **État au 2026-06-09** : les étapes 6-17, 21a, 21c, 22-23 sont implémentées.
+> `cargo check --workspace` passe.
+> L'étape 21b (migration YAML) est en cours.
 > Le plan révisé pour les étapes 15-21 (sans rétro-compatibilité) est validé
 > — voir section *Décisions* pour la raison. L'étape 22 (régression
 > query-level sub_queries) est le dernier jalon documenté — elle fixe la
@@ -463,11 +465,13 @@ Résultat : `players > embed-link` contient le 1er paramètre de `showVideo(...)
 18. [x] **Étape 17** — Modifier les types Raw des entries (`HtmlScraperEntryRaw`, `JsonScraperEntryRaw`, `EntrySubQueryRaw`) pour supporter la syntaxe YAML `sub_queries` au niveau entry. Le parsing et la conversion vers `Box<dyn ScraperQuery>` sont implémentés. `coflix.yaml` peut maintenant utiliser `sub_queries` dans n'importe quelle entry.
 19. [x] **Étape 18** — `cargo check --workspace` passe (0 erreurs, warnings = dead_code attendu).
 20. [x] **Étape 19** — `CHANGELOG.md` et `skills/build-yaml-source/references/yaml-capabilities.md` mis à jour.
-21. [ ] **Étape 20** — Passer en revue la RustDoc de tous les nouveaux items (cf. § 4).
-22. [x] **Étape 21a** — Étendre `EntrySubQueryRaw` avec les champs avancés nécessaires à la migration des sub_queries query-level : `context_pointer`, `context_select`, `context_entries`, `filters`, `row_filters`, `target`, `request_pointer`, `request_select`, `request_actions`, `request_method`, `request_headers`, `http_config`, `extract_next_data`, `request_body_pointer`, `request_body_select`, `request_body_actions`. L'API entry-level devient ainsi sémantiquement équivalente à l'API query-level — la migration YAML est juste un changement de position du bloc (`sub_queries` au niveau entry vs. au niveau query). Voir section *Décisions* 2026-06-09.
-23. [ ] **Étape 21b** — Modifier les autres YAMLs dans une 2e PR dédiée (animeultime, papystreaming, rtlplay-be, etc.). Migration de `rtbf-auvio-be.yaml` `home_sub_queries` / `rtbf_program_episode_sub_query` / etc. en cours.
+21. [x] **Étape 21a** — Étendre `EntrySubQueryRaw` avec les champs avancés nécessaires à la migration des sub_queries query-level : `context_pointer`, `context_select`, `context_entries`, `filters`, `row_filters`, `target`, `request_pointer`, `request_select`, `request_actions`, `request_method`, `request_headers`, `http_config`, `extract_next_data`, `request_body_pointer`, `request_body_select`, `request_body_actions`. L'API entry-level devient ainsi sémantiquement équivalente à l'API query-level — la migration YAML est juste un changement de position du bloc (`sub_queries` au niveau entry vs. au niveau query). Voir section *Décisions* 2026-06-09.
+22. [ ] **Étape 21b** — Migration des YAMLs (rtbf-auvio-be, animeultime, etc.) vers `sub_queries` entry-level. `rtbf-auvio-be.yaml` migré.
+23. [x] **Étape 21c** — Refonte du type `sub_queries` (de `Vec<JsonScraperSubQuery>` homogène à `Vec<Box<dyn ScraperQuery>>` polymorphique) pour permettre l'imbrication entry-level hétérogène. Voir *Analyse détaillée 2026-06-09* ci-dessous.
 24. [x] **Étape 22** — Fixer la régression silencieuse sur les sub_queries au niveau query (ancienne API `context_pointer`/`target`/`request_pointer` au niveau query). `JsonScraperSubQuery` et `HtmlScraperSubQuery` exposent leurs champs legacy via le trait `ScraperQuery` (`context_pointer`, `context_select`, `context_entries`, `target`). Le moteur unifié détecte un sub_query query-level (`sibling.context_pointer().is_some()`) et le dispatche vers `JsonScraperSubQuery::execute_query_level` (réutilise le chemin d'exécution legacy `JsonScraperSubQuery::execute` qui supporte `context_pointer`, `filters`, `row_filters`, `request_actions`, etc.). Fixe la régression sur `coflix.yaml` (`get_season`), `rtbf-auvio-be.yaml`, `m6play-fr.yaml`, `tf1-fr.yaml` sans migration YAML. `cargo check --workspace` passe.
 25. [x] **Étape 23** — Corriger `response_parent_row` dans `query_executor.rs` : il doit appliquer le `row_pointer` du query parent avant de dispatcher vers `JsonScraperSubQuery::execute_query_level`. Sans ce fix, les sub_queries query-level itèrent sur la réponse JSON brute au lieu du row extrait — pour `rtbf-auvio-be.yaml::load_home` (`row_pointer: /data`), les widgets à `/data/widgets/*` n'étaient pas trouvés par le `context_pointer: /widgets/*` du sub_query. Fixe la régression sur `rtbf-auvio-be.yaml` `load_home` / `get_category` (et tout autre query JSON dont le `row_pointer` n'est pas `/`). `cargo check --workspace` passe.
+26. [ ] **Étape 20** — Passer en revue la RustDoc de tous les nouveaux items (cf. § 4). **Placée en fin de liste** pour bénéficier des items stabilisés par les étapes 21a/b/c et 22/23.
+
 
 #### Analyse des YAMLs sources — patterns migrables vers entry-level `sub_queries`
 
@@ -614,3 +618,160 @@ Plus précisément :
 - **`parent`** : convention YAML pour désigner l'entry parente d'un sub_query d'entry.
 - **Récursion** : capacité d'un sub_query à contenir des sub_queries d'entries, etc.
 - **Dispatch polymorphe** : `&dyn ScraperQuery` permet d'appeler `execute_query` sur n'importe quelle variante.
+
+---
+
+## 5.1bis. Analyse détaillée 2026-06-09 — Étapes 21c et 21d (refonte + migration)
+
+### Contexte
+
+L'étape B (fix `response_parent_row` dans `query_executor.rs`) résout le bug
+`load_home` / `get_category` de `rtbf-auvio-be.yaml` sans modifier le YAML.
+**Mais** la migration vers l'API entry-level reste demandée pour aligner le
+YAML sur la nouvelle architecture (et bénéficier de la récursion + filtres +
+target au niveau entry).
+
+L'extension de `EntrySubQueryRaw` (étape 21a) a été tentée puis annulée
+parce qu'elle bute sur l'**invariant de type** des sub-queries imbriquées
+de `JsonScraperSubQuery` et `HtmlScraperSubQuery` : `sub_queries: Vec<JsonScraperSubQuery>`
+(resp. `Vec<HtmlScraperSubQuery>`) — listes homogènes typées.
+`EntrySubQueryRaw::Json::sub_queries: Vec<EntrySubQueryRaw>` ne peut pas
+être converti directement vers `Vec<JsonScraperSubQuery>` car un
+`EntrySubQueryRaw::Html` ne peut pas devenir un `JsonScraperSubQuery`.
+
+### Inventaire des changements Rust
+
+#### A. `scraper_json/query.rs`
+
+1. **`JsonScraperSubQuery.sub_queries`** : passer de
+   `Vec<JsonScraperSubQuery>` à `Vec<Box<dyn ScraperQuery>>`.
+   - `query.rs:95` — déclaration du champ.
+2. **`JsonScraperSubQuery::field_names`** (l. 103-118) : itère sur
+   `self.sub_queries` — adapter le downcast.
+3. **`JsonScraperSubQuery::execute_siblings`** (l. 209-243) : signature
+   `sub_queries: &[JsonScraperSubQuery]` → `sub_queries: &[Box<dyn ScraperQuery>]`.
+   Itère via `sub_query.execute(...)` qui doit downcaster vers
+   `&JsonScraperSubQuery` via `as_any()`.
+4. **`JsonScraperSubQuery::build_row_node`** (l. 411-...) : appel à
+   `Self::execute_siblings(&self.sub_queries, ...)` (l. 488 et l. 511) —
+   adapter pour passer la nouvelle signature.
+5. **`impl ScraperQuery for JsonScraperSubQuery`** (l. 1087) :
+   `self.sub_queries.iter().map(|sub| sub as &dyn ScraperQuery).collect()`
+   fonctionne déjà avec `Box<dyn ScraperQuery>` (le `&*sub` est implicite).
+6. **`impl From<&JsonScraperSubQuery> for JsonScraperSubQueryRaw`** :
+   la conversion `sub_query.sub_queries` (l. 714-718) doit itérer sur
+   les `Box<dyn ScraperQuery>` et downcaster vers `&JsonScraperSubQuery`
+   (les enfants hétérogènes `HtmlScraperSubQuery` seront rejetés ou
+   l'implémentation lèvera une erreur).
+
+#### B. `scraper_json/config.rs`
+
+7. **`impl TryFrom<JsonScraperSubQueryRaw> for JsonScraperSubQuery`** :
+   la conversion `sub_queries` (l. 650-653) doit transformer
+   `Vec<JsonScraperSubQueryRaw>` en `Vec<Box<dyn ScraperQuery>>` via
+   `JsonScraperSubQuery::try_from(sub)` pour chaque Raw.
+8. **`impl From<&JsonScraperSubQuery> for JsonScraperSubQueryRaw`** :
+   l'inverse (l. 714-718) : itérer sur les `Box<dyn ScraperQuery>` et
+   downcaster vers `&JsonScraperSubQuery` (via `as_any()`), puis
+   `JsonScraperSubQueryRaw::from(sub)`. Lever une erreur claire si
+   l'enfant n'est pas un `JsonScraperSubQuery`.
+
+#### C. `scraper_html/query.rs` — `HtmlScraperSubQuery`
+
+9. Mêmes changements (1, 2, 3, 4, 5, 6) pour `HtmlScraperSubQuery`.
+10. Le champ `HtmlScraperSubQuery.sub_queries` est probablement déjà
+    `Vec<HtmlScraperSubQuery>` — vérifier.
+
+#### D. `scraper_query_collection.rs` — `EntrySubQueryRaw`
+
+11. Réintroduire l'extension de `EntrySubQueryRaw::Html` et
+    `EntrySubQueryRaw::Json` avec les champs avancés (fait précédemment,
+    revert à cause des erreurs en cascade) :
+    - `context_pointer`, `context_select`, `context_entries`, `filters`,
+      `row_filters`, `target`, `request_pointer`, `request_select`,
+      `request_actions`, `request_method`, `request_headers`, `http`,
+      `extract_next_data`, `request_body_pointer`, `request_body_select`,
+      `request_body_actions`.
+12. `EntrySubQueryRaw::Json::sub_queries` doit être `Vec<EntrySubQueryRaw>`
+    (hétérogène, déjà fait). Le `into_boxed_query` doit forwarder
+    correctement.
+13. `EntrySubQueryRaw::into_boxed_query` doit construire un
+    `JsonScraperSubQuery` / `HtmlScraperSubQuery` avec TOUS les champs
+    avancés (et non plus un sous-ensemble vide).
+
+#### E. `query_executor.rs` — moteur unifié
+
+14. Le dispatch entry-level `execute_entry_sub_queries` (l. 502) passe
+    par `Box::pin(execute_query_internal(...))` ce qui fonctionne déjà
+    avec un `&dyn ScraperQuery`. Aucune modification nécessaire si les
+    types runtime (`JsonScraperSubQuery` / `HtmlScraperSubQuery`)
+    implémentent déjà `ScraperQuery` (ce qui est le cas).
+
+### Inventaire des changements YAML (`rtbf-auvio-be.yaml`)
+
+15. **`home_sub_queries`** (l. 169-331) : c'est l'ancre YAML qui contient
+    3 sub_queries query-level. Chaque sub_query doit devenir un
+    `sub_queries` au niveau d'une **entry pivot** de `load_home` /
+    `get_category`. L'entry pivot sera `sections` (l. 574-589) avec
+    `select: all, pointer: /widgets/*` (au lieu de filtrer par type
+    individuellement, on itère sur tous les widgets, puis chaque
+    sub_query utilise `context_pointer: /` (la row widget) + `filters: /type: CATEGORY_LIST`
+    pour ne garder que les widgets CATEGORY_LIST, etc.).
+    - Sub-query 1 (CATEGORY_LIST) : pointer `/data`, entries
+      `categories[key, label, image, request > query_url]`.
+    - Sub-query 2 (PROMOBOX) : pointer `/data/content/*`, `target: banners`,
+      entries `banners[key, title, subtitle, ...]` (avec les sub_queries
+      imbriqués `mediaId → initialState → entitlement` qui restent en
+      place).
+    - Sub-query 3 (BANNER+MEDIA_TRAILER) : pointer `/data`, entries
+      `banners[key, title, ...]`.
+16. **`rtbf_program_episode_sub_query`** (l. 132-166) : c'est un autre
+    sub_query query-level utilisé dans `get_entry` (l. 555-562). Il
+    doit devenir un sub_query au niveau d'une entry de `get_entry`
+    (par exemple l'entry `casting` ou une nouvelle entry pivot). La
+    migration est similaire : attacher le sub_query à une entry
+    `select: all, pointer: /data/content/program/path` qui itère sur
+    les programmes.
+17. **Validation** : `cargo check --workspace` doit passer, puis
+    tester le YAML avec le runtime pour s'assurer que
+    `categories` et `banners` sont bien produits par `load_home`.
+
+### Ordre d'exécution recommandé (sous-tâches unitaires)
+
+Pour une nouvelle session, voici l'ordre précis à suivre :
+
+1. **Refonte type `sub_queries`** (A, B) — `JsonScraperSubQuery` puis
+   `JsonScraperQuery` (la racine). Valider `cargo check` après chaque.
+2. **Refonte type `sub_queries`** (C) — `HtmlScraperSubQuery`. Valider.
+3. **Extension `EntrySubQueryRaw`** (D) — réintroduire les champs
+   avancés. Valider.
+4. **Migration YAML** (15, 16, 17) — `rtbf-auvio-be.yaml`. Tester à
+   l'exécution.
+5. **CHANGELOG** — section "Unreleased — entry-level sub_queries
+   parity" (étape 21a/21b/21c/21d).
+
+### Tests suggérés
+
+- `cargo check --workspace` après chaque sous-tâche (A, B, C, D).
+- Test d'exécution : lancer le service `rtbf-auvio-be` et vérifier
+  que `load_home` retourne `categories` ET `banners` ET `sections`.
+- Vérifier la non-régression : `m6play-fr::get_service` doit
+  toujours retourner les 4 champs `id, title, logo, description`.
+
+### Risques identifiés
+
+- **Cyclic imports** : `JsonScraperSubQuery::from(&JsonScraperSubQuery)
+  for JsonScraperSubQueryRaw` itère sur les enfants — si l'arbre
+  est cyclique, l'implémentation panique. Peu probable en YAML,
+  mais à surveiller.
+- **Visibilité `pub(crate)`** : `JsonScraperSubQuery` doit être
+  visible depuis `scraper_query_collection.rs` pour construire un
+  `Box<dyn ScraperQuery>` à partir d'un `EntrySubQueryRaw::Json`.
+  Déjà le cas.
+- **Mémoire** : `Vec<Box<dyn ScraperQuery>>` ajoute une indirection
+  par rapport à `Vec<JsonScraperSubQuery>`. Impact négligeable.
+- **Sérialisation `From<&JsonScraperSubQuery>`** : si un sub_query
+  a un enfant `HtmlScraperSubQuery` (cas hétérogène), la conversion
+  vers `JsonScraperSubQueryRaw` doit lèver une erreur ou filtrer
+  (perte d'info). Décision à prendre dans l'impl.
+

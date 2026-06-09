@@ -9,7 +9,7 @@
 // Re-export shared types that moved to `config` so that references like
 // `use crate::scrapyfy::scraper_json::query::{ScraperRequestMethod, …}`
 // still resolve.
-pub use super::config::{JsonScraperQueryRaw, JsonScraperSubQueryRaw};
+pub use super::config::{EntrySubQueryRaw, JsonScraperQueryRaw, JsonScraperSubQueryRaw};
 pub(crate) use super::config::{
     JsonScraperExecutionOptions, ScraperRequestHeader, ScraperRequestHeaderRaw,
     ScraperRequestMethod,
@@ -60,7 +60,10 @@ pub struct JsonScraperQuery {
     pub(crate) row_pointer: String,
     pub(crate) result_item_field: Option<String>,
     pub(crate) scraper_entries: Vec<JsonScraperEntry>,
-    pub(crate) sub_queries: Vec<JsonScraperSubQuery>,
+    /// Top-level sub-queries attached to this query. Polymorphic slot:
+    /// a typical YAML config attaches only [`JsonScraperSubQuery`] children,
+    /// but the trait object slot allows future heterogeneous composition.
+    pub(crate) sub_queries: Vec<Box<dyn ScraperQuery>>,
     pub(crate) post_processes: Vec<ScraperPostProcess>,
 
     pub(crate) http_client: HttpClient,
@@ -92,7 +95,12 @@ pub struct JsonScraperSubQuery {
     pub(crate) http_config: ScraperHttpConfig,
     pub(crate) row_pointer: String,
     pub(crate) entries: Vec<JsonScraperEntry>,
-    pub(crate) sub_queries: Vec<JsonScraperSubQuery>,
+    /// Post-processing steps applied to each extracted row.
+    pub(crate) post_processes: Vec<ScraperPostProcess>,
+    /// Nested sub-queries (recursion). Polymorphic: typically a
+    /// [`JsonScraperSubQuery`], but the trait object slot allows
+    /// heterogeneous composition at the entry level.
+    pub(crate) sub_queries: Vec<Box<dyn ScraperQuery>>,
     /// HTTP client for follow-up requests.
     #[serde(skip)]
     pub(crate) http_client: HttpClient,
@@ -100,6 +108,10 @@ pub struct JsonScraperSubQuery {
 
 impl JsonScraperSubQuery {
     /// Returns the flattened list of leaf field names produced by this sub-query tree.
+    ///
+    /// Only the [`JsonScraperSubQuery`] children contribute to the list; nested
+    /// sub-queries of other concrete types (e.g. HTML) are silently skipped
+    /// because they are not part of the JSON sub-query field-name contract.
     #[cfg(any(test, feature = "test-support"))]
     pub fn field_names(&self) -> Vec<String> {
         let mut names = self
@@ -115,7 +127,9 @@ impl JsonScraperSubQuery {
         );
 
         for sub_query in &self.sub_queries {
-            names.extend(sub_query.field_names());
+            if let Some(json_sub) = sub_query.as_any().downcast_ref::<JsonScraperSubQuery>() {
+                names.extend(json_sub.field_names());
+            }
         }
 
         names
@@ -196,9 +210,16 @@ impl JsonScraperSubQuery {
 
     /// Executes sibling sub-queries concurrently and merges their outputs in configuration order.
     ///
+    /// Children that are not [`JsonScraperSubQuery`] (e.g. HTML sub-queries attached
+    /// at the entry level) are reported through `sub_query_name` in the returned
+    /// error so that misconfiguration surfaces immediately rather than being
+    /// silently dropped.
+    ///
     /// # Arguments
     ///
-    /// * `sub_queries` - Sub-queries to execute in parallel.
+    /// * `sub_queries` - Polymorphic sub-queries to execute in parallel. Only the
+    ///   `JsonScraperSubQuery` children are dispatched through this path; other
+    ///   concrete types must be handled by the unified executor.
     /// * `root` - Data node receiving the merged results.
     /// * `context_row` - Parent JSON row providing context values.
     /// * `params` - Runtime template parameters.
@@ -206,8 +227,12 @@ impl JsonScraperSubQuery {
     /// * `base_url` - Base URL used to build follow-up request URLs.
     /// * `http_client` - Shared HTTP client.
     /// * `execution_options` - Concurrency limits applied to follow-up requests.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any child sub-query is not a `JsonScraperSubQuery`.
     pub(crate) async fn execute_siblings(
-        sub_queries: &[JsonScraperSubQuery],
+        sub_queries: &[Box<dyn ScraperQuery>],
         root: &mut ScraperDataNode,
         context_row: &serde_json::Value,
         params: &HashMap<String, String>,
@@ -218,9 +243,16 @@ impl JsonScraperSubQuery {
     ) -> Result<()> {
         let mut sub_query_jobs = Vec::with_capacity(sub_queries.len());
         for (sub_query_index, sub_query) in sub_queries.iter().enumerate() {
+            let json_sub = sub_query.as_any().downcast_ref::<JsonScraperSubQuery>().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "JSON sub-query slot #{} is a {}; only JSON sub-queries are supported in this execution path",
+                    sub_query_index,
+                    sub_query.name(),
+                )
+            })?;
             sub_query_jobs.push(Self::execute_indexed_sibling(
                 sub_query_index,
-                sub_query,
+                json_sub,
                 context_row,
                 params,
                 context_request_url,
@@ -658,6 +690,9 @@ impl JsonScraperQuery {
     /// * `query_url` - URL template used to build the request.
     /// * `row_pointer` - JSON pointer-like path matching each result row.
     /// * `scraper_entries` - Field extractors executed for every matched row.
+    /// * `sub_queries` - Polymorphic sub-queries attached to this query. Each
+    ///   element is boxed and stored as `Box<dyn ScraperQuery>`; callers
+    ///   typically pass `Vec<JsonScraperSubQuery>` values boxed individually.
     ///
     /// # Panics
     ///
@@ -670,7 +705,7 @@ impl JsonScraperQuery {
         query_url: &str,
         row_pointer: &str,
         scraper_entries: Vec<JsonScraperEntry>,
-        sub_queries: Vec<JsonScraperSubQuery>,
+        sub_queries: Vec<Box<dyn ScraperQuery>>,
     ) -> Self {
         Self::try_new(
             name,
@@ -724,7 +759,7 @@ impl JsonScraperQuery {
     }
 
     /// Returns the chained JSON follow-up requests executed after the main entries.
-    pub fn sub_queries(&self) -> &Vec<JsonScraperSubQuery> {
+    pub fn sub_queries(&self) -> &[Box<dyn ScraperQuery>] {
         &self.sub_queries
     }
 
@@ -741,7 +776,9 @@ impl JsonScraperQuery {
     /// * `sub_query_fetch_concurrency` - Max number of follow-up HTTP requests executed together.
     /// * `row_pointer` - JSON pointer-like path matching each result row.
     /// * `scraper_entries` - Field extractors executed for every matched row.
-    /// * `sub_queries` - Follow-up sub-queries attached to this query.
+    /// * `sub_queries` - Polymorphic sub-queries attached to this query. Each
+    ///   element is stored as `Box<dyn ScraperQuery>`; callers typically
+    ///   pass `Vec<JsonScraperSubQuery>` values boxed individually.
     ///
     /// # Errors
     ///
@@ -757,7 +794,7 @@ impl JsonScraperQuery {
         filters: HashMap<String, Vec<String>>,
         row_pointer: &str,
         scraper_entries: Vec<JsonScraperEntry>,
-        sub_queries: Vec<JsonScraperSubQuery>,
+        sub_queries: Vec<Box<dyn ScraperQuery>>,
     ) -> Result<Self> {
         if row_pointer.trim().is_empty() {
             anyhow::bail!("Invalid row pointer for {}: pointer cannot be empty", name);
@@ -887,6 +924,9 @@ impl JsonScraperQuery {
     }
 
     /// Returns the flattened list of leaf field names produced by this query.
+    ///
+    /// Only the [`JsonScraperSubQuery`] children contribute to the list; nested
+    /// sub-queries of other concrete types (e.g. HTML) are silently skipped.
     #[cfg(any(test, feature = "test-support"))]
     pub fn get_field_names(&self) -> Vec<String> {
         let mut names = self
@@ -896,7 +936,9 @@ impl JsonScraperQuery {
             .collect::<Vec<_>>();
 
         for sub_query in self.sub_queries() {
-            names.extend(sub_query.field_names());
+            if let Some(json_sub) = sub_query.as_any().downcast_ref::<JsonScraperSubQuery>() {
+                names.extend(json_sub.field_names());
+            }
         }
 
         names
@@ -987,7 +1029,7 @@ impl ScraperQuery for JsonScraperQuery {
     fn sub_queries(&self) -> Vec<&dyn ScraperQuery> {
         self.sub_queries
             .iter()
-            .map(|sub| sub as &dyn ScraperQuery)
+            .map(|sub| &**sub as &dyn ScraperQuery)
             .collect()
     }
 
@@ -1062,8 +1104,7 @@ impl ScraperQuery for JsonScraperSubQuery {
     }
 
     fn post_processes(&self) -> &[crate::scrapyfy::ScraperPostProcess] {
-        const EMPTY: &[crate::scrapyfy::ScraperPostProcess] = &[];
-        EMPTY
+        &self.post_processes
     }
 
     fn result_item_field(&self) -> Option<&str> {
@@ -1087,7 +1128,7 @@ impl ScraperQuery for JsonScraperSubQuery {
     fn sub_queries(&self) -> Vec<&dyn ScraperQuery> {
         self.sub_queries
             .iter()
-            .map(|sub| sub as &dyn ScraperQuery)
+            .map(|sub| &**sub as &dyn ScraperQuery)
             .collect()
     }
 

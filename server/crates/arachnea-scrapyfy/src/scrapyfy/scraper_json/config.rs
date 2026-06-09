@@ -14,6 +14,8 @@ use serde::{Deserialize, Serialize, Serializer};
 use std::collections::HashMap;
 
 use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
+use crate::scrapyfy::scraper_html::entry::HtmlScraperEntryRaw;
+use crate::scrapyfy::scraper_html::entry::HtmlScraperEntry;
 use crate::scrapyfy::scraper_json::entry::{
     json_value_to_strings, select_json_values, JsonScraperEntryRaw,
 };
@@ -232,6 +234,330 @@ pub(crate) struct JsonScraperExecutionOptions {
 }
 
 // ---------------------------------------------------------------------------
+// Raw sub-query attached to an entry (YAML `sub_queries` field)
+// ---------------------------------------------------------------------------
+
+/// Raw configuration of one sub-query attached to an entry (YAML `sub_queries` field).
+///
+/// Tagged by `scraper_type` — only `html` and `json` are valid at the entry level.
+/// This type is also used as the polymorphic child slot inside
+/// [`JsonScraperSubQueryRaw`] so that entry-level heterogeneous nesting
+/// (a JSON sub-query containing an HTML child, etc.) is possible.
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "scraper_type", rename_all = "snake_case")]
+pub enum EntrySubQueryRaw {
+    /// HTML follow-up request seeded by the parent entry value.
+    Html {
+        /// CSS selector matching each result row in the follow-up response.
+        #[serde(default)]
+        row_selector: String,
+        /// Field extractors executed for every matched row.
+        #[serde(default)]
+        entries: Vec<HtmlScraperEntryRaw>,
+        /// Post-processing steps applied to each extracted row.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        post_process: Vec<ScraperPostProcess>,
+        /// Optional CSS pointer scoping the context rows that seed follow-up requests.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        context_pointer: Option<String>,
+        /// Selection mode for the context pointer.
+        #[serde(default = "default_json_select_mode")]
+        context_select: HtmlScraperSelectMode,
+        /// Filters applied to the context row before issuing the follow-up request.
+        #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+        filters: HashMap<String, Vec<String>>,
+        /// Filters applied to the fetched rows (after the HTTP response).
+        #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+        row_filters: HashMap<String, Vec<String>>,
+        /// Entries extracted from the context row rather than from fetched rows.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        context_entries: Vec<HtmlScraperEntryRaw>,
+        /// Path where the sub-query result is nested (default: root level).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target: Option<String>,
+        /// Pointer selecting the request URL from the context row.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        request_pointer: Option<String>,
+        /// Selection mode for the request pointer.
+        #[serde(default = "default_json_select_mode")]
+        request_select: HtmlScraperSelectMode,
+        /// Actions applied to the selected request URLs.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        request_actions: Vec<ScraperAction>,
+        /// HTTP method used for the follow-up request.
+        #[serde(default = "default_json_request_method")]
+        request_method: ScraperRequestMethod,
+        /// HTTP headers attached to the follow-up request.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        request_headers: Vec<ScraperRequestHeaderRaw>,
+        /// HTTP client configuration for the follow-up request.
+        #[serde(default, skip_serializing_if = "ScraperHttpConfig::is_empty")]
+        http: ScraperHttpConfig,
+        /// Nested sub-queries (recursion).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        sub_queries: Vec<EntrySubQueryRaw>,
+    },
+    /// JSON follow-up request seeded by the parent entry value.
+    Json {
+        /// JSON pointer matching each result row in the follow-up response.
+        #[serde(default)]
+        row_pointer: String,
+        /// Field extractors executed for every matched row.
+        #[serde(default)]
+        entries: Vec<JsonScraperEntryRaw>,
+        /// Post-processing steps applied to each extracted row.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        post_process: Vec<ScraperPostProcess>,
+        /// Optional pointer selecting the context rows that seed follow-up requests.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        context_pointer: Option<String>,
+        /// Selection mode for the context pointer.
+        #[serde(default = "default_json_select_mode")]
+        context_select: HtmlScraperSelectMode,
+        /// Filters applied to the context row before issuing the follow-up request.
+        #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+        filters: HashMap<String, Vec<String>>,
+        /// Filters applied to the fetched rows (after the HTTP response).
+        #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+        row_filters: HashMap<String, Vec<String>>,
+        /// Entries extracted from the context row rather than from fetched rows.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        context_entries: Vec<JsonScraperEntryRaw>,
+        /// Path where the sub-query result is nested (default: root level).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target: Option<String>,
+        /// Pointer selecting the request URL from the context row.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        request_pointer: Option<String>,
+        /// Selection mode for the request pointer.
+        #[serde(default = "default_json_select_mode")]
+        request_select: HtmlScraperSelectMode,
+        /// Actions applied to the selected request URLs.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        request_actions: Vec<ScraperAction>,
+        /// HTTP method used for the follow-up request.
+        #[serde(default = "default_json_request_method")]
+        request_method: ScraperRequestMethod,
+        /// Optional JSON pointer selecting the request body from the context.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        request_body_pointer: Option<String>,
+        /// Selection mode for the request body pointer.
+        #[serde(default = "default_json_select_mode")]
+        request_body_select: HtmlScraperSelectMode,
+        /// Actions applied to the request body values.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        request_body_actions: Vec<ScraperAction>,
+        /// When `true` the follow-up response is parsed as Next.js `__NEXT_DATA__`.
+        #[serde(default)]
+        extract_next_data: bool,
+        /// HTTP headers attached to the follow-up request.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        request_headers: Vec<ScraperRequestHeaderRaw>,
+        /// HTTP client configuration for the follow-up request.
+        #[serde(default, skip_serializing_if = "ScraperHttpConfig::is_empty")]
+        http: ScraperHttpConfig,
+        /// Nested sub-queries (recursion).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        sub_queries: Vec<EntrySubQueryRaw>,
+    },
+}
+
+impl EntrySubQueryRaw {
+    /// Propagates the parent HTTP configuration into this entry sub-query and its children.
+    ///
+    /// # Arguments
+    ///
+    /// * `parent_http` - HTTP configuration inherited from the parent query.
+    pub(crate) fn apply_parent_http(&mut self, parent_http: &ScraperHttpConfig) {
+        match self {
+            Self::Html { ref mut http, ref mut sub_queries, .. } |
+            Self::Json { ref mut http, ref mut sub_queries, .. } => {
+                *http = parent_http.merge(http);
+                let child_http = http.clone();
+                for child in sub_queries.iter_mut() {
+                    child.apply_parent_http(&child_http);
+                }
+            }
+        }
+    }
+
+    /// Resolves collection-level placeholders in this entry sub-query's HTTP config.
+    ///
+    /// # Arguments
+    ///
+    /// * `parent_name` - Parent query name used in diagnostic messages.
+    /// * `params` - Collection-level template parameters.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a required placeholder is missing from `params`.
+    pub(crate) fn resolve_collection_params(
+        &mut self,
+        parent_name: &str,
+        params: &HashMap<String, String>,
+    ) -> Result<()> {
+        match self {
+            Self::Html { ref mut http, ref mut sub_queries, .. } => {
+                http.resolve_collection_params("HTML entry sub-query", parent_name, params)?;
+                for child in sub_queries.iter_mut() {
+                    child.resolve_collection_params(parent_name, params)?;
+                }
+            }
+            Self::Json { ref mut http, ref mut sub_queries, .. } => {
+                http.resolve_collection_params("JSON entry sub-query", parent_name, params)?;
+                for child in sub_queries.iter_mut() {
+                    child.resolve_collection_params(parent_name, params)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Converts this raw sub-query into a polymorphic `Box<dyn ScraperQuery>`.
+    ///
+    /// # Arguments
+    ///
+    /// * `base_url` - Base URL used to build follow-up request URLs.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the entries cannot be converted or no selector/pointer is provided.
+    pub(crate) fn into_boxed_query(self, base_url: &str) -> Result<Box<dyn crate::scrapyfy::scraper::query_trait::ScraperQuery>> {
+        match self {
+            Self::Html {
+                row_selector,
+                entries,
+                post_process,
+                context_pointer,
+                context_select,
+                filters,
+                row_filters,
+                context_entries,
+                target,
+                request_pointer,
+                request_select,
+                request_actions,
+                request_method,
+                request_headers,
+                http,
+                sub_queries,
+            } => {
+                if row_selector.is_empty() {
+                    anyhow::bail!("HTML entry sub-query must define a row_selector");
+                }
+                let selector = ::scraper::Selector::parse(&row_selector)
+                    .map_err(|e| anyhow::anyhow!("Invalid row_selector '{}': {}", row_selector, e))?;
+                let entries: Vec<crate::scrapyfy::scraper_html::entry::HtmlScraperEntry> = entries
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<Vec<_>>>()?;
+                let context_entries: Vec<crate::scrapyfy::scraper_html::entry::HtmlScraperEntry> = context_entries
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<Vec<_>>>()?;
+                let request_headers: Vec<ScraperRequestHeader> = request_headers
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<Vec<_>>>()?;
+                let sub_queries: Vec<Box<dyn crate::scrapyfy::scraper::query_trait::ScraperQuery>> = sub_queries
+                    .into_iter()
+                    .map(|raw| raw.into_boxed_query(base_url))
+                    .collect::<Result<Vec<_>>>()?;
+
+                let query = crate::scrapyfy::scraper_html::query::HtmlScraperSubQuery {
+                    context_pointer,
+                    context_select,
+                    filters,
+                    row_filters,
+                    context_entries,
+                    target,
+                    request_pointer,
+                    request_select,
+                    request_actions,
+                    request_method,
+                    request_headers,
+                    http_config: http,
+                    row_selector: row_selector.clone(),
+                    row_selector_compiled: selector,
+                    entries,
+                    post_processes: post_process,
+                    sub_queries,
+                    http_client: HttpClient::new(base_url),
+                };
+                Ok(Box::new(query))
+            }
+            Self::Json {
+                row_pointer,
+                entries,
+                post_process,
+                context_pointer,
+                context_select,
+                filters,
+                row_filters,
+                context_entries,
+                target,
+                request_pointer,
+                request_select,
+                request_actions,
+                request_method,
+                request_body_pointer,
+                request_body_select,
+                request_body_actions,
+                extract_next_data,
+                request_headers,
+                http,
+                sub_queries,
+            } => {
+                if row_pointer.is_empty() {
+                    anyhow::bail!("JSON entry sub-query must define a row_pointer");
+                }
+                let entries: Vec<crate::scrapyfy::scraper_json::entry::JsonScraperEntry> = entries
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<Vec<_>>>()?;
+                let context_entries: Vec<crate::scrapyfy::scraper_json::entry::JsonScraperEntry> = context_entries
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<Vec<_>>>()?;
+                let request_headers: Vec<ScraperRequestHeader> = request_headers
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<Vec<_>>>()?;
+                let sub_queries: Vec<Box<dyn crate::scrapyfy::scraper::query_trait::ScraperQuery>> = sub_queries
+                    .into_iter()
+                    .map(|raw| raw.into_boxed_query(base_url))
+                    .collect::<Result<Vec<_>>>()?;
+
+                let query = crate::scrapyfy::scraper_json::query::JsonScraperSubQuery {
+                    context_pointer,
+                    context_select,
+                    filters,
+                    row_filters,
+                    context_entries,
+                    target,
+                    request_pointer,
+                    request_select,
+                    request_actions,
+                    request_method,
+                    request_body_pointer,
+                    request_body_select,
+                    request_body_actions,
+                    extract_next_data,
+                    request_headers,
+                    http_config: http,
+                    row_pointer,
+                    entries,
+                    post_processes: post_process,
+                    sub_queries,
+                    http_client: HttpClient::new(base_url),
+                };
+                Ok(Box::new(query))
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Raw YAML configuration types
 // ---------------------------------------------------------------------------
 
@@ -293,6 +619,10 @@ pub struct JsonScraperQueryRaw {
     /// Field extractors executed for every matched row.
     entries: Vec<JsonScraperEntryRaw>,
     /// Chained JSON follow-up requests executed after the main entries.
+    /// Kept as `JsonScraperSubQueryRaw` for backward compatibility with
+    /// query-level sub-queries (untagged format). Entry-level sub-queries
+    /// use `EntrySubQueryRaw` via the `HtmlScraperEntryRaw`/`JsonScraperEntryRaw`
+    /// `sub_queries` fields.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     sub_queries: Vec<JsonScraperSubQueryRaw>,
     /// Post-processing steps applied to each extracted row.
@@ -305,6 +635,11 @@ pub struct JsonScraperQueryRaw {
 // ---------------------------------------------------------------------------
 
 /// Raw configuration definition of one chained JSON follow-up request.
+///
+/// Same field set as [`EntrySubQueryRaw::Json`] but used at the query level
+/// (YAML `sub_queries` field of a root query).  Serialization round-trips
+/// through this concrete type; runtime execution goes through
+/// [`JsonScraperSubQuery`].
 #[derive(Serialize, Deserialize)]
 pub struct JsonScraperSubQueryRaw {
     /// Optional pointer selecting the context rows that seed follow-up requests.
@@ -359,7 +694,14 @@ pub struct JsonScraperSubQueryRaw {
     row_pointer: String,
     /// Field extractors executed for every matched row.
     entries: Vec<JsonScraperEntryRaw>,
+    /// Post-processing steps applied to each extracted row.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    post_process: Vec<ScraperPostProcess>,
     /// Nested sub-queries (recursion).
+    ///
+    /// Kept as `JsonScraperSubQueryRaw` (untagged) for backward compatibility
+    /// with query-level sub-queries. Entry-level heterogeneous nesting uses
+    /// [`EntrySubQueryRaw`] via entry `sub_queries` fields.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     sub_queries: Vec<JsonScraperSubQueryRaw>,
 }
@@ -372,7 +714,6 @@ impl JsonScraperSubQueryRaw {
     /// * `parent_http` - HTTP configuration inherited from the parent query.
     pub(crate) fn apply_parent_http(&mut self, parent_http: &ScraperHttpConfig) {
         self.http = parent_http.merge(&self.http);
-
         for sub_query in &mut self.sub_queries {
             sub_query.apply_parent_http(&self.http);
         }
@@ -443,7 +784,6 @@ impl JsonScraperQueryRaw {
     /// * `collection_http` - HTTP configuration inherited from the parent collection.
     pub(crate) fn apply_collection_http(&mut self, collection_http: &ScraperHttpConfig) {
         self.http = collection_http.merge(&self.http);
-
         for sub_query in &mut self.sub_queries {
             sub_query.apply_parent_http(&self.http);
         }
@@ -493,10 +833,15 @@ impl TryFrom<JsonScraperQueryRaw> for JsonScraperQuery {
             .into_iter()
             .map(TryInto::try_into)
             .collect::<Result<Vec<_>>>()?;
-        let sub_queries = sub_queries
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<Vec<_>>>()?;
+        let sub_queries: Vec<Box<dyn crate::scrapyfy::scraper::query_trait::ScraperQuery>> =
+            sub_queries
+                .into_iter()
+                .map(|raw| -> Result<_> {
+                    let runtime: JsonScraperSubQuery = raw.try_into()?;
+                    let boxed: Box<dyn crate::scrapyfy::scraper::query_trait::ScraperQuery> = Box::new(runtime);
+                    Ok(boxed)
+                })
+                .collect::<Result<Vec<_>>>()?;
         let request_headers = request_headers
             .into_iter()
             .map(TryInto::try_into)
@@ -540,6 +885,11 @@ impl TryFrom<JsonScraperQueryRaw> for JsonScraperQuery {
 
 impl From<&JsonScraperQuery> for JsonScraperQueryRaw {
     /// Converts a runtime query back into its raw YAML-compatible representation.
+    ///
+    /// Sub-queries are serialized as [`JsonScraperSubQueryRaw`] children.
+    /// Heterogeneous composition (e.g. HTML sub-queries inside a JSON query)
+    /// raises a panic in the serialization path; a round-trip extension is a
+    /// planned improvement.
     fn from(query: &JsonScraperQuery) -> Self {
         Self {
             name: query.name.clone(),
@@ -573,7 +923,19 @@ impl From<&JsonScraperQuery> for JsonScraperQueryRaw {
             sub_queries: query
                 .sub_queries
                 .iter()
-                .map(JsonScraperSubQueryRaw::from)
+                .map(|child| {
+                    child
+                        .as_any()
+                        .downcast_ref::<JsonScraperSubQuery>()
+                        .map(JsonScraperSubQueryRaw::from)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "JsonScraperQuery::from: sub-query '{}' is not a JsonScraperSubQuery; \
+                                 heterogeneous sub-queries are not yet supported in the JSON serialization path",
+                                child.name()
+                            )
+                        })
+                })
                 .collect(),
             post_process: query.post_processes.clone(),
         }
@@ -594,6 +956,13 @@ impl TryFrom<JsonScraperSubQueryRaw> for JsonScraperSubQuery {
     type Error = anyhow::Error;
 
     /// Converts a raw YAML sub-query definition into a validated runtime sub-query.
+    ///
+    /// Nested sub-queries are boxed into `Box<dyn ScraperQuery>`. They are
+    /// dispatched by the unified executor or by [`JsonScraperSubQuery::execute_siblings`]
+    /// at runtime; this conversion does not validate the runtime dispatch
+    /// compatibility of mixed children (a `JsonScraperSubQuery` cannot dispatch
+    /// a non-JSON sibling through its own siblings path, but the unified
+    /// executor handles such cases).
     ///
     /// # Errors
     ///
@@ -619,6 +988,7 @@ impl TryFrom<JsonScraperSubQueryRaw> for JsonScraperSubQuery {
             http,
             row_pointer,
             entries,
+            post_process,
             sub_queries,
         } = config;
 
@@ -649,7 +1019,10 @@ impl TryFrom<JsonScraperSubQueryRaw> for JsonScraperSubQuery {
             .collect::<Result<Vec<_>>>()?;
         let sub_queries = sub_queries
             .into_iter()
-            .map(TryInto::try_into)
+            .map(|raw| -> Result<_> {
+                let runtime: JsonScraperSubQuery = raw.try_into()?;
+                Ok(Box::new(runtime) as Box<dyn crate::scrapyfy::scraper::query_trait::ScraperQuery>)
+            })
             .collect::<Result<Vec<_>>>()?;
 
         Ok(Self {
@@ -671,6 +1044,7 @@ impl TryFrom<JsonScraperSubQueryRaw> for JsonScraperSubQuery {
             http_config: http,
             row_pointer,
             entries,
+            post_processes: post_process,
             sub_queries,
             http_client: HttpClient::new(""),
         })
@@ -679,6 +1053,11 @@ impl TryFrom<JsonScraperSubQueryRaw> for JsonScraperSubQuery {
 
 impl From<&JsonScraperSubQuery> for JsonScraperSubQueryRaw {
     /// Converts a runtime sub-query back into its raw YAML-compatible representation.
+    ///
+    /// Nested sub-queries are not round-tripped through the raw type when they
+    /// contain heterogeneous children; the serialization slot is left empty
+    /// for such cases.  A full bidirectional conversion for heterogeneous
+    /// trees is a planned extension.
     fn from(sub_query: &JsonScraperSubQuery) -> Self {
         Self {
             context_pointer: sub_query.context_pointer.clone(),
@@ -711,10 +1090,23 @@ impl From<&JsonScraperSubQuery> for JsonScraperSubQueryRaw {
                 .iter()
                 .map(JsonScraperEntryRaw::from)
                 .collect(),
+            post_process: sub_query.post_processes.clone(),
             sub_queries: sub_query
                 .sub_queries
                 .iter()
-                .map(JsonScraperSubQueryRaw::from)
+                .map(|child| {
+                    child
+                        .as_any()
+                        .downcast_ref::<JsonScraperSubQuery>()
+                        .map(JsonScraperSubQueryRaw::from)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "JsonScraperSubQuery::from: nested sub-query '{}' is not a JsonScraperSubQuery; \
+                                 heterogeneous sub-queries are not yet supported in the JSON serialization path",
+                                child.name()
+                            )
+                        })
+                })
                 .collect(),
         }
     }

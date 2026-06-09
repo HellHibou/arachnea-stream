@@ -18,7 +18,7 @@ use crate::scrapyfy::query_helpers;
 use crate::scrapyfy::scraper::entry_trait::ScraperEntrySpec;
 use crate::scrapyfy::scraper::query_trait::ScraperQuery;
 use crate::scrapyfy::scraper::row_locator::ScraperType;
-use crate::scrapyfy::scraper_query_collection::EntrySubQueryRaw;
+use crate::scrapyfy::EntrySubQueryRaw;
 
 /// Raw configuration definition of one field or grouped field extracted from each result row.
 ///
