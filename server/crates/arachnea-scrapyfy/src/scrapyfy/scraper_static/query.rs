@@ -1,9 +1,12 @@
+use std::any::Any;
+
 use anyhow::Result;
 use serde::{Deserialize, Serialize, Serializer};
 use serde_yaml::Value;
 use std::collections::HashMap;
 
 use crate::scrapyfy::scraper::{RowLocator, ScraperEntrySpec, ScraperQuery, ScraperType, SubQuerySpec};
+use crate::scrapyfy::scraper_data_node::ScraperDataNode;
 use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
 use crate::scrapyfy::scraper_json::query::{ScraperRequestHeader, ScraperRequestMethod};
 use crate::scrapyfy::*;
@@ -88,7 +91,7 @@ impl StaticScraperQueryRaw {
 }
 
 /// Runtime query that returns YAML-declared rows without an HTTP request.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(try_from = "StaticScraperQueryRaw")]
 pub struct StaticScraperQuery {
     name: String,
@@ -97,6 +100,8 @@ pub struct StaticScraperQuery {
     /// HTTP configuration placeholder — static queries never issue HTTP requests
     /// but the [`ScraperQuery`] trait surface requires a stable reference.
     http_config: ScraperHttpConfig,
+    /// HTTP client placeholder for the [`ScraperQuery`] trait.
+    http_client: HttpClient,
 }
 
 impl StaticScraperQuery {
@@ -140,6 +145,7 @@ impl StaticScraperQuery {
             media_types,
             entries,
             http_config: ScraperHttpConfig::default(),
+            http_client: HttpClient::new(""),
         })
     }
 
@@ -180,53 +186,6 @@ impl StaticScraperQuery {
         names
     }
 
-    /// Executes the static query and returns one row.
-    ///
-    /// Template placeholders in entry values are resolved against the provided
-    /// parameters. The result is filtered out when it does not match `fields_filters`.
-    ///
-    /// # Arguments
-    ///
-    /// * `params` - Runtime parameters used to resolve template placeholders.
-    /// * `fields_filters` - Optional per-field filter list; when present the row is
-    ///   discarded if it does not match.
-    pub async fn execute_query(
-        &self,
-        params: &HashMap<String, String>,
-        fields_filters: Option<&HashMap<String, Vec<String>>>,
-    ) -> Result<Vec<HashMap<String, ScraperDataNode>>> {
-        let mut root = ScraperDataNode::default();
-
-        for entry in &self.entries {
-            let entry_path = split_static_path(&entry.name);
-
-            if let Some(value) = &entry.value {
-                for value in render_yaml_values(value, params)? {
-                    root.push_value(&entry_path, value);
-                }
-            }
-
-            for item in &entry.items {
-                let mut item_node = ScraperDataNode::default();
-                for (item_name, item_value) in item {
-                    if let Some(value) = render_yaml_value(item_value, params)? {
-                        let item_path = split_static_path(item_name);
-                        item_node.push_value(&item_path, value);
-                    }
-                }
-                root.push_node(&entry_path, item_node);
-            }
-        }
-
-        if fields_filters
-            .map(|filters| query_helpers::is_root_filtered(&root, filters))
-            .unwrap_or(false)
-        {
-            return Ok(Vec::new());
-        }
-
-        Ok(vec![root.children])
-    }
 }
 
 impl TryFrom<StaticScraperQueryRaw> for StaticScraperQuery {
@@ -263,7 +222,60 @@ impl Serialize for StaticScraperQuery {
     }
 }
 
+impl StaticScraperEntryRaw {
+    /// Applies this static entry to the provided root data node.
+    ///
+    /// Resolves the optional `value` template (or the per-item map when `items`
+    /// is set) against the provided runtime parameters and pushes the rendered
+    /// values into the root at the `>`-separated `name` path. Mirrors the
+    /// legacy `StaticScraperQuery::execute_query` semantics consumed before
+    /// the unified executor took over.
+    ///
+    /// # Arguments
+    ///
+    /// * `root` - Mutable root data node receiving the rendered values.
+    /// * `params` - Runtime parameters used to resolve template placeholders.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a template placeholder cannot be resolved.
+    pub fn apply_to(
+        &self,
+        root: &mut ScraperDataNode,
+        params: &HashMap<String, String>,
+    ) -> Result<()> {
+        let entry_path = split_static_path(&self.name);
+
+        if let Some(value) = &self.value {
+            for value in render_yaml_values(value, params)? {
+                root.push_value(&entry_path, value);
+            }
+        }
+
+        for item in &self.items {
+            let mut item_node = ScraperDataNode::default();
+            for (item_name, item_value) in item {
+                if let Some(value) = render_yaml_value(item_value, params)? {
+                    let item_path = split_static_path(item_name);
+                    item_node.push_value(&item_path, value);
+                }
+            }
+            root.push_node(&entry_path, item_node);
+        }
+
+        Ok(())
+    }
+}
+
 impl ScraperEntrySpec for StaticScraperEntryRaw {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
     /// Returns the entry name.
     fn name(&self) -> &str {
         &self.name
@@ -362,6 +374,10 @@ impl ScraperQuery for StaticScraperQuery {
         &self.http_config
     }
 
+    fn http_client(&self) -> &HttpClient {
+        &self.http_client
+    }
+
     fn extract_next_data(&self) -> bool {
         false
     }
@@ -392,6 +408,10 @@ impl ScraperQuery for StaticScraperQuery {
 
     fn sub_query_spec(&self) -> Option<&SubQuerySpec> {
         None
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 

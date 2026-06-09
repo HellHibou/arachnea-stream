@@ -15,6 +15,8 @@ pub(crate) use super::config::{
     ScraperRequestMethod,
 };
 
+use std::any::Any;
+
 use anyhow::Result;
 use futures::stream::{self, StreamExt};
 use serde::Deserialize;
@@ -91,6 +93,9 @@ pub struct JsonScraperSubQuery {
     pub(crate) row_pointer: String,
     pub(crate) entries: Vec<JsonScraperEntry>,
     pub(crate) sub_queries: Vec<JsonScraperSubQuery>,
+    /// HTTP client for follow-up requests.
+    #[serde(skip)]
+    pub(crate) http_client: HttpClient,
 }
 
 impl JsonScraperSubQuery {
@@ -587,6 +592,37 @@ impl JsonScraperSubQuery {
             .filter(|segment| !segment.is_empty())
             .collect()
     }
+
+    /// Executes this sub-query against a single parent row, using the
+    /// legacy `context_pointer` semantics (iterate over context rows,
+    /// build the request URL from the context, fetch, and merge under
+    /// the configured `target`).
+    ///
+    /// This is the unified entry point used by the polymorphic executor
+    /// when a query-level sub-query is encountered. The implementation
+    /// reuses [`Self::execute`] with a default concurrency slot.
+    pub(crate) async fn execute_query_level(
+        &self,
+        parent_row: &serde_json::Value,
+        params: &HashMap<String, String>,
+        context_request_url: &str,
+        base_url: &str,
+        http_client: &HttpClient,
+        execution_options: JsonScraperExecutionOptions,
+    ) -> Result<ScraperDataNode> {
+        let mut root = ScraperDataNode::default();
+        self.execute(
+            &mut root,
+            parent_row,
+            params,
+            context_request_url,
+            base_url,
+            http_client,
+            execution_options,
+        )
+        .await?;
+        Ok(root)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -866,166 +902,6 @@ impl JsonScraperQuery {
         names
     }
 
-    /// Executes the query by formatting the URL, fetching the JSON payload, and extracting each row.
-    ///
-    /// # Arguments
-    ///
-    /// * `params` - Runtime values used to replace placeholders in the URL template.
-    /// * `fields_filters` - Root fields filter list or None.
-    ///
-    /// Field names containing `>` are interpreted as hierarchical paths and will
-    /// be converted into nested objects in the returned entries.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the URL template is missing parameters, if the payload
-    /// cannot be downloaded, or if the response cannot be parsed.
-    pub async fn execute_query(
-        &self,
-        params: &HashMap<String, String>,
-        fields_filters: Option<&HashMap<String, Vec<String>>>,
-    ) -> Result<Vec<HashMap<String, ScraperDataNode>>> {
-        let resolved_params = query_helpers::build_query_execution_params(
-            self.base_url(),
-            params,
-            &self.query_param_mappings,
-        );
-        let query_url = query_helpers::format_query_template(
-            self.base_url(),
-            self.query_url(),
-            &resolved_params,
-        )?;
-        let request_headers = self.resolve_request_headers(&resolved_params, &query_url);
-        let request_body = self.resolve_request_body(&resolved_params, &query_url);
-        let request_method = self.request_method.as_http_method();
-        let json = if self.extract_next_data {
-            self.http_client
-                .get_next_data_json_for_request(
-                    request_method,
-                    &query_url,
-                    &request_headers,
-                    request_body.as_deref(),
-                )
-                .await?
-        } else {
-            self.http_client
-                .get_json_for_request(
-                    request_method,
-                    &query_url,
-                    &request_headers,
-                    request_body.as_deref(),
-                )
-                .await?
-        };
-
-        if !matches(&json, &self.filters) {
-            return Ok(Vec::new());
-        }
-
-        let rows = select_json_values(&json, Some(self.row_pointer()), HtmlScraperSelectMode::All);
-        let mut results: Vec<HashMap<String, ScraperDataNode>> = Vec::new();
-        let execution_options = self.execution_options();
-
-        if self.has_group_entries() {
-            let mut root = ScraperDataNode::default();
-
-            for scraper in self
-                .scraper_entries()
-                .iter()
-                .filter(|entry| !entry.is_group())
-            {
-                scraper.apply_to(&mut root, &json, &resolved_params, &query_url);
-            }
-
-            for row in rows {
-                for scraper in self
-                    .scraper_entries()
-                    .iter()
-                    .filter(|entry| entry.is_group())
-                {
-                    scraper.apply_to(&mut root, row, &resolved_params, &query_url);
-                }
-
-                JsonScraperSubQuery::execute_siblings(
-                    self.sub_queries(),
-                    &mut root,
-                    row,
-                    &resolved_params,
-                    &query_url,
-                    self.base_url(),
-                    &self.http_client,
-                    execution_options,
-                )
-                .await?;
-            }
-
-            for post_process in &self.post_processes {
-                post_process
-                    .apply(
-                        &mut root,
-                        &ScraperPostProcessContext {
-                            params: &resolved_params,
-                            request_url: &query_url,
-                            response_body: None,
-                            http_client: &self.http_client,
-                        },
-                    )
-                    .await?;
-            }
-
-            if fields_filters.is_none()
-                || !query_helpers::is_root_filtered(&root, fields_filters.unwrap())
-            {
-                results.push(root.children);
-            }
-        } else {
-            for row in rows {
-                let mut root = ScraperDataNode::default();
-                for scraper in self.scraper_entries() {
-                    scraper.apply_to(&mut root, row, &resolved_params, &query_url);
-                }
-
-                JsonScraperSubQuery::execute_siblings(
-                    self.sub_queries(),
-                    &mut root,
-                    row,
-                    &resolved_params,
-                    &query_url,
-                    self.base_url(),
-                    &self.http_client,
-                    execution_options,
-                )
-                .await?;
-
-                for post_process in &self.post_processes {
-                    post_process
-                        .apply(
-                            &mut root,
-                            &ScraperPostProcessContext {
-                                params: &resolved_params,
-                                request_url: &query_url,
-                                response_body: None,
-                                http_client: &self.http_client,
-                            },
-                        )
-                        .await?;
-                }
-
-                if fields_filters.is_none()
-                    || !query_helpers::is_root_filtered(&root, fields_filters.unwrap())
-                {
-                    results.push(root.children);
-                }
-            }
-        }
-
-        Ok(results)
-    }
-
-    /// Returns `true` when at least one scraper entry is a group entry.
-    fn has_group_entries(&self) -> bool {
-        self.scraper_entries.iter().any(JsonScraperEntry::is_group)
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1081,6 +957,10 @@ impl ScraperQuery for JsonScraperQuery {
         &self.http_config
     }
 
+    fn http_client(&self) -> &HttpClient {
+        &self.http_client
+    }
+
     fn extract_next_data(&self) -> bool {
         self.extract_next_data
     }
@@ -1113,6 +993,10 @@ impl ScraperQuery for JsonScraperQuery {
 
     fn sub_query_spec(&self) -> Option<&SubQuerySpec> {
         None
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
@@ -1165,6 +1049,10 @@ impl ScraperQuery for JsonScraperSubQuery {
         &self.http_config
     }
 
+    fn http_client(&self) -> &HttpClient {
+        &self.http_client
+    }
+
     fn extract_next_data(&self) -> bool {
         self.extract_next_data
     }
@@ -1205,5 +1093,30 @@ impl ScraperQuery for JsonScraperSubQuery {
 
     fn sub_query_spec(&self) -> Option<&SubQuerySpec> {
         None
+    }
+
+    // --- Query-level sub-query overrides (legacy semantics) ---
+
+    fn context_pointer(&self) -> Option<&str> {
+        self.context_pointer.as_deref()
+    }
+
+    fn context_select(&self) -> HtmlScraperSelectMode {
+        self.context_select
+    }
+
+    fn context_entries(&self) -> Vec<&dyn ScraperEntrySpec> {
+        self.context_entries
+            .iter()
+            .map(|entry| entry as &dyn ScraperEntrySpec)
+            .collect()
+    }
+
+    fn target(&self) -> Option<&str> {
+        self.target.as_deref()
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }

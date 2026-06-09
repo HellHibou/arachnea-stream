@@ -382,6 +382,7 @@ queries:
       - name: description
         pointer: /description
       - name: media-type
+        pointer: /program_type_wording/code
         actions: *actions_default_media_type
       - name: img/poster > link
         pointer: /images/*[role=cover]/external_key
@@ -447,20 +448,23 @@ queries:
   - name: get_season
     scraper_type: json
     base_url: "{base_url}"
-    query_url: "{api_root}/6play/programs/{query_url}&csa=6&with=clips,freemiumpacks&type=vi,vc,playlist&sort=episode_asc&limit=999&offset=0"
+    query_url: "{api_root}/6play/programs/{query_url}&csa=6&with=clips,freemiumpacks&type=vi,vc,playlist&sort=episode_asc&limit=100&offset=0"
     request_headers: *generic_request_headers
     media_types: *media_types_6play
-    row_pointer: /*
+    row_pointer: /
     entries:
       - name: current_page
+        select: first
         actions:
           - type: format_text
             argument: "1"
       - name: have_more
+        select: first
         actions:
           - type: format_text
             argument: "false"
       - name: episodes
+        pointer: /*
         entries:
           - name: title
             pointer: /title

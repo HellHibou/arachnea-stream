@@ -1,15 +1,16 @@
 //! Runtime query type for HTML scraper endpoints.
 //!
 //! An [`HtmlScraperQuery`] wraps a validated CSS selector, entry definitions,
-//! and HTTP configuration. Execution is delegated to [`ScraperManagerQuery`].
+//! and HTTP configuration.  Execution is delegated to the unified executor
+//! ([`ScraperQuery`](crate::scrapyfy::scraper::query_trait::ScraperQuery)).
 //!
 //! Raw YAML deserialization and bidirectional conversion live in [`config`].
 //! HTML response parsing lives in [`response_parser`].
 //! Row-level post-processing lives in [`row_extractor`].
 
+use std::any::Any;
+
 use anyhow::Result;
-use async_trait::async_trait;
-use futures::stream::{self, StreamExt};
 use serde::Deserialize;
 use std::collections::HashMap;
 
@@ -20,13 +21,8 @@ use crate::scrapyfy::scraper::row_locator::{RowLocator, ScraperType};
 use crate::scrapyfy::scraper::sub_query_spec::SubQuerySpec;
 use crate::scrapyfy::scraper_html::config::HtmlScraperQueryRaw;
 use crate::scrapyfy::scraper_html::entry::{HtmlScraperEntry, HtmlScraperSelectMode};
-use crate::scrapyfy::scraper_json::entry::{json_value_to_strings, select_json_values};
 use crate::scrapyfy::scraper_json::query::{ScraperRequestHeader, ScraperRequestMethod};
-use crate::scrapyfy::query_helpers::{self, QueryTemplateParamMapping};
-
-use crate::scrapyfy::scraper_data_node::ScraperDataNode;
-use crate::scrapyfy::{HttpClient, ScraperPostProcess, ScraperPostProcessContext};
-use ::scraper::Selector;
+use crate::scrapyfy::query_helpers::QueryTemplateParamMapping;
 
 /// A query definition for one HTML source and one result shape.
 ///
@@ -136,7 +132,7 @@ impl HtmlScraperQuery {
     #[allow(dead_code)]
     /// Returns the raw list of configured HTML scraper entries.
     pub fn get_scraper_entries(&self) -> &Vec<HtmlScraperEntry> {
-        self.scraper_entries()
+        &self.scraper_entries
     }
 
     /// Validates the row selector and stores the configured field extractors.
@@ -213,260 +209,53 @@ impl HtmlScraperQuery {
         self
     }
 
-    /// Resolves the full set of request headers from templates and collection params.
-    ///
-    /// Each header value is derived from its JSON pointer against the params context,
-    /// then processed through the header's action pipeline.
-    ///
-    /// # Arguments
-    ///
-    /// * `params` - Runtime template parameters available for header value resolution.
-    /// * `query_url` - Fully resolved request URL passed to action pipelines.
-    fn resolve_request_headers(
-        &self,
-        params: &HashMap<String, String>,
-        query_url: &str,
-    ) -> HashMap<String, String> {
-        let request_context = query_helpers::build_params_json_value(params);
-        let mut headers = HashMap::new();
-
-        for header in &self.request_headers {
-            if let Some((name, value)) = header.resolve(&request_context, params, query_url) {
-                headers.insert(name, value);
-            }
-        }
-
-        headers
-    }
-
-    /// Builds the optional request body by selecting a JSON pointer value from the
-    /// params context and applying the configured body actions.
-    ///
-    /// # Arguments
-    ///
-    /// * `params` - Runtime template parameters used for pointer selection and actions.
-    /// * `query_url` - Fully resolved request URL passed to action pipelines.
-    fn resolve_request_body(
-        &self,
-        params: &HashMap<String, String>,
-        query_url: &str,
-    ) -> Option<String> {
-        let request_context = query_helpers::build_params_json_value(params);
-        let mut values = select_json_values(
-            &request_context,
-            self.request_body_pointer.as_deref(),
-            self.request_body_select,
-        )
-        .into_iter()
-        .flat_map(json_value_to_strings)
-        .collect::<Vec<_>>();
-
-        for action in &self.request_body_actions {
-            values = action.apply(&None, values, params, query_url, None, None);
-        }
-
-        values
-            .into_iter()
-            .map(|value| value.trim().to_string())
-            .find(|value| !value.is_empty())
-    }
-
     /// Returns the optional group field whose items should become query rows.
     pub fn result_item_field(&self) -> Option<&str> {
         self.result_item_field.as_deref()
     }
-}
 
-#[async_trait]
-impl ScraperManagerQuery for HtmlScraperQuery {
-    fn name(&self) -> String {
-        self.name.clone()
+    /// Returns whether the query matches at least one requested media type.
+    pub fn is_media_type(&self, media_types: &[String]) -> bool {
+        media_types
+            .iter()
+            .any(|media_type| self.media_types.contains(media_type))
     }
 
-    fn base_url(&self) -> &str {
-        &self.base_url
-    }
-
-    fn media_types(&self) -> &Vec<String> {
-        &self.media_types
-    }
-
-    fn query_url(&self) -> &str {
-        &self.query_url
-    }
-
-    fn scraper_entries(&self) -> &Vec<HtmlScraperEntry> {
+    /// Returns the configured field extractors executed for every matched row.
+    pub fn scraper_entries(&self) -> &Vec<HtmlScraperEntry> {
         &self.scraper_entries
     }
 
-    fn is_media_type(&self, media_types: &[String]) -> bool {
-        media_types
-            .iter()
-            .any(|media_type| {
-                ScraperManagerQuery::media_types(self).contains(media_type)
-            })
+    /// Returns the query name used as the lookup key in a collection.
+    pub fn name(&self) -> String {
+        self.name.clone()
     }
 
+    /// Returns the base URL used by the query and exposed as `{base_url}` in templates.
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
+    /// Returns the media types associated with the query results.
+    pub fn media_types(&self) -> &Vec<String> {
+        &self.media_types
+    }
+
+    /// Returns the URL template used to build the request.
+    pub fn query_url(&self) -> &str {
+        &self.query_url
+    }
+
+    /// Returns the flattened list of leaf field names produced by this query.
     #[cfg(any(test, feature = "test-support"))]
-    fn get_field_names(&self) -> Vec<String> {
+    pub fn get_field_names(&self) -> Vec<String> {
         self.scraper_entries()
             .iter()
             .flat_map(HtmlScraperEntry::field_names)
             .collect()
     }
-
-    async fn execute_query(
-        &self,
-        params: &HashMap<String, String>,
-        fields_filters: Option<&HashMap<String, Vec<String>>>,
-    ) -> Result<Vec<HashMap<String, ScraperDataNode>>> {
-        let resolved_params = query_helpers::build_query_execution_params(
-            ScraperManagerQuery::base_url(self),
-            params,
-            &self.query_param_mappings,
-        );
-        let query_url = query_helpers::format_query_template(
-            ScraperManagerQuery::base_url(self),
-            ScraperManagerQuery::query_url(self),
-            &resolved_params,
-        )?;
-        let request_headers = self.resolve_request_headers(&resolved_params, &query_url);
-        let request_body = self.resolve_request_body(&resolved_params, &query_url);
-        let html = self
-            .http_client
-            .query_http_for_request(
-                self.request_method.as_http_method(),
-                &query_url,
-                &request_headers,
-                request_body.as_deref(),
-            )
-            .await?;
-
-        let roots = parse_html_rows(
-            &html,
-            &self.row_selector_compiled,
-            self.scraper_entries(),
-            &resolved_params,
-            &query_url,
-        );
-
-        let mut jobs = Vec::with_capacity(roots.len());
-        for (root_index, root) in roots.into_iter().enumerate() {
-            jobs.push(process_root(
-                root_index,
-                root,
-                &resolved_params,
-                &query_url,
-                &html,
-                fields_filters,
-                &self.post_processes,
-                &self.http_client,
-            ));
-        }
-
-        let processed_roots = stream::iter(jobs)
-            .buffer_unordered(self.row_concurrency)
-            .collect::<Vec<_>>()
-            .await;
-
-        let mut results: Vec<HashMap<String, ScraperDataNode>> = Vec::new();
-        for maybe_root in collect_ordered_results(processed_roots)? {
-            if let Some(root) = maybe_root {
-                results.push(root);
-            }
-        }
-
-        Ok(results)
-    }
 }
 
-/// Runs the post-process pipeline on a single root node and optionally filters it.
-///
-/// Returns `None` when the node is excluded by `fields_filters`.
-///
-/// # Arguments
-///
-/// * `root_index` - Original index used to restore ordering after async processing.
-/// * `root` - Extracted data node to post-process.
-/// * `params` - Runtime template parameters forwarded to post-processors.
-/// * `query_url` - Fully resolved request URL forwarded to post-processors.
-/// * `html` - Raw HTML response body available to post-processors.
-/// * `fields_filters` - Optional per-field filter list; when present the root is
-///   discarded if it does not match.
-/// * `post_processes` - Ordered post-processing steps applied to the root.
-/// * `http_client` - HTTP client available for post-processors that need to fetch.
-///
-/// # Errors
-///
-/// Returns an error if any post-process step fails.
-async fn process_root(
-    root_index: usize,
-    mut root: ScraperDataNode,
-    params: &HashMap<String, String>,
-    query_url: &str,
-    html: &str,
-    fields_filters: Option<&HashMap<String, Vec<String>>>,
-    post_processes: &[ScraperPostProcess],
-    http_client: &HttpClient,
-) -> Result<(usize, Option<HashMap<String, ScraperDataNode>>)> {
-    for post_process in post_processes {
-        post_process
-            .apply(
-                &mut root,
-                &ScraperPostProcessContext {
-                    params,
-                    request_url: query_url,
-                    response_body: Some(html),
-                    http_client,
-                },
-            )
-            .await?;
-    }
-
-    if fields_filters.is_none()
-        || !query_helpers::is_root_filtered(&root, fields_filters.unwrap())
-    {
-        Ok((root_index, Some(root.children)))
-    } else {
-        Ok((root_index, None))
-    }
-}
-
-
-/// Restores the original row order after collecting indexed async results.
-///
-/// # Arguments
-///
-/// * `results` - Indexed results produced by an async stream; may arrive out of order.
-///
-/// # Errors
-///
-/// Returns the first error encountered while unwrapping the results.
-fn collect_ordered_results<T>(results: Vec<Result<(usize, T)>>) -> Result<Vec<T>> {
-    let mut ordered = Vec::with_capacity(results.len());
-
-    for result in results {
-        ordered.push(result?);
-    }
-
-    ordered.sort_by_key(|(index, _)| *index);
-
-    Ok(ordered.into_iter().map(|(_, value)| value).collect())
-}
-
-/// Parses an HTML response body and extracts [`ScraperDataNode`] rows using
-/// the given CSS selector and entry definitions.
-///
-/// Each matched element is passed to every entry extractor, and the resulting
-/// data nodes are returned in document order.
-///
-/// # Arguments
-///
-/// * `html` - Raw HTML response body to parse.
-/// * `row_selector` - Compiled CSS selector matching each result row.
-/// * `entries` - Field extractors applied to every matched row.
-/// * `params` - Runtime template parameters forwarded to entry actions.
-/// * `query_url` - Fully resolved request URL forwarded to entry actions.
 // ---------------------------------------------------------------------------
 // HtmlScraperSubQuery
 // ---------------------------------------------------------------------------
@@ -481,14 +270,18 @@ pub struct HtmlScraperSubQuery {
     /// Optional CSS selector scoping the context rows that seed follow-up requests.
     pub(crate) context_pointer: Option<String>,
     /// Selection mode for the context pointer.
+    #[allow(dead_code)]
     pub(crate) context_select: HtmlScraperSelectMode,
     /// Filters applied to the context row before issuing the follow-up request.
+    #[allow(dead_code)]
     pub(crate) filters: HashMap<String, Vec<String>>,
     /// Filters applied to the fetched rows (after the HTTP response).
+    #[allow(dead_code)]
     pub(crate) row_filters: HashMap<String, Vec<String>>,
     /// Entries extracted from the context row rather than from fetched rows.
     pub(crate) context_entries: Vec<HtmlScraperEntry>,
     /// Path where the sub-query result is nested (default: root level).
+    #[allow(dead_code)]
     pub(crate) target: Option<String>,
     /// Pointer selecting the request URL from the context row.
     pub(crate) request_pointer: Option<String>,
@@ -505,11 +298,14 @@ pub struct HtmlScraperSubQuery {
     /// CSS selector matching each result row in the response.
     pub(crate) row_selector: String,
     /// Compiled CSS selector for efficient matching.
-    pub(crate) row_selector_compiled: Selector,
+    #[allow(dead_code)]
+    pub(crate) row_selector_compiled: ::scraper::Selector,
     /// Field extractors executed for every matched row.
     pub(crate) entries: Vec<HtmlScraperEntry>,
     /// Post-processing steps applied to each extracted row.
     pub(crate) post_processes: Vec<ScraperPostProcess>,
+    /// HTTP client for follow-up requests.
+    pub(crate) http_client: HttpClient,
 }
 
 impl ScraperQuery for HtmlScraperQuery {
@@ -526,7 +322,7 @@ impl ScraperQuery for HtmlScraperQuery {
     }
 
     fn is_media_type(&self, media_types: &[String]) -> bool {
-        ScraperManagerQuery::is_media_type(self, media_types)
+        HtmlScraperQuery::is_media_type(self, media_types)
     }
 
     fn base_url(&self) -> &str {
@@ -561,6 +357,10 @@ impl ScraperQuery for HtmlScraperQuery {
         &self.http_config
     }
 
+    fn http_client(&self) -> &HttpClient {
+        &self.http_client
+    }
+
     fn extract_next_data(&self) -> bool {
         false
     }
@@ -593,6 +393,10 @@ impl ScraperQuery for HtmlScraperQuery {
 
     fn sub_query_spec(&self) -> Option<&SubQuerySpec> {
         None
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
@@ -645,6 +449,10 @@ impl ScraperQuery for HtmlScraperSubQuery {
         &self.http_config
     }
 
+    fn http_client(&self) -> &HttpClient {
+        &self.http_client
+    }
+
     fn extract_next_data(&self) -> bool {
         false
     }
@@ -685,25 +493,29 @@ impl ScraperQuery for HtmlScraperSubQuery {
     fn sub_query_spec(&self) -> Option<&SubQuerySpec> {
         None
     }
-}
 
-fn parse_html_rows(
-    html: &str,
-    row_selector: &Selector,
-    entries: &[HtmlScraperEntry],
-    params: &HashMap<String, String>,
-    query_url: &str,
-) -> Vec<ScraperDataNode> {
-    let doc = ::scraper::Html::parse_document(html);
-    let mut roots = Vec::new();
+    // --- Query-level sub-query overrides (legacy semantics) ---
 
-    for card in doc.select(row_selector) {
-        let mut root = ScraperDataNode::default();
-        for entry in entries {
-            entry.apply_to(&mut root, card, params, query_url, Some(html));
-        }
-        roots.push(root);
+    fn context_pointer(&self) -> Option<&str> {
+        self.context_pointer.as_deref()
     }
 
-    roots
+    fn context_select(&self) -> HtmlScraperSelectMode {
+        self.context_select
+    }
+
+    fn context_entries(&self) -> Vec<&dyn ScraperEntrySpec> {
+        self.context_entries
+            .iter()
+            .map(|entry| entry as &dyn ScraperEntrySpec)
+            .collect()
+    }
+
+    fn target(&self) -> Option<&str> {
+        self.target.as_deref()
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }

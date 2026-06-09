@@ -1,5 +1,7 @@
 //! [`ScraperEntrySpec`] — contract implemented by HTML and JSON entries.
 
+use std::any::Any;
+
 use crate::scrapyfy::actions::ScraperAction;
 use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
 
@@ -8,7 +10,18 @@ use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
 ///
 /// Permet au moteur d'exécution d'itérer sur les entries sans connaître
 /// leur type concret.
+///
+/// Le mécanisme `as_any()` permet au moteur unifié de downcaster vers le
+/// type concret lors de l'application des entries sur les rows.
 pub trait ScraperEntrySpec: Send + Sync {
+    /// Returns a reference to the concrete type as `&dyn Any`.
+    ///
+    /// Used by the unified executor to downcast from `&dyn ScraperEntrySpec`
+    /// to the concrete entry type (`HtmlScraperEntry` or `JsonScraperEntry`).
+    fn as_any(&self) -> &dyn Any;
+
+    /// Returns a mutable reference to the concrete type as `&mut dyn Any`.
+    fn as_any_mut(&mut self) -> &mut dyn Any;
     /// Returns the entry name.
     fn name(&self) -> &str;
 

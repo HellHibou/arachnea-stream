@@ -7,6 +7,8 @@
 //! See [`HtmlScraperEntryRaw`] for the YAML shape and [`HtmlScraperEntry`]
 //! for the validated runtime enum.
 
+use std::any::Any;
+
 use anyhow::Result;
 use ::scraper::{selector::ToCss, ElementRef, Selector};
 use serde::{Deserialize, Serialize, Serializer};
@@ -16,6 +18,7 @@ use crate::scrapyfy::query_helpers;
 use crate::scrapyfy::scraper::entry_trait::ScraperEntrySpec;
 use crate::scrapyfy::scraper::query_trait::ScraperQuery;
 use crate::scrapyfy::scraper::row_locator::ScraperType;
+use crate::scrapyfy::scraper_query_collection::EntrySubQueryRaw;
 
 /// Raw configuration definition of one field or grouped field extracted from each result row.
 ///
@@ -40,6 +43,9 @@ pub struct HtmlScraperEntryRaw {
     /// Child entries for group entries (mutually exclusive with `actions`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     entries: Vec<HtmlScraperEntryRaw>,
+    /// Sub-queries executed on each value produced by this entry.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    sub_queries: Vec<EntrySubQueryRaw>,
 }
 
 impl HtmlScraperEntryRaw {
@@ -79,9 +85,9 @@ impl HtmlScraperEntryRaw {
 #[serde(rename_all = "snake_case")]
 pub enum HtmlScraperSelectMode {
     /// Uses only the first matched element.
-    #[default]
     First,
     /// Uses all matched elements and concatenates their extracted values.
+    #[default]
     All,
 }
 
@@ -440,16 +446,18 @@ impl HtmlScraperEntry {
     }
 }
 
-impl TryFrom<HtmlScraperEntryRaw> for HtmlScraperEntry {
-    type Error = anyhow::Error;
-
-    /// Converts a raw YAML entry definition into a validated runtime entry.
+impl HtmlScraperEntry {
+    /// Builds a runtime entry from raw config, converting sub-queries if any.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Raw YAML entry definition.
+    /// * `base_url` - Base URL used to create HTTP clients for sub-queries.
     ///
     /// # Errors
     ///
-    /// Returns an error when the entry defines both `actions` and `entries`,
-    /// or when it defines neither.
-    fn try_from(config: HtmlScraperEntryRaw) -> Result<Self> {
+    /// Returns an error if entries or sub-queries are invalid.
+    fn from_raw_with_base_url(config: HtmlScraperEntryRaw, base_url: &str) -> Result<Self> {
         let HtmlScraperEntryRaw {
             name,
             selector,
@@ -457,28 +465,58 @@ impl TryFrom<HtmlScraperEntryRaw> for HtmlScraperEntry {
             select,
             actions,
             entries,
+            sub_queries,
         } = config;
 
+        let converted_sub_queries: Result<Vec<Box<dyn ScraperQuery>>> = sub_queries
+            .into_iter()
+            .map(|sq| sq.into_boxed_query(base_url))
+            .collect();
+        let sub_queries = converted_sub_queries?;
+
         match (actions.is_empty(), entries.is_empty()) {
-            (false, true) => HtmlScraperEntry::try_new_field_with_optional_selector(
-                &name,
-                selector.as_deref(),
-                resolved_selector.as_deref().or(selector.as_deref()),
-                select,
-                &actions,
-            ),
-            (true, false) => {
-                let entries = entries
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<Vec<_>>>()?;
-                HtmlScraperEntry::try_new_group_with_optional_selector(
+            (false, true) => {
+                let mut entry = HtmlScraperEntry::try_new_field_with_optional_selector(
                     &name,
                     selector.as_deref(),
                     resolved_selector.as_deref().or(selector.as_deref()),
                     select,
-                    entries,
-                )
+                    &actions,
+                )?;
+                if let HtmlScraperEntry::Field { sub_queries: ref mut sq, .. } = entry {
+                    *sq = sub_queries;
+                }
+                Ok(entry)
+            }
+            (true, false) => {
+                let mut entry = {
+                    let entries = entries
+                        .into_iter()
+                        .map(|e| HtmlScraperEntry::from_raw_with_base_url(e, base_url))
+                        .collect::<Result<Vec<_>>>()?;
+                    HtmlScraperEntry::try_new_group_with_optional_selector(
+                        &name,
+                        selector.as_deref(),
+                        resolved_selector.as_deref().or(selector.as_deref()),
+                        select,
+                        entries,
+                    )?
+                };
+                if let HtmlScraperEntry::Group { sub_queries: ref mut sq, .. } = entry {
+                    *sq = sub_queries;
+                }
+                Ok(entry)
+            }
+            (true, true) if !sub_queries.is_empty() => {
+                // Entry with only sub_queries and no actions/entries: it's a passthrough
+                Ok(HtmlScraperEntry::Field {
+                    name: name.clone(),
+                    selector_template: Self::normalize_selector_template(selector.as_deref()),
+                    selector: Self::parse_selector(&name, resolved_selector.as_deref().or(selector.as_deref()))?,
+                    select,
+                    actions: Vec::new(),
+                    sub_queries,
+                })
             }
             (true, true) => anyhow::bail!("Entry {} must define either actions or entries", name),
             (false, false) => {
@@ -488,7 +526,31 @@ impl TryFrom<HtmlScraperEntryRaw> for HtmlScraperEntry {
     }
 }
 
+impl TryFrom<HtmlScraperEntryRaw> for HtmlScraperEntry {
+    type Error = anyhow::Error;
+
+    /// Converts a raw YAML entry definition into a validated runtime entry.
+    ///
+    /// Uses `""` as default base URL for sub-query HTTP clients.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the entry defines both `actions` and `entries`,
+    /// or when it defines neither.
+    fn try_from(config: HtmlScraperEntryRaw) -> Result<Self> {
+        Self::from_raw_with_base_url(config, "")
+    }
+}
+
 impl ScraperEntrySpec for HtmlScraperEntry {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
     fn name(&self) -> &str {
         match self {
             HtmlScraperEntry::Field { name, .. } => name,
@@ -565,6 +627,7 @@ impl From<&HtmlScraperEntry> for HtmlScraperEntryRaw {
                 select: *select,
                 actions: actions.clone(),
                 entries: Vec::new(),
+                sub_queries: Vec::new(),
             },
             HtmlScraperEntry::Group {
                 name,
@@ -580,6 +643,7 @@ impl From<&HtmlScraperEntry> for HtmlScraperEntryRaw {
                 select: *select,
                 actions: Vec::new(),
                 entries: entries.iter().map(HtmlScraperEntryRaw::from).collect(),
+                sub_queries: Vec::new(),
             },
         }
     }

@@ -1,10 +1,8 @@
 use super::*;
 use anyhow::Result;
 use arachnea_core::controler::ControlerService;
-use async_trait::async_trait;
 use std::collections::HashMap;
 
-use crate::scrapyfy::scraper_html::entry::HtmlScraperEntry;
 use crate::scrapyfy::ScraperDataNode;
 
 const LOGGERS: [&str; 3] = [
@@ -12,57 +10,6 @@ const LOGGERS: [&str; 3] = [
     "html5ever::tree_builder",
     "html5ever::tokenizer",
 ];
-
-/// Shared contract for scraper queries that can format a request and extract rows.
-///
-/// This trait is implemented by [`HtmlScraperQuery`](super::scraper_html::query::HtmlScraperQuery)
-/// and provides the uniform interface used by [`ScraperQueryCollection`](super::scraper_query_collection::ScraperQueryCollection)
-/// and [`ScraperAgregator`](super::scraper_agregator::ScraperAgregator).
-#[async_trait]
-pub trait ScraperManagerQuery {
-    /// Returns the query name used as the lookup key in a collection.
-    fn name(&self) -> String;
-
-    /// Returns the base URL used by the query and exposed as `{base_url}` in templates.
-    fn base_url(&self) -> &str;
-
-    /// Returns the media types associated with the query results.
-    fn media_types(&self) -> &Vec<String>;
-
-    /// Returns the URL template used to build the request.
-    fn query_url(&self) -> &str;
-
-    /// Returns the configured field extractors executed for every matched row.
-    fn scraper_entries(&self) -> &Vec<HtmlScraperEntry>;
-
-    /// Returns whether the query matches at least one requested media type.
-    fn is_media_type(&self, media_types: &[String]) -> bool;
-
-    /// Returns the flattened list of leaf field names produced by this query.
-    #[cfg(any(test, feature = "test-support"))]
-    fn get_field_names(&self) -> Vec<String>;
-
-    /// Executes the query by formatting the URL, fetching the page, and extracting each row.
-    ///
-    /// # Arguments
-    ///
-    /// * `params` - Runtime values used to replace placeholders in the URL template
-    ///   and in formatting actions executed by the scraper pipeline.
-    /// * `fields_filters` - Root fields filter list or None.
-    ///
-    /// Field names containing `>` are interpreted as hierarchical paths and will
-    /// be converted into nested objects or arrays in the returned entries.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the URL template is missing parameters, if the page
-    /// cannot be downloaded, or if a response cannot be parsed.
-    async fn execute_query(
-        &self,
-        params: &HashMap<String, String>,
-        fields_filters: Option<&HashMap<String, Vec<String>>>,
-    ) -> Result<Vec<HashMap<String, ScraperDataNode>>>;
-}
 
 /// Contract exposing mutable access to the shared scraper aggregator.
 pub trait ScraperManager {
@@ -317,7 +264,7 @@ pub mod tests {
                 .get_query(query)
                 .ok_or_else(|| anyhow::anyhow!("Query {} not found in {}", query, query_source))?;
 
-            dedup_fields(query_exec.get_field_names())
+            query_exec.get_field_names()
         };
 
         let expected_fields_from_test_data =

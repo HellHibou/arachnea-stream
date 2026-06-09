@@ -49,7 +49,6 @@ pub use scraper_query_collection::{
 pub mod scraper_agregator;
 pub use scraper_agregator::{ScraperAgregator, ScraperSourceParams};
 
-/// Scraper manager trait used by runtime and test harnesses,
-/// and shared contract for scraper queries (`ScraperManagerQuery`).
+/// Scraper manager trait used by runtime and test harnesses.
 pub mod scraper_manager;
-pub use scraper_manager::{ScraperManager, ScraperManagerQuery};
+pub use scraper_manager::ScraperManager;

@@ -1,3 +1,5 @@
+use std::any::Any;
+
 use anyhow::Result;
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::Value;
@@ -7,6 +9,7 @@ use crate::scrapyfy::scraper::entry_trait::ScraperEntrySpec;
 use crate::scrapyfy::scraper::query_trait::ScraperQuery;
 use crate::scrapyfy::scraper::row_locator::ScraperType;
 use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
+use crate::scrapyfy::scraper_query_collection::EntrySubQueryRaw;
 
 /// Raw configuration definition of one field or grouped field extracted from a JSON result row.
 #[derive(Serialize, Deserialize)]
@@ -20,6 +23,9 @@ pub struct JsonScraperEntryRaw {
     actions: Vec<ScraperAction>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     entries: Vec<JsonScraperEntryRaw>,
+    /// Sub-queries executed on each value produced by this entry.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    sub_queries: Vec<EntrySubQueryRaw>,
 }
 
 /// One logical field extracted from a JSON result row.
@@ -62,6 +68,7 @@ impl JsonScraperEntry {
     /// Applies this entry to the provided JSON row.
     ///
     /// Group entries append explicit array items, while field entries append values.
+    /// When `select` is `first`, only the first value is kept.
     pub fn apply_to(
         &self,
         root: &mut ScraperDataNode,
@@ -78,6 +85,7 @@ impl JsonScraperEntry {
                 ..
             } => {
                 let path: Vec<&str> = name.split('>').map(|segment| segment.trim()).collect();
+                let is_first = *select == HtmlScraperSelectMode::First;
 
                 for selected in select_json_values(row, pointer.as_deref(), *select) {
                     let mut values = json_value_to_strings(selected);
@@ -85,8 +93,14 @@ impl JsonScraperEntry {
                         values = action.apply(&None, values, params, request_url, None, Some(row));
                     }
 
-                    for value in values {
-                        root.push_value(&path, value);
+                    if is_first {
+                        if let Some(value) = values.into_iter().next() {
+                            root.set_value(&path, value);
+                        }
+                    } else {
+                        for value in values {
+                            root.push_value(&path, value);
+                        }
                     }
                 }
             }
@@ -182,7 +196,14 @@ impl TryFrom<JsonScraperEntryRaw> for JsonScraperEntry {
             select,
             actions,
             entries,
+            sub_queries,
         } = config;
+
+        let converted_sub_queries: Result<Vec<Box<dyn ScraperQuery>>> = sub_queries
+            .into_iter()
+            .map(|sq| sq.into_boxed_query(""))
+            .collect();
+        let sub_queries = converted_sub_queries?;
 
         if entries.is_empty() {
             JsonScraperEntry::validate_actions(&name, &actions)?;
@@ -192,7 +213,7 @@ impl TryFrom<JsonScraperEntryRaw> for JsonScraperEntry {
                 pointer,
                 select,
                 actions,
-                sub_queries: Vec::new(),
+                sub_queries,
             });
         }
 
@@ -210,7 +231,7 @@ impl TryFrom<JsonScraperEntryRaw> for JsonScraperEntry {
             pointer,
             select,
             entries,
-            sub_queries: Vec::new(),
+            sub_queries,
         })
     }
 }
@@ -231,6 +252,7 @@ impl From<&JsonScraperEntry> for JsonScraperEntryRaw {
                 select: *select,
                 actions: actions.clone(),
                 entries: Vec::new(),
+                sub_queries: Vec::new(),
             },
             JsonScraperEntry::Group {
                 name,
@@ -244,6 +266,7 @@ impl From<&JsonScraperEntry> for JsonScraperEntryRaw {
                 select: *select,
                 actions: Vec::new(),
                 entries: entries.iter().map(JsonScraperEntryRaw::from).collect(),
+                sub_queries: Vec::new(),
             },
         }
     }
@@ -449,6 +472,14 @@ pub(crate) fn json_value_to_strings(value: &Value) -> Vec<String> {
 }
 
 impl ScraperEntrySpec for JsonScraperEntry {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
     fn name(&self) -> &str {
         match self {
             JsonScraperEntry::Field { name, .. } => name,

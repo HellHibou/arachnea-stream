@@ -58,6 +58,28 @@ impl ScraperDataNode {
         current.values.push(value);
     }
 
+    /// Sets one scalar value under the provided `>`-split path, replacing
+    /// any previously stored values. Used by entries with `select: first`.
+    ///
+    /// Intermediate child nodes are created on demand.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Ordered path segments where the value is stored.
+    /// * `value` - Value assigned to the resolved target node (replaces existing).
+    pub fn set_value(&mut self, path: &[&str], value: String) {
+        if path.is_empty() {
+            return;
+        }
+
+        let mut current = self;
+        for segment in path {
+            current = current.children.entry((*segment).to_string()).or_default();
+        }
+
+        current.values = vec![value];
+    }
+
     /// Appends one nested node under the provided path as an explicit array item.
     ///
     /// Intermediate child nodes are created on demand.
@@ -95,6 +117,56 @@ impl ScraperDataNode {
         }
 
         self.items.extend(other.items);
+    }
+
+    /// Merges another node into this one, keeping scalar values from `self`
+    /// (the first item) and extending items (group entries). Child nodes
+    /// are merged recursively with `merge_first` semantics so that repeated
+    /// scalar fields (e.g. `current_page`, `have_more`) are not duplicated.
+    ///
+    /// This is used when row_pointer: /* produces multiple rows where each
+    /// row carries the same scalar values (current_page, have_more) and
+    /// different group entries (episodes items).
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - Node whose children/items are merged; its scalar values
+    ///   are discarded.
+    pub fn merge_first(&mut self, other: &ScraperDataNode) {
+        for (name, child) in &other.children {
+            let entry = self.children.entry(name.clone()).or_default();
+            if entry.values.is_empty() {
+                entry.values = child.values.clone();
+            }
+            entry.items.extend(child.items.iter().cloned());
+            entry.merge_children_first(child);
+        }
+
+        self.items.extend(other.items.iter().cloned());
+    }
+
+    /// Recursively merges child nodes using `merge_first` semantics (scalar
+    /// values from the first occurrence are kept).
+    fn merge_children_first(&mut self, other: &ScraperDataNode) {
+        for (name, child) in &other.children {
+            let entry = self.children.entry(name.clone()).or_default();
+            entry.merge_first(child);
+        }
+    }
+
+    /// Keeps only the first value at every leaf node, discarding subsequent
+    /// duplicates. Used after merge to collapse repeated scalar fields
+    /// (e.g. current_page, have_more) while preserving group entries.
+    pub fn keep_first_values(&mut self) {
+        if self.values.len() > 1 {
+            self.values.truncate(1);
+        }
+        for child in self.children.values_mut() {
+            child.keep_first_values();
+        }
+        for item in &mut self.items {
+            item.keep_first_values();
+        }
     }
 
     /// Returns the aligned array length when the node can be serialized as a

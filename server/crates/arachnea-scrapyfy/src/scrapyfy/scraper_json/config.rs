@@ -57,7 +57,7 @@ fn default_json_sub_query_fetch_concurrency() -> usize {
 /// Supported HTTP methods for root and follow-up scraper requests.
 #[derive(Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum ScraperRequestMethod {
+pub enum ScraperRequestMethod {
     /// GET request.
     Get,
     /// POST request.
@@ -70,7 +70,7 @@ impl ScraperRequestMethod {
     /// # Arguments
     ///
     /// * `self` - The request method variant to convert.
-    pub(crate) fn as_http_method(self) -> http::Method {
+    pub fn as_http_method(self) -> http::Method {
         match self {
             Self::Get => http::Method::GET,
             Self::Post => http::Method::POST,
@@ -80,7 +80,7 @@ impl ScraperRequestMethod {
 
 /// Raw configuration definition of one header added to a scraper request.
 #[derive(Serialize, Deserialize)]
-pub(crate) struct ScraperRequestHeaderRaw {
+pub struct ScraperRequestHeaderRaw {
     /// Header name.
     name: String,
     /// Optional JSON pointer selecting the header value.
@@ -97,7 +97,7 @@ pub(crate) struct ScraperRequestHeaderRaw {
 /// Runtime definition of one header added to a scraper request.
 #[derive(Deserialize)]
 #[serde(try_from = "ScraperRequestHeaderRaw")]
-pub(crate) struct ScraperRequestHeader {
+pub struct ScraperRequestHeader {
     /// Header name.
     name: String,
     /// Optional JSON pointer selecting the header value.
@@ -672,6 +672,7 @@ impl TryFrom<JsonScraperSubQueryRaw> for JsonScraperSubQuery {
             row_pointer,
             entries,
             sub_queries,
+            http_client: HttpClient::new(""),
         })
     }
 }

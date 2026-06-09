@@ -9,7 +9,9 @@ use crate::scrapyfy::actions::ScraperAction;
 use crate::scrapyfy::post_processes::ScraperPostProcess;
 use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
 use crate::scrapyfy::scraper_json::query::{ScraperRequestHeader, ScraperRequestMethod};
-use crate::scrapyfy::ScraperHttpConfig;
+use crate::scrapyfy::{HttpClient, ScraperHttpConfig};
+
+use std::any::Any;
 
 use super::entry_trait::ScraperEntrySpec;
 use super::row_locator::RowLocator;
@@ -63,6 +65,9 @@ pub trait ScraperQuery: Send + Sync {
     /// Returns the HTTP configuration (mode, user agent, max redirects).
     fn http_config(&self) -> &ScraperHttpConfig;
 
+    /// Returns a reference to the shared HTTP client configured for this query.
+    fn http_client(&self) -> &HttpClient;
+
     /// Returns whether the response is parsed as `__NEXT_DATA__`.
     fn extract_next_data(&self) -> bool;
 
@@ -97,4 +102,49 @@ pub trait ScraperQuery: Send + Sync {
 
     /// Returns the sub-query spec (or `None` for root queries).
     fn sub_query_spec(&self) -> Option<&SubQuerySpec>;
+
+    // --- Query-level sub-query detection (legacy) ---
+
+    /// Returns the optional context pointer used by query-level sub-queries
+    /// to scope execution to N contexts inside the parent row.
+    ///
+    /// Default returns `None` (entry-level sub-queries and root queries).
+    /// Query-level sub-queries (`JsonScraperSubQuery` / `HtmlScraperSubQuery`
+    /// in the legacy query-level API) override this to expose their
+    /// `context_pointer` field so the unified executor can dispatch on the
+    /// legacy semantics (iterating over context rows of the parent row).
+    fn context_pointer(&self) -> Option<&str> {
+        None
+    }
+
+    /// Returns the context selection mode for query-level sub-queries.
+    ///
+    /// Default returns [`HtmlScraperSelectMode::All`] (the safe default
+    /// for callers that ignore the value when `context_pointer()` is `None`).
+    fn context_select(&self) -> HtmlScraperSelectMode {
+        HtmlScraperSelectMode::All
+    }
+
+    /// Returns the context entries (entries applied to the context row
+    /// before issuing the follow-up request).
+    ///
+    /// Default returns an empty list. Query-level sub-queries override this
+    /// to expose their `context_entries` field.
+    fn context_entries(&self) -> Vec<&dyn ScraperEntrySpec> {
+        Vec::new()
+    }
+
+    /// Returns the target path where query-level sub-query results are
+    /// nested. `None` means the results are merged at the top level.
+    fn target(&self) -> Option<&str> {
+        None
+    }
+
+    /// Returns a reference to the concrete type as `&dyn Any`.
+    ///
+    /// The unified executor uses this to downcast back to the concrete
+    /// query type when a query-level sub-query needs to be executed via
+    /// its legacy `execute` path (which keeps the existing semantics
+    /// around `context_pointer` / `context_entries` / `row_filters`).
+    fn as_any(&self) -> &dyn Any;
 }

@@ -60,9 +60,36 @@ If the extraction can be described with these primitives, prefer YAML over Rust.
 
 - `query_param_mappings`
   - Build URL fragments from runtime params such as `media_types`.
-- `sub_queries`
+- `sub_queries` (query-level)
   - Fetch follow-up JSON payloads from values extracted in the parent payload.
   - Support context filtering, `request_actions`, and nested sub-queries.
+- `sub_queries` (entry-level, new)
+  - Fetch follow-up HTML or JSON pages seeded by each value produced by the parent entry.
+  - Tagged by `scraper_type: html` or `scraper_type: json`.
+  - HTML sub-query: `row_selector` + `entries` (field extractors).
+  - JSON sub-query: `row_pointer` + `entries` (field extractors).
+  - Example:
+    ```yaml
+    - name: players > embed-link
+      actions:
+        - type: get_response_body
+        - type: regex_find_all
+          pattern: '<iframe[^>]+src="([^"]+)'
+          format: "{1}"
+      sub_queries:
+        - scraper_type: html
+          row_selector: html
+          entries:
+            - name: embed-link
+              actions:
+                - type: get_response_body
+                - type: regex_find_all
+                  pattern: 'showVideo\([^)]+'
+                  format: "{1}"
+    ```
+  - The parent entry's extracted value becomes the request URL (pass-through).
+  - Supports recursion: a sub-query's entries can declare their own `sub_queries`.
+  - See `docs/SUB_QUERY_AT_ENTRY.md` for the full design.
 - `post_process`
   - `extract_regex_items`
   - `filter_items`
@@ -77,6 +104,7 @@ Use advanced features only when they reduce source-specific Rust or make the YAM
 - Start from `server/services/rtlplay-be.yaml` for Next.js pages using `extract_next_data`.
 - Start from `server/services/rtbf-auvio-be.yaml` for direct JSON APIs and `sub_queries`.
 - Start from `server/services/anime-sama.yaml` for regex-driven extraction or `post_process`.
+- For entry-level `sub_queries`, refer to the design doc at `docs/SUB_QUERY_AT_ENTRY.md` and the `EntrySubQueryRaw` type in `server/crates/arachnea-scrapyfy/src/scrapyfy/scraper_query_collection.rs`.
 
 Copy patterns, then adapt field names and pointers/selectors to the new source.
 
