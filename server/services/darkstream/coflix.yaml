@@ -591,12 +591,33 @@ queries:
             pattern: 'name="seasons"\s[^>]*data-season="(\d+)"\s[^>]*post-id="(\d+)'
             format: "{base_url}/wp-json/apiflix/v1/series/{2}/{1}"
       # Movie player: extract the iframe src (Coflix player page)
+      # then follow up with an HTML fetch using Origin: {base_url}
+      # to resolve showVideo('base64') calls into actual hoster URLs.
       - name: players > embed-link
         actions:
           - type: get_response_body
           - type: regex_find_all
             pattern: '<iframe[^>]+src="([^"]+)'
             format: "{1}"
+        sub_queries:
+          - scraper_type: html
+            row_selector: "html"
+            request_headers:
+              - name: "Referer"
+                actions:
+                  - type: format_text
+                    argument: "{base_url}"
+            entries:
+              # Extract all base64 parameters from showVideo('...') calls.
+              # Flat name so the result is a plain string array, not nested.
+              - name: embed-link
+                select: all
+                actions:
+                  - type: get_response_body
+                  - type: regex_find_all
+                    pattern: "showVideo\\(\\s*['\"]([A-Za-z0-9+/=]+)['\"]"
+                    format: "{1}"
+                  - type: base64_decode
       - name: rating
         selector: "span.imdb > span"
         actions:

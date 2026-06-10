@@ -1,8 +1,10 @@
 use anyhow::Result;
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_yaml::{Mapping as YamlMapping, Value as YamlValue};
 use std::collections::HashMap;
 
+mod base64_decode;
 mod build_nextjs_data_url;
 mod build_url;
 mod extract_field;
@@ -199,6 +201,12 @@ pub enum ScraperAction {
 
     /// Parses human-readable durations such as `39 min` or `1 h 05 min` into seconds.
     NormalizeDuration,
+
+    /// Base64-decodes each current value.
+    ///
+    /// Uses the standard base64 alphabet. Non-decodable values are kept as-is.
+    #[serde(rename = "base64_decode")]
+    Base64Decode,
 }
 
 impl ScraperAction {
@@ -263,6 +271,7 @@ impl ScraperAction {
             }
             ScraperAction::GetDate { format, months } => get_date::apply(texts, format, months),
             ScraperAction::NormalizeDuration => normalize_duration::apply(texts),
+            ScraperAction::Base64Decode => base64_decode::apply(texts),
         }
     }
 

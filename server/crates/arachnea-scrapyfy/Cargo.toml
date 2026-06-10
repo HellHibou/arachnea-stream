@@ -21,6 +21,7 @@ futures.workspace = true
 http.workspace = true
 mathexpr.workspace = true
 regex.workspace = true
+base64.workspace = true
 scopeguard.workspace = true
 scraper.workspace = true
 serde.workspace = true

@@ -27,6 +27,10 @@ use super::row_locator::RowLocator;
 use super::sub_query_spec::SubQuerySpec;
 use super::ScraperType;
 
+/// Sentinel value used as `request_pointer` default for entry-level sub-queries,
+/// signalling that the entry's value should be used directly as the fetch URL.
+const PARENT_SENTINEL: &str = "parent";
+
 /// Runtime context forwarded to polymorphic query execution.
 ///
 /// Mirrors the runtime context used by the legacy per-type `execute_query`
@@ -664,6 +668,11 @@ fn extract_items(
 /// For each entry, collects the produced values from the item and runs every
 /// attached sub-query. The sub-query result is merged into the item.
 ///
+/// For entry-level sub-queries whose `request_pointer` is `None` or `"parent"`,
+/// the entry's extracted values are used as the fetch URL(s).  The sub-query
+/// response is parsed according to its scraper type, rows are extracted via
+/// its [`RowLocator`], and the sub-query entries are applied to each row.
+///
 /// # Arguments
 ///
 /// * `query` - The query being executed.
@@ -684,24 +693,242 @@ async fn execute_entry_sub_queries(
     request_url: &str,
     context: &QueryContext<'_>,
 ) -> Result<()> {
+    // Collect entry names → values from the item so we can map sub-query
+    // `request_pointer` to the entry value that seeds the URL.
+    let entry_values: HashMap<String, Vec<String>> = collect_entry_values(item);
+
     for entry in query.entries() {
+        // Determine which values from this entry seed sub-query URLs.
+        let entry_name = entry.name().to_string();
+        let parent_urls = entry_values.get(&entry_name).cloned().unwrap_or_default();
+        let has_parent_urls = !parent_urls.is_empty();
+
         for sub_query in entry.sub_queries() {
-            // Build a context for the sub-query using the item's data.
-            let sub_context = QueryContext {
-                params: context.params,
-                request_url,
-                response_body: context.response_body,
-                http_client: context.http_client,
-                fields_filters: None,
-            };
-            let sub_items = Box::pin(execute_query_internal(sub_query, &sub_context)).await?;
-            let mut merged = ScraperDataNode::default();
-            for child in sub_items {
-                merged.merge(child);
+            if has_parent_urls {
+                // Entry-level sub-query: use the entry values as fetch URL(s).
+                let rp = sub_query.request_pointer();
+                if rp.is_none() || rp == Some(PARENT_SENTINEL) {
+                    // Fetch each value as a URL, parse, extract, merge.
+                    let mut merged = ScraperDataNode::default();
+                    for url in &parent_urls {
+                        let mut item_clone = ScraperDataNode::default();
+                        let _ = fetch_and_extract_for_entry_sub_query(
+                            sub_query, url, &mut item_clone, context,
+                        ).await?;
+                        merged.merge(item_clone);
+                    }
+                    // Clear the parent entry's values before merging the
+                    // sub-query result — the sub-query *replaces* the URL
+                    // with the decoded embed link(s).  Use the entry's
+                    // name path for targeted merging.
+                    let path: Vec<&str> = entry_name.split('>').map(str::trim).filter(|s| !s.is_empty()).collect();
+                    if path.is_empty() {
+                        item.merge(merged);
+                    } else {
+                        // Replace the target node: walk the path, clear it,
+                        // then inject the sub-query's leaf values directly
+                        // as individual items (array elements) that survive
+                        // `keep_first_values`.  Using `values` would cause
+                        // truncation to 1 element in `execute_query_items`.
+                        let target = walk_mut(item, &path);
+                        target.values.clear();
+                        target.children.clear();
+                        target.items.clear();
+                        // Convert fetched rows into array items — each
+                        // child value (e.g. each decoded embed URL) becomes
+                        // one item so that `keep_first_values` does not
+                        // discard it.
+                        for (_name, child) in &merged.children {
+                            for val in &child.values {
+                                let mut entry = ScraperDataNode::default();
+                                entry.values.push(val.clone());
+                                target.items.push(entry);
+                            }
+                        }
+                        for val in &merged.values {
+                            let mut entry = ScraperDataNode::default();
+                            entry.values.push(val.clone());
+                            target.items.push(entry);
+                        }
+                    }
+                } else {
+                    // Non-default request_pointer → fall through to generic executor.
+                    let sub_context = QueryContext {
+                        params: context.params,
+                        request_url,
+                        response_body: context.response_body,
+                        http_client: context.http_client,
+                        fields_filters: None,
+                    };
+                    let sub_items = Box::pin(execute_query_internal(sub_query, &sub_context)).await?;
+                    let mut merged = ScraperDataNode::default();
+                    for child in sub_items {
+                        merged.merge(child);
+                    }
+                    merge_targeted(item, merged, sub_query.sub_query_spec());
+                }
+            } else {
+                // No parent values available — try the generic executor path.
+                let sub_context = QueryContext {
+                    params: context.params,
+                    request_url,
+                    response_body: context.response_body,
+                    http_client: context.http_client,
+                    fields_filters: None,
+                };
+                let sub_items = Box::pin(execute_query_internal(sub_query, &sub_context)).await?;
+                let mut merged = ScraperDataNode::default();
+                for child in sub_items {
+                    merged.merge(child);
+                }
+                merge_targeted(item, merged, sub_query.sub_query_spec());
             }
-            merge_targeted(item, merged, sub_query.sub_query_spec());
         }
     }
+    Ok(())
+}
+
+/// Collects all leaf entry values from a [`ScraperDataNode`] item into a
+/// `{entry_name → [value, …]}` map.
+///
+/// This is used by [`execute_entry_sub_queries`] to map entry names to their
+/// extracted scalar values so they can seed sub-query fetch URLs.
+///
+/// # Arguments
+///
+/// * `item` - The item from which to collect leaf entry values.
+fn collect_entry_values(item: &ScraperDataNode) -> HashMap<String, Vec<String>> {
+    let mut map = HashMap::new();
+    collect_entry_values_recursive(item, &mut map, &[]);
+    map
+}
+
+/// Recursive helper for [`collect_entry_values`].
+///
+/// Walks the tree accumulating leaf values under their `>`-separated path.
+fn collect_entry_values_recursive<'a>(
+    node: &'a ScraperDataNode,
+    map: &mut HashMap<String, Vec<String>>,
+    path: &[&str],
+) {
+    // Recurse into children first.
+    for (name, child) in &node.children {
+        let mut child_path = path.to_vec();
+        child_path.push(name);
+        collect_entry_values_recursive(child, map, &child_path);
+    }
+    // Process items (group entries).
+    for item in &node.items {
+        collect_entry_values_recursive(item, map, &[]);
+    }
+    // Leaf values: append to the path entry.
+    if !node.values.is_empty() {
+        let key = if path.is_empty() {
+            String::new()
+        } else {
+            path.join(" > ")
+        };
+        map.entry(key).or_default().extend(node.values.clone());
+    }
+}
+
+/// Fetches a URL on behalf of an entry-level sub-query, parses the response
+/// according to the sub-query's [`ScraperType`], extracts rows via its
+/// [`RowLocator`], and applies the sub-query entries to every row.
+///
+/// Headers from the sub-query configuration are resolved and sent with the
+/// request.
+///
+/// # Arguments
+///
+/// * `sub_query` - The entry-level sub-query to execute.
+/// * `url` - The URL to fetch (derived from the parent entry value).
+/// * `item` - The item to populate with extracted data.
+/// * `context` - Runtime context containing the HTTP client and params.
+///
+/// # Returns
+///
+/// `Ok(())` on success.
+///
+/// # Errors
+///
+/// Returns an error if the HTTP request fails or if entry application fails.
+async fn fetch_and_extract_for_entry_sub_query(
+    sub_query: &dyn ScraperQuery,
+    url: &str,
+    item: &mut ScraperDataNode,
+    context: &QueryContext<'_>,
+) -> Result<()> {
+    let method = sub_query.request_method().as_http_method();
+    let headers: HashMap<String, String> = resolve_request_headers(
+        sub_query.request_headers(),
+        context.params,
+        url,
+    );
+    let body: Option<String> = resolve_request_body(
+        sub_query.request_pointer(),
+        sub_query.request_select(),
+        sub_query.request_actions(),
+        context.params,
+        url,
+    );
+    let client = context.http_client.configured(sub_query.http_config().clone());
+    let response = fetch_single(
+        &client,
+        method,
+        url,
+        &headers,
+        body.as_deref(),
+        sub_query.extract_next_data(),
+        sub_query.scraper_type(),
+    ).await?;
+
+    match response {
+        FetchedResponse::Html(html) => {
+            let doc = ::scraper::Html::parse_document(&html);
+            match sub_query.row_locator() {
+                RowLocator::Selector { ref selector, select } => {
+                    let sel = match ::scraper::Selector::parse(selector) {
+                        Ok(s) => s,
+                        Err(_) => return Ok(()),
+                    };
+                    let select_first = matches!(select, HtmlScraperSelectMode::First);
+                    for element in doc.select(&sel) {
+                        for entry in sub_query.entries() {
+                            if let Some(html_entry) = as_html_entry(entry) {
+                                html_entry.apply_to(item, element, context.params, url, Some(&html));
+                            }
+                        }
+                        if select_first {
+                            break;
+                        }
+                    }
+                }
+                RowLocator::Single
+                | RowLocator::Pointer(_) => {
+                    // No HTML element available for RowLocator::Single or
+                    // RowLocator::Pointer — skip HTML entry application.
+                }
+                _ => {}
+            }
+        }
+        FetchedResponse::Json(value) => {
+            let pointer = match sub_query.row_locator() {
+                RowLocator::Pointer(ref p) => p.clone(),
+                _ => return Ok(()),
+            };
+            let rows = select_json_values(&value, Some(&pointer), HtmlScraperSelectMode::All);
+            for row_value in rows {
+                for entry in sub_query.entries() {
+                    if let Some(json_entry) = as_json_entry(entry) {
+                        json_entry.apply_to(item, row_value, context.params, url);
+                    }
+                }
+            }
+        }
+        FetchedResponse::Static => {}
+    }
+
     Ok(())
 }
 
@@ -797,6 +1024,39 @@ fn response_body_str(response: &FetchedResponse) -> Option<&str> {
         FetchedResponse::Html(html) => Some(html.as_str()),
         _ => None,
     }
+}
+
+/// Clears the values and items at the node identified by a `>`-split path,
+/// so the node is reset before merging sub-query results into it.
+///
+/// # Arguments
+///
+/// * `item` - The root item node.
+/// * `path` - Ordered path segments identifying the target node.
+fn clear_node_at_path(item: &mut ScraperDataNode, path: &[&str]) {
+    let mut current = item;
+    for segment in path {
+        current = current.children.entry((*segment).to_string()).or_default();
+    }
+    current.values.clear();
+    current.items.clear();
+    // Also clear child nodes recursively so the node is fully clean.
+    current.children.clear();
+}
+
+/// Walks a `>`-split path and returns a mutable reference to the target node,
+/// creating intermediate nodes on demand.
+///
+/// # Arguments
+///
+/// * `item` - The root item node.
+/// * `path` - Ordered path segments identifying the target node.
+fn walk_mut<'a>(item: &'a mut ScraperDataNode, path: &[&str]) -> &'a mut ScraperDataNode {
+    let mut current = item;
+    for segment in path {
+        current = current.children.entry((*segment).to_string()).or_default();
+    }
+    current
 }
 
 /// Deduplicates a list of URLs preserving order.

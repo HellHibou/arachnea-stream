@@ -155,8 +155,8 @@ impl ScraperDataNode {
     }
 
     /// Keeps only the first value at every leaf node, discarding subsequent
-    /// duplicates. Used after merge to collapse repeated scalar fields
-    /// (e.g. current_page, have_more) while preserving group entries.
+    /// duplicates.  Used after merge to collapse repeated scalar fields
+    /// (e.g. `current_page`, `have_more`) while preserving group entries.
     pub fn keep_first_values(&mut self) {
         if self.values.len() > 1 {
             self.values.truncate(1);
@@ -237,6 +237,14 @@ impl From<&ScraperDataNode> for ScraperDataNodeRaw {
     /// nested array, or plain object).
     fn from(node: &ScraperDataNode) -> Self {
         if !node.items.is_empty() {
+            // When all items are simple scalars (no children, no nested
+            // items), flatten them into a single Values array.  This is
+            // used by entry-level sub-queries that store their results in
+            // `items` to survive `keep_first_values` truncation.
+            if node.items.iter().all(|item| item.children.is_empty() && item.items.is_empty()) {
+                let flat: Vec<String> = node.items.iter().flat_map(|item| item.values.clone()).collect();
+                return ScraperDataNodeRaw::Values(flat);
+            }
             return ScraperDataNodeRaw::Array(
                 node.items.iter().map(ScraperDataNodeRaw::from).collect(),
             );

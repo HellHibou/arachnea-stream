@@ -447,7 +447,7 @@ queries:
             pattern: "\\[([^\\]]+)\\]"
             format: "{1}"
       - name: description
-        selector: strong
+        selector: strong + strong
         actions:
           - type: get_text
       - name: img/poster > link

@@ -49,6 +49,7 @@ Use the official CMake download page if the distribution package is too old for 
 The following commands are available for the Rust backend workspace in `server/`. Alias commands are defined in `server/.cargo/config.toml`.
 
 - `cd server && cargo build` - Build the backend workspace.
+- `cd server && cargo check --workspace` - Check the backend workspace.
 - `cd server && cargo run -p arachnea-stream --bin arachnea` - Build and run the backend executable.
 - `cd server && cargo run -p arachnea-dns -- validate-config crates/arachnea-dns/config-sample/system_relay.toml` - Validate a DNS configuration sample.
 - `cd server && cargo run -p arachnea-proxy -- validate-config crates/arachnea-proxy/config-sample/direct.toml` - Validate a proxy configuration sample.
