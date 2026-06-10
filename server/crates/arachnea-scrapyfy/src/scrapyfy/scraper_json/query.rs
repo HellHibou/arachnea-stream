@@ -6,14 +6,16 @@
 //! configuration types and conversions live in [`super::config`] and are
 //! re-exported here so that existing import paths continue to work.
 
-// Re-export shared types that moved to `config` so that references like
-// `use crate::scrapyfy::scraper_json::query::{ScraperRequestMethod, …}`
-// still resolve.
+// Re-export shared types from scraper::config for backward compatibility.
+// Types like ScraperRequestMethod, ScraperRequestHeader, etc. are now defined
+// in crate::scrapyfy::scraper::config but re-exported here so that existing
+// import paths like `use crate::scrapyfy::scraper_json::query::{ScraperRequestMethod, …}`
+// continue to work.
 pub use super::config::{EntrySubQueryRaw, JsonScraperQueryRaw, JsonScraperSubQueryRaw};
-pub(crate) use super::config::{
-    JsonScraperExecutionOptions, ScraperRequestHeader, ScraperRequestHeaderRaw,
-    ScraperRequestMethod,
-};
+pub(crate) use super::config::JsonScraperExecutionOptions;
+
+// Re-export from scraper::config for backward compatibility
+pub use crate::scrapyfy::scraper::config::{ScraperRequestHeader, ScraperRequestHeaderRaw, ScraperRequestMethod};
 
 use std::any::Any;
 
@@ -673,11 +675,7 @@ impl JsonScraperQuery {
     ///
     /// Returns an error if any action fails validation for the `"query"` context.
     pub(crate) fn validate_request_actions(name: &str, actions: &[ScraperAction]) -> Result<()> {
-        for action in actions {
-            action.validate(name, "query")?;
-        }
-
-        Ok(())
+        crate::scrapyfy::query_helpers::validate_request_actions("query", name, actions)
     }
 
     /// Creates a query and panics if the row pointer is invalid.
@@ -864,15 +862,12 @@ impl JsonScraperQuery {
         query_url: &str,
     ) -> HashMap<String, String> {
         let request_context = query_helpers::build_params_json_value(params);
-        let mut headers = HashMap::new();
-
-        for header in &self.request_headers {
-            if let Some((name, value)) = header.resolve(&request_context, params, query_url) {
-                headers.insert(name, value);
-            }
-        }
-
-        headers
+        crate::scrapyfy::query_helpers::resolve_request_headers(
+            &self.request_headers,
+            &request_context,
+            params,
+            query_url,
+        )
     }
 
     /// Builds the optional request body by selecting a JSON pointer value from the
@@ -888,23 +883,14 @@ impl JsonScraperQuery {
         query_url: &str,
     ) -> Option<String> {
         let request_context = query_helpers::build_params_json_value(params);
-        let mut values = select_json_values(
-            &request_context,
+        crate::scrapyfy::query_helpers::resolve_request_body(
             self.request_body_pointer.as_deref(),
             self.request_body_select,
+            &self.request_body_actions,
+            &request_context,
+            params,
+            query_url,
         )
-        .into_iter()
-        .flat_map(json_value_to_strings)
-        .collect::<Vec<_>>();
-
-        for action in &self.request_body_actions {
-            values = action.apply(&None, values, params, query_url, None, None);
-        }
-
-        values
-            .into_iter()
-            .map(|value| value.trim().to_string())
-            .find(|value| !value.is_empty())
     }
 
     /// Builds the concurrency options forwarded to sub-query execution.
@@ -914,13 +900,6 @@ impl JsonScraperQuery {
             sub_query_context_concurrency: self.sub_query_context_concurrency,
             sub_query_fetch_concurrency: self.sub_query_fetch_concurrency,
         }
-    }
-
-    /// Returns whether the query matches at least one requested media type.
-    pub fn is_media_type(&self, media_types: &[String]) -> bool {
-        media_types
-            .iter()
-            .any(|media_type| self.media_types().contains(media_type))
     }
 
     /// Returns the flattened list of leaf field names produced by this query.
@@ -961,10 +940,6 @@ impl ScraperQuery for JsonScraperQuery {
 
     fn media_types(&self) -> &[String] {
         &self.media_types
-    }
-
-    fn is_media_type(&self, media_types: &[String]) -> bool {
-        self.is_media_type(media_types)
     }
 
     fn base_url(&self) -> &str {

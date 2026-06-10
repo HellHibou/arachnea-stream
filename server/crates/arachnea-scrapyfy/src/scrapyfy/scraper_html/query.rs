@@ -15,13 +15,13 @@ use serde::Deserialize;
 use std::collections::HashMap;
 
 use crate::scrapyfy::*;
+use crate::scrapyfy::scraper::config::{ScraperRequestHeader, ScraperRequestMethod};
 use crate::scrapyfy::scraper::entry_trait::ScraperEntrySpec;
 use crate::scrapyfy::scraper::query_trait::ScraperQuery;
 use crate::scrapyfy::scraper::row_locator::{RowLocator, ScraperType};
 use crate::scrapyfy::scraper::sub_query_spec::SubQuerySpec;
 use crate::scrapyfy::scraper_html::config::HtmlScraperQueryRaw;
 use crate::scrapyfy::scraper_html::entry::{HtmlScraperEntry, HtmlScraperSelectMode};
-use crate::scrapyfy::scraper_json::query::{ScraperRequestHeader, ScraperRequestMethod};
 use crate::scrapyfy::query_helpers::QueryTemplateParamMapping;
 
 /// A query definition for one HTML source and one result shape.
@@ -83,15 +83,8 @@ impl HtmlScraperQuery {
     /// # Errors
     ///
     /// Returns an error if any action fails validation for the `"query"` context.
-    pub(crate) fn validate_request_actions(
-        name: &str,
-        actions: &[ScraperAction],
-    ) -> Result<()> {
-        for action in actions {
-            action.validate(name, "query")?;
-        }
-
-        Ok(())
+    pub(crate) fn validate_request_actions(name: &str, actions: &[ScraperAction]) -> Result<()> {
+        crate::scrapyfy::query_helpers::validate_request_actions("query", name, actions)
     }
 
     /// Creates a query and panics if the row selector is invalid.
@@ -214,13 +207,6 @@ impl HtmlScraperQuery {
         self.result_item_field.as_deref()
     }
 
-    /// Returns whether the query matches at least one requested media type.
-    pub fn is_media_type(&self, media_types: &[String]) -> bool {
-        media_types
-            .iter()
-            .any(|media_type| self.media_types.contains(media_type))
-    }
-
     /// Returns the configured field extractors executed for every matched row.
     pub fn scraper_entries(&self) -> &Vec<HtmlScraperEntry> {
         &self.scraper_entries
@@ -324,10 +310,6 @@ impl ScraperQuery for HtmlScraperQuery {
         &self.media_types
     }
 
-    fn is_media_type(&self, media_types: &[String]) -> bool {
-        HtmlScraperQuery::is_media_type(self, media_types)
-    }
-
     fn base_url(&self) -> &str {
         &self.base_url
     }
@@ -379,10 +361,6 @@ impl ScraperQuery for HtmlScraperQuery {
         &self.post_processes
     }
 
-    fn result_item_field(&self) -> Option<&str> {
-        self.result_item_field.as_deref()
-    }
-
     fn entries(&self) -> Vec<&dyn ScraperEntrySpec> {
         self.scraper_entries
             .iter()
@@ -392,10 +370,6 @@ impl ScraperQuery for HtmlScraperQuery {
 
     fn sub_queries(&self) -> Vec<&dyn ScraperQuery> {
         Vec::new()
-    }
-
-    fn sub_query_spec(&self) -> Option<&SubQuerySpec> {
-        None
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -469,10 +443,6 @@ impl ScraperQuery for HtmlScraperSubQuery {
 
     fn post_processes(&self) -> &[crate::scrapyfy::ScraperPostProcess] {
         &self.post_processes
-    }
-
-    fn result_item_field(&self) -> Option<&str> {
-        None
     }
 
     fn entries(&self) -> Vec<&dyn ScraperEntrySpec> {

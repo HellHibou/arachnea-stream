@@ -8,6 +8,8 @@ use std::sync::OnceLock;
 use urlencoding::encode;
 
 use super::ScraperDataNode;
+use crate::scrapyfy::actions::ScraperAction;
+use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
 
 /// Compiled regex matching `{placeholder}` tokens in template strings.
 static PLACEHOLDER_REGEX: OnceLock<Regex> = OnceLock::new();
@@ -316,6 +318,117 @@ pub fn is_root_filtered(
     }
 
     false
+}
+
+// ---------------------------------------------------------------------------
+// Request validation and resolution helpers (shared by HTML/JSON scrapers)
+// ---------------------------------------------------------------------------
+
+/// Validates every action against the query-level contract.
+///
+/// # Arguments
+///
+/// * `context` - Context identifier used in diagnostic messages (e.g., "query" or "sub-query").
+/// * `name` - Query name used in diagnostic messages.
+/// * `actions` - Actions to validate.
+///
+/// # Errors
+///
+/// Returns an error if any action fails validation for the given `context`.
+pub fn validate_request_actions(
+    context: &str,
+    name: &str,
+    actions: &[ScraperAction],
+) -> Result<()> {
+    for action in actions {
+        action.validate(name, context)?;
+    }
+    Ok(())
+}
+
+/// Resolves request headers from a context row and template parameters.
+///
+/// Selects header values from the context using each header's pointer,
+/// applies its actions, and returns a map of header names to resolved values.
+/// Headers without a resolved value are silently skipped.
+///
+/// # Arguments
+///
+/// * `headers` - List of header configurations to resolve.
+/// * `context_row` - JSON value used for header pointer resolution.
+/// * `params` - Runtime template parameters.
+/// * `context_request_url` - URL of the parent request for action pipelines.
+///
+/// # Example
+///
+/// ```ignore
+/// let headers = vec![ScraperRequestHeader {
+///     name: "Authorization".to_string(),
+///     pointer: Some("auth.token".to_string()),
+///     select: HtmlScraperSelectMode::First,
+///     actions: vec![],
+/// }];
+/// let resolved = resolve_request_headers(&headers, &context_json, &params, "https://example.com")?;
+/// // resolved = {"Authorization": "Bearer xxx"}
+/// ```
+pub fn resolve_request_headers(
+    headers: &[crate::scrapyfy::scraper::config::ScraperRequestHeader],
+    context_row: &Value,
+    params: &HashMap<String, String>,
+    context_request_url: &str,
+) -> HashMap<String, String> {
+    use crate::scrapyfy::scraper_json::entry::{json_value_to_strings, select_json_values};
+
+    let mut resolved = HashMap::new();
+
+    for header in headers {
+        if let Some((name, value)) = header.resolve(context_row, params, context_request_url) {
+            resolved.insert(name, value);
+        }
+    }
+
+    resolved
+}
+
+/// Resolves the request body by selecting a JSON pointer value from the context
+/// and applying the configured body actions.
+///
+/// # Arguments
+///
+/// * `body_pointer` - Optional JSON pointer selecting the request body from the context.
+/// * `body_select` - Selection mode for the body pointer.
+/// * `body_actions` - Actions applied to the selected body values.
+/// * `context_row` - JSON value used for body pointer resolution.
+/// * `params` - Runtime template parameters.
+/// * `context_request_url` - URL of the parent request for action pipelines.
+///
+/// # Returns
+///
+/// The first non-empty trimmed body value after applying all actions,
+/// or `None` if no value was resolved.
+pub fn resolve_request_body(
+    body_pointer: Option<&str>,
+    body_select: HtmlScraperSelectMode,
+    body_actions: &[ScraperAction],
+    context_row: &Value,
+    params: &HashMap<String, String>,
+    context_request_url: &str,
+) -> Option<String> {
+    use crate::scrapyfy::scraper_json::entry::{json_value_to_strings, select_json_values};
+
+    let mut values = select_json_values(context_row, body_pointer, body_select)
+        .into_iter()
+        .flat_map(json_value_to_strings)
+        .collect::<Vec<_>>();
+
+    for action in body_actions {
+        values = action.apply(&None, values, params, context_request_url, None, None);
+    }
+
+    values
+        .into_iter()
+        .map(|value| value.trim().to_string())
+        .find(|value| !value.is_empty())
 }
 
 #[cfg(test)]

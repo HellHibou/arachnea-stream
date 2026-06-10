@@ -7,8 +7,8 @@
 
 use crate::scrapyfy::actions::ScraperAction;
 use crate::scrapyfy::post_processes::ScraperPostProcess;
+use crate::scrapyfy::scraper::config::{ScraperRequestHeader, ScraperRequestMethod};
 use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
-use crate::scrapyfy::scraper_json::query::{ScraperRequestHeader, ScraperRequestMethod};
 use crate::scrapyfy::{HttpClient, ScraperHttpConfig};
 
 use std::any::Any;
@@ -37,7 +37,11 @@ pub trait ScraperQuery: Send + Sync {
     fn media_types(&self) -> &[String];
 
     /// Returns whether the query matches at least one requested media type.
-    fn is_media_type(&self, media_types: &[String]) -> bool;
+    fn is_media_type(&self, media_types: &[String]) -> bool {
+        media_types
+            .iter()
+            .any(|media_type| self.media_types().contains(media_type))
+    }
 
     // --- Requête HTTP (commun racine et sub_query) ---
 
@@ -54,7 +58,9 @@ pub trait ScraperQuery: Send + Sync {
     fn request_pointer(&self) -> Option<&str>;
 
     /// Returns the selection mode for the request pointer.
-    fn request_select(&self) -> HtmlScraperSelectMode;
+    fn request_select(&self) -> HtmlScraperSelectMode {
+        HtmlScraperSelectMode::All
+    }
 
     /// Returns the request actions applied before the HTTP call.
     fn request_actions(&self) -> &[ScraperAction];
@@ -86,7 +92,9 @@ pub trait ScraperQuery: Send + Sync {
 
     /// Returns the optional group field whose items should be promoted to
     /// top-level entries.
-    fn result_item_field(&self) -> Option<&str>;
+    fn result_item_field(&self) -> Option<&str> {
+        None
+    }
 
     // --- Entries ---
 
@@ -101,7 +109,9 @@ pub trait ScraperQuery: Send + Sync {
     // --- Spec sub-query (None pour racines) ---
 
     /// Returns the sub-query spec (or `None` for root queries).
-    fn sub_query_spec(&self) -> Option<&SubQuerySpec>;
+    fn sub_query_spec(&self) -> Option<&SubQuerySpec> {
+        None
+    }
 
     // --- Query-level sub-query detection (legacy) ---
 

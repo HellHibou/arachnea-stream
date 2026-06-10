@@ -8,23 +8,11 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize, Serializer};
 use std::collections::HashMap;
 
-use crate::scrapyfy::scraper_html::entry::{HtmlScraperEntryRaw, HtmlScraperSelectMode};
+use crate::scrapyfy::scraper::config::{ScraperQueryCommon, ScraperQueryRaw, ScraperRequestHeaderRaw, SubQueryCommon};
+use crate::scrapyfy::scraper_html::entry::HtmlScraperEntryRaw;
 use crate::scrapyfy::scraper_html::query::HtmlScraperQuery;
-use crate::scrapyfy::scraper_json::query::{
-    ScraperRequestHeaderRaw, ScraperRequestMethod,
-};
 use crate::scrapyfy::query_helpers::{self, QueryTemplateParamMapping};
-use crate::scrapyfy::{HttpClient, ScraperAction, ScraperHttpConfig, ScraperPostProcess};
-
-/// Defaults to [`HtmlScraperSelectMode::All`].
-fn default_html_select_mode() -> HtmlScraperSelectMode {
-    HtmlScraperSelectMode::All
-}
-
-/// Defaults to [`ScraperRequestMethod::Get`].
-fn default_html_request_method() -> ScraperRequestMethod {
-    ScraperRequestMethod::Get
-}
+use crate::scrapyfy::{HttpClient, ScraperHttpConfig};
 
 /// Defaults to `4`.
 fn default_html_row_concurrency() -> usize {
@@ -37,61 +25,26 @@ fn default_html_row_concurrency() -> usize {
 /// [`TryFrom`].
 #[derive(Serialize, Deserialize)]
 pub struct HtmlScraperQueryRaw {
-    /// Query identifier used as the lookup key in a collection.
-    name: String,
-    /// Base URL of the source, also available as `{base_url}` in templates.
-    base_url: String,
-    /// Resolved base URL after collection-level placeholder substitution.
-    #[serde(skip)]
-    resolved_base_url: Option<String>,
-    /// Content types this query produces.
-    media_types: Vec<String>,
-    /// URL template used to build the request.
-    query_url: String,
-    /// HTTP method used to issue the request.
-    #[serde(default = "default_html_request_method")]
-    request_method: ScraperRequestMethod,
-    /// Optional JSON pointer selecting the request body from runtime params.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    request_body_pointer: Option<String>,
-    /// Selection mode for the request body pointer.
-    #[serde(default = "default_html_select_mode")]
-    request_body_select: HtmlScraperSelectMode,
-    /// Actions applied to the request body before the HTTP call.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    request_body_actions: Vec<ScraperAction>,
-    /// HTTP headers attached to the request.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    request_headers: Vec<ScraperRequestHeaderRaw>,
-    /// HTTP client configuration (mode, user agent, max redirects).
-    #[serde(default, skip_serializing_if = "ScraperHttpConfig::is_empty")]
-    http: ScraperHttpConfig,
-    /// Source-to-target parameter mappings applied before template resolution.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    query_param_mappings: Vec<QueryTemplateParamMapping>,
+    /// Common configuration fields shared with JSON scraper.
+    #[serde(flatten)]
+    pub common: ScraperQueryCommon,
     /// Maximum number of rows whose async post-process steps may run together.
     #[serde(default = "default_html_row_concurrency")]
-    row_concurrency: usize,
+    pub row_concurrency: usize,
     /// CSS selector matching each result row in the fetched page.
-    row_selector: String,
+    pub row_selector: String,
     /// Resolved row selector after collection-level placeholder substitution.
     #[serde(skip)]
-    resolved_row_selector: Option<String>,
-    /// Optional group field whose items should become query rows.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    result_item_field: Option<String>,
+    pub resolved_row_selector: Option<String>,
     /// Field extractors executed for every matched row.
-    entries: Vec<HtmlScraperEntryRaw>,
-    /// Post-processing steps applied to each extracted row.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    post_process: Vec<ScraperPostProcess>,
+    pub entries: Vec<HtmlScraperEntryRaw>,
 }
 
 impl HtmlScraperQueryRaw {
 
     /// Returns the query name used as the lookup key in a collection.
     pub fn name(&self) -> String {
-        self.name.clone()
+        self.common.name.clone()
     }
 
     /// Resolves collection-level placeholders used by this HTML query config.
@@ -107,16 +60,11 @@ impl HtmlScraperQueryRaw {
         &mut self,
         params: &HashMap<String, String>,
     ) -> Result<()> {
-        self.resolved_base_url = Some(query_helpers::resolve_required_template(
-            "HTML query",
-            &self.name,
-            "base_url",
-            &self.base_url,
-            params,
-        )?);
+        self.common.resolve_collection_params("HTML query", params)?;
+        
         self.resolved_row_selector = Some(query_helpers::resolve_required_template(
             "HTML query",
-            &self.name,
+            &self.common.name,
             "row_selector",
             &self.row_selector,
             params,
@@ -125,8 +73,6 @@ impl HtmlScraperQueryRaw {
         for entry in &mut self.entries {
             entry.resolve_collection_params(params)?;
         }
-        self.http
-            .resolve_collection_params("HTML query", &self.name, params)?;
 
         Ok(())
     }
@@ -137,7 +83,35 @@ impl HtmlScraperQueryRaw {
     ///
     /// * `collection_http` - HTTP configuration inherited from the parent collection.
     pub(crate) fn apply_collection_http(&mut self, collection_http: &ScraperHttpConfig) {
-        self.http = collection_http.merge(&self.http);
+        self.common.apply_collection_http(collection_http);
+    }
+}
+
+impl ScraperQueryRaw for HtmlScraperQueryRaw {
+    fn name(&self) -> String {
+        self.common.name.clone()
+    }
+
+    fn resolve_collection_params(&mut self, params: &HashMap<String, String>) -> Result<()> {
+        self.common.resolve_collection_params("HTML query", params)?;
+
+        self.resolved_row_selector = Some(query_helpers::resolve_required_template(
+            "HTML query",
+            &self.common.name,
+            "row_selector",
+            &self.row_selector,
+            params,
+        )?);
+
+        for entry in &mut self.entries {
+            entry.resolve_collection_params(params)?;
+        }
+
+        Ok(())
+    }
+
+    fn apply_collection_http(&mut self, collection_http: &ScraperHttpConfig) {
+        self.common.apply_collection_http(collection_http);
     }
 }
 
@@ -151,6 +125,14 @@ impl TryFrom<HtmlScraperQueryRaw> for HtmlScraperQuery {
     /// Returns an error if the row selector, entries, or request headers are invalid.
     fn try_from(config: HtmlScraperQueryRaw) -> Result<Self> {
         let HtmlScraperQueryRaw {
+            common,
+            row_concurrency,
+            row_selector,
+            resolved_row_selector,
+            entries,
+        } = config;
+
+        let ScraperQueryCommon {
             name,
             base_url,
             resolved_base_url,
@@ -163,13 +145,10 @@ impl TryFrom<HtmlScraperQueryRaw> for HtmlScraperQuery {
             request_headers,
             http,
             query_param_mappings,
-            row_concurrency,
-            row_selector,
-            resolved_row_selector,
             result_item_field,
-            entries,
             post_process,
-        } = config;
+            ..
+        } = common;
 
         let entries = entries
             .into_iter()
@@ -180,8 +159,7 @@ impl TryFrom<HtmlScraperQueryRaw> for HtmlScraperQuery {
             .map(TryInto::try_into)
             .collect::<Result<Vec<_>>>()?;
         let resolved_base_url = query_helpers::resolved_or_template(&base_url, resolved_base_url);
-        let resolved_row_selector =
-            query_helpers::resolved_or_template(&row_selector, resolved_row_selector);
+        let resolved_row_selector = query_helpers::resolved_or_template(&row_selector, resolved_row_selector);
 
         HtmlScraperQuery::validate_request_actions(&name, &request_body_actions)?;
 
@@ -219,38 +197,44 @@ impl From<&HtmlScraperQuery> for HtmlScraperQueryRaw {
     /// Converts a runtime query back into its raw YAML-compatible representation.
     fn from(query: &HtmlScraperQuery) -> Self {
         Self {
-            name: query.name.clone(),
-            base_url: query.base_url_template.clone(),
-            resolved_base_url: None,
-            media_types: query.media_types.clone(),
-            query_url: query.query_url.clone(),
-            request_method: query.request_method,
-            request_body_pointer: query.request_body_pointer.clone(),
-            request_body_select: query.request_body_select,
-            request_body_actions: query.request_body_actions.clone(),
-            request_headers: query
-                .request_headers
-                .iter()
-                .map(ScraperRequestHeaderRaw::from)
-                .collect(),
-            http: query.http_config.clone(),
-            query_param_mappings: query.query_param_mappings.clone(),
+            common: ScraperQueryCommon {
+                name: query.name.clone(),
+                base_url: query.base_url_template.clone(),
+                resolved_base_url: None,
+                media_types: query.media_types.clone(),
+                query_url: query.query_url.clone(),
+                request_method: query.request_method,
+                request_body_pointer: query.request_body_pointer.clone(),
+                request_body_select: query.request_body_select,
+                request_body_actions: query.request_body_actions.clone(),
+                request_headers: query
+                    .request_headers
+                    .iter()
+                    .map(|h| ScraperRequestHeaderRaw {
+                        name: h.name.clone(),
+                        pointer: h.pointer.clone(),
+                        select: h.select,
+                        actions: h.actions.clone(),
+                    })
+                    .collect(),
+                http: query.http_config.clone(),
+                query_param_mappings: query.query_param_mappings.clone(),
+                result_item_field: query.result_item_field.clone(),
+                post_process: query.post_processes.clone(),
+            },
             row_concurrency: query.row_concurrency,
             row_selector: query.row_selector_template.clone(),
             resolved_row_selector: None,
-            result_item_field: query.result_item_field.clone(),
             entries: query
                 .scraper_entries
                 .iter()
                 .map(HtmlScraperEntryRaw::from)
                 .collect(),
-            post_process: query.post_processes.clone(),
         }
     }
 }
 
 impl Serialize for HtmlScraperQuery {
-    
     /// Serializes the query through its raw YAML representation.
     ///
     /// # Arguments
@@ -261,5 +245,216 @@ impl Serialize for HtmlScraperQuery {
         S: Serializer,
     {
         HtmlScraperQueryRaw::from(self).serialize(serializer)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Sub-query raw type for HTML (symmetrical with JsonScraperSubQueryRaw)
+// ---------------------------------------------------------------------------
+
+/// Raw configuration definition of one chained HTML follow-up request.
+///
+/// Same field set as [`crate::scrapyfy::scraper_json::config::EntrySubQueryRaw::Html`]
+/// but used at the query level for symmetry with JSON scraper.
+/// Currently HTML queries don't have root-level sub-queries, but this type
+/// is provided for future extensibility and code consistency.
+#[derive(Serialize, Deserialize)]
+pub struct HtmlScraperSubQueryRaw {
+    /// Common configuration fields shared with EntrySubQueryRaw.
+    #[serde(flatten)]
+    pub common: SubQueryCommon,
+    /// CSS selector matching each result row in the follow-up response.
+    pub row_selector: String,
+    /// Field extractors executed for every matched row.
+    pub entries: Vec<HtmlScraperEntryRaw>,
+    /// Entries extracted from the context row rather than from fetched rows.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub context_entries: Vec<HtmlScraperEntryRaw>,
+    /// Nested sub-queries (recursion).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sub_queries: Vec<HtmlScraperSubQueryRaw>,
+}
+
+impl HtmlScraperSubQueryRaw {
+    /// Propagates the parent HTTP configuration into this sub-query and its children.
+    ///
+    /// # Arguments
+    ///
+    /// * `parent_http` - HTTP configuration inherited from the parent query.
+    pub(crate) fn apply_parent_http(&mut self, parent_http: &ScraperHttpConfig) {
+        self.common.apply_parent_http(parent_http);
+        let child_http = self.common.http.clone();
+        for sub_query in &mut self.sub_queries {
+            sub_query.apply_parent_http(&child_http);
+        }
+    }
+
+    /// Resolves collection-level placeholders in this sub-query's HTTP config.
+    ///
+    /// # Arguments
+    ///
+    /// * `parent_name` - Parent query name used in diagnostic messages.
+    /// * `params` - Collection-level template parameters.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a required placeholder is missing from `params`.
+    pub(crate) fn resolve_collection_params(
+        &mut self,
+        parent_name: &str,
+        params: &HashMap<String, String>,
+    ) -> Result<()> {
+        self.common
+            .resolve_collection_params("HTML sub-query", parent_name, params)?;
+        for sub_query in &mut self.sub_queries {
+            sub_query.resolve_collection_params(parent_name, params)?;
+        }
+        Ok(())
+    }
+}
+
+impl TryFrom<HtmlScraperSubQueryRaw> for crate::scrapyfy::scraper_html::query::HtmlScraperSubQuery {
+    type Error = anyhow::Error;
+
+    /// Converts a raw YAML sub-query definition into a validated runtime sub-query.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the row selector is empty or the target is empty.
+    fn try_from(config: HtmlScraperSubQueryRaw) -> Result<Self> {
+        let HtmlScraperSubQueryRaw {
+            common,
+            row_selector,
+            entries,
+            context_entries,
+            sub_queries,
+        } = config;
+
+        let SubQueryCommon {
+            context_pointer,
+            context_select,
+            filters,
+            row_filters,
+            target,
+            request_pointer,
+            request_select,
+            request_actions,
+            request_method,
+            request_headers,
+            http,
+            post_process,
+            ..
+        } = common;
+
+        if row_selector.is_empty() {
+            anyhow::bail!("Invalid HTML sub-query: row_selector cannot be empty");
+        }
+        if target
+            .as_deref()
+            .is_some_and(|target| target.trim().is_empty())
+        {
+            anyhow::bail!("Invalid HTML sub-query: target cannot be empty");
+        }
+
+        let selector = ::scraper::Selector::parse(&row_selector)
+            .map_err(|e| anyhow::anyhow!("Invalid row_selector '{}': {}", row_selector, e))?;
+        let entries: Vec<crate::scrapyfy::scraper_html::entry::HtmlScraperEntry> = entries
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<_>>>()?;
+        let context_entries: Vec<crate::scrapyfy::scraper_html::entry::HtmlScraperEntry> = context_entries
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<_>>>()?;
+        let request_headers: Vec<crate::scrapyfy::scraper::config::ScraperRequestHeader> = request_headers
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<_>>>()?;
+        let sub_queries: Vec<Box<dyn crate::scrapyfy::scraper::query_trait::ScraperQuery>> = sub_queries
+            .into_iter()
+            .map(|raw| -> Result<_> {
+                let runtime: crate::scrapyfy::scraper_html::query::HtmlScraperSubQuery = raw.try_into()?;
+                Ok(Box::new(runtime) as Box<dyn crate::scrapyfy::scraper::query_trait::ScraperQuery>)
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(Self {
+            context_pointer,
+            context_select,
+            filters,
+            row_filters,
+            context_entries,
+            target,
+            request_pointer,
+            request_select,
+            request_actions,
+            request_method,
+            request_headers,
+            http_config: http,
+            row_selector: row_selector.clone(),
+            row_selector_compiled: selector,
+            entries,
+            post_processes: post_process,
+            sub_queries,
+            http_client: HttpClient::new(""),
+        })
+    }
+}
+
+impl From<&crate::scrapyfy::scraper_html::query::HtmlScraperSubQuery> for HtmlScraperSubQueryRaw {
+    /// Converts a runtime sub-query back into its raw YAML-compatible representation.
+    fn from(sub_query: &crate::scrapyfy::scraper_html::query::HtmlScraperSubQuery) -> Self {
+        Self {
+            common: SubQueryCommon {
+                context_pointer: sub_query.context_pointer.clone(),
+                context_select: sub_query.context_select,
+                filters: sub_query.filters.clone(),
+                row_filters: sub_query.row_filters.clone(),
+                target: sub_query.target.clone(),
+                request_pointer: sub_query.request_pointer.clone(),
+                request_select: sub_query.request_select,
+                request_actions: sub_query.request_actions.clone(),
+                request_method: sub_query.request_method,
+                request_headers: sub_query
+                    .request_headers
+                    .iter()
+                    .map(|h| ScraperRequestHeaderRaw {
+                        name: h.name.clone(),
+                        pointer: h.pointer.clone(),
+                        select: h.select,
+                        actions: h.actions.clone(),
+                    })
+                    .collect(),
+                http: sub_query.http_config.clone(),
+                post_process: sub_query.post_processes.clone(),
+            },
+            row_selector: sub_query.row_selector.clone(),
+            entries: sub_query
+                .entries
+                .iter()
+                .map(HtmlScraperEntryRaw::from)
+                .collect(),
+            context_entries: sub_query
+                .context_entries
+                .iter()
+                .map(HtmlScraperEntryRaw::from)
+                .collect(),
+            sub_queries: sub_query
+                .sub_queries
+                .iter()
+                .map(|child| {
+                    child
+                        .as_any()
+                        .downcast_ref::<crate::scrapyfy::scraper_html::query::HtmlScraperSubQuery>()
+                        .map(HtmlScraperSubQueryRaw::from)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "HtmlScraperSubQuery::from: nested sub-query '{}' is not a HtmlScraperSubQuery",
+                                child.name()
+                            )
+                        })
+                })
+                .collect(),
+        }
     }
 }

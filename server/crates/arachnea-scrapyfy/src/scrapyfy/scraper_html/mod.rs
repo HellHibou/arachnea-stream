@@ -11,6 +11,6 @@ pub mod config;
 pub mod entry;
 pub mod query;
 
+pub use config::{HtmlScraperQueryRaw, HtmlScraperSubQueryRaw};
 pub use entry::{HtmlScraperEntry, HtmlScraperEntryRaw, HtmlScraperSelectMode};
-pub use config::HtmlScraperQueryRaw;
 pub use query::HtmlScraperQuery;

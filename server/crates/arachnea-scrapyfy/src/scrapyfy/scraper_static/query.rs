@@ -6,9 +6,9 @@ use serde_yaml::Value;
 use std::collections::HashMap;
 
 use crate::scrapyfy::scraper::{RowLocator, ScraperEntrySpec, ScraperQuery, ScraperType, SubQuerySpec};
+use crate::scrapyfy::scraper::config::{ScraperRequestHeader, ScraperRequestMethod};
 use crate::scrapyfy::scraper_data_node::ScraperDataNode;
 use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
-use crate::scrapyfy::scraper_json::query::{ScraperRequestHeader, ScraperRequestMethod};
 use crate::scrapyfy::*;
 use crate::scrapyfy::query_helpers;
 
