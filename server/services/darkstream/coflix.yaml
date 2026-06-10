@@ -593,7 +593,7 @@ queries:
       # Movie player: extract the iframe src (Coflix player page)
       # then follow up with an HTML fetch using Origin: {base_url}
       # to resolve showVideo('base64') calls into actual hoster URLs.
-      - name: players > embed-link
+      - name: players
         actions:
           - type: get_response_body
           - type: regex_find_all

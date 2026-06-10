@@ -738,11 +738,14 @@ async fn execute_entry_sub_queries(
                         // child value (e.g. each decoded embed URL) becomes
                         // one item so that `keep_first_values` does not
                         // discard it.
-                        for (_name, child) in &merged.children {
+                        for (name, child) in &merged.children {
                             for val in &child.values {
-                                let mut entry = ScraperDataNode::default();
-                                entry.values.push(val.clone());
-                                target.items.push(entry);
+                                let mut item_node = ScraperDataNode::default();
+                                item_node.children.insert(
+                                    name.clone(),
+                                    ScraperDataNode::from_values(vec![val.clone()]),
+                                );
+                                target.items.push(item_node);
                             }
                         }
                         for val in &merged.values {

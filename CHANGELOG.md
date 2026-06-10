@@ -22,6 +22,7 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ### Fixed
 - **coflix.yaml**: Updated `get_entry` query to correctly extract season labels and links from the HTML entry page.
 - **coflix.yaml**: Fixed `get_season` query to correctly iterate over all episodes in the `episodes` array.
+- **Entry-level sub-query merge shape**: `execute_entry_sub_queries` now wraps each decoded sub-query value inside a named child node (`{ "embed-link": ["url"] }`) instead of pushing bare scalar items. This causes the serializer to emit an array of objects (`"players": [{"embed-link": ["url1"]}, …]`) instead of a flat string array (`"players": {"embed-link": ["url1", …]}`). Fixes the `players` output shape for `coflix.yaml` `get_entry`.
 
 ## Unreleased — query-level sub-query regression fix
 
