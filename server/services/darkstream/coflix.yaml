@@ -19,8 +19,6 @@ shared:
     - video/show/serie
     - video/show/anime
 
-  # Extracts a protocol-relative or absolute src URL from an HTML img tag string
-  # e.g. '<img src="//cdn.coflix.../img.jpg">' or '<img src="https://...">'
   actions_img_html_to_url: &actions_img_html_to_url
     - type: regex_find_all
       pattern: 'src="(?:https?:)?(//[^"]+)'
@@ -120,7 +118,6 @@ shared:
 
 queries:
 
-  # ---------------------------------------------------------------
   - name: service_stream_metadata
     scraper_type: static
     entries:
@@ -133,12 +130,6 @@ queries:
       - name: description
         value: "{service_description}"
 
-  # ---------------------------------------------------------------
-  # Search via suggest API — returns a root JSON array
-  # Response: [{title, ID, url, post_type, year, excerpt, image, rating, director, cast}, ...]
-  #
-  # Each array element becomes one result row.
-  # ---------------------------------------------------------------
   - name: search
     scraper_type: json
     base_url: "{base_url}"
@@ -204,9 +195,6 @@ queries:
           actions: *optional_html_entry
 
 
-  # ---------------------------------------------------------------
-  # Home page: static categories pointing to the REST API
-  # ---------------------------------------------------------------
   - name: load_home
     scraper_type: html
     media_types: *media_types_coflix
@@ -338,13 +326,6 @@ queries:
                 actions:
                   - type: get_text
 
-  # ---------------------------------------------------------------
-  # Category listing via REST API
-  # Response: {results: [{name, uuid, url, ts, release, excerpt, path}, ...]}
-  # query_url comes from load_home categories (without page suffix)
-  #
-  # Wraps results into the standard {source, sections: [{entries: [...]}]} shape.
-  # ---------------------------------------------------------------
   - name: get_category
     scraper_type: json
     base_url: "{base_url}"
@@ -435,13 +416,6 @@ queries:
                     argument:
                       "false": null
 
-  # ---------------------------------------------------------------
-  # Category listing via REST API
-  # Response: {results: [{name, uuid, url, ts, release, excerpt, path}, ...]}
-  # query_url comes from load_home categories (without page suffix)
-  #
-  # Wraps results into the standard {source, sections: [{entries: [...]}]} shape.
-  # ---------------------------------------------------------------
   - name: get_section
     scraper_type: json
     base_url: "{base_url}"
@@ -537,16 +511,6 @@ queries:
                 argument:
                   "false": null                     
 
-  # ---------------------------------------------------------------
-  # Detail page for a movie or series (HTML)
-  # For series: extracts season radio inputs (data-season + post-id attributes)
-  # For movies:  extracts the iframe embed src as players > embed-link
-  #
-  # NOTE: movie player resolution requires a further HTTP step + base64 decode
-  # (coflix player page → showVideo('base64url') → actual hoster URL).
-  # The iframe src is returned as embed-link and may be usable as a Coflix player embed.
-  # Full hoster resolution is not supported by the current YAML action set.
-  # ---------------------------------------------------------------
   - name: get_entry
     scraper_type: html
     base_url: "{base_url}"
@@ -576,23 +540,17 @@ queries:
           - type: regex_find_all
             pattern: '(\d{4})'
             format: "{1}"
-      # Seasons: radio input[name="seasons"] data-season="N" post-id="X"
-      # Label is the span text next to the radio ("La Sorcière invincible tueuse de Slime depuis 300 ans - Season 1", etc.)
       - name: season > label
         selector: 'input[name="seasons"] + span'
         select: all
         actions:
           - type: get_text
-      # Season API URL built from both data-season and post-id attributes via response body regex
       - name: season > link
         actions:
           - type: get_response_body
           - type: regex_find_all
             pattern: 'name="seasons"\s[^>]*data-season="(\d+)"\s[^>]*post-id="(\d+)'
             format: "{base_url}/wp-json/apiflix/v1/series/{2}/{1}"
-      # Movie player: extract the iframe src (Coflix player page)
-      # then follow up with an HTML fetch using Origin: {base_url}
-      # to resolve showVideo('base64') calls into actual hoster URLs.
       - name: players
         actions:
           - type: get_response_body
@@ -602,22 +560,28 @@ queries:
         sub_queries:
           - scraper_type: html
             row_selector: "html"
+            context_pointer: "/*"
             request_headers:
               - name: "Referer"
                 actions:
                   - type: format_text
                     argument: "{base_url}"
             entries:
-              # Extract all base64 parameters from showVideo('...') calls.
-              # Flat name so the result is a plain string array, not nested.
               - name: embed-link
-                select: all
                 actions:
                   - type: get_response_body
                   - type: regex_find_all
                     pattern: "showVideo\\(\\s*['\"]([A-Za-z0-9+/=]+)['\"]"
                     format: "{1}"
                   - type: base64_decode
+              - name: name
+                actions:
+                  - type: get_response_body
+                  - type: regex_find_all
+                    pattern: "showVideo\\(\\s*['\"]([A-Za-z0-9+/=]+)['\"]"
+                    format: "{1}"
+                  - type: base64_decode
+                  - type: get_url_host
       - name: rating
         selector: "span.imdb > span"
         actions:
@@ -643,23 +607,6 @@ queries:
         actions:
           - type: get_text
 
-
-# ---------------------------------------------------------------
-  # Season detail via REST API
-  # URL: {base_url}/wp-json/apiflix/v1/series/{post_id}/{season_num}
-  # (built by get_entry from season > link)
-  # Response: {post_id, title, episodes: [{id, title, number, season, image, links}, ...]}
-  #
-  # Each episode's embed-link is resolved via a sub-query:
-  # 1. Build the player API URL from the episode ID:
-  #    {base_url}wp-json/apiflix/v1/playerepisode?post_id={}
-  # 2. Fetch the JSON response:
-  #    {term_id, links: {online: [{i, lang, quality, server, link, date}, ...]}}
-  # 3. Extract the "link" field from each online entry as embed-link
-  #
-  # Wrapped into the standard section result shape:
-  # {source, current_page, have_more, episodes: [...]}
-  # ---------------------------------------------------------------
   - name: get_season
     scraper_type: json
     base_url: "{base_url}"

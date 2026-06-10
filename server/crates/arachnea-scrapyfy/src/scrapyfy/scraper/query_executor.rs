@@ -735,23 +735,132 @@ async fn execute_entry_sub_queries(
                         target.children.clear();
                         target.items.clear();
                         // Convert fetched rows into array items — each
-                        // child value (e.g. each decoded embed URL) becomes
-                        // one item so that `keep_first_values` does not
-                        // discard it.
-                        for (name, child) in &merged.children {
-                            for val in &child.values {
-                                let mut item_node = ScraperDataNode::default();
-                                item_node.children.insert(
-                                    name.clone(),
-                                    ScraperDataNode::from_values(vec![val.clone()]),
-                                );
-                                target.items.push(item_node);
+                        // sibling field (e.g. embed-link and name) is
+                        // zipped by index so that values at the same
+                        // position become a single item.
+                        //
+                        // Algorithm:
+                        // 1. Collect all children that have the same
+                        //    number of values and zip them together by
+                        //    index, producing one item per index with
+                        //    all fields combined.
+                        // 2. Any child with a different cardinality is
+                        //    left as individual items (legacy fallback).
+                        // 3. Root-level `merged.values` are appended
+                        //    as individual items.
+                        if merged.children.len() >= 2 {
+                            // Determine the target cardinality from
+                            // the first child that has values.
+                            let cardinality = merged
+                                .children
+                                .values()
+                                .find_map(|c| {
+                                    if !c.values.is_empty() {
+                                        Some(c.values.len())
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .unwrap_or(0);
+                            if cardinality > 0 {
+                                // Partition children: those matching the
+                                // cardinality are zipped; others are left
+                                // as individual items.
+                                let mut common: Vec<(&String, &Vec<String>)> = Vec::new();
+                                let mut leftover: Vec<(&String, &ScraperDataNode)> = Vec::new();
+                                for (name, child) in &merged.children {
+                                    if child.values.len() == cardinality {
+                                        common.push((name, &child.values));
+                                    } else if !child.values.is_empty() {
+                                        leftover.push((name, child));
+                                    }
+                                }
+                                if common.len() >= 2 {
+                                    // Zip common fields by index.
+                                    for i in 0..cardinality {
+                                        let mut item_node = ScraperDataNode::default();
+                                        for (name, values) in &common {
+                                            item_node.children.insert(
+                                                (*name).clone(),
+                                                ScraperDataNode::from_values(
+                                                    vec![values[i].clone()],
+                                                ),
+                                            );
+                                        }
+                                        target.items.push(item_node);
+                                    }
+                                    // Add leftover children as individual items.
+                                    for (name, child) in leftover {
+                                        for val in &child.values {
+                                            let mut item_node = ScraperDataNode::default();
+                                            item_node.children.insert(
+                                                (*name).clone(),
+                                                ScraperDataNode::from_values(
+                                                    vec![val.clone()],
+                                                ),
+                                            );
+                                            target.items.push(item_node);
+                                        }
+                                    }
+                                } else {
+                                    // Not enough common fields — fall
+                                    // back to individual-item logic.
+                                    for (name, child) in &merged.children {
+                                        for val in &child.values {
+                                            let mut item_node = ScraperDataNode::default();
+                                            item_node.children.insert(
+                                                (*name).clone(),
+                                                ScraperDataNode::from_values(
+                                                    vec![val.clone()],
+                                                ),
+                                            );
+                                            target.items.push(item_node);
+                                        }
+                                    }
+                                    for val in &merged.values {
+                                        let mut entry = ScraperDataNode::default();
+                                        entry.values.push(val.clone());
+                                        target.items.push(entry);
+                                    }
+                                }
+                            } else {
+                                // No values — fall back to individual-item logic.
+                                for (name, child) in &merged.children {
+                                    for val in &child.values {
+                                        let mut item_node = ScraperDataNode::default();
+                                        item_node.children.insert(
+                                            (*name).clone(),
+                                            ScraperDataNode::from_values(
+                                                vec![val.clone()],
+                                            ),
+                                        );
+                                        target.items.push(item_node);
+                                    }
+                                }
+                                for val in &merged.values {
+                                    let mut entry = ScraperDataNode::default();
+                                    entry.values.push(val.clone());
+                                    target.items.push(entry);
+                                }
                             }
-                        }
-                        for val in &merged.values {
-                            let mut entry = ScraperDataNode::default();
-                            entry.values.push(val.clone());
-                            target.items.push(entry);
+                        } else {
+                            // Single child — use the original
+                            // individual-item logic.
+                            for (name, child) in &merged.children {
+                                for val in &child.values {
+                                    let mut item_node = ScraperDataNode::default();
+                                    item_node.children.insert(
+                                        name.clone(),
+                                        ScraperDataNode::from_values(vec![val.clone()]),
+                                    );
+                                    target.items.push(item_node);
+                                }
+                            }
+                            for val in &merged.values {
+                                let mut entry = ScraperDataNode::default();
+                                entry.values.push(val.clone());
+                                target.items.push(entry);
+                            }
                         }
                     }
                 } else {
