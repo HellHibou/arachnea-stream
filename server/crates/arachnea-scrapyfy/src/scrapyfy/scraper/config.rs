@@ -12,7 +12,7 @@ use crate::scrapyfy::{ScraperAction, ScraperHttpConfig, ScraperPostProcess};
 use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
 
 // ---------------------------------------------------------------------------
-// Default-value helpers
+// Default value helpers
 // ---------------------------------------------------------------------------
 
 /// Defaults to [`HtmlScraperSelectMode::All`].
@@ -26,21 +26,33 @@ pub fn default_request_method() -> ScraperRequestMethod {
 }
 
 // ---------------------------------------------------------------------------
-// Shared HTTP request types
+// HTTP request types
 // ---------------------------------------------------------------------------
 
 /// Supported HTTP methods for scraper requests.
+///
+/// Defines the HTTP methods that can be used when making requests to scrape data.
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ScraperRequestMethod {
     /// GET request.
+    ///
+    /// Used for retrieving data without side effects.
     Get,
     /// POST request.
+    ///
+    /// Used for sending data to the server, typically for form submissions or API calls.
     Post,
 }
 
 impl ScraperRequestMethod {
     /// Converts this enum variant into the corresponding [`http::Method`].
+    ///
+    /// # Returns
+    ///
+    /// The equivalent `http::Method` for use with HTTP clients.
+    /// - [`ScraperRequestMethod::Get`] → `http::Method::GET`
+    /// - [`ScraperRequestMethod::Post`] → `http::Method::POST`
     pub fn as_http_method(self) -> http::Method {
         match self {
             Self::Get => http::Method::GET,
@@ -50,30 +62,55 @@ impl ScraperRequestMethod {
 }
 
 /// Raw configuration definition of one header added to a scraper request.
+///
+/// This is the YAML deserialization format for header definitions.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ScraperRequestHeaderRaw {
     /// Header name.
+    ///
+    /// The name of the HTTP header (e.g., "Authorization", "User-Agent").
     pub name: String,
+
     /// Optional JSON pointer selecting the header value.
+    ///
+    /// When set, the header value is extracted from the context using this JSON pointer.
+    /// If `None`, the header value must be provided via other means.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pointer: Option<String>,
+
     /// Selection mode for the header pointer.
+    ///
+    /// Determines whether to use the first match or all matches from the pointer:
+    /// - [`HtmlScraperSelectMode::First`]: Only the first matching value.
+    /// - [`HtmlScraperSelectMode::All`]: All matching values (joined with ", ").
     #[serde(default = "default_select_mode")]
     pub select: HtmlScraperSelectMode,
+
     /// Actions applied to the header value.
+    ///
+    /// A pipeline of transformations applied to the resolved header value before
+    /// it's added to the HTTP request.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub actions: Vec<ScraperAction>,
 }
 
 /// Runtime definition of one header added to a scraper request.
+///
+/// This is the validated, runtime representation of a header after processing
+/// the raw YAML configuration.
 #[derive(Clone, Debug)]
 pub struct ScraperRequestHeader {
     /// Header name.
+    ///
+    /// The name of the HTTP header.
     pub name: String,
+
     /// Optional JSON pointer selecting the header value.
     pub pointer: Option<String>,
+
     /// Selection mode for the header pointer.
     pub select: HtmlScraperSelectMode,
+
     /// Actions applied to the header value.
     pub actions: Vec<ScraperAction>,
 }
@@ -192,35 +229,47 @@ impl Serialize for ScraperRequestHeader {
 }
 
 // ---------------------------------------------------------------------------
-// Traits communs
+// Common traits
 // ---------------------------------------------------------------------------
 
-/// Trait commun pour toutes les configurations de requêtes (HTML, JSON).
+/// Common trait for all query configurations (HTML, JSON).
+///
+/// This trait defines the interface that all raw query configurations must implement
+/// to support collection-level parameter resolution and HTTP configuration inheritance.
 pub trait ScraperQueryRaw {
-    /// Retourne le nom de la requête.
+    /// Returns the name of the query.
+    ///
+    /// This is the identifier used as the lookup key in a collection.
     fn name(&self) -> String;
 
-    /// Résout les placeholders de collection dans cette configuration de requête.
+    /// Resolves collection-level placeholders in this query configuration.
+    ///
+    /// Collection parameters are applied to the query's base URL, query URL, and other
+    /// template fields to produce the final configuration.
     ///
     /// # Arguments
     ///
-    /// * `params` - Paramètres template au niveau de la collection.
+    /// * `params` - Collection-level template parameters.
     ///
     /// # Errors
     ///
-    /// Retourne une erreur si un placeholder requis est manquant.
+    /// Returns an error if a required placeholder is missing from `params`.
     fn resolve_collection_params(&mut self, params: &HashMap<String, String>) -> Result<()>;
 
-    /// Fusionne la configuration HTTP de la collection dans cette requête.
+    /// Merges the collection-level HTTP configuration into this query's configuration.
+    ///
+    /// Collection-level HTTP settings (like user agent, timeouts, etc.) are inherited
+    /// by each query in the collection. Query-specific settings override collection
+    /// defaults.
     ///
     /// # Arguments
     ///
-    /// * `collection_http` - Configuration HTTP héritée de la collection parente.
+    /// * `collection_http` - HTTP configuration inherited from the parent collection.
     fn apply_collection_http(&mut self, collection_http: &ScraperHttpConfig);
 }
 
 // ---------------------------------------------------------------------------
-// Common sub-query configuration
+// Sub-query configuration
 // ---------------------------------------------------------------------------
 
 /// Common configuration fields shared by all sub-query types (HTML, JSON).
@@ -230,39 +279,79 @@ pub trait ScraperQueryRaw {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SubQueryCommon {
     /// Post-processing steps applied to each extracted row.
+    ///
+    /// These steps transform and process the extracted data after extraction.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub post_process: Vec<ScraperPostProcess>,
+
     /// Optional pointer selecting the context rows that seed follow-up requests.
+    ///
+    /// When set, the sub-query will iterate over each context row matching this pointer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_pointer: Option<String>,
+
     /// Selection mode for the context pointer.
+    ///
+    /// Determines whether to use the first match or all matches:
+    /// - [`HtmlScraperSelectMode::First`]: Only the first matching context.
+    /// - [`HtmlScraperSelectMode::All`]: All matching contexts.
     #[serde(default = "default_select_mode")]
     pub context_select: HtmlScraperSelectMode,
+
     /// Filters applied to the context row before issuing the follow-up request.
+    ///
+    /// Format: `{"field_name": ["allowed_value_1", "allowed_value_2", ...]}`.
+    /// The sub-query is only executed if the context row's field values match.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub filters: HashMap<String, Vec<String>>,
+
     /// Filters applied to the fetched rows (after the HTTP response).
+    ///
+    /// Format: `{"field_name": ["allowed_value_1", "allowed_value_2", ...]}`.
+    /// Only rows with matching field values are kept.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub row_filters: HashMap<String, Vec<String>>,
+
     /// Path where the sub-query result is nested (default: root level).
+    ///
+    /// Path format: `"parent>child>grandchild"` creates nested objects.
+    /// `None` means results are merged at the top level.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
+
     /// Pointer selecting the request URL from the context row.
+    ///
+    /// JSON pointer used to extract the request URL from the context row.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub request_pointer: Option<String>,
+
     /// Selection mode for the request pointer.
+    ///
+    /// Determines whether to use the first match or all matches:
+    /// - [`HtmlScraperSelectMode::First`]: Only the first matching URL.
+    /// - [`HtmlScraperSelectMode::All`]: All matching URLs.
     #[serde(default = "default_select_mode")]
     pub request_select: HtmlScraperSelectMode,
+
     /// Actions applied to the selected request URLs.
+    ///
+    /// Transformations applied to the extracted URLs before making the request.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub request_actions: Vec<ScraperAction>,
+
     /// HTTP method used for the follow-up request.
+    ///
+    /// Either GET or POST.
     #[serde(default = "default_request_method")]
     pub request_method: ScraperRequestMethod,
+
     /// HTTP headers attached to the follow-up request.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub request_headers: Vec<ScraperRequestHeaderRaw>,
+
     /// HTTP client configuration for the follow-up request.
+    ///
+    /// Settings like user agent, max redirects, timeouts, etc.
     #[serde(default, skip_serializing_if = "ScraperHttpConfig::is_empty")]
     pub http: ScraperHttpConfig,
 }
@@ -300,7 +389,7 @@ impl SubQueryCommon {
 }
 
 // ---------------------------------------------------------------------------
-// Common query configuration
+// Query configuration
 // ---------------------------------------------------------------------------
 
 /// Common configuration fields shared by all scraper query types (HTML, JSON).
@@ -310,41 +399,84 @@ impl SubQueryCommon {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ScraperQueryCommon {
     /// Query identifier used as the lookup key in a collection.
+    ///
+    /// This is the name assigned in the YAML configuration.
     pub name: String,
+
     /// Base URL of the source, also available as `{base_url}` in templates.
+    ///
+    /// The root URL of the source being scraped.
     pub base_url: String,
+
     /// Resolved base URL after collection-level placeholder substitution.
+    ///
+    /// This is not serialized; it's computed at runtime from `base_url` and collection parameters.
     #[serde(skip)]
     pub resolved_base_url: Option<String>,
+
     /// Content types this query produces.
+    ///
+    /// Used for filtering queries based on requested media types.
     pub media_types: Vec<String>,
+
     /// URL template used to build the request.
+    ///
+    /// This template is formatted with runtime parameters to build the actual request URL.
     pub query_url: String,
+
     /// HTTP method used to issue the request.
+    ///
+    /// Either GET or POST.
     #[serde(default = "default_request_method")]
     pub request_method: ScraperRequestMethod,
+
     /// Optional JSON pointer selecting the request body from runtime params.
+    ///
+    /// When set, the request body is extracted from the specified JSON pointer
+    /// in the runtime parameters.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub request_body_pointer: Option<String>,
+
     /// Selection mode for the request body pointer.
+    ///
+    /// Determines whether to use the first match or all matches:
+    /// - [`HtmlScraperSelectMode::First`]: Only the first matching value.
+    /// - [`HtmlScraperSelectMode::All`]: All matching values.
     #[serde(default = "default_select_mode")]
     pub request_body_select: HtmlScraperSelectMode,
+
     /// Actions applied to the request body before the HTTP call.
+    ///
+    /// Transformations applied to the request body before sending it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub request_body_actions: Vec<ScraperAction>,
+
     /// HTTP headers attached to the request.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub request_headers: Vec<ScraperRequestHeaderRaw>,
+
     /// HTTP client configuration (mode, user agent, max redirects).
+    ///
+    /// Settings like client mode, user agent, max redirects, etc.
     #[serde(default, skip_serializing_if = "ScraperHttpConfig::is_empty")]
     pub http: ScraperHttpConfig,
+
     /// Source-to-target parameter mappings applied before template resolution.
+    ///
+    /// These mappings transform source parameter names to target parameter names
+    /// before templates are resolved.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub query_param_mappings: Vec<QueryTemplateParamMapping>,
+
     /// Optional group field whose items should become query rows.
+    ///
+    /// When set, items from the specified field are hoisted to become individual rows.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub result_item_field: Option<String>,
+
     /// Post-processing steps applied to each extracted row.
+    ///
+    /// These steps transform and process the extracted data after extraction.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub post_process: Vec<ScraperPostProcess>,
 }

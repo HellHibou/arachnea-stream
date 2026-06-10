@@ -12,42 +12,93 @@ use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
 use crate::scrapyfy::EntrySubQueryRaw;
 
 /// Raw configuration definition of one field or grouped field extracted from a JSON result row.
+///
+/// Deserializes from YAML to define how to extract a single field or a group of fields
+/// from a JSON row during scraping.
 #[derive(Serialize, Deserialize)]
 pub struct JsonScraperEntryRaw {
+    /// Field or group name.
+    ///
+    /// The identifier used for the extracted value in the output.
     name: String,
+
+    /// Optional JSON pointer selecting the value from the row.
+    ///
+    /// JSON pointer or pointer-like path used to locate the value in the JSON row.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pointer: Option<String>,
+
+    /// Selection mode for the pointer.
+    ///
+    /// Determines whether to use the first match or all matches:
+    /// - [`HtmlScraperSelectMode::First`]: Only the first matching value.
+    /// - [`HtmlScraperSelectMode::All`]: All matching values.
     #[serde(default)]
     select: HtmlScraperSelectMode,
+
+    /// Actions applied to the extracted values.
+    ///
+    /// Transformations applied to the extracted values before storing them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     actions: Vec<ScraperAction>,
+
+    /// Nested entries for group entries.
+    ///
+    /// When this entry is a group, this contains the sub-entries to extract.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     entries: Vec<JsonScraperEntryRaw>,
+
     /// Sub-queries executed on each value produced by this entry.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     sub_queries: Vec<EntrySubQueryRaw>,
 }
 
 /// One logical field extracted from a JSON result row.
+///
+/// Represents a validated entry that can extract either a simple field value
+/// or a nested group of fields from a JSON row.
 #[derive(Deserialize)]
 #[serde(try_from = "JsonScraperEntryRaw")]
 pub enum JsonScraperEntry {
+    /// A simple field entry that extracts a single value or multiple values.
+    ///
+    /// Extracts values using a JSON pointer and applies actions to transform them.
     Field {
+        /// Field name.
         name: String,
+
+        /// Optional JSON pointer selecting the value from the row.
         pointer: Option<String>,
+
+        /// Selection mode for the pointer.
         select: HtmlScraperSelectMode,
+
+        /// Actions applied to the extracted values.
         actions: Vec<ScraperAction>,
+
         /// Sub-queries attached to this entry (recursion across scraper types).
         ///
         /// Always empty at the moment — the field is wired in step 14, the
         /// YAML exposure lands with the executor in step 15+.
         sub_queries: Vec<Box<dyn ScraperQuery>>,
     },
+
+    /// A group entry that extracts multiple nested fields.
+    ///
+    /// Creates a nested object structure with the extracted sub-entries.
     Group {
+        /// Group name.
         name: String,
+
+        /// Optional JSON pointer selecting the values from the row.
         pointer: Option<String>,
+
+        /// Selection mode for the pointer.
         select: HtmlScraperSelectMode,
+
+        /// Nested entries to extract for each matched value.
         entries: Vec<JsonScraperEntry>,
+
         /// Sub-queries attached to this entry (recursion across scraper types).
         ///
         /// Always empty at the moment — the field is wired in step 14, the
@@ -58,6 +109,8 @@ pub enum JsonScraperEntry {
 
 impl JsonScraperEntry {
     /// Returns the flattened list of leaf field names produced by this entry.
+    ///
+    /// Collects all field names from this entry and its nested sub-entries.
     #[cfg(any(test, feature = "test-support"))]
     pub fn field_names(&self) -> Vec<String> {
         let mut names = Vec::new();
@@ -69,6 +122,13 @@ impl JsonScraperEntry {
     ///
     /// Group entries append explicit array items, while field entries append values.
     /// When `select` is `first`, only the first value is kept.
+    ///
+    /// # Arguments
+    ///
+    /// * `root` - Data node receiving the extracted values.
+    /// * `row` - JSON row to extract values from.
+    /// * `params` - Runtime template parameters.
+    /// * `request_url` - URL of the request for action pipelines.
     pub fn apply_to(
         &self,
         root: &mut ScraperDataNode,
@@ -154,6 +214,7 @@ impl JsonScraperEntry {
         }
     }
 
+    /// Returns the name of this entry.
     #[cfg(any(test, feature = "test-support"))]
     fn name(&self) -> &str {
         match self {
@@ -285,7 +346,7 @@ impl Serialize for JsonScraperEntry {
 /// Selects JSON values using a pointer-like syntax with wildcard support.
 ///
 /// The pointer is split on `/` and each token is resolved against the current
-/// set of JSON values.  Tokens may contain array-filter syntax such as
+/// set of JSON values. Tokens may contain array-filter syntax such as
 /// `*[role=mea]` or `0[status=active]`.
 ///
 /// # Arguments
@@ -313,6 +374,8 @@ pub(crate) fn select_json_values<'a>(
 
 /// Navigates the JSON tree using the full pointer, expanding wildcards and
 /// array filters at each level.
+///
+/// This is the internal implementation that returns all matching values.
 ///
 /// # Arguments
 ///
@@ -389,6 +452,10 @@ fn select_json_values_all<'a>(root: &'a Value, pointer: Option<&str>) -> Vec<&'a
 /// # Arguments
 ///
 /// * `token` - Raw pointer token to decode.
+///
+/// # Returns
+///
+/// The decoded token with escape sequences replaced.
 fn decode_pointer_token(token: &str) -> String {
     token.replace("~1", "/").replace("~0", "~")
 }
@@ -401,6 +468,10 @@ fn decode_pointer_token(token: &str) -> String {
 /// # Arguments
 ///
 /// * `token` - Pointer token that may contain `[filter]` suffix.
+///
+/// # Returns
+///
+/// A tuple of (array selector, filter condition) if filtering syntax is present.
 fn parse_array_filter(token: &str) -> Option<(String, String)> {
     if let Some(start) = token.find('[') {
         if let Some(end) = token.rfind(']') {
@@ -420,6 +491,10 @@ fn parse_array_filter(token: &str) -> Option<(String, String)> {
 ///
 /// * `value` - JSON object to test against the filter.
 /// * `filter` - Condition string in `field=expected` format.
+///
+/// # Returns
+///
+/// `true` if the value matches the filter condition, `false` otherwise.
 fn matches_filter(value: &Value, filter: &str) -> bool {
     if let Some((field, expected)) = parse_filter_condition(filter) {
         if let Some(obj) = value.as_object() {
@@ -441,6 +516,10 @@ fn matches_filter(value: &Value, filter: &str) -> bool {
 /// # Arguments
 ///
 /// * `filter` - Condition string in `field=expected` format.
+///
+/// # Returns
+///
+/// A tuple of (field name, expected value) if the condition is valid.
 fn parse_filter_condition(filter: &str) -> Option<(String, String)> {
     if let Some(eq_pos) = filter.find('=') {
         let field = filter[..eq_pos].trim().to_string();
@@ -460,6 +539,10 @@ fn parse_filter_condition(filter: &str) -> Option<(String, String)> {
 /// # Arguments
 ///
 /// * `value` - JSON value to convert.
+///
+/// # Returns
+///
+/// A vector of string representations of the value.
 pub(crate) fn json_value_to_strings(value: &Value) -> Vec<String> {
     match value {
         Value::Null => Vec::new(),

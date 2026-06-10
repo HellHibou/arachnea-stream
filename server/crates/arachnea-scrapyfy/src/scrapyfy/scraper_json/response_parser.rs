@@ -16,6 +16,10 @@ use crate::scrapyfy::scraper_json::entry::{json_value_to_strings, select_json_va
 /// of contexts/fetches/siblings after concurrent processing with
 /// `buffer_unordered`.
 ///
+/// # Type Parameters
+///
+/// * `T` - The type of values being collected.
+///
 /// # Arguments
 ///
 /// * `results` - Vector of `(index, value)` pairs whose index reflects the
@@ -38,10 +42,17 @@ pub(crate) fn collect_ordered_results<T>(results: Vec<Result<(usize, T)>>) -> Re
 
 /// Checks whether a JSON row satisfies every filter condition.
 ///
+/// Tests a JSON value against a set of filter conditions. A row matches if it
+/// satisfies all filter conditions (logical AND between all filter entries).
+///
 /// # Arguments
 ///
 /// * `row` - JSON value to test against the filter map.
 /// * `filters` - Map of JSON pointer to expected value strings; every entry must match.
+///
+/// # Returns
+///
+/// `true` if the row matches all filter conditions, `false` otherwise.
 pub(crate) fn matches(row: &serde_json::Value, filters: &HashMap<String, Vec<String>>) -> bool {
     filters.iter().all(|(pointer, expected_values)| {
         let actual_values =

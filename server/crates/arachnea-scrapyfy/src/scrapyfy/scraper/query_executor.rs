@@ -31,28 +31,63 @@ use super::ScraperType;
 ///
 /// Mirrors the runtime context used by the legacy per-type `execute_query`
 /// methods; the unified executor adopts the same shape.
+///
+/// This context is passed through the execution chain to provide access to
+/// runtime parameters, request URLs, response bodies, and HTTP clients.
 pub struct QueryContext<'a> {
     /// Runtime template parameters (pre-resolved by the caller with collection
     /// defaults and `query_param_mappings` already applied).
+    ///
+    /// These parameters are available to actions and template resolution throughout
+    /// the execution chain.
     pub params: &'a HashMap<String, String>,
+
     /// URL of the parent request for action resolution.
+    ///
+    /// Used by actions that need to reference the parent request URL.
     pub request_url: &'a str,
+
     /// Optional parent response body available to actions.
+    ///
+    /// Some actions may need access to the parent response body for processing.
     pub response_body: Option<&'a str>,
+
     /// Shared HTTP client.
+    ///
+    /// The HTTP client configured for making requests during execution.
     pub http_client: &'a HttpClient,
+
     /// Optional root fields filter list forwarded to `fields_filters`.
+    ///
+    /// When set, only fields matching the specified patterns are included in results.
     pub fields_filters: Option<&'a HashMap<String, Vec<String>>>,
 }
 
 /// Maximum number of follow-up requests executed together (sane default for
 /// both HTML and JSON; legacy code used 8 for JSON, 4 for HTML siblings).
+///
+/// This controls the concurrency level for parallel HTTP requests during
+/// sub-query execution.
 const DEFAULT_FETCH_CONCURRENCY: usize = 8;
 
 /// Fetches a single URL using the configured HTTP method, headers, and body.
 ///
 /// Dispatches on `extract_next_data` for JSON queries; HTML always returns
 /// the response body as text.
+///
+/// # Arguments
+///
+/// * `client` - The HTTP client to use for the request.
+/// * `method` - HTTP method (GET or POST).
+/// * `url` - The URL to fetch.
+/// * `headers` - HTTP headers to include in the request.
+/// * `body` - Optional request body.
+/// * `extract_next_data` - Whether to parse the response as Next.js `__NEXT_DATA__`.
+/// * `scraper_type` - The type of scraper (HTML, JSON, or Static).
+///
+/// # Returns
+///
+/// A [`FetchedResponse`] containing the parsed response data.
 ///
 /// # Errors
 ///
@@ -91,12 +126,22 @@ async fn fetch_single(
 }
 
 /// Fetched response shape used by the unified executor.
+///
+/// Represents the result of a single HTTP request, parsed according to the scraper type.
 pub enum FetchedResponse {
     /// Raw HTML body for HTML queries.
+    ///
+    /// Contains the HTML document as a string.
     Html(String),
+
     /// Parsed JSON value for JSON queries.
+    ///
+    /// Contains the parsed JSON data as a `serde_json::Value`.
     Json(Value),
+
     /// No response (static queries).
+    ///
+    /// Static queries don't make HTTP requests; they use YAML-declared data.
     Static,
 }
 
@@ -127,6 +172,12 @@ pub enum FetchedResponse {
 /// * `query` - The scraper query to execute (any concrete type behind `&dyn`).
 /// * `context` - Runtime context forwarded to sub-query execution.
 ///
+/// # Returns
+///
+/// A vector containing a single HashMap with all extracted data merged together.
+/// Per-row fields (e.g. episodes) accumulate into arrays, while first-occurrence
+/// scalar fields (marked with select: first) are kept once.
+///
 /// # Errors
 ///
 /// Returns an error if the URL cannot be resolved, the HTTP call fails, the
@@ -154,6 +205,27 @@ pub async fn execute_query_items(
 ///
 /// Used internally by [`execute_query_items`] and recursively by sibling /
 /// entry-level sub-queries.
+///
+/// This is the core execution function that:
+/// 1. Resolves request URLs
+/// 2. Fetches responses in parallel
+/// 3. Extracts items from responses
+/// 4. Executes entry-level and sibling sub-queries
+/// 5. Applies post-processes
+/// 6. Applies field filtering
+///
+/// # Arguments
+///
+/// * `query` - The scraper query to execute.
+/// * `context` - Runtime context containing parameters, request URL, etc.
+///
+/// # Returns
+///
+/// A vector of [`ScraperDataNode`] items extracted from the query.
+///
+/// # Errors
+///
+/// Returns an error if any step in the execution pipeline fails.
 async fn execute_query_internal(
     query: &dyn ScraperQuery,
     context: &QueryContext<'_>,
@@ -260,12 +332,34 @@ async fn execute_query_internal(
 
 /// Downcasts a `&dyn ScraperEntrySpec` to `&HtmlScraperEntry` via
 /// [`std::any::Any`].
+///
+/// Used by the unified executor to access HTML-specific entry functionality
+/// when processing HTML queries.
+///
+/// # Arguments
+///
+/// * `entry` - The entry to downcast.
+///
+/// # Returns
+///
+/// `Some(&HtmlScraperEntry)` if the entry is an HTML entry, `None` otherwise.
 fn as_html_entry(entry: &dyn ScraperEntrySpec) -> Option<&HtmlScraperEntry> {
     entry.as_any().downcast_ref::<HtmlScraperEntry>()
 }
 
 /// Downcasts a `&dyn ScraperEntrySpec` to `&JsonScraperEntry` via
 /// [`std::any::Any`].
+///
+/// Used by the unified executor to access JSON-specific entry functionality
+/// when processing JSON queries.
+///
+/// # Arguments
+///
+/// * `entry` - The entry to downcast.
+///
+/// # Returns
+///
+/// `Some(&JsonScraperEntry)` if the entry is a JSON entry, `None` otherwise.
 fn as_json_entry(entry: &dyn ScraperEntrySpec) -> Option<&JsonScraperEntry> {
     entry.as_any().downcast_ref::<JsonScraperEntry>()
 }
@@ -279,6 +373,15 @@ fn as_json_entry(entry: &dyn ScraperEntrySpec) -> Option<&JsonScraperEntry> {
 /// The URL template is resolved using [`query_helpers::format_query_template`]
 /// with the parameters from the context. The `request_actions` pipeline is
 /// applied at the body/header level, not the URL level.
+///
+/// # Arguments
+///
+/// * `query` - The query containing the URL template.
+/// * `context` - Runtime context containing parameters for template resolution.
+///
+/// # Returns
+///
+/// A vector containing the resolved URL. Currently always returns a single URL.
 fn resolve_request_urls(query: &dyn ScraperQuery, context: &QueryContext<'_>) -> Vec<String> {
     let formatted = query_helpers::format_query_template(
         query.base_url(),
@@ -294,6 +397,16 @@ fn resolve_request_urls(query: &dyn ScraperQuery, context: &QueryContext<'_>) ->
 ///
 /// Each header's value is resolved from the params context using the
 /// header's pointer and actions pipeline.
+///
+/// # Arguments
+///
+/// * `headers` - The list of configured headers to resolve.
+/// * `params` - Runtime template parameters.
+/// * `request_url` - URL of the parent request for action resolution.
+///
+/// # Returns
+///
+/// A hash map of header names to their resolved values.
 fn resolve_request_headers(
     headers: &[crate::scrapyfy::scraper_json::query::ScraperRequestHeader],
     params: &HashMap<String, String>,
@@ -313,6 +426,19 @@ fn resolve_request_headers(
 ///
 /// Selects JSON values from the params context using the configured pointer,
 /// then applies the body actions pipeline.
+///
+/// # Arguments
+///
+/// * `pointer` - Optional JSON pointer to select the body value.
+/// * `select` - Selection mode for the pointer (First or All).
+/// * `actions` - Actions to apply to the selected values.
+/// * `params` - Runtime template parameters.
+/// * `request_url` - URL of the parent request for action resolution.
+///
+/// # Returns
+///
+/// The resolved request body as a string, or `None` if no body is configured
+/// or if the resolved value is empty.
 fn resolve_request_body(
     pointer: Option<&str>,
     select: HtmlScraperSelectMode,
@@ -342,6 +468,20 @@ fn resolve_request_body(
 // ---------------------------------------------------------------------------
 
 /// Fetches all responses in parallel using the configured HTTP client.
+///
+/// Executes HTTP requests for all URLs concurrently, using the configured
+/// concurrency level ([`DEFAULT_FETCH_CONCURRENCY`]).
+///
+/// # Arguments
+///
+/// * `query` - The query being executed.
+/// * `urls` - The URLs to fetch.
+/// * `context` - Runtime context containing parameters and HTTP client.
+///
+/// # Returns
+///
+/// A vector of tuples containing the URL and its corresponding [`FetchedResponse`].
+/// Results are ordered according to the input URLs.
 ///
 /// # Errors
 ///
@@ -410,6 +550,17 @@ async fn fetch_responses(
 /// Returns owned [`ScraperDataNode`] items (HTML rows own their data; JSON
 /// rows borrow the underlying `Value`). The result is consumed by the
 /// sibling sub-query loop in [`execute_query_internal`].
+///
+/// # Arguments
+///
+/// * `query` - The query being executed.
+/// * `response` - The fetched response to extract items from.
+/// * `request_url` - The URL of the request that produced this response.
+/// * `context` - Runtime context containing parameters.
+///
+/// # Returns
+///
+/// A vector of [`ScraperDataNode`] items, one for each row extracted from the response.
 ///
 /// # Errors
 ///
@@ -512,6 +663,21 @@ fn extract_items(
 ///
 /// For each entry, collects the produced values from the item and runs every
 /// attached sub-query. The sub-query result is merged into the item.
+///
+/// # Arguments
+///
+/// * `query` - The query being executed.
+/// * `item` - The item being populated with extracted data.
+/// * `request_url` - The URL of the request that produced the parent response.
+/// * `context` - Runtime context containing parameters.
+///
+/// # Returns
+///
+/// `Ok(())` on success.
+///
+/// # Errors
+///
+/// Returns an error if any sub-query execution fails.
 async fn execute_entry_sub_queries(
     query: &dyn ScraperQuery,
     item: &mut ScraperDataNode,
@@ -544,6 +710,25 @@ async fn execute_entry_sub_queries(
 // ---------------------------------------------------------------------------
 
 /// Applies the query's post-process pipeline to a single item.
+///
+/// Each post-process is executed in sequence, transforming the item.
+///
+/// # Arguments
+///
+/// * `post_processes` - The list of post-processes to apply.
+/// * `item` - The item to process.
+/// * `params` - Runtime template parameters.
+/// * `request_url` - The URL of the request that produced the item.
+/// * `response_body` - Optional response body for post-processes that need it.
+/// * `http_client` - HTTP client for post-processes that make requests.
+///
+/// # Returns
+///
+/// `Ok(())` on success.
+///
+/// # Errors
+///
+/// Returns an error if any post-process application fails.
 async fn apply_post_processes(
     post_processes: &[ScraperPostProcess],
     item: &mut ScraperDataNode,
@@ -570,6 +755,15 @@ async fn apply_post_processes(
 
 /// Merges a sub-query result into an item, honouring the sub-query's
 /// `target` path.
+///
+/// If a target path is specified in the sub-query spec, the source data is nested
+/// under that path. Otherwise, the source is merged directly into the item.
+///
+/// # Arguments
+///
+/// * `item` - The item to merge the source into.
+/// * `source` - The source data to merge.
+/// * `spec` - Optional sub-query spec containing the target path.
 fn merge_targeted(item: &mut ScraperDataNode, source: ScraperDataNode, spec: Option<&SubQuerySpec>) {
     if let Some(spec) = spec {
         if let Some(target) = &spec.target {
@@ -590,6 +784,14 @@ fn merge_targeted(item: &mut ScraperDataNode, source: ScraperDataNode, spec: Opt
 // ---------------------------------------------------------------------------
 
 /// Returns the response body as an `&str` for the given fetched response.
+///
+/// # Arguments
+///
+/// * `response` - The fetched response to extract the body from.
+///
+/// # Returns
+///
+/// `Some(&str)` if the response is HTML, `None` otherwise.
 fn response_body_str(response: &FetchedResponse) -> Option<&str> {
     match response {
         FetchedResponse::Html(html) => Some(html.as_str()),
@@ -598,6 +800,14 @@ fn response_body_str(response: &FetchedResponse) -> Option<&str> {
 }
 
 /// Deduplicates a list of URLs preserving order.
+///
+/// # Arguments
+///
+/// * `urls` - The list of URLs to deduplicate.
+///
+/// # Returns
+///
+/// A new vector with duplicate URLs removed, preserving the original order.
 #[allow(dead_code)]
 fn _dedupe_urls(urls: Vec<String>) -> Vec<String> {
     let mut seen = HashSet::new();
@@ -625,6 +835,15 @@ fn _dedupe_urls(urls: Vec<String>) -> Vec<String> {
 /// the JSON response. When the locator is a `Pointer`, the first matching
 /// row is used; for HTML and Static scrapers no JSON walk is possible, so
 /// a `Value::Null` is returned and the legacy sub-query short-circuits.
+///
+/// # Arguments
+///
+/// * `query` - The parent query.
+/// * `response` - The fetched JSON response.
+///
+/// # Returns
+///
+/// The parent row as a `serde_json::Value`, or `Value::Null` if not applicable.
 fn response_parent_row(query: &dyn ScraperQuery, response: &FetchedResponse) -> Value {
     let FetchedResponse::Json(value) = response else {
         return Value::Null;
@@ -651,6 +870,10 @@ fn response_parent_row(query: &dyn ScraperQuery, response: &FetchedResponse) -> 
 /// Returns the default concurrency options for query-level sub-queries.
 ///
 /// Mirrors the legacy `JsonScraperQuery` defaults: 4 sibling, 4 context, 8 fetch.
+///
+/// # Returns
+///
+/// Execution options with concurrency settings for query-level sub-queries.
 fn query_level_execution_options(
 ) -> crate::scrapyfy::scraper_json::config::JsonScraperExecutionOptions {
     crate::scrapyfy::scraper_json::config::JsonScraperExecutionOptions {

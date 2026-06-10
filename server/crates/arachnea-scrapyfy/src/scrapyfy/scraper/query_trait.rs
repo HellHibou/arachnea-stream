@@ -17,69 +17,107 @@ use super::entry_trait::ScraperEntrySpec;
 use super::row_locator::RowLocator;
 use super::sub_query_spec::SubQuerySpec;
 
-/// Implémenté par toute query : racine, sub-query, sub-query d'entry,
-/// en HTML, JSON ou Static.
+/// Implemented by all queries: root, sub-query, and entry-level sub-query,
+/// in HTML, JSON, or Static form.
 ///
-/// Le moteur d'exécution unifié
-/// (voir [`execute_query`](super::query_executor::execute_query))
-/// consomme ce trait pour piloter aussi bien les queries racines que les
-/// sub-queries récursives (sub-queries siblings, sub-queries d'entry).
+/// The unified execution engine
+/// (see [`execute_query`](super::query_executor::execute_query))
+/// consumes this trait to drive both root queries and recursive sub-queries
+/// (sibling sub-queries and entry-level sub-queries).
 pub trait ScraperQuery: Send + Sync {
     // --- Identification ---
 
     /// Returns the scraper type (html | json | static).
+    ///
+    /// This determines which parser is used to process the response.
     fn scraper_type(&self) -> super::ScraperType;
 
     /// Returns the query name used in diagnostic messages.
+    ///
+    /// This is the identifier assigned in the YAML configuration.
     fn name(&self) -> &str;
 
     /// Returns the media types associated with the query results.
+    ///
+    /// Used for filtering queries based on requested content types.
     fn media_types(&self) -> &[String];
 
     /// Returns whether the query matches at least one requested media type.
+    ///
+    /// # Arguments
+    ///
+    /// * `media_types` - List of media types to check against.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the query produces at least one of the requested media types.
     fn is_media_type(&self, media_types: &[String]) -> bool {
         media_types
             .iter()
             .any(|media_type| self.media_types().contains(media_type))
     }
 
-    // --- Requête HTTP (commun racine et sub_query) ---
+    // --- HTTP Request (common to root and sub_query) ---
 
     /// Returns the base URL exposed as `{base_url}` in templates.
+    ///
+    /// This is the root URL of the source being scraped.
     fn base_url(&self) -> &str;
 
     /// Returns the query URL template.
+    ///
+    /// This template is formatted with runtime parameters to build the actual request URL.
     fn query_url(&self) -> &str;
 
     /// Returns the HTTP method used to issue the request.
+    ///
+    /// Either GET or POST.
     fn request_method(&self) -> ScraperRequestMethod;
 
     /// Returns the optional pointer used to derive the request URL.
+    ///
+    /// For sub-queries, this extracts the URL from the parent row.
+    /// Returns `None` for root queries.
     fn request_pointer(&self) -> Option<&str>;
 
     /// Returns the selection mode for the request pointer.
+    ///
+    /// Determines whether to use the first match or all matches.
+    /// Defaults to [`HtmlScraperSelectMode::All`].
     fn request_select(&self) -> HtmlScraperSelectMode {
         HtmlScraperSelectMode::All
     }
 
     /// Returns the request actions applied before the HTTP call.
+    ///
+    /// These actions transform the request URL or body before making the request.
     fn request_actions(&self) -> &[ScraperAction];
 
     /// Returns the request headers applied to the HTTP call.
+    ///
+    /// These headers are added to the HTTP request.
     fn request_headers(&self) -> &[ScraperRequestHeader];
 
     /// Returns the HTTP configuration (mode, user agent, max redirects).
+    ///
+    /// Contains settings like client mode, user agent, max redirects, etc.
     fn http_config(&self) -> &ScraperHttpConfig;
 
     /// Returns a reference to the shared HTTP client configured for this query.
+    ///
+    /// The client is pre-configured with the query's HTTP settings.
     fn http_client(&self) -> &HttpClient;
 
     /// Returns whether the response is parsed as `__NEXT_DATA__`.
+    ///
+    /// Used for Next.js applications that embed data in `__NEXT_DATA__` scripts.
     fn extract_next_data(&self) -> bool;
 
     // --- Row extraction ---
 
     /// Returns the row locator (CSS selector, JSON pointer, or single row).
+    ///
+    /// Defines how rows are extracted from the scraper response.
     fn row_locator(&self) -> RowLocator;
 
     // --- Post-processing ---
@@ -92,6 +130,10 @@ pub trait ScraperQuery: Send + Sync {
 
     /// Returns the optional group field whose items should be promoted to
     /// top-level entries.
+    ///
+    /// When set, items from the specified field are hoisted to the top level
+    /// instead of being nested under the field name.
+    /// Defaults to `None`.
     fn result_item_field(&self) -> Option<&str> {
         None
     }
@@ -99,16 +141,23 @@ pub trait ScraperQuery: Send + Sync {
     // --- Entries ---
 
     /// Returns the configured entries (field extractors).
+    ///
+    /// Entries define how data is extracted from each row.
     fn entries(&self) -> Vec<&dyn ScraperEntrySpec>;
 
-    // --- Sub-queries siblings (récursion) ---
+    // --- Sibling sub-queries (recursion) ---
 
     /// Returns the sibling sub-queries attached to this query.
+    ///
+    /// Sibling sub-queries are executed alongside the parent query and their
+    /// results are merged at the same level.
     fn sub_queries(&self) -> Vec<&dyn ScraperQuery>;
 
-    // --- Spec sub-query (None pour racines) ---
+    // --- Spec sub-query (None for roots) ---
 
     /// Returns the sub-query spec (or `None` for root queries).
+    ///
+    /// The spec contains configuration like target path, filters, etc.
     fn sub_query_spec(&self) -> Option<&SubQuerySpec> {
         None
     }
@@ -146,6 +195,8 @@ pub trait ScraperQuery: Send + Sync {
 
     /// Returns the target path where query-level sub-query results are
     /// nested. `None` means the results are merged at the top level.
+    ///
+    /// Default returns `None` (results are merged at the top level).
     fn target(&self) -> Option<&str> {
         None
     }

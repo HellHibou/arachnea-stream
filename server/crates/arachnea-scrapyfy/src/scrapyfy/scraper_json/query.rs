@@ -39,35 +39,81 @@ use crate::scrapyfy::query_helpers::{self, QueryTemplateParamMapping};
 // ---------------------------------------------------------------------------
 
 /// A query definition for one JSON source and one result shape.
+///
+/// Represents a validated JSON scraping query that can fetch data from a JSON endpoint
+/// and extract structured information using JSON pointers.
 #[derive(Deserialize)]
 #[serde(try_from = "JsonScraperQueryRaw")]
 pub struct JsonScraperQuery {
+    /// Query identifier used as the lookup key in a collection.
     pub(crate) name: String,
+
+    /// Resolved base URL of the source.
     pub(crate) base_url: String,
+
+    /// Original base URL template before parameter resolution.
     pub(crate) base_url_template: String,
+
+    /// Content types this query produces.
     pub(crate) media_types: Vec<String>,
+
+    /// URL template used to build the request.
     pub(crate) query_url: String,
+
+    /// When `true`, the response is parsed as Next.js `__NEXT_DATA__` payload.
     pub(crate) extract_next_data: bool,
+
+    /// HTTP method used to issue the request (GET or POST).
     pub(crate) request_method: ScraperRequestMethod,
+
+    /// Optional JSON pointer selecting the request body from runtime params.
     pub(crate) request_body_pointer: Option<String>,
+
+    /// Selection mode for the request body pointer.
     pub(crate) request_body_select: HtmlScraperSelectMode,
+
+    /// Actions applied to the request body before the HTTP call.
     pub(crate) request_body_actions: Vec<ScraperAction>,
+
+    /// HTTP headers attached to the request.
     pub(crate) request_headers: Vec<ScraperRequestHeader>,
+
+    /// HTTP client configuration (timeouts, user agent, etc.).
     pub(crate) http_config: ScraperHttpConfig,
+
+    /// Source-to-target parameter mappings applied before template resolution.
     pub(crate) query_param_mappings: Vec<QueryTemplateParamMapping>,
+
+    /// Maximum number of sibling sub-queries executed concurrently.
     pub(crate) sibling_sub_query_concurrency: usize,
+
+    /// Maximum number of sub-query contexts executed concurrently.
     pub(crate) sub_query_context_concurrency: usize,
+
+    /// Maximum number of follow-up HTTP requests executed concurrently.
     pub(crate) sub_query_fetch_concurrency: usize,
+
+    /// Root-level filters applied to the entire JSON response.
     pub(crate) filters: HashMap<String, Vec<String>>,
+
+    /// JSON pointer-like path matching each result row.
     pub(crate) row_pointer: String,
+
+    /// Optional group field whose items should become query rows.
     pub(crate) result_item_field: Option<String>,
+
+    /// Field extractors executed for every matched row.
     pub(crate) scraper_entries: Vec<JsonScraperEntry>,
+
     /// Top-level sub-queries attached to this query. Polymorphic slot:
     /// a typical YAML config attaches only [`JsonScraperSubQuery`] children,
     /// but the trait object slot allows future heterogeneous composition.
     pub(crate) sub_queries: Vec<Box<dyn ScraperQuery>>,
+
+    /// Post-processing steps applied to each extracted row.
     pub(crate) post_processes: Vec<ScraperPostProcess>,
 
+    /// HTTP client for making requests.
     pub(crate) http_client: HttpClient,
 }
 
@@ -76,33 +122,77 @@ pub struct JsonScraperQuery {
 // ---------------------------------------------------------------------------
 
 /// Runtime definition of one chained JSON follow-up request.
+///
+/// Represents a validated sub-query that can make follow-up HTTP requests to extract
+/// additional JSON data based on values from parent rows.
 #[derive(Deserialize)]
 #[serde(try_from = "JsonScraperSubQueryRaw")]
 pub struct JsonScraperSubQuery {
+    /// Optional JSON pointer selecting the context rows that seed follow-up requests.
     pub(crate) context_pointer: Option<String>,
+
+    /// Selection mode for the context pointer.
     pub(crate) context_select: HtmlScraperSelectMode,
+
+    /// Filters applied to the context row before issuing the follow-up request.
     pub(crate) filters: HashMap<String, Vec<String>>,
+
+    /// Filters applied to the fetched rows (after the HTTP response).
     pub(crate) row_filters: HashMap<String, Vec<String>>,
+
+    /// Entries extracted from the context row rather than from fetched rows.
     pub(crate) context_entries: Vec<JsonScraperEntry>,
+
+    /// Path where the sub-query result is nested.
+    ///
+    /// Path format: `"parent>child>grandchild"` creates nested objects.
+    /// `None` means results are merged at the top level.
     pub(crate) target: Option<String>,
+
+    /// Pointer selecting the request URL from the context row.
     pub(crate) request_pointer: Option<String>,
+
+    /// Selection mode for the request pointer.
     pub(crate) request_select: HtmlScraperSelectMode,
+
+    /// Actions applied to the selected request URLs.
     pub(crate) request_actions: Vec<ScraperAction>,
+
+    /// HTTP method used for the follow-up request.
     pub(crate) request_method: ScraperRequestMethod,
+
+    /// Optional JSON pointer selecting the request body from the context.
     pub(crate) request_body_pointer: Option<String>,
+
+    /// Selection mode for the request body pointer.
     pub(crate) request_body_select: HtmlScraperSelectMode,
+
+    /// Actions applied to the request body values.
     pub(crate) request_body_actions: Vec<ScraperAction>,
+
+    /// When `true`, the follow-up response is parsed as Next.js `__NEXT_DATA__`.
     pub(crate) extract_next_data: bool,
+
+    /// HTTP headers attached to the follow-up request.
     pub(crate) request_headers: Vec<ScraperRequestHeader>,
+
+    /// HTTP client configuration for the follow-up request.
     pub(crate) http_config: ScraperHttpConfig,
+
+    /// JSON pointer matching each result row in the follow-up response.
     pub(crate) row_pointer: String,
+
+    /// Field extractors executed for every matched row.
     pub(crate) entries: Vec<JsonScraperEntry>,
+
     /// Post-processing steps applied to each extracted row.
     pub(crate) post_processes: Vec<ScraperPostProcess>,
+
     /// Nested sub-queries (recursion). Polymorphic: typically a
     /// [`JsonScraperSubQuery`], but the trait object slot allows
     /// heterogeneous composition at the entry level.
     pub(crate) sub_queries: Vec<Box<dyn ScraperQuery>>,
+
     /// HTTP client for follow-up requests.
     #[serde(skip)]
     pub(crate) http_client: HttpClient,

@@ -26,16 +26,25 @@ use crate::scrapyfy::{HttpClient, ScraperAction, ScraperHttpConfig, ScraperPostP
 // Default-value helpers
 // ---------------------------------------------------------------------------
 
+/// Default concurrency limit for sibling sub-query execution.
+///
+/// Controls how many sibling sub-queries can be executed concurrently.
 /// Defaults to `4`.
 fn default_json_sibling_sub_query_concurrency() -> usize {
     4
 }
 
+/// Default concurrency limit for sub-query context execution.
+///
+/// Controls how many contexts within a sub-query can be processed concurrently.
 /// Defaults to `4`.
 fn default_json_sub_query_context_concurrency() -> usize {
     4
 }
 
+/// Default concurrency limit for sub-query HTTP fetch operations.
+///
+/// Controls how many follow-up HTTP requests can be made concurrently within a sub-query.
 /// Defaults to `8`.
 fn default_json_sub_query_fetch_concurrency() -> usize {
     8
@@ -46,13 +55,24 @@ fn default_json_sub_query_fetch_concurrency() -> usize {
 // ---------------------------------------------------------------------------
 
 /// Concurrency limits forwarded to sub-query execution.
+///
+/// Contains configuration parameters that control the parallelism of sub-query
+/// operations during JSON scraping.
 #[derive(Clone, Copy)]
 pub(crate) struct JsonScraperExecutionOptions {
-    /// Maximum number of sibling sub-queries executed together.
+    /// Maximum number of sibling sub-queries executed concurrently.
+    ///
+    /// Controls parallelism when executing multiple sub-queries at the same level.
     pub sibling_sub_query_concurrency: usize,
-    /// Maximum number of sub-query contexts executed together.
+
+    /// Maximum number of context values processed concurrently within a sub-query.
+    ///
+    /// Controls parallelism when a sub-query iterates over multiple context rows.
     pub sub_query_context_concurrency: usize,
-    /// Maximum number of follow-up HTTP requests executed together.
+
+    /// Maximum number of follow-up HTTP requests executed concurrently.
+    ///
+    /// Controls parallelism when fetching URLs for a single sub-query context.
     pub sub_query_fetch_concurrency: usize,
 }
 
@@ -70,50 +90,97 @@ pub(crate) struct JsonScraperExecutionOptions {
 #[serde(tag = "scraper_type", rename_all = "snake_case")]
 pub enum EntrySubQueryRaw {
     /// HTML follow-up request seeded by the parent entry value.
+    ///
+    /// Executes an HTML scrape on the follow-up response, extracting data using CSS selectors.
     Html {
-        /// Common sub-query configuration fields.
+        /// Common sub-query configuration fields shared with JSON sub-queries.
+        ///
+        /// Includes HTTP settings, filtering, targeting, and request configuration.
         #[serde(flatten)]
         common: SubQueryCommon,
+
         /// CSS selector matching each result row in the follow-up response.
+        ///
+        /// Used to locate individual data rows in the HTML response.
         #[serde(default)]
         row_selector: String,
+
         /// Field extractors executed for every matched row.
+        ///
+        /// Defines how to extract data from each HTML row matched by the selector.
         #[serde(default)]
         entries: Vec<HtmlScraperEntryRaw>,
+
         /// Entries extracted from the context row rather than from fetched rows.
+        ///
+        /// Extracts data from the parent context instead of from the fetched HTML.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         context_entries: Vec<HtmlScraperEntryRaw>,
+
         /// Nested sub-queries (recursion).
+        ///
+        /// Child sub-queries that are executed for each row in the parent query.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         sub_queries: Vec<EntrySubQueryRaw>,
     },
+
     /// JSON follow-up request seeded by the parent entry value.
+    ///
+    /// Executes a JSON scrape on the follow-up response, extracting data using JSON pointers.
     Json {
-        /// Common sub-query configuration fields.
+        /// Common sub-query configuration fields shared with HTML sub-queries.
+        ///
+        /// Includes HTTP settings, filtering, targeting, and request configuration.
         #[serde(flatten)]
         common: SubQueryCommon,
+
         /// JSON pointer matching each result row in the follow-up response.
+        ///
+        /// JSON pointer or pointer-like path used to locate individual data rows in the JSON response.
         #[serde(default)]
         row_pointer: String,
+
         /// Field extractors executed for every matched row.
+        ///
+        /// Defines how to extract data from each JSON row matched by the pointer.
         #[serde(default)]
         entries: Vec<JsonScraperEntryRaw>,
+
         /// Entries extracted from the context row rather than from fetched rows.
+        ///
+        /// Extracts data from the parent context instead of from the fetched JSON.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         context_entries: Vec<JsonScraperEntryRaw>,
+
         /// Optional JSON pointer selecting the request body from the context.
+        ///
+        /// When set, extracts the POST request body from the context row using this pointer.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         request_body_pointer: Option<String>,
+
         /// Selection mode for the request body pointer.
+        ///
+        /// Determines whether to use the first match or all matches from the body pointer:
+        /// - [`HtmlScraperSelectMode::First`]: Only the first matching value.
+        /// - [`HtmlScraperSelectMode::All`]: All matching values.
         #[serde(default = "default_select_mode")]
         request_body_select: HtmlScraperSelectMode,
+
         /// Actions applied to the request body values.
+        ///
+        /// Transformations applied to the request body before sending.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         request_body_actions: Vec<ScraperAction>,
+
         /// When `true` the follow-up response is parsed as Next.js `__NEXT_DATA__`.
+        ///
+        /// Enables automatic extraction of data from Next.js server-side rendered pages.
         #[serde(default)]
         extract_next_data: bool,
+
         /// Nested sub-queries (recursion).
+        ///
+        /// Child sub-queries that are executed for each row in the parent query.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         sub_queries: Vec<EntrySubQueryRaw>,
     },
@@ -327,31 +394,62 @@ impl EntrySubQueryRaw {
 // ---------------------------------------------------------------------------
 
 /// Raw configuration definition of one JSON query endpoint.
+///
+/// Deserializes from YAML configuration to define a JSON scraping query.
+/// Contains all settings needed to fetch JSON data and extract structured information.
 #[derive(Serialize, Deserialize)]
 pub struct JsonScraperQueryRaw {
     /// Common configuration fields shared with HTML scraper.
+    ///
+    /// Includes base URL, request configuration, HTTP settings, media types, etc.
     #[serde(flatten)]
     pub common: ScraperQueryCommon,
+
     /// When `true` the response is parsed as a Next.js `__NEXT_DATA__` payload.
+    ///
+    /// Enables automatic extraction of data from Next.js server-side rendered pages.
+    /// The scraper will look for and parse the `__NEXT_DATA__` script tag content.
     #[serde(default)]
     pub extract_next_data: bool,
-    /// Maximum number of sibling sub-queries executed together (default: 4).
+
+    /// Maximum number of sibling sub-queries executed concurrently (default: 4).
+    ///
+    /// Controls parallelism when executing multiple sub-queries at the same level.
     #[serde(default = "default_json_sibling_sub_query_concurrency")]
     pub sibling_sub_query_concurrency: usize,
-    /// Maximum number of sub-query contexts executed together (default: 4).
+
+    /// Maximum number of sub-query contexts executed concurrently (default: 4).
+    ///
+    /// Controls parallelism when a sub-query iterates over multiple context rows.
     #[serde(default = "default_json_sub_query_context_concurrency")]
     pub sub_query_context_concurrency: usize,
-    /// Maximum number of follow-up HTTP requests executed together (default: 8).
+
+    /// Maximum number of follow-up HTTP requests executed concurrently (default: 8).
+    ///
+    /// Controls parallelism when fetching URLs for a single sub-query context.
     #[serde(default = "default_json_sub_query_fetch_concurrency")]
     pub sub_query_fetch_concurrency: usize,
+
     /// Root-level filters applied to the entire JSON response.
+    ///
+    /// Format: `{"field_name": ["allowed_value_1", "allowed_value_2", ...]}`.
+    /// Only rows matching all filter conditions will be processed.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub filters: HashMap<String, Vec<String>>,
+
     /// JSON pointer-like path matching each result row.
+    ///
+    /// Path used to locate individual data rows in the JSON response.
+    /// Supports pointer syntax with wildcards and array filters (e.g., `/data/*[status=active]`).
     pub row_pointer: String,
+
     /// Field extractors executed for every matched row.
+    ///
+    /// Defines the schema and extraction logic for each row matched by the row pointer.
     pub entries: Vec<JsonScraperEntryRaw>,
+
     /// Chained JSON follow-up requests executed after the main entries.
+    ///
     /// Kept as `JsonScraperSubQueryRaw` for backward compatibility with
     /// query-level sub-queries (untagged format). Entry-level sub-queries
     /// use `EntrySubQueryRaw` via the `HtmlScraperEntryRaw`/`JsonScraperEntryRaw`
@@ -367,33 +465,60 @@ pub struct JsonScraperQueryRaw {
 /// Raw configuration definition of one chained JSON follow-up request.
 ///
 /// Same field set as [`EntrySubQueryRaw::Json`] but used at the query level
-/// (YAML `sub_queries` field of a root query).  Serialization round-trips
+/// (YAML `sub_queries` field of a root query). Serialization round-trips
 /// through this concrete type; runtime execution goes through
 /// [`JsonScraperSubQuery`].
 #[derive(Serialize, Deserialize)]
 pub struct JsonScraperSubQueryRaw {
     /// Common configuration fields shared with EntrySubQueryRaw.
+    ///
+    /// Includes HTTP settings, filtering, targeting, and request configuration.
     #[serde(flatten)]
     pub common: SubQueryCommon,
+
     /// JSON pointer-like path matching each result row in the response.
+    ///
+    /// Path used to locate individual data rows in the JSON response.
+    /// Supports pointer syntax with wildcards and array filters.
     pub row_pointer: String,
+
     /// Field extractors executed for every matched row.
+    ///
+    /// Defines how to extract data from each JSON row matched by the row pointer.
     pub entries: Vec<JsonScraperEntryRaw>,
+
     /// Entries extracted from the context row rather than from fetched rows.
+    ///
+    /// Extracts data from the parent context instead of from the fetched JSON.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub context_entries: Vec<JsonScraperEntryRaw>,
+
     /// Optional JSON pointer selecting the request body from the context.
+    ///
+    /// When set, extracts the POST request body from the context row using this pointer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub request_body_pointer: Option<String>,
+
     /// Selection mode for the request body pointer.
+    ///
+    /// Determines whether to use the first match or all matches from the body pointer:
+    /// - [`HtmlScraperSelectMode::First`]: Only the first matching value.
+    /// - [`HtmlScraperSelectMode::All`]: All matching values.
     #[serde(default = "default_select_mode")]
     pub request_body_select: HtmlScraperSelectMode,
+
     /// Actions applied to the request body values.
+    ///
+    /// Transformations applied to the request body before sending.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub request_body_actions: Vec<ScraperAction>,
+
     /// When `true` the follow-up response is parsed as Next.js `__NEXT_DATA__`.
+    ///
+    /// Enables automatic extraction of data from Next.js server-side rendered pages.
     #[serde(default)]
     pub extract_next_data: bool,
+
     /// Nested sub-queries (recursion).
     ///
     /// Kept as `JsonScraperSubQueryRaw` (untagged) for backward compatibility

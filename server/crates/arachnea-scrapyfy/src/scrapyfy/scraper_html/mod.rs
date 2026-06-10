@@ -3,14 +3,33 @@
 //! An HTML query fetches an HTML page from a remote endpoint (or a sibling
 //! sub-query context) and extracts typed rows via CSS selectors.
 //!
-//! - [`config`] — Raw YAML configuration types and validated runtime conversions.
-//! - [`entry`] — Runtime and raw configuration types of [`HtmlScraperEntry`].
-//! - [`query`] — Runtime query type and [`ScraperManagerQuery`] implementation.
+//! This module provides the complete implementation for HTML scraping:
+//!
+//! - [`config`] — Raw YAML configuration types and validated runtime conversions
+//!   for HTML queries and sub-queries.
+//! - [`entry`] — Runtime and raw configuration types of [`HtmlScraperEntry`],
+//!   including field and group entries with CSS selector support.
+//! - [`query`] — Runtime query type and [`ScraperQuery`] trait implementation
+//!   for executing HTML scraping operations.
 
 pub mod config;
 pub mod entry;
 pub mod query;
 
-pub use config::{HtmlScraperQueryRaw, HtmlScraperSubQueryRaw};
-pub use entry::{HtmlScraperEntry, HtmlScraperEntryRaw, HtmlScraperSelectMode};
+/// Re-exported raw HTML query configuration type.
+pub use config::HtmlScraperQueryRaw;
+
+/// Re-exported raw HTML sub-query configuration type.
+pub use config::HtmlScraperSubQueryRaw;
+
+/// Re-exported runtime HTML scraper entry type.
+pub use entry::HtmlScraperEntry;
+
+/// Re-exported raw HTML scraper entry configuration type.
+pub use entry::HtmlScraperEntryRaw;
+
+/// Re-exported selection mode enum for HTML scraper entries.
+pub use entry::HtmlScraperSelectMode;
+
+/// Re-exported runtime HTML scraper query type.
 pub use query::HtmlScraperQuery;

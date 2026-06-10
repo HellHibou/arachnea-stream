@@ -14,7 +14,15 @@ use crate::scrapyfy::scraper_html::query::HtmlScraperQuery;
 use crate::scrapyfy::query_helpers::{self, QueryTemplateParamMapping};
 use crate::scrapyfy::{HttpClient, ScraperHttpConfig};
 
-/// Defaults to `4`.
+/// Defaults to `4` for the maximum number of concurrent row post-processing operations.
+///
+/// This default value is used when `row_concurrency` is not specified in the
+/// HTML scraper query configuration. It controls how many extracted rows can
+/// have their async post-process steps running simultaneously.
+///
+/// # Returns
+///
+/// The default concurrency limit of 4.
 fn default_html_row_concurrency() -> usize {
     4
 }
@@ -88,10 +96,27 @@ impl HtmlScraperQueryRaw {
 }
 
 impl ScraperQueryRaw for HtmlScraperQueryRaw {
+    /// Returns the query name used as the lookup key in a collection.
+    ///
+    /// # Returns
+    ///
+    /// The name field from the common configuration.
     fn name(&self) -> String {
         self.common.name.clone()
     }
 
+    /// Resolves collection-level placeholders used by this HTML query config.
+    ///
+    /// Processes the query configuration to replace `{placeholder}` templates
+    /// with actual values from collection parameters.
+    ///
+    /// # Arguments
+    ///
+    /// * `params` - Collection-level template parameters.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a required placeholder is missing from `params`.
     fn resolve_collection_params(&mut self, params: &HashMap<String, String>) -> Result<()> {
         self.common.resolve_collection_params("HTML query", params)?;
 
@@ -110,6 +135,14 @@ impl ScraperQueryRaw for HtmlScraperQueryRaw {
         Ok(())
     }
 
+    /// Merges the collection-level HTTP configuration into this query's own config.
+    ///
+    /// Inherits HTTP settings from the parent collection, with query-specific
+    /// settings taking precedence over collection defaults.
+    ///
+    /// # Arguments
+    ///
+    /// * `collection_http` - HTTP configuration inherited from the parent collection.
     fn apply_collection_http(&mut self, collection_http: &ScraperHttpConfig) {
         self.common.apply_collection_http(collection_http);
     }
@@ -195,6 +228,18 @@ impl TryFrom<HtmlScraperQueryRaw> for HtmlScraperQuery {
 
 impl From<&HtmlScraperQuery> for HtmlScraperQueryRaw {
     /// Converts a runtime query back into its raw YAML-compatible representation.
+    ///
+    /// Serializes the validated runtime query back to a form that can be
+    /// serialized to YAML. This preserves the configuration structure but loses
+    /// runtime-only information like compiled selectors.
+    ///
+    /// # Arguments
+    ///
+    /// * `query` - Runtime query to convert.
+    ///
+    /// # Returns
+    ///
+    /// A raw query struct suitable for YAML serialization.
     fn from(query: &HtmlScraperQuery) -> Self {
         Self {
             common: ScraperQueryCommon {
@@ -261,16 +306,31 @@ impl Serialize for HtmlScraperQuery {
 #[derive(Serialize, Deserialize)]
 pub struct HtmlScraperSubQueryRaw {
     /// Common configuration fields shared with EntrySubQueryRaw.
+    ///
+    /// Includes settings like context pointer, filters, target path, request configuration,
+    /// and HTTP settings that are common across all sub-query types.
     #[serde(flatten)]
     pub common: SubQueryCommon,
     /// CSS selector matching each result row in the follow-up response.
+    ///
+    /// This selector is used to find individual data rows in the HTML response
+    /// fetched by the sub-query.
     pub row_selector: String,
     /// Field extractors executed for every matched row.
+    ///
+    /// These entries extract data from each row matched by the `row_selector`
+    /// in the follow-up response.
     pub entries: Vec<HtmlScraperEntryRaw>,
     /// Entries extracted from the context row rather than from fetched rows.
+    ///
+    /// These entries extract data from the parent context row that triggered
+    /// the sub-query, rather than from the fetched HTML response.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub context_entries: Vec<HtmlScraperEntryRaw>,
     /// Nested sub-queries (recursion).
+    ///
+    /// Child sub-queries that are executed for each row matched by this sub-query,
+    /// allowing for arbitrary levels of nested data fetching.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sub_queries: Vec<HtmlScraperSubQueryRaw>,
 }
@@ -278,9 +338,13 @@ pub struct HtmlScraperSubQueryRaw {
 impl HtmlScraperSubQueryRaw {
     /// Propagates the parent HTTP configuration into this sub-query and its children.
     ///
+    /// Merges the parent query's HTTP configuration into this sub-query's configuration,
+    /// and recursively applies the merged configuration to all nested sub-queries.
+    ///
     /// # Arguments
     ///
     /// * `parent_http` - HTTP configuration inherited from the parent query.
+    ///   This is merged with the sub-query's own HTTP configuration.
     pub(crate) fn apply_parent_http(&mut self, parent_http: &ScraperHttpConfig) {
         self.common.apply_parent_http(parent_http);
         let child_http = self.common.http.clone();
@@ -291,14 +355,20 @@ impl HtmlScraperSubQueryRaw {
 
     /// Resolves collection-level placeholders in this sub-query's HTTP config.
     ///
+    /// Processes the sub-query configuration to replace `{placeholder}` templates
+    /// with actual values from collection parameters. Also recursively resolves
+    /// placeholders in all nested sub-queries.
+    ///
     /// # Arguments
     ///
     /// * `parent_name` - Parent query name used in diagnostic messages.
+    ///   This provides context in error messages.
     /// * `params` - Collection-level template parameters.
     ///
     /// # Errors
     ///
     /// Returns an error if a required placeholder is missing from `params`.
+    /// The error includes the sub-query context and the missing placeholder name.
     pub(crate) fn resolve_collection_params(
         &mut self,
         parent_name: &str,
@@ -318,9 +388,20 @@ impl TryFrom<HtmlScraperSubQueryRaw> for crate::scrapyfy::scraper_html::query::H
 
     /// Converts a raw YAML sub-query definition into a validated runtime sub-query.
     ///
+    /// Validates the sub-query configuration and compiles the CSS selector
+    /// for efficient matching. Also converts all child entries and nested sub-queries.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Raw YAML sub-query definition to convert.
+    ///
     /// # Errors
     ///
-    /// Returns an error if the row selector is empty or the target is empty.
+    /// Returns an error if:
+    /// - The row selector is empty
+    /// - The target path is empty
+    /// - The row selector is not a valid CSS selector
+    /// - Any entry or sub-query fails validation
     fn try_from(config: HtmlScraperSubQueryRaw) -> Result<Self> {
         let HtmlScraperSubQueryRaw {
             common,
@@ -403,6 +484,24 @@ impl TryFrom<HtmlScraperSubQueryRaw> for crate::scrapyfy::scraper_html::query::H
 
 impl From<&crate::scrapyfy::scraper_html::query::HtmlScraperSubQuery> for HtmlScraperSubQueryRaw {
     /// Converts a runtime sub-query back into its raw YAML-compatible representation.
+    ///
+    /// Serializes the validated runtime sub-query back to a form that can be
+    /// serialized to YAML. This preserves the configuration structure but loses
+    /// runtime-only information like compiled selectors.
+    ///
+    /// # Arguments
+    ///
+    /// * `sub_query` - Runtime sub-query to convert.
+    ///
+    /// # Returns
+    ///
+    /// A raw sub-query struct suitable for YAML serialization.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a nested sub-query is not a [`HtmlScraperSubQuery`].
+    /// This should not occur during normal operation as HTML sub-queries
+    /// should only contain other HTML sub-queries.
     fn from(sub_query: &crate::scrapyfy::scraper_html::query::HtmlScraperSubQuery) -> Self {
         Self {
             common: SubQueryCommon {

@@ -19,14 +19,32 @@ pub enum ScraperType {
 /// [`ScraperType`](super::ScraperType).
 pub enum RowLocator {
     /// HTML response: apply a CSS selector on the parsed document.
+    ///
+    /// Used when the scraper type is [`ScraperType::Html`].
     Selector {
-        /// CSS selector used to enumerate rows.
+        /// CSS selector used to enumerate rows in the HTML document.
+        ///
+        /// Example: `"div.item"` to select all div elements with class "item".
         selector: String,
         /// Whether to pick the first match or all matches.
+        ///
+        /// - [`HtmlScraperSelectMode::First`]: Only the first matching element.
+        /// - [`HtmlScraperSelectMode::All`]: All matching elements.
         select: HtmlScraperSelectMode,
     },
     /// JSON response: apply a JSON pointer on the parsed payload.
+    ///
+    /// Used when the scraper type is [`ScraperType::Json`].
+    /// The string is a JSON Pointer (RFC 6901) used to locate rows in the JSON response.
+    ///
+    /// # Examples
+    ///
+    /// - `"/data/items"` selects the array at `/data/items`
+    /// - `"/widgets/*"` selects all elements in the `/widgets` array
     Pointer(String),
     /// Single row (e.g. static query, or a payload that maps 1:1 to a row).
+    ///
+    /// Used when the scraper type is [`ScraperType::Static`] or when the response
+    /// directly represents a single row without needing to extract multiple items.
     Single,
 }
