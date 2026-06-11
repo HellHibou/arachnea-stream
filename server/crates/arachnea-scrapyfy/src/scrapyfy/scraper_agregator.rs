@@ -190,6 +190,12 @@ impl ScraperAgregator {
     }
 
     #[cfg(any(test, feature = "test-support"))]
+    /// Returns the last loaded query collection.
+    pub fn get_last_query_collection(&self) -> Option<&ScraperQueryCollection> {
+        self.queries_collection.last()
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
     /// Returns one loaded query collection by source name.
     ///
     /// # Arguments

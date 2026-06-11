@@ -224,9 +224,9 @@ pub mod tests {
     /// Executes one configured query and validates field-level extraction coverage.
     pub fn test_query<M, F>(
         manager: &mut M,
-        query_source: &str,
         query: &str,
         test_params: TestParams,
+        yaml_file: &str,
         callback: F,
     ) -> Result<()>
     where
@@ -244,31 +244,33 @@ pub mod tests {
                 .block_on(future)
         }
 
-        let yaml_file = format!(
+        let yaml_path = format!(
             "{}/services/{}.yaml",
             resources::get_application_root(),
-            query_source
+            yaml_file
         );
 
         // === SETUP BLOCK (mutable borrow ends here) ===
-        let fallback_expected_fields: Vec<String> = {
+        let (fallback_expected_fields, query_source) = {
             let scraper_agregator = manager.get_scraper_agregator_mut();
 
-            scraper_agregator.add_query_collection_from_files_yaml(vec![yaml_file])?;
+            scraper_agregator.add_query_collection_from_files_yaml(vec![yaml_path])?;
 
             let query_collection = scraper_agregator
-                .get_query_collection(query_source)
-                .ok_or_else(|| anyhow::anyhow!("Query Collection not found: {}", query_source))?;
+                .get_last_query_collection()
+                .ok_or_else(|| anyhow::anyhow!("No query collection loaded"))?;
+
+            let query_source = query_collection.name().to_string();
 
             let query_exec = query_collection
                 .get_query(query)
                 .ok_or_else(|| anyhow::anyhow!("Query {} not found in {}", query, query_source))?;
 
-            query_exec.get_field_names()
+            (query_exec.get_field_names(), query_source)
         };
 
         let expected_fields_from_test_data =
-            load_expected_fields_from_test_data(query_source, query)?;
+            load_expected_fields_from_test_data(&query_source, query)?;
         let strict_expected_fields = expected_fields_from_test_data.is_some();
         let expected_fields = expected_fields_from_test_data.unwrap_or(TestExpectedFields {
             required: fallback_expected_fields,
@@ -277,7 +279,7 @@ pub mod tests {
 
         // === MOCK SETUP ===
         if test_params.use_mock_file {
-            init_mock(query_source, query);
+            init_mock(&query_source, query);
         } else {
             http_client::remove_router();
         }
@@ -366,14 +368,14 @@ pub mod tests {
 
         if bad_data_format == 0 {
             println!(
-                "Test count field: OK - {} skipped, {} new fields",
+                "Test count field: OK - {:2} skipped, {:2} new fields",
                 skipped, new_fields
             );
         }
 
         if bad_data_format > 0 {
             anyhow::bail!(
-                "Test count field: {} errors, {} skipped, {} new fields",
+                "Test count field: {:2} errors, {:2} skipped, {:2} new fields",
                 bad_data_format,
                 skipped,
                 new_fields
@@ -411,16 +413,16 @@ pub mod tests {
         failures: &mut Vec<String>,
         query_source: &str,
         query_name: &str,
+        yaml_file: Option<&str>,
         run_query: F,
     ) where
-        F: FnOnce(&str) -> Result<()>,
+        F: FnOnce(&str, Option<&str>) -> Result<()>,
     {
         println!("Test {} for source `{}`...", query_name, query_source);
-        let result = run_query(query_source);
+        let result = run_query(query_source, yaml_file);
         if let Err(error) = result {
-            failures.push(format!(
-                "{query_name} failed for source `{query_source}`: {error:?}"
-            ));
+            println!("{}", error);
+            failures.push(format!("| Source: {query_source:15} | Query: {query_name:25} | {error}"));
         }
 
         println!("\n--------------------------------------------------------------\n");

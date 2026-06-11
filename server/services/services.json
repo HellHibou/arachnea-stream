@@ -23,7 +23,7 @@
   },
   {
     "path":"francetv.yaml",
-    "enabled": true
+    "enabled": false
   },
   {
     "path": "papystreaming.yaml",
@@ -39,14 +39,14 @@
   }, 
   {
     "path": "darkstream/coflix.yaml",
-    "enabled": true
+    "enabled": false
   },
   {
     "path": "darkstream/frenchanimes.yaml",
-    "enabled": true
+    "enabled": false
   },
   {
     "path": "darkstream/animeultime.yaml",
-    "enabled": true
+    "enabled": false
   }
 ]

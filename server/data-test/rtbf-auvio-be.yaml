@@ -81,7 +81,6 @@ queries:
       - episode > release-date
       - episode > season-name
       - episode > title
-      - expire
       - img/poster > link
       - players > resolver > kind
       - players > resolver > stream > kind
@@ -103,3 +102,4 @@ queries:
       - subtitles
       - video/trailer
       - media-type
+      - expire

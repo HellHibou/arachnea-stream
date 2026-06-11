@@ -5,19 +5,23 @@ use arachnea_scrapyfy::scrapyfy::scraper_data_node::ScraperDataNode;
 use arachnea_scrapyfy::scrapyfy::scraper_manager::tests::assert_query_succeeds;
 use arachnea_scrapyfy::scrapyfy::scraper_manager::tests::test_query;
 use arachnea_scrapyfy::scrapyfy::scraper_manager::tests::TestParams;
+use serde::Deserialize;
 use std::collections::HashMap;
+use std::fs;
+use std::path::Path;
 
 const DEFAULT_FILE_CREDENTIALS_STORE_PATH: &str = "data/credentials.json";
-
+const SERVICES_CONFIG_PATH: &str = "services/services.json";
 static DEFAULT_SEARCH_TERM: &str = "inf";
-static ALL_QUERY_SOURCES: [&str; 5] = [
-    "m6play-fr",
-    "tf1-fr",
-    "rtlplay-be",
-    "rtbf-auvio-be",
-    "anime-sama",
-];
 static DEFAULT_QUERY_SOURCE: &str = "anime-sama";
+
+#[derive(Deserialize)]
+struct ServiceConfig {
+    path: String,
+    enabled: bool,
+    #[allow(dead_code)]
+    parameters: Option<Vec<HashMap<String, String>>>, 
+}
 
 fn test_params() -> TestParams {
     TestParams {
@@ -41,7 +45,9 @@ fn get_entry_url() -> Option<String> {
 
 #[test]
 fn test_all_services() {
-    test_all(ALL_QUERY_SOURCES.to_vec());
+    let enabled_services = load_enabled_services();
+    let enabled_services_refs: Vec<&str> = enabled_services.iter().map(|s| s.as_str()).collect();
+    test_all(enabled_services_refs);
 }
 
 #[test]
@@ -51,56 +57,84 @@ fn test_service() {
 fn test_all(tests: Vec<&str>) {
     let mut failures = Vec::new();
 
-    for query_source in tests {
-        assert_query_succeeds(&mut failures, query_source, "load_home", |source| {
-            load_home(source)
+    for yaml_file in tests {
+        // Extract service name from yaml_file path for display purposes
+        // e.g., "darkstream/coflix" -> "coflix" or "rtlplay-be" -> "rtlplay-be"
+        let service_name = Path::new(yaml_file)
+            .file_stem()
+            .unwrap_or_else(|| yaml_file.as_ref())
+            .to_string_lossy();
+
+
+        assert_query_succeeds(&mut failures, &service_name, "service_stream_metadata", Some(yaml_file), |_, _| {
+            service_stream_metadata(yaml_file)
+        });
+            
+        assert_query_succeeds(&mut failures, &service_name, "load_home", Some(yaml_file), |_, _| {
+            load_home(yaml_file)
         });
 
-        assert_query_succeeds(&mut failures, query_source, "search", |source| {
-            search(source, search_term())
+        assert_query_succeeds(&mut failures, &service_name, "search", Some(yaml_file), |_, _| {
+            search(search_term(), yaml_file)
         });
 
-        assert_query_succeeds(&mut failures, query_source, "get_entry", |source| {
-            get_entry(source, get_entry_url())
+        assert_query_succeeds(&mut failures, &service_name, "get_entry", Some(yaml_file), |_, _| {
+            get_entry(get_entry_url(), yaml_file)
         });
     }
 
     assert!(
         failures.is_empty(),
-        "test_all_services found {} failure(s):\n{}",
+        "test_all_services found {} failure(s):\n {}\n",
         failures.len(),
-        failures.join("\n\n")
+        failures.join("\n ")
     );
+}
+
+#[test]
+pub fn test_query_service_stream_metadata() -> Result<()> {
+    service_stream_metadata(query_source().as_str())
+}
+fn service_stream_metadata(yaml_file: &str) -> Result<()> {
+    test_query(
+        &mut StreamScraper::new(
+            resources::get_application_path(DEFAULT_FILE_CREDENTIALS_STORE_PATH).as_str(),
+        ),
+        "service_stream_metadata",
+        test_params(),
+        yaml_file,
+        move |scraper| Box::pin(scraper.get_service()),
+    )
 }
 
 #[test]
 pub fn test_query_load_home() -> Result<()> {
     load_home(query_source().as_str())
 }
-fn load_home(query_source: &str) -> Result<()> {
+fn load_home(yaml_file: &str) -> Result<()> {
     test_query(
         &mut StreamScraper::new(
             resources::get_application_path(DEFAULT_FILE_CREDENTIALS_STORE_PATH).as_str(),
         ),
-        query_source,
         "load_home",
         test_params(),
+        yaml_file,
         move |scraper| Box::pin(scraper.load_home()),
     )
 }
 
 #[test]
 pub fn test_query_search() -> Result<()> {
-    search(query_source().as_str(), search_term())
+    search(search_term(), query_source().as_str())
 }
-fn search(query_source: &str, search_term: String) -> Result<()> {
+fn search(search_term: String, yaml_file: &str) -> Result<()> {
     test_query(
         &mut StreamScraper::new(
             resources::get_application_path(DEFAULT_FILE_CREDENTIALS_STORE_PATH).as_str(),
         ),
-        query_source,
         "search",
         test_params(),
+        yaml_file,
         move |scraper| {
             let search_term = search_term.clone();
             Box::pin(async move {
@@ -138,33 +172,63 @@ fn search(query_source: &str, search_term: String) -> Result<()> {
 
 #[test]
 pub fn test_query_get_entry() -> Result<()> {
-    get_entry(query_source().as_str(), get_entry_url())
+    get_entry(get_entry_url(), query_source().as_str())
 }
-fn get_entry(query_source: &str, get_entry_url: Option<String>) -> Result<()> {
-    let query_source_name = query_source.to_string();
+fn get_entry(get_entry_url: Option<String>, yaml_file: &str) -> Result<()> {
+    let yaml_file_owned = yaml_file.to_string();
+    let yaml_file_for_test = yaml_file_owned.clone();
     test_query(
         &mut StreamScraper::new(
             resources::get_application_path(DEFAULT_FILE_CREDENTIALS_STORE_PATH).as_str(),
         ),
-        query_source,
         "get_entry",
         test_params(),
+        &yaml_file_for_test,
         move |scraper| {
             let get_entry_url = get_entry_url.clone();
-            let query_source = query_source_name.clone();
+            let yaml_file_inner = yaml_file_owned.clone();
             Box::pin(async move {
                 let entry_url;
                 if get_entry_url.is_none() {
-                    entry_url = load_entry_url_from_home(scraper, &query_source).await?;
+                    // We need to pass a source name to load_entry_url_from_home
+                    // For now, extract it from yaml_file
+                    let yaml_path = Path::new(&yaml_file_inner);
+                    let source_name = yaml_path.file_stem().unwrap_or_else(|| yaml_path.as_os_str()).to_string_lossy();
+                    entry_url = load_entry_url_from_home(scraper, &source_name).await?;
                 } else {
                     entry_url = get_entry_url.clone().unwrap();
                 }
 
                 println!("Entry URL: {}", entry_url);
-                scraper.get_entry(query_source.clone(), entry_url).await
+                // Use yaml_file without extension as source
+                let source_path = Path::new(&yaml_file_inner).with_extension("");
+                let source_name = source_path.to_string_lossy();
+                scraper.get_entry(source_name.to_string(), entry_url).await
             })
         },
     )
+}
+
+
+fn load_enabled_services() -> Vec<String> {
+    let config_file = format!("{}/{}",resources::get_application_root(), SERVICES_CONFIG_PATH);
+    let services_json_path = Path::new(config_file.as_str());
+    let content = fs::read_to_string(services_json_path)
+        .expect("Failed to read services.json file");
+    
+    let services: Vec<ServiceConfig> = serde_json::from_str(&content)
+        .expect("Failed to parse services.json file");
+    
+    services
+        .into_iter()
+        .filter(|s| s.enabled)
+        .map(|s| {
+            // Extract the service path without .yaml extension (keep subdirectory path)
+            let path = Path::new(&s.path);
+            let path_without_ext = path.with_extension("");
+            path_without_ext.to_string_lossy().to_string()
+        })
+        .collect()
 }
 
 async fn load_entry_url_from_home(
