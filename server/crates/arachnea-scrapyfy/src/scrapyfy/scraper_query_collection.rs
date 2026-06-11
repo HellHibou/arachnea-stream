@@ -166,20 +166,50 @@ impl ScraperQueryDefinition {
         params: &HashMap<String, String>,
         fields_filters: Option<&HashMap<String, Vec<String>>>,
     ) -> Result<Vec<HashMap<String, ScraperDataNode>>> {
-        let (query_ref, result_item_field) = match self {
+        // Apply query_param_mappings before creating the context
+        let (query_ref, result_item_field, execution_params) = match self {
             ScraperQueryDefinition::Html(query) => {
-                (&*query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery, query.result_item_field())
+                let mappings = &query.query_param_mappings;
+                let base_url = query.base_url();
+                let execution_params = crate::scrapyfy::query_helpers::build_query_execution_params(
+                    base_url,
+                    params,
+                    mappings,
+                );
+                (
+                    &*query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery,
+                    query.result_item_field(),
+                    execution_params,
+                )
             }
             ScraperQueryDefinition::Json(query) => {
-                (&*query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery, query.result_item_field())
+                let mappings = &query.query_param_mappings;
+                let base_url = query.base_url();
+                let execution_params = crate::scrapyfy::query_helpers::build_query_execution_params(
+                    base_url,
+                    params,
+                    mappings,
+                );
+                (
+                    &*query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery,
+                    query.result_item_field(),
+                    execution_params,
+                )
             }
             ScraperQueryDefinition::Static(query) => {
-                (&*query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery, None)
+                // Static queries don't have query_param_mappings, just use params as-is
+                // but still resolve nested templates
+                let execution_params = crate::scrapyfy::query_helpers::resolve_nested_template_params(params);
+                (
+                    &*query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery,
+                    None,
+                    execution_params,
+                )
             }
         };
 
         let context = crate::scrapyfy::scraper::query_executor::QueryContext {
-            params,
+            params: &execution_params,
             request_url: "",
             response_body: None,
             http_client: query_ref.http_client(),
