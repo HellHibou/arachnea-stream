@@ -23,6 +23,7 @@
 pub mod config;
 pub mod entry_trait;
 pub mod query_common;
+pub mod query_unified;
 pub mod row_locator;
 pub mod sub_query_spec;
 
@@ -37,5 +38,6 @@ pub use config::{
 pub use entry_trait::ScraperEntrySpec;
 pub use query_common::BaseQueryConfig;
 pub use query_trait::ScraperQuery;
+pub use query_unified::{ScraperQueryConfig, ScraperTypeConfig};
 pub use row_locator::{RowLocator, ScraperType};
 pub use sub_query_spec::SubQuerySpec;

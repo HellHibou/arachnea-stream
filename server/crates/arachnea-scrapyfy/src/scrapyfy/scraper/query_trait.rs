@@ -14,6 +14,7 @@ use crate::scrapyfy::{HttpClient, ScraperHttpConfig};
 use std::any::Any;
 
 use super::entry_trait::ScraperEntrySpec;
+use super::query_unified::ScraperQueryConfig;
 use super::row_locator::RowLocator;
 use super::sub_query_spec::SubQuerySpec;
 
@@ -24,7 +25,21 @@ use super::sub_query_spec::SubQuerySpec;
 /// (see [`execute_query`](super::query_executor::execute_query))
 /// consumes this trait to drive both root queries and recursive sub-queries
 /// (sibling sub-queries and entry-level sub-queries).
+///
+/// # Migration to unified config
+///
+/// The [`config()`] method returns a unified [`ScraperQueryConfig`] that
+/// will eventually replace the individual legacy getters.
 pub trait ScraperQuery: Send + Sync {
+    // --- Unified config (migration target) ---
+
+    /// Returns the unified query configuration.
+    ///
+    /// Default returns `None` — concrete types should override this when
+    /// they have been migrated to use [`ScraperQueryConfig`].
+    fn config(&self) -> Option<&ScraperQueryConfig> {
+        None
+    }
     // --- Identification ---
 
     /// Returns the scraper type (html | json | static).

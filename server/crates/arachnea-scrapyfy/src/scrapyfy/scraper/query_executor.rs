@@ -16,7 +16,6 @@ use crate::scrapyfy::post_processes::{ScraperPostProcess, ScraperPostProcessCont
 use crate::scrapyfy::scraper_data_node::ScraperDataNode;
 use crate::scrapyfy::scraper_html::entry::{HtmlScraperEntry, HtmlScraperSelectMode};
 use crate::scrapyfy::scraper_json::entry::{select_json_values, JsonScraperEntry};
-use crate::scrapyfy::scraper_json::query::JsonScraperSubQuery;
 use crate::scrapyfy::scraper_static::query::StaticScraperEntryRaw;
 use crate::scrapyfy::query_helpers;
 use crate::scrapyfy::HttpClient;
@@ -31,6 +30,11 @@ use super::ScraperType;
 /// signalling that the entry's value should be used directly as the fetch URL.
 const PARENT_SENTINEL: &str = "parent";
 
+/// Returns an empty `&[&str]` slice with explicit type annotation.
+fn empty_path() -> &'static [&'static str] {
+    let path: &[&str] = &[];
+    path
+}
 /// Runtime context forwarded to polymorphic query execution.
 ///
 /// Mirrors the runtime context used by the legacy per-type `execute_query`
@@ -255,55 +259,18 @@ async fn execute_query_internal(
 
                 // c. Execute sibling sub-queries (recursion via Box::pin).
                 for sibling in query.sub_queries() {
-                    // Any `JsonScraperSubQuery` / `HtmlScraperSubQuery`
-                    // sibling uses the legacy query-level API (its
-                    // `query_url` is empty, it walks the parent row via
-                    // `context_pointer`/`row_pointer`, and merges under
-                    // `target`). The unified executor therefore dispatches
-                    // every concrete query-level sub-query through its
-                    // legacy `execute_query_level` entry point, regardless
-                    // of whether `context_pointer` is `Some` (one context
-                    // per row of the parent) or `None` (single context =
-                    // the whole parent row).
-                    if let Some(json_sub) = sibling
-                        .as_any()
-                        .downcast_ref::<JsonScraperSubQuery>()
-                    {
-                        // The parent row is the row extracted by the
-                        // current query's `row_pointer`, not the raw HTTP
-                        // response. The legacy
-                        // `JsonScraperSubQuery::execute` walks it via
-                        // `context_pointer` to find the per-context values
-                        // (e.g. `/data/widgets/*` for `load_home`,
-                        // `/episodes/*` for `coflix:get_season`).
-                        let parent_row = response_parent_row(query, &response);
-                        let execution_options = query_level_execution_options();
-                        let sub_client = context
-                            .http_client
-                            .configured(sibling.http_config().clone());
-                        let merged = json_sub
-                            .execute_query_level(
-                                &parent_row,
-                                context.params,
-                                &request_url,
-                                query.base_url(),
-                                &sub_client,
-                                execution_options,
-                            )
-                            .await?;
-                        merge_targeted(&mut item, merged, sibling.sub_query_spec());
-                    } else {
-                        // Entry-level sub-query (or HTML query-level — not
-                        // yet supported): recurse through the unified
-                        // executor.
-                        let sibling_root =
-                            Box::pin(execute_query_internal(sibling, context)).await?;
-                        let mut merged = ScraperDataNode::default();
-                        for child in sibling_root {
-                            merged.merge(child);
-                        }
-                        merge_targeted(&mut item, merged, sibling.sub_query_spec());
+                    // All sub-queries (query-level and entry-level) now use the
+                    // same unified execution path. Query-level sub-queries that
+                    // need context_pointer / request_pointer iteration have those
+                    // fields set directly on the concrete query type (JsonScraperQuery /
+                    // HtmlScraperQuery), and the unified executor handles them.
+                    let sibling_root =
+                        Box::pin(execute_query_internal(sibling, context)).await?;
+                    let mut merged = ScraperDataNode::default();
+                    for child in sibling_root {
+                        merged.merge(child);
                     }
+                    merge_targeted(&mut item, merged, sibling.sub_query_spec());
                 }
 
             // d. Apply post-processes on this item.
@@ -911,7 +878,7 @@ async fn execute_entry_sub_queries(
 /// * `item` - The item from which to collect leaf entry values.
 fn collect_entry_values(item: &ScraperDataNode) -> HashMap<String, Vec<String>> {
     let mut map = HashMap::new();
-    collect_entry_values_recursive(item, &mut map, &[]);
+    collect_entry_values_recursive(item, &mut map, empty_path());
     map
 }
 
@@ -931,7 +898,7 @@ fn collect_entry_values_recursive<'a>(
     }
     // Process items (group entries).
     for item in &node.items {
-        collect_entry_values_recursive(item, map, &[]);
+        collect_entry_values_recursive(item, map, empty_path());
     }
     // Leaf values: append to the path entry.
     if !node.values.is_empty() {
@@ -1192,65 +1159,3 @@ fn _dedupe_urls(urls: Vec<String>) -> Vec<String> {
     out
 }
 
-/// Builds a `serde_json::Value` representation of the **parent row** that
-/// the query-level sub-query iterates over via its `context_pointer`.
-///
-/// The legacy `JsonScraperSubQuery::execute` walks the parent row with
-/// `select_json_values(context_row, context_pointer, context_select)`. For a
-/// root-level sub-query, the parent row is the **row extracted by the
-/// parent query's `row_pointer`** — not the raw HTTP response. For
-/// example, `rtbf-auvio-be.yaml::load_home` declares `row_pointer: /data`,
-/// so the sub-query must walk `/data/widgets/*` (not the bare
-/// `/widgets/*` which would not match the API response shape).
-///
-/// The function therefore applies the parent query's `row_locator()` to
-/// the JSON response. When the locator is a `Pointer`, the first matching
-/// row is used; for HTML and Static scrapers no JSON walk is possible, so
-/// a `Value::Null` is returned and the legacy sub-query short-circuits.
-///
-/// # Arguments
-///
-/// * `query` - The parent query.
-/// * `response` - The fetched JSON response.
-///
-/// # Returns
-///
-/// The parent row as a `serde_json::Value`, or `Value::Null` if not applicable.
-fn response_parent_row(query: &dyn ScraperQuery, response: &FetchedResponse) -> Value {
-    let FetchedResponse::Json(value) = response else {
-        return Value::Null;
-    };
-
-    match query.row_locator() {
-        RowLocator::Pointer(pointer) => {
-            // Take the first row matching the parent's `row_pointer`.
-            // Legacy semantics iterate sub-queries per row, but the
-            // query-level dispatch operates on a single parent row (the
-            // first match is sufficient because sub-query results are
-            // merged by `target` path, not by row).
-            select_json_values(value, Some(&pointer), HtmlScraperSelectMode::First)
-                .into_iter()
-                .next()
-                .cloned()
-                .unwrap_or_else(|| value.clone())
-        }
-        // HTML selectors / Single: no JSON walk possible.
-        _ => value.clone(),
-    }
-}
-
-/// Returns the default concurrency options for query-level sub-queries.
-///
-/// Mirrors the legacy `JsonScraperQuery` defaults: 4 sibling, 4 context, 8 fetch.
-///
-/// # Returns
-///
-/// Execution options with concurrency settings for query-level sub-queries.
-fn query_level_execution_options(
-) -> crate::scrapyfy::scraper_json::config::JsonScraperExecutionOptions {
-    crate::scrapyfy::scraper_json::config::JsonScraperExecutionOptions {
-        sibling_sub_query_concurrency: 4,
-        sub_query_context_concurrency: 4,
-        sub_query_fetch_concurrency: DEFAULT_FETCH_CONCURRENCY,
-    }
-}

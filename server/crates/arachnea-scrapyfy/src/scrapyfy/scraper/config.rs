@@ -45,6 +45,12 @@ pub enum ScraperRequestMethod {
     Post,
 }
 
+impl Default for ScraperRequestMethod {
+    fn default() -> Self {
+        Self::Get
+    }
+}
+
 impl ScraperRequestMethod {
     /// Converts this enum variant into the corresponding [`http::Method`].
     ///

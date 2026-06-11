@@ -104,7 +104,7 @@ pub struct HtmlScraperQuery {
     ///
     /// The parsed and validated CSS selector used for efficient row matching.
     /// This is the runtime version of `row_selector_template`.
-    row_selector_compiled: ::scraper::Selector,
+    pub(crate) row_selector_compiled: ::scraper::Selector,
     /// Original row selector template preserved from YAML.
     ///
     /// The raw CSS selector string as defined in the YAML configuration,
@@ -130,6 +130,35 @@ pub struct HtmlScraperQuery {
     ///
     /// The HTTP client instance configured with the query's HTTP settings.
     pub(crate) http_client: HttpClient,
+
+    // --- Champs sub-query (optionnels, utilisés quand ce query est une sub-query) ---
+
+    /// Optional CSS selector scoping the context rows that seed follow-up requests.
+    pub(crate) context_pointer: Option<String>,
+
+    /// Selection mode for the context pointer.
+    pub(crate) context_select: HtmlScraperSelectMode,
+
+    /// Filters applied to the context row before issuing the follow-up request.
+    pub(crate) context_filters: HashMap<String, Vec<String>>,
+
+    /// Filters applied to the fetched rows (after the HTTP response).
+    pub(crate) row_filters: HashMap<String, Vec<String>>,
+
+    /// Path where the sub-query result is nested.
+    pub(crate) target: Option<String>,
+
+    /// Pointer selecting the request URL from the context row.
+    pub(crate) request_pointer: Option<String>,
+
+    /// Selection mode for the request pointer.
+    pub(crate) request_select: HtmlScraperSelectMode,
+
+    /// Actions applied to the selected request URLs.
+    pub(crate) request_sub_actions: Vec<ScraperAction>,
+
+    /// Top-level sub-queries attached to this query.
+    pub(crate) sub_queries: Vec<Box<dyn ScraperQuery>>,
 }
 
 impl HtmlScraperQuery {
@@ -254,6 +283,16 @@ impl HtmlScraperQuery {
             result_item_field: None,
             scraper_entries: Vec::new(),
             post_processes: Vec::new(),
+            // Nouveaux champs sub-query (par défaut)
+            context_pointer: None,
+            context_select: HtmlScraperSelectMode::All,
+            context_filters: HashMap::new(),
+            row_filters: HashMap::new(),
+            target: None,
+            request_pointer: None,
+            request_select: HtmlScraperSelectMode::All,
+            request_sub_actions: Vec::new(),
+            sub_queries: Vec::new(),
         };
 
         for scraper_entry in scraper_entries {
@@ -480,31 +519,42 @@ impl ScraperQuery for HtmlScraperQuery {
         self.request_method
     }
 
-    /// Returns the JSON pointer for selecting the request body.
+    /// Returns the JSON pointer for selecting the request URL or body.
+    ///
+    /// For root queries, returns `request_body_pointer`.
+    /// For sub-queries, returns `request_pointer` (prioritaire) or falls back to `request_body_pointer`.
     ///
     /// # Returns
     ///
-    /// The request body pointer if configured, otherwise `None`.
+    /// The request pointer if configured, otherwise `None`.
     fn request_pointer(&self) -> Option<&str> {
-        self.request_body_pointer.as_deref()
+        self.request_pointer.as_deref().or(self.request_body_pointer.as_deref())
     }
 
-    /// Returns the selection mode for the request body pointer.
+    /// Returns the selection mode for the request pointer.
+    ///
+    /// For sub-queries, `request_select` est prioritaire.
     ///
     /// # Returns
     ///
-    /// The selection mode controlling how request body values are selected.
+    /// The selection mode controlling how request values are selected.
     fn request_select(&self) -> HtmlScraperSelectMode {
-        self.request_body_select
+        if self.request_pointer.is_some() { self.request_select } else { self.request_body_select }
     }
 
-    /// Returns the actions applied to the request body.
+    /// Returns the actions applied to the request.
+    ///
+    /// For sub-queries, `request_sub_actions` est prioritaire si non vide.
     ///
     /// # Returns
     ///
     /// A slice of actions applied before the HTTP call.
     fn request_actions(&self) -> &[ScraperAction] {
-        &self.request_body_actions
+        if self.request_pointer.is_some() && !self.request_sub_actions.is_empty() { 
+            &self.request_sub_actions 
+        } else { 
+            &self.request_body_actions 
+        }
     }
 
     /// Returns the HTTP headers attached to the request.
@@ -582,7 +632,29 @@ impl ScraperQuery for HtmlScraperQuery {
     ///
     /// An empty vector - HTML scraper queries don't have root-level sub-queries.
     fn sub_queries(&self) -> Vec<&dyn ScraperQuery> {
+        self.sub_queries
+            .iter()
+            .map(|sub| &**sub as &dyn ScraperQuery)
+            .collect()
+    }
+
+    // --- Sub-query overrides ---
+
+    fn context_pointer(&self) -> Option<&str> {
+        self.context_pointer.as_deref()
+    }
+
+    fn context_select(&self) -> HtmlScraperSelectMode {
+        self.context_select
+    }
+
+    fn context_entries(&self) -> Vec<&dyn ScraperEntrySpec> {
+        // No dedicated context_entries on HtmlScraperQuery yet
         Vec::new()
+    }
+
+    fn target(&self) -> Option<&str> {
+        self.target.as_deref()
     }
 
     /// Returns a reference to this query as a trait object.

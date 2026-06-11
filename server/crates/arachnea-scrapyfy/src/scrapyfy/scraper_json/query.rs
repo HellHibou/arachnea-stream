@@ -27,6 +27,7 @@ use std::collections::{HashMap, HashSet};
 use crate::scrapyfy::*;
 use crate::scrapyfy::scraper::entry_trait::ScraperEntrySpec;
 use crate::scrapyfy::scraper::query_trait::ScraperQuery;
+use crate::scrapyfy::scraper::query_unified::{ScraperQueryConfig, ScraperTypeConfig};
 use crate::scrapyfy::scraper::row_locator::{RowLocator, ScraperType};
 use crate::scrapyfy::scraper::sub_query_spec::SubQuerySpec;
 use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
@@ -115,6 +116,32 @@ pub struct JsonScraperQuery {
 
     /// HTTP client for making requests.
     pub(crate) http_client: HttpClient,
+
+    // --- Champs sub-query (optionnels, utilisés quand ce query est une sub-query) ---
+
+    /// Optional JSON pointer selecting the context rows that seed follow-up requests.
+    pub(crate) context_pointer: Option<String>,
+
+    /// Selection mode for the context pointer.
+    pub(crate) context_select: HtmlScraperSelectMode,
+
+    /// Filters applied to the context row before issuing the follow-up request.
+    pub(crate) context_filters: HashMap<String, Vec<String>>,
+
+    /// Filters applied to the fetched rows (after the HTTP response).
+    pub(crate) row_filters: HashMap<String, Vec<String>>,
+
+    /// Path where the sub-query result is nested.
+    pub(crate) target: Option<String>,
+
+    /// Pointer selecting the request URL from the context row.
+    pub(crate) request_pointer: Option<String>,
+
+    /// Selection mode for the request pointer.
+    pub(crate) request_select: HtmlScraperSelectMode,
+
+    /// Actions applied to the selected request URLs.
+    pub(crate) request_sub_actions: Vec<ScraperAction>,
 }
 
 // ---------------------------------------------------------------------------
@@ -921,6 +948,15 @@ impl JsonScraperQuery {
             scraper_entries: Vec::new(),
             sub_queries,
             post_processes: Vec::new(),
+            // Champs sub-query (par défaut)
+            context_pointer: None,
+            context_select: HtmlScraperSelectMode::All,
+            context_filters: HashMap::new(),
+            row_filters: HashMap::new(),
+            target: None,
+            request_pointer: None,
+            request_select: HtmlScraperSelectMode::All,
+            request_sub_actions: Vec::new(),
         };
 
         for scraper_entry in scraper_entries {
@@ -1045,15 +1081,23 @@ impl ScraperQuery for JsonScraperQuery {
     }
 
     fn request_pointer(&self) -> Option<&str> {
-        self.request_body_pointer.as_deref()
+        // Pour une root query, request_pointer utilise request_body_pointer
+        // Pour une sub-query, request_pointer est le champ dédié (prioritaire)
+        self.request_pointer.as_deref().or(self.request_body_pointer.as_deref())
     }
 
     fn request_select(&self) -> HtmlScraperSelectMode {
-        self.request_body_select
+        // Pour sub-query, request_select est prioritaire
+        if self.request_pointer.is_some() { self.request_select } else { self.request_body_select }
     }
 
     fn request_actions(&self) -> &[ScraperAction] {
-        &self.request_body_actions
+        // Pour sub-query, request_sub_actions est prioritaire
+        if self.request_pointer.is_some() && !self.request_sub_actions.is_empty() { 
+            &self.request_sub_actions 
+        } else { 
+            &self.request_body_actions 
+        }
     }
 
     fn request_headers(&self) -> &[ScraperRequestHeader] {
@@ -1100,6 +1144,26 @@ impl ScraperQuery for JsonScraperQuery {
 
     fn sub_query_spec(&self) -> Option<&SubQuerySpec> {
         None
+    }
+
+    // --- Sub-query overrides ---
+
+    fn context_pointer(&self) -> Option<&str> {
+        self.context_pointer.as_deref()
+    }
+
+    fn context_select(&self) -> HtmlScraperSelectMode {
+        self.context_select
+    }
+
+    fn context_entries(&self) -> Vec<&dyn ScraperEntrySpec> {
+        // No dedicated context_entries on JsonScraperQuery yet;
+        // context entries are merged into scraper_entries.
+        Vec::new()
+    }
+
+    fn target(&self) -> Option<&str> {
+        self.target.as_deref()
     }
 
     fn as_any(&self) -> &dyn Any {
