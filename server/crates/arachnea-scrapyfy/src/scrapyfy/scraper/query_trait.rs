@@ -16,7 +16,6 @@ use std::any::Any;
 use super::entry_trait::ScraperEntrySpec;
 use super::query_unified::ScraperQueryConfig;
 use super::row_locator::RowLocator;
-use super::sub_query_spec::SubQuerySpec;
 
 /// Implemented by all queries: root, sub-query, and entry-level sub-query,
 /// in HTML, JSON, or Static form.
@@ -167,15 +166,6 @@ pub trait ScraperQuery: Send + Sync {
     /// Sibling sub-queries are executed alongside the parent query and their
     /// results are merged at the same level.
     fn sub_queries(&self) -> Vec<&dyn ScraperQuery>;
-
-    // --- Spec sub-query (None for roots) ---
-
-    /// Returns the sub-query spec (or `None` for root queries).
-    ///
-    /// The spec contains configuration like target path, filters, etc.
-    fn sub_query_spec(&self) -> Option<&SubQuerySpec> {
-        None
-    }
 
     // --- Query-level sub-query detection (legacy) ---
 

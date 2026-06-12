@@ -176,3 +176,24 @@ Toutes les phases d'implémentation majeures sont terminées :
 - Le trait `ScraperQuery` dispose des bonnes méthodes (`context_pointer()`, `target()`, `request_pointer()`, etc.) pour que l'exécuteur puisse traiter root queries et sub-queries **uniformément, sans downcast**.
 - L'exécuteur utilise un seul chemin polymorphique pour tous les types de requêtes.
 - Il reste le nettoyage des structs legacy (suppression) et la migration YAML.
+
+## 5. Informations sur les phases 7 et 8
+La Phase 7 (suppression types legacy) et la Phase 8 (migration YAML) sont liées :
+
+- Les YAML actuels utilisent le format non-taggé pour les `sub_queries:` de type query-level (ex. dans `queries:` → `sub_queries:`)
+- Ces YAML sont parsés via `JsonScraperSubQueryRaw` / `HtmlScraperSubQueryRaw` / `SubQueryCommon`
+- Pour supprimer ces types legacy, TOUS les YAML doivent d'abord être migrés vers le format taggé
+
+Cela implique de modifier __tous les fichiers YAML__ dans `server/services/` et `server/data-test/` + le code de parsing correspondant.
+
+Cela touchera :
+
+- `server/services/` (8 fichiers YAML + service JSON)
+- `scraper_json/config.rs` (suppression TryFrom/From pour JsonScraperSubQueryRaw/JsonScraperSubQuery)
+- `scraper_html/config.rs` (suppression TryFrom/From pour HtmlScraperSubQueryRaw/HtmlScraperSubQuery)
+- `scraper_json/query.rs` (suppression struct `JsonScraperSubQuery`)
+- `scraper_html/query.rs` (suppression struct `HtmlScraperSubQuery`)
+- `scraper/sub_query_spec.rs` (suppression)
+- `scraper/query_common.rs` (suppression)
+- `scraper/config.rs` (suppression ScraperQueryCommon, SubQueryCommon, ScraperQueryRaw)
+

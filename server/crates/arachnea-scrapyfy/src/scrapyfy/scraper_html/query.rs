@@ -19,7 +19,6 @@ use crate::scrapyfy::scraper::config::{ScraperRequestHeader, ScraperRequestMetho
 use crate::scrapyfy::scraper::entry_trait::ScraperEntrySpec;
 use crate::scrapyfy::scraper::query_trait::ScraperQuery;
 use crate::scrapyfy::scraper::row_locator::{RowLocator, ScraperType};
-use crate::scrapyfy::scraper::sub_query_spec::SubQuerySpec;
 use crate::scrapyfy::scraper_html::config::HtmlScraperQueryRaw;
 use crate::scrapyfy::scraper_html::entry::{HtmlScraperEntry, HtmlScraperSelectMode};
 use crate::scrapyfy::query_helpers::QueryTemplateParamMapping;
@@ -848,15 +847,6 @@ impl ScraperQuery for HtmlScraperSubQuery {
             .iter()
             .map(|sub| &**sub as &dyn ScraperQuery)
             .collect()
-    }
-
-    /// Returns the sub-query specification.
-    ///
-    /// # Returns
-    ///
-    /// `None` - HTML sub-queries don't have a separate sub-query specification.
-    fn sub_query_spec(&self) -> Option<&SubQuerySpec> {
-        None
     }
 
     // --- Query-level sub-query overrides (legacy semantics) ---

@@ -488,12 +488,10 @@ pub struct JsonScraperQueryRaw {
 
     /// Chained JSON follow-up requests executed after the main entries.
     ///
-    /// Kept as `JsonScraperSubQueryRaw` for backward compatibility with
-    /// existing YAML files (untagged format). Entry-level sub-queries
-    /// use `EntrySubQueryRaw` via the `HtmlScraperEntryRaw`/`JsonScraperEntryRaw`
-    /// `sub_queries` fields instead.
+    /// Now uses `EntrySubQueryRaw` (tagged format with `scraper_type`) for
+    /// all sub-queries. Requires `scraper_type: json` on each sub-query item.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub sub_queries: Vec<JsonScraperSubQueryRaw>,
+    pub sub_queries: Vec<EntrySubQueryRaw>,
 }
 
 // ---------------------------------------------------------------------------
@@ -716,11 +714,7 @@ impl TryFrom<JsonScraperQueryRaw> for JsonScraperQuery {
         let sub_queries: Vec<Box<dyn crate::scrapyfy::scraper::query_trait::ScraperQuery>> =
             sub_queries
                 .into_iter()
-                .map(|raw| -> Result<_> {
-                    let runtime: JsonScraperSubQuery = raw.try_into()?;
-                    let boxed: Box<dyn crate::scrapyfy::scraper::query_trait::ScraperQuery> = Box::new(runtime);
-                    Ok(boxed)
-                })
+                .map(|raw| raw.into_boxed_query(&resolved_base_url))
                 .collect::<Result<Vec<_>>>()?;
         let request_headers = request_headers
             .into_iter()

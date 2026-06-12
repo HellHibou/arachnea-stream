@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize, Serializer};
 use serde_yaml::Value;
 use std::collections::HashMap;
 
-use crate::scrapyfy::scraper::{RowLocator, ScraperEntrySpec, ScraperQuery, ScraperType, SubQuerySpec};
+use crate::scrapyfy::scraper::{RowLocator, ScraperEntrySpec, ScraperQuery, ScraperType};
 use crate::scrapyfy::scraper::config::{ScraperRequestHeader, ScraperRequestMethod};
 use crate::scrapyfy::scraper_data_node::ScraperDataNode;
 use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
@@ -404,10 +404,6 @@ impl ScraperQuery for StaticScraperQuery {
 
     fn sub_queries(&self) -> Vec<&dyn ScraperQuery> {
         Vec::new()
-    }
-
-    fn sub_query_spec(&self) -> Option<&SubQuerySpec> {
-        None
     }
 
     fn as_any(&self) -> &dyn Any {

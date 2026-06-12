@@ -1,8 +1,7 @@
 //! [`execute_query`] — unified polymorphic executor for every query type.
 //!
-//! Step 5 introduced the shared types ([`ScraperQuery`], [`ScraperEntrySpec`],
-//! [`SubQuerySpec`], [`RowLocator`]). Step 15 implemented the dispatch logic
-//! skeleton. Step 16 (this module) completes the wiring: proper downcasts via
+//! Uses the shared types ([`ScraperQuery`], [`ScraperEntrySpec`], [`RowLocator`])
+//! and trait objects for polymorphic dispatch.  Proper downcasts via
 //! [`ScraperEntrySpec::as_any`], request URL/header/body resolution, post-process
 //! application, field filtering, and the public [`execute_query_items`] entry point
 //! used by [`ScraperQueryDefinition`](crate::scrapyfy::scraper_query_collection::ScraperQueryDefinition).
@@ -23,7 +22,6 @@ use crate::scrapyfy::HttpClient;
 use super::entry_trait::ScraperEntrySpec;
 use super::query_trait::ScraperQuery;
 use super::row_locator::RowLocator;
-use super::sub_query_spec::SubQuerySpec;
 use super::ScraperType;
 
 /// Sentinel value used as `request_pointer` default for entry-level sub-queries,
@@ -270,7 +268,7 @@ async fn execute_query_internal(
                     for child in sibling_root {
                         merged.merge(child);
                     }
-                    merge_targeted(&mut item, merged, sibling.sub_query_spec());
+                    merge_targeted(&mut item, merged, sibling.target());
                 }
 
             // d. Apply post-processes on this item.
@@ -844,7 +842,7 @@ async fn execute_entry_sub_queries(
                     for child in sub_items {
                         merged.merge(child);
                     }
-                    merge_targeted(item, merged, sub_query.sub_query_spec());
+                    merge_targeted(item, merged, sub_query.target());
                 }
             } else {
                 // No parent values available — try the generic executor path.
@@ -860,7 +858,7 @@ async fn execute_entry_sub_queries(
                 for child in sub_items {
                     merged.merge(child);
                 }
-                merge_targeted(item, merged, sub_query.sub_query_spec());
+                merge_targeted(item, merged, sub_query.target());
             }
         }
     }
@@ -1062,25 +1060,23 @@ async fn apply_post_processes(
 /// Merges a sub-query result into an item, honouring the sub-query's
 /// `target` path.
 ///
-/// If a target path is specified in the sub-query spec, the source data is nested
+/// If a target path is specified, the source data is nested
 /// under that path. Otherwise, the source is merged directly into the item.
 ///
 /// # Arguments
 ///
 /// * `item` - The item to merge the source into.
 /// * `source` - The source data to merge.
-/// * `spec` - Optional sub-query spec containing the target path.
-fn merge_targeted(item: &mut ScraperDataNode, source: ScraperDataNode, spec: Option<&SubQuerySpec>) {
-    if let Some(spec) = spec {
-        if let Some(target) = &spec.target {
-            let path: Vec<&str> = target.split('>').map(str::trim).filter(|s| !s.is_empty()).collect();
-            if path.is_empty() {
-                item.merge(source);
-            } else {
-                item.push_node(&path, source);
-            }
-            return;
+/// * `target` - Optional target path for nesting.
+fn merge_targeted(item: &mut ScraperDataNode, source: ScraperDataNode, target: Option<&str>) {
+    if let Some(target) = target {
+        let path: Vec<&str> = target.split('>').map(str::trim).filter(|s| !s.is_empty()).collect();
+        if path.is_empty() {
+            item.merge(source);
+        } else {
+            item.push_node(&path, source);
         }
+        return;
     }
     item.merge(source);
 }

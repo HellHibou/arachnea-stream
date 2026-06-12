@@ -625,7 +625,8 @@ queries:
           - type: format_text
             argument: "false"
     sub_queries:
-      - context_pointer: "/episodes/*"
+      - scraper_type: json
+        context_pointer: "/episodes/*"
         target: episodes
         request_pointer: "/id"
         request_actions:

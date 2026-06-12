@@ -130,6 +130,7 @@ shared:
       pointer: /illustration/m
 
   rtbf_program_episode_sub_query: &rtbf_program_episode_sub_query
+    scraper_type: json
     context_pointer: /data/widgets/*
     filters:
       /type:
@@ -142,7 +143,8 @@ shared:
       - name: season > link
         pointer: /contentPath
     sub_queries:
-      - filters:
+      - scraper_type: json
+        filters:
           /type:
             - MEDIA_LIST
         request_pointer: /contentPath
@@ -153,7 +155,8 @@ shared:
         entries:
           - name: episode
             entries: *rtbf_episode_entries
-      - filters:
+      - scraper_type: json
+        filters:
           /type:
             - MEDIA_LIST
         request_pointer: /contentPath
@@ -167,7 +170,8 @@ shared:
 
   # ================== SUB-QUERIES COMMUNES (load_home + get_category) ==================
   home_sub_queries: &home_sub_queries
-    - context_pointer: /widgets/*
+    - scraper_type: json
+      context_pointer: /widgets/*
       filters:
         /type:
           - CATEGORY_LIST
@@ -198,7 +202,8 @@ shared:
               pointer: /path
               actions: *actions_format_rtbf_pages
 
-    - context_pointer: /widgets/*
+    - scraper_type: json
+      context_pointer: /widgets/*
       filters:
         /type:
           - PROMOBOX
@@ -223,7 +228,8 @@ shared:
           pointer: /deeplink
           actions: *actions_resolve_url
       sub_queries:
-        - context_pointer: /mediaId
+        - scraper_type: json
+          context_pointer: /mediaId
           request_actions:
             - type: format_text
               argument: "https://auvio.rtbf.be/embed/arachnea/generic/media/{}"
@@ -231,7 +237,8 @@ shared:
           row_pointer: /props/pageProps
           entries: []
           sub_queries:
-            - request_pointer: /initialState
+            - scraper_type: json
+              request_pointer: /initialState
               request_actions:
                  - type: regex_find_all
                    pattern: '\\?"assetId\\?":\\?"([^"\\]+)'
@@ -258,7 +265,8 @@ shared:
               row_pointer: /
               entries: []
               sub_queries:
-                - request_pointer: /sessionToken
+                - scraper_type: json
+                  request_pointer: /sessionToken
                   request_actions:
                     - type: get_request_url
                     - type: regex_find_all
@@ -280,7 +288,8 @@ shared:
                     - name: video
                       pointer: /mediaLocator
 
-    - context_pointer: /widgets/*
+    - scraper_type: json
+      context_pointer: /widgets/*
       filters:
         /type:
           - BANNER
@@ -312,7 +321,7 @@ shared:
               pointer: /url
             - name: video        
               pointer: /trailerUrl
-            - name: video        
+            - name: video
               pointer: /trailer/url
             - name: video
               pointer: /embedPath
@@ -553,7 +562,8 @@ queries:
         select: all
 
     sub_queries:
-      - context_pointer: /data/content/program/path
+      - scraper_type: json
+        context_pointer: /data/content/program/path
         request_actions: *actions_format_rtbf_pages
         row_pointer: /
         entries: []
@@ -680,7 +690,7 @@ queries:
         pointer: /links/next
         actions: *map_null_false_default_true
 
-      # === ÉPISODES (utilise les champs communs de l’ancre) ===
+      # === ÉPISODES (utilise les champs communs de l'ancre) ===
       - name: episodes
         entries:
           - name: link

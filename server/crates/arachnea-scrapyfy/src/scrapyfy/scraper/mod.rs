@@ -11,9 +11,7 @@
 //! - [`query_trait`]: The [`ScraperQuery`] contract that all query types must implement.
 //! - [`entry_trait`]: The [`ScraperEntrySpec`] contract for field extractors.
 //! - [`row_locator`]: The [`RowLocator`] enum defining how rows are extracted from responses.
-//! - [`sub_query_spec`]: The [`SubQuerySpec`] aggregate containing sub-query configuration.
 //! - [`config`]: Common configuration types and defaults for all scraper query types.
-//! - [`query_common`]: Base configuration structures shared by HTML and JSON scrapers.
 //!
 //! # Architecture
 //!
@@ -22,10 +20,8 @@
 
 pub mod config;
 pub mod entry_trait;
-pub mod query_common;
 pub mod query_unified;
 pub mod row_locator;
-pub mod sub_query_spec;
 
 pub(crate) mod query_executor;
 pub(crate) mod query_trait;
@@ -36,8 +32,6 @@ pub use config::{
     ScraperRequestMethod, SubQueryCommon,
 };
 pub use entry_trait::ScraperEntrySpec;
-pub use query_common::BaseQueryConfig;
 pub use query_trait::ScraperQuery;
 pub use query_unified::{ScraperQueryConfig, ScraperTypeConfig};
 pub use row_locator::{RowLocator, ScraperType};
-pub use sub_query_spec::SubQuerySpec;

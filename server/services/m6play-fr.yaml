@@ -234,7 +234,8 @@ queries:
               - type: format_text
                 argument: "{api_root}/6play/folders/{}/programs?csa=6&with=parentcontext"
     sub_queries:
-      - request_actions:
+      - scraper_type: json
+        request_actions:
           - type: format_text
             argument: "{api_root}/m6replay/programs?limit={max_banners}&offset=0&csa=6&sort=last_video_publication&with=layout"
         request_headers: *generic_request_headers
