@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 use crate::scrapyfy::post_processes::{ScraperPostProcess, ScraperPostProcessContext};
 use crate::scrapyfy::scraper_data_node::ScraperDataNode;
 use crate::scrapyfy::scraper_html::entry::{HtmlScraperEntry, HtmlScraperSelectMode};
-use crate::scrapyfy::scraper_json::entry::{select_json_values, JsonScraperEntry};
+use crate::scrapyfy::scraper_json::entry::{json_value_to_strings, select_json_values, JsonScraperEntry};
 use crate::scrapyfy::scraper_static::query::StaticScraperEntryRaw;
 use crate::scrapyfy::query_helpers;
 use crate::scrapyfy::HttpClient;
@@ -67,6 +67,11 @@ pub struct QueryContext<'a> {
     ///
     /// When set, only fields matching the specified patterns are included in results.
     pub fields_filters: Option<&'a HashMap<String, Vec<String>>>,
+
+    /// Optional parent response for sub-query URL resolution.
+    ///
+    /// When set, sub-queries with `request_pointer` can extract URLs from this response.
+    pub parent_response: Option<&'a Value>,
 }
 
 /// Maximum number of follow-up requests executed together (sane default for
@@ -236,7 +241,30 @@ async fn execute_query_internal(
     query: &dyn ScraperQuery,
     context: &QueryContext<'_>,
 ) -> Result<Vec<ScraperDataNode>> {
-    // 1. Resolve request URL(s).
+    // 1. Handle static queries that have no query_url or request_pointer —
+    //    they don't need resolving, fetching, or any response data.
+    if query.scraper_type() == ScraperType::Static {
+        let items = extract_items(query, &FetchedResponse::Static, "", context)?;
+        for mut item in items {
+            apply_post_processes(
+                query.post_processes(),
+                &mut item,
+                context.params,
+                "",
+                None,
+                context.http_client,
+            )
+            .await?;
+            if context.fields_filters.is_none()
+                || !query_helpers::is_root_filtered(&item, context.fields_filters.unwrap())
+            {
+                return Ok(vec![item]);
+            }
+        }
+        return Ok(Vec::new());
+    }
+
+    // 2. Resolve request URL(s).
     let request_urls = resolve_request_urls(query, context);
     if request_urls.is_empty() {
         return Ok(Vec::new());
@@ -248,22 +276,193 @@ async fn execute_query_internal(
     // 3. Build the merged root from items.
     let mut all_items = Vec::new();
     for (request_url, response) in responses {
-        // a. Extract items from the response.
-        let items = extract_items(query, &response, &request_url, context)?;
+        // a. Extract items and their raw JSON row values from the response.
+        //    The raw row values are needed as parent_response for sibling sub-queries
+        //    that use context_pointer (e.g. context_pointer: /widgets/* must be
+        //    resolved against the row at row_pointer: /data, not the full response).
+        let row_values: Vec<(ScraperDataNode, Option<&Value>)> = extract_items_with_rows(
+            query, &response, &request_url, context,
+        )?;
 
-            for mut item in items {
+            for (mut item, row_value) in row_values {
                 // b. Execute entry-level sub-queries (recursion).
                 execute_entry_sub_queries(query, &mut item, &request_url, context).await?;
 
                 // c. Execute sibling sub-queries (recursion via Box::pin).
                 for sibling in query.sub_queries() {
-                    // All sub-queries (query-level and entry-level) now use the
-                    // same unified execution path. Query-level sub-queries that
-                    // need context_pointer / request_pointer iteration have those
-                    // fields set directly on the concrete query type (JsonScraperQuery /
-                    // HtmlScraperQuery), and the unified executor handles them.
+                    // Check if this sibling sub-query has a context_pointer, which
+                    // means it needs to iterate over context rows from the parent
+                    // row, apply filters, and resolve request URLs per context.
+                    if let Some(cp) = sibling.context_pointer() {
+                        if !cp.is_empty() {
+                            // Use the row value as parent for context_pointer resolution,
+                            // not the full response. This matches the legacy behavior
+                            // where context_pointer is scoped to the extracted row.
+                            let parent_json = row_value.or_else(|| match &response {
+                                FetchedResponse::Json(v) => Some(v),
+                                _ => None,
+                            });
+                            if let Some(parent_json) = parent_json {
+                                // Iterate over context rows selected by context_pointer.
+                                let context_values: Vec<&Value> = select_json_values(
+                                    parent_json,
+                                    Some(cp),
+                                    sibling.context_select(),
+                                );
+                                // If sibling has a target (e.g. "banners"), each context
+                                // becomes a separate array item.
+                                let target_path: Vec<&str> = sibling.target()
+                                    .map(|t| t.split('>').map(str::trim).filter(|s| !s.is_empty()).collect())
+                                    .unwrap_or_default();
+                                let use_array_items = !target_path.is_empty();
+                                let mut merged = ScraperDataNode::default();
+                                for ctx in context_values {
+                                    // Apply filters on context rows.
+                                    let filters = sibling.filters();
+                                    let mut filtered_out = false;
+                                    for (field, allowed) in filters {
+                                        let field_values: Vec<String> = select_json_values(
+                                            ctx,
+                                            Some(field),
+                                            HtmlScraperSelectMode::All,
+                                        )
+                                        .into_iter()
+                                        .flat_map(json_value_to_strings)
+                                        .collect();
+                                        if !field_values.iter().any(|v| allowed.contains(v)) {
+                                            filtered_out = true;
+                                            break;
+                                        }
+                                    }
+                                    if filtered_out {
+                                        continue;
+                                    }
+                                    // Collect results for this context row.
+                                    let mut ctx_results = Vec::new();
+
+                                    if sibling.request_pointer().is_some() {
+                                        let sub_context = QueryContext {
+                                            params: context.params,
+                                            request_url: context.request_url,
+                                            response_body: context.response_body,
+                                            http_client: context.http_client,
+                                            fields_filters: context.fields_filters,
+                                            parent_response: Some(ctx),
+                                        };
+                                        let sub_items = Box::pin(execute_query_internal(
+                                            sibling,
+                                            &sub_context,
+                                        )).await?;
+                                        ctx_results = sub_items;
+                                    } else if !sibling.request_actions().is_empty() {
+                                        let mut urls: Vec<String> = select_json_values(
+                                            ctx,
+                                            None,
+                                            HtmlScraperSelectMode::All,
+                                        )
+                                        .into_iter()
+                                        .flat_map(json_value_to_strings)
+                                        .collect();
+                                        if !urls.is_empty() {
+                                            let mut processed: Vec<String> = Vec::new();
+                                            for url in urls {
+                                                let mut vals = vec![url];
+                                                for action in sibling.request_actions() {
+                                                    vals = action.apply(
+                                                        &None,
+                                                        vals,
+                                                        context.params,
+                                                        context.request_url,
+                                                        None,
+                                                        None,
+                                                    );
+                                                }
+                                                processed.extend(vals);
+                                            }
+                                            for url in processed {
+                                                if url.is_empty() {
+                                                    continue;
+                                                }
+                                                let method = sibling.request_method().as_http_method();
+                                                let headers = resolve_request_headers(
+                                                    sibling.request_headers(),
+                                                    context.params,
+                                                    &url,
+                                                );
+                                                let body = resolve_request_body(
+                                                    sibling.request_pointer(),
+                                                    sibling.request_select(),
+                                                    sibling.request_actions(),
+                                                    context.params,
+                                                    &url,
+                                                );
+                                                let client = context.http_client
+                                                    .configured(sibling.http_config().clone());
+                                                let response = fetch_single(
+                                                    &client,
+                                                    method,
+                                                    &url,
+                                                    &headers,
+                                                    body.as_deref(),
+                                                    sibling.extract_next_data(),
+                                                    sibling.scraper_type(),
+                                                ).await?;
+                                                let fetched_json = match &response {
+                                                    FetchedResponse::Json(v) => Some(v),
+                                                    _ => None,
+                                                };
+                                                let sub_context = QueryContext {
+                                                    params: context.params,
+                                                    request_url: &url,
+                                                    response_body: None,
+                                                    http_client: context.http_client,
+                                                    fields_filters: context.fields_filters,
+                                                    parent_response: fetched_json,
+                                                };
+                                                let sub_items = Box::pin(execute_query_internal(
+                                                    sibling,
+                                                    &sub_context,
+                                                )).await?;
+                                                ctx_results = sub_items;
+                                            }
+                                        }
+                                    }
+
+                                    // Accumulate results for this context row.
+                                    if use_array_items {
+                                        let target = walk_mut(&mut item, &target_path);
+                                        for result in ctx_results {
+                                            target.items.push(result);
+                                        }
+                                    } else {
+                                        for result in ctx_results {
+                                            merged.merge(result);
+                                        }
+                                    }
+                                }
+                                if !use_array_items {
+                                    merge_targeted(&mut item, merged, sibling.target());
+                                }
+                                continue; // Skip the generic path below.
+                            }
+                        }
+                    }
+                    // Default: generic unified execution path (for sub-queries without
+                    // context_pointer).
+                    let parent_json = row_value.or_else(|| match &response {
+                        FetchedResponse::Json(v) => Some(v),
+                        _ => None,
+                    });
+                    let sub_context = QueryContext {
+                        params: context.params,
+                        request_url: context.request_url,
+                        response_body: context.response_body,
+                        http_client: context.http_client,
+                        fields_filters: context.fields_filters,
+                        parent_response: parent_json,
+                    };
                     let sibling_root =
-                        Box::pin(execute_query_internal(sibling, context)).await?;
+                        Box::pin(execute_query_internal(sibling, &sub_context)).await?;
                     let mut merged = ScraperDataNode::default();
                     for child in sibling_root {
                         merged.merge(child);
@@ -347,20 +546,82 @@ fn as_json_entry(entry: &dyn ScraperEntrySpec) -> Option<&JsonScraperEntry> {
 ///
 /// * `query` - The query containing the URL template.
 /// * `context` - Runtime context containing parameters for template resolution.
+/// * `response` - Optional parent response for sub-query URL resolution.
 ///
 /// # Returns
 ///
-/// A vector containing the resolved URL. Currently always returns a single URL.
+/// A vector containing the resolved URL(s). Returns empty vector for sub-queries
+/// without a query_url template when response/context is not provided.
 fn resolve_request_urls(query: &dyn ScraperQuery, context: &QueryContext<'_>) -> Vec<String> {
-    let formatted = query_helpers::format_query_template(
-        query.base_url(),
-        query.query_url(),
-        context.params,
-    )
-    .unwrap_or_else(|_| query.query_url().to_string());
+    // First, try to resolve from query_url template (root queries)
+    if !query.query_url().is_empty() {
+        return vec![query_helpers::format_query_template(
+            query.base_url(),
+            query.query_url(),
+            context.params,
+        )
+        .unwrap_or_else(|_| query.query_url().to_string())];
+    }
 
-    vec![formatted]
+    if let Some(parent_response) = context.parent_response {
+        if let Some(rp) = query.request_pointer() {
+            if !rp.is_empty() {
+                let values: Vec<String> = select_json_values(
+                        parent_response,
+                        Some(rp),
+                        query.request_select(),
+                    )
+                    .into_iter()
+                    .flat_map(json_value_to_strings)
+                    .collect();
+                    if !values.is_empty() {
+                        let mut resolved_urls = Vec::new();
+                        for value in values {
+                            let mut url_values = vec![value];
+                            for action in query.request_actions() {
+                                url_values = action.apply(&None, url_values, context.params, context.request_url, None, None);
+                            }
+                            if let Some(url) = url_values.into_iter().find(|v| !v.is_empty()) {
+                                resolved_urls.push(url);
+                            }
+                        }
+                        return resolved_urls;
+                    }
+                }
+        } else if !query.request_actions().is_empty() {
+            // No request_pointer but request_actions present — use the parent
+            // response value directly as the input for the action pipeline.
+            // This covers the PROMOBOX sub-chain pattern where
+            // context_pointer: /mediaId selects a value and
+            // request_actions: format_text builds the full URL.
+            let values: Vec<String> = select_json_values(
+                    parent_response,
+                    None,
+                    query.request_select(),
+                )
+                .into_iter()
+                .flat_map(json_value_to_strings)
+                .collect();
+                if !values.is_empty() {
+                    let mut resolved_urls = Vec::new();
+                    for value in values {
+                        let mut url_values = vec![value];
+                        for action in query.request_actions() {
+                            url_values = action.apply(&None, url_values, context.params, context.request_url, None, None);
+                        }
+                        for url in url_values {
+                            if !url.is_empty() {
+                                resolved_urls.push(url);
+                            }
+                        }
+                    }
+                    return resolved_urls;
+                }
+        }
+    }
+    vec![]
 }
+
 
 /// Resolves request headers from the query's configured header list.
 ///
@@ -624,6 +885,73 @@ fn extract_items(
     Ok(result)
 }
 
+/// Extracts items and returns them alongside their raw JSON row value.
+///
+/// The raw row value is used as parent_response for sibling sub-queries
+/// that need context_pointer resolution scoped to the row (e.g.
+/// context_pointer: /widgets/* must be resolved against the row at
+/// row_pointer: /data, not the full response).
+///
+/// For non-JSON responses (HTML, Static), the row value is None and we
+/// fall back to the full response as parent.
+///
+/// # Arguments
+///
+/// * `query` - The query being executed.
+/// * `response` - The fetched response to extract items from.
+/// * `request_url` - The URL of the request that produced this response.
+/// * `context` - Runtime context containing parameters.
+///
+/// # Returns
+///
+/// A vector of tuples (item, optional raw JSON row value), one for each
+/// row extracted from the response.
+///
+/// # Errors
+///
+/// See [`extract_items`] for error conditions.
+fn extract_items_with_rows<'a>(
+    query: &dyn ScraperQuery,
+    response: &'a FetchedResponse,
+    request_url: &str,
+    context: &QueryContext<'_>,
+) -> Result<Vec<(ScraperDataNode, Option<&'a Value>)>> {
+    match response {
+        FetchedResponse::Json(value) => {
+            let pointer = match &query.row_locator() {
+                RowLocator::Pointer(pointer) => pointer.clone(),
+                _ => {
+                    // Fall back to the original extract_items and map to (item, None).
+                    return Ok(extract_items(query, response, request_url, context)?
+                        .into_iter()
+                        .map(|item| (item, None))
+                        .collect());
+                }
+            };
+            let values: Vec<&Value> = select_json_values(
+                value,
+                Some(&pointer),
+                HtmlScraperSelectMode::All,
+            );
+            let mut result = Vec::new();
+            for row_value in values {
+                let mut item = ScraperDataNode::default();
+                for entry in query.entries() {
+                    if let Some(json_entry) = as_json_entry(entry) {
+                        json_entry.apply_to(&mut item, row_value, context.params, request_url);
+                    }
+                }
+                result.push((item, Some(row_value)));
+            }
+            Ok(result)
+        }
+        // Non-JSON: fall back to the original extract_items and map to (item, None).
+        _ => Ok(extract_items(query, response, request_url, context)?
+            .into_iter()
+            .map(|item| (item, None))
+            .collect()),
+    }
+}
 // ---------------------------------------------------------------------------
 // Entry sub-queries
 // ---------------------------------------------------------------------------
@@ -829,14 +1157,15 @@ async fn execute_entry_sub_queries(
                         }
                     }
                 } else {
-                    // Non-default request_pointer → fall through to generic executor.
-                    let sub_context = QueryContext {
-                        params: context.params,
-                        request_url,
-                        response_body: context.response_body,
-                        http_client: context.http_client,
-                        fields_filters: None,
-                    };
+                     // Non-default request_pointer → fall through to generic executor.
+                     let sub_context = QueryContext {
+                         params: context.params,
+                         request_url,
+                         response_body: context.response_body,
+                         http_client: context.http_client,
+                         fields_filters: None,
+                         parent_response: None,
+                     };
                     let sub_items = Box::pin(execute_query_internal(sub_query, &sub_context)).await?;
                     let mut merged = ScraperDataNode::default();
                     for child in sub_items {
@@ -852,6 +1181,7 @@ async fn execute_entry_sub_queries(
                     response_body: context.response_body,
                     http_client: context.http_client,
                     fields_filters: None,
+                    parent_response: None,
                 };
                 let sub_items = Box::pin(execute_query_internal(sub_query, &sub_context)).await?;
                 let mut merged = ScraperDataNode::default();

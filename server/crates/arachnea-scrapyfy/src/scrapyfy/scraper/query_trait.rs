@@ -12,6 +12,7 @@ use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
 use crate::scrapyfy::{HttpClient, ScraperHttpConfig};
 
 use std::any::Any;
+use std::collections::HashMap;
 
 use super::entry_trait::ScraperEntrySpec;
 use super::query_unified::ScraperQueryConfig;
@@ -196,6 +197,17 @@ pub trait ScraperQuery: Send + Sync {
     /// to expose their `context_entries` field.
     fn context_entries(&self) -> Vec<&dyn ScraperEntrySpec> {
         Vec::new()
+    }
+
+    /// Returns the filters applied to the context row before issuing the
+    /// follow-up request.
+    ///
+    /// Default returns an empty map. Query-level sub-queries override this
+    /// to expose their `filters` field.
+    fn filters(&self) -> &HashMap<String, Vec<String>> {
+        use std::sync::OnceLock;
+        static EMPTY: OnceLock<HashMap<String, Vec<String>>> = OnceLock::new();
+        EMPTY.get_or_init(|| HashMap::new())
     }
 
     /// Returns the target path where query-level sub-query results are

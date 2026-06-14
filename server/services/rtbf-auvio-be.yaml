@@ -135,7 +135,7 @@ shared:
     filters:
       /type:
         - TAB_LIST
-    request_pointer: /contentPath
+    request_pointer: /path
     row_pointer: /data/content/*
     entries:
       - name: season > label
@@ -147,7 +147,7 @@ shared:
         filters:
           /type:
             - MEDIA_LIST
-        request_pointer: /contentPath
+        request_pointer: /path
         request_actions:
           - type: format_text
             argument: "{}&_page=1&_limit=50&_embed=content&includeFastTv=true"
@@ -159,7 +159,7 @@ shared:
         filters:
           /type:
             - MEDIA_LIST
-        request_pointer: /contentPath
+        request_pointer: /path
         request_actions:
           - type: format_text
             argument: "{}&_page=2&_limit=50&_embed=content&includeFastTv=true"
@@ -207,7 +207,7 @@ shared:
       filters:
         /type:
           - PROMOBOX
-      request_pointer: /contentPath
+      request_pointer: /contentPath 
       row_pointer: /data/content/*
       target: banners
       entries:
@@ -294,7 +294,7 @@ shared:
         /type:
           - BANNER
           - MEDIA_TRAILER
-      request_pointer: /contentPath
+      request_pointer: /path
       row_pointer: /data
       entries:
         - name: banners

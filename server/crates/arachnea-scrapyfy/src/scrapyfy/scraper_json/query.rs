@@ -667,6 +667,10 @@ impl ScraperQuery for JsonScraperQuery {
         Vec::new()
     }
 
+    fn filters(&self) -> &HashMap<String, Vec<String>> {
+        &self.filters
+    }
+
     fn target(&self) -> Option<&str> {
         self.target.as_deref()
     }
@@ -781,6 +785,10 @@ impl ScraperQuery for JsonScraperSubQuery {
             .iter()
             .map(|entry| entry as &dyn ScraperEntrySpec)
             .collect()
+    }
+
+    fn filters(&self) -> &HashMap<String, Vec<String>> {
+        &self.filters
     }
 
     fn target(&self) -> Option<&str> {

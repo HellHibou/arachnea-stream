@@ -214,6 +214,7 @@ impl ScraperQueryDefinition {
             response_body: None,
             http_client: query_ref.http_client(),
             fields_filters,
+            parent_response: None,
         };
 
         let rows = crate::scrapyfy::scraper::query_executor::execute_query_items(query_ref, &context).await?;
