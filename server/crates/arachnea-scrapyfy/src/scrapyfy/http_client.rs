@@ -11,8 +11,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use tokio::sync::OnceCell;
-use url::Url;
 use tracing::trace;
+use url::Url;
 
 use crate::scrapyfy::query_helpers;
 

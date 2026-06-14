@@ -44,7 +44,6 @@ pub(super) fn apply(
     }
 
     // Now use replace_template_placeholders to handle all placeholders at once
-    let (result, _missing) =
-        query_helpers::replace_template_placeholders(base, &runtime_params);
+    let (result, _missing) = query_helpers::replace_template_placeholders(base, &runtime_params);
     vec![result]
 }

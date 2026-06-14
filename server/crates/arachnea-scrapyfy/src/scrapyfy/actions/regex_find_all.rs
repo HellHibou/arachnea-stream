@@ -100,8 +100,7 @@ pub(super) fn apply(
 ///
 /// Returns an error when `pattern` is not a valid regular expression.
 pub(super) fn validate(name: &str, owner: &str, pattern: &str) -> Result<()> {
-    Regex::new(pattern)
-        .with_context(|| format!("Invalid regex pattern for {} {}", owner, name))?;
+    Regex::new(pattern).with_context(|| format!("Invalid regex pattern for {} {}", owner, name))?;
     Ok(())
 }
 

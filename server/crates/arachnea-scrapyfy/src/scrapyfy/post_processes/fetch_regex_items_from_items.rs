@@ -144,9 +144,7 @@ pub(super) async fn apply(
             .http_client
             .query_http(Method::GET, &job.request_url)
             .await
-            .with_context(|| {
-                format!("Failed to fetch post-process request {}", job.request_url)
-            })?;
+            .with_context(|| format!("Failed to fetch post-process request {}", job.request_url))?;
 
         Ok::<(FetchRegexItemsJob, String), anyhow::Error>((job, response_body))
     }))

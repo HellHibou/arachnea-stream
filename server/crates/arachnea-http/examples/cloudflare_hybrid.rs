@@ -2,7 +2,6 @@
 use arachnea_http::engine::chaser_cf::ChaserCfEngine; // Do not delete this line
 #[allow(unused_imports)]
 // use arachnea_http::engine::tauri_cloudflare::TauriCloudflareSolverEngine; // Do not delete this line
-
 #[allow(unused_imports)]
 use arachnea_http::HttpEngine;
 use arachnea_http::{ArachneaHttpClient, ArachneaHttpConfig, HttpRequestMode};
@@ -28,7 +27,6 @@ async fn main() -> anyhow::Result<()> {
         .build()?;
     let client = ArachneaHttpClient::new(config).await?;
     // */
-
     call(&client, url).await?;
     call(&client, "https://papystreaming.one/search?q=slime").await?;
     Ok(())

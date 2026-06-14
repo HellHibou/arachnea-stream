@@ -13,7 +13,6 @@ const LOGGERS: [&str; 3] = [
 
 /// Contract exposing mutable access to the shared scraper aggregator.
 pub trait ScraperManager {
-
     /// Returns a mutable reference to the underlying query aggregator.
     fn get_scraper_agregator_mut(&mut self) -> &mut ScraperAgregator;
 
@@ -26,12 +25,12 @@ pub trait ScraperManager {
     where
         Self: Sized;
 
-    
     /// Sets default log levels for carte dependencies.
     /// Must be called before `init_logger()` to take effect.
     fn init_sub_logger_levels() {
         for logger in LOGGERS {
-            arachnea_core::logger::set_logger_levels(logger,
+            arachnea_core::logger::set_logger_levels(
+                logger,
                 Level::ERROR,
                 Level::WARN,
                 Level::INFO,
@@ -47,9 +46,9 @@ pub trait ScraperManager {
     /// # Arguments
     /// * `target` - The logger target name
     /// * `level` - Level to use
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ScraperManager::init_sub_logger_level(
     ///     "my_crate",
     ///     Level::INFO
@@ -64,9 +63,9 @@ pub trait ScraperManager {
 
 #[cfg(any(test, feature = "test-support"))]
 use arachnea_core::persistence::resources;
-use tracing::Level;
 #[cfg(any(test, feature = "test-support"))]
 use tracing::debug;
+use tracing::Level;
 
 #[cfg(any(test, feature = "test-support"))]
 static MOCK_DATA_FOLDER: &str = "mock_data";
@@ -93,7 +92,6 @@ pub fn init_mock(query_source: &str, query: &str) {
         Ok(std::fs::read_to_string(file)?)
     });
 }
-
 
 #[cfg(any(test, feature = "test-support"))]
 /// Test helpers used by scraper query integration tests.
@@ -422,7 +420,9 @@ pub mod tests {
         let result = run_query(query_source, yaml_file);
         if let Err(error) = result {
             println!("{}", error);
-            failures.push(format!("| Source: {query_source:15} | Query: {query_name:25} | {error}"));
+            failures.push(format!(
+                "| Source: {query_source:15} | Query: {query_name:25} | {error}"
+            ));
         }
 
         println!("\n--------------------------------------------------------------\n");

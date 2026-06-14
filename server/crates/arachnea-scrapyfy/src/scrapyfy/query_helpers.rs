@@ -194,7 +194,9 @@ pub fn replace_template_placeholders(
 /// # Arguments
 ///
 /// * `params` - Template parameters that may reference other parameters.
-pub(crate) fn resolve_nested_template_params(params: &HashMap<String, String>) -> HashMap<String, String> {
+pub(crate) fn resolve_nested_template_params(
+    params: &HashMap<String, String>,
+) -> HashMap<String, String> {
     let mut resolved = params.clone();
     let max_iterations = resolved.len().saturating_add(1);
 

@@ -14,14 +14,14 @@ use anyhow::Result;
 use serde::Deserialize;
 use std::collections::HashMap;
 
-use crate::scrapyfy::*;
+use crate::scrapyfy::query_helpers::QueryTemplateParamMapping;
 use crate::scrapyfy::scraper::config::{ScraperRequestHeader, ScraperRequestMethod};
 use crate::scrapyfy::scraper::entry_trait::ScraperEntrySpec;
 use crate::scrapyfy::scraper::query_trait::ScraperQuery;
 use crate::scrapyfy::scraper::row_locator::{RowLocator, ScraperType};
 use crate::scrapyfy::scraper_html::config::HtmlScraperQueryRaw;
 use crate::scrapyfy::scraper_html::entry::{HtmlScraperEntry, HtmlScraperSelectMode};
-use crate::scrapyfy::query_helpers::QueryTemplateParamMapping;
+use crate::scrapyfy::*;
 
 /// A query definition for one HTML source and one result shape.
 ///
@@ -131,7 +131,6 @@ pub struct HtmlScraperQuery {
     pub(crate) http_client: HttpClient,
 
     // --- Champs sub-query (optionnels, utilisés quand ce query est une sub-query) ---
-
     /// Optional CSS selector scoping the context rows that seed follow-up requests.
     pub(crate) context_pointer: Option<String>,
 
@@ -527,7 +526,9 @@ impl ScraperQuery for HtmlScraperQuery {
     ///
     /// The request pointer if configured, otherwise `None`.
     fn request_pointer(&self) -> Option<&str> {
-        self.request_pointer.as_deref().or(self.request_body_pointer.as_deref())
+        self.request_pointer
+            .as_deref()
+            .or(self.request_body_pointer.as_deref())
     }
 
     /// Returns the selection mode for the request pointer.
@@ -538,7 +539,11 @@ impl ScraperQuery for HtmlScraperQuery {
     ///
     /// The selection mode controlling how request values are selected.
     fn request_select(&self) -> HtmlScraperSelectMode {
-        if self.request_pointer.is_some() { self.request_select } else { self.request_body_select }
+        if self.request_pointer.is_some() {
+            self.request_select
+        } else {
+            self.request_body_select
+        }
     }
 
     /// Returns the actions applied to the request.
@@ -549,11 +554,23 @@ impl ScraperQuery for HtmlScraperQuery {
     ///
     /// A slice of actions applied before the HTTP call.
     fn request_actions(&self) -> &[ScraperAction] {
-        if self.request_pointer.is_some() && !self.request_sub_actions.is_empty() { 
-            &self.request_sub_actions 
-        } else { 
-            &self.request_body_actions 
+        if self.request_pointer.is_some() && !self.request_sub_actions.is_empty() {
+            &self.request_sub_actions
+        } else {
+            &self.request_body_actions
         }
+    }
+
+    fn request_body_pointer(&self) -> Option<&str> {
+        self.request_body_pointer.as_deref()
+    }
+
+    fn request_body_select(&self) -> HtmlScraperSelectMode {
+        self.request_body_select
+    }
+
+    fn request_body_actions(&self) -> &[ScraperAction] {
+        &self.request_body_actions
     }
 
     /// Returns the HTTP headers attached to the request.

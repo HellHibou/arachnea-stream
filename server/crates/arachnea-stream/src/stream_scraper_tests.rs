@@ -20,7 +20,7 @@ struct ServiceConfig {
     path: String,
     enabled: bool,
     #[allow(dead_code)]
-    parameters: Option<Vec<HashMap<String, String>>>, 
+    parameters: Option<Vec<HashMap<String, String>>>,
 }
 
 fn test_params() -> TestParams {
@@ -65,22 +65,37 @@ fn test_all(tests: Vec<&str>) {
             .unwrap_or_else(|| yaml_file.as_ref())
             .to_string_lossy();
 
+        assert_query_succeeds(
+            &mut failures,
+            &service_name,
+            "service_stream_metadata",
+            Some(yaml_file),
+            |_, _| service_stream_metadata(yaml_file),
+        );
 
-        assert_query_succeeds(&mut failures, &service_name, "service_stream_metadata", Some(yaml_file), |_, _| {
-            service_stream_metadata(yaml_file)
-        });
-            
-        assert_query_succeeds(&mut failures, &service_name, "load_home", Some(yaml_file), |_, _| {
-            load_home(yaml_file)
-        });
+        assert_query_succeeds(
+            &mut failures,
+            &service_name,
+            "load_home",
+            Some(yaml_file),
+            |_, _| load_home(yaml_file),
+        );
 
-        assert_query_succeeds(&mut failures, &service_name, "search", Some(yaml_file), |_, _| {
-            search(search_term(), yaml_file)
-        });
+        assert_query_succeeds(
+            &mut failures,
+            &service_name,
+            "search",
+            Some(yaml_file),
+            |_, _| search(search_term(), yaml_file),
+        );
 
-        assert_query_succeeds(&mut failures, &service_name, "get_entry", Some(yaml_file), |_, _| {
-            get_entry(get_entry_url(), yaml_file)
-        });
+        assert_query_succeeds(
+            &mut failures,
+            &service_name,
+            "get_entry",
+            Some(yaml_file),
+            |_, _| get_entry(get_entry_url(), yaml_file),
+        );
     }
 
     assert!(
@@ -193,7 +208,10 @@ fn get_entry(get_entry_url: Option<String>, yaml_file: &str) -> Result<()> {
                     // We need to pass a source name to load_entry_url_from_home
                     // For now, extract it from yaml_file
                     let yaml_path = Path::new(&yaml_file_inner);
-                    let source_name = yaml_path.file_stem().unwrap_or_else(|| yaml_path.as_os_str()).to_string_lossy();
+                    let source_name = yaml_path
+                        .file_stem()
+                        .unwrap_or_else(|| yaml_path.as_os_str())
+                        .to_string_lossy();
                     entry_url = load_entry_url_from_home(scraper, &source_name).await?;
                 } else {
                     entry_url = get_entry_url.clone().unwrap();
@@ -209,16 +227,19 @@ fn get_entry(get_entry_url: Option<String>, yaml_file: &str) -> Result<()> {
     )
 }
 
-
 fn load_enabled_services() -> Vec<String> {
-    let config_file = format!("{}/{}",resources::get_application_root(), SERVICES_CONFIG_PATH);
+    let config_file = format!(
+        "{}/{}",
+        resources::get_application_root(),
+        SERVICES_CONFIG_PATH
+    );
     let services_json_path = Path::new(config_file.as_str());
-    let content = fs::read_to_string(services_json_path)
-        .expect("Failed to read services.json file");
-    
-    let services: Vec<ServiceConfig> = serde_json::from_str(&content)
-        .expect("Failed to parse services.json file");
-    
+    let content =
+        fs::read_to_string(services_json_path).expect("Failed to read services.json file");
+
+    let services: Vec<ServiceConfig> =
+        serde_json::from_str(&content).expect("Failed to parse services.json file");
+
     services
         .into_iter()
         .filter(|s| s.enabled)

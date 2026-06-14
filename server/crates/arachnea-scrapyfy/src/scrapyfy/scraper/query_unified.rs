@@ -39,9 +39,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::scrapyfy::actions::ScraperAction;
 use crate::scrapyfy::post_processes::ScraperPostProcess;
-use crate::scrapyfy::scraper::config::{ScraperRequestHeaderRaw, ScraperRequestMethod, default_request_method, default_select_mode};
-use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
 use crate::scrapyfy::query_helpers::QueryTemplateParamMapping;
+use crate::scrapyfy::scraper::config::{
+    default_request_method, default_select_mode, ScraperRequestHeaderRaw, ScraperRequestMethod,
+};
+use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
 use crate::scrapyfy::{HttpClient, ScraperHttpConfig};
 
 // ---------------------------------------------------------------------------
@@ -63,7 +65,6 @@ use crate::scrapyfy::{HttpClient, ScraperHttpConfig};
 #[serde(default)]
 pub struct ScraperQueryConfig {
     // --- Identification ---
-
     /// Scraper type: `html`, `json`, or `static`.
     ///
     /// Determines which parser is used to process the HTTP response.
@@ -82,7 +83,6 @@ pub struct ScraperQueryConfig {
     pub media_types: Vec<String>,
 
     // --- HTTP (root queries only, optional on sub-queries) ---
-
     /// Base URL of the source, available as `{base_url}` in templates.
     ///
     /// Optional: sub-queries that derive their URL from the parent via
@@ -137,7 +137,6 @@ pub struct ScraperQueryConfig {
     pub extract_next_data: bool,
 
     // --- Row extraction ---
-
     /// JSON pointer matching each result row (JSON scraper).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub row_pointer: Option<String>,
@@ -151,7 +150,6 @@ pub struct ScraperQueryConfig {
     pub result_item_field: Option<String>,
 
     // --- Context (sub-queries only) ---
-
     /// JSON pointer in the parent row to scope execution to N contexts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_pointer: Option<String>,
@@ -161,7 +159,6 @@ pub struct ScraperQueryConfig {
     pub context_select: HtmlScraperSelectMode,
 
     // --- Request URL derivation (sub-queries only) ---
-
     /// JSON pointer to the entry value used as the request URL.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub request_pointer: Option<String>,
@@ -175,7 +172,6 @@ pub struct ScraperQueryConfig {
     pub request_actions: Vec<ScraperAction>,
 
     // --- Filtering ---
-
     /// Filter on the context row (before fetch).
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub filters: HashMap<String, Vec<String>>,
@@ -185,25 +181,21 @@ pub struct ScraperQueryConfig {
     pub row_filters: HashMap<String, Vec<String>>,
 
     // --- Merge behavior (sub-queries only) ---
-
     /// Path where the sub-query result is nested.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
 
     // --- Post-processing ---
-
     /// Post-processing steps applied to each extracted row.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub post_process: Vec<ScraperPostProcess>,
 
     // --- HTML-specific concurrency ---
-
     /// Maximum number of rows whose async post-process steps may run together.
     #[serde(default)]
     pub row_concurrency: usize,
 
     // --- JSON-specific concurrency ---
-
     /// Maximum number of sibling sub-queries executed concurrently.
     #[serde(default)]
     pub sibling_sub_query_concurrency: usize,

@@ -11,11 +11,13 @@
 // in crate::scrapyfy::scraper::config but re-exported here so that existing
 // import paths like `use crate::scrapyfy::scraper_json::query::{ScraperRequestMethod, …}`
 // continue to work.
-pub use super::config::{EntrySubQueryRaw, JsonScraperQueryRaw, JsonScraperSubQueryRaw};
 pub(crate) use super::config::JsonScraperExecutionOptions;
+pub use super::config::{EntrySubQueryRaw, JsonScraperQueryRaw, JsonScraperSubQueryRaw};
 
 // Re-export from scraper::config for backward compatibility
-pub use crate::scrapyfy::scraper::config::{ScraperRequestHeader, ScraperRequestHeaderRaw, ScraperRequestMethod};
+pub use crate::scrapyfy::scraper::config::{
+    ScraperRequestHeader, ScraperRequestHeaderRaw, ScraperRequestMethod,
+};
 
 use std::any::Any;
 
@@ -24,7 +26,7 @@ use futures::stream::{self, StreamExt};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 
-use crate::scrapyfy::*;
+use crate::scrapyfy::query_helpers::{self, QueryTemplateParamMapping};
 use crate::scrapyfy::scraper::entry_trait::ScraperEntrySpec;
 use crate::scrapyfy::scraper::query_trait::ScraperQuery;
 use crate::scrapyfy::scraper::query_unified::{ScraperQueryConfig, ScraperTypeConfig};
@@ -32,7 +34,7 @@ use crate::scrapyfy::scraper::row_locator::{RowLocator, ScraperType};
 use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
 use crate::scrapyfy::scraper_json::entry::{json_value_to_strings, select_json_values};
 use crate::scrapyfy::scraper_json::response_parser::{collect_ordered_results, matches};
-use crate::scrapyfy::query_helpers::{self, QueryTemplateParamMapping};
+use crate::scrapyfy::*;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -117,7 +119,6 @@ pub struct JsonScraperQuery {
     pub(crate) http_client: HttpClient,
 
     // --- Champs sub-query (optionnels, utilisés quand ce query est une sub-query) ---
-
     /// Optional JSON pointer selecting the context rows that seed follow-up requests.
     pub(crate) context_pointer: Option<String>,
 
@@ -557,7 +558,6 @@ impl JsonScraperQuery {
 
         names
     }
-
 }
 
 // ---------------------------------------------------------------------------
@@ -592,21 +592,39 @@ impl ScraperQuery for JsonScraperQuery {
     fn request_pointer(&self) -> Option<&str> {
         // Pour une root query, request_pointer utilise request_body_pointer
         // Pour une sub-query, request_pointer est le champ dédié (prioritaire)
-        self.request_pointer.as_deref().or(self.request_body_pointer.as_deref())
+        self.request_pointer
+            .as_deref()
+            .or(self.request_body_pointer.as_deref())
     }
 
     fn request_select(&self) -> HtmlScraperSelectMode {
         // Pour sub-query, request_select est prioritaire
-        if self.request_pointer.is_some() { self.request_select } else { self.request_body_select }
+        if self.request_pointer.is_some() {
+            self.request_select
+        } else {
+            self.request_body_select
+        }
     }
 
     fn request_actions(&self) -> &[ScraperAction] {
         // Pour sub-query, request_sub_actions est prioritaire
-        if self.request_pointer.is_some() && !self.request_sub_actions.is_empty() { 
-            &self.request_sub_actions 
-        } else { 
-            &self.request_body_actions 
+        if self.request_pointer.is_some() && !self.request_sub_actions.is_empty() {
+            &self.request_sub_actions
+        } else {
+            &self.request_body_actions
         }
+    }
+
+    fn request_body_pointer(&self) -> Option<&str> {
+        self.request_body_pointer.as_deref()
+    }
+
+    fn request_body_select(&self) -> HtmlScraperSelectMode {
+        self.request_body_select
+    }
+
+    fn request_body_actions(&self) -> &[ScraperAction] {
+        &self.request_body_actions
     }
 
     fn request_headers(&self) -> &[ScraperRequestHeader] {
@@ -719,6 +737,18 @@ impl ScraperQuery for JsonScraperSubQuery {
 
     fn request_actions(&self) -> &[ScraperAction] {
         &self.request_actions
+    }
+
+    fn request_body_pointer(&self) -> Option<&str> {
+        self.request_body_pointer.as_deref()
+    }
+
+    fn request_body_select(&self) -> HtmlScraperSelectMode {
+        self.request_body_select
+    }
+
+    fn request_body_actions(&self) -> &[ScraperAction] {
+        &self.request_body_actions
     }
 
     fn request_headers(&self) -> &[ScraperRequestHeader] {

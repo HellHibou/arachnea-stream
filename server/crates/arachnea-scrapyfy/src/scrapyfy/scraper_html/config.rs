@@ -8,10 +8,12 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize, Serializer};
 use std::collections::HashMap;
 
-use crate::scrapyfy::scraper::config::{ScraperQueryCommon, ScraperQueryRaw, ScraperRequestHeaderRaw, SubQueryCommon};
+use crate::scrapyfy::query_helpers::{self, QueryTemplateParamMapping};
+use crate::scrapyfy::scraper::config::{
+    ScraperQueryCommon, ScraperQueryRaw, ScraperRequestHeaderRaw, SubQueryCommon,
+};
 use crate::scrapyfy::scraper_html::entry::HtmlScraperEntryRaw;
 use crate::scrapyfy::scraper_html::query::HtmlScraperQuery;
-use crate::scrapyfy::query_helpers::{self, QueryTemplateParamMapping};
 use crate::scrapyfy::{HttpClient, ScraperHttpConfig};
 
 /// Defaults to `4` for the maximum number of concurrent row post-processing operations.
@@ -49,7 +51,6 @@ pub struct HtmlScraperQueryRaw {
 }
 
 impl HtmlScraperQueryRaw {
-
     /// Returns the query name used as the lookup key in a collection.
     pub fn name(&self) -> String {
         self.common.name.clone()
@@ -68,8 +69,9 @@ impl HtmlScraperQueryRaw {
         &mut self,
         params: &HashMap<String, String>,
     ) -> Result<()> {
-        self.common.resolve_collection_params("HTML query", params)?;
-        
+        self.common
+            .resolve_collection_params("HTML query", params)?;
+
         self.resolved_row_selector = Some(query_helpers::resolve_required_template(
             "HTML query",
             &self.common.name,
@@ -118,7 +120,8 @@ impl ScraperQueryRaw for HtmlScraperQueryRaw {
     ///
     /// Returns an error if a required placeholder is missing from `params`.
     fn resolve_collection_params(&mut self, params: &HashMap<String, String>) -> Result<()> {
-        self.common.resolve_collection_params("HTML query", params)?;
+        self.common
+            .resolve_collection_params("HTML query", params)?;
 
         self.resolved_row_selector = Some(query_helpers::resolve_required_template(
             "HTML query",
@@ -192,7 +195,8 @@ impl TryFrom<HtmlScraperQueryRaw> for HtmlScraperQuery {
             .map(TryInto::try_into)
             .collect::<Result<Vec<_>>>()?;
         let resolved_base_url = query_helpers::resolved_or_template(&base_url, resolved_base_url);
-        let resolved_row_selector = query_helpers::resolved_or_template(&row_selector, resolved_row_selector);
+        let resolved_row_selector =
+            query_helpers::resolved_or_template(&row_selector, resolved_row_selector);
 
         HtmlScraperQuery::validate_request_actions(&name, &request_body_actions)?;
 
@@ -443,21 +447,28 @@ impl TryFrom<HtmlScraperSubQueryRaw> for crate::scrapyfy::scraper_html::query::H
             .into_iter()
             .map(TryInto::try_into)
             .collect::<Result<Vec<_>>>()?;
-        let context_entries: Vec<crate::scrapyfy::scraper_html::entry::HtmlScraperEntry> = context_entries
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<Vec<_>>>()?;
-        let request_headers: Vec<crate::scrapyfy::scraper::config::ScraperRequestHeader> = request_headers
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<Vec<_>>>()?;
-        let sub_queries: Vec<Box<dyn crate::scrapyfy::scraper::query_trait::ScraperQuery>> = sub_queries
-            .into_iter()
-            .map(|raw| -> Result<_> {
-                let runtime: crate::scrapyfy::scraper_html::query::HtmlScraperSubQuery = raw.try_into()?;
-                Ok(Box::new(runtime) as Box<dyn crate::scrapyfy::scraper::query_trait::ScraperQuery>)
-            })
-            .collect::<Result<Vec<_>>>()?;
+        let context_entries: Vec<crate::scrapyfy::scraper_html::entry::HtmlScraperEntry> =
+            context_entries
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<Vec<_>>>()?;
+        let request_headers: Vec<crate::scrapyfy::scraper::config::ScraperRequestHeader> =
+            request_headers
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<Vec<_>>>()?;
+        let sub_queries: Vec<Box<dyn crate::scrapyfy::scraper::query_trait::ScraperQuery>> =
+            sub_queries
+                .into_iter()
+                .map(|raw| -> Result<_> {
+                    let runtime: crate::scrapyfy::scraper_html::query::HtmlScraperSubQuery =
+                        raw.try_into()?;
+                    Ok(Box::new(runtime)
+                        as Box<
+                            dyn crate::scrapyfy::scraper::query_trait::ScraperQuery,
+                        >)
+                })
+                .collect::<Result<Vec<_>>>()?;
 
         Ok(Self {
             context_pointer,

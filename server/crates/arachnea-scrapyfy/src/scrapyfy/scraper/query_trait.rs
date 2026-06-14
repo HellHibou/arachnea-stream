@@ -108,6 +108,21 @@ pub trait ScraperQuery: Send + Sync {
     /// These actions transform the request URL or body before making the request.
     fn request_actions(&self) -> &[ScraperAction];
 
+    /// Returns the optional pointer used to derive the request body.
+    fn request_body_pointer(&self) -> Option<&str> {
+        None
+    }
+
+    /// Returns the selection mode for the request body pointer.
+    fn request_body_select(&self) -> HtmlScraperSelectMode {
+        HtmlScraperSelectMode::All
+    }
+
+    /// Returns the actions applied to the request body.
+    fn request_body_actions(&self) -> &[ScraperAction] {
+        &[]
+    }
+
     /// Returns the request headers applied to the HTTP call.
     ///
     /// These headers are added to the HTTP request.

@@ -32,10 +32,7 @@ pub(super) fn validate(
         );
     }
 
-    if unique_field
-        .map(str::trim)
-        .is_some_and(str::is_empty)
-    {
+    if unique_field.map(str::trim).is_some_and(str::is_empty) {
         bail!(
             "append_static_items for {} contains an empty unique_field",
             owner

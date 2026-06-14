@@ -16,10 +16,7 @@ use std::sync::OnceLock;
 ///
 /// A new value list with the HTML-converted plain text. Empty outputs are
 /// dropped.
-pub(super) fn apply(
-    selected: &Option<scraper::ElementRef<'_>>,
-    texts: Vec<String>,
-) -> Vec<String> {
+pub(super) fn apply(selected: &Option<scraper::ElementRef<'_>>, texts: Vec<String>) -> Vec<String> {
     let options = text_only_markdown_options();
 
     if let Some(el) = selected {
@@ -73,9 +70,7 @@ fn text_only_markdown_options() -> quick_html2md::MarkdownOptions {
 /// The HTML fragment with every `<br>` tag replaced by `\n`.
 fn preprocess_html_breaks(html: &str) -> String {
     static BR_REGEX: OnceLock<Regex> = OnceLock::new();
-    let regex = BR_REGEX.get_or_init(|| {
-        Regex::new(r"(?i)<br\s*/?>").expect("Invalid <br> regex")
-    });
+    let regex = BR_REGEX.get_or_init(|| Regex::new(r"(?i)<br\s*/?>").expect("Invalid <br> regex"));
     regex.replace_all(html, "\n").into_owned()
 }
 
@@ -92,10 +87,7 @@ fn preprocess_html_breaks(html: &str) -> String {
 ///
 /// The plain-text representation of `html`, with empty lines collapsed and
 /// each remaining line trimmed.
-fn html_to_plain_text(
-    html: &str,
-    options: &quick_html2md::MarkdownOptions,
-) -> String {
+fn html_to_plain_text(html: &str, options: &quick_html2md::MarkdownOptions) -> String {
     if html.trim().is_empty() {
         return String::new();
     }

@@ -4,12 +4,12 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::Value;
 
-use crate::scrapyfy::*;
 use crate::scrapyfy::scraper::entry_trait::ScraperEntrySpec;
 use crate::scrapyfy::scraper::query_trait::ScraperQuery;
 use crate::scrapyfy::scraper::row_locator::ScraperType;
 use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
 use crate::scrapyfy::EntrySubQueryRaw;
+use crate::scrapyfy::*;
 
 /// Raw configuration definition of one field or grouped field extracted from a JSON result row.
 ///
@@ -614,12 +614,14 @@ impl ScraperEntrySpec for JsonScraperEntry {
 
     fn sub_queries(&self) -> Vec<&dyn crate::scrapyfy::scraper::query_trait::ScraperQuery> {
         match self {
-            JsonScraperEntry::Field { sub_queries, .. } => {
-                sub_queries.iter().map(|b| &**b as &dyn ScraperQuery).collect()
-            }
-            JsonScraperEntry::Group { sub_queries, .. } => {
-                sub_queries.iter().map(|b| &**b as &dyn ScraperQuery).collect()
-            }
+            JsonScraperEntry::Field { sub_queries, .. } => sub_queries
+                .iter()
+                .map(|b| &**b as &dyn ScraperQuery)
+                .collect(),
+            JsonScraperEntry::Group { sub_queries, .. } => sub_queries
+                .iter()
+                .map(|b| &**b as &dyn ScraperQuery)
+                .collect(),
         }
     }
 }

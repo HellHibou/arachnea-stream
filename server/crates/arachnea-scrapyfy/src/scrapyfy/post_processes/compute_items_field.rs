@@ -3,7 +3,9 @@ use std::collections::HashMap;
 
 use super::super::query_helpers;
 use super::super::scraper_data_node::ScraperDataNode;
-use super::math_helpers::{evaluate_math_expression, format_math_result, list_template_placeholders};
+use super::math_helpers::{
+    evaluate_math_expression, format_math_result, list_template_placeholders,
+};
 use super::node_helpers::{get_node, get_node_mut, lookup_node_scalar_value, set_node, split_path};
 use super::types::{
     ScraperComputedFieldVariable, ScraperComputedFieldVariableScope, ScraperPostProcessContext,
@@ -100,9 +102,8 @@ pub(super) fn validate(
     let (resolved_expression, _missing) =
         query_helpers::replace_template_placeholders(expression, &placeholder_values);
 
-    evaluate_math_expression(&resolved_expression).with_context(|| {
-        format!("Invalid post-process math expression for {}", owner)
-    })?;
+    evaluate_math_expression(&resolved_expression)
+        .with_context(|| format!("Invalid post-process math expression for {}", owner))?;
 
     Ok(())
 }
@@ -190,16 +191,14 @@ pub(super) fn apply(
                 continue;
             }
 
-            computed_values.push(ComputedTargetValues::Single(
-                compute_item_field_value(
-                    expression,
-                    variables,
-                    source_item,
-                    None,
-                    root,
-                    context,
-                )?,
-            ));
+            computed_values.push(ComputedTargetValues::Single(compute_item_field_value(
+                expression,
+                variables,
+                source_item,
+                None,
+                root,
+                context,
+            )?));
         }
 
         computed_values
@@ -318,13 +317,12 @@ fn compute_item_field_value(
         return Ok(None);
     }
 
-    let computed_value =
-        evaluate_math_expression(&resolved_expression).with_context(|| {
-            format!(
-                "Failed to evaluate computed field expression `{}` resolved as `{}`",
-                expression, resolved_expression
-            )
-        })?;
+    let computed_value = evaluate_math_expression(&resolved_expression).with_context(|| {
+        format!(
+            "Failed to evaluate computed field expression `{}` resolved as `{}`",
+            expression, resolved_expression
+        )
+    })?;
 
     Ok(Some(format_math_result(computed_value)))
 }
@@ -364,26 +362,22 @@ fn resolve_numeric_variable(
     }
 
     let raw_value = match variable.map(|variable| variable.scope).unwrap_or_default() {
-        ScraperComputedFieldVariableScope::Auto => {
-            lookup_node_scalar_value(current_item, path)
-                .or_else(|| {
-                    parent_item
-                        .and_then(|parent_item| lookup_node_scalar_value(parent_item, path))
-                })
-                .or_else(|| lookup_node_scalar_value(root, path))
-                .or_else(|| {
-                    context
-                        .params
-                        .get(path)
-                        .map(|value| value.trim().to_string())
-                        .filter(|value| !value.is_empty())
-                })
+        ScraperComputedFieldVariableScope::Auto => lookup_node_scalar_value(current_item, path)
+            .or_else(|| {
+                parent_item.and_then(|parent_item| lookup_node_scalar_value(parent_item, path))
+            })
+            .or_else(|| lookup_node_scalar_value(root, path))
+            .or_else(|| {
+                context
+                    .params
+                    .get(path)
+                    .map(|value| value.trim().to_string())
+                    .filter(|value| !value.is_empty())
+            }),
+        ScraperComputedFieldVariableScope::Current => lookup_node_scalar_value(current_item, path),
+        ScraperComputedFieldVariableScope::Parent => {
+            parent_item.and_then(|parent_item| lookup_node_scalar_value(parent_item, path))
         }
-        ScraperComputedFieldVariableScope::Current => {
-            lookup_node_scalar_value(current_item, path)
-        }
-        ScraperComputedFieldVariableScope::Parent => parent_item
-            .and_then(|parent_item| lookup_node_scalar_value(parent_item, path)),
         ScraperComputedFieldVariableScope::Root => lookup_node_scalar_value(root, path),
         ScraperComputedFieldVariableScope::Params => context
             .params

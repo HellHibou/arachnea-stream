@@ -2,7 +2,10 @@ use anyhow::{bail, Result};
 use std::collections::HashMap;
 
 use super::super::scraper_data_node::ScraperDataNode;
-use super::node_helpers::{get_node, get_node_mut, lookup_node_scalar_value, max_positive_usize, parse_bool, set_node, split_path};
+use super::node_helpers::{
+    get_node, get_node_mut, lookup_node_scalar_value, max_positive_usize, parse_bool, set_node,
+    split_path,
+};
 
 /// Validates one `derive_pagination` post-process definition.
 ///
@@ -51,10 +54,7 @@ pub(super) fn validate(
         ("next_param", Some(next_param)),
         ("source_params_target", Some(source_params_target)),
         ("page_size_field", page_size_field),
-        (
-            "infer_from_full_page_field",
-            infer_from_full_page_field,
-        ),
+        ("infer_from_full_page_field", infer_from_full_page_field),
     ] {
         if value.map(str::trim).is_some_and(str::is_empty) {
             bail!(
@@ -183,7 +183,8 @@ fn derive_pagination_for_node(
     remove_fields: &[String],
 ) {
     let current_page = max_positive_usize(get_node(root, current_page_field));
-    let mut have_more = lookup_node_scalar_value(root, have_more_field).map(|value| parse_bool(&value));
+    let mut have_more =
+        lookup_node_scalar_value(root, have_more_field).map(|value| parse_bool(&value));
     let mut next_param_value = None;
 
     if let (Some(current_page), Some(total_pages_field)) = (current_page, total_pages_field) {
@@ -218,8 +219,8 @@ fn derive_pagination_for_node(
             .map(|value| parse_bool(&value))
             .unwrap_or(false)
     {
-        if let Some(page_size) = page_size_field
-            .and_then(|field| max_positive_usize(get_node(root, field)))
+        if let Some(page_size) =
+            page_size_field.and_then(|field| max_positive_usize(get_node(root, field)))
         {
             let entries_count = get_node(root, entries_field)
                 .map(|entries| entries.items.len())

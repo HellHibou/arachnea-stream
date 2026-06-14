@@ -5,12 +5,12 @@ use serde::{Deserialize, Serialize, Serializer};
 use serde_yaml::Value;
 use std::collections::HashMap;
 
-use crate::scrapyfy::scraper::{RowLocator, ScraperEntrySpec, ScraperQuery, ScraperType};
+use crate::scrapyfy::query_helpers;
 use crate::scrapyfy::scraper::config::{ScraperRequestHeader, ScraperRequestMethod};
+use crate::scrapyfy::scraper::{RowLocator, ScraperEntrySpec, ScraperQuery, ScraperType};
 use crate::scrapyfy::scraper_data_node::ScraperDataNode;
 use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
 use crate::scrapyfy::*;
-use crate::scrapyfy::query_helpers;
 
 /// Raw configuration definition of one static field or list of static objects.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -185,7 +185,6 @@ impl StaticScraperQuery {
         names.dedup();
         names
     }
-
 }
 
 impl TryFrom<StaticScraperQueryRaw> for StaticScraperQuery {

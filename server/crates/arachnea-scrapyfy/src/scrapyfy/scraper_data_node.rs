@@ -241,8 +241,16 @@ impl From<&ScraperDataNode> for ScraperDataNodeRaw {
             // items), flatten them into a single Values array.  This is
             // used by entry-level sub-queries that store their results in
             // `items` to survive `keep_first_values` truncation.
-            if node.items.iter().all(|item| item.children.is_empty() && item.items.is_empty()) {
-                let flat: Vec<String> = node.items.iter().flat_map(|item| item.values.clone()).collect();
+            if node
+                .items
+                .iter()
+                .all(|item| item.children.is_empty() && item.items.is_empty())
+            {
+                let flat: Vec<String> = node
+                    .items
+                    .iter()
+                    .flat_map(|item| item.values.clone())
+                    .collect();
                 return ScraperDataNodeRaw::Values(flat);
             }
             return ScraperDataNodeRaw::Array(

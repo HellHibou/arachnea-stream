@@ -9,16 +9,16 @@
 
 use std::any::Any;
 
-use anyhow::Result;
 use ::scraper::{selector::ToCss, ElementRef, Selector};
+use anyhow::Result;
 use serde::{Deserialize, Serialize, Serializer};
 
-use crate::scrapyfy::*;
 use crate::scrapyfy::query_helpers;
 use crate::scrapyfy::scraper::entry_trait::ScraperEntrySpec;
 use crate::scrapyfy::scraper::query_trait::ScraperQuery;
 use crate::scrapyfy::scraper::row_locator::ScraperType;
 use crate::scrapyfy::EntrySubQueryRaw;
+use crate::scrapyfy::*;
 
 /// Raw configuration definition of one field or grouped field extracted from each result row.
 ///
@@ -628,7 +628,11 @@ impl HtmlScraperEntry {
                     select,
                     &actions,
                 )?;
-                if let HtmlScraperEntry::Field { sub_queries: ref mut sq, .. } = entry {
+                if let HtmlScraperEntry::Field {
+                    sub_queries: ref mut sq,
+                    ..
+                } = entry
+                {
                     *sq = sub_queries;
                 }
                 Ok(entry)
@@ -647,7 +651,11 @@ impl HtmlScraperEntry {
                         entries,
                     )?
                 };
-                if let HtmlScraperEntry::Group { sub_queries: ref mut sq, .. } = entry {
+                if let HtmlScraperEntry::Group {
+                    sub_queries: ref mut sq,
+                    ..
+                } = entry
+                {
                     *sq = sub_queries;
                 }
                 Ok(entry)
@@ -657,7 +665,10 @@ impl HtmlScraperEntry {
                 Ok(HtmlScraperEntry::Field {
                     name: name.clone(),
                     selector_template: Self::normalize_selector_template(selector.as_deref()),
-                    selector: Self::parse_selector(&name, resolved_selector.as_deref().or(selector.as_deref()))?,
+                    selector: Self::parse_selector(
+                        &name,
+                        resolved_selector.as_deref().or(selector.as_deref()),
+                    )?,
                     select,
                     actions: Vec::new(),
                     sub_queries,
@@ -810,12 +821,14 @@ impl ScraperEntrySpec for HtmlScraperEntry {
     /// For both Field and Group variants, returns the configured sub-queries.
     fn sub_queries(&self) -> Vec<&dyn crate::scrapyfy::scraper::query_trait::ScraperQuery> {
         match self {
-            HtmlScraperEntry::Field { sub_queries, .. } => {
-                sub_queries.iter().map(|b| &**b as &dyn ScraperQuery).collect()
-            }
-            HtmlScraperEntry::Group { sub_queries, .. } => {
-                sub_queries.iter().map(|b| &**b as &dyn ScraperQuery).collect()
-            }
+            HtmlScraperEntry::Field { sub_queries, .. } => sub_queries
+                .iter()
+                .map(|b| &**b as &dyn ScraperQuery)
+                .collect(),
+            HtmlScraperEntry::Group { sub_queries, .. } => sub_queries
+                .iter()
+                .map(|b| &**b as &dyn ScraperQuery)
+                .collect(),
         }
     }
 }

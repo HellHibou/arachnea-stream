@@ -172,9 +172,7 @@ impl ScraperQueryDefinition {
                 let mappings = &query.query_param_mappings;
                 let base_url = query.base_url();
                 let execution_params = crate::scrapyfy::query_helpers::build_query_execution_params(
-                    base_url,
-                    params,
-                    mappings,
+                    base_url, params, mappings,
                 );
                 (
                     &*query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery,
@@ -186,9 +184,7 @@ impl ScraperQueryDefinition {
                 let mappings = &query.query_param_mappings;
                 let base_url = query.base_url();
                 let execution_params = crate::scrapyfy::query_helpers::build_query_execution_params(
-                    base_url,
-                    params,
-                    mappings,
+                    base_url, params, mappings,
                 );
                 (
                     &*query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery,
@@ -199,7 +195,8 @@ impl ScraperQueryDefinition {
             ScraperQueryDefinition::Static(query) => {
                 // Static queries don't have query_param_mappings, just use params as-is
                 // but still resolve nested templates
-                let execution_params = crate::scrapyfy::query_helpers::resolve_nested_template_params(params);
+                let execution_params =
+                    crate::scrapyfy::query_helpers::resolve_nested_template_params(params);
                 (
                     &*query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery,
                     None,
@@ -217,7 +214,9 @@ impl ScraperQueryDefinition {
             parent_response: None,
         };
 
-        let rows = crate::scrapyfy::scraper::query_executor::execute_query_items(query_ref, &context).await?;
+        let rows =
+            crate::scrapyfy::scraper::query_executor::execute_query_items(query_ref, &context)
+                .await?;
 
         Ok(match result_item_field {
             Some(result_item_field) => flatten_result_item_field(rows, result_item_field),

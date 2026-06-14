@@ -20,9 +20,9 @@ pub use post_processes::{ScraperPostProcess, ScraperPostProcessContext};
 
 /// HTML query definitions, executors, and field extractors.
 pub mod scraper_html;
+pub use scraper_html::config::HtmlScraperQueryRaw;
 pub use scraper_html::entry::{HtmlScraperEntry, HtmlScraperEntryRaw, HtmlScraperSelectMode};
 pub use scraper_html::query::HtmlScraperQuery;
-pub use scraper_html::config::HtmlScraperQueryRaw;
 
 /// JSON query definitions, executors, and field extractors.
 pub mod scraper_json;

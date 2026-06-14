@@ -133,12 +133,7 @@ pub(super) fn apply(
                 nested_item.push_value(&nested_value_field_path, value.clone());
 
                 for field in copy_item_fields {
-                    copy_field(
-                        source_item,
-                        &field.source,
-                        &mut nested_item,
-                        &field.target,
-                    );
+                    copy_field(source_item, &field.source, &mut nested_item, &field.target);
                 }
 
                 for field in copy_root_fields {

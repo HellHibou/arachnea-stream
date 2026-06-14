@@ -119,10 +119,7 @@ fn build_nextjs_data_url(
 /// Searches `response_body` for the Next.js build id using the configured
 /// inline-JSON and build manifest patterns.
 fn extract_nextjs_build_id(response_body: &str) -> Option<String> {
-    for pattern in [
-        nextjs_build_id_json_regex(),
-        nextjs_build_manifest_regex(),
-    ] {
+    for pattern in [nextjs_build_id_json_regex(), nextjs_build_manifest_regex()] {
         if let Some(captures) = pattern.captures(response_body) {
             if let Some(build_id) = captures.get(1) {
                 return Some(build_id.as_str().to_string());

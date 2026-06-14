@@ -15,11 +15,16 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize, Serializer};
 use std::collections::HashMap;
 
-use crate::scrapyfy::scraper::config::{default_select_mode, ScraperQueryCommon, ScraperQueryRaw, ScraperRequestHeader, ScraperRequestHeaderRaw, SubQueryCommon};
-use crate::scrapyfy::scraper_html::entry::{HtmlScraperEntryRaw, HtmlScraperSelectMode, HtmlScraperEntry};
+use crate::scrapyfy::query_helpers;
+use crate::scrapyfy::scraper::config::{
+    default_select_mode, ScraperQueryCommon, ScraperQueryRaw, ScraperRequestHeader,
+    ScraperRequestHeaderRaw, SubQueryCommon,
+};
+use crate::scrapyfy::scraper_html::entry::{
+    HtmlScraperEntry, HtmlScraperEntryRaw, HtmlScraperSelectMode,
+};
 use crate::scrapyfy::scraper_json::entry::JsonScraperEntryRaw;
 use crate::scrapyfy::scraper_json::query::{JsonScraperQuery, JsonScraperSubQuery};
-use crate::scrapyfy::query_helpers;
 use crate::scrapyfy::{HttpClient, ScraperAction, ScraperHttpConfig};
 
 // ---------------------------------------------------------------------------
@@ -194,8 +199,16 @@ impl EntrySubQueryRaw {
     /// * `parent_http` - HTTP configuration inherited from the parent query.
     pub(crate) fn apply_parent_http(&mut self, parent_http: &ScraperHttpConfig) {
         match self {
-            Self::Html { ref mut common, ref mut sub_queries, .. } |
-            Self::Json { ref mut common, ref mut sub_queries, .. } => {
+            Self::Html {
+                ref mut common,
+                ref mut sub_queries,
+                ..
+            }
+            | Self::Json {
+                ref mut common,
+                ref mut sub_queries,
+                ..
+            } => {
                 common.apply_parent_http(parent_http);
                 let child_http = common.http.clone();
                 for child in sub_queries.iter_mut() {
@@ -221,13 +234,21 @@ impl EntrySubQueryRaw {
         params: &HashMap<String, String>,
     ) -> Result<()> {
         match self {
-            Self::Html { ref mut common, ref mut sub_queries, .. } => {
+            Self::Html {
+                ref mut common,
+                ref mut sub_queries,
+                ..
+            } => {
                 common.resolve_collection_params("HTML entry sub-query", parent_name, params)?;
                 for child in sub_queries.iter_mut() {
                     child.resolve_collection_params(parent_name, params)?;
                 }
             }
-            Self::Json { ref mut common, ref mut sub_queries, .. } => {
+            Self::Json {
+                ref mut common,
+                ref mut sub_queries,
+                ..
+            } => {
                 common.resolve_collection_params("JSON entry sub-query", parent_name, params)?;
                 for child in sub_queries.iter_mut() {
                     child.resolve_collection_params(parent_name, params)?;
@@ -246,7 +267,10 @@ impl EntrySubQueryRaw {
     /// # Errors
     ///
     /// Returns an error if the entries cannot be converted or no selector/pointer is provided.
-    pub(crate) fn into_boxed_query(self, base_url: &str) -> Result<Box<dyn crate::scrapyfy::scraper::query_trait::ScraperQuery>> {
+    pub(crate) fn into_boxed_query(
+        self,
+        base_url: &str,
+    ) -> Result<Box<dyn crate::scrapyfy::scraper::query_trait::ScraperQuery>> {
         match self {
             Self::Html {
                 common,
@@ -258,8 +282,9 @@ impl EntrySubQueryRaw {
                 if row_selector.is_empty() {
                     anyhow::bail!("HTML entry sub-query must define a row_selector");
                 }
-                let selector = ::scraper::Selector::parse(&row_selector)
-                    .map_err(|e| anyhow::anyhow!("Invalid row_selector '{}': {}", row_selector, e))?;
+                let selector = ::scraper::Selector::parse(&row_selector).map_err(|e| {
+                    anyhow::anyhow!("Invalid row_selector '{}': {}", row_selector, e)
+                })?;
                 let entries: Vec<HtmlScraperEntry> = entries
                     .into_iter()
                     .map(TryInto::try_into)
@@ -268,14 +293,16 @@ impl EntrySubQueryRaw {
                     .into_iter()
                     .map(TryInto::try_into)
                     .collect::<Result<Vec<_>>>()?;
-                let request_headers: Vec<ScraperRequestHeader> = common.request_headers
+                let request_headers: Vec<ScraperRequestHeader> = common
+                    .request_headers
                     .into_iter()
                     .map(TryInto::try_into)
                     .collect::<Result<Vec<_>>>()?;
-                let sub_queries: Vec<Box<dyn crate::scrapyfy::scraper::query_trait::ScraperQuery>> = sub_queries
-                    .into_iter()
-                    .map(|raw| raw.into_boxed_query(base_url))
-                    .collect::<Result<Vec<_>>>()?;
+                let sub_queries: Vec<Box<dyn crate::scrapyfy::scraper::query_trait::ScraperQuery>> =
+                    sub_queries
+                        .into_iter()
+                        .map(|raw| raw.into_boxed_query(base_url))
+                        .collect::<Result<Vec<_>>>()?;
 
                 let SubQueryCommon {
                     post_process,
@@ -293,16 +320,20 @@ impl EntrySubQueryRaw {
                 } = common;
 
                 // Créer l'entrée HTML et tout mettre dans un seul vecteur d'entries
-                let mut all_entries: Vec<crate::scrapyfy::scraper_html::entry::HtmlScraperEntry> = context_entries;
+                let mut all_entries: Vec<crate::scrapyfy::scraper_html::entry::HtmlScraperEntry> =
+                    context_entries;
                 all_entries.extend(entries);
 
                 // Validation du row_selector
                 if row_selector.is_empty() {
                     anyhow::bail!("HTML entry sub-query must define a row_selector");
                 }
-                let row_selector_compiled = ::scraper::Selector::parse(&row_selector)
-                    .map_err(|e| anyhow::anyhow!("Invalid row_selector '{}': {}", row_selector, e))?;
-                let row_selector = if row_selector.starts_with('.') || row_selector.starts_with('#') {
+                let row_selector_compiled =
+                    ::scraper::Selector::parse(&row_selector).map_err(|e| {
+                        anyhow::anyhow!("Invalid row_selector '{}': {}", row_selector, e)
+                    })?;
+                let row_selector = if row_selector.starts_with('.') || row_selector.starts_with('#')
+                {
                     row_selector
                 } else if row_selector.starts_with("//") {
                     row_selector
@@ -318,7 +349,8 @@ impl EntrySubQueryRaw {
                     query_url: String::new(),
                     request_method,
                     request_body_pointer: None,
-                    request_body_select: crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode::All,
+                    request_body_select:
+                        crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode::All,
                     request_body_actions: Vec::new(),
                     request_headers,
                     http_config: http,
@@ -361,18 +393,21 @@ impl EntrySubQueryRaw {
                     .into_iter()
                     .map(TryInto::try_into)
                     .collect::<Result<Vec<_>>>()?;
-                let context_entries: Vec<crate::scrapyfy::scraper_json::entry::JsonScraperEntry> = context_entries
+                let context_entries: Vec<crate::scrapyfy::scraper_json::entry::JsonScraperEntry> =
+                    context_entries
+                        .into_iter()
+                        .map(TryInto::try_into)
+                        .collect::<Result<Vec<_>>>()?;
+                let request_headers: Vec<ScraperRequestHeader> = common
+                    .request_headers
                     .into_iter()
                     .map(TryInto::try_into)
                     .collect::<Result<Vec<_>>>()?;
-                let request_headers: Vec<ScraperRequestHeader> = common.request_headers
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<Vec<_>>>()?;
-                let sub_queries: Vec<Box<dyn crate::scrapyfy::scraper::query_trait::ScraperQuery>> = sub_queries
-                    .into_iter()
-                    .map(|raw| raw.into_boxed_query(base_url))
-                    .collect::<Result<Vec<_>>>()?;
+                let sub_queries: Vec<Box<dyn crate::scrapyfy::scraper::query_trait::ScraperQuery>> =
+                    sub_queries
+                        .into_iter()
+                        .map(|raw| raw.into_boxed_query(base_url))
+                        .collect::<Result<Vec<_>>>()?;
 
                 let SubQueryCommon {
                     post_process,
@@ -390,15 +425,18 @@ impl EntrySubQueryRaw {
                 } = common;
 
                 // Merge context_entries + entries into a single list
-                let mut all_entries: Vec<crate::scrapyfy::scraper_json::entry::JsonScraperEntry> = context_entries;
+                let mut all_entries: Vec<crate::scrapyfy::scraper_json::entry::JsonScraperEntry> =
+                    context_entries;
                 all_entries.extend(entries);
 
                 let mut query = crate::scrapyfy::scraper_json::query::JsonScraperQuery::try_new(
                     "json-sub-query",
                     base_url,
-                    Vec::new(),  // no media_types
-                    "",          // no query_url (URL comes from request_pointer)
-                    4, 4, 8,
+                    Vec::new(), // no media_types
+                    "",         // no query_url (URL comes from request_pointer)
+                    4,
+                    4,
+                    8,
                     filters,
                     &row_pointer,
                     all_entries,
@@ -621,7 +659,8 @@ impl JsonScraperQueryRaw {
         &mut self,
         params: &HashMap<String, String>,
     ) -> Result<()> {
-        self.common.resolve_collection_params("JSON query", params)?;
+        self.common
+            .resolve_collection_params("JSON query", params)?;
         for sub_query in &mut self.sub_queries {
             sub_query.resolve_collection_params(&self.common.name, params)?;
         }
@@ -647,7 +686,8 @@ impl ScraperQueryRaw for JsonScraperQueryRaw {
     }
 
     fn resolve_collection_params(&mut self, params: &HashMap<String, String>) -> Result<()> {
-        self.common.resolve_collection_params("JSON query", params)?;
+        self.common
+            .resolve_collection_params("JSON query", params)?;
         for sub_query in &mut self.sub_queries {
             sub_query.resolve_collection_params(&self.common.name, params)?;
         }
@@ -896,7 +936,10 @@ impl TryFrom<JsonScraperSubQueryRaw> for JsonScraperSubQuery {
             .into_iter()
             .map(|raw| -> Result<_> {
                 let runtime: JsonScraperSubQuery = raw.try_into()?;
-                Ok(Box::new(runtime) as Box<dyn crate::scrapyfy::scraper::query_trait::ScraperQuery>)
+                Ok(Box::new(runtime)
+                    as Box<
+                        dyn crate::scrapyfy::scraper::query_trait::ScraperQuery,
+                    >)
             })
             .collect::<Result<Vec<_>>>()?;
 

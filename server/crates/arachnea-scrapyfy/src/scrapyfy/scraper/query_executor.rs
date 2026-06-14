@@ -12,11 +12,13 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
 use crate::scrapyfy::post_processes::{ScraperPostProcess, ScraperPostProcessContext};
+use crate::scrapyfy::query_helpers;
 use crate::scrapyfy::scraper_data_node::ScraperDataNode;
 use crate::scrapyfy::scraper_html::entry::{HtmlScraperEntry, HtmlScraperSelectMode};
-use crate::scrapyfy::scraper_json::entry::{json_value_to_strings, select_json_values, JsonScraperEntry};
+use crate::scrapyfy::scraper_json::entry::{
+    json_value_to_strings, select_json_values, JsonScraperEntry,
+};
 use crate::scrapyfy::scraper_static::query::StaticScraperEntryRaw;
-use crate::scrapyfy::query_helpers;
 use crate::scrapyfy::HttpClient;
 
 use super::entry_trait::ScraperEntrySpec;
@@ -280,195 +282,242 @@ async fn execute_query_internal(
         //    The raw row values are needed as parent_response for sibling sub-queries
         //    that use context_pointer (e.g. context_pointer: /widgets/* must be
         //    resolved against the row at row_pointer: /data, not the full response).
-        let row_values: Vec<(ScraperDataNode, Option<&Value>)> = extract_items_with_rows(
-            query, &response, &request_url, context,
-        )?;
+        let row_values: Vec<(ScraperDataNode, Option<&Value>)> =
+            extract_items_with_rows(query, &response, &request_url, context)?;
 
-            for (mut item, row_value) in row_values {
-                // b. Execute entry-level sub-queries (recursion).
-                execute_entry_sub_queries(query, &mut item, &request_url, context).await?;
+        for (mut item, row_value) in row_values {
+            // b. Execute entry-level sub-queries (recursion).
+            execute_entry_sub_queries(query, &mut item, &request_url, context).await?;
 
                 // c. Execute sibling sub-queries (recursion via Box::pin).
                 for sibling in query.sub_queries() {
                     // Check if this sibling sub-query has a context_pointer, which
-                    // means it needs to iterate over context rows from the parent
-                    // row, apply filters, and resolve request URLs per context.
-                    if let Some(cp) = sibling.context_pointer() {
-                        if !cp.is_empty() {
-                            // Use the row value as parent for context_pointer resolution,
-                            // not the full response. This matches the legacy behavior
-                            // where context_pointer is scoped to the extracted row.
-                            let parent_json = row_value.or_else(|| match &response {
-                                FetchedResponse::Json(v) => Some(v),
-                                _ => None,
-                            });
-                            if let Some(parent_json) = parent_json {
-                                // Iterate over context rows selected by context_pointer.
-                                let context_values: Vec<&Value> = select_json_values(
-                                    parent_json,
-                                    Some(cp),
-                                    sibling.context_select(),
-                                );
-                                // If sibling has a target (e.g. "banners"), each context
-                                // becomes a separate array item.
-                                let target_path: Vec<&str> = sibling.target()
-                                    .map(|t| t.split('>').map(str::trim).filter(|s| !s.is_empty()).collect())
-                                    .unwrap_or_default();
-                                let use_array_items = !target_path.is_empty();
-                                let mut merged = ScraperDataNode::default();
-                                for ctx in context_values {
-                                    // Apply filters on context rows.
-                                    let filters = sibling.filters();
-                                    let mut filtered_out = false;
-                                    for (field, allowed) in filters {
-                                        let field_values: Vec<String> = select_json_values(
-                                            ctx,
-                                            Some(field),
-                                            HtmlScraperSelectMode::All,
-                                        )
-                                        .into_iter()
-                                        .flat_map(json_value_to_strings)
-                                        .collect();
-                                        if !field_values.iter().any(|v| allowed.contains(v)) {
-                                            filtered_out = true;
-                                            break;
-                                        }
+                // means it needs to iterate over context rows from the parent
+                // row, apply filters, and resolve request URLs per context.
+                if let Some(cp) = sibling.context_pointer() {
+                    if !cp.is_empty() {
+                        // Use the row value as parent for context_pointer resolution,
+                        // not the full response. This matches the legacy behavior
+                        // where context_pointer is scoped to the extracted row.
+                        let parent_json = row_value.or_else(|| match &response {
+                            FetchedResponse::Json(v) => Some(v),
+                            _ => None,
+                        });
+                        if let Some(parent_json) = parent_json {
+                            // Iterate over context rows selected by context_pointer.
+                            let context_values: Vec<&Value> =
+                                select_json_values(parent_json, Some(cp), sibling.context_select());
+                            // If sibling has a target (e.g. "banners"), each context
+                            // becomes a separate array item.
+                            let target_path: Vec<&str> = sibling
+                                .target()
+                                .map(|t| {
+                                    t.split('>')
+                                        .map(str::trim)
+                                        .filter(|s| !s.is_empty())
+                                        .collect()
+                                })
+                                .unwrap_or_default();
+                            let use_array_items = !target_path.is_empty();
+                            let mut merged = ScraperDataNode::default();
+                            for ctx in context_values {
+                                // Apply filters on context rows.
+                                let filters = sibling.filters();
+                                let mut filtered_out = false;
+                                for (field, allowed) in filters {
+                                    let field_values: Vec<String> = select_json_values(
+                                        ctx,
+                                        Some(field),
+                                        HtmlScraperSelectMode::All,
+                                    )
+                                    .into_iter()
+                                    .flat_map(json_value_to_strings)
+                                    .collect();
+                                    if !field_values.iter().any(|v| allowed.contains(v)) {
+                                        filtered_out = true;
+                                        break;
                                     }
-                                    if filtered_out {
-                                        continue;
-                                    }
-                                    // Collect results for this context row.
-                                    let mut ctx_results = Vec::new();
+                                }
+                                if filtered_out {
+                                    continue;
+                                }
+                                // Collect results for this context row.
+                                let mut ctx_results = Vec::new();
 
-                                    if sibling.request_pointer().is_some() {
+                                if sibling.request_pointer().is_some() {
                                         let sub_context = QueryContext {
                                             params: context.params,
-                                            request_url: context.request_url,
+                                            request_url: &request_url,
                                             response_body: context.response_body,
                                             http_client: context.http_client,
-                                            fields_filters: context.fields_filters,
-                                            parent_response: Some(ctx),
-                                        };
-                                        let sub_items = Box::pin(execute_query_internal(
-                                            sibling,
-                                            &sub_context,
-                                        )).await?;
-                                        ctx_results = sub_items;
-                                    } else if !sibling.request_actions().is_empty() {
-                                        let mut urls: Vec<String> = select_json_values(
-                                            ctx,
-                                            None,
-                                            HtmlScraperSelectMode::All,
-                                        )
-                                        .into_iter()
-                                        .flat_map(json_value_to_strings)
-                                        .collect();
-                                        if !urls.is_empty() {
-                                            let mut processed: Vec<String> = Vec::new();
-                                            for url in urls {
-                                                let mut vals = vec![url];
-                                                for action in sibling.request_actions() {
-                                                    vals = action.apply(
-                                                        &None,
-                                                        vals,
-                                                        context.params,
-                                                        context.request_url,
-                                                        None,
-                                                        None,
-                                                    );
-                                                }
-                                                processed.extend(vals);
-                                            }
-                                            for url in processed {
-                                                if url.is_empty() {
-                                                    continue;
-                                                }
-                                                let method = sibling.request_method().as_http_method();
-                                                let headers = resolve_request_headers(
-                                                    sibling.request_headers(),
+                                            fields_filters: None,
+                                        parent_response: Some(ctx),
+                                    };
+                                    let sub_items =
+                                        Box::pin(execute_query_internal(sibling, &sub_context))
+                                            .await?;
+                                    ctx_results = sub_items;
+                                } else if !sibling.request_actions().is_empty() {
+                                    let urls: Vec<String> =
+                                        select_json_values(ctx, None, HtmlScraperSelectMode::All)
+                                            .into_iter()
+                                            .flat_map(json_value_to_strings)
+                                            .collect();
+                                    if !urls.is_empty() {
+                                        let mut processed: Vec<String> = Vec::new();
+                                        for url in urls {
+                                            let mut vals = vec![url];
+                                            for action in sibling.request_actions() {
+                                                vals = action.apply(
+                                                    &None,
+                                                    vals,
                                                     context.params,
-                                                    &url,
+                                                    context.request_url,
+                                                    None,
+                                                    None,
                                                 );
+                                            }
+                                            processed.extend(vals);
+                                        }
+                                        for url in processed {
+                                            if url.is_empty() {
+                                                continue;
+                                            }
+                                            let method = sibling.request_method().as_http_method();
+                                            let headers = resolve_request_headers(
+                                                sibling.request_headers(),
+                                                context.params,
+                                                &url,
+                                                Some(ctx),
+                                            );
                                                 let body = resolve_request_body(
-                                                    sibling.request_pointer(),
-                                                    sibling.request_select(),
-                                                    sibling.request_actions(),
+                                                    sibling.request_body_pointer(),
+                                                    sibling.request_body_select(),
+                                                    sibling.request_body_actions(),
                                                     context.params,
                                                     &url,
-                                                );
-                                                let client = context.http_client
-                                                    .configured(sibling.http_config().clone());
-                                                let response = fetch_single(
-                                                    &client,
-                                                    method,
-                                                    &url,
-                                                    &headers,
-                                                    body.as_deref(),
-                                                    sibling.extract_next_data(),
-                                                    sibling.scraper_type(),
-                                                ).await?;
-                                                let fetched_json = match &response {
-                                                    FetchedResponse::Json(v) => Some(v),
-                                                    _ => None,
-                                                };
-                                                let sub_context = QueryContext {
-                                                    params: context.params,
-                                                    request_url: &url,
-                                                    response_body: None,
-                                                    http_client: context.http_client,
-                                                    fields_filters: context.fields_filters,
-                                                    parent_response: fetched_json,
-                                                };
-                                                let sub_items = Box::pin(execute_query_internal(
-                                                    sibling,
-                                                    &sub_context,
-                                                )).await?;
-                                                ctx_results = sub_items;
+                                                    Some(ctx),
+                                            );
+                                            let client = context
+                                                .http_client
+                                                .configured(sibling.http_config().clone());
+                                            let response = fetch_single(
+                                                &client,
+                                                method,
+                                                &url,
+                                                &headers,
+                                                body.as_deref(),
+                                                sibling.extract_next_data(),
+                                                sibling.scraper_type(),
+                                            )
+                                            .await?;
+                                            let fetched_json = match &response {
+                                                FetchedResponse::Json(v) => Some(v),
+                                                _ => None,
+                                            };
+                                            let sibling_rows = extract_items_with_rows(
+                                                sibling, &response, &url, context,
+                                            )?;
+                                            // Execute children sub-queries instead of re-executing the
+                                            // sibling itself. The sibling had a context_pointer that was
+                                            // already resolved to produce the fetch URL — re-executing
+                                            // the same sibling with the fetched response would try to
+                                            // resolve the context_pointer again against a response that
+                                            // doesn't contain it, producing empty results.
+                                            let mut merged_sub = ScraperDataNode::default();
+                                            if sibling_rows.is_empty() {
+                                                for child_sibling in sibling.sub_queries() {
+                                                    let child_context = QueryContext {
+                                                        params: context.params,
+                                                        request_url: &url,
+                                                        response_body: None,
+                                                        http_client: context.http_client,
+                                                        fields_filters: None,
+                                                        parent_response: fetched_json,
+                                                    };
+                                                    let child_items =
+                                                        Box::pin(execute_query_internal(
+                                                            child_sibling,
+                                                            &child_context,
+                                                        ))
+                                                        .await?;
+                                                    for child_item in child_items {
+                                                        merged_sub.merge(child_item);
+                                                    }
+                                                }
+                                            } else {
+                                                for (mut row_item, row_value) in sibling_rows {
+                                                    for child_sibling in sibling.sub_queries() {
+                                                        let child_context = QueryContext {
+                                                            params: context.params,
+                                                            request_url: &url,
+                                                            response_body: None,
+                                                            http_client: context.http_client,
+                                                            fields_filters: None,
+                                                            parent_response: row_value
+                                                                .or(fetched_json),
+                                                        };
+                                                        let child_items =
+                                                            Box::pin(execute_query_internal(
+                                                                child_sibling,
+                                                                &child_context,
+                                                            ))
+                                                            .await?;
+                                                        for child_item in child_items {
+                                                            row_item.merge(child_item);
+                                                        }
+                                                    }
+                                                    merged_sub.merge(row_item);
+                                                }
                                             }
+                                            // Merge sub-query results directly into the current item
+                                            // so fields like `video` are added to the same banner
+                                            // entry rather than creating a separate array item.
+                                            ctx_results.push(merged_sub);
                                         }
                                     }
+                                }
 
-                                    // Accumulate results for this context row.
-                                    if use_array_items {
-                                        let target = walk_mut(&mut item, &target_path);
-                                        for result in ctx_results {
-                                            target.items.push(result);
-                                        }
-                                    } else {
-                                        for result in ctx_results {
-                                            merged.merge(result);
-                                        }
+                                // Accumulate results for this context row.
+                                if use_array_items {
+                                    let target = walk_mut(&mut item, &target_path);
+                                    for result in ctx_results {
+                                        target.items.push(result);
+                                    }
+                                } else {
+                                    for result in ctx_results {
+                                        merged.merge(result);
                                     }
                                 }
-                                if !use_array_items {
-                                    merge_targeted(&mut item, merged, sibling.target());
-                                }
-                                continue; // Skip the generic path below.
                             }
+                            if !use_array_items {
+                                merge_targeted(&mut item, merged, sibling.target());
+                            }
+                            continue; // Skip the generic path below.
                         }
                     }
-                    // Default: generic unified execution path (for sub-queries without
-                    // context_pointer).
-                    let parent_json = row_value.or_else(|| match &response {
-                        FetchedResponse::Json(v) => Some(v),
-                        _ => None,
-                    });
-                    let sub_context = QueryContext {
-                        params: context.params,
-                        request_url: context.request_url,
-                        response_body: context.response_body,
-                        http_client: context.http_client,
-                        fields_filters: context.fields_filters,
-                        parent_response: parent_json,
-                    };
-                    let sibling_root =
-                        Box::pin(execute_query_internal(sibling, &sub_context)).await?;
-                    let mut merged = ScraperDataNode::default();
-                    for child in sibling_root {
-                        merged.merge(child);
-                    }
-                    merge_targeted(&mut item, merged, sibling.target());
                 }
+                // Default: generic unified execution path (for sub-queries without
+                // context_pointer).
+                let parent_json = row_value.or_else(|| match &response {
+                    FetchedResponse::Json(v) => Some(v),
+                    _ => None,
+                });
+                let sub_context = QueryContext {
+                    params: context.params,
+                    request_url: &request_url,
+                    response_body: context.response_body,
+                    http_client: context.http_client,
+                    fields_filters: None,
+                    parent_response: parent_json,
+                };
+                let sibling_root = Box::pin(execute_query_internal(sibling, &sub_context)).await?;
+                let mut merged = ScraperDataNode::default();
+                for child in sibling_root {
+                    merged.merge(child);
+                }
+                merge_targeted(&mut item, merged, sibling.target());
+            }
 
             // d. Apply post-processes on this item.
             let response_body = response_body_str(&response);
@@ -566,62 +615,69 @@ fn resolve_request_urls(query: &dyn ScraperQuery, context: &QueryContext<'_>) ->
     if let Some(parent_response) = context.parent_response {
         if let Some(rp) = query.request_pointer() {
             if !rp.is_empty() {
-                let values: Vec<String> = select_json_values(
-                        parent_response,
-                        Some(rp),
-                        query.request_select(),
-                    )
-                    .into_iter()
-                    .flat_map(json_value_to_strings)
-                    .collect();
-                    if !values.is_empty() {
-                        let mut resolved_urls = Vec::new();
-                        for value in values {
-                            let mut url_values = vec![value];
-                            for action in query.request_actions() {
-                                url_values = action.apply(&None, url_values, context.params, context.request_url, None, None);
-                            }
-                            if let Some(url) = url_values.into_iter().find(|v| !v.is_empty()) {
-                                resolved_urls.push(url);
-                            }
+                let values: Vec<String> =
+                    select_json_values(parent_response, Some(rp), query.request_select())
+                        .into_iter()
+                        .flat_map(json_value_to_strings)
+                        .collect();
+                if !values.is_empty() {
+                    let mut resolved_urls = Vec::new();
+                    for value in values {
+                        let mut url_values = vec![value];
+                        for action in query.request_actions() {
+                            url_values = action.apply(
+                                &None,
+                                url_values,
+                                context.params,
+                                context.request_url,
+                                None,
+                                None,
+                            );
                         }
-                        return resolved_urls;
+                        if let Some(url) = url_values.into_iter().find(|v| !v.is_empty()) {
+                            resolved_urls.push(url);
+                        }
                     }
+                    return resolved_urls;
                 }
+            }
         } else if !query.request_actions().is_empty() {
             // No request_pointer but request_actions present — use the parent
             // response value directly as the input for the action pipeline.
             // This covers the PROMOBOX sub-chain pattern where
             // context_pointer: /mediaId selects a value and
             // request_actions: format_text builds the full URL.
-            let values: Vec<String> = select_json_values(
-                    parent_response,
-                    None,
-                    query.request_select(),
-                )
-                .into_iter()
-                .flat_map(json_value_to_strings)
-                .collect();
-                if !values.is_empty() {
-                    let mut resolved_urls = Vec::new();
-                    for value in values {
-                        let mut url_values = vec![value];
-                        for action in query.request_actions() {
-                            url_values = action.apply(&None, url_values, context.params, context.request_url, None, None);
-                        }
-                        for url in url_values {
-                            if !url.is_empty() {
-                                resolved_urls.push(url);
-                            }
+            let values: Vec<String> =
+                select_json_values(parent_response, None, query.request_select())
+                    .into_iter()
+                    .flat_map(json_value_to_strings)
+                    .collect();
+            if !values.is_empty() {
+                let mut resolved_urls = Vec::new();
+                for value in values {
+                    let mut url_values = vec![value];
+                    for action in query.request_actions() {
+                        url_values = action.apply(
+                            &None,
+                            url_values,
+                            context.params,
+                            context.request_url,
+                            None,
+                            None,
+                        );
+                    }
+                    for url in url_values {
+                        if !url.is_empty() {
+                            resolved_urls.push(url);
                         }
                     }
-                    return resolved_urls;
                 }
+                return resolved_urls;
+            }
         }
     }
     vec![]
 }
-
 
 /// Resolves request headers from the query's configured header list.
 ///
@@ -633,6 +689,7 @@ fn resolve_request_urls(query: &dyn ScraperQuery, context: &QueryContext<'_>) ->
 /// * `headers` - The list of configured headers to resolve.
 /// * `params` - Runtime template parameters.
 /// * `request_url` - URL of the parent request for action resolution.
+/// * `parent_response` - Optional JSON response used for pointer resolution.
 ///
 /// # Returns
 ///
@@ -641,11 +698,13 @@ fn resolve_request_headers(
     headers: &[crate::scrapyfy::scraper_json::query::ScraperRequestHeader],
     params: &HashMap<String, String>,
     request_url: &str,
+    parent_response: Option<&Value>,
 ) -> HashMap<String, String> {
     let request_context = query_helpers::build_params_json_value(params);
+    let request_context = parent_response.unwrap_or(&request_context);
     let mut resolved = HashMap::new();
     for header in headers {
-        if let Some((name, value)) = header.resolve(&request_context, params, request_url) {
+        if let Some((name, value)) = header.resolve(request_context, params, request_url) {
             resolved.insert(name, value);
         }
     }
@@ -654,8 +713,8 @@ fn resolve_request_headers(
 
 /// Resolves the optional request body from the query's body pointer/actions.
 ///
-/// Selects JSON values from the params context using the configured pointer,
-/// then applies the body actions pipeline.
+/// Selects JSON values from the parent response when available, otherwise from
+/// the params context, then applies the body actions pipeline.
 ///
 /// # Arguments
 ///
@@ -664,6 +723,7 @@ fn resolve_request_headers(
 /// * `actions` - Actions to apply to the selected values.
 /// * `params` - Runtime template parameters.
 /// * `request_url` - URL of the parent request for action resolution.
+/// * `parent_response` - Optional JSON response used for pointer resolution.
 ///
 /// # Returns
 ///
@@ -675,12 +735,14 @@ fn resolve_request_body(
     actions: &[crate::scrapyfy::ScraperAction],
     params: &HashMap<String, String>,
     request_url: &str,
+    parent_response: Option<&Value>,
 ) -> Option<String> {
     if pointer.is_none() && actions.is_empty() {
         return None;
     }
     let request_context = query_helpers::build_params_json_value(params);
-    let mut values: Vec<String> = select_json_values(&request_context, pointer, select)
+    let request_context = parent_response.unwrap_or(&request_context);
+    let mut values: Vec<String> = select_json_values(request_context, pointer, select)
         .into_iter()
         .flat_map(crate::scrapyfy::scraper_json::entry::json_value_to_strings)
         .collect();
@@ -726,13 +788,15 @@ async fn fetch_responses(
         query.request_headers(),
         context.params,
         urls.first().map(String::as_str).unwrap_or(""),
+        context.parent_response,
     );
     let body = resolve_request_body(
-        query.request_pointer(),
-        query.request_select(),
-        query.request_actions(),
+        query.request_body_pointer(),
+        query.request_body_select(),
+        query.request_body_actions(),
         context.params,
         urls.first().map(String::as_str).unwrap_or(""),
+        context.parent_response,
     );
     let extract_next_data = query.extract_next_data();
     let scraper_type = query.scraper_type();
@@ -760,8 +824,10 @@ async fn fetch_responses(
         }
     });
 
-    let results: Vec<Result<(usize, (String, FetchedResponse))>> =
-        stream::iter(jobs).buffer_unordered(DEFAULT_FETCH_CONCURRENCY).collect().await;
+    let results: Vec<Result<(usize, (String, FetchedResponse))>> = stream::iter(jobs)
+        .buffer_unordered(DEFAULT_FETCH_CONCURRENCY)
+        .collect()
+        .await;
 
     let mut ordered = Vec::with_capacity(results.len());
     for result in results {
@@ -830,7 +896,13 @@ fn extract_items(
                 let mut item = ScraperDataNode::default();
                 for entry in query.entries() {
                     if let Some(html_entry) = as_html_entry(entry) {
-                        html_entry.apply_to(&mut item, element, context.params, request_url, html_body);
+                        html_entry.apply_to(
+                            &mut item,
+                            element,
+                            context.params,
+                            request_url,
+                            html_body,
+                        );
                     }
                 }
                 items.push(item);
@@ -847,11 +919,8 @@ fn extract_items(
                 RowLocator::Pointer(pointer) => pointer.clone(),
                 _ => return Ok(Vec::new()),
             };
-            let values: Vec<&Value> = select_json_values(
-                value,
-                Some(&pointer),
-                HtmlScraperSelectMode::All,
-            );
+            let values: Vec<&Value> =
+                select_json_values(value, Some(&pointer), HtmlScraperSelectMode::All);
             let mut items = Vec::new();
             for row_value in values {
                 let mut item = ScraperDataNode::default();
@@ -928,11 +997,8 @@ fn extract_items_with_rows<'a>(
                         .collect());
                 }
             };
-            let values: Vec<&Value> = select_json_values(
-                value,
-                Some(&pointer),
-                HtmlScraperSelectMode::All,
-            );
+            let values: Vec<&Value> =
+                select_json_values(value, Some(&pointer), HtmlScraperSelectMode::All);
             let mut result = Vec::new();
             for row_value in values {
                 let mut item = ScraperDataNode::default();
@@ -1006,15 +1072,23 @@ async fn execute_entry_sub_queries(
                     for url in &parent_urls {
                         let mut item_clone = ScraperDataNode::default();
                         let _ = fetch_and_extract_for_entry_sub_query(
-                            sub_query, url, &mut item_clone, context,
-                        ).await?;
+                            sub_query,
+                            url,
+                            &mut item_clone,
+                            context,
+                        )
+                        .await?;
                         merged.merge(item_clone);
                     }
                     // Clear the parent entry's values before merging the
                     // sub-query result — the sub-query *replaces* the URL
                     // with the decoded embed link(s).  Use the entry's
                     // name path for targeted merging.
-                    let path: Vec<&str> = entry_name.split('>').map(str::trim).filter(|s| !s.is_empty()).collect();
+                    let path: Vec<&str> = entry_name
+                        .split('>')
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .collect();
                     if path.is_empty() {
                         item.merge(merged);
                     } else {
@@ -1075,9 +1149,9 @@ async fn execute_entry_sub_queries(
                                         for (name, values) in &common {
                                             item_node.children.insert(
                                                 (*name).clone(),
-                                                ScraperDataNode::from_values(
-                                                    vec![values[i].clone()],
-                                                ),
+                                                ScraperDataNode::from_values(vec![
+                                                    values[i].clone()
+                                                ]),
                                             );
                                         }
                                         target.items.push(item_node);
@@ -1088,9 +1162,7 @@ async fn execute_entry_sub_queries(
                                             let mut item_node = ScraperDataNode::default();
                                             item_node.children.insert(
                                                 (*name).clone(),
-                                                ScraperDataNode::from_values(
-                                                    vec![val.clone()],
-                                                ),
+                                                ScraperDataNode::from_values(vec![val.clone()]),
                                             );
                                             target.items.push(item_node);
                                         }
@@ -1103,9 +1175,7 @@ async fn execute_entry_sub_queries(
                                             let mut item_node = ScraperDataNode::default();
                                             item_node.children.insert(
                                                 (*name).clone(),
-                                                ScraperDataNode::from_values(
-                                                    vec![val.clone()],
-                                                ),
+                                                ScraperDataNode::from_values(vec![val.clone()]),
                                             );
                                             target.items.push(item_node);
                                         }
@@ -1123,9 +1193,7 @@ async fn execute_entry_sub_queries(
                                         let mut item_node = ScraperDataNode::default();
                                         item_node.children.insert(
                                             (*name).clone(),
-                                            ScraperDataNode::from_values(
-                                                vec![val.clone()],
-                                            ),
+                                            ScraperDataNode::from_values(vec![val.clone()]),
                                         );
                                         target.items.push(item_node);
                                     }
@@ -1157,16 +1225,17 @@ async fn execute_entry_sub_queries(
                         }
                     }
                 } else {
-                     // Non-default request_pointer → fall through to generic executor.
-                     let sub_context = QueryContext {
-                         params: context.params,
-                         request_url,
-                         response_body: context.response_body,
-                         http_client: context.http_client,
-                         fields_filters: None,
-                         parent_response: None,
-                     };
-                    let sub_items = Box::pin(execute_query_internal(sub_query, &sub_context)).await?;
+                    // Non-default request_pointer → fall through to generic executor.
+                    let sub_context = QueryContext {
+                        params: context.params,
+                        request_url,
+                        response_body: context.response_body,
+                        http_client: context.http_client,
+                        fields_filters: None,
+                        parent_response: None,
+                    };
+                    let sub_items =
+                        Box::pin(execute_query_internal(sub_query, &sub_context)).await?;
                     let mut merged = ScraperDataNode::default();
                     for child in sub_items {
                         merged.merge(child);
@@ -1271,15 +1340,19 @@ async fn fetch_and_extract_for_entry_sub_query(
         sub_query.request_headers(),
         context.params,
         url,
+        context.parent_response,
     );
     let body: Option<String> = resolve_request_body(
-        sub_query.request_pointer(),
-        sub_query.request_select(),
-        sub_query.request_actions(),
+        sub_query.request_body_pointer(),
+        sub_query.request_body_select(),
+        sub_query.request_body_actions(),
         context.params,
         url,
+        context.parent_response,
     );
-    let client = context.http_client.configured(sub_query.http_config().clone());
+    let client = context
+        .http_client
+        .configured(sub_query.http_config().clone());
     let response = fetch_single(
         &client,
         method,
@@ -1288,13 +1361,17 @@ async fn fetch_and_extract_for_entry_sub_query(
         body.as_deref(),
         sub_query.extract_next_data(),
         sub_query.scraper_type(),
-    ).await?;
+    )
+    .await?;
 
     match response {
         FetchedResponse::Html(html) => {
             let doc = ::scraper::Html::parse_document(&html);
             match sub_query.row_locator() {
-                RowLocator::Selector { ref selector, select } => {
+                RowLocator::Selector {
+                    ref selector,
+                    select,
+                } => {
                     let sel = match ::scraper::Selector::parse(selector) {
                         Ok(s) => s,
                         Err(_) => return Ok(()),
@@ -1303,7 +1380,13 @@ async fn fetch_and_extract_for_entry_sub_query(
                     for element in doc.select(&sel) {
                         for entry in sub_query.entries() {
                             if let Some(html_entry) = as_html_entry(entry) {
-                                html_entry.apply_to(item, element, context.params, url, Some(&html));
+                                html_entry.apply_to(
+                                    item,
+                                    element,
+                                    context.params,
+                                    url,
+                                    Some(&html),
+                                );
                             }
                         }
                         if select_first {
@@ -1311,8 +1394,7 @@ async fn fetch_and_extract_for_entry_sub_query(
                         }
                     }
                 }
-                RowLocator::Single
-                | RowLocator::Pointer(_) => {
+                RowLocator::Single | RowLocator::Pointer(_) => {
                     // No HTML element available for RowLocator::Single or
                     // RowLocator::Pointer — skip HTML entry application.
                 }
@@ -1400,7 +1482,11 @@ async fn apply_post_processes(
 /// * `target` - Optional target path for nesting.
 fn merge_targeted(item: &mut ScraperDataNode, source: ScraperDataNode, target: Option<&str>) {
     if let Some(target) = target {
-        let path: Vec<&str> = target.split('>').map(str::trim).filter(|s| !s.is_empty()).collect();
+        let path: Vec<&str> = target
+            .split('>')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .collect();
         if path.is_empty() {
             item.merge(source);
         } else {
@@ -1484,4 +1570,3 @@ fn _dedupe_urls(urls: Vec<String>) -> Vec<String> {
     }
     out
 }
-

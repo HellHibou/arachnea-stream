@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize, Serializer};
 use std::collections::HashMap;
 
 use crate::scrapyfy::query_helpers::{self, QueryTemplateParamMapping};
-use crate::scrapyfy::{ScraperAction, ScraperHttpConfig, ScraperPostProcess};
 use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
+use crate::scrapyfy::{ScraperAction, ScraperHttpConfig, ScraperPostProcess};
 
 // ---------------------------------------------------------------------------
 // Default value helpers

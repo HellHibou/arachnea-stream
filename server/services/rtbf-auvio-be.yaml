@@ -135,19 +135,21 @@ shared:
     filters:
       /type:
         - TAB_LIST
-    request_pointer: /path
+    request_pointer: /contentPath
     row_pointer: /data/content/*
     entries:
-      - name: season > label
-        pointer: /title
-      - name: season > link
-        pointer: /contentPath
+      - name: season
+        entries:
+          - name: label
+            pointer: /title
+          - name: link
+            pointer: /contentPath
     sub_queries:
       - scraper_type: json
         filters:
           /type:
             - MEDIA_LIST
-        request_pointer: /path
+        request_pointer: /contentPath
         request_actions:
           - type: format_text
             argument: "{}&_page=1&_limit=50&_embed=content&includeFastTv=true"
@@ -159,7 +161,7 @@ shared:
         filters:
           /type:
             - MEDIA_LIST
-        request_pointer: /path
+        request_pointer: /contentPath
         request_actions:
           - type: format_text
             argument: "{}&_page=2&_limit=50&_embed=content&includeFastTv=true"
@@ -226,7 +228,9 @@ shared:
           actions: *actions_format_rtbf_pages
         - name: web-link
           pointer: /deeplink
-          actions: *actions_resolve_url
+          actions:
+            - type: format_text
+              argument: "https://auvio.rtbf.be{}"
       sub_queries:
         - scraper_type: json
           context_pointer: /mediaId
@@ -241,7 +245,7 @@ shared:
               request_pointer: /initialState
               request_actions:
                  - type: regex_find_all
-                   pattern: '\\?"assetId\\?":\\?"([^"\\]+)'
+                   pattern: '"assetId":"([^"\\]+)'
                    format: "{1}"
                  - type: format_text
                    argument: "https://exposure.api.redbee.live:443/v2/customer/RTBF/businessunit/Auvio/auth/anonymous?assetId={}"
@@ -249,7 +253,7 @@ shared:
               request_body_pointer: /initialState
               request_body_actions:
                 - type: regex_find_all
-                  pattern: '\\?"deviceId\\?":\\?"([^"\\]+)'
+                  pattern: '"deviceId":"([^"\\]+)'
                   format: "{1}"
                 - type: format_text
                   argument: '{"device":{"name":"Browser","type":"WEB"},"deviceId":"{}"}'

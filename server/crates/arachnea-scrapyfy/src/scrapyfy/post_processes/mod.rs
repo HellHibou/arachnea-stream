@@ -151,9 +151,7 @@ impl ScraperPostProcess {
                 entries,
                 request_actions,
                 ..
-            } => {
-                fetch_regex_items_from_items::validate(owner, pattern, entries, request_actions)
-            }
+            } => fetch_regex_items_from_items::validate(owner, pattern, entries, request_actions),
             ScraperPostProcess::FilterItems { pattern, .. } => {
                 filter_items::validate(owner, pattern)
             }
@@ -201,12 +199,7 @@ impl ScraperPostProcess {
                 target,
                 items,
                 unique_field,
-            } => append_static_items::validate(
-                owner,
-                target,
-                items,
-                unique_field.as_deref(),
-            ),
+            } => append_static_items::validate(owner, target, items, unique_field.as_deref()),
         }
     }
 
@@ -343,13 +336,7 @@ impl ScraperPostProcess {
                 items,
                 unique_field,
             } => {
-                append_static_items::apply(
-                    root,
-                    context,
-                    target,
-                    items,
-                    unique_field.as_deref(),
-                );
+                append_static_items::apply(root, context, target, items, unique_field.as_deref());
                 Ok(())
             }
         }

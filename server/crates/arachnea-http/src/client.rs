@@ -11,7 +11,7 @@ use http::{
 };
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::sync::RwLock;
-use tracing::{debug, warn, info};
+use tracing::{debug, info, warn};
 use url::Url;
 
 use crate::{
@@ -32,7 +32,10 @@ use crate::{
 fn charset_from_content_type(content_type: &str) -> Option<&str> {
     for part in content_type.split(';') {
         let part = part.trim();
-        if let Some(charset) = part.strip_prefix("charset=").or_else(|| part.strip_prefix("charset =")) {
+        if let Some(charset) = part
+            .strip_prefix("charset=")
+            .or_else(|| part.strip_prefix("charset ="))
+        {
             let charset = charset.trim().trim_matches('"').trim_matches('\'');
             if !charset.is_empty() {
                 return Some(charset);

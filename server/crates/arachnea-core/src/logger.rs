@@ -6,7 +6,7 @@
 use std::env;
 use std::sync::{LazyLock, Mutex};
 use time::macros::format_description;
-use tracing::{Level};
+use tracing::Level;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 /// Re-export used by exported logging macros.
@@ -50,7 +50,7 @@ impl LoggerConfig {
             trace_level,
         }
     }
-    
+
     /// Returns the appropriate log level based on the global level
     fn get_level_for_global(&self, global_level: Level) -> Level {
         match global_level {
@@ -170,40 +170,29 @@ pub fn init_logger() {
         .init();
 }
 
-
 /// Sets the log level for a specific logger.
 /// Must be called before `init_logger()` to take effect.
-/// 
+///
 /// # Arguments
 /// * `target` - The logger target name
 /// * `level` - Level to use
-/// 
+///
 /// # Examples
 /// ```
 /// use tracing::Level;
-/// 
+///
 /// logger::set_logger_level(
 ///     "my_crate",
 ///     Level::INFO
 /// );
 /// ```
-pub fn set_logger_level(
-    target: impl Into<String>,
-    level: Level
-) {
-    set_logger_levels(
-        target,
-        level,
-        level,
-        level,
-        level,
-        level
-    );
+pub fn set_logger_level(target: impl Into<String>, level: Level) {
+    set_logger_levels(target, level, level, level, level, level);
 }
 
 /// Sets the log levels for a specific logger.
 /// Must be called before `init_logger()` to take effect.
-/// 
+///
 /// # Arguments
 /// * `target` - The logger target name
 /// * `error_level` - Level to use when global level is ERROR
@@ -211,11 +200,11 @@ pub fn set_logger_level(
 /// * `info_level` - Level to use when global level is INFO
 /// * `debug_level` - Level to use when global level is DEBUG
 /// * `trace_level` - Level to use when global level is TRACE
-/// 
+///
 /// # Examples
 /// ```
 /// use tracing::Level;
-/// 
+///
 /// logger::set_logger_levels(
 ///     "my_crate",
 ///     Level::ERROR,

@@ -166,11 +166,7 @@ pub(super) fn validate(
 ///
 /// A normalized date string (`YYYY-MM-DD` or `YYYY-MM-DD HH:MM:SS`) or `None`
 /// when no source matched.
-fn get_date(
-    value: &str,
-    format: &GetDateSources,
-    months: &HashMap<String, u32>,
-) -> Option<String> {
+fn get_date(value: &str, format: &GetDateSources, months: &HashMap<String, u32>) -> Option<String> {
     let trimmed = value.trim();
 
     format.find_map(|format| match format {

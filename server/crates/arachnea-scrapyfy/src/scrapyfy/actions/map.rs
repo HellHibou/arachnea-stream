@@ -29,18 +29,16 @@ pub(super) fn apply(
 
     texts
         .into_iter()
-        .filter_map(
-            |value| match find_map_value(map, Some(&value), &value) {
-                Some(Some(mapped)) => Some(mapped),
-                Some(None) => None,
-                None => match default {
-                    Some(template) => yaml_scalar_to_optional_string(template)
-                        .unwrap_or(Some(value.clone()))
-                        .map(|template| template.replace("{}", &value)),
-                    None => Some(value),
-                },
+        .filter_map(|value| match find_map_value(map, Some(&value), &value) {
+            Some(Some(mapped)) => Some(mapped),
+            Some(None) => None,
+            None => match default {
+                Some(template) => yaml_scalar_to_optional_string(template)
+                    .unwrap_or(Some(value.clone()))
+                    .map(|template| template.replace("{}", &value)),
+                None => Some(value),
             },
-        )
+        })
         .collect()
 }
 

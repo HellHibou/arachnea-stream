@@ -19,7 +19,6 @@ pub mod query;
 /// Re-exported raw HTML query configuration type.
 pub use config::HtmlScraperQueryRaw;
 
-
 /// Re-exported runtime HTML scraper entry type.
 pub use entry::HtmlScraperEntry;
 
