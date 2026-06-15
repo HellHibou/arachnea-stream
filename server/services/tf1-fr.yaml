@@ -36,6 +36,12 @@ parameters:
   - name: page_size
     value: 20
     description: Default TF1 page size for paged program and season requests.
+  - name: search_program_limit 
+    value: 50
+    description: Limit for the number of programs to search for.
+  - name: search_video_limit
+    value: 100
+    description: Limit for the number of videos to search for.
 
 shared:
   media_types_tf1: &media_types_tf1
@@ -636,47 +642,94 @@ queries:
         value: "{service_logo}"
       - name: description
         value: "{service_description}"
-
+ 
   - name: search
     scraper_type: json
     base_url: "{base_url}"
-    query_url: "{graphql_url}?id=eb07383bb0a758366983a970b6b9c633a5639e1f&variables=%7B%22query%22%3A%22{search_terms}%22%2C%22programsLimit%22%3A6%2C%22videosLimit%22%3A12%7D"
+    query_url: "{graphql_url}?id=eb07383bb0a758366983a970b6b9c633a5639e1f&variables=%7B%22query%22%3A%22{search_terms}%22%2C%22programsLimit%22%3A{search_program_limit}%2C%22videosLimit%22%3A{search_video_limit}%7D"
     request_headers: *generic_request_headers
     media_types: *media_types_tf1
-    row_pointer: /data/sliderOfSearchVideos/items/*
+    row_pointer: /
     entries:
-      - name: source
+      - name: have_more
         actions:
           - type: format_text
-            argument: "{source}"
-      - name: title
-        pointer: /video/decoration/label
-      - name: description
-        pointer: /video/decoration/shortLabel
-      - name: theme
-        pointer: /video/program/topics/*
+            argument: "false"
+      - name: entries
+        pointer: /data/sliderOfSearchPrograms/items/*
         select: all
-      - name: media-type
-        pointer: /video/program/typology
-        actions: *actions_typology_media_type
-      - name: link
-        actions:
-          - type: build_url
-            base: "{smarttv_api_root}?id=379fec96081ab1a2&variables=%7B%22programId%22%3A%22{id}%22%7D&programSlug={slug}&channel={channel}"
-            fields:
-              id: /video/program/id
-              slug: /video/program/slug
-              channel: /video/program/mainChannel/slug
-      - name: web-link
-        actions:
-          - type: build_url
-            base: "{base_url}/{channel}/{slug}"
-            fields:
-              slug: /video/program/slug
-              channel: /video/program/mainChannel/slug
-      - name: img/poster > link
-        pointer: /video/decoration/image/sourcesWithScales/0/url
-
+        entries:
+          - name: source
+            actions:
+              - type: format_text
+                argument: "{source}"
+          - name: title
+            pointer: /program/name
+          - name: description
+            pointer: /program/decoration/description
+          - name: theme
+            pointer: /program/topics/*
+            select: all
+          - name: media-type
+            pointer: /program/typology
+            actions: *actions_typology_media_type
+          - name: link
+            actions:
+              - type: build_url
+                base: "{smarttv_api_root}?id=379fec96081ab1a2&variables=%7B%22programId%22%3A%22{id}%22%7D&programSlug={slug}&channel={channel}"
+                fields:
+                  id: /program/id
+                  slug: /program/slug
+                  channel: /program/mainChannel/slug
+          - name: web-link
+            actions:
+              - type: build_url
+                base: "{base_url}/{channel}/{slug}"
+                fields:
+                  slug: /program/slug
+                  channel: /program/mainChannel/slug
+          - name: img/poster > link
+            pointer: /program/decoration/image/sourcesWithScales/0/url
+          - name: img/portrait > link
+            pointer: /program/decoration/portrait/sourcesWithScales/0/url
+          - name: img/landscape > link
+            pointer: /program/decoration/thumbnail/sourcesWithScales/0/url
+      - name: entries
+        pointer: /data/sliderOfSearchVideos/items/*
+        select: all
+        entries:
+          - name: source
+            actions:
+              - type: format_text
+                argument: "{source}"
+          - name: title
+            pointer: /video/decoration/label
+          - name: description
+            pointer: /video/decoration/shortLabel
+          - name: theme
+            pointer: /video/program/topics/*
+            select: all
+          - name: media-type
+            pointer: /video/program/typology
+            actions: *actions_typology_media_type
+          - name: link
+            actions:
+              - type: build_url
+                base: "{smarttv_api_root}?id=379fec96081ab1a2&variables=%7B%22programId%22%3A%22{id}%22%7D&programSlug={slug}&channel={channel}"
+                fields:
+                  id: /video/program/id
+                  slug: /video/program/slug
+                  channel: /video/program/mainChannel/slug
+          - name: web-link
+            actions:
+              - type: build_url
+                base: "{base_url}/{channel}/{slug}"
+                fields:
+                  slug: /video/program/slug
+                  channel: /video/program/mainChannel/slug
+          - name: img/poster > link
+            pointer: /video/decoration/image/sourcesWithScales/0/url
+            
   - name: load_home
     scraper_type: json
     base_url: "{base_url}"
@@ -790,8 +843,13 @@ queries:
       user_agent: "Mozilla/5.0 (Linux; Android 13) Arachnea/1.0"
     media_types:
       - video/live
-    row_pointer: /data/homeSliders/*[__typename=SliderOfLive]/items/*[__typename=LiveItem]
-    entries: *live_item_entries
+    row_pointer: /
+    result_item_field: entries
+    entries:
+      - name: entries
+        pointer: /data/homeSliders/*[__typename=SliderOfLive]/items/*
+        select: all
+        entries: *live_item_entries
 
   - name: get_live
     scraper_type: json
@@ -991,6 +1049,8 @@ queries:
           - type: regex_find_all
             pattern: '"firstName":"([^"]*)","lastName":"([^"]*)"'
             format: "{1} {2}"
+      - name: program-id
+        pointer: /id
       - name: season
         pointer: /editorialSections/*/lists/*
         select: all
@@ -1001,4 +1061,163 @@ queries:
             pointer: /id
             actions:
               - type: format_text
-                argument: "{smarttv_api_root}?id=379fec96081ab1a2&variables=%7B%22programId%22%3A%22{query_url}%22%7D&seasonId={}"
+                argument: "{request_url}|||{}"
+              - type: regex_find_all
+                pattern: 'programSlug=([^&]+).*\|\|\|([^|]+)$'
+                format: '{graphql_url}?id=76bc5c35edb166fa637a6c6686cb05c7140d2a8b&variables=%7B%22programSlug%22%3A%22{1}%22%2C%22listId%22%3A%22{2}%22'
+    sub_queries:
+      - scraper_type: json
+        context_pointer: /editorialSections/*/lists/0/id
+        request_actions:
+          - type: format_text
+            argument: "{request_url}|||{}"
+          - type: regex_find_all
+            pattern: 'programSlug=([^&]+).*\|\|\|([^|]+)$'
+            format: '{graphql_url}?id=76bc5c35edb166fa637a6c6686cb05c7140d2a8b&variables=%7B%22programSlug%22%3A%22{1}%22%2C%22listId%22%3A%22{2}%22%2C%22offset%22%3A0%2C%22limit%22%3A1%7D'
+        row_pointer: /data/programBySlug/editorialSections/*/listById/items/0/video
+        entries:
+          - name: video/trailer
+            pointer: /decoration/preview/sourcesWithScales/0/url
+          - name: players
+            entries:
+              - name: embed-link
+                actions:
+                  - type: build_url
+                    base: "{base_url}/{channel}/{program_slug}/videos/{slug}.html"
+                    fields:
+                      channel: /program/mainChannel/slug
+                      program_slug: /program/slug
+                      slug: /slug
+              - name: resolver
+                entries:
+                  - name: kind
+                    actions:
+                      - type: format_text
+                        argument: tf1-video
+                  - name: stream
+                    entries:
+                      - name: kind
+                        actions:
+                          - type: format_text
+                            argument: tf1-license-proxy
+                  - name: target_id
+                    pointer: /id
+      # Some program pages expose a playable video without an editorial list.
+      - scraper_type: json
+        request_actions:
+          - type: format_text
+            argument: "{request_url}"
+          - type: regex_find_all
+            pattern: '^https?://smart-tv\.tf1\.fr/catalog/([^/]+)/smarttv\?.*[?&]programSlug=([^&]+)'
+            format: 'https://www.tf1.fr/graphql/{1}/web?id=eb07383bb0a758366983a970b6b9c633a5639e1f&variables=%7B%22query%22%3A%22{2}%22%2C%22programsLimit%22%3A0%2C%22videosLimit%22%3A1%7D'
+        request_headers: *generic_request_headers
+        row_pointer: /data/sliderOfSearchVideos/items/0/video
+        entries:
+          - name: video/trailer
+            pointer: /decoration/preview/sourcesWithScales/0/url
+          - name: players
+            entries:
+              - name: embed-link
+                actions:
+                  - type: build_url
+                    base: "{base_url}/{channel}/{program_slug}/videos/{slug}.html"
+                    fields:
+                      channel: /program/mainChannel/slug
+                      program_slug: /program/slug
+                      slug: /slug
+              - name: resolver
+                entries:
+                  - name: kind
+                    actions:
+                      - type: format_text
+                        argument: tf1-video
+                  - name: stream
+                    entries:
+                      - name: kind
+                        actions:
+                          - type: format_text
+                            argument: tf1-license-proxy
+                  - name: target_id
+                    pointer: /id
+
+  - name: get_season
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{query_url}%2C%22offset%22%3A{page_index}%2C%22limit%22%3A{page_size}%7D"
+    request_headers: *generic_request_headers
+    media_types: *media_types_tf1
+    row_pointer: /
+    entries:
+      - name: current_page
+        actions:
+          - type: format_text
+            argument: "{page}"
+      - name: have_more
+        pointer: /data/programBySlug/editorialSections/0/listById/hasNext
+        actions:
+          - type: map
+            default: "false"
+            argument:
+              true: "true"
+              false: "false"
+      - name: episodes
+        pointer: /data/programBySlug/editorialSections/*/listById/items/*
+        select: all
+        entries:
+          - name: title
+            pointer: /video/decoration/label
+          - name: episode-number
+            pointer: /video/episode
+          - name: description
+            pointer: /video/decoration/summary
+          - name: duration
+            pointer: /video/playingInfos/duration
+          - name: release-date
+            pointer: /video/date
+            actions:
+              - type: get_date
+                format: yyyy_mm_dd
+          - name: link
+            actions:
+              - type: build_url
+                base: "{base_url}/{channel}/{program_slug}/videos/{slug}.html"
+                fields:
+                  channel: /video/program/mainChannel/slug
+                  program_slug: /video/program/slug
+                  slug: /video/slug
+          - name: web-link
+            actions:
+              - type: build_url
+                base: "{base_url}/{channel}/{program_slug}/videos/{slug}.html"
+                fields:
+                  channel: /video/program/mainChannel/slug
+                  program_slug: /video/program/slug
+                  slug: /video/slug
+          - name: img/preview > link
+            pointer: /image/sourcesWithScales/0/url
+          - name: img/preview > link
+            pointer: /video/decoration/image/sourcesWithScales/0/url
+          - name: players
+            entries:
+              - name: embed-link
+                actions:
+                  - type: build_url
+                    base: "{base_url}/{channel}/{program_slug}/videos/{slug}.html"
+                    fields:
+                      channel: /video/program/mainChannel/slug
+                      program_slug: /video/program/slug
+                      slug: /video/slug
+              - name: resolver
+                entries:
+                  - name: kind
+                    actions:
+                      - type: format_text
+                        argument: tf1-video
+                  - name: stream
+                    entries:
+                      - name: kind
+                        actions:
+                          - type: format_text
+                            argument: tf1-license-proxy
+                  - name: target_id
+                    pointer: /video/id

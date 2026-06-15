@@ -49,6 +49,8 @@ This crate is intended for authorized traffic only. Callers must respect target 
 Cloudflare detection should require supporting signals such as `server: cloudflare`, `cf-ray`, `cf-mitigated`, `cf-` or `__cf` headers/cookies, or known challenge markers. A plain `403` is not enough by itself.
 When `Auto` reaches the browser fallback after an active Cloudflare block, the browser solver is asked for a fresh solve instead of reusing an engine-specific session cache.
 The chaser-cf browser solver keeps one browser tab alive while it clears Cloudflare, attempts Turnstile clicks through CDP, and samples the DOM until the HTML is stable.
+When chaser-cf is used to fetch page content directly, it forwards per-request HTTP headers before navigation. The Cloudflare refresh path now reuses the blocked request headers as well. `Referer` is passed through Chrome's native navigation API, so normal browser referrer policy still applies.
+When a `Referer` is expected, chaser-cf also emits one runtime log line with the `observed_referer` reported by Chrome for the outbound navigation request.
 If the browser solve succeeds but the `rquest` cookie handoff is still blocked, the client falls back to the browser solver response for engines that can return page content.
 Callers can force the browser solver with `ArachneaHttpConfig::builder().cloudflare_browser_solver(...)` or provide an engine instance with `cloudflare_browser_solver_instance(...)`.
 

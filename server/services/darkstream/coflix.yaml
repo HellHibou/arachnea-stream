@@ -9,7 +9,7 @@ http:
 
 parameters:
   - name: base_url
-    value: https://coflix.cymru/
+    value: https://coflix.band/
     description: "Base URL — update on domain change"
 
 shared:

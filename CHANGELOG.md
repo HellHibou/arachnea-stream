@@ -24,6 +24,13 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **coflix.yaml**: Updated `get_entry` query to correctly extract season labels and links from the HTML entry page.
 - **coflix.yaml**: Fixed `get_season` query to correctly iterate over all episodes in the `episodes` array.
 - **Entry-level sub-query merge shape**: `execute_entry_sub_queries` now wraps each decoded sub-query value inside a named child node (`{ "embed-link": ["url"] }`) instead of pushing bare scalar items. This causes the serializer to emit an array of objects (`"players": [{"embed-link": ["url1"]}, …]`) instead of a flat string array (`"players": {"embed-link": ["url1", …]}`). Fixes the `players` output shape for `coflix.yaml` `get_entry`.
+- **`rtbf-auvio-be.yaml` `list_lives` flattening**: the RTBF live catalog now declares `result_item_field: entries` and groups `/data/content/*` under `entries`, so the unified executor returns one live item per channel instead of merging the whole feed into a single result.
+
+## Unreleased — RTBF Auvio home banner RedBee auth simplification
+
+### Fixed
+- **`rtbf-auvio-be.yaml` `load_home` PROMOBOX banners**: RedBee anonymous auth for banner preview video no longer depends on scraping the embed page `deviceId`. The query now posts a stable anonymous WEB device payload after extracting only the `assetId`, which keeps `banners > video` populated even when the embed state shape changes.
+- **Nested entry sub-queries on fetched responses**: `query_executor` now continues executing entry-level sub-queries after a fetched HTML/JSON sub-query populates its fields, and it preserves scalar results when a nested sub-query resolves back into the same field name. This restores RTBF Auvio PROMOBOX `video` extraction and makes `row_filters` apply on fetched JSON entry sub-queries as expected.
 
 ## Unreleased — query-level sub-query regression fix
 
@@ -43,3 +50,9 @@ All notable changes to the server workspace are recorded here. Add new entries a
 
 ### Fixed
 - **Silent regression on `StaticScraperQuery`**: the unified executor's `FetchedResponse::Static` branch in `extract_items` was downcasting `&dyn ScraperEntrySpec` to `&JsonScraperEntry`, which always failed for the actual `StaticScraperEntryRaw` instances. The result was an empty `ScraperDataNode` for every static query — observable on `m6play-fr.yaml`'s `service_stream_metadata` (`get_service` returning `{}` instead of `{ id, title, logo, description }`) and on every other YAML using `scraper_type: static`. Fixed by adding `StaticScraperEntryRaw::apply_to` (concrete method, mirrors the legacy `StaticScraperQuery::execute_query` template pipeline using the already-present `split_static_path` / `render_yaml_value` / `render_yaml_values` helpers) and a dedicated downcast branch in `extract_items` that calls it. `extract_items` now returns `Result<Vec<ScraperDataNode>>` to surface unresolvable template placeholders instead of silently producing empty items.
+
+## Unreleased — chaser-cf request header forwarding fix
+
+### Fixed
+- **`chaser-cf` custom request headers**: browser-backed page fetches now propagate per-request headers to Chrome before navigation, and `Referer` now uses Chrome's native navigation referrer field instead of an injected extra header. The Cloudflare refresh path also reuses the blocked request headers, so solver refreshes keep request-specific headers such as `Referer`. The explicit `chaser-cf` feature build also no longer fails due to missing `custom_headers` arguments.
+- **`chaser-cf` referer observability**: when a navigation expects a `Referer`, the engine now logs the `observed_referer` and Chrome referrer policy reported by the outbound CDP request event, making it easier to distinguish a missing header from an upstream 403.

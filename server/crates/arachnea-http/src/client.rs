@@ -312,7 +312,8 @@ impl ArachneaHttpClient {
     ///
     /// Returns Cloudflare solver or URL parsing failures.
     pub async fn refresh_cloudflare(&self, origin: &str) -> Result<(), ArachneaHttpError> {
-        self.refresh_cloudflare_for_url(&origin_url(origin)?).await
+        self.refresh_cloudflare_for_url(&origin_url(origin)?, None)
+            .await
     }
 
     /// Forces a Cloudflare refresh using the first configured solver path.
@@ -324,18 +325,28 @@ impl ArachneaHttpClient {
     /// # Errors
     ///
     /// Returns Cloudflare solver or URL parsing failures.
-    async fn refresh_cloudflare_for_url(&self, url: &str) -> Result<(), ArachneaHttpError> {
+    async fn refresh_cloudflare_for_url(
+        &self,
+        url: &str,
+        extra_headers: Option<&HeaderMap>,
+    ) -> Result<(), ArachneaHttpError> {
         if self.smart_cloudflare_engine.is_some() {
             return self
                 .refresh_cloudflare_for_url_with_strategy(
                     url,
                     CloudflareRefreshStrategy::Smart,
                     true,
+                    extra_headers,
                 )
                 .await;
         }
-        self.refresh_cloudflare_for_url_with_strategy(url, CloudflareRefreshStrategy::Browser, true)
-            .await
+        self.refresh_cloudflare_for_url_with_strategy(
+            url,
+            CloudflareRefreshStrategy::Browser,
+            true,
+            extra_headers,
+        )
+        .await
     }
 
     /// Forces a Cloudflare refresh using a selected solver path.
@@ -345,6 +356,8 @@ impl ArachneaHttpClient {
     /// - `url`: Absolute URL used to obtain or refresh Cloudflare cookies.
     /// - `strategy`: Solver class selected by the request mode.
     /// - `fresh`: Whether engine-specific caches must be bypassed.
+    /// - `extra_headers`: Optional request headers that must also be visible to
+    ///   the solver request, for example `Referer`.
     ///
     /// # Errors
     ///
@@ -354,6 +367,7 @@ impl ArachneaHttpClient {
         url: &str,
         strategy: CloudflareRefreshStrategy,
         fresh: bool,
+        extra_headers: Option<&HeaderMap>,
     ) -> Result<(), ArachneaHttpError> {
         Url::parse(url).map_err(|err| ArachneaHttpError::InvalidUrl(err.to_string()))?;
         let engine = self
@@ -367,10 +381,14 @@ impl ArachneaHttpClient {
             "refreshing Cloudflare cookies"
         );
         let user_agent = self.cloudflare_user_agent_for_url(url).await?;
+        let mut headers = self.base_headers(None, user_agent.as_deref())?;
+        if let Some(extra_headers) = extra_headers {
+            headers.extend(extra_headers.clone());
+        }
         let request = EngineRequest {
             method: Method::GET,
             url: url.to_string(),
-            headers: self.base_headers(None, user_agent.as_deref())?,
+            headers,
             body: None,
         };
         let response = if fresh {
@@ -481,6 +499,7 @@ impl ArachneaHttpClient {
                     &options.url,
                     CloudflareRefreshStrategy::Smart,
                     true,
+                    Some(&options.headers),
                 )
                 .await
             {
@@ -521,6 +540,7 @@ impl ArachneaHttpClient {
                 &options.url,
                 CloudflareRefreshStrategy::Browser,
                 true,
+                Some(&options.headers),
             )
             .await?;
             response = self.execute_with_rquest(options.clone()).await?;
@@ -603,8 +623,13 @@ impl ArachneaHttpClient {
             .needs_refresh(&origin, self.config.cookie_refresh_margin)?
         {
             let fresh = matches!(strategy, CloudflareRefreshStrategy::Browser);
-            self.refresh_cloudflare_for_url_with_strategy(&options.url, strategy, fresh)
-                .await?;
+            self.refresh_cloudflare_for_url_with_strategy(
+                &options.url,
+                strategy,
+                fresh,
+                Some(&options.headers),
+            )
+            .await?;
             refresh_attempts_used = 1;
         }
         self.execute_rquest_with_retry(options, &origin, refresh_attempts_used, strategy)
@@ -652,8 +677,13 @@ impl ArachneaHttpClient {
                 reason = %block_reason,
                 "Cloudflare block detected; refreshing cookies"
             );
-            self.refresh_cloudflare_for_url_with_strategy(&options.url, strategy, true)
-                .await?;
+            self.refresh_cloudflare_for_url_with_strategy(
+                &options.url,
+                strategy,
+                true,
+                Some(&options.headers),
+            )
+            .await?;
             response = self.execute_with_rquest(options.clone()).await?;
             let retry_detection = detect_cloudflare_block(
                 response.status,

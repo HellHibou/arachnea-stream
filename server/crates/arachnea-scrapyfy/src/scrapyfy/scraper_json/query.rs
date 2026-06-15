@@ -607,8 +607,13 @@ impl ScraperQuery for JsonScraperQuery {
     }
 
     fn request_actions(&self) -> &[ScraperAction] {
-        // Pour sub-query, request_sub_actions est prioritaire
-        if self.request_pointer.is_some() && !self.request_sub_actions.is_empty() {
+        // Pour une sub-query (utilisée via le chemin context_pointer sans request_pointer),
+        // request_sub_actions est prioritaire lorsqu'il est défini, indépendamment de
+        // la présence d'un request_pointer. Cela permet aux sub-queries d'utiliser
+        // leurs actions pipeline même sans request_pointer explicite.
+        // Pour une root query, request_sub_actions est vide (Vec::new()) et
+        // request_body_actions est utilisé normalement.
+        if !self.request_sub_actions.is_empty() {
             &self.request_sub_actions
         } else {
             &self.request_body_actions

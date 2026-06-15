@@ -1,6 +1,7 @@
 id: m6play-fr
 title: M6 Play
-logo: https://www.m6.fr/assets/images/icons/touch/apple-touch-icon-ipad-retina.png
+# logo: https://www.m6.fr/assets/images/icons/touch/apple-touch-icon-ipad-retina.png
+logo: https://www.groupem6.fr/app/uploads/sites/3/cache/2024/07/logo-m6-groupe/883637834.png
 description:
   fr: "M6 Play est la plateforme de streaming du groupe audiovisuel français M6, offrant un large catalogue de programmes télévisés, films, séries, documentaires et contenus exclusifs en ligne. Les utilisateurs peuvent accéder à leurs émissions préférées en direct ou à la demande, avec des fonctionnalités de recherche avancées et une interface conviviale pour une expérience de visionnage optimale."
 http:
@@ -575,40 +576,45 @@ queries:
     request_headers: *generic_request_headers
     media_types:
       - video/live
-    row_pointer: "/*/*"
+    row_pointer: /
+    result_item_field: entries
     entries:
-      - name: title
-        pointer: /service_display/title
-      - name: title/alt
-        pointer: /title
-      - name: key
-        pointer: /live/channel/code_url
-      - name: description
-        pointer: /description
-      - name: link
-        pointer: /live/channel/code_url
-        actions:
-          - type: map
-            default: "{}"
-            argument:
-              m6: M6
-              w9: W9
-              6ter: 6T
-              gulli: gulli
-      - name: web-link
-        pointer: /live/channel/code_url
-        actions:
-          - type: format_text
-            argument: "{base_url}/{}/direct"
-      - name: img/poster > link
-        pointer: /display_image/external_key
-        actions: *actions_image_key_to_url
-      - name: release-date
-        pointer: /diffusion_start_date
-        actions: *actions_extract_release_date
-      - name: expire
-        pointer: /diffusion_end_date
-        actions: *actions_extract_release_date
+      - name: entries
+        pointer: /*/*
+        select: all
+        entries:
+          - name: title
+            pointer: /service_display/title
+          - name: title/alt
+            pointer: /title
+          - name: key
+            pointer: /live/channel/code_url
+          - name: description
+            pointer: /description
+          - name: link
+            pointer: /live/channel/code_url
+            actions:
+              - type: map
+                default: "{}"
+                argument:
+                  m6: M6
+                  w9: W9
+                  6ter: 6T
+                  gulli: gulli
+          - name: web-link
+            pointer: /live/channel/code_url
+            actions:
+              - type: format_text
+                argument: "{base_url}/{}/direct"
+          - name: img/poster > link
+            pointer: /display_image/external_key
+            actions: *actions_image_key_to_url
+          - name: release-date
+            pointer: /diffusion_start_date
+            actions: *actions_extract_release_date
+          - name: expire
+            pointer: /diffusion_end_date
+            actions: *actions_extract_release_date
 
   - name: get_live
     scraper_type: json

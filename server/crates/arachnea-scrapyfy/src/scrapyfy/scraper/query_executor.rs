@@ -18,6 +18,7 @@ use crate::scrapyfy::scraper_html::entry::{HtmlScraperEntry, HtmlScraperSelectMo
 use crate::scrapyfy::scraper_json::entry::{
     json_value_to_strings, select_json_values, JsonScraperEntry,
 };
+use crate::scrapyfy::scraper_json::query::{JsonScraperQuery, JsonScraperSubQuery};
 use crate::scrapyfy::scraper_static::query::StaticScraperEntryRaw;
 use crate::scrapyfy::HttpClient;
 
@@ -581,6 +582,18 @@ fn as_json_entry(entry: &dyn ScraperEntrySpec) -> Option<&JsonScraperEntry> {
     entry.as_any().downcast_ref::<JsonScraperEntry>()
 }
 
+/// Returns JSON row filters for a concrete JSON query or sub-query.
+fn json_row_filters(query: &dyn ScraperQuery) -> Option<&HashMap<String, Vec<String>>> {
+    if let Some(json_query) = query.as_any().downcast_ref::<JsonScraperQuery>() {
+        return Some(&json_query.row_filters);
+    }
+
+    query
+        .as_any()
+        .downcast_ref::<JsonScraperSubQuery>()
+        .map(|json_query| &json_query.row_filters)
+}
+
 // ---------------------------------------------------------------------------
 // Request resolution
 // ---------------------------------------------------------------------------
@@ -1101,6 +1114,34 @@ async fn execute_entry_sub_queries(
                         target.values.clear();
                         target.children.clear();
                         target.items.clear();
+                        let leaf_name = path.last().copied().unwrap_or_default();
+                        if let Some(child) = merged.children.get(leaf_name) {
+                            if merged.children.len() == 1
+                                && child.children.is_empty()
+                                && ((!child.items.is_empty()
+                                    && child
+                                        .items
+                                        .iter()
+                                        .all(|item| item.children.is_empty() && item.items.is_empty()))
+                                    || !child.values.is_empty())
+                            {
+                                let scalar_values: Vec<String> = if !child.values.is_empty() {
+                                    child.values.clone()
+                                } else {
+                                    child
+                                        .items
+                                        .iter()
+                                        .flat_map(|item| item.values.clone())
+                                        .collect()
+                                };
+                                for val in scalar_values {
+                                    let mut entry = ScraperDataNode::default();
+                                    entry.values.push(val);
+                                    target.items.push(entry);
+                                }
+                                continue;
+                            }
+                        }
                         // Convert fetched rows into array items — each
                         // sibling field (e.g. embed-link and name) is
                         // zipped by index so that values at the same
@@ -1363,6 +1404,8 @@ async fn fetch_and_extract_for_entry_sub_query(
         sub_query.scraper_type(),
     )
     .await?;
+    let mut nested_response_body: Option<String> = None;
+    let mut nested_parent_response: Option<Value> = None;
 
     match response {
         FetchedResponse::Html(html) => {
@@ -1400,6 +1443,7 @@ async fn fetch_and_extract_for_entry_sub_query(
                 }
                 _ => {}
             }
+            nested_response_body = Some(html);
         }
         FetchedResponse::Json(value) => {
             let pointer = match sub_query.row_locator() {
@@ -1408,14 +1452,47 @@ async fn fetch_and_extract_for_entry_sub_query(
             };
             let rows = select_json_values(&value, Some(&pointer), HtmlScraperSelectMode::All);
             for row_value in rows {
+                let mut filtered_out = false;
+                if let Some(row_filters) = json_row_filters(sub_query) {
+                    for (field, allowed) in row_filters {
+                        let field_values: Vec<String> = select_json_values(
+                            row_value,
+                            Some(field),
+                            HtmlScraperSelectMode::All,
+                        )
+                        .into_iter()
+                        .flat_map(json_value_to_strings)
+                        .collect();
+                        if !field_values.iter().any(|v| allowed.contains(v)) {
+                            filtered_out = true;
+                            break;
+                        }
+                    }
+                }
+                if filtered_out {
+                    continue;
+                }
                 for entry in sub_query.entries() {
                     if let Some(json_entry) = as_json_entry(entry) {
                         json_entry.apply_to(item, row_value, context.params, url);
                     }
                 }
             }
+            nested_parent_response = Some(value);
         }
         FetchedResponse::Static => {}
+    }
+
+    if !sub_query.entries().is_empty() {
+        let sub_context = QueryContext {
+            params: context.params,
+            request_url: url,
+            response_body: nested_response_body.as_deref(),
+            http_client: context.http_client,
+            fields_filters: None,
+            parent_response: nested_parent_response.as_ref(),
+        };
+        Box::pin(execute_entry_sub_queries(sub_query, item, url, &sub_context)).await?;
     }
 
     Ok(())

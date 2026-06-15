@@ -12,15 +12,19 @@ use bytes::Bytes;
 use chaser_cf::{core::BrowserManager, ChaserConfig, Cookie as ChaserCookie, WafSession};
 use chaser_oxide::{
     cdp::browser_protocol::dom::{GetBoxModelParams, GetDocumentParams, Node, NodeId},
+    cdp::browser_protocol::network::EventRequestWillBeSent,
+    cdp::browser_protocol::network::{Headers, SetExtraHttpHeadersParams},
+    cdp::browser_protocol::page::NavigateParams,
     ChaserPage,
 };
+use futures::StreamExt;
 use http::{
-    header::{CONTENT_TYPE, SET_COOKIE},
+    header::{CONTENT_TYPE, REFERER, SET_COOKIE},
     HeaderMap, HeaderValue, Method, StatusCode,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
-use tracing::warn;
+use tracing::{info, warn};
 use url::Url;
 
 use crate::{
@@ -264,6 +268,8 @@ impl ChaserCfEngine {
     ///
     /// - `url`: URL to open in the browser.
     /// - `collect_body`: Whether to wait for stable page source before closing.
+    /// - `custom_headers`: Optional extra HTTP headers to set before navigating
+    ///   (for example `Referer`).
     ///
     /// # Returns
     ///
@@ -276,6 +282,7 @@ impl ChaserCfEngine {
         &self,
         url: &str,
         collect_body: bool,
+        custom_headers: Option<&HeaderMap>,
     ) -> Result<(WafSession, Bytes), ArachneaHttpError> {
         let manager = self.browser().await?;
         let _permit = manager
@@ -292,10 +299,20 @@ impl ChaserCfEngine {
             .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
 
         let result = async {
-            chaser
-                .goto(url)
+            let expected_referer = custom_headers
+                .and_then(|headers| headers.get(REFERER))
+                .and_then(|value| value.to_str().ok())
+                .filter(|value| !value.trim().is_empty())
+                .map(str::to_owned);
+            let request_probe =
+                Self::spawn_navigation_header_probe(&page, url, expected_referer.clone()).await?;
+            Self::apply_custom_headers(&page, custom_headers).await?;
+            page.goto(Self::navigate_params(url, custom_headers))
                 .await
                 .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
+            if let Some(probe) = request_probe {
+                let _ = probe.await;
+            }
 
             let body = self
                 .wait_for_clearance_and_stable_source(url, &page, &chaser, collect_body)
@@ -336,6 +353,123 @@ impl ChaserCfEngine {
         }
 
         result
+    }
+
+    /// Applies extra HTTP headers to the current browser page before navigation.
+    ///
+    /// # Parameters
+    ///
+    /// - `page`: Browser page that will perform the request.
+    /// - `custom_headers`: Optional extra headers to attach.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidHeader` when a header value is not valid UTF-8, or
+    /// `ChaserCfFailure` when Chrome rejects the header override.
+    async fn apply_custom_headers(
+        page: &chaser_oxide::Page,
+        custom_headers: Option<&HeaderMap>,
+    ) -> Result<(), ArachneaHttpError> {
+        let Some(custom_headers) = custom_headers else {
+            return Ok(());
+        };
+
+        let mut headers = HashMap::new();
+        for (name, value) in custom_headers {
+            if *name == REFERER {
+                continue;
+            }
+            let value = value
+                .to_str()
+                .map_err(|err| ArachneaHttpError::InvalidHeader(err.to_string()))?;
+            headers.insert(name.as_str().to_string(), value.to_string());
+        }
+
+        if headers.is_empty() {
+            return Ok(());
+        }
+
+        let payload = serde_json::to_value(headers)
+            .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
+        page.execute(SetExtraHttpHeadersParams::new(Headers::new(payload)))
+            .await
+            .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
+
+        Ok(())
+    }
+
+    /// Starts a short-lived probe that logs the outbound `Referer` observed by
+    /// Chrome for the main navigation request.
+    ///
+    /// # Parameters
+    ///
+    /// - `page`: Browser page that will perform the navigation.
+    /// - `url`: Target URL expected for the main document request.
+    /// - `expected_referer`: Referer value the caller expects Chrome to send.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ChaserCfFailure` when the event listener cannot be registered.
+    async fn spawn_navigation_header_probe(
+        page: &chaser_oxide::Page,
+        url: &str,
+        expected_referer: Option<String>,
+    ) -> Result<Option<tokio::task::JoinHandle<()>>, ArachneaHttpError> {
+        let Some(expected_referer) = expected_referer else {
+            return Ok(None);
+        };
+
+        let mut events = page
+            .event_listener::<EventRequestWillBeSent>()
+            .await
+            .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
+        let expected_url = url.to_string();
+        let timeout_url = expected_url.clone();
+        let timeout_referer = expected_referer.clone();
+        Ok(Some(tokio::spawn(async move {
+            let probe = tokio::time::timeout(std::time::Duration::from_secs(5), async move {
+                while let Some(event) = events.next().await {
+                    if event.request.url != expected_url {
+                        continue;
+                    }
+                    let observed_referer =
+                        lookup_json_header_value(event.request.headers.inner(), "Referer");
+                    info!(
+                        url = %event.request.url,
+                        expected_referer = %expected_referer,
+                        observed_referer = observed_referer.as_deref().unwrap_or("<missing>"),
+                        referrer_policy = %event.request.referrer_policy.as_ref(),
+                        "chaser-cf observed outbound navigation request"
+                    );
+                    return;
+                }
+            })
+            .await;
+
+            if probe.is_err() {
+                warn!(
+                    url = %timeout_url,
+                    expected_referer = %timeout_referer,
+                    "chaser-cf did not observe the outbound navigation request before timeout"
+                );
+            }
+        })))
+    }
+
+    /// Builds native navigation parameters for Chrome.
+    ///
+    /// `Referer` is passed through `Page.navigate.referrer` because Chrome may
+    /// reject top-level navigation when it is injected as an extra HTTP header.
+    fn navigate_params(url: &str, custom_headers: Option<&HeaderMap>) -> NavigateParams {
+        let mut params = NavigateParams::new(url);
+        if let Some(referer) = custom_headers
+            .and_then(|headers| headers.get(REFERER))
+            .and_then(|value| value.to_str().ok())
+            .filter(|value| !value.trim().is_empty())
+        {
+            params.referrer = Some(referer.to_string());
+        }
+        params
     }
 
     /// Waits for Cloudflare clearance and, when requested, stable page source.
@@ -439,8 +573,12 @@ impl ChaserCfEngine {
     /// # Errors
     ///
     /// Returns chaser-cf failures or missing `cf_clearance`.
-    async fn solve_waf_session(&self, url: &str) -> Result<WafSession, ArachneaHttpError> {
-        let (session, _body) = self.solve_browser_page(url, false).await?;
+    async fn solve_waf_session(
+        &self,
+        url: &str,
+        custom_headers: Option<&HeaderMap>,
+    ) -> Result<WafSession, ArachneaHttpError> {
+        let (session, _body) = self.solve_browser_page(url, false, custom_headers).await?;
         if !session
             .cookies
             .iter()
@@ -593,7 +731,9 @@ impl ChaserCfEngine {
             }
         }
 
-        let session = self.solve_waf_session(&request.url).await?;
+        let session = self
+            .solve_waf_session(&request.url, Some(&request.headers))
+            .await?;
         let mut headers = Self::response_headers(&session.cookies)?;
         Self::insert_solver_user_agent(&mut headers, &session)?;
         self.store_session_cache(&request.url, &session);
@@ -655,7 +795,11 @@ impl HttpEngine for ChaserCfEngine {
         }
 
         let (session, body) = self
-            .solve_browser_page(&request.url, request.method == Method::GET)
+            .solve_browser_page(
+                &request.url,
+                request.method == Method::GET,
+                Some(&request.headers),
+            )
             .await?;
         let mut headers = Self::response_headers(&session.cookies)?;
         Self::insert_solver_user_agent(&mut headers, &session)?;
@@ -927,6 +1071,17 @@ fn cached_session_headers(session: &CachedChaserSession) -> Result<HeaderMap, Ar
         );
     }
     Ok(headers)
+}
+
+/// Returns one request header value from a CDP JSON header map.
+fn lookup_json_header_value(headers: &serde_json::Value, name: &str) -> Option<String> {
+    let object = headers.as_object()?;
+    object.iter().find_map(|(key, value)| {
+        if !key.eq_ignore_ascii_case(name) {
+            return None;
+        }
+        value.as_str().map(str::to_owned)
+    })
 }
 
 /// Returns whether the current browser page has a Cloudflare clearance cookie.
