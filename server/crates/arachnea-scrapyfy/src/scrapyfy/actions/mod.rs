@@ -1,5 +1,4 @@
 use anyhow::Result;
-use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_yaml::{Mapping as YamlMapping, Value as YamlValue};
 use std::collections::HashMap;

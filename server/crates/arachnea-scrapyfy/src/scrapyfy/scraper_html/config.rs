@@ -8,9 +8,9 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize, Serializer};
 use std::collections::HashMap;
 
-use crate::scrapyfy::query_helpers::{self, QueryTemplateParamMapping};
+use crate::scrapyfy::query_helpers;
 use crate::scrapyfy::scraper::config::{
-    ScraperQueryCommon, ScraperQueryRaw, ScraperRequestHeaderRaw, SubQueryCommon,
+    ScraperQueryCommon, ScraperRequestHeaderRaw, SubQueryCommon,
 };
 use crate::scrapyfy::scraper_html::entry::HtmlScraperEntryRaw;
 use crate::scrapyfy::scraper_html::query::HtmlScraperQuery;
@@ -93,60 +93,6 @@ impl HtmlScraperQueryRaw {
     ///
     /// * `collection_http` - HTTP configuration inherited from the parent collection.
     pub(crate) fn apply_collection_http(&mut self, collection_http: &ScraperHttpConfig) {
-        self.common.apply_collection_http(collection_http);
-    }
-}
-
-impl ScraperQueryRaw for HtmlScraperQueryRaw {
-    /// Returns the query name used as the lookup key in a collection.
-    ///
-    /// # Returns
-    ///
-    /// The name field from the common configuration.
-    fn name(&self) -> String {
-        self.common.name.clone()
-    }
-
-    /// Resolves collection-level placeholders used by this HTML query config.
-    ///
-    /// Processes the query configuration to replace `{placeholder}` templates
-    /// with actual values from collection parameters.
-    ///
-    /// # Arguments
-    ///
-    /// * `params` - Collection-level template parameters.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if a required placeholder is missing from `params`.
-    fn resolve_collection_params(&mut self, params: &HashMap<String, String>) -> Result<()> {
-        self.common
-            .resolve_collection_params("HTML query", params)?;
-
-        self.resolved_row_selector = Some(query_helpers::resolve_required_template(
-            "HTML query",
-            &self.common.name,
-            "row_selector",
-            &self.row_selector,
-            params,
-        )?);
-
-        for entry in &mut self.entries {
-            entry.resolve_collection_params(params)?;
-        }
-
-        Ok(())
-    }
-
-    /// Merges the collection-level HTTP configuration into this query's own config.
-    ///
-    /// Inherits HTTP settings from the parent collection, with query-specific
-    /// settings taking precedence over collection defaults.
-    ///
-    /// # Arguments
-    ///
-    /// * `collection_http` - HTTP configuration inherited from the parent collection.
-    fn apply_collection_http(&mut self, collection_http: &ScraperHttpConfig) {
         self.common.apply_collection_http(collection_http);
     }
 }
@@ -337,54 +283,6 @@ pub struct HtmlScraperSubQueryRaw {
     /// allowing for arbitrary levels of nested data fetching.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sub_queries: Vec<HtmlScraperSubQueryRaw>,
-}
-
-impl HtmlScraperSubQueryRaw {
-    /// Propagates the parent HTTP configuration into this sub-query and its children.
-    ///
-    /// Merges the parent query's HTTP configuration into this sub-query's configuration,
-    /// and recursively applies the merged configuration to all nested sub-queries.
-    ///
-    /// # Arguments
-    ///
-    /// * `parent_http` - HTTP configuration inherited from the parent query.
-    ///   This is merged with the sub-query's own HTTP configuration.
-    pub(crate) fn apply_parent_http(&mut self, parent_http: &ScraperHttpConfig) {
-        self.common.apply_parent_http(parent_http);
-        let child_http = self.common.http.clone();
-        for sub_query in &mut self.sub_queries {
-            sub_query.apply_parent_http(&child_http);
-        }
-    }
-
-    /// Resolves collection-level placeholders in this sub-query's HTTP config.
-    ///
-    /// Processes the sub-query configuration to replace `{placeholder}` templates
-    /// with actual values from collection parameters. Also recursively resolves
-    /// placeholders in all nested sub-queries.
-    ///
-    /// # Arguments
-    ///
-    /// * `parent_name` - Parent query name used in diagnostic messages.
-    ///   This provides context in error messages.
-    /// * `params` - Collection-level template parameters.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if a required placeholder is missing from `params`.
-    /// The error includes the sub-query context and the missing placeholder name.
-    pub(crate) fn resolve_collection_params(
-        &mut self,
-        parent_name: &str,
-        params: &HashMap<String, String>,
-    ) -> Result<()> {
-        self.common
-            .resolve_collection_params("HTML sub-query", parent_name, params)?;
-        for sub_query in &mut self.sub_queries {
-            sub_query.resolve_collection_params(parent_name, params)?;
-        }
-        Ok(())
-    }
 }
 
 impl TryFrom<HtmlScraperSubQueryRaw> for crate::scrapyfy::scraper_html::query::HtmlScraperSubQuery {

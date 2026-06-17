@@ -379,8 +379,6 @@ pub fn resolve_request_headers(
     params: &HashMap<String, String>,
     context_request_url: &str,
 ) -> HashMap<String, String> {
-    use crate::scrapyfy::scraper_json::entry::{json_value_to_strings, select_json_values};
-
     let mut resolved = HashMap::new();
 
     for header in headers {

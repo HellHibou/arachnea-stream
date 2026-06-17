@@ -119,7 +119,6 @@ impl EncryptedFileCredentialsStore {
         Ok(document)
     }
 
-    #[allow(dead_code)]
     fn write_document(&self, document: &CredentialsDocument) -> Result<()> {
         let plaintext = serde_json::to_vec_pretty(document).with_context(|| {
             format!(

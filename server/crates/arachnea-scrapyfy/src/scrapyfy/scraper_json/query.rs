@@ -11,7 +11,6 @@
 // in crate::scrapyfy::scraper::config but re-exported here so that existing
 // import paths like `use crate::scrapyfy::scraper_json::query::{ScraperRequestMethod, …}`
 // continue to work.
-pub(crate) use super::config::JsonScraperExecutionOptions;
 pub use super::config::{EntrySubQueryRaw, JsonScraperQueryRaw, JsonScraperSubQueryRaw};
 
 // Re-export from scraper::config for backward compatibility
@@ -22,18 +21,14 @@ pub use crate::scrapyfy::scraper::config::{
 use std::any::Any;
 
 use anyhow::Result;
-use futures::stream::{self, StreamExt};
 use serde::Deserialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
-use crate::scrapyfy::query_helpers::{self, QueryTemplateParamMapping};
+use crate::scrapyfy::query_helpers::QueryTemplateParamMapping;
 use crate::scrapyfy::scraper::entry_trait::ScraperEntrySpec;
 use crate::scrapyfy::scraper::query_trait::ScraperQuery;
-use crate::scrapyfy::scraper::query_unified::{ScraperQueryConfig, ScraperTypeConfig};
 use crate::scrapyfy::scraper::row_locator::{RowLocator, ScraperType};
 use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
-use crate::scrapyfy::scraper_json::entry::{json_value_to_strings, select_json_values};
-use crate::scrapyfy::scraper_json::response_parser::{collect_ordered_results, matches};
 use crate::scrapyfy::*;
 
 // ---------------------------------------------------------------------------
@@ -126,6 +121,7 @@ pub struct JsonScraperQuery {
     pub(crate) context_select: HtmlScraperSelectMode,
 
     /// Filters applied to the context row before issuing the follow-up request.
+    #[allow(dead_code)]
     pub(crate) context_filters: HashMap<String, Vec<String>>,
 
     /// Filters applied to the fetched rows (after the HTTP response).
@@ -272,18 +268,6 @@ impl JsonScraperSubQuery {
         Ok(())
     }
 
-    /// Splits a `>`-separated target path into trimmed path segments.
-    ///
-    /// # Arguments
-    ///
-    /// * `target` - Hierarchical target path string.
-    fn split_target_path(target: &str) -> Vec<&str> {
-        target
-            .split('>')
-            .map(str::trim)
-            .filter(|segment| !segment.is_empty())
-            .collect()
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -484,58 +468,6 @@ impl JsonScraperQuery {
     pub fn add_entry(&mut self, scraper_entry: JsonScraperEntry) -> &mut Self {
         self.scraper_entries.push(scraper_entry);
         self
-    }
-
-    /// Resolves the full set of request headers from templates and collection params.
-    ///
-    /// # Arguments
-    ///
-    /// * `params` - Runtime template parameters available for header value resolution.
-    /// * `query_url` - Fully resolved request URL passed to action pipelines.
-    fn resolve_request_headers(
-        &self,
-        params: &HashMap<String, String>,
-        query_url: &str,
-    ) -> HashMap<String, String> {
-        let request_context = query_helpers::build_params_json_value(params);
-        crate::scrapyfy::query_helpers::resolve_request_headers(
-            &self.request_headers,
-            &request_context,
-            params,
-            query_url,
-        )
-    }
-
-    /// Builds the optional request body by selecting a JSON pointer value from the
-    /// params context and applying the configured body actions.
-    ///
-    /// # Arguments
-    ///
-    /// * `params` - Runtime template parameters used for pointer selection and actions.
-    /// * `query_url` - Fully resolved request URL passed to action pipelines.
-    fn resolve_request_body(
-        &self,
-        params: &HashMap<String, String>,
-        query_url: &str,
-    ) -> Option<String> {
-        let request_context = query_helpers::build_params_json_value(params);
-        crate::scrapyfy::query_helpers::resolve_request_body(
-            self.request_body_pointer.as_deref(),
-            self.request_body_select,
-            &self.request_body_actions,
-            &request_context,
-            params,
-            query_url,
-        )
-    }
-
-    /// Builds the concurrency options forwarded to sub-query execution.
-    fn execution_options(&self) -> JsonScraperExecutionOptions {
-        JsonScraperExecutionOptions {
-            sibling_sub_query_concurrency: self.sibling_sub_query_concurrency,
-            sub_query_context_concurrency: self.sub_query_context_concurrency,
-            sub_query_fetch_concurrency: self.sub_query_fetch_concurrency,
-        }
     }
 
     /// Returns the flattened list of leaf field names produced by this query.

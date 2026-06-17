@@ -235,46 +235,6 @@ impl Serialize for ScraperRequestHeader {
 }
 
 // ---------------------------------------------------------------------------
-// Common traits
-// ---------------------------------------------------------------------------
-
-/// Common trait for all query configurations (HTML, JSON).
-///
-/// This trait defines the interface that all raw query configurations must implement
-/// to support collection-level parameter resolution and HTTP configuration inheritance.
-pub trait ScraperQueryRaw {
-    /// Returns the name of the query.
-    ///
-    /// This is the identifier used as the lookup key in a collection.
-    fn name(&self) -> String;
-
-    /// Resolves collection-level placeholders in this query configuration.
-    ///
-    /// Collection parameters are applied to the query's base URL, query URL, and other
-    /// template fields to produce the final configuration.
-    ///
-    /// # Arguments
-    ///
-    /// * `params` - Collection-level template parameters.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if a required placeholder is missing from `params`.
-    fn resolve_collection_params(&mut self, params: &HashMap<String, String>) -> Result<()>;
-
-    /// Merges the collection-level HTTP configuration into this query's configuration.
-    ///
-    /// Collection-level HTTP settings (like user agent, timeouts, etc.) are inherited
-    /// by each query in the collection. Query-specific settings override collection
-    /// defaults.
-    ///
-    /// # Arguments
-    ///
-    /// * `collection_http` - HTTP configuration inherited from the parent collection.
-    fn apply_collection_http(&mut self, collection_http: &ScraperHttpConfig);
-}
-
-// ---------------------------------------------------------------------------
 // Sub-query configuration
 // ---------------------------------------------------------------------------
 

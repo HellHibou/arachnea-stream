@@ -27,11 +27,6 @@ pub(crate) mod query_executor;
 pub(crate) mod query_trait;
 
 // Re-export key types for convenience
-pub use config::{
-    ScraperQueryCommon, ScraperQueryRaw, ScraperRequestHeader, ScraperRequestHeaderRaw,
-    ScraperRequestMethod, SubQueryCommon,
-};
 pub use entry_trait::ScraperEntrySpec;
 pub use query_trait::ScraperQuery;
-pub use query_unified::{ScraperQueryConfig, ScraperTypeConfig};
 pub use row_locator::{RowLocator, ScraperType};

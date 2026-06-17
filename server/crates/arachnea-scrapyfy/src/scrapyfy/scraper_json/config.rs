@@ -17,7 +17,7 @@ use std::collections::HashMap;
 
 use crate::scrapyfy::query_helpers;
 use crate::scrapyfy::scraper::config::{
-    default_select_mode, ScraperQueryCommon, ScraperQueryRaw, ScraperRequestHeader,
+    default_select_mode, ScraperQueryCommon, ScraperRequestHeader,
     ScraperRequestHeaderRaw, SubQueryCommon,
 };
 use crate::scrapyfy::scraper_html::entry::{
@@ -64,6 +64,7 @@ fn default_json_sub_query_fetch_concurrency() -> usize {
 /// Contains configuration parameters that control the parallelism of sub-query
 /// operations during JSON scraping.
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub(crate) struct JsonScraperExecutionOptions {
     /// Maximum number of sibling sub-queries executed concurrently.
     ///
@@ -282,9 +283,6 @@ impl EntrySubQueryRaw {
                 if row_selector.is_empty() {
                     anyhow::bail!("HTML entry sub-query must define a row_selector");
                 }
-                let selector = ::scraper::Selector::parse(&row_selector).map_err(|e| {
-                    anyhow::anyhow!("Invalid row_selector '{}': {}", row_selector, e)
-                })?;
                 let entries: Vec<HtmlScraperEntry> = entries
                     .into_iter()
                     .map(TryInto::try_into)
@@ -341,7 +339,7 @@ impl EntrySubQueryRaw {
                     row_selector
                 };
 
-                let mut query = crate::scrapyfy::scraper_html::query::HtmlScraperQuery {
+                let query = crate::scrapyfy::scraper_html::query::HtmlScraperQuery {
                     name: "html-sub-query".to_string(),
                     base_url: base_url.to_string(),
                     base_url_template: base_url.to_string(),
@@ -602,44 +600,6 @@ pub struct JsonScraperSubQueryRaw {
     pub sub_queries: Vec<JsonScraperSubQueryRaw>,
 }
 
-impl JsonScraperSubQueryRaw {
-    /// Propagates the parent HTTP configuration into this sub-query and its children.
-    ///
-    /// # Arguments
-    ///
-    /// * `parent_http` - HTTP configuration inherited from the parent query.
-    pub(crate) fn apply_parent_http(&mut self, parent_http: &ScraperHttpConfig) {
-        self.common.apply_parent_http(parent_http);
-        let child_http = self.common.http.clone();
-        for sub_query in &mut self.sub_queries {
-            sub_query.apply_parent_http(&child_http);
-        }
-    }
-
-    /// Resolves collection-level placeholders in this sub-query's HTTP config.
-    ///
-    /// # Arguments
-    ///
-    /// * `parent_name` - Parent query name used in diagnostic messages.
-    /// * `params` - Collection-level template parameters.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if a required placeholder is missing from `params`.
-    pub(crate) fn resolve_collection_params(
-        &mut self,
-        parent_name: &str,
-        params: &HashMap<String, String>,
-    ) -> Result<()> {
-        self.common
-            .resolve_collection_params("JSON sub-query", parent_name, params)?;
-        for sub_query in &mut self.sub_queries {
-            sub_query.resolve_collection_params(parent_name, params)?;
-        }
-        Ok(())
-    }
-}
-
 impl JsonScraperQueryRaw {
     /// Returns the query name used as the lookup key in a collection.
     pub fn name(&self) -> String {
@@ -673,28 +633,6 @@ impl JsonScraperQueryRaw {
     ///
     /// * `collection_http` - HTTP configuration inherited from the parent collection.
     pub(crate) fn apply_collection_http(&mut self, collection_http: &ScraperHttpConfig) {
-        self.common.apply_collection_http(collection_http);
-        for sub_query in &mut self.sub_queries {
-            sub_query.apply_parent_http(&self.common.http);
-        }
-    }
-}
-
-impl ScraperQueryRaw for JsonScraperQueryRaw {
-    fn name(&self) -> String {
-        self.common.name.clone()
-    }
-
-    fn resolve_collection_params(&mut self, params: &HashMap<String, String>) -> Result<()> {
-        self.common
-            .resolve_collection_params("JSON query", params)?;
-        for sub_query in &mut self.sub_queries {
-            sub_query.resolve_collection_params(&self.common.name, params)?;
-        }
-        Ok(())
-    }
-
-    fn apply_collection_http(&mut self, collection_http: &ScraperHttpConfig) {
         self.common.apply_collection_http(collection_http);
         for sub_query in &mut self.sub_queries {
             sub_query.apply_parent_http(&self.common.http);

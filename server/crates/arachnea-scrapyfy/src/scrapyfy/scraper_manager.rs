@@ -1,9 +1,5 @@
 use super::*;
-use anyhow::Result;
 use arachnea_core::controler::ControlerService;
-use std::collections::HashMap;
-
-use crate::scrapyfy::ScraperDataNode;
 
 const LOGGERS: [&str; 3] = [
     "selectors::matching",

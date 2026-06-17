@@ -23,9 +23,3 @@ pub(super) fn apply(texts: Vec<String>) -> Vec<String> {
         .collect()
 }
 
-/// Validates that the `base64_decode` action is configured correctly.
-///
-/// This action has no configuration fields, so validation is a no-op.
-pub(super) fn validate(_name: &str, _owner: &str) -> anyhow::Result<()> {
-    Ok(())
-}

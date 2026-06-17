@@ -100,9 +100,7 @@ pub struct HtmlScraperQuery {
     /// A value of 0 is invalid and will cause an error during query construction.
     pub(crate) row_concurrency: usize,
     /// Compiled CSS selector matching each result row in the fetched page.
-    ///
-    /// The parsed and validated CSS selector used for efficient row matching.
-    /// This is the runtime version of `row_selector_template`.
+    #[allow(dead_code)]
     pub(crate) row_selector_compiled: ::scraper::Selector,
     /// Original row selector template preserved from YAML.
     ///
@@ -138,9 +136,11 @@ pub struct HtmlScraperQuery {
     pub(crate) context_select: HtmlScraperSelectMode,
 
     /// Filters applied to the context row before issuing the follow-up request.
+    #[allow(dead_code)]
     pub(crate) context_filters: HashMap<String, Vec<String>>,
 
     /// Filters applied to the fetched rows (after the HTTP response).
+    #[allow(dead_code)]
     pub(crate) row_filters: HashMap<String, Vec<String>>,
 
     /// Path where the sub-query result is nested.

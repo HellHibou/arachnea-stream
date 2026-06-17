@@ -1441,7 +1441,6 @@ async fn fetch_and_extract_for_entry_sub_query(
                     // No HTML element available for RowLocator::Single or
                     // RowLocator::Pointer — skip HTML entry application.
                 }
-                _ => {}
             }
             nested_response_body = Some(html);
         }
@@ -1594,24 +1593,6 @@ fn response_body_str(response: &FetchedResponse) -> Option<&str> {
     }
 }
 
-/// Clears the values and items at the node identified by a `>`-split path,
-/// so the node is reset before merging sub-query results into it.
-///
-/// # Arguments
-///
-/// * `item` - The root item node.
-/// * `path` - Ordered path segments identifying the target node.
-fn clear_node_at_path(item: &mut ScraperDataNode, path: &[&str]) {
-    let mut current = item;
-    for segment in path {
-        current = current.children.entry((*segment).to_string()).or_default();
-    }
-    current.values.clear();
-    current.items.clear();
-    // Also clear child nodes recursively so the node is fully clean.
-    current.children.clear();
-}
-
 /// Walks a `>`-split path and returns a mutable reference to the target node,
 /// creating intermediate nodes on demand.
 ///
@@ -1636,7 +1617,6 @@ fn walk_mut<'a>(item: &'a mut ScraperDataNode, path: &[&str]) -> &'a mut Scraper
 /// # Returns
 ///
 /// A new vector with duplicate URLs removed, preserving the original order.
-#[allow(dead_code)]
 fn _dedupe_urls(urls: Vec<String>) -> Vec<String> {
     let mut seen = HashSet::new();
     let mut out = Vec::new();

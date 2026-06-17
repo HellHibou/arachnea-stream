@@ -19,7 +19,6 @@
 pub mod config;
 pub mod entry;
 pub mod query;
-pub(crate) mod response_parser;
 
 pub use config::EntrySubQueryRaw;
 pub use entry::{JsonScraperEntry, JsonScraperEntryRaw};

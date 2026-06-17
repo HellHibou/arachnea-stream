@@ -44,7 +44,7 @@ use crate::scrapyfy::scraper::config::{
     default_request_method, default_select_mode, ScraperRequestHeaderRaw, ScraperRequestMethod,
 };
 use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
-use crate::scrapyfy::{HttpClient, ScraperHttpConfig};
+use crate::scrapyfy::ScraperHttpConfig;
 
 // ---------------------------------------------------------------------------
 // ScraperQueryConfig — unified configuration
