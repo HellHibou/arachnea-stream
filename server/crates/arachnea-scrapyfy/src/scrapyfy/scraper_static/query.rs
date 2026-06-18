@@ -154,6 +154,12 @@ impl StaticScraperQuery {
         self.name.clone()
     }
 
+    /// Rebinds the placeholder HTTP client to a shared proxy handle.
+    pub(crate) fn set_proxy_handle(&mut self, proxy_handle: SharedProxyConfigHandle) {
+        self.http_client =
+            HttpClient::with_http_config_and_proxy_handle(self.http_config.clone(), proxy_handle);
+    }
+
     /// Returns whether the query matches at least one requested media type.
     pub fn is_media_type(&self, media_types: &[String]) -> bool {
         self.media_types.is_empty()
@@ -406,6 +412,10 @@ impl ScraperQuery for StaticScraperQuery {
     }
 
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
 }

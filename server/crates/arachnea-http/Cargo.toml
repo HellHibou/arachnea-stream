@@ -7,6 +7,7 @@ autoexamples = false
 
 [features]
 default = []
+arachnea-proxy = ["dep:arachnea-proxy", "arachnea-proxy/rquest"]
 ghostwire = ["dep:ghostwire"]
 chaser-cf = ["dep:chaser-cf", "dep:chaser-oxide", "dep:rand"]
 tauri-cloudflare-solver = ["dep:cookie", "dep:tao", "dep:tauri", "dep:wry"]
@@ -14,6 +15,7 @@ tauri-cloudflare-solver-devtools = ["tauri-cloudflare-solver", "wry/devtools"]
 
 [dependencies]
 arachnea-core = { path = "../arachnea-core" }
+arachnea-proxy = { path = "../arachnea-proxy", default-features = false, features = ["core", "connectors", "tower"], optional = true }
 anyhow.workspace = true
 async-trait.workspace = true
 bytes.workspace = true

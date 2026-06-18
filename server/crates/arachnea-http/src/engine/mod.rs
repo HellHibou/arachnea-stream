@@ -154,15 +154,19 @@ pub trait HttpEngine: Send + Sync {
 /// Returns construction failures from the selected engine.
 pub(crate) async fn build_auto_smart_cloudflare_solver(
     config: &ArachneaHttpConfig,
+    ghostwire_proxy_url: Option<&str>,
 ) -> Result<Option<DynHttpEngine>, ArachneaHttpError> {
     #[cfg(feature = "ghostwire")]
     {
-        return build_ghostwire_engine(config).await.map(Some);
+        return build_ghostwire_engine(config, ghostwire_proxy_url)
+            .await
+            .map(Some);
     }
 
     #[cfg(not(feature = "ghostwire"))]
     {
         let _ = config;
+        let _ = ghostwire_proxy_url;
         Ok(None)
     }
 }
@@ -304,8 +308,12 @@ async fn build_explicit_tauri_cloudflare_engine(
 #[cfg(feature = "ghostwire")]
 pub(crate) async fn build_ghostwire_engine(
     config: &ArachneaHttpConfig,
+    ghostwire_proxy_url: Option<&str>,
 ) -> Result<DynHttpEngine, ArachneaHttpError> {
-    Ok(Arc::new(ghostwire::GhostwireEngine::new(config)?))
+    Ok(Arc::new(ghostwire::GhostwireEngine::new(
+        config,
+        ghostwire_proxy_url,
+    )?))
 }
 
 /// Builds a chaser-cf engine.

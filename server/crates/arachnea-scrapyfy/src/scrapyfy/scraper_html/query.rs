@@ -681,6 +681,10 @@ impl ScraperQuery for HtmlScraperQuery {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 }
 
 impl ScraperQuery for HtmlScraperSubQuery {
@@ -913,6 +917,10 @@ impl ScraperQuery for HtmlScraperSubQuery {
     ///
     /// A reference to this sub-query as `&dyn Any`, allowing downcasting.
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
 }

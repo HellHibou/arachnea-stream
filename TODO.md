@@ -38,7 +38,6 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 
 ## Server/HTTP
 
-- Ajouter la gestion des proxys pour chaque moteur HTTP. Préférer les connecteurs directs `arachnea-proxy` lorsqu'ils sont disponibles, tout en permettant toujours une configuration explicite de proxy réseau.
 - Décider si `arachnea-http` doit exposer une API `tower::Service` en plus du constructeur de requêtes fluide.
 - Évaluer une intégration future plus profonde avec `arachnea-proxy` pour le routage HTTP/SOCKS sans boucle locale lorsque les API des moteurs le permettent.
 - Ajouter des garde-fous optionnels d'usage responsable, comme de la limitation de débit, des délais entre requêtes, des reprises bornées, des vérifications de masquage des cookies et un support optionnel de `robots.txt` si le crate évolue vers du crawling.

@@ -3,6 +3,8 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
+#[cfg(feature = "arachnea-proxy")]
+use arachnea_proxy::connectors::ArachneaRquestLoopback;
 use bytes::Bytes;
 use encoding_rs::{Encoding, WINDOWS_1252};
 use http::{
@@ -16,7 +18,7 @@ use url::Url;
 
 use crate::{
     cloudflare::detect_cloudflare_block,
-    config::{ArachneaHttpConfig, CloudflareSolverKind, HttpRequestMode},
+    config::{ArachneaHttpConfig, CloudflareSolverKind, HttpProxyConfig, HttpRequestMode},
     cookies::{global_cookie_cache, SharedCookieCache},
     engine::{
         build_auto_smart_cloudflare_solver, build_browser_cloudflare_solver, rquest::RquestEngine,
@@ -60,6 +62,54 @@ fn global_cloudflare_user_agents() -> Arc<RwLock<HashMap<String, String>>> {
         .clone()
 }
 
+/// Prepared proxy runtime shared by engines that need live helper state.
+#[derive(Clone)]
+struct PreparedProxyRuntime {
+    #[cfg(feature = "arachnea-proxy")]
+    loopback_proxy: Option<Arc<ArachneaRquestLoopback>>,
+}
+
+impl PreparedProxyRuntime {
+    /// Prepares runtime state required by the configured proxy transport.
+    async fn new(config: &ArachneaHttpConfig) -> Result<Self, ArachneaHttpError> {
+        #[cfg(feature = "arachnea-proxy")]
+        {
+            let loopback_proxy = match &config.proxy {
+                HttpProxyConfig::Arachnea(core) => Some(Arc::new(
+                    ArachneaRquestLoopback::start(core.clone())
+                        .await
+                        .map_err(|err| {
+                            ArachneaHttpError::Network(format!(
+                                "failed to start arachnea-proxy loopback helper: {err}"
+                            ))
+                        })?,
+                )),
+                _ => None,
+            };
+            return Ok(Self { loopback_proxy });
+        }
+
+        #[cfg(not(feature = "arachnea-proxy"))]
+        {
+            let _ = config;
+            Ok(Self {})
+        }
+    }
+
+    /// Returns the proxy URL that built-in engines should use, when one is available.
+    fn proxy_url<'a>(&'a self, config: &'a ArachneaHttpConfig) -> Option<&'a str> {
+        match &config.proxy {
+            HttpProxyConfig::Network(url) => Some(url.as_str()),
+            #[cfg(feature = "arachnea-proxy")]
+            HttpProxyConfig::Arachnea(_) => self
+                .loopback_proxy
+                .as_deref()
+                .map(|loopback| loopback.proxy_url()),
+            HttpProxyConfig::Disabled => None,
+        }
+    }
+}
+
 /// High-level outbound HTTP client facade.
 #[derive(Clone)]
 pub struct ArachneaHttpClient {
@@ -75,6 +125,8 @@ pub struct ArachneaHttpClient {
     smart_cloudflare_engine: Option<DynHttpEngine>,
     /// Optional browser-backed Cloudflare challenge solver engine.
     browser_cloudflare_engine: Option<DynHttpEngine>,
+    /// Prepared helper state used by engines that need a live proxy runtime.
+    _proxy_runtime: Arc<PreparedProxyRuntime>,
     /// User-agent observed by the solver for each refreshed origin.
     cloudflare_user_agents: Arc<RwLock<HashMap<String, String>>>,
 }
@@ -140,13 +192,18 @@ impl ArachneaHttpClient {
     ///
     /// Returns engine construction errors.
     pub async fn new(config: ArachneaHttpConfig) -> Result<Self, ArachneaHttpError> {
+        let proxy_runtime = Arc::new(PreparedProxyRuntime::new(&config).await?);
         let direct_engine = config.engine.direct_engine();
         let rquest = if direct_engine.is_some() {
             None
         } else {
-            Some(RquestEngine::new(&config)?)
+            Some(RquestEngine::new(
+                &config,
+                proxy_runtime.proxy_url(&config),
+            )?)
         };
-        let smart_cloudflare_engine = Self::build_smart_cloudflare_engine(&config).await?;
+        let smart_cloudflare_engine =
+            Self::build_smart_cloudflare_engine(&config, proxy_runtime.as_ref()).await?;
         let browser_cloudflare_engine =
             build_browser_cloudflare_solver(&config, &config.cloudflare_browser_solver).await?;
         Ok(Self {
@@ -156,6 +213,7 @@ impl ArachneaHttpClient {
             direct_engine,
             smart_cloudflare_engine,
             browser_cloudflare_engine,
+            _proxy_runtime: proxy_runtime,
             cloudflare_user_agents: global_cloudflare_user_agents(),
         })
     }
@@ -175,11 +233,14 @@ impl ArachneaHttpClient {
     /// Returns engine construction or disabled feature errors.
     async fn build_smart_cloudflare_engine(
         config: &ArachneaHttpConfig,
+        proxy_runtime: &PreparedProxyRuntime,
     ) -> Result<Option<DynHttpEngine>, ArachneaHttpError> {
         match &config.cloudflare_solver {
             CloudflareSolverKind::Disabled => Ok(None),
             CloudflareSolverKind::Engine(engine) => Ok(Some(engine.clone())),
-            CloudflareSolverKind::Auto => build_auto_smart_cloudflare_solver(config).await,
+            CloudflareSolverKind::Auto => {
+                build_auto_smart_cloudflare_solver(config, proxy_runtime.proxy_url(config)).await
+            }
         }
     }
 
@@ -841,7 +902,9 @@ impl ArachneaHttpClient {
         let response = if let Some(rquest) = self.rquest.as_ref() {
             rquest.send(request).await?
         } else {
-            RquestEngine::new(&self.config)?.send(request).await?
+            RquestEngine::new(&self.config, self._proxy_runtime.proxy_url(&self.config))?
+                .send(request)
+                .await?
         };
         self.store_response_cookies(&response.url, &response.headers)
             .await?;

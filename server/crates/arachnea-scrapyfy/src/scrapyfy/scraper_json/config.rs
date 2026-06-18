@@ -17,8 +17,8 @@ use std::collections::HashMap;
 
 use crate::scrapyfy::query_helpers;
 use crate::scrapyfy::scraper::config::{
-    default_select_mode, ScraperQueryCommon, ScraperRequestHeader,
-    ScraperRequestHeaderRaw, SubQueryCommon,
+    default_select_mode, ScraperQueryCommon, ScraperRequestHeader, ScraperRequestHeaderRaw,
+    SubQueryCommon,
 };
 use crate::scrapyfy::scraper_html::entry::{
     HtmlScraperEntry, HtmlScraperEntryRaw, HtmlScraperSelectMode,

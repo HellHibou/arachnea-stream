@@ -37,15 +37,21 @@ impl GhostwireEngine {
     /// # Errors
     ///
     /// Returns `GhostwireFailure` when Ghostwire cannot be constructed.
-    pub fn new(config: &ArachneaHttpConfig) -> Result<Self, ArachneaHttpError> {
+    pub fn new(
+        config: &ArachneaHttpConfig,
+        proxy_url: Option<&str>,
+    ) -> Result<Self, ArachneaHttpError> {
         let user_agent = config.user_agent_profile.user_agent().to_string();
-        let client = Ghostwire::builder()
-            .user_agent_opts(UserAgentOptions {
-                custom: Some(user_agent.clone()),
-                desktop: true,
-                mobile: false,
-                ..Default::default()
-            })
+        let mut builder = Ghostwire::builder().user_agent_opts(UserAgentOptions {
+            custom: Some(user_agent.clone()),
+            desktop: true,
+            mobile: false,
+            ..Default::default()
+        });
+        if let Some(proxy_url) = proxy_url {
+            builder = builder.add_proxy(proxy_url);
+        }
+        let client = builder
             .build()
             .map_err(|err| ArachneaHttpError::GhostwireFailure(err.to_string()))?;
         Ok(Self {

@@ -56,3 +56,13 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ### Fixed
 - **`chaser-cf` custom request headers**: browser-backed page fetches now propagate per-request headers to Chrome before navigation, and `Referer` now uses Chrome's native navigation referrer field instead of an injected extra header. The Cloudflare refresh path also reuses the blocked request headers, so solver refreshes keep request-specific headers such as `Referer`. The explicit `chaser-cf` feature build also no longer fails due to missing `custom_headers` arguments.
 - **`chaser-cf` referer observability**: when a navigation expects a `Referer`, the engine now logs the `observed_referer` and Chrome referrer policy reported by the outbound CDP request event, making it easier to distinguish a missing header from an upstream 403.
+
+## Unreleased — HTTP proxy transport configuration
+
+### Added
+- **Built-in HTTP engine proxy configuration**: `ArachneaHttpConfig` now exposes `HttpProxyConfig`, `proxy_url(...)`, and, with the `arachnea-proxy` feature enabled, `proxy_core(...)` so built-in HTTP engines can route traffic through an explicit network proxy or an in-process `arachnea-proxy` core.
+
+### Changed
+- **Built-in engine proxy handoff**: `rquest` and Ghostwire now accept the configured proxy transport from `ArachneaHttpConfig`; when `proxy_core(...)` is used, `arachnea-http` starts a managed `arachnea-proxy` loopback helper because the upstream client APIs used here still expect proxy URLs.
+- **ScraperManager default proxy bootstrap**: `StreamScraper` now enables the shared scraper HTTP proxy by default, so lazily created `scrapyfy::HttpClient` instances inherit the in-process proxy transport without requiring per-service wiring.
+- **Documentation and tracking**: `arachnea-http` README now documents proxy transport selection, and the completed HTTP proxy task has been removed from the root `TODO.md`.

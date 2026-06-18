@@ -33,14 +33,26 @@ fn default_enabled() -> bool {
 /// Aggregates the same query across several configured sources.
 pub struct ScraperAgregator {
     queries_collection: Vec<ScraperQueryCollection>,
+    proxy_handle: SharedProxyConfigHandle,
 }
 
 impl ScraperAgregator {
     /// Creates an empty aggregator with no loaded query collections.
     pub fn new() -> Self {
+        Self::new_with_proxy_handle(SharedProxyConfigHandle::new())
+    }
+
+    /// Creates an empty aggregator bound to one shared proxy handle.
+    pub fn new_with_proxy_handle(proxy_handle: SharedProxyConfigHandle) -> Self {
         ScraperAgregator {
             queries_collection: Vec::new(),
+            proxy_handle,
         }
+    }
+
+    /// Returns the shared proxy handle used by this aggregator and its queries.
+    pub fn proxy_handle(&self) -> SharedProxyConfigHandle {
+        self.proxy_handle.clone()
     }
 
     /// Loads every configured source from a config file using the provided parser.
@@ -96,12 +108,13 @@ impl ScraperAgregator {
                 raw.parameters = param_map.into_values().collect();
             }
 
-            let collection: ScraperQueryCollection = raw.try_into().with_context(|| {
+            let mut collection: ScraperQueryCollection = raw.try_into().with_context(|| {
                 format!(
                     "Failed to convert source config to collection: {}",
                     source_path.display()
                 )
             })?;
+            collection.set_proxy_handle(self.proxy_handle.clone());
 
             self.queries_collection.push(collection);
         }
@@ -130,10 +143,10 @@ impl ScraperAgregator {
         E: std::error::Error + Send + Sync + 'static,
     {
         for path in paths {
-            self.queries_collection
-                .push(ScraperQueryCollection::from_file_with(path, |reader| {
-                    parse(reader)
-                })?);
+            let mut collection =
+                ScraperQueryCollection::from_file_with(path, |reader| parse(reader))?;
+            collection.set_proxy_handle(self.proxy_handle.clone());
+            self.queries_collection.push(collection);
         }
 
         Ok(self)

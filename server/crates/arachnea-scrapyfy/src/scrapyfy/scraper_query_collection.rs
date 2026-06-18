@@ -7,6 +7,8 @@ use std::path::Path;
 
 use super::*;
 use crate::scrapyfy::scraper::query_trait::ScraperQuery;
+use crate::scrapyfy::scraper_html::query::HtmlScraperSubQuery;
+use crate::scrapyfy::scraper_json::query::JsonScraperSubQuery;
 
 /// One collection-level default parameter available to every query.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -223,6 +225,19 @@ impl ScraperQueryDefinition {
             None => rows,
         })
     }
+
+    /// Rebinds all embedded HTTP clients to the provided shared proxy handle.
+    pub fn set_proxy_handle(&mut self, proxy_handle: SharedProxyConfigHandle) {
+        match self {
+            ScraperQueryDefinition::Html(query) => {
+                bind_html_query_proxy_handle(query, &proxy_handle)
+            }
+            ScraperQueryDefinition::Json(query) => {
+                bind_json_query_proxy_handle(query, &proxy_handle)
+            }
+            ScraperQueryDefinition::Static(query) => query.set_proxy_handle(proxy_handle),
+        }
+    }
 }
 
 /// Flattens a group field's items into top-level entries when `result_item_field` is set.
@@ -421,6 +436,13 @@ impl ScraperQueryCollection {
         self
     }
 
+    /// Rebinds all query HTTP clients to the provided shared proxy handle.
+    pub fn set_proxy_handle(&mut self, proxy_handle: SharedProxyConfigHandle) {
+        for query in self.queries.values_mut() {
+            query.set_proxy_handle(proxy_handle.clone());
+        }
+    }
+
     /// Executes one named query within this collection.
     ///
     /// # Arguments
@@ -589,6 +611,76 @@ impl ScraperQueryCollection {
         params
             .entry("query_separator".to_string())
             .or_insert_with(|| separator.to_string());
+    }
+}
+
+fn bind_html_query_proxy_handle(
+    query: &mut HtmlScraperQuery,
+    proxy_handle: &SharedProxyConfigHandle,
+) {
+    query.http_client = HttpClient::with_http_config_and_proxy_handle(
+        query.http_config.clone(),
+        proxy_handle.clone(),
+    );
+
+    for sub_query in &mut query.sub_queries {
+        if let Some(html_sub_query) = sub_query.as_any_mut().downcast_mut::<HtmlScraperSubQuery>() {
+            bind_html_sub_query_proxy_handle(html_sub_query, proxy_handle);
+        } else if let Some(json_sub_query) =
+            sub_query.as_any_mut().downcast_mut::<JsonScraperSubQuery>()
+        {
+            bind_json_sub_query_proxy_handle(json_sub_query, proxy_handle);
+        }
+    }
+}
+
+fn bind_html_sub_query_proxy_handle(
+    query: &mut HtmlScraperSubQuery,
+    proxy_handle: &SharedProxyConfigHandle,
+) {
+    query.http_client = HttpClient::with_http_config_and_proxy_handle(
+        query.http_config.clone(),
+        proxy_handle.clone(),
+    );
+}
+
+fn bind_json_query_proxy_handle(
+    query: &mut JsonScraperQuery,
+    proxy_handle: &SharedProxyConfigHandle,
+) {
+    query.http_client = HttpClient::with_http_config_and_proxy_handle(
+        query.http_config.clone(),
+        proxy_handle.clone(),
+    );
+
+    for sub_query in &mut query.sub_queries {
+        if let Some(json_sub_query) = sub_query.as_any_mut().downcast_mut::<JsonScraperSubQuery>() {
+            bind_json_sub_query_proxy_handle(json_sub_query, proxy_handle);
+        } else if let Some(html_sub_query) =
+            sub_query.as_any_mut().downcast_mut::<HtmlScraperSubQuery>()
+        {
+            bind_html_sub_query_proxy_handle(html_sub_query, proxy_handle);
+        }
+    }
+}
+
+fn bind_json_sub_query_proxy_handle(
+    query: &mut JsonScraperSubQuery,
+    proxy_handle: &SharedProxyConfigHandle,
+) {
+    query.http_client = HttpClient::with_http_config_and_proxy_handle(
+        query.http_config.clone(),
+        proxy_handle.clone(),
+    );
+
+    for sub_query in &mut query.sub_queries {
+        if let Some(json_sub_query) = sub_query.as_any_mut().downcast_mut::<JsonScraperSubQuery>() {
+            bind_json_sub_query_proxy_handle(json_sub_query, proxy_handle);
+        } else if let Some(html_sub_query) =
+            sub_query.as_any_mut().downcast_mut::<HtmlScraperSubQuery>()
+        {
+            bind_html_sub_query_proxy_handle(html_sub_query, proxy_handle);
+        }
     }
 }
 

@@ -1,16 +1,18 @@
 use anyhow::{Context, Result};
 use arachnea_http::{
     global_cookie_cache, header_map_from_strings, ArachneaHttpClient, ArachneaHttpConfig,
-    ArachneaResponse, BrowserProfile, CookieEntry, HttpRequestMode,
+    ArachneaResponse, BrowserProfile, CookieEntry, HttpProxyConfig, HttpRequestMode,
 };
+#[cfg(feature = "arachnea-proxy")]
+use arachnea_proxy::core::{ArachneaProxyCore, UsageProfile};
 use http::Method;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::Duration;
-use tokio::sync::OnceCell;
+use tokio::sync::RwLock as AsyncRwLock;
 use tracing::trace;
 use url::Url;
 
@@ -24,6 +26,63 @@ static HTTP_CLIENT_ROUTER: OnceLock<Mutex<Option<RouterFn>>> = OnceLock::new();
 
 /// Compiled regex used to extract the `__NEXT_DATA__` JSON payload from HTML pages.
 static NEXT_DATA_REGEX: OnceLock<Regex> = OnceLock::new();
+
+/// Mutable proxy transport shared by one scraper instance and its derived HTTP clients.
+#[derive(Clone, Default)]
+pub struct SharedProxyConfigHandle {
+    inner: Arc<RwLock<ProxyConfigState>>,
+}
+
+#[derive(Clone, Default)]
+struct ProxyConfigState {
+    version: u64,
+    proxy: Option<HttpProxyConfig>,
+}
+
+#[derive(Clone)]
+struct CachedHttpClient {
+    version: u64,
+    client: Arc<ArachneaHttpClient>,
+}
+
+impl SharedProxyConfigHandle {
+    /// Creates a handle without an active proxy override.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Replaces the proxy configuration and increments the version.
+    pub fn set_proxy(&self, proxy: HttpProxyConfig) {
+        if let Ok(mut guard) = self.inner.write() {
+            guard.version = guard.version.saturating_add(1);
+            guard.proxy = Some(proxy);
+        }
+    }
+
+    /// Removes the proxy override and increments the version.
+    pub fn clear_proxy(&self) {
+        if let Ok(mut guard) = self.inner.write() {
+            guard.version = guard.version.saturating_add(1);
+            guard.proxy = None;
+        }
+    }
+
+    /// Installs the default in-process system relay proxy for this handle.
+    #[cfg(feature = "arachnea-proxy")]
+    pub fn enable_system_proxy(&self) -> Result<()> {
+        let proxy_core = ArachneaProxyCore::new(UsageProfile::SystemRelay.config())?;
+        self.set_proxy(HttpProxyConfig::Arachnea(proxy_core));
+        Ok(())
+    }
+
+    /// Returns the current proxy configuration snapshot and version.
+    fn snapshot(&self) -> ProxyConfigState {
+        self.inner
+            .read()
+            .map(|guard| guard.clone())
+            .unwrap_or_default()
+    }
+}
 
 /// YAML-selectable request mode for scraper HTTP calls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -174,7 +233,8 @@ pub fn remove_router() {
 #[derive(Clone)]
 pub struct HttpClient {
     http_config: ScraperHttpConfig,
-    client: Arc<OnceCell<ArachneaHttpClient>>,
+    proxy_handle: SharedProxyConfigHandle,
+    client: Arc<AsyncRwLock<Option<CachedHttpClient>>>,
 }
 
 impl HttpClient {
@@ -191,10 +251,24 @@ impl HttpClient {
 
     /// Builds a client with explicit scraper HTTP configuration.
     pub fn with_http_config(http_config: ScraperHttpConfig) -> Self {
+        Self::with_http_config_and_proxy_handle(http_config, SharedProxyConfigHandle::new())
+    }
+
+    /// Builds a client with explicit scraper HTTP configuration and a shared proxy handle.
+    pub fn with_http_config_and_proxy_handle(
+        http_config: ScraperHttpConfig,
+        proxy_handle: SharedProxyConfigHandle,
+    ) -> Self {
         Self {
             http_config,
-            client: Arc::new(OnceCell::new()),
+            proxy_handle,
+            client: Arc::new(AsyncRwLock::new(None)),
         }
+    }
+
+    /// Returns the shared mutable proxy handle used by this client family.
+    pub fn proxy_handle(&self) -> SharedProxyConfigHandle {
+        self.proxy_handle.clone()
     }
 
     /// Returns a clone using a different HTTP configuration.
@@ -203,7 +277,7 @@ impl HttpClient {
             return self.clone();
         }
 
-        Self::with_http_config(http_config)
+        Self::with_http_config_and_proxy_handle(http_config, self.proxy_handle.clone())
     }
 
     /// Stores simple name/value cookies for a URL in the shared HTTP cache.
@@ -245,19 +319,35 @@ impl HttpClient {
     }
 
     /// Lazily initializes and returns the underlying [`ArachneaHttpClient`].
-    async fn http_client(&self) -> Result<&ArachneaHttpClient> {
-        self.client
-            .get_or_try_init(|| async {
-                let config = ArachneaHttpConfig::builder()
-                    .default_request_mode(self.http_config.request_mode())
-                    .user_agent_profile(self.http_config.browser_profile())
-                    .request_timeout(Self::REQUEST_TIMEOUT)
-                    .max_redirects(self.http_config.max_redirects)
-                    .build()?;
-                ArachneaHttpClient::new(config).await
-            })
-            .await
-            .map_err(anyhow::Error::from)
+    async fn http_client(&self) -> Result<Arc<ArachneaHttpClient>> {
+        let proxy_state = self.proxy_handle.snapshot();
+
+        {
+            let guard = self.client.read().await;
+            if let Some(cached) = guard.as_ref() {
+                if cached.version == proxy_state.version {
+                    return Ok(cached.client.clone());
+                }
+            }
+        }
+
+        let mut builder = ArachneaHttpConfig::builder()
+            .default_request_mode(self.http_config.request_mode())
+            .user_agent_profile(self.http_config.browser_profile())
+            .request_timeout(Self::REQUEST_TIMEOUT)
+            .max_redirects(self.http_config.max_redirects);
+        if let Some(proxy) = proxy_state.proxy {
+            builder = builder.proxy(proxy);
+        }
+        let config = builder.build()?;
+        let client = Arc::new(ArachneaHttpClient::new(config).await?);
+
+        let mut guard = self.client.write().await;
+        *guard = Some(CachedHttpClient {
+            version: proxy_state.version,
+            client: client.clone(),
+        });
+        Ok(client)
     }
 
     /// Fetches the raw response body for one request.

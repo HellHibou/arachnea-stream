@@ -119,6 +119,7 @@ struct SourceParamsRequestEntry {
 pub struct StreamScraper {
     scraper_agregator: ScraperAgregator,
     credentials_store: Arc<dyn CredentialsStore>,
+    proxy_handle: SharedProxyConfigHandle,
 }
 
 impl StreamScraper {
@@ -141,10 +142,34 @@ impl StreamScraper {
     /// # Returns
     /// A configured scraper facade.
     pub fn with_credentials_store(credentials_store: Arc<dyn CredentialsStore>) -> Self {
-        StreamScraper {
-            scraper_agregator: ScraperAgregator::new(),
-            credentials_store,
+        let proxy_handle = SharedProxyConfigHandle::new();
+        if let Err(error) = proxy_handle.enable_system_proxy() {
+            tracing::warn!(
+                error = %error,
+                "failed to enable default scraper HTTP proxy; continuing without proxy override"
+            );
         }
+
+        StreamScraper {
+            scraper_agregator: ScraperAgregator::new_with_proxy_handle(proxy_handle.clone()),
+            credentials_store,
+            proxy_handle,
+        }
+    }
+
+    /// Returns the mutable proxy handle shared by this scraper instance.
+    pub fn proxy_handle(&self) -> SharedProxyConfigHandle {
+        self.proxy_handle.clone()
+    }
+
+    /// Replaces the proxy configuration used by this scraper instance.
+    pub fn set_proxy(&self, proxy: HttpProxyConfig) {
+        self.proxy_handle.set_proxy(proxy);
+    }
+
+    /// Disables the proxy override used by this scraper instance.
+    pub fn clear_proxy(&self) {
+        self.proxy_handle.clear_proxy();
     }
 
     /// Executes the `search` query using URL-encoded terms.

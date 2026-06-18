@@ -19,7 +19,7 @@ pub use client::{
 pub use cloudflare::CloudflareCookieState;
 pub use config::{
     ArachneaHttpConfig, ArachneaHttpConfigBuilder, BrowserProfile, CloudflareBrowserSolverKind,
-    CloudflareMode, CloudflareSolverKind, HttpEngineKind, HttpRequestMode,
+    CloudflareMode, CloudflareSolverKind, HttpEngineKind, HttpProxyConfig, HttpRequestMode,
 };
 pub use cookies::{global_cookie_cache, CookieEntry, SharedCookieCache};
 pub use engine::{DynHttpEngine, EngineRequest, EngineResponse, HttpEngine};

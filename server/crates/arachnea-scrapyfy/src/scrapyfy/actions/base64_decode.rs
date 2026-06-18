@@ -22,4 +22,3 @@ pub(super) fn apply(texts: Vec<String>) -> Vec<String> {
         })
         .collect()
 }
-

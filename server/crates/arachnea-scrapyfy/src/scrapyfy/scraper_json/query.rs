@@ -267,7 +267,6 @@ impl JsonScraperSubQuery {
 
         Ok(())
     }
-
 }
 
 // ---------------------------------------------------------------------------
@@ -633,6 +632,10 @@ impl ScraperQuery for JsonScraperQuery {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 }
 
 impl ScraperQuery for JsonScraperSubQuery {
@@ -763,6 +766,10 @@ impl ScraperQuery for JsonScraperSubQuery {
     }
 
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
 }

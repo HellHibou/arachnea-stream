@@ -1,9 +1,67 @@
 use std::{fmt, sync::Arc, time::Duration};
 
+#[cfg(feature = "arachnea-proxy")]
+use arachnea_proxy::core::ArachneaProxyCore;
+use url::Url;
+
 use crate::{
     engine::{DynHttpEngine, HttpEngine},
     error::ArachneaHttpError,
 };
+
+/// Configures how outbound HTTP engines reach the network.
+#[derive(Clone)]
+pub enum HttpProxyConfig {
+    /// Do not use any proxy or custom transport override.
+    Disabled,
+    /// Route requests through an explicit proxy URL such as `http://127.0.0.1:8080`
+    /// or `socks5h://127.0.0.1:9050`.
+    Network(String),
+    /// Route requests through an in-process `arachnea-proxy` core when the
+    /// selected engine supports direct connector integration.
+    #[cfg(feature = "arachnea-proxy")]
+    Arachnea(ArachneaProxyCore),
+}
+
+impl HttpProxyConfig {
+    /// Returns a normalized proxy URL when this configuration uses a network proxy.
+    ///
+    /// # Returns
+    ///
+    /// The normalized proxy URL, or `None` when another transport mode is selected.
+    pub fn network_url(&self) -> Option<&str> {
+        match self {
+            Self::Network(url) => Some(url.as_str()),
+            #[cfg(feature = "arachnea-proxy")]
+            Self::Arachnea(_) | Self::Disabled => None,
+            #[cfg(not(feature = "arachnea-proxy"))]
+            Self::Disabled => None,
+        }
+    }
+}
+
+impl Default for HttpProxyConfig {
+    /// Builds the default proxy configuration.
+    ///
+    /// # Returns
+    ///
+    /// A configuration with proxy support disabled.
+    fn default() -> Self {
+        Self::Disabled
+    }
+}
+
+impl fmt::Debug for HttpProxyConfig {
+    /// Formats the proxy selection without exposing connector internals.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Disabled => f.write_str("Disabled"),
+            Self::Network(url) => f.debug_tuple("Network").field(url).finish(),
+            #[cfg(feature = "arachnea-proxy")]
+            Self::Arachnea(_) => f.write_str("Arachnea"),
+        }
+    }
+}
 
 /// Selects which HTTP engine executes outbound requests.
 #[derive(Clone)]
@@ -394,6 +452,8 @@ pub struct ArachneaHttpConfig {
     pub cloudflare_browser_solver: CloudflareBrowserSolverKind,
     /// Browser profile used for outbound headers and engine construction.
     pub user_agent_profile: BrowserProfile,
+    /// Transport override applied to engines that support proxy configuration.
+    pub proxy: HttpProxyConfig,
     /// Margin before cookie expiry where Cloudflare cookies are proactively refreshed.
     pub cookie_refresh_margin: Duration,
     /// Timeout applied to outbound HTTP requests.
@@ -435,6 +495,7 @@ impl Default for ArachneaHttpConfig {
             cloudflare_solver: CloudflareSolverKind::Auto,
             cloudflare_browser_solver: CloudflareBrowserSolverKind::Auto,
             user_agent_profile: BrowserProfile::default(),
+            proxy: HttpProxyConfig::Disabled,
             cookie_refresh_margin: Duration::from_secs(300),
             request_timeout: Duration::from_secs(30),
             max_redirects: None,
@@ -598,6 +659,53 @@ impl ArachneaHttpConfigBuilder {
         self
     }
 
+    /// Sets the outbound proxy or transport override.
+    ///
+    /// # Parameters
+    ///
+    /// - `proxy`: Proxy configuration selected by the caller.
+    ///
+    /// # Returns
+    ///
+    /// The updated builder.
+    pub fn proxy(mut self, proxy: HttpProxyConfig) -> Self {
+        self.config.proxy = proxy;
+        self
+    }
+
+    /// Routes requests through an explicit network proxy URL.
+    ///
+    /// # Parameters
+    ///
+    /// - `url`: Proxy URL, optionally without a scheme. Bare authorities default
+    ///   to `http://`.
+    ///
+    /// # Returns
+    ///
+    /// The updated builder.
+    pub fn proxy_url(mut self, url: impl Into<String>) -> Self {
+        self.config.proxy = HttpProxyConfig::Network(normalize_proxy_url(url.into()));
+        self
+    }
+
+    /// Routes requests through an in-process `arachnea-proxy` core.
+    ///
+    /// Engines that do not expose a direct connector API may fall back to a
+    /// loopback proxy compatibility path.
+    ///
+    /// # Parameters
+    ///
+    /// - `core`: Proxy core reused for outbound routing decisions.
+    ///
+    /// # Returns
+    ///
+    /// The updated builder.
+    #[cfg(feature = "arachnea-proxy")]
+    pub fn proxy_core(mut self, core: ArachneaProxyCore) -> Self {
+        self.config.proxy = HttpProxyConfig::Arachnea(core);
+        self
+    }
+
     /// Sets the proactive Cloudflare cookie refresh margin.
     ///
     /// # Parameters
@@ -716,8 +824,42 @@ impl ArachneaHttpConfigBuilder {
                 "CloudflareSmart requires a smart Cloudflare solver".to_string(),
             ));
         }
+        validate_proxy(&self.config.proxy)?;
         validate_browser_solver(&self.config)?;
         Ok(self.config)
+    }
+}
+
+/// Validates proxy settings that can be checked from the static configuration.
+///
+/// # Parameters
+///
+/// - `proxy`: Proxy configuration being finalized.
+///
+/// # Errors
+///
+/// Returns `InvalidConfiguration` when the proxy URL is malformed.
+fn validate_proxy(proxy: &HttpProxyConfig) -> Result<(), ArachneaHttpError> {
+    let Some(url) = proxy.network_url() else {
+        return Ok(());
+    };
+    let parsed = Url::parse(url).map_err(|err| {
+        ArachneaHttpError::InvalidConfiguration(format!("invalid proxy URL: {err}"))
+    })?;
+    if parsed.host_str().is_none() {
+        return Err(ArachneaHttpError::InvalidConfiguration(
+            "proxy URL must contain a host".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Normalizes proxy input so callers may pass `host:port` or a fully qualified URL.
+fn normalize_proxy_url(url: String) -> String {
+    if url.contains("://") {
+        url
+    } else {
+        format!("http://{url}")
     }
 }
 

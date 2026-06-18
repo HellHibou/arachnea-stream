@@ -240,4 +240,7 @@ pub trait ScraperQuery: Send + Sync {
     /// its legacy `execute` path (which keeps the existing semantics
     /// around `context_pointer` / `context_entries` / `row_filters`).
     fn as_any(&self) -> &dyn Any;
+
+    /// Returns a mutable reference to the concrete type as `&mut dyn Any`.
+    fn as_any_mut(&mut self) -> &mut dyn Any;
 }

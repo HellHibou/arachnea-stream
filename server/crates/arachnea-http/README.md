@@ -23,6 +23,7 @@ This README is the design and usage home for the HTTP crate. Remaining work is t
 - Common HTTP methods, custom methods, request options, and typed responses.
 - Shared in-memory cookie cache with Cloudflare cookie-state helpers.
 - Configurable engine selection through `HttpEngineKind`.
+- Configurable outbound proxy routing through `HttpProxyConfig`.
 - Configurable default request behavior through `HttpRequestMode`.
 - Facade-managed redirects with cookies stored after every response in the chain.
 - `BrowserProfile::Custom` for caller-provided user-agent values.
@@ -53,6 +54,33 @@ When chaser-cf is used to fetch page content directly, it forwards per-request H
 When a `Referer` is expected, chaser-cf also emits one runtime log line with the `observed_referer` reported by Chrome for the outbound navigation request.
 If the browser solve succeeds but the `rquest` cookie handoff is still blocked, the client falls back to the browser solver response for engines that can return page content.
 Callers can force the browser solver with `ArachneaHttpConfig::builder().cloudflare_browser_solver(...)` or provide an engine instance with `cloudflare_browser_solver_instance(...)`.
+Injected custom engines keep full control over their own transport setup; the facade-level proxy configuration applies to built-in engines only.
+
+## Proxy Configuration
+
+`ArachneaHttpConfig` can now route built-in engines through either an explicit network proxy URL or, when the `arachnea-proxy` feature is enabled, an in-process `arachnea-proxy` core:
+
+```rust
+use arachnea_http::ArachneaHttpConfig;
+
+let config = ArachneaHttpConfig::builder()
+    .proxy_url("socks5h://127.0.0.1:9050")
+    .build()?;
+```
+
+With `--features arachnea-proxy`, the built-in engines can also reuse an in-process `arachnea-proxy` core:
+
+```rust
+use arachnea_http::ArachneaHttpConfig;
+use arachnea_proxy::core::{ArachneaProxyCore, UsageProfile};
+
+let proxy_core = ArachneaProxyCore::new(UsageProfile::SystemRelay.config())?;
+let config = ArachneaHttpConfig::builder()
+    .proxy_core(proxy_core)
+    .build()?;
+```
+
+Current upstream client APIs still expose proxy URLs rather than a stable public transport replacement hook, so the built-in `rquest` and Ghostwire engines both use the managed loopback compatibility helper when `proxy_core(...)` is selected.
 
 Use `.mode(...)` on a request builder to override the configured default for one call:
 
@@ -85,6 +113,7 @@ let response = client
 
 | Feature | Purpose |
 | --- | --- |
+| `arachnea-proxy` | Enables `arachnea-proxy` integration through a managed loopback compatibility helper shared by built-in engines. |
 | `ghostwire` | Enables the Ghostwire engine and is active by default. |
 | `chaser-cf` | Enables the chaser-cf Cloudflare solver integration. |
 | `tauri-cloudflare-solver` | Enables the Tauri/Wry-based solver path. |
@@ -94,7 +123,7 @@ Use `--no-default-features` to build the `rquest`-only client.
 
 ## Known Gaps
 
-The durable remaining work from the retired specification is tracked in the root `TODO.md`. Important HTTP gaps include engine proxy configuration, direct `arachnea-proxy` connector integration, Wry/Tauri and web-server challenge flows, dependency API verification, a possible `tower::Service` API, deeper browser-driven captcha flows, and expanded cookie/Cloudflare tests.
+The durable remaining work from the retired specification is tracked in the root `TODO.md`. Important HTTP gaps include deeper no-loopback engine integrations where upstream APIs allow it, Wry/Tauri and web-server challenge flows, dependency API verification, a possible `tower::Service` API, deeper browser-driven captcha flows, and expanded cookie/Cloudflare tests.
 
 ## Common Commands
 

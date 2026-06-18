@@ -7,8 +7,11 @@ pub use scraper_data_node::ScraperDataNode;
 
 /// HTTP client helpers used by query executors and tests.
 pub mod http_client;
+pub use arachnea_http::HttpProxyConfig;
 pub use http_client::HttpClient;
-pub use http_client::{ScraperHttpConfig, ScraperHttpMode, ScraperHttpUserAgentProfile};
+pub use http_client::{
+    ScraperHttpConfig, ScraperHttpMode, ScraperHttpUserAgentProfile, SharedProxyConfigHandle,
+};
 
 /// Text extraction and normalization actions.
 pub mod actions;

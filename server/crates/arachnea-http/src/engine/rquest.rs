@@ -27,11 +27,22 @@ impl RquestEngine {
     /// # Errors
     ///
     /// Returns `Network` when the underlying client cannot be built.
-    pub(crate) fn new(config: &ArachneaHttpConfig) -> Result<Self, ArachneaHttpError> {
-        let client = rquest::Client::builder()
+    pub(crate) fn new(
+        config: &ArachneaHttpConfig,
+        proxy_url: Option<&str>,
+    ) -> Result<Self, ArachneaHttpError> {
+        let mut builder = rquest::Client::builder()
             .timeout(config.request_timeout)
             .user_agent(config.user_agent_profile.user_agent())
-            .redirect(rquest::redirect::Policy::none())
+            .redirect(rquest::redirect::Policy::none());
+
+        if let Some(proxy_url) = proxy_url {
+            let proxy = rquest::Proxy::all(proxy_url)
+                .map_err(|err| ArachneaHttpError::InvalidConfiguration(err.to_string()))?;
+            builder = builder.proxy(proxy);
+        }
+
+        let client = builder
             .build()
             .map_err(|err| ArachneaHttpError::Network(err.to_string()))?;
         Ok(Self { client })

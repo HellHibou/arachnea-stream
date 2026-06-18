@@ -290,9 +290,9 @@ async fn execute_query_internal(
             // b. Execute entry-level sub-queries (recursion).
             execute_entry_sub_queries(query, &mut item, &request_url, context).await?;
 
-                // c. Execute sibling sub-queries (recursion via Box::pin).
-                for sibling in query.sub_queries() {
-                    // Check if this sibling sub-query has a context_pointer, which
+            // c. Execute sibling sub-queries (recursion via Box::pin).
+            for sibling in query.sub_queries() {
+                // Check if this sibling sub-query has a context_pointer, which
                 // means it needs to iterate over context rows from the parent
                 // row, apply filters, and resolve request URLs per context.
                 if let Some(cp) = sibling.context_pointer() {
@@ -346,12 +346,12 @@ async fn execute_query_internal(
                                 let mut ctx_results = Vec::new();
 
                                 if sibling.request_pointer().is_some() {
-                                        let sub_context = QueryContext {
-                                            params: context.params,
-                                            request_url: &request_url,
-                                            response_body: context.response_body,
-                                            http_client: context.http_client,
-                                            fields_filters: None,
+                                    let sub_context = QueryContext {
+                                        params: context.params,
+                                        request_url: &request_url,
+                                        response_body: context.response_body,
+                                        http_client: context.http_client,
+                                        fields_filters: None,
                                         parent_response: Some(ctx),
                                     };
                                     let sub_items =
@@ -391,13 +391,13 @@ async fn execute_query_internal(
                                                 &url,
                                                 Some(ctx),
                                             );
-                                                let body = resolve_request_body(
-                                                    sibling.request_body_pointer(),
-                                                    sibling.request_body_select(),
-                                                    sibling.request_body_actions(),
-                                                    context.params,
-                                                    &url,
-                                                    Some(ctx),
+                                            let body = resolve_request_body(
+                                                sibling.request_body_pointer(),
+                                                sibling.request_body_select(),
+                                                sibling.request_body_actions(),
+                                                context.params,
+                                                &url,
+                                                Some(ctx),
                                             );
                                             let client = context
                                                 .http_client
@@ -1119,10 +1119,9 @@ async fn execute_entry_sub_queries(
                             if merged.children.len() == 1
                                 && child.children.is_empty()
                                 && ((!child.items.is_empty()
-                                    && child
-                                        .items
-                                        .iter()
-                                        .all(|item| item.children.is_empty() && item.items.is_empty()))
+                                    && child.items.iter().all(|item| {
+                                        item.children.is_empty() && item.items.is_empty()
+                                    }))
                                     || !child.values.is_empty())
                             {
                                 let scalar_values: Vec<String> = if !child.values.is_empty() {
@@ -1454,14 +1453,11 @@ async fn fetch_and_extract_for_entry_sub_query(
                 let mut filtered_out = false;
                 if let Some(row_filters) = json_row_filters(sub_query) {
                     for (field, allowed) in row_filters {
-                        let field_values: Vec<String> = select_json_values(
-                            row_value,
-                            Some(field),
-                            HtmlScraperSelectMode::All,
-                        )
-                        .into_iter()
-                        .flat_map(json_value_to_strings)
-                        .collect();
+                        let field_values: Vec<String> =
+                            select_json_values(row_value, Some(field), HtmlScraperSelectMode::All)
+                                .into_iter()
+                                .flat_map(json_value_to_strings)
+                                .collect();
                         if !field_values.iter().any(|v| allowed.contains(v)) {
                             filtered_out = true;
                             break;
@@ -1491,7 +1487,13 @@ async fn fetch_and_extract_for_entry_sub_query(
             fields_filters: None,
             parent_response: nested_parent_response.as_ref(),
         };
-        Box::pin(execute_entry_sub_queries(sub_query, item, url, &sub_context)).await?;
+        Box::pin(execute_entry_sub_queries(
+            sub_query,
+            item,
+            url,
+            &sub_context,
+        ))
+        .await?;
     }
 
     Ok(())
