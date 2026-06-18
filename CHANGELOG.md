@@ -56,3 +56,8 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ### Fixed
 - **`chaser-cf` custom request headers**: browser-backed page fetches now propagate per-request headers to Chrome before navigation, and `Referer` now uses Chrome's native navigation referrer field instead of an injected extra header. The Cloudflare refresh path also reuses the blocked request headers, so solver refreshes keep request-specific headers such as `Referer`. The explicit `chaser-cf` feature build also no longer fails due to missing `custom_headers` arguments.
 - **`chaser-cf` referer observability**: when a navigation expects a `Referer`, the engine now logs the `observed_referer` and Chrome referrer policy reported by the outbound CDP request event, making it easier to distinguish a missing header from an upstream 403.
+
+## Unreleased — RTBF Auvio banner RedBee chain simplification
+
+### Fixed
+- **`rtbf-auvio-be.yaml` `load_home` Windows compatibility**: PROMOBOX banner preview videos no longer scrape the embed Next.js page to regex-extract RedBee `assetId` before authenticating. The banner chain now posts directly to RedBee anonymous auth using the widget `mediaId`, then derives the entitlement URL from the auth request URL. This removes the fragile nested embed-page extraction step that could leave `assetId={}` in the generated request on Windows.
