@@ -17,7 +17,7 @@ const DEFAULT_GEOLOCATION_URL: &str = "https://free.freeipapi.com/api/json/";
 
 // Proxy socks5 -> Serveur HTTP/HTTPS
 //*
-const DEFAULT_COUNTRY_PROXY_URL: &str = "socks5://37.220.83.249:1080";
+const DEFAULT_COUNTRY_PROXY_URL: &str = "socks5://158.178.198.31:1080";
 const DEFAULT_GEOLOCATION_URL: &str = "https://free.freeipapi.com/api/json/";
 // */
 // cargo run -p arachnea-proxy --features rquest --example country_routing_parameters -- http://ipwhois.app/json/31.12.75.226 FR

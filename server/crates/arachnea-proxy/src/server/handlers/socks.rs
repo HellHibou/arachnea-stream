@@ -26,6 +26,10 @@ pub async fn handle(
     let parameter_definitions = core.parameter_definitions();
     let mut version = [0u8; 1];
     client.read_exact(&mut version).await?;
+    tracing::debug!(
+        socks_version = if version[0] == 0x04 { "4" } else if version[0] == 0x05 { "5" } else { "unknown" },
+        "socks client connected"
+    );
     match version[0] {
         0x04 => {
             let request = read_socks4_request(&mut client).await?;
@@ -261,6 +265,10 @@ async fn handle_connect(
     context: ClientContext,
     core: ArachneaProxyCore,
 ) -> Result<()> {
+    tracing::debug!(
+        target = %destination.authority(),
+        "socks5 connect request received"
+    );
     let request = ConnectRequest::new(destination).with_client_context(context);
     let mut upstream = match core.connect_request(request).await {
         Ok(stream) => stream,
@@ -291,6 +299,10 @@ async fn handle_socks4_connect(
     destination: Destination,
     core: ArachneaProxyCore,
 ) -> Result<()> {
+    tracing::debug!(
+        target = %destination.authority(),
+        "socks4 connect request received"
+    );
     let mut upstream = match core.connect(destination).await {
         Ok(stream) => stream,
         Err(error) => {
@@ -320,6 +332,10 @@ async fn handle_udp_associate(
     context: ClientContext,
     core: ArachneaProxyCore,
 ) -> Result<()> {
+    tracing::debug!(
+        target = %destination.authority(),
+        "socks5 udp associate request received"
+    );
     let tcp_local = client.local_addr()?;
     let udp_bind = SocketAddr::new(tcp_local.ip(), 0);
     let socket = UdpSocket::bind(udp_bind).await?;
@@ -328,8 +344,14 @@ async fn handle_udp_associate(
 
     let request = ConnectRequest::new(destination).with_client_context(context);
     match core.connect_socks5_udp_association_request(request).await {
-        Ok(association) => relay_udp_via_socks(client, socket, association).await,
-        Err(ProxyError::Unsupported(_)) => relay_udp_direct(client, socket).await,
+        Ok(association) => {
+            tracing::debug!("socks5 udp association established via upstream proxy");
+            relay_udp_via_socks(client, socket, association).await
+        }
+        Err(ProxyError::Unsupported(_)) => {
+            tracing::debug!("socks5 udp association falling back to direct relay");
+            relay_udp_direct(client, socket).await
+        }
         Err(error) => Err(error),
     }
 }

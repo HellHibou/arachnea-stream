@@ -11,6 +11,21 @@ use tokio_rustls::TlsConnector;
 
 use crate::core::{ProxyError, Result};
 
+/// Logs a TLS client handshake attempt at DEBUG level.
+///
+/// # Parameters
+///
+/// - `server_name`: SNI hostname being connected to.
+/// - `verify_tls`: Whether certificate verification is enabled.
+fn log_client_tls(server_name: &str, verify_tls: bool) {
+    tracing::debug!(
+        server_name = %server_name,
+        verify_tls = %verify_tls,
+        transport = "tls",
+        "starting tls client handshake"
+    );
+}
+
 /// Wraps an existing stream in TLS for an HTTPS upstream proxy.
 ///
 /// # Parameters
@@ -38,6 +53,7 @@ pub async fn client_tls<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
+    log_client_tls(server_name, verify_tls);
     let config = if verify_tls {
         let mut roots = RootCertStore::empty();
         roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());

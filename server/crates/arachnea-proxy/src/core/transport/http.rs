@@ -6,6 +6,19 @@ use tokio::time;
 
 use crate::core::{Destination, ProxyError, ProxyNodeCredentials, Result};
 
+/// Logs an HTTP CONNECT tunnel handshake at DEBUG level.
+///
+/// # Parameters
+///
+/// - `destination`: Target being tunneled through the proxy.
+fn log_connect_tunnel(destination: &Destination) {
+    tracing::debug!(
+        target = %destination.authority(),
+        transport = "http-connect",
+        "sending http connect handshake"
+    );
+}
+
 /// Performs an HTTP CONNECT handshake over an existing stream.
 ///
 /// # Parameters
@@ -28,6 +41,7 @@ pub async fn connect_tunnel<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
+    log_connect_tunnel(destination);
     let mut request = format!(
         "CONNECT {} HTTP/1.1\r\nHost: {}\r\nProxy-Connection: keep-alive\r\n",
         destination.authority(),

@@ -11,6 +11,7 @@ path = "src/main.rs"
 [dependencies]
 arachnea-core = { path = "../arachnea-core" }
 arachnea-scrapyfy = { path = "../arachnea-scrapyfy", features = ["chaser-cf", "arachnea-proxy"] }
+arachnea-proxy =    { path = "../arachnea-proxy" }
 anyhow.workspace = true
 async-trait.workspace = true
 base64.workspace = true

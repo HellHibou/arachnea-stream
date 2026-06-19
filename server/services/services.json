@@ -5,7 +5,7 @@
   },
   {
     "path": "rtbf-auvio-be.yaml",
-    "enabled": true
+    "enabled": false
   },
   {
     "path": "tf1-fr.yaml",

@@ -10,6 +10,40 @@ use crate::core::{
     ProxyStream, Result,
 };
 
+/// Logs a SOCKS5 CONNECT handshake at DEBUG level.
+///
+/// # Parameters
+///
+/// - `destination`: Target being connected through the SOCKS proxy.
+fn log_socks5_connect(destination: &Destination) {
+    tracing::debug!(
+        target = %destination.authority(),
+        transport = "socks5-connect",
+        "sending socks5 connect handshake"
+    );
+}
+
+/// Logs a SOCKS4 CONNECT handshake at DEBUG level.
+///
+/// # Parameters
+///
+/// - `destination`: Target being connected through the SOCKS proxy.
+fn log_socks4_connect(destination: &Destination) {
+    tracing::debug!(
+        target = %destination.authority(),
+        transport = "socks4-connect",
+        "sending socks4 connect handshake"
+    );
+}
+
+/// Logs a SOCKS5 UDP ASSOCIATE handshake at DEBUG level.
+fn log_socks5_udp_associate() {
+    tracing::debug!(
+        transport = "socks5-udp-associate",
+        "sending socks5 udp associate handshake"
+    );
+}
+
 /// SOCKS5 UDP association opened against an upstream proxy.
 pub struct Socks5UdpAssociation {
     socket: UdpSocket,
@@ -115,6 +149,7 @@ pub async fn connect_tunnel<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
+    log_socks5_connect(destination);
     time::timeout(timeout, async {
         negotiate_method(stream, credentials).await?;
 
@@ -151,6 +186,7 @@ pub async fn connect_tunnel_v4<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
+    log_socks4_connect(destination);
     time::timeout(timeout, async {
         let request = encode_socks4_connect_request(destination, user_id.unwrap_or(""))?;
         stream.write_all(&request).await?;
@@ -184,6 +220,7 @@ pub async fn udp_associate<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
+    log_socks5_udp_associate();
     time::timeout(timeout, async {
         negotiate_method(stream, credentials).await?;
         let destination = Destination::host_port("0.0.0.0", 0);

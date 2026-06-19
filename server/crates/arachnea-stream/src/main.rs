@@ -14,7 +14,9 @@ use arachnea_core::{
         resources, CredentialsStore, EncryptedFileCredentialsStore, FileCredentialsStore,
     },
 };
+use crate::scrapyfy::HttpProxyConfig;
 use arachnea_scrapyfy::*;
+use arachnea_proxy::core::{ArachneaProxyCore, EgressPool, ProxyConfig, ProxyNode};
 use arachnea_stream::StreamScraper;
 
 /// Default port used by the REST controller when no CLI override is provided.
@@ -153,7 +155,7 @@ fn parse_runtime_options(program_name: &str) -> Result<CliAction> {
 /// Starts the configured backend controller using command line runtime options.
 #[tokio::main]
 async fn main() -> Result<()> {
-    arachnea_core::logger::set_default_log_level_debug!(INFO);
+    arachnea_core::logger::set_default_log_level_debug!(DEBUG);
     StreamScraper::init_sub_logger_levels();
     arachnea_core::logger::init_logger();
 
@@ -190,6 +192,31 @@ async fn main() -> Result<()> {
         .add_query_collection_from_config_json(resources::get_application_path(
             DEFAULT_SERVICES_CONFIG_PATH,
         ))?;
+
+    // Configure proxy pool for the manager
+    // Replace the proxy nodes below with your actual proxy endpoints
+//*
+        // Create proxy nodes for the pool
+        // TODO: Replace these with your actual proxy endpoints
+        let proxy_nodes = vec![
+            ProxyNode::socks5("proxy-socks5-1", "158.178.198.31:1080"),
+        ];
+
+        // Create an egress pool with these nodes
+        let proxy_pool = EgressPool::new("main-pool", proxy_nodes, None);
+
+        // Create proxy configuration with the pool
+        let pool_config = proxy_pool.config("main-chain");
+
+        // Create the proxy core
+        if let Ok(proxy_core) = ArachneaProxyCore::new(pool_config) {
+            // Set the proxy for the manager
+            manager.set_proxy(HttpProxyConfig::Arachnea(proxy_core));
+        } else {
+            tracing::warn!("Failed to create proxy pool; continuing without custom proxy configuration");
+        }
+// */
+
     let web_assets = generated_embedded_web_assets();
 
     let mut controler: Box<dyn ControlerService> = if options.mode_server {

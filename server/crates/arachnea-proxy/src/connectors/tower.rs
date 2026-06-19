@@ -63,6 +63,11 @@ impl Service<Uri> for ArachneaTowerService {
         let core = self.core.clone();
         Box::pin(async move {
             let destination = destination_from_uri(&uri)?;
+            tracing::debug!(
+                uri = %uri,
+                destination = %destination.authority(),
+                "tower connector opening stream"
+            );
             let stream = core.connect(destination).await?;
             Ok(ConnectorStream::new(stream))
         })

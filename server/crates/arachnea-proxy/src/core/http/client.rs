@@ -47,6 +47,7 @@ impl SimpleHttpClient {
     /// Returns an error when connection, request writing, response reading, or
     /// status parsing fails.
     pub async fn get(&self, host: &str, port: u16, path: &str) -> Result<SimpleHttpResponse> {
+        tracing::debug!(host = %host, port = %port, path = %path, "simple http client sending get request");
         let mut stream = self
             .core
             .connect(

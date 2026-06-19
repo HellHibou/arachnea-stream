@@ -79,6 +79,11 @@ where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     let destination = destination_from_connect_authority(&request.target)?;
+    tracing::debug!(
+        method = "CONNECT",
+        target = %request.target,
+        "http proxy request received"
+    );
     let parameter_definitions = core.parameter_definitions();
     let context = context_from_headers(&request.headers, &parameter_definitions);
     let mut upstream = match core
@@ -135,6 +140,13 @@ where
         ApplicationProtocol::Http
     };
     let destination = Destination::host_port(host, port).with_protocol(protocol);
+    tracing::debug!(
+        method = %request.method,
+        scheme = %scheme,
+        host = %host,
+        port = %port,
+        "http proxy absolute request received"
+    );
     let parameter_definitions = core.parameter_definitions();
     let context = context_from_headers(&request.headers, &parameter_definitions);
     let mut outbound = match core

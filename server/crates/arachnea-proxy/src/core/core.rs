@@ -1124,6 +1124,7 @@ impl ArachneaProxyCore {
         chain: &ProxyChain,
         request: &ConnectRequest,
     ) -> Result<ProxyStream> {
+        log_connect_chain_iteration(chain, &request.destination, 0);
         let retry_budget = chain
             .nodes
             .iter()
@@ -1328,6 +1329,13 @@ impl ArachneaProxyCore {
             .as_deref()
             .ok_or_else(|| ProxyError::Config(format!("node '{}' has no endpoint", first.name)))?;
         let first_destination = Destination::from_authority(endpoint, ApplicationProtocol::Tcp)?;
+        tracing::debug!(
+            node = %first.name,
+            endpoint = %endpoint,
+            chain = %chain.name,
+            transport = ?first.kind,
+            "connecting to first proxy hop"
+        );
         let first_addr = self.resolve_destination_addr(&first_destination).await?;
         let tcp = time::timeout(
             self.config.as_config().timeouts.connect_duration(),
@@ -1501,6 +1509,7 @@ impl ArachneaProxyCore {
         match &destination.address {
             DestinationAddress::Ip(ip) => Ok(SocketAddr::new(*ip, destination.port)),
             DestinationAddress::Host(host) => {
+                tracing::debug!(host = %host, port = %destination.port, "resolving destination address");
                 let ip = self.resolve_host_ip(host).await?;
                 Ok(SocketAddr::new(ip, destination.port))
             }
@@ -1578,8 +1587,10 @@ impl ArachneaProxyCore {
     /// Returns an error when resolution fails or returns no addresses.
     async fn resolve_host_ip(&self, host: &str) -> Result<IpAddr> {
         if let Ok(ip) = host.parse::<IpAddr>() {
+            tracing::debug!(host = %host, ip = %ip, "destination is a literal ip address");
             return Ok(ip);
         }
+        tracing::debug!(host = %host, "resolving hostname via dns");
 
         #[cfg(feature = "arachnea-dns")]
         if let Some(dns_core) = &self.dns_core {
@@ -1750,6 +1761,24 @@ impl ArachneaProxyCore {
             nodes.insert(node.name.clone());
         }
     }
+}
+
+/// Logs a connect_chain iteration at DEBUG level.
+///
+/// # Parameters
+///
+/// - `chain`: Chain being traversed.
+/// - `destination`: Final destination.
+/// - `attempt`: Current attempt number (0-based).
+fn log_connect_chain_iteration(chain: &ProxyChain, destination: &Destination, attempt: usize) {
+    let hops: Vec<&str> = chain.nodes.iter().filter(|n| n.kind != TransportKind::Direct).map(|n| n.name.as_str()).collect();
+    tracing::debug!(
+        chain = %chain.name,
+        destination = %destination.authority(),
+        attempt = %attempt,
+        hops = %hops.join(" -> "),
+        "connecting through proxy chain"
+    );
 }
 
 /// Returns whether a SOCKS5 error likely means remote hostname resolution failed.
