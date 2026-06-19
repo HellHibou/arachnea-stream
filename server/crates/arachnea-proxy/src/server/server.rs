@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::core::http::{ProxiedHttpRequest, ProxiedHttpResponse, SimpleHttpClient};
 use crate::core::{ArachneaProxyCore, ProxyConfig};
 use anyhow::Context;
 
@@ -35,6 +36,25 @@ impl ProxyServer {
         config.validate().map_err(anyhow::Error::msg)?;
         let core = ArachneaProxyCore::new(core_config)?;
         Ok(Self { config, core })
+    }
+
+    /// Executes one HTTP request through the proxy core without starting a listener.
+    ///
+    /// The request is sent with the method, headers, cookies, body and absolute
+    /// URL supplied by `request`. Redirects are returned to the caller as normal
+    /// HTTP responses and are not followed automatically.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the target URL is invalid, no proxy route can be
+    /// opened, TLS setup fails, or the upstream HTTP response cannot be parsed.
+    pub async fn request_http(
+        &self,
+        request: ProxiedHttpRequest,
+    ) -> anyhow::Result<ProxiedHttpResponse> {
+        Ok(SimpleHttpClient::new(self.core.clone())
+            .request_proxied(request)
+            .await?)
     }
 
     /// Runs configured listeners until all of them stop.

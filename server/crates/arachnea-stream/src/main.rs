@@ -8,15 +8,14 @@ use arachnea_core::{
     controler::{
         rest::{RestControlerConfiguration, RestControlerService},
         tauri::{TauriControlerConfiguration, TauriControlerService, TauriEmbeddedWebAssets},
-        ControlerService, SharedWebAssets,
+        ControlerService, ControlerServiceExt, SharedWebAssets,
     },
     persistence::{
         resources, CredentialsStore, EncryptedFileCredentialsStore, FileCredentialsStore,
     },
 };
-use crate::scrapyfy::HttpProxyConfig;
 use arachnea_scrapyfy::*;
-use arachnea_proxy::core::{ArachneaProxyCore, EgressPool, ProxyConfig, ProxyNode};
+use arachnea_proxy::core::{ArachneaProxyCore, EgressPool, ProxyNode};
 use arachnea_stream::StreamScraper;
 
 /// Default port used by the REST controller when no CLI override is provided.
@@ -193,29 +192,27 @@ async fn main() -> Result<()> {
             DEFAULT_SERVICES_CONFIG_PATH,
         ))?;
 
-    // Configure proxy pool for the manager
-    // Replace the proxy nodes below with your actual proxy endpoints
-//*
-        // Create proxy nodes for the pool
-        // TODO: Replace these with your actual proxy endpoints
-        let proxy_nodes = vec![
-            ProxyNode::socks5("proxy-socks5-1", "158.178.198.31:1080"),
-        ];
+    // Configure proxy pool for the manager and proxy_http handler
+    let proxy_nodes = vec![
+        ProxyNode::socks5("proxy-socks5-1", "158.178.198.31:1080"),
+    ];
+    let proxy_pool = EgressPool::new("main-pool", proxy_nodes, None);
+    let pool_config = proxy_pool.config("main-chain");
 
-        // Create an egress pool with these nodes
-        let proxy_pool = EgressPool::new("main-pool", proxy_nodes, None);
-
-        // Create proxy configuration with the pool
-        let pool_config = proxy_pool.config("main-chain");
-
-        // Create the proxy core
-        if let Ok(proxy_core) = ArachneaProxyCore::new(pool_config) {
-            // Set the proxy for the manager
-            manager.set_proxy(HttpProxyConfig::Arachnea(proxy_core));
-        } else {
-            tracing::warn!("Failed to create proxy pool; continuing without custom proxy configuration");
+    let proxy_core_for_http = match ArachneaProxyCore::new(pool_config) {
+        Ok(proxy_core) => {
+            manager.set_proxy(HttpProxyConfig::Arachnea(proxy_core.clone()));
+            tracing::info!("Proxy core created for proxy_http handler");
+            Some(proxy_core)
         }
-// */
+        Err(e) => {
+            tracing::warn!(
+                "Failed to create proxy core: {}; proxy_http will be unavailable",
+                e
+            );
+            None
+        }
+    };
 
     let web_assets = generated_embedded_web_assets();
 
@@ -226,6 +223,30 @@ async fn main() -> Result<()> {
     } else {
         Box::new(tauri_controler_service())
     };
+
+    // Register proxy_http handler if proxy core is available
+    let api_prefix = if options.mode_server { "api" } else { "api" };
+    if let Some(proxy_core) = proxy_core_for_http.as_ref() {
+        let core = Arc::new(proxy_core.clone());
+        let api_prefix_owned = api_prefix.to_string();
+        controler.register_stream_function_with_state(
+            "proxy_http",
+            core,
+            move |core, input| {
+                let api_prefix = api_prefix_owned.clone();
+                async move {
+                    arachnea_proxy::core::http::handle_proxy_http(
+                        core,
+                        input,
+                        &api_prefix,
+                    )
+                    .await
+                }
+            },
+        );
+    } else {
+        tracing::warn!("proxy_http handler not registered: no proxy core available");
+    }
 
     // controler.register_web_directory(resources::get_application_path("front"), "");
     controler.register_embedded_web_assets(web_assets, "");

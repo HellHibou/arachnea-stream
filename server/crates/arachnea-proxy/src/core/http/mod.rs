@@ -1,6 +1,12 @@
 //! Optional HTTP convenience helpers for the proxy core.
 
 pub mod client;
+#[cfg(feature = "controller-service")]
+pub mod proxy_service;
+
+pub use client::{ProxiedHttpRequest, ProxiedHttpResponse, SimpleHttpClient, SimpleHttpResponse};
+#[cfg(feature = "controller-service")]
+pub use proxy_service::handle_proxy_http;
 
 use crate::core::ProxyStream;
 

@@ -19,7 +19,7 @@
   },
   {
     "path": "m6play-fr.yaml",
-    "enabled": false
+    "enabled": true
   },
   {
     "path":"francetv.yaml",

@@ -45,12 +45,20 @@ pub struct ControlerStreamInput {
     /// Raw URL query string when present.
     #[allow(dead_code)]
     pub query: String,
+    /// HTTP method of the incoming request.
+    #[allow(dead_code)]
+    pub method: String,
+    /// HTTP headers of the incoming request.
+    #[allow(dead_code)]
+    pub headers: HashMap<String, String>,
     /// Raw request body bytes.
     pub body: Vec<u8>,
 }
 
 /// Raw stream payload returned by controller backends.
 pub struct ControlerStreamOutput {
+    /// HTTP status code to return.
+    pub status: u16,
     /// Stream response body.
     pub body: Vec<u8>,
     /// MIME type returned to the caller.

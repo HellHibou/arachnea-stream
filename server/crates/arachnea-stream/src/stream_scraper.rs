@@ -570,6 +570,7 @@ impl StreamScraper {
         let response = resolver.get_stream(token, &input.body).await?;
 
         Ok(ControlerStreamOutput {
+            status: 200,
             body: response.body,
             content_type: response.content_type,
             headers: response.headers,

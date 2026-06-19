@@ -267,26 +267,54 @@ impl RestControlerService {
     async fn call_and_reply_stream(
         call: &StreamControlerFunction,
         input: ControlerStreamInput,
-    ) -> (Box<dyn Reply + Send>,) {
-        let response: Box<dyn Reply + Send> = match call(input).await {
+    ) -> RestReply {
+        let is_head = input.method.eq_ignore_ascii_case("HEAD");
+        match call(input).await {
             Ok(ControlerStreamOutput {
-                body,
+                status,
+                mut body,
                 content_type,
                 headers,
             }) => {
-                let mut reply: Box<dyn Reply + Send> =
-                    Box::new(reply::with_header(body, "content-type", content_type));
+                if is_head {
+                    body.clear();
+                }
+                let mut builder = warp::http::Response::builder()
+                    .status(StatusCode::from_u16(status).unwrap_or(StatusCode::OK));
+                builder = builder.header("content-type", &content_type);
 
-                for (name, value) in headers {
-                    reply = Box::new(reply::with_header(reply, name, value));
+                for (name, value) in &headers {
+                    if name.to_ascii_lowercase() != "content-type" {
+                        builder = builder.header(name.as_str(), value.as_str());
+                    }
                 }
 
-                reply
+                let response = builder
+                    .body(body)
+                    .expect("Failed to build stream response.");
+                (Box::new(response) as Box<dyn Reply + Send>,)
             }
-            Err(error) => Box::new(reply::with_status(error, StatusCode::BAD_REQUEST)),
-        };
+            Err(error) => {
+                let response = warp::http::Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .header("content-type", "text/plain; charset=utf-8")
+                    .body(error.into_bytes())
+                    .expect("Failed to build stream error response.");
+                (Box::new(response) as Box<dyn Reply + Send>,)
+            }
+        }
+    }
 
-        (response,)
+    fn headers_to_map(
+        headers: &warp::http::HeaderMap,
+    ) -> std::collections::HashMap<String, String> {
+        let mut map = std::collections::HashMap::new();
+        for (name, value) in headers.iter() {
+            if let Ok(v) = value.to_str() {
+                map.insert(name.to_string(), v.to_string());
+            }
+        }
+        map
     }
 
     /// Runs the Warp server to completion on a dedicated Tokio runtime.
@@ -365,52 +393,49 @@ impl ControlerService for RestControlerService {
 
     fn register_stream_function(&mut self, command: &str, call: StreamControlerFunction) {
         let base_filter = self.make_base_filter(true, command);
+
+        // Build a unified filter that captures: tail, method, headers, body
+        // Body is optional - empty body for GET/HEAD/OPTIONS/DELETE
         let query_filter = warp::query::raw()
             .or(warp::any().map(String::new))
             .unify()
             .boxed();
 
-        let get_call = call.clone();
-        let get_filter = base_filter
-            .clone()
-            .and(warp::path::tail())
-            .and(warp::get())
-            .and(query_filter.clone())
-            .and_then(move |tail: warp::path::Tail, query: String| {
-                let get_call = Arc::clone(&get_call);
-                async move {
-                    let input = ControlerStreamInput {
-                        path: tail.as_str().to_string(),
-                        query,
-                        body: Vec::new(),
-                    };
-                    Ok::<RestReply, Rejection>(Self::call_and_reply_stream(&get_call, input).await)
-                }
-            });
+        // Body extraction: try bytes first, fall back to empty
+        let body_filter = warp::body::bytes()
+            .map(|b: warp::hyper::body::Bytes| b.to_vec())
+            .or(warp::any().map(Vec::new))
+            .unify()
+            .boxed();
 
-        let post_call = call.clone();
-        let post_filter = base_filter
+        let stream_filter = base_filter
             .and(warp::path::tail())
-            .and(warp::post())
+            .and(warp::method())
+            .and(warp::header::headers_cloned())
             .and(query_filter)
-            .and(warp::body::bytes())
+            .and(body_filter)
             .and_then(
-                move |tail: warp::path::Tail, query: String, body: warp::hyper::body::Bytes| {
-                    let post_call = Arc::clone(&post_call);
+                move |tail: warp::path::Tail,
+                      method: warp::http::Method,
+                      headers: warp::http::HeaderMap,
+                      query: String,
+                      body: Vec<u8>| {
+                    let call = Arc::clone(&call);
                     async move {
                         let input = ControlerStreamInput {
                             path: tail.as_str().to_string(),
                             query,
-                            body: body.to_vec(),
+                            method: method.to_string(),
+                            headers: Self::headers_to_map(&headers),
+                            body,
                         };
-                        Ok::<RestReply, Rejection>(
-                            Self::call_and_reply_stream(&post_call, input).await,
-                        )
+                        Ok::<RestReply, Rejection>(Self::call_and_reply_stream(&call, input).await)
                     }
                 },
-            );
+            )
+            .boxed();
 
-        self.add_route(get_filter.or(post_filter).unify().boxed());
+        self.add_route(stream_filter);
     }
 
     fn register_web_directory(&mut self, directory_path: &str, path: &str) {

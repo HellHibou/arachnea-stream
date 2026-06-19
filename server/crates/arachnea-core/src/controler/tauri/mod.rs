@@ -374,24 +374,48 @@ impl ControlerService for TauriControlerService {
                         .find(|(registered, _)| registered == command)
                     {
                         let handler = std::sync::Arc::clone(handler);
+                        let method = request.method().to_string();
+                        let headers_map = request
+                            .headers()
+                            .iter()
+                            .filter_map(|(name, value)| {
+                                value
+                                    .to_str()
+                                    .ok()
+                                    .map(|v| (name.to_string(), v.to_string()))
+                            })
+                            .collect::<std::collections::HashMap<String, String>>();
+
                         let response = tokio::task::block_in_place(|| {
                             tauri::async_runtime::block_on(handler(ControlerStreamInput {
                                 path,
                                 query,
+                                method,
+                                headers: headers_map,
                                 body: request.body().to_vec(),
                             }))
                         });
 
                         return match response {
                             Ok(ControlerStreamOutput {
-                                body,
+                                status,
+                                mut body,
                                 content_type,
                                 headers,
                             }) => {
+                                if request.method() == ::tauri::http::Method::HEAD {
+                                    body.clear();
+                                }
                                 let mut builder = ::tauri::http::Response::builder()
-                                    .header("Content-Type", content_type);
-                                for (name, value) in headers {
-                                    builder = builder.header(name, value);
+                                    .status(
+                                        ::tauri::http::StatusCode::from_u16(status)
+                                            .unwrap_or(::tauri::http::StatusCode::OK),
+                                    )
+                                    .header("Content-Type", &content_type);
+                                for (name, value) in &headers {
+                                    if name.to_ascii_lowercase() != "content-type" {
+                                        builder = builder.header(name.as_str(), value.as_str());
+                                    }
                                 }
                                 builder
                                     .body(body)
