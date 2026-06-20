@@ -249,7 +249,7 @@ pub struct TauriControlerService {
     web_scheme: String,
     api_prefix: String,
     handlers: Vec<(String, SerializedControlerFunction)>,
-    stream_handlers: Vec<(String, StreamControlerFunction)>,
+    stream_handlers: Vec<(String, StreamControlerFunction, String)>,
     web_assets: Option<TauriWebAssets>,
     main_thread_dispatcher: Arc<TauriMainThreadDispatcher>,
 }
@@ -324,7 +324,14 @@ impl ControlerService for TauriControlerService {
     }
 
     fn register_stream_function(&mut self, command: &str, call: StreamControlerFunction) {
-        self.stream_handlers.push((command.to_string(), call));
+        // Build the entry-point URL prefix for this command in the Tauri scheme.
+        let entry_point = format!(
+            "{}://{}{}",
+            self.web_scheme.trim_end_matches(':'),
+            self.api_prefix.trim_matches('/'),
+            command
+        );
+        self.stream_handlers.push((command.to_string(), call, entry_point));
     }
 
     fn register_web_directory(&mut self, directory_path: &str, path: &str) {
@@ -369,11 +376,12 @@ impl ControlerService for TauriControlerService {
 
                 if let Some((command, path, query)) = split_stream_route(&request_path, &api_prefix)
                 {
-                    if let Some((_cmd, handler)) = stream_handlers
+                    if let Some((_cmd, handler, entry_point)) = stream_handlers
                         .iter()
-                        .find(|(registered, _)| registered == command)
+                        .find(|(registered, _, _)| registered == command)
                     {
                         let handler = std::sync::Arc::clone(handler);
+                        let entry_point = entry_point.clone();
                         let method = request.method().to_string();
                         let headers_map = request
                             .headers()
@@ -393,6 +401,7 @@ impl ControlerService for TauriControlerService {
                                 method,
                                 headers: headers_map,
                                 body: request.body().to_vec(),
+                                entry_point,
                             }))
                         });
 

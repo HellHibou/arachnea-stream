@@ -8,7 +8,7 @@ use arachnea_core::{
     controler::{
         rest::{RestControlerConfiguration, RestControlerService},
         tauri::{TauriControlerConfiguration, TauriControlerService, TauriEmbeddedWebAssets},
-        ControlerService, ControlerServiceExt, SharedWebAssets,
+        ControlerService, SharedWebAssets,
     },
     persistence::{
         resources, CredentialsStore, EncryptedFileCredentialsStore, FileCredentialsStore,
@@ -225,25 +225,8 @@ async fn main() -> Result<()> {
     };
 
     // Register proxy_http handler if proxy core is available
-    let api_prefix = if options.mode_server { "api" } else { "api" };
     if let Some(proxy_core) = proxy_core_for_http.as_ref() {
-        let core = Arc::new(proxy_core.clone());
-        let api_prefix_owned = api_prefix.to_string();
-        controler.register_stream_function_with_state(
-            "proxy_http",
-            core,
-            move |core, input| {
-                let api_prefix = api_prefix_owned.clone();
-                async move {
-                    arachnea_proxy::core::http::handle_proxy_http(
-                        core,
-                        input,
-                        &api_prefix,
-                    )
-                    .await
-                }
-            },
-        );
+        arachnea_proxy::core::http::register_service(controler.as_mut(), proxy_core, "proxy");
     } else {
         tracing::warn!("proxy_http handler not registered: no proxy core available");
     }

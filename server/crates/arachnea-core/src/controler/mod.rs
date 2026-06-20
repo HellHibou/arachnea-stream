@@ -53,6 +53,9 @@ pub struct ControlerStreamInput {
     pub headers: HashMap<String, String>,
     /// Raw request body bytes.
     pub body: Vec<u8>,
+    /// Entry-point URL prefix that includes the server base, root mount,
+    /// API prefix, and command name (e.g. `http://127.0.0.1:8080/api/proxy`).
+    pub entry_point: String,
 }
 
 /// Raw stream payload returned by controller backends.

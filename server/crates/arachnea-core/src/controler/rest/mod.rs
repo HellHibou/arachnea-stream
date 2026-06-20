@@ -394,6 +394,25 @@ impl ControlerService for RestControlerService {
     fn register_stream_function(&mut self, command: &str, call: StreamControlerFunction) {
         let base_filter = self.make_base_filter(true, command);
 
+        // Build the entry-point URL prefix for this command
+        let entry_point = {
+            let base = if self.socket_addr.is_ipv6() {
+                format!("http://[{}]:{}", self.socket_addr.ip(), self.socket_addr.port())
+            } else {
+                format!("http://{}:{}", self.socket_addr.ip(), self.socket_addr.port())
+            };
+            if self.entrypoint_root.is_empty() && self.entrypoint_api.is_none() {
+                format!("{}/{}", base, command)
+            } else {
+                let mut parts = self.entrypoint_root.clone();
+                if let Some(ref api) = self.entrypoint_api {
+                    parts.push(api.clone());
+                }
+                parts.push(command.to_string());
+                format!("{}/{}", base, parts.join("/"))
+            }
+        };
+
         // Build a unified filter that captures: tail, method, headers, body
         // Body is optional - empty body for GET/HEAD/OPTIONS/DELETE
         let query_filter = warp::query::raw()
@@ -421,6 +440,7 @@ impl ControlerService for RestControlerService {
                       query: String,
                       body: Vec<u8>| {
                     let call = Arc::clone(&call);
+                    let entry_point = entry_point.clone();
                     async move {
                         let input = ControlerStreamInput {
                             path: tail.as_str().to_string(),
@@ -428,6 +448,7 @@ impl ControlerService for RestControlerService {
                             method: method.to_string(),
                             headers: Self::headers_to_map(&headers),
                             body,
+                            entry_point,
                         };
                         Ok::<RestReply, Rejection>(Self::call_and_reply_stream(&call, input).await)
                     }

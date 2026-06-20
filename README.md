@@ -48,14 +48,14 @@ Use the official CMake download page if the distribution package is too old for 
 
 The following commands are available for the Rust backend workspace in `server/`. Alias commands are defined in `server/.cargo/config.toml`.
 
-- `cd server && cargo build` - Build the backend workspace.
-- `cd server && cargo check --workspace` - Check the backend workspace.
-- `cd server && cargo run -p arachnea-stream --bin arachnea` - Build and run the backend executable.
-- `cd server && cargo run -p arachnea-dns -- validate-config crates/arachnea-dns/config-sample/system_relay.toml` - Validate a DNS configuration sample.
-- `cd server && cargo run -p arachnea-proxy -- validate-config crates/arachnea-proxy/config-sample/direct.toml` - Validate a proxy configuration sample.
+- `cargo build` - Build the backend workspace.
+- `cargo check --workspace` - Check the backend workspace.
+- `cargo run -p arachnea-stream --bin arachnea` - Build and run the backend executable.
+- `cargo run -p arachnea-dns -- validate-config crates/arachnea-dns/config-sample/system_relay.toml` - Validate a DNS configuration sample.
+- `cargo run -p arachnea-proxy -- validate-config crates/arachnea-proxy/config-sample/direct.toml` - Validate a proxy configuration sample.
 - `cd server/crates/arachnea-stream && cargo tauri build` - Build the Tauri desktop application and generate release bundles.
-- `cd server && cargo build-doc` - Generate backend documentation without external dependencies.
-- `cd server && cargo show-doc` - Generate backend documentation without external dependencies and open it in the browser.
+- `cargo build-doc` - Generate backend documentation without external dependencies.
+- `cargo show-doc` - Generate backend documentation without external dependencies and open it in the browser.
 
 ## Cross-Platform Build Commands
 
@@ -102,14 +102,14 @@ cargo tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc
 
 The following commands are available for the frontend project in `front/`.
 
-- `cd front && npm install` - Install frontend dependencies.
-- `cd front && npm run dev` - Start the Vite development server.
-- `cd front && npm run build` - Run type checks and build the production bundle.
-- `cd front && npm run preview` - Preview the production build locally.
-- `cd front && npm run build-only` - Build the production bundle with Vite.
-- `cd front && npm run type-check` - Run Vue TypeScript type checking.
-- `cd front && npm run lint:css` - Run Stylelint on CSS and Vue style blocks.
-- `cd front && npm run lint:css:fix` - Run Stylelint with automatic fixes.
+- `npm install` - Install frontend dependencies.
+- `npm run dev` - Start the Vite development server.
+- `npm run build` - Run type checks and build the production bundle.
+- `npm run preview` - Preview the production build locally.
+- `npm run build-only` - Build the production bundle with Vite.
+- `npm run type-check` - Run Vue TypeScript type checking.
+- `npm run lint:css` - Run Stylelint on CSS and Vue style blocks.
+- `npm run lint:css:fix` - Run Stylelint with automatic fixes.
 
 ## Skills
 

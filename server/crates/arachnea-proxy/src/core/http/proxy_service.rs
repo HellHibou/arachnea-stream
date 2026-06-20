@@ -1,7 +1,14 @@
 //! Proxy HTTP handler for the controller stream route.
 //!
-//! This module implements the `/proxy_http/<target_url_base64url>` endpoint
-//! that forwards HTTP requests through the Arachnea proxy core.
+//! This module implements the endpoint that forwards HTTP requests through
+//! the Arachnea proxy core. The path format is:
+//!
+//! `/<API_PREFIX>/[opts_<BASE64>]/<PROTOCOL>[_<PORT>]/<HOST>/<PATH>[?<QUERY>]`
+//!
+//! Examples:
+//! - `/api/https_8080/www.google.lu/index.html`
+//! - `/api/opts_ABCD/https_8080/www.google.lu/search?q=toto`
+//! - `/api/https/www.google.lu/images/img.png`
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -10,7 +17,9 @@ use base64::Engine;
 use serde::Deserialize;
 use url::Url;
 
-use arachnea_core::controler::{ControlerStreamInput, ControlerStreamOutput};
+use arachnea_core::controler::{
+    ControlerService, ControlerServiceExt, ControlerStreamInput, ControlerStreamOutput,
+};
 use crate::core::http::{ProxiedHttpRequest, SimpleHttpClient};
 use crate::core::ArachneaProxyCore;
 
@@ -145,15 +154,104 @@ fn validate_cookies(cookies: &HashMap<String, String>) -> Result<(), String> {
     Ok(())
 }
 
-/// Determines the entrypoint prefix used for Location rewriting.
-fn entrypoint_prefix(api_prefix: &str) -> String {
-    format!("/{}/proxy_http/", api_prefix.trim_matches('/'))
+/// Result of parsing a proxy path segment into protocol and optional port.
+struct ParsedProtocol {
+    protocol: String,
+    port: Option<u16>,
 }
 
-/// Encodes a URL as a base64url segment for the proxy path.
-fn encode_target_segment(target_url: &str) -> String {
-    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-    URL_SAFE_NO_PAD.encode(target_url.as_bytes())
+/// Parses a protocol segment like `https:8080`, `http:3000`, `https:`, `http:`.
+fn parse_protocol_segment(segment: &str) -> Result<ParsedProtocol, String> {
+     if segment == "https:" || segment == "https"{
+        Ok(ParsedProtocol {
+            protocol: "https".to_string(),
+            port: None,
+        })
+    } else if segment == "http:" || segment == "http" {
+        Ok(ParsedProtocol {
+            protocol: "http".to_string(),
+            port: None,
+        })
+    } else if let Some(rest) = segment.strip_prefix("https:") {
+        let port: u16 = rest
+            .parse()
+            .map_err(|_| format!("invalid port in '{}'", segment))?;
+        Ok(ParsedProtocol {
+            protocol: "https".to_string(),
+            port: Some(port),
+        })
+    } else if let Some(rest) = segment.strip_prefix("http:") {
+        let port: u16 = rest
+            .parse()
+            .map_err(|_| format!("invalid port in '{}'", segment))?;
+        Ok(ParsedProtocol {
+            protocol: "http".to_string(),
+            port: Some(port),
+        })
+    } else {
+        Err(format!(
+            "invalid protocol segment '{}': expected http, https, http_<PORT>, or https_<PORT>",
+            segment
+        ))
+    }
+}
+
+/// Builds the target URL from the parsed components and local query string.
+fn build_target_url(
+    protocol: &str,
+    port: Option<u16>,
+    host: &str,
+    path_and_query: &str,
+    local_query: &str,
+) -> String {
+    let host_part = if host.contains(':') {
+        // IPv6
+        format!("[{}]", host)
+    } else {
+        host.to_string()
+    };
+
+    let authority = match port {
+        Some(p) => format!("{}:{}", host_part, p),
+        None => host_part,
+    };
+
+    let combined_path_query = if local_query.is_empty() {
+        path_and_query.to_string()
+    } else if path_and_query.contains('?') {
+        format!("{}&{}", path_and_query, local_query)
+    } else {
+        format!("{}?{}", path_and_query, local_query)
+    };
+
+    format!("{}://{}{}", protocol, authority, combined_path_query)
+}
+
+/// Encodes a proxied URL path back into the proxy path format.
+fn encode_proxy_path(
+    api_prefix: &str,
+    resolved_url: &Url,
+    opts_encoded: &str,
+) -> String {
+    let api = api_prefix.trim_matches('/');
+    let protocol = resolved_url.scheme();
+    let host = resolved_url.host_str().unwrap_or("");
+    let port = resolved_url.port();
+    let path = resolved_url.path();
+    let query = resolved_url.query().map(|q| format!("?{}", q)).unwrap_or_default();
+
+    let protocol_segment = match port {
+        Some(p) => format!("{}_{}", protocol, p),
+        None => protocol.to_string(),
+    };
+
+    let opts_segment = if opts_encoded.is_empty() {
+        String::new()
+    } else {
+        format!("opts_{}/", opts_encoded)
+    };
+
+    format!("/{api}/{opts_segment}{protocol_segment}/{host}{path}{query}")
 }
 
 /// Recovers the absolute target URL from a potentially relative Location
@@ -183,15 +281,11 @@ fn rewrite_location_header(
         None => return Ok(()),
     };
 
-    let resolved_url = resolve_location(&location, current_target_url)?;
+    let resolved_url_str = resolve_location(&location, current_target_url)?;
+    let resolved_url = Url::parse(&resolved_url_str)
+        .map_err(|e| format!("Failed to parse resolved URL: {}", e))?;
 
-    let new_target = encode_target_segment(&resolved_url);
-    let prefix = entrypoint_prefix(api_prefix);
-    let new_location = if current_opts_encoded.is_empty() {
-        format!("{prefix}{new_target}")
-    } else {
-        format!("{prefix}{new_target}?opts={current_opts_encoded}")
-    };
+    let new_location = encode_proxy_path(api_prefix, &resolved_url, current_opts_encoded);
 
     if let Some(key) = headers
         .keys()
@@ -255,18 +349,98 @@ fn merge_opts(
     Ok((headers, cookies))
 }
 
+/// Parses the proxy path segments into the target URL components.
+///
+/// The path format is: `[opts_<BASE64>/]<PROTOCOL>[_<PORT>]/<HOST>/<PATH>`
+/// where `<PATH>` may include further `/` segments.
+struct ParsedProxyPath {
+    opts_encoded: String,
+    protocol: String,
+    port: Option<u16>,
+    host: String,
+    path_and_query: String,
+}
+
+fn parse_proxy_path(path: &str) -> Result<ParsedProxyPath, (u16, String)> {
+    let trimmed = path.trim_matches('/');
+    if trimmed.is_empty() {
+        return Err((400, "missing target in proxy path".to_string()));
+    }
+
+    // Split and filter out empty segments that come from double slashes
+    // (e.g. /api/https://host becomes ["https:", "", "host"])
+    let raw_segments: Vec<&str> = trimmed.split('/').collect();
+    let segments: Vec<&str> = raw_segments.into_iter().filter(|s| !s.is_empty()).collect();
+    if segments.is_empty() {
+        return Err((400, "missing target in proxy path".to_string()));
+    }
+
+    let mut idx = 0;
+    let opts_encoded;
+
+    // Check if first segment is opts_<base64>
+    if let Some(first) = segments.first() {
+        if let Some(rest) = first.strip_prefix("opts_") {
+            opts_encoded = rest.to_string();
+            idx = 1;
+        } else {
+            opts_encoded = String::new();
+        }
+    } else {
+        opts_encoded = String::new();
+    }
+
+    // Next segment must be protocol[_port]
+    if idx >= segments.len() {
+        return Err((400, "missing protocol segment".to_string()));
+    }
+    let parsed_protocol = parse_protocol_segment(segments[idx])
+        .map_err(|e| (400, e))?;
+    idx += 1;
+
+    // Next segment must be host
+    if idx >= segments.len() {
+        return Err((400, "missing host segment".to_string()));
+    }
+    let host = segments[idx].to_string();
+    idx += 1;
+
+    // Everything after host is the path (join remaining segments)
+    let path_and_query = if idx < segments.len() {
+        let remaining = &segments[idx..];
+        // Check if the last segment contains a query string
+        let mut path = remaining.join("/");
+        // Ensure path starts with /
+        if !path.starts_with('/') {
+            path.insert(0, '/');
+        }
+        path
+    } else {
+        String::from("/")
+    };
+
+    Ok(ParsedProxyPath {
+        opts_encoded,
+        protocol: parsed_protocol.protocol,
+        port: parsed_protocol.port,
+        host,
+        path_and_query,
+    })
+}
+
 /// Handles a proxied HTTP request through the controller stream interface.
 ///
-/// This is the main entry point registered as a stream function.
+/// This is the main entry point registered as a stream function. The
+/// entry-point URL used for rewriting `Location` headers in redirect responses
+/// is read from `input.entry_point`.
 pub async fn handle_proxy_http(
     proxy_core: Arc<ArachneaProxyCore>,
     input: ControlerStreamInput,
-    api_prefix: &str,
 ) -> Result<ControlerStreamOutput, String> {
-    // 1. Validate URL length
+    // Validate URL length
     let full_url = format!(
-        "/{}/proxy_http/{}{}{}",
-        api_prefix.trim_matches('/'),
+        "{}/{}{}{}",
+        input.entry_point,
         &input.path,
         if input.query.is_empty() { "" } else { "?" },
         &input.query
@@ -275,22 +449,22 @@ pub async fn handle_proxy_http(
         return Ok(stream_error(414, "URI Too Long"));
     }
 
-    // 2. Parse target_url_base64url from path
-    let target_b64 = input.path.trim_matches('/');
-    if target_b64.is_empty() {
-        return Ok(stream_error(400, "missing target URL"));
-    }
-
-    let target_url_bytes = match decode_base64url_segment(target_b64) {
-        Ok(bytes) => bytes,
-        Err(error) => return Ok(stream_error(400, error)),
-    };
-    let target_url_str = match String::from_utf8(target_url_bytes) {
-        Ok(value) => value,
-        Err(_) => return Ok(stream_error(400, "target URL is not valid UTF-8")),
+    // Parse the new path format
+    let parsed = match parse_proxy_path(&input.path) {
+        Ok(p) => p,
+        Err((status, msg)) => return Ok(stream_error(status, msg)),
     };
 
-    // 3. Validate target URL
+    // Build the target URL
+    let target_url_str = build_target_url(
+        &parsed.protocol,
+        parsed.port,
+        &parsed.host,
+        &parsed.path_and_query,
+        &input.query,
+    );
+
+    // Validate target URL
     let parsed_target = match Url::parse(&target_url_str) {
         Ok(url) => url,
         Err(_) => {
@@ -321,28 +495,11 @@ pub async fn handle_proxy_http(
         ));
     }
 
-    // 4. Parse opts from query string
-    let opts_encoded = if input.query.is_empty() {
-        String::new()
-    } else if input.query.starts_with("opts=") {
-        // Raw "opts=<base64>" - extract directly
-        input.query[5..].to_string()
-    } else {
-        // Parse as query string parameters
-        let params: HashMap<String, String> = match serde_urlencoded::from_str(&input.query) {
-            Ok(params) => params,
-            Err(error) => return Ok(stream_error(400, format!("invalid query string: {error}"))),
-        };
-        match params.get("opts") {
-            Some(value) => value.clone(),
-            None => return Ok(stream_error(400, "missing 'opts' parameter")),
-        }
-    };
-
-    let opts = if opts_encoded.is_empty() {
+    // Parse opts from the path segment
+    let opts = if parsed.opts_encoded.is_empty() {
         None
     } else {
-        let opts_json_bytes = match decode_base64url_segment(&opts_encoded) {
+        let opts_json_bytes = match decode_base64url_segment(&parsed.opts_encoded) {
             Ok(bytes) => bytes,
             Err(error) => return Ok(stream_error(400, error)),
         };
@@ -368,13 +525,33 @@ pub async fn handle_proxy_http(
         Some(opts_parsed)
     };
 
-    // 5. Merge headers and cookies
-    let (headers, cookies) = match merge_opts(&input.headers, opts) {
+    // Merge headers and cookies
+    let (mut headers, cookies) = match merge_opts(&input.headers, opts) {
         Ok(value) => value,
         Err(error) => return Ok(stream_error(400, error)),
     };
 
-    // 6. Execute proxy request
+    // Set the Host header from the target URL (host is removed as non-transferable
+    //    from the incoming request since it refers to the proxy, not the target).
+    let host_header = match parsed.port {
+        Some(port) if port != 80 && port != 443 => format!("{}:{}", parsed.host, port),
+        _ => parsed.host.clone(),
+    };
+    headers.insert("Host".to_string(), host_header);
+
+    // Log the target URL being called
+    tracing::debug!(
+        "proxy_http {} {} ({} opts segments, {} headers, {} cookies) - Headers:{:?}",
+        method,
+        target_url_str,
+        parsed.opts_encoded.len(),
+        headers.len(),
+        cookies.len(),
+        headers
+    );
+
+
+    // Execute proxy request
     let client = SimpleHttpClient::new((*proxy_core).clone());
     let proxy_request = ProxiedHttpRequest {
         url: target_url_str.clone(),
@@ -391,24 +568,24 @@ pub async fn handle_proxy_http(
 
     let mut response_headers = proxy_response.headers;
 
-    // 7. Rewrite Location header for redirects
+    // Rewrite Location header for redirects
     if (300..400).contains(&proxy_response.status) {
         if let Err(error) = rewrite_location_header(
             &mut response_headers,
             &target_url_str,
-            &opts_encoded,
-            api_prefix,
+            &parsed.opts_encoded,
+            &input.entry_point,
         ) {
             return Ok(stream_error(502, error));
         }
     }
     filter_non_transferable(&mut response_headers);
 
-    // 8. Derive content-type
+    // Derive content-type
     let content_type = remove_header_case_insensitive(&mut response_headers, "content-type")
         .unwrap_or_else(|| "application/octet-stream".to_string());
 
-    // 9. Handle HEAD: return no body
+    // Handle HEAD: return no body
     let body = if method == "HEAD" {
         Vec::new()
     } else {
@@ -421,4 +598,30 @@ pub async fn handle_proxy_http(
         content_type,
         headers: response_headers,
     })
+}
+
+
+/// Registers the proxy HTTP stream handler on a controller service.
+///
+/// The handler is registered under the name `"proxy"` and routes through the
+/// given proxy core. The entry-point URL for `Location` header rewriting is
+/// read directly from `ControlerStreamInput::entry_point`, which is populated
+/// by the controller backend at request time.
+///
+/// # Parameters
+///
+/// - `controler`: Mutable reference to a controller service that will host the handler.
+/// - `proxy_core`: Reference to the proxy core used for outbound HTTP requests.
+/// - ``
+pub fn register_service(
+    controler: &mut dyn ControlerService,
+    proxy_core: &ArachneaProxyCore,
+    name: &str,
+) {
+    let core = Arc::new(proxy_core.clone());
+    controler.register_stream_function_with_state(
+        name,
+        core,
+       |core, input| async move { handle_proxy_http(core, input).await },
+    );
 }

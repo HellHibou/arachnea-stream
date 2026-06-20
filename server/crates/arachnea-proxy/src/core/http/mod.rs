@@ -6,7 +6,7 @@ pub mod proxy_service;
 
 pub use client::{ProxiedHttpRequest, ProxiedHttpResponse, SimpleHttpClient, SimpleHttpResponse};
 #[cfg(feature = "controller-service")]
-pub use proxy_service::handle_proxy_http;
+pub use proxy_service::{handle_proxy_http, register_service};
 
 use crate::core::ProxyStream;
 
