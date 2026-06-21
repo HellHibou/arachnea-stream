@@ -12,6 +12,14 @@ pub trait ScraperManager {
     /// Returns a mutable reference to the underlying query aggregator.
     fn get_scraper_agregator_mut(&mut self) -> &mut ScraperAgregator;
 
+    /// Creates a scraper `HttpClient` configured with the available proxy core.
+    ///
+    /// The default implementation creates a standalone client without proxy core.
+    /// Concrete implementations that own a proxy core should override this method.
+    fn create_http_client(&self, http_config: ScraperHttpConfig) -> HttpClient {
+        HttpClient::with_http_config(http_config)
+    }
+
     /// Registers the scraper's functions with the provided controler service.
     ///
     /// # Arguments

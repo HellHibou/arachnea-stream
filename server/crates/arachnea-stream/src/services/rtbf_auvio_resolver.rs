@@ -8,14 +8,13 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use arachnea_core::persistence::CredentialsStore;
-use arachnea_scrapyfy::{HttpClient, ScraperQueryCollectionParameter};
+use arachnea_scrapyfy::{HttpClient, ScraperAgregator, ScraperQueryCollectionParameter};
 
 use crate::services::player_resolver::{
     PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream,
 };
 
 const RTBF_AUVIO_SERVICE_ID: &str = "rtbf-auvio-be";
-const RTBF_AUVIO_BASE_URL: &str = "https://auvio.rtbf.be";
 const RTBF_GIGYA_API_KEY: &str = "4_Ml_fJ47GnBAW6FrPzMxh0w";
 const RTBF_GIGYA_LOGIN_URL: &str = "https://login.auvio.rtbf.be/accounts.login";
 const RTBF_GIGYA_JWT_URL: &str = "https://login.auvio.rtbf.be/accounts.getJWT";
@@ -51,6 +50,7 @@ impl PlayerStreamResolver for RtbfAuvioResolver {
 
     async fn resolve_player_stream(
         &self,
+        scraper_agregator: &ScraperAgregator,
         credentials_store: &dyn CredentialsStore,
         resolver_kind: &str,
         resolver_target: &str,
@@ -59,7 +59,7 @@ impl PlayerStreamResolver for RtbfAuvioResolver {
     ) -> Result<ResolvedPlayerStream> {
         match resolver_kind.trim() {
             "rtbf-auvio-live" | "rtbf-auvio-video" => {
-                resolve_redbee_stream(credentials_store, resolver_target, resolver_stream_kind)
+                resolve_redbee_stream(scraper_agregator, credentials_store, resolver_target, resolver_stream_kind)
                     .await
             }
             kind => bail!(
@@ -76,6 +76,7 @@ impl PlayerStreamResolver for RtbfAuvioResolver {
 }
 
 async fn resolve_redbee_stream(
+    scraper_agregator: &ScraperAgregator,
     credentials_store: &dyn CredentialsStore,
     asset_id: &str,
     stream_kind: Option<String>,
@@ -85,7 +86,7 @@ async fn resolve_redbee_stream(
         bail!("Missing RTBF Auvio RedBee asset identifier.");
     }
 
-    let http_client = HttpClient::new(RTBF_AUVIO_BASE_URL);
+    let http_client = scraper_agregator.create_http_client(Default::default());
     let session = authenticate_redbee(&http_client, credentials_store, normalized_asset_id).await?;
     let entitlement = fetch_entitlement(&http_client, normalized_asset_id, &session).await?;
     let selected_format = select_best_format(&entitlement)

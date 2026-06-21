@@ -1022,6 +1022,8 @@ impl ArachneaHttpClient {
         let cookie = self.cookies.write().await.cookie_header_for(&options.url)?;
         let user_agent = self.cloudflare_user_agent_for_url(&options.url).await?;
         let mut headers = self.base_headers(cookie, user_agent.as_deref())?;
+        debug!("headers:{:?}",  headers);
+        debug!("cookies:{:?}",  self.cookies);
         headers.extend(options.headers);
         Ok(EngineRequest {
             method: options.method,

@@ -11,7 +11,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use arachnea_core::persistence::CredentialsStore;
-use arachnea_scrapyfy::{HttpClient, ScraperQueryCollectionParameter};
+use arachnea_scrapyfy::{HttpClient, ScraperAgregator, ScraperQueryCollectionParameter};
 
 use crate::services::player_resolver::{
     PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream,
@@ -51,6 +51,7 @@ impl PlayerStreamResolver for FrancetvResolver {
 
     async fn resolve_player_stream(
         &self,
+        scraper_agregator: &ScraperAgregator,
         _credentials_store: &dyn CredentialsStore,
         resolver_kind: &str,
         resolver_target: &str,
@@ -60,6 +61,7 @@ impl PlayerStreamResolver for FrancetvResolver {
         match resolver_kind.trim() {
             "francetv-video" => {
                 resolve_francetv_stream(
+                    scraper_agregator,
                     resolver_target,
                     resolver_stream_kind,
                     service_parameters,
@@ -69,6 +71,7 @@ impl PlayerStreamResolver for FrancetvResolver {
             }
             "francetv-live" => {
                 resolve_francetv_stream(
+                    scraper_agregator,
                     resolver_target,
                     resolver_stream_kind,
                     service_parameters,
@@ -90,6 +93,7 @@ impl PlayerStreamResolver for FrancetvResolver {
 }
 
 async fn resolve_francetv_stream(
+    scraper_agregator: &ScraperAgregator,
     media_id: &str,
     stream_kind: Option<String>,
     service_parameters: &[ScraperQueryCollectionParameter],
@@ -100,11 +104,9 @@ async fn resolve_francetv_stream(
         bail!("Missing FranceTV media identifier.");
     }
 
-    let base_url = parameter_value(service_parameters, "base_url")
-        .unwrap_or_else(|| FRANCETV_BASE_URL.to_string());
     let country_code =
         parameter_value(service_parameters, "country_code").unwrap_or_else(|| "FR".to_string());
-    let http_client = HttpClient::new(&base_url);
+    let http_client = scraper_agregator.create_http_client(Default::default());
     let media_info =
         fetch_media_info(&http_client, normalized_media_id, country_code.trim()).await?;
     let video = media_info

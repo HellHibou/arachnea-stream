@@ -9,6 +9,9 @@ use std::path::Path;
 
 use super::*;
 
+#[cfg(feature = "arachnea-proxy")]
+use arachnea_proxy::core::ArachneaProxyCore;
+
 /// Runtime parameters grouped by source name for one aggregated query execution.
 pub type ScraperSourceParams = HashMap<String, HashMap<String, String>>;
 
@@ -34,6 +37,8 @@ fn default_enabled() -> bool {
 pub struct ScraperAgregator {
     queries_collection: Vec<ScraperQueryCollection>,
     proxy_handle: SharedProxyConfigHandle,
+    #[cfg(feature = "arachnea-proxy")]
+    proxy_core: Option<ArachneaProxyCore>,
 }
 
 impl ScraperAgregator {
@@ -47,12 +52,46 @@ impl ScraperAgregator {
         ScraperAgregator {
             queries_collection: Vec::new(),
             proxy_handle,
+            #[cfg(feature = "arachnea-proxy")]
+            proxy_core: None,
         }
     }
 
     /// Returns the shared proxy handle used by this aggregator and its queries.
     pub fn proxy_handle(&self) -> SharedProxyConfigHandle {
         self.proxy_handle.clone()
+    }
+
+    /// Sets the proxy core instance used by clients created through this aggregator.
+    #[cfg(feature = "arachnea-proxy")]
+    pub fn set_proxy_core(&mut self, proxy_core: ArachneaProxyCore) {
+        self.proxy_core = Some(proxy_core);
+    }
+
+    /// Returns a reference to the proxy core, if one has been set.
+    #[cfg(feature = "arachnea-proxy")]
+    pub fn proxy_core(&self) -> Option<&ArachneaProxyCore> {
+        self.proxy_core.as_ref()
+    }
+
+    /// Creates a scraper `HttpClient` configured to use the proxy core when available.
+    ///
+    /// When `proxy_core` is `Some`, the returned `HttpClient` uses it as the HTTP
+    /// proxy transport via `SharedProxyConfigHandle`. Otherwise a standalone client
+    /// is created with the given config.
+    ///
+    /// # Arguments
+    ///
+    /// * `http_config` - Scraper HTTP configuration (mode, user agent, etc.).
+    pub fn create_http_client(&self, http_config: ScraperHttpConfig) -> HttpClient {
+        #[cfg(feature = "arachnea-proxy")]
+        if let Some(proxy_core) = &self.proxy_core {
+            let handle = SharedProxyConfigHandle::new();
+            handle.set_proxy(HttpProxyConfig::Arachnea(proxy_core.clone()));
+            return HttpClient::with_http_config_and_proxy_handle(http_config, handle);
+        }
+
+        HttpClient::with_http_config(http_config)
     }
 
     /// Loads every configured source from a config file using the provided parser.

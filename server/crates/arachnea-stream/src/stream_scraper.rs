@@ -547,6 +547,7 @@ impl StreamScraper {
 
         resolver
             .resolve_player_stream(
+                &self.scraper_agregator,
                 self.credentials_store.as_ref(),
                 &resolver_kind,
                 &resolver_target,
@@ -607,6 +608,10 @@ fn player_resolver_for_source(source: &str) -> Option<&'static dyn PlayerStreamR
 impl ScraperManager for StreamScraper {
     fn get_scraper_agregator_mut(&mut self) -> &mut ScraperAgregator {
         &mut self.scraper_agregator
+    }
+
+    fn create_http_client(&self, http_config: ScraperHttpConfig) -> HttpClient {
+        self.scraper_agregator.create_http_client(http_config)
     }
 
     fn register_service(self, controler: &mut dyn ControlerService) {

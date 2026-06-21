@@ -7,14 +7,13 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use arachnea_core::persistence::CredentialsStore;
-use arachnea_scrapyfy::{HttpClient, ScraperQueryCollectionParameter};
+use arachnea_scrapyfy::{HttpClient, ScraperAgregator, ScraperQueryCollectionParameter};
 
 use crate::services::player_resolver::{
     normalize_stream_kind, proxy_drm_today_license_request, save_drm_today_license_proxy_url,
     PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream,
 };
 
-const SIXPLAY_BASE_URL: &str = "https://www.6play.fr";
 const SIXPLAY_LOGIN_URL: &str = "https://login-gigya.m6.fr/accounts.login";
 const SIXPLAY_LOGIN_PAGE_URL: &str = "https://www.6play.fr/connexion";
 const SIXPLAY_BUNDLE_URL_TEMPLATE: &str = "https://www.6play.fr/main-{}.bundle.js";
@@ -62,6 +61,7 @@ impl PlayerStreamResolver for M6PlayResolver {
 
     async fn resolve_player_stream(
         &self,
+        scraper_agregator: &ScraperAgregator,
         credentials_store: &dyn CredentialsStore,
         resolver_kind: &str,
         resolver_target: &str,
@@ -70,11 +70,11 @@ impl PlayerStreamResolver for M6PlayResolver {
     ) -> Result<ResolvedPlayerStream> {
         match resolver_kind.trim() {
             "m6play-video" => {
-                resolve_replay_stream(credentials_store, resolver_target, resolver_stream_kind)
+                resolve_replay_stream(scraper_agregator, credentials_store, resolver_target, resolver_stream_kind)
                     .await
             }
             "m6play-live" => {
-                resolve_live_stream(credentials_store, resolver_target, resolver_stream_kind).await
+                resolve_live_stream(scraper_agregator, credentials_store, resolver_target, resolver_stream_kind).await
             }
             kind => bail!(
                 "Unsupported player resolver `{}` for source `{}`.",
@@ -90,6 +90,7 @@ impl PlayerStreamResolver for M6PlayResolver {
 }
 
 async fn resolve_replay_stream(
+    scraper_agregator: &ScraperAgregator,
     credentials_store: &dyn CredentialsStore,
     video_id: &str,
     stream_kind: Option<String>,
@@ -99,7 +100,7 @@ async fn resolve_replay_stream(
         bail!("Missing 6play video identifier.");
     }
 
-    let http_client = HttpClient::new(SIXPLAY_BASE_URL);
+    let http_client = scraper_agregator.create_http_client(Default::default());
     let session = get_or_login_session(&http_client, credentials_store).await?;
     let upfront_token = fetch_upfront_token(&http_client, &session, normalized_video_id).await?;
     let manifest_url = fetch_best_manifest_url(&http_client, normalized_video_id).await?;
@@ -121,6 +122,7 @@ async fn resolve_replay_stream(
 }
 
 async fn resolve_live_stream(
+    scraper_agregator: &ScraperAgregator,
     credentials_store: &dyn CredentialsStore,
     channel_id: &str,
     stream_kind: Option<String>,
@@ -130,7 +132,7 @@ async fn resolve_live_stream(
         bail!("Missing 6play channel identifier.");
     }
 
-    let http_client = HttpClient::new(SIXPLAY_BASE_URL);
+    let http_client = scraper_agregator.create_http_client(Default::default());
     let session = get_or_login_session(&http_client, credentials_store).await?;
 
     // Map channel identifier to the API's live_item_id format.

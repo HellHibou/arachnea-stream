@@ -202,6 +202,7 @@ async fn main() -> Result<()> {
     let proxy_core_for_http = match ArachneaProxyCore::new(pool_config) {
         Ok(proxy_core) => {
             manager.set_proxy(HttpProxyConfig::Arachnea(proxy_core.clone()));
+            manager.get_scraper_agregator_mut().set_proxy_core(proxy_core.clone());
             tracing::info!("Proxy core created for proxy_http handler");
             Some(proxy_core)
         }

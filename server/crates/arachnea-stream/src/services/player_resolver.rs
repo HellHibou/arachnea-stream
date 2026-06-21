@@ -10,7 +10,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use arachnea_core::persistence::CredentialsStore;
-use arachnea_scrapyfy::ScraperQueryCollectionParameter;
+use arachnea_scrapyfy::{ScraperAgregator, ScraperQueryCollectionParameter};
 
 const STREAM_PROXY_PATH_PREFIX: &str = "/api/get_stream/";
 const DEFAULT_STREAM_KIND: &str = "widevine-license-proxy";
@@ -53,6 +53,7 @@ pub(crate) trait PlayerStreamResolver: Send + Sync {
     /// Resolves one YAML player descriptor into a playable stream.
     async fn resolve_player_stream(
         &self,
+        scraper_agregator: &ScraperAgregator,
         credentials_store: &dyn CredentialsStore,
         resolver_kind: &str,
         resolver_target: &str,

@@ -7,7 +7,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use arachnea_core::persistence::CredentialsStore;
-use arachnea_scrapyfy::{HttpClient, ScraperQueryCollectionParameter};
+use arachnea_scrapyfy::{HttpClient, ScraperAgregator, ScraperQueryCollectionParameter};
 
 use crate::services::player_resolver::{
     normalize_stream_kind, PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream,
@@ -59,6 +59,7 @@ impl PlayerStreamResolver for Tf1Resolver {
 
     async fn resolve_player_stream(
         &self,
+        scraper_agregator: &ScraperAgregator,
         credentials_store: &dyn CredentialsStore,
         resolver_kind: &str,
         resolver_target: &str,
@@ -67,11 +68,11 @@ impl PlayerStreamResolver for Tf1Resolver {
     ) -> Result<ResolvedPlayerStream> {
         match resolver_kind.trim() {
             "tf1-video" => {
-                resolve_replay_stream(credentials_store, resolver_target, resolver_stream_kind)
+                resolve_replay_stream(scraper_agregator, credentials_store, resolver_target, resolver_stream_kind)
                     .await
             }
             "tf1-live" => {
-                resolve_live_stream(credentials_store, resolver_target, resolver_stream_kind).await
+                resolve_live_stream(scraper_agregator, credentials_store, resolver_target, resolver_stream_kind).await
             }
             kind => bail!(
                 "Unsupported player resolver `{}` for source `{}`.",
@@ -87,6 +88,7 @@ impl PlayerStreamResolver for Tf1Resolver {
 }
 
 async fn resolve_replay_stream(
+    scraper_agregator: &ScraperAgregator,
     credentials_store: &dyn CredentialsStore,
     video_id: &str,
     stream_kind: Option<String>,
@@ -96,7 +98,7 @@ async fn resolve_replay_stream(
         bail!("Missing TF1 video identifier.");
     }
 
-    let http_client = HttpClient::new(TF1_BASE_URL);
+    let http_client = scraper_agregator.create_http_client(Default::default());
     let session = get_or_login_session(&http_client, credentials_store).await?;
     let media_info = fetch_media_info(&http_client, &session, normalized_video_id, false).await?;
 
@@ -104,6 +106,7 @@ async fn resolve_replay_stream(
 }
 
 async fn resolve_live_stream(
+    scraper_agregator: &ScraperAgregator,
     credentials_store: &dyn CredentialsStore,
     channel_id: &str,
     stream_kind: Option<String>,
@@ -113,7 +116,7 @@ async fn resolve_live_stream(
         bail!("Missing TF1 live channel identifier.");
     }
 
-    let http_client = HttpClient::new(TF1_BASE_URL);
+    let http_client = scraper_agregator.create_http_client(Default::default());
     let session = get_or_login_session(&http_client, credentials_store).await?;
     let live_video_id = format!("L_{}", normalized_channel_id.to_uppercase());
     let media_info = fetch_media_info(&http_client, &session, &live_video_id, true).await?;
