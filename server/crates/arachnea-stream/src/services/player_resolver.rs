@@ -62,7 +62,12 @@ pub(crate) trait PlayerStreamResolver: Send + Sync {
     ) -> Result<ResolvedPlayerStream>;
 
     /// Handles a follow-up binary stream request owned by this resolver.
-    async fn get_stream(&self, stream_token: &str, body: &[u8]) -> Result<ProxiedStreamResponse>;
+    async fn get_stream(
+        &self,
+        scraper_agregator: &ScraperAgregator,
+        stream_token: &str,
+        body: &[u8],
+    ) -> Result<ProxiedStreamResponse>;
 }
 
 #[derive(Clone)]

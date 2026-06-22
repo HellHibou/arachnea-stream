@@ -159,10 +159,18 @@ impl ArachneaRquestLoopback {
     ) -> Result<rquest::Client> {
         let mut headers = HeaderMap::new();
         for (name, value) in parameters {
-            let header_name = HeaderName::from_bytes(name.as_bytes()).map_err(|error| {
+            let header = self
+                .parameter_definitions
+                .iter()
+                .find(|definition| {
+                    definition.name == name || definition.http_header.eq_ignore_ascii_case(name)
+                })
+                .map(|definition| definition.http_header.as_str())
+                .unwrap_or(name);
+            let header_name = HeaderName::from_bytes(header.as_bytes()).map_err(|error| {
                 ConnectorError::Rquest(format!(
                     "invalid proxy parameter header '{}': {error}",
-                    name
+                    header
                 ))
             })?;
 

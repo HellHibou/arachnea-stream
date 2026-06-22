@@ -87,7 +87,12 @@ impl PlayerStreamResolver for FrancetvResolver {
         }
     }
 
-    async fn get_stream(&self, stream_token: &str, body: &[u8]) -> Result<ProxiedStreamResponse> {
+    async fn get_stream(
+        &self,
+        _scraper_agregator: &ScraperAgregator,
+        stream_token: &str,
+        body: &[u8],
+    ) -> Result<ProxiedStreamResponse> {
         proxy_francetv_license_request(stream_token, body).await
     }
 }

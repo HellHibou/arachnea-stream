@@ -168,6 +168,8 @@ pub struct ScraperHttpConfig {
     pub user_agent_profile: Option<ScraperHttpUserAgentProfile>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_agent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy_country: Option<String>,
     #[serde(skip)]
     pub max_redirects: Option<usize>,
 }
@@ -178,6 +180,7 @@ impl ScraperHttpConfig {
         self.mode.is_none()
             && self.user_agent_profile.is_none()
             && self.user_agent.is_none()
+            && self.proxy_country.is_none()
             && self.max_redirects.is_none()
     }
 
@@ -191,8 +194,22 @@ impl ScraperHttpConfig {
                 .as_ref()
                 .or(self.user_agent.as_ref())
                 .cloned(),
+            proxy_country: child
+                .proxy_country
+                .as_ref()
+                .or(self.proxy_country.as_ref())
+                .map(|value| normalize_proxy_country(value)),
             max_redirects: child.max_redirects.or(self.max_redirects),
         }
+    }
+
+    /// Routes requests through a proxy country when a proxy core supports it.
+    ///
+    /// The country code is normalized with trim + uppercase before storage.
+    pub fn proxy_country(mut self, country: impl AsRef<str>) -> Self {
+        let country = normalize_proxy_country(country.as_ref());
+        self.proxy_country = (!country.is_empty()).then_some(country);
+        self
     }
 
     /// Returns the [`HttpRequestMode`] derived from this configuration.
@@ -213,6 +230,14 @@ impl ScraperHttpConfig {
             })
     }
 
+    /// Returns the normalized proxy country hint, if any.
+    fn proxy_country_hint(&self) -> Option<String> {
+        self.proxy_country
+            .as_ref()
+            .map(|value| normalize_proxy_country(value))
+            .filter(|value| !value.is_empty())
+    }
+
     /// Resolves collection parameters in template-capable HTTP options.
     pub fn resolve_collection_params(
         &mut self,
@@ -229,9 +254,22 @@ impl ScraperHttpConfig {
                 params,
             )?;
         }
+        if let Some(proxy_country) = self.proxy_country.as_mut() {
+            *proxy_country = normalize_proxy_country(&query_helpers::resolve_required_template(
+                context,
+                query_name,
+                "http.proxy_country",
+                proxy_country,
+                params,
+            )?);
+        }
 
         Ok(())
     }
+}
+
+fn normalize_proxy_country(country: &str) -> String {
+    country.trim().to_ascii_uppercase()
 }
 
 /// Installs a temporary HTTP router override used by integration/unit tests.
@@ -383,6 +421,9 @@ impl HttpClient {
             .max_redirects(self.http_config.max_redirects);
         if let Some(proxy) = proxy_state.proxy {
             builder = builder.proxy(proxy);
+        }
+        if let Some(proxy_country) = self.http_config.proxy_country_hint() {
+            builder = builder.proxy_parameter("country", proxy_country);
         }
         let config = builder.build()?;
         let client = Arc::new(ArachneaHttpClient::new(config).await?);
@@ -683,6 +724,62 @@ impl HttpClient {
         request_builder
             .send()
             .await
-            .map_err(|error| anyhow::anyhow!("Fetch fail {}: {}", url, error))
+            .with_context(|| format!("Fetch fail {}", url))
+    }
+
+    /// Sends an HTTP request with an optional binary body.
+    ///
+    /// # Arguments
+    ///
+    /// * `method` - HTTP verb used for the request.
+    /// * `url` - Absolute URL to request.
+    /// * `request_headers` - Additional headers applied to this request only.
+    /// * `request_body` - Optional raw request body.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails, if the response body cannot be read,
+    /// or if one custom header is invalid.
+    pub async fn send_bytes_for_request(
+        &self,
+        method: Method,
+        url: &str,
+        request_headers: &HashMap<String, String>,
+        request_body: Option<Vec<u8>>,
+    ) -> Result<ArachneaResponse> {
+        if let Some(router) = HTTP_CLIENT_ROUTER
+            .get_or_init(|| Mutex::new(None))
+            .lock()
+            .unwrap()
+            .as_ref()
+        {
+            let payload = router(self, url)?;
+            return Ok(ArachneaResponse::from_text(url, payload));
+        }
+
+        if url.starts_with("file://") {
+            return Ok(ArachneaResponse::from_text(
+                url,
+                std::fs::read_to_string(url.replacen("file://", "", 1))?,
+            ));
+        }
+
+        let http_client = self.http_client().await?;
+        let mut request_builder =
+            http_client.request_with_mode(method, url, self.http_config.request_mode());
+
+        if !request_headers.is_empty() {
+            request_builder =
+                request_builder.headers(header_map_from_strings(request_headers.clone())?);
+        }
+
+        if let Some(body) = request_body {
+            request_builder = request_builder.body(body);
+        }
+
+        request_builder
+            .send()
+            .await
+            .with_context(|| format!("Fetch fail {}", url))
     }
 }

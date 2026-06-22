@@ -39,6 +39,7 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 ## Server/HTTP
 
 - Décider si `arachnea-http` doit exposer une API `tower::Service` en plus du constructeur de requêtes fluide.
+- Supprimer ou rendre configurable le fallback temporaire de `tf1_resolver.rs` qui réessaie sans proxy FR quand le routage `proxy_country("FR")` échoue.
 - Évaluer une intégration future plus profonde avec `arachnea-proxy` pour le routage HTTP/SOCKS sans boucle locale lorsque les API des moteurs le permettent.
 - Ajouter des garde-fous optionnels d'usage responsable, comme de la limitation de débit, des délais entre requêtes, des reprises bornées, des vérifications de masquage des cookies et un support optionnel de `robots.txt` si le crate évolue vers du crawling.
 - Étendre les tests pour le parsing, l'expiration, la suppression, le filtrage domaine/path/secure des cookies, la détection Cloudflare, les reprises bornées, le masquage des cookies et les réponses locales simulant des challenges.

@@ -14,7 +14,11 @@ use arachnea_core::{
         resources, CredentialsStore, EncryptedFileCredentialsStore, FileCredentialsStore,
     },
 };
-use arachnea_proxy::core::{ArachneaProxyCore, EgressPool, ProxyNode};
+use arachnea_proxy::core::{
+    ArachneaProxyCore, ParameterHandlerConfig, ParameterHandlerKind, ParameterProxyRoute,
+    ProxyChain, ProxyConfig, ProxyNode, ProxyProfile, RoutePolicy, PROXY_HEADER_PARAMETER_COUNTRY,
+    PROXY_PARAMETER_COUNTRY,
+};
 use arachnea_scrapyfy::*;
 use arachnea_stream::StreamScraper;
 
@@ -192,22 +196,40 @@ async fn main() -> Result<()> {
             DEFAULT_SERVICES_CONFIG_PATH,
         ))?;
 
-    //*
-    // Configure proxy pool for the manager and proxy_http handler
-    let proxy_nodes = vec![ProxyNode::socks5("proxy-socks5-1",
-    //   "158.178.198.31:1080"
-      "62.133.62.3:1081"
-    )];
-    let proxy_pool = EgressPool::new("main-pool", proxy_nodes, None);
-    let pool_config = proxy_pool.config("main-chain");
+    manager.clear_proxy();
 
-    let proxy_core_for_http = match ArachneaProxyCore::new(pool_config) {
+    let proxy_fr = ProxyNode::from_url(
+        "proxy-fr",
+        "socks5://158.178.198.31:1080", // "socks5://62.133.62.3:1081"
+    )
+    .context("Failed to configure the FR proxy node")?;
+    let proxy_config = ProxyConfig {
+        profile: ProxyProfile::Advanced,
+        chains: vec![ProxyChain::direct()],
+        routing: RoutePolicy {
+            default_chain: Some("direct".to_string()),
+            ..RoutePolicy::default()
+        },
+        parameter_handlers: vec![ParameterHandlerConfig {
+            kind: ParameterHandlerKind::CountryRouting,
+            parameter_name: Some(PROXY_PARAMETER_COUNTRY.to_string()),
+            http_header: Some(PROXY_HEADER_PARAMETER_COUNTRY.to_string()),
+            forward_header: false,
+            stop_on_match: true,
+            routes: vec![ParameterProxyRoute {
+                value: "FR".to_string(),
+                proxy: proxy_fr,
+            }],
+        }],
+        ..ProxyConfig::default()
+    };
+
+    let _proxy_core_for_http = match ArachneaProxyCore::new(proxy_config) {
         Ok(proxy_core) => {
-            manager.set_proxy(HttpProxyConfig::Arachnea(proxy_core.clone()));
             manager
                 .get_scraper_agregator_mut()
                 .set_proxy_core(proxy_core.clone());
-            tracing::info!("Proxy core created for proxy_http handler");
+            tracing::info!("Proxy core created with FR country routing");
             Some(proxy_core)
         }
         Err(e) => {
@@ -218,7 +240,6 @@ async fn main() -> Result<()> {
             None
         }
     };
-    // */
     let web_assets = generated_embedded_web_assets();
 
     let mut controler: Box<dyn ControlerService> = if options.mode_server {

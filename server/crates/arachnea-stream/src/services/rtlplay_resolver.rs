@@ -32,7 +32,7 @@ const API_KEY: &str = "2W7kCXUTyUgKf7HKlK9qcYJvFmiPFaBEFT90eC2b";
 const POPCORN_SDK: &str = "8";
 const RTLPLAY_CUSTOMER_NAME: &str = "rtlbe";
 const RTLPLAY_SESSION_FALLBACK_TTL: Duration = Duration::from_secs(15 * 60);
-const RTLPLAY_AUTH_MAX_REDIRECTS: usize = 8;
+const RTLPLAY_AUTH_MAX_REDIRECTS: usize = 12;
 const GIGYA_COOKIE_NAME: &str =
     "gig_bootstrap_3_LGnnaXIFQ_VRXofTaFTGnc6q7pM923yFB0AXSWdxADsUT0y2dVdDKmPRyQMj7LMc";
 const GIGYA_COOKIE_VALUE: &str = "_gigya_ver4";
@@ -134,7 +134,12 @@ impl PlayerStreamResolver for RtlPlayResolver {
         }
     }
 
-    async fn get_stream(&self, stream_token: &str, body: &[u8]) -> Result<ProxiedStreamResponse> {
+    async fn get_stream(
+        &self,
+        _scraper_agregator: &ScraperAgregator,
+        stream_token: &str,
+        body: &[u8],
+    ) -> Result<ProxiedStreamResponse> {
         proxy_drm_today_license_request(stream_token, body).await
     }
 }

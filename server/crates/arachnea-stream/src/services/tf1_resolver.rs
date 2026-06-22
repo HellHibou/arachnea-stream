@@ -7,7 +7,10 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use arachnea_core::persistence::CredentialsStore;
-use arachnea_scrapyfy::{HttpClient, ScraperAgregator, ScraperQueryCollectionParameter};
+use arachnea_scrapyfy::{
+    ArachneaHttpError, HttpClient, ScraperAgregator, ScraperHttpConfig,
+    ScraperQueryCollectionParameter,
+};
 
 use crate::services::player_resolver::{
     normalize_stream_kind, PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream,
@@ -24,11 +27,13 @@ const TF1_MEDIA_INFO_URL_TEMPLATE: &str = "https://mediainfo.tf1.fr/mediainfocom
 const TF1_FALLBACK_LICENSE_URL_TEMPLATE: &str = "https://drm-wide.tf1.fr/proxy?id={}";
 const STREAM_PROXY_PATH_PREFIX: &str = "/api/get_stream/";
 const TF1_PROXY_STREAM_KIND: &str = "tf1-license-proxy";
+const TF1_PROXY_COUNTRY: &str = "FR";
 const TF1_SESSION_TTL: Duration = Duration::from_secs(15 * 60);
 const TF1_LICENSE_TTL: Duration = Duration::from_secs(15 * 60);
 
 static TF1_SESSION_CACHE: OnceLock<Mutex<HashMap<String, CachedTf1Session>>> = OnceLock::new();
 static TF1_LICENSE_CACHE: OnceLock<Mutex<HashMap<String, CachedTf1License>>> = OnceLock::new();
+static TF1_LOGIN_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
 #[derive(Clone)]
 struct Tf1Session {
@@ -93,8 +98,13 @@ impl PlayerStreamResolver for Tf1Resolver {
         }
     }
 
-    async fn get_stream(&self, stream_token: &str, body: &[u8]) -> Result<ProxiedStreamResponse> {
-        proxy_tf1_license_request(stream_token, body).await
+    async fn get_stream(
+        &self,
+        scraper_agregator: &ScraperAgregator,
+        stream_token: &str,
+        body: &[u8],
+    ) -> Result<ProxiedStreamResponse> {
+        proxy_tf1_license_request(scraper_agregator, stream_token, body).await
     }
 }
 
@@ -109,7 +119,53 @@ async fn resolve_replay_stream(
         bail!("Missing TF1 video identifier.");
     }
 
-    let http_client = scraper_agregator.create_http_client(Default::default());
+    for attempt in 1..=3 {
+        match resolve_replay_stream_with_config(
+            scraper_agregator,
+            credentials_store,
+            normalized_video_id,
+            stream_kind.clone(),
+            tf1_http_config(),
+        )
+        .await
+        {
+            Ok(stream) => return Ok(stream),
+            Err(error) if is_proxy_error(&error) => {
+                tracing::warn!(
+                    attempt,
+                    error = %error,
+                    "TF1 FR proxy failed while resolving replay stream"
+                );
+                if attempt < 3 {
+                    tokio::time::sleep(Duration::from_millis(250 * attempt)).await;
+                    continue;
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    }
+
+    tracing::warn!(
+        "TF1 FR proxy retries exhausted while resolving replay stream; retrying without FR proxy"
+    );
+    resolve_replay_stream_with_config(
+        scraper_agregator,
+        credentials_store,
+        normalized_video_id,
+        stream_kind,
+        ScraperHttpConfig::default(),
+    )
+    .await
+}
+
+async fn resolve_replay_stream_with_config(
+    scraper_agregator: &ScraperAgregator,
+    credentials_store: &dyn CredentialsStore,
+    normalized_video_id: &str,
+    stream_kind: Option<String>,
+    http_config: ScraperHttpConfig,
+) -> Result<ResolvedPlayerStream> {
+    let http_client = scraper_agregator.create_http_client(http_config);
     let session = get_or_login_session(&http_client, credentials_store).await?;
     let media_info = fetch_media_info(&http_client, &session, normalized_video_id, false).await?;
 
@@ -127,12 +183,71 @@ async fn resolve_live_stream(
         bail!("Missing TF1 live channel identifier.");
     }
 
-    let http_client = scraper_agregator.create_http_client(Default::default());
+    for attempt in 1..=3 {
+        match resolve_live_stream_with_config(
+            scraper_agregator,
+            credentials_store,
+            normalized_channel_id,
+            stream_kind.clone(),
+            tf1_http_config(),
+        )
+        .await
+        {
+            Ok(stream) => return Ok(stream),
+            Err(error) if is_proxy_error(&error) => {
+                tracing::warn!(
+                    attempt,
+                    error = %error,
+                    "TF1 FR proxy failed while resolving live stream"
+                );
+                if attempt < 3 {
+                    tokio::time::sleep(Duration::from_millis(250 * attempt)).await;
+                    continue;
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    }
+
+    tracing::warn!(
+        "TF1 FR proxy retries exhausted while resolving live stream; retrying without FR proxy"
+    );
+    resolve_live_stream_with_config(
+        scraper_agregator,
+        credentials_store,
+        normalized_channel_id,
+        stream_kind,
+        ScraperHttpConfig::default(),
+    )
+    .await
+}
+
+async fn resolve_live_stream_with_config(
+    scraper_agregator: &ScraperAgregator,
+    credentials_store: &dyn CredentialsStore,
+    normalized_channel_id: &str,
+    stream_kind: Option<String>,
+    http_config: ScraperHttpConfig,
+) -> Result<ResolvedPlayerStream> {
+    let http_client = scraper_agregator.create_http_client(http_config);
     let session = get_or_login_session(&http_client, credentials_store).await?;
     let live_video_id = format!("L_{}", normalized_channel_id.to_uppercase());
     let media_info = fetch_media_info(&http_client, &session, &live_video_id, true).await?;
 
     build_resolved_player_stream(&http_client, &live_video_id, &media_info, stream_kind).await
+}
+
+fn tf1_http_config() -> ScraperHttpConfig {
+    ScraperHttpConfig::default().proxy_country(TF1_PROXY_COUNTRY)
+}
+
+fn is_proxy_error(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        matches!(
+            cause.downcast_ref::<ArachneaHttpError>(),
+            Some(ArachneaHttpError::Proxy(_))
+        )
+    })
 }
 
 async fn build_resolved_player_stream(
@@ -163,10 +278,14 @@ async fn build_resolved_player_stream(
         &["url"],
         "Missing TF1 media manifest URL in mediainfo response.",
     )?;
-    let manifest_url = http_client
+    let manifest_url_result = http_client
         .resolve_final_url_for_request(http::Method::GET, &raw_manifest_url, &HashMap::new(), None)
-        .await
-        .unwrap_or(raw_manifest_url);
+        .await;
+    let manifest_url = match manifest_url_result {
+        Ok(url) => url,
+        Err(error) if is_proxy_error(&error) => return Err(error),
+        Err(_) => raw_manifest_url,
+    };
     let manifest_type = manifest_type_from_url(&manifest_url);
 
     let fallback_license_url = TF1_FALLBACK_LICENSE_URL_TEMPLATE.replace("{}", video_id.trim());
@@ -195,6 +314,14 @@ async fn get_or_login_session(
 ) -> Result<Tf1Session> {
     let (login, password) = load_credentials(credentials_store)?;
 
+    if let Some(session) = load_cached_session(&login) {
+        return Ok(session);
+    }
+
+    let _login_guard = TF1_LOGIN_LOCK
+        .get_or_init(|| tokio::sync::Mutex::new(()))
+        .lock()
+        .await;
     if let Some(session) = load_cached_session(&login) {
         return Ok(session);
     }
@@ -387,13 +514,7 @@ async fn fetch_media_info(
     let response = http_client
         .send_for_request(http::Method::GET, &url, &headers, None)
         .await
-        .map_err(|error| {
-            anyhow::anyhow!(
-                "Failed to fetch TF1 mediainfo for `{}`: {}",
-                video_id,
-                error
-            )
-        })?;
+        .with_context(|| format!("Failed to fetch TF1 mediainfo for `{}`.", video_id))?;
     let status = response.status();
     let body = response
         .text()
@@ -625,8 +746,52 @@ fn load_cached_license(token: &str) -> Option<CachedTf1License> {
 }
 
 async fn proxy_tf1_license_request(
+    scraper_agregator: &ScraperAgregator,
     token: &str,
     challenge_body: &[u8],
+) -> Result<ProxiedStreamResponse> {
+    for attempt in 1..=3 {
+        match proxy_tf1_license_request_with_config(
+            scraper_agregator,
+            token,
+            challenge_body,
+            tf1_http_config(),
+        )
+        .await
+        {
+            Ok(response) => return Ok(response),
+            Err(error) if is_proxy_error(&error) => {
+                tracing::warn!(
+                    attempt,
+                    error = %error,
+                    "TF1 FR proxy failed while proxying license request"
+                );
+                if attempt < 3 {
+                    tokio::time::sleep(Duration::from_millis(250 * attempt)).await;
+                    continue;
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    }
+
+    tracing::warn!(
+        "TF1 FR proxy retries exhausted while proxying license request; retrying without FR proxy"
+    );
+    proxy_tf1_license_request_with_config(
+        scraper_agregator,
+        token,
+        challenge_body,
+        ScraperHttpConfig::default(),
+    )
+    .await
+}
+
+async fn proxy_tf1_license_request_with_config(
+    scraper_agregator: &ScraperAgregator,
+    token: &str,
+    challenge_body: &[u8],
+    http_config: ScraperHttpConfig,
 ) -> Result<ProxiedStreamResponse> {
     let normalized_token = token.trim();
     if normalized_token.is_empty() {
@@ -639,15 +804,10 @@ async fn proxy_tf1_license_request(
         bail!("Unsupported TF1 stream kind `{}`.", cached.stream_kind);
     }
 
-    let mut request = rquest::Client::builder()
-        .user_agent(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:148.0) Gecko/20100101 Firefox/148.0",
-        )
-        .timeout(Duration::from_secs(25))
-        .build()
-        .context("Failed to build the TF1 license proxy client.")?
-        .post(cached.license_url.trim())
-        .header("content-type", "application/octet-stream");
+    let mut request_headers = HashMap::from([(
+        "content-type".to_string(),
+        "application/octet-stream".to_string(),
+    )]);
 
     for (name, value) in &cached.headers {
         let trimmed_name = name.trim();
@@ -656,19 +816,24 @@ async fn proxy_tf1_license_request(
             continue;
         }
 
-        request = request.header(trimmed_name, trimmed_value);
+        request_headers.insert(trimmed_name.to_string(), trimmed_value.to_string());
     }
 
-    let response = request
-        .body(challenge_body.to_vec())
-        .send()
+    let http_client = scraper_agregator.create_http_client(http_config);
+    let response = http_client
+        .send_bytes_for_request(
+            http::Method::POST,
+            cached.license_url.trim(),
+            &request_headers,
+            Some(challenge_body.to_vec()),
+        )
         .await
         .context("Failed to call the TF1 Widevine license server.")?;
 
     let status = response.status();
     let content_type = response
         .headers()
-        .get(rquest::header::CONTENT_TYPE)
+        .get(http::header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
         .map(|value| value.to_string())
         .unwrap_or_else(|| "application/octet-stream".to_string());

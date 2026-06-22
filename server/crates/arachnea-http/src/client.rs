@@ -79,7 +79,7 @@ impl PreparedProxyRuntime {
                     ArachneaRquestLoopback::start(core.clone())
                         .await
                         .map_err(|err| {
-                            ArachneaHttpError::Network(format!(
+                            ArachneaHttpError::Proxy(format!(
                                 "failed to start arachnea-proxy loopback helper: {err}"
                             ))
                         })?,
@@ -107,6 +107,41 @@ impl PreparedProxyRuntime {
                 .map(|loopback| loopback.proxy_url()),
             HttpProxyConfig::Disabled => None,
         }
+    }
+
+    /// Builds a rquest client configured with proxy transport and parameters.
+    #[cfg(feature = "arachnea-proxy")]
+    fn rquest_client(
+        &self,
+        config: &ArachneaHttpConfig,
+    ) -> Result<Option<rquest::Client>, ArachneaHttpError> {
+        let Some(loopback) = self.loopback_proxy.as_deref() else {
+            return Ok(None);
+        };
+        if config.proxy_parameters.is_empty() {
+            return loopback
+                .client()
+                .map(Some)
+                .map_err(|err| ArachneaHttpError::Proxy(err.to_string()));
+        }
+        loopback
+            .client_with_parameters(
+                config
+                    .proxy_parameters
+                    .iter()
+                    .map(|(name, value)| (name.as_str(), value.as_str())),
+            )
+            .map(Some)
+            .map_err(|err| ArachneaHttpError::Proxy(err.to_string()))
+    }
+
+    /// Builds a rquest client configured with proxy transport and parameters.
+    #[cfg(not(feature = "arachnea-proxy"))]
+    fn rquest_client(
+        &self,
+        _config: &ArachneaHttpConfig,
+    ) -> Result<Option<rquest::Client>, ArachneaHttpError> {
+        Ok(None)
     }
 }
 
@@ -200,6 +235,7 @@ impl ArachneaHttpClient {
             Some(RquestEngine::new(
                 &config,
                 proxy_runtime.proxy_url(&config),
+                proxy_runtime.rquest_client(&config)?,
             )?)
         };
         let smart_cloudflare_engine =
@@ -902,9 +938,13 @@ impl ArachneaHttpClient {
         let response = if let Some(rquest) = self.rquest.as_ref() {
             rquest.send(request).await?
         } else {
-            RquestEngine::new(&self.config, self._proxy_runtime.proxy_url(&self.config))?
-                .send(request)
-                .await?
+            RquestEngine::new(
+                &self.config,
+                self._proxy_runtime.proxy_url(&self.config),
+                self._proxy_runtime.rquest_client(&self.config)?,
+            )?
+            .send(request)
+            .await?
         };
         self.store_response_cookies(&response.url, &response.headers)
             .await?;

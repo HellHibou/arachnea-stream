@@ -568,7 +568,9 @@ impl StreamScraper {
             .unwrap_or(("m6play-fr", stream_token));
         let resolver = player_resolver_for_source(source)
             .ok_or_else(|| anyhow::anyhow!("Unsupported stream source `{}`.", source))?;
-        let response = resolver.get_stream(token, &input.body).await?;
+        let response = resolver
+            .get_stream(&self.scraper_agregator, token, &input.body)
+            .await?;
 
         Ok(ControlerStreamOutput {
             status: 200,

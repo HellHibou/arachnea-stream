@@ -57,6 +57,16 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ### Fixed
 - **Silent regression on `StaticScraperQuery`**: the unified executor's `FetchedResponse::Static` branch in `extract_items` was downcasting `&dyn ScraperEntrySpec` to `&JsonScraperEntry`, which always failed for the actual `StaticScraperEntryRaw` instances. The result was an empty `ScraperDataNode` for every static query — observable on `m6play-fr.yaml`'s `service_stream_metadata` (`get_service` returning `{}` instead of `{ id, title, logo, description }`) and on every other YAML using `scraper_type: static`. Fixed by adding `StaticScraperEntryRaw::apply_to` (concrete method, mirrors the legacy `StaticScraperQuery::execute_query` template pipeline using the already-present `split_static_path` / `render_yaml_value` / `render_yaml_values` helpers) and a dedicated downcast branch in `extract_items` that calls it. `extract_items` now returns `Result<Vec<ScraperDataNode>>` to surface unresolvable template placeholders instead of silently producing empty items.
 
+## Unreleased — TF1 FR proxy routing
+
+### Added
+- **Scraper HTTP proxy country hint**: `ScraperHttpConfig::proxy_country(...)` now normalizes country values and passes them through the HTTP proxy parameter path so resolvers can request country-specific proxy routing without replacing the existing `create_http_client(...)` flow.
+- **Catchable HTTP proxy errors**: `arachnea-http` now exposes `ArachneaHttpError::Proxy` for configured proxy transport failures, allowing resolvers to distinguish proxy failures from upstream service failures.
+
+### Changed
+- **TF1 resolver FR routing**: TF1 resolver HTTP calls now request `proxy_country("FR")`, including license proxy calls. When that FR proxy path fails, TF1 logs a warning and retries without the FR country hint as a temporary workaround.
+- **Stream proxy configuration**: `arachnea-stream` now configures the FR proxy with `ProxyNode::from_url("proxy-fr", "socks5://...")` and a `country_routing` handler instead of making the SOCKS proxy the default route for all HTTP traffic.
+
 ## Unreleased — chaser-cf request header forwarding fix
 
 ### Fixed

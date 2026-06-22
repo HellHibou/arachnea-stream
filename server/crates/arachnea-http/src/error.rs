@@ -13,6 +13,9 @@ pub enum ArachneaHttpError {
     /// An outbound network request failed.
     #[error("network error: {0}")]
     Network(String),
+    /// A configured proxy transport or proxy route failed.
+    #[error("proxy error: {0}")]
+    Proxy(String),
     /// The server returned an HTTP status that the caller asked to treat as an error.
     #[error("HTTP status error: {status}")]
     HttpStatus {

@@ -11,6 +11,8 @@ use crate::{
 pub(crate) struct RquestEngine {
     /// Reused underlying rquest client.
     client: rquest::Client,
+    /// Whether this client routes through a configured proxy transport.
+    uses_proxy: bool,
 }
 
 impl RquestEngine {
@@ -30,7 +32,16 @@ impl RquestEngine {
     pub(crate) fn new(
         config: &ArachneaHttpConfig,
         proxy_url: Option<&str>,
+        client_override: Option<rquest::Client>,
     ) -> Result<Self, ArachneaHttpError> {
+        if let Some(client) = client_override {
+            return Ok(Self {
+                client,
+                uses_proxy: true,
+            });
+        }
+
+        let uses_proxy = proxy_url.is_some();
         let mut builder = rquest::Client::builder()
             .timeout(config.request_timeout)
             .user_agent(config.user_agent_profile.user_agent())
@@ -45,7 +56,7 @@ impl RquestEngine {
         let client = builder
             .build()
             .map_err(|err| ArachneaHttpError::Network(err.to_string()))?;
-        Ok(Self { client })
+        Ok(Self { client, uses_proxy })
     }
 }
 
@@ -72,7 +83,8 @@ impl HttpEngine for RquestEngine {
     ///
     /// # Errors
     ///
-    /// Returns `Network` when request execution or body collection fails.
+    /// Returns `Proxy` for failures through a configured proxy transport and
+    /// `Network` for direct request execution or body collection failures.
     async fn send(&self, request: EngineRequest) -> Result<EngineResponse, ArachneaHttpError> {
         let mut builder = self.client.request(request.method, &request.url);
         for (name, value) in &request.headers {
@@ -82,17 +94,23 @@ impl HttpEngine for RquestEngine {
             builder = builder.body(body);
         }
 
-        let response = builder
-            .send()
-            .await
-            .map_err(|err| ArachneaHttpError::Network(err.to_string()))?;
+        let response = builder.send().await.map_err(|err| {
+            if self.uses_proxy {
+                ArachneaHttpError::Proxy(err.to_string())
+            } else {
+                ArachneaHttpError::Network(err.to_string())
+            }
+        })?;
         let status = response.status();
         let headers = response.headers().clone();
         let url = response.url().to_string();
-        let body = response
-            .bytes()
-            .await
-            .map_err(|err| ArachneaHttpError::Network(err.to_string()))?;
+        let body = response.bytes().await.map_err(|err| {
+            if self.uses_proxy {
+                ArachneaHttpError::Proxy(err.to_string())
+            } else {
+                ArachneaHttpError::Network(err.to_string())
+            }
+        })?;
 
         Ok(EngineResponse {
             url,

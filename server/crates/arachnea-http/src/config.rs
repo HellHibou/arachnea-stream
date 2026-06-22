@@ -454,6 +454,8 @@ pub struct ArachneaHttpConfig {
     pub user_agent_profile: BrowserProfile,
     /// Transport override applied to engines that support proxy configuration.
     pub proxy: HttpProxyConfig,
+    /// Request routing parameters sent to proxy transports that support them.
+    pub proxy_parameters: Vec<(String, String)>,
     /// Margin before cookie expiry where Cloudflare cookies are proactively refreshed.
     pub cookie_refresh_margin: Duration,
     /// Timeout applied to outbound HTTP requests.
@@ -496,6 +498,7 @@ impl Default for ArachneaHttpConfig {
             cloudflare_browser_solver: CloudflareBrowserSolverKind::Auto,
             user_agent_profile: BrowserProfile::default(),
             proxy: HttpProxyConfig::Disabled,
+            proxy_parameters: Vec::new(),
             cookie_refresh_margin: Duration::from_secs(300),
             request_timeout: Duration::from_secs(30),
             max_redirects: None,
@@ -703,6 +706,26 @@ impl ArachneaHttpConfigBuilder {
     #[cfg(feature = "arachnea-proxy")]
     pub fn proxy_core(mut self, core: ArachneaProxyCore) -> Self {
         self.config.proxy = HttpProxyConfig::Arachnea(core);
+        self
+    }
+
+    /// Adds one request routing parameter for proxy transports.
+    ///
+    /// Parameters are interpreted by the configured `arachnea-proxy` core when
+    /// the transport supports proxy-level request hints.
+    ///
+    /// # Parameters
+    ///
+    /// - `name`: Proxy parameter name such as `country`.
+    /// - `value`: Parameter value such as `FR`.
+    ///
+    /// # Returns
+    ///
+    /// The updated builder.
+    pub fn proxy_parameter(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.config
+            .proxy_parameters
+            .push((name.into(), value.into()));
         self
     }
 
