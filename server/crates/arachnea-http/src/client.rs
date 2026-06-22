@@ -1022,9 +1022,9 @@ impl ArachneaHttpClient {
         let cookie = self.cookies.write().await.cookie_header_for(&options.url)?;
         let user_agent = self.cloudflare_user_agent_for_url(&options.url).await?;
         let mut headers = self.base_headers(cookie, user_agent.as_deref())?;
-        debug!("headers:{:?}",  headers);
-        debug!("cookies:{:?}",  self.cookies);
         headers.extend(options.headers);
+        debug!("headers:{:?}", redacted_headers(&headers));
+        debug!("cookies:{:?}", self.cookies);
         Ok(EngineRequest {
             method: options.method,
             url: options.url,
@@ -1529,6 +1529,24 @@ fn should_rewrite_redirect_to_get(status: StatusCode, method: &Method) -> bool {
     status == StatusCode::SEE_OTHER
         || status == StatusCode::FOUND
         || status == StatusCode::MOVED_PERMANENTLY
+}
+
+fn redacted_headers(headers: &HeaderMap) -> HashMap<String, String> {
+    headers
+        .iter()
+        .map(|(name, value)| {
+            let header_name = name.as_str().to_ascii_lowercase();
+            let header_value = if header_name == "authorization" || header_name == "cookie" {
+                "<redacted>".to_string()
+            } else {
+                value
+                    .to_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|_| "<non-utf8>".to_string())
+            };
+            (header_name, header_value)
+        })
+        .collect()
 }
 
 #[cfg(test)]

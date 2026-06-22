@@ -13,7 +13,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use arachnea_core::persistence::CredentialsStore;
 use arachnea_scrapyfy::{
-    HttpClient, ScraperAgregator, ScraperHttpConfig, ScraperHttpMode, ScraperQueryCollectionParameter,
+    HttpClient, ScraperAgregator, ScraperHttpConfig, ScraperQueryCollectionParameter,
 };
 
 use crate::services::player_resolver::{
@@ -23,6 +23,7 @@ use crate::services::player_resolver::{
 
 const RTLPLAY_SERVICE_ID: &str = "rtlplay-be";
 const BASE_URL: &str = "https://www.rtlplay.be/rtlplay";
+const SSO_BASE_URL: &str = "https://sso.rtl.be/";
 const URL_CONFIG_TEMPLATE: &str = "https://videoplayer-service.dpgmedia.net/play-config/{}";
 const URL_SSO_LOGIN: &str = "https://sso.rtl.be/api/account/login";
 const URL_SSO_AUTH: &str = "https://sso.rtl.be/oidc/account/authenticate";
@@ -31,6 +32,7 @@ const API_KEY: &str = "2W7kCXUTyUgKf7HKlK9qcYJvFmiPFaBEFT90eC2b";
 const POPCORN_SDK: &str = "8";
 const RTLPLAY_CUSTOMER_NAME: &str = "rtlbe";
 const RTLPLAY_SESSION_FALLBACK_TTL: Duration = Duration::from_secs(15 * 60);
+const RTLPLAY_AUTH_MAX_REDIRECTS: usize = 8;
 const GIGYA_COOKIE_NAME: &str =
     "gig_bootstrap_3_LGnnaXIFQ_VRXofTaFTGnc6q7pM923yFB0AXSWdxADsUT0y2dVdDKmPRyQMj7LMc";
 const GIGYA_COOKIE_VALUE: &str = "_gigya_ver4";
@@ -149,10 +151,11 @@ async fn resolve_replay_stream(
         bail!("Missing RTL Play video identifier.");
     }
 
-    let http_client = scraper_agregator.create_http_client(Default::default());
+    let http_client = scraper_agregator.create_http_client(rtlplay_http_config());
     let session = get_or_login_session(&http_client, credentials_store).await?;
     let video_url = format!("{}/player/{}", BASE_URL, normalized_video_id);
-    let resolved = resolve_final_video_url(&http_client, &session, &video_url, false, api_version).await?;
+    let resolved =
+        resolve_final_video_url(&http_client, &session, &video_url, false, api_version).await?;
 
     build_resolved_player_stream(resolved, stream_kind)
 }
@@ -165,11 +168,12 @@ async fn resolve_live_stream(
     api_version: &RtlPlayApiVersion,
 ) -> Result<ResolvedPlayerStream> {
     let normalized_channel = normalize_live_channel(channel_id)?;
-  
-    let http_client = scraper_agregator.create_http_client(Default::default());
+
+    let http_client = scraper_agregator.create_http_client(rtlplay_http_config());
     let session = get_or_login_session(&http_client, credentials_store).await?;
     let video_url = format!("{}/direct/{}", BASE_URL, normalized_channel.as_str());
-    let resolved = resolve_final_video_url(&http_client, &session, &video_url, true, api_version).await?;
+    let resolved =
+        resolve_final_video_url(&http_client, &session, &video_url, true, api_version).await?;
     build_resolved_player_stream(resolved, stream_kind)
 }
 
@@ -199,6 +203,13 @@ fn build_resolved_player_stream(
     })
 }
 
+fn rtlplay_http_config() -> ScraperHttpConfig {
+    ScraperHttpConfig {
+        max_redirects: Some(RTLPLAY_AUTH_MAX_REDIRECTS),
+        ..Default::default()
+    }
+}
+
 async fn get_or_login_session(
     http_client: &HttpClient,
     credentials_store: &dyn CredentialsStore,
@@ -209,21 +220,14 @@ async fn get_or_login_session(
         return Ok(session);
     }
 
-    let mut seen_cookies = HashMap::from([
-        (GIGYA_COOKIE_NAME.to_string(), GIGYA_COOKIE_VALUE.to_string()),
-    ]);
+    let mut seen_cookies = HashMap::new();
 
     // Warm-up: fetch the RTL Play root page to obtain initial cookies
-    let response_text = http_client
-        .query_http_for_request(
-            http::Method::GET,
-            BASE_URL,
-            &generic_hash_headers(),
-            None,
-        )
+    http_client
+        .send_for_request(http::Method::GET, BASE_URL, &generic_hash_headers(), None)
         .await
         .context("Failed to fetch the RTL Play root page before login.")?;
-    collect_cookies_from_response(&response_text, &mut seen_cookies);
+    merge_seen_cookies_for_url(BASE_URL, &mut seen_cookies).await?;
 
     seen_cookies
         .get("lfvp_device_id")
@@ -231,13 +235,21 @@ async fn get_or_login_session(
         .filter(|value| !value.trim().is_empty())
         .context("Missing RTL Play device cookie after root page warm-up.")?;
 
-    // Store cookies for subsequent requests
+    seen_cookies.insert("lfvp_auth.redirect_uri".to_string(), BASE_URL.to_string());
     HttpClient::store_cookies_for_url(BASE_URL, &seen_cookies).await?;
+    HttpClient::store_cookies_for_url(
+        SSO_BASE_URL,
+        &HashMap::from([(
+            GIGYA_COOKIE_NAME.to_string(),
+            GIGYA_COOKIE_VALUE.to_string(),
+        )]),
+    )
+    .await?;
 
     // Fetch the SSO redirect URLs
     let connexion_url = format!("{}/connexion", BASE_URL);
     let redirect_response = http_client
-        .query_http_for_request(
+        .send_for_request(
             http::Method::GET,
             &connexion_url,
             &generic_hash_headers(),
@@ -245,9 +257,16 @@ async fn get_or_login_session(
         )
         .await
         .context("Failed to follow the RTL Play SSO redirect.")?;
-    collect_cookies_from_response(&redirect_response, &mut seen_cookies);
+    merge_seen_cookies_for_url(BASE_URL, &mut seen_cookies).await?;
+    merge_seen_cookies_for_url(SSO_BASE_URL, &mut seen_cookies).await?;
 
-    let sso_redirect_urls = extract_sso_urls(&redirect_response);
+    let sso_redirect_urls = extract_sso_urls(
+        redirect_response.url(),
+        &redirect_response
+            .text()
+            .await
+            .context("Failed to decode the RTL Play connexion page.")?,
+    );
     if sso_redirect_urls.is_empty() {
         bail!("Missing RTL Play SSO redirect URL.");
     }
@@ -296,15 +315,12 @@ async fn get_or_login_session(
         .to_string();
 
         let auth_response = http_client
-            .query_http_for_request(
-                http::Method::GET,
-                &auth_url,
-                &generic_hash_headers(),
-                None,
-            )
+            .send_for_request(http::Method::GET, &auth_url, &generic_hash_headers(), None)
             .await
             .context("Failed to authenticate the RTL Play SSO session.")?;
-        collect_cookies_from_response(&auth_response, &mut seen_cookies);
+        merge_seen_cookies_for_url(BASE_URL, &mut seen_cookies).await?;
+        merge_seen_cookies_for_url(SSO_BASE_URL, &mut seen_cookies).await?;
+        merge_seen_cookies_for_url(auth_response.url(), &mut seen_cookies).await?;
 
         if seen_cookies
             .get("lfvp_rtlplay_auth")
@@ -458,47 +474,16 @@ fn select_dash_stream(payload: &Value) -> Option<ResolvedRtlPlayVideo> {
     None
 }
 
-/// Collects Set-Cookie headers from a response string into the cookies map.
-fn collect_cookies_from_response(response: &str, cookies: &mut HashMap<String, String>) {
-    // Simple cookie parsing from response headers is not directly available from HttpClient
-    // The cookies set during login are stored via `store_cookies_for_url` and reused
-    // through the global cookie cache in subsequent requests.
-    // We parse Set-Cookie-like patterns from HTML meta or script tags for SSO.
-    //
-    // For this specific flow, we rely on the global cookie cache. The cookies we need
-    // (lfvp_rtlplay_auth, lfvp_device_id) are set by redirect responses. Since HttpClient
-    // and ArachneaHttpClient use a global cookie jar, they are automatically managed.
-    //
-    // We still track lfvp_device_id manually since it comes from the initial root page.
-    for line in response.lines() {
-        // Try to extract cookies from script-set document.cookie patterns
-        if let Some(cookie_part) = line.split("lfvp_device_id=").nth(1) {
-            let value = cookie_part
-                .split(|c: char| c == ';' || c == '"' || c == '\'')
-                .next()
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            if !value.is_empty() {
-                cookies.insert("lfvp_device_id".to_string(), value);
-            }
-        }
-        if let Some(cookie_part) = line.split("lfvp_rtlplay_auth=").nth(1) {
-            let value = cookie_part
-                .split(|c: char| c == ';' || c == '"' || c == '\'')
-                .next()
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            if !value.is_empty() {
-                cookies.insert("lfvp_rtlplay_auth".to_string(), value);
-            }
-        }
-    }
+async fn merge_seen_cookies_for_url(
+    url: &str,
+    cookies: &mut HashMap<String, String>,
+) -> Result<()> {
+    cookies.extend(HttpClient::cookies_for_url(url).await?);
+    Ok(())
 }
 
-/// Extracts SSO redirect URLs from the response HTML of the connexion page.
-fn extract_sso_urls(response: &str) -> Vec<String> {
+/// Extracts SSO redirect URLs from the connexion flow.
+fn extract_sso_urls(response_url: &str, response: &str) -> Vec<String> {
     let re = NEXT_DATA_REGEX.get_or_init(|| {
         Regex::new(r#"(?s)<script[^>]*\bid=["']__NEXT_DATA__["'][^>]*>(.*?)</script>"#)
             .expect("valid NEXT_DATA regex")
@@ -514,13 +499,20 @@ fn extract_sso_urls(response: &str) -> Vec<String> {
                 }
             }
         }
-        return urls;
+        if !urls.is_empty() {
+            return urls;
+        }
+
+        return extract_sso_urls_from_final_url(response_url);
     };
 
     let json_str = captures.get(1).map(|m| m.as_str()).unwrap_or("");
     if let Ok(next_data) = serde_json::from_str::<Value>(json_str) {
         let props = next_data.get("props").and_then(|v| v.get("pageProps"));
-        if let Some(urls) = props.and_then(|p| p.get("ssoUrls")).and_then(Value::as_array) {
+        if let Some(urls) = props
+            .and_then(|p| p.get("ssoUrls"))
+            .and_then(Value::as_array)
+        {
             return urls
                 .iter()
                 .filter_map(|v| v.as_str().map(|s| s.to_string()))
@@ -528,7 +520,7 @@ fn extract_sso_urls(response: &str) -> Vec<String> {
         }
     }
 
-    Vec::new()
+    extract_sso_urls_from_final_url(response_url)
 }
 
 fn extract_sso_url_from_line(line: &str) -> Option<String> {
@@ -536,6 +528,57 @@ fn extract_sso_url_from_line(line: &str) -> Option<String> {
     re.captures(line)
         .and_then(|c| c.get(1))
         .map(|m| m.as_str().to_string())
+}
+
+fn extract_sso_urls_from_final_url(response_url: &str) -> Vec<String> {
+    let Ok(url) = Url::parse(response_url) else {
+        return Vec::new();
+    };
+    let Some(fragment) = url.fragment() else {
+        return Vec::new();
+    };
+    let Some((_, query)) = fragment.split_once('?') else {
+        return Vec::new();
+    };
+
+    let Ok(fragment_url) = Url::parse(&format!("https://sso.rtl.be/?{query}")) else {
+        return Vec::new();
+    };
+
+    let mut oidc_callback = None;
+    for (name, value) in fragment_url.query_pairs() {
+        if name == "oidc_callback" {
+            let value = value.trim();
+            if !value.is_empty() {
+                oidc_callback = Some(value.to_string());
+                break;
+            }
+        }
+    }
+
+    let Some(oidc_callback) = oidc_callback else {
+        return Vec::new();
+    };
+
+    let login_return_url = format!(
+        "/oidc/account/login?ReturnUrl={}",
+        encode_query_value(&oidc_callback)
+    );
+
+    vec![login_return_url, oidc_callback]
+}
+
+fn encode_query_value(value: &str) -> String {
+    let mut encoded = String::new();
+    for byte in value.as_bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                encoded.push(*byte as char)
+            }
+            _ => encoded.push_str(&format!("%{:02X}", byte)),
+        }
+    }
+    encoded
 }
 
 fn rtlplay_player_cookies(cookies: &HashMap<String, String>) -> HashMap<String, String> {
@@ -588,17 +631,13 @@ fn generic_hash_headers() -> HashMap<String, String> {
             "fr,fr-FR;q=0.8,en-US;q=0.5,en;q=0.3".to_string(),
         ),
         ("connection".to_string(), "keep-alive".to_string()),
-        (
-            "upgrade-insecure-requests".to_string(),
-            "1".to_string(),
-        ),
+        ("upgrade-insecure-requests".to_string(), "1".to_string()),
         ("sec-fetch-dest".to_string(), "document".to_string()),
         ("sec-fetch-mode".to_string(), "navigate".to_string()),
         ("sec-fetch-site".to_string(), "none".to_string()),
         ("sec-fetch-user".to_string(), "?1".to_string()),
         ("sec-gpc".to_string(), "1".to_string()),
         ("priority".to_string(), "u=0, i".to_string()),
-        (GIGYA_COOKIE_NAME.to_string(), GIGYA_COOKIE_VALUE.to_string()),
     ])
 }
 

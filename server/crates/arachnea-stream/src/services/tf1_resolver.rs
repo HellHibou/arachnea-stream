@@ -68,11 +68,22 @@ impl PlayerStreamResolver for Tf1Resolver {
     ) -> Result<ResolvedPlayerStream> {
         match resolver_kind.trim() {
             "tf1-video" => {
-                resolve_replay_stream(scraper_agregator, credentials_store, resolver_target, resolver_stream_kind)
-                    .await
+                resolve_replay_stream(
+                    scraper_agregator,
+                    credentials_store,
+                    resolver_target,
+                    resolver_stream_kind,
+                )
+                .await
             }
             "tf1-live" => {
-                resolve_live_stream(scraper_agregator, credentials_store, resolver_target, resolver_stream_kind).await
+                resolve_live_stream(
+                    scraper_agregator,
+                    credentials_store,
+                    resolver_target,
+                    resolver_stream_kind,
+                )
+                .await
             }
             kind => bail!(
                 "Unsupported player resolver `{}` for source `{}`.",
@@ -357,9 +368,15 @@ async fn fetch_media_info(
 
     let headers = HashMap::from([
         (
+            "accept".to_string(),
+            "application/json, text/plain, */*".to_string(),
+        ),
+        (
             "authorization".to_string(),
             format!("Bearer {}", session.token),
         ),
+        ("origin".to_string(), TF1_BASE_URL.to_string()),
+        ("referer".to_string(), format!("{}/", TF1_BASE_URL)),
         (
             "user-agent".to_string(),
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:148.0) Gecko/20100101 Firefox/148.0"
@@ -367,10 +384,39 @@ async fn fetch_media_info(
         ),
     ]);
 
-    http_client
-        .get_json_for_request(http::Method::GET, &url, &headers, None)
+    let response = http_client
+        .send_for_request(http::Method::GET, &url, &headers, None)
         .await
-        .with_context(|| format!("Failed to fetch TF1 mediainfo for `{}`.", video_id))
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "Failed to fetch TF1 mediainfo for `{}`: {}",
+                video_id,
+                error
+            )
+        })?;
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .with_context(|| format!("Failed to read TF1 mediainfo response for `{}`.", video_id))?;
+
+    if !status.is_success() {
+        bail!(
+            "TF1 mediainfo request for `{}` failed with HTTP {}: {}",
+            video_id,
+            status,
+            preview_error_body(&body)
+        );
+    }
+
+    serde_json::from_str(&body).with_context(|| {
+        format!(
+            "Invalid TF1 mediainfo JSON for `{}` (HTTP {}): {}",
+            video_id,
+            status,
+            preview_error_body(&body)
+        )
+    })
 }
 
 fn bail_on_gigya_error(payload: &Value, default_message: &str) -> Result<()> {
@@ -462,6 +508,19 @@ fn read_json_string(payload: &Value, path: &[&str], error_message: &str) -> Resu
     }
 
     bail!(error_message.to_string())
+}
+
+fn preview_error_body(body: &str) -> String {
+    let value = body.trim();
+    if value.is_empty() {
+        return "<empty body>".to_string();
+    }
+
+    let mut preview: String = value.chars().take(300).collect();
+    if value.chars().count() > 300 {
+        preview.push_str("...");
+    }
+    preview
 }
 
 fn load_credentials(credentials_store: &dyn CredentialsStore) -> Result<(String, String)> {

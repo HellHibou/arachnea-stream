@@ -397,9 +397,17 @@ impl ControlerService for RestControlerService {
         // Build the entry-point URL prefix for this command
         let entry_point = {
             let base = if self.socket_addr.is_ipv6() {
-                format!("http://[{}]:{}", self.socket_addr.ip(), self.socket_addr.port())
+                format!(
+                    "http://[{}]:{}",
+                    self.socket_addr.ip(),
+                    self.socket_addr.port()
+                )
             } else {
-                format!("http://{}:{}", self.socket_addr.ip(), self.socket_addr.port())
+                format!(
+                    "http://{}:{}",
+                    self.socket_addr.ip(),
+                    self.socket_addr.port()
+                )
             };
             if self.entrypoint_root.is_empty() && self.entrypoint_api.is_none() {
                 format!("{}/{}", base, command)

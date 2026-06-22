@@ -14,8 +14,8 @@ use arachnea_core::{
         resources, CredentialsStore, EncryptedFileCredentialsStore, FileCredentialsStore,
     },
 };
-use arachnea_scrapyfy::*;
 use arachnea_proxy::core::{ArachneaProxyCore, EgressPool, ProxyNode};
+use arachnea_scrapyfy::*;
 use arachnea_stream::StreamScraper;
 
 /// Default port used by the REST controller when no CLI override is provided.
@@ -192,17 +192,21 @@ async fn main() -> Result<()> {
             DEFAULT_SERVICES_CONFIG_PATH,
         ))?;
 
+    //*
     // Configure proxy pool for the manager and proxy_http handler
-    let proxy_nodes = vec![
-        ProxyNode::socks5("proxy-socks5-1", "158.178.198.31:1080"),
-    ];
+    let proxy_nodes = vec![ProxyNode::socks5("proxy-socks5-1",
+    //   "158.178.198.31:1080"
+      "62.133.62.3:1081"
+    )];
     let proxy_pool = EgressPool::new("main-pool", proxy_nodes, None);
     let pool_config = proxy_pool.config("main-chain");
 
     let proxy_core_for_http = match ArachneaProxyCore::new(pool_config) {
         Ok(proxy_core) => {
             manager.set_proxy(HttpProxyConfig::Arachnea(proxy_core.clone()));
-            manager.get_scraper_agregator_mut().set_proxy_core(proxy_core.clone());
+            manager
+                .get_scraper_agregator_mut()
+                .set_proxy_core(proxy_core.clone());
             tracing::info!("Proxy core created for proxy_http handler");
             Some(proxy_core)
         }
@@ -214,7 +218,7 @@ async fn main() -> Result<()> {
             None
         }
     };
-
+    // */
     let web_assets = generated_embedded_web_assets();
 
     let mut controler: Box<dyn ControlerService> = if options.mode_server {
@@ -224,14 +228,14 @@ async fn main() -> Result<()> {
     } else {
         Box::new(tauri_controler_service())
     };
-
-    // Register proxy_http handler if proxy core is available
-    if let Some(proxy_core) = proxy_core_for_http.as_ref() {
-        arachnea_proxy::core::http::register_service(controler.as_mut(), proxy_core, "proxy");
-    } else {
-        tracing::warn!("proxy_http handler not registered: no proxy core available");
-    }
-
+    /*
+        // Register proxy_http handler if proxy core is available
+        if let Some(proxy_core) = proxy_core_for_http.as_ref() {
+            arachnea_proxy::core::http::register_service(controler.as_mut(), proxy_core, "proxy");
+        } else {
+            tracing::warn!("proxy_http handler not registered: no proxy core available");
+        }
+    */
     // controler.register_web_directory(resources::get_application_path("front"), "");
     controler.register_embedded_web_assets(web_assets, "");
 

@@ -17,11 +17,11 @@ use base64::Engine;
 use serde::Deserialize;
 use url::Url;
 
+use crate::core::http::{ProxiedHttpRequest, SimpleHttpClient};
+use crate::core::ArachneaProxyCore;
 use arachnea_core::controler::{
     ControlerService, ControlerServiceExt, ControlerStreamInput, ControlerStreamOutput,
 };
-use crate::core::http::{ProxiedHttpRequest, SimpleHttpClient};
-use crate::core::ArachneaProxyCore;
 
 const MAX_LOCAL_URL_BYTES: usize = 8192;
 
@@ -162,7 +162,7 @@ struct ParsedProtocol {
 
 /// Parses a protocol segment like `https:8080`, `http:3000`, `https:`, `http:`.
 fn parse_protocol_segment(segment: &str) -> Result<ParsedProtocol, String> {
-     if segment == "https:" || segment == "https"{
+    if segment == "https:" || segment == "https" {
         Ok(ParsedProtocol {
             protocol: "https".to_string(),
             port: None,
@@ -228,17 +228,16 @@ fn build_target_url(
 }
 
 /// Encodes a proxied URL path back into the proxy path format.
-fn encode_proxy_path(
-    api_prefix: &str,
-    resolved_url: &Url,
-    opts_encoded: &str,
-) -> String {
+fn encode_proxy_path(api_prefix: &str, resolved_url: &Url, opts_encoded: &str) -> String {
     let api = api_prefix.trim_matches('/');
     let protocol = resolved_url.scheme();
     let host = resolved_url.host_str().unwrap_or("");
     let port = resolved_url.port();
     let path = resolved_url.path();
-    let query = resolved_url.query().map(|q| format!("?{}", q)).unwrap_or_default();
+    let query = resolved_url
+        .query()
+        .map(|q| format!("?{}", q))
+        .unwrap_or_default();
 
     let protocol_segment = match port {
         Some(p) => format!("{}_{}", protocol, p),
@@ -394,8 +393,7 @@ fn parse_proxy_path(path: &str) -> Result<ParsedProxyPath, (u16, String)> {
     if idx >= segments.len() {
         return Err((400, "missing protocol segment".to_string()));
     }
-    let parsed_protocol = parse_protocol_segment(segments[idx])
-        .map_err(|e| (400, e))?;
+    let parsed_protocol = parse_protocol_segment(segments[idx]).map_err(|e| (400, e))?;
     idx += 1;
 
     // Next segment must be host
@@ -550,7 +548,6 @@ pub async fn handle_proxy_http(
         headers
     );
 
-
     // Execute proxy request
     let client = SimpleHttpClient::new((*proxy_core).clone());
     let proxy_request = ProxiedHttpRequest {
@@ -600,7 +597,6 @@ pub async fn handle_proxy_http(
     })
 }
 
-
 /// Registers the proxy HTTP stream handler on a controller service.
 ///
 /// The handler is registered under the name `"proxy"` and routes through the
@@ -619,9 +615,7 @@ pub fn register_service(
     name: &str,
 ) {
     let core = Arc::new(proxy_core.clone());
-    controler.register_stream_function_with_state(
-        name,
-        core,
-       |core, input| async move { handle_proxy_http(core, input).await },
-    );
+    controler.register_stream_function_with_state(name, core, |core, input| async move {
+        handle_proxy_http(core, input).await
+    });
 }

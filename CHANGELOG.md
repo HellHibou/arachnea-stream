@@ -25,6 +25,12 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **coflix.yaml**: Fixed `get_season` query to correctly iterate over all episodes in the `episodes` array.
 - **Entry-level sub-query merge shape**: `execute_entry_sub_queries` now wraps each decoded sub-query value inside a named child node (`{ "embed-link": ["url"] }`) instead of pushing bare scalar items. This causes the serializer to emit an array of objects (`"players": [{"embed-link": ["url1"]}, …]`) instead of a flat string array (`"players": {"embed-link": ["url1", …]}`). Fixes the `players` output shape for `coflix.yaml` `get_entry`.
 - **`rtbf-auvio-be.yaml` `list_lives` flattening**: the RTBF live catalog now declares `result_item_field: entries` and groups `/data/content/*` under `entries`, so the unified executor returns one live item per channel instead of merging the whole feed into a single result.
+- **RTL Play login cookie handling**: `scrapyfy::HttpClient` now exposes materialized responses and a shared-cookie lookup for one URL, letting `rtlplay_resolver` reuse real redirect-set cookies from the HTTP jar instead of scraping `lfvp_device_id` and auth cookies from response bodies.
+- **Scraper HTTP fetch diagnostics**: `scrapyfy::HttpClient` now includes the underlying HTTP/proxy error in `Fetch fail ...` messages, making proxy-dependent failures diagnosable from API logs.
+- **TF1 mediainfo diagnostics**: TF1 playback now reports mediainfo HTTP status/body details and sends browser-like `Accept`, `Origin`, and `Referer` headers, improving proxy failure diagnostics without exposing auth tokens in header logs.
+- **Proxy CONNECT diagnostics**: the rquest loopback proxy now logs failed CONNECT requests and proxy-hop handshake errors instead of silently dropping them, making upstream SOCKS failures visible.
+- **Proxy pool transient failures**: tunnel proxy-pool selection no longer opens a destructive preflight tunnel before the real connection, compatibility checks retry a candidate once before marking it unusable, and an exhausted pool gets one fresh scan of KO members before failing, reducing false negatives from flaky SOCKS upstreams that intermittently return `network unreachable`.
+- **6play front-auth login**: M6Play login token retrieval is now serialized to avoid concurrent Gigya/front-auth request storms, while still reporting HTTP status/body details when `front-auth.6cloud.fr` returns non-JSON.
 
 ## Unreleased — RTBF Auvio home banner RedBee auth simplification
 
@@ -66,3 +72,8 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **Built-in engine proxy handoff**: `rquest` and Ghostwire now accept the configured proxy transport from `ArachneaHttpConfig`; when `proxy_core(...)` is used, `arachnea-http` starts a managed `arachnea-proxy` loopback helper because the upstream client APIs used here still expect proxy URLs.
 - **ScraperManager default proxy bootstrap**: `StreamScraper` now enables the shared scraper HTTP proxy by default, so lazily created `scrapyfy::HttpClient` instances inherit the in-process proxy transport without requiring per-service wiring.
 - **Documentation and tracking**: `arachnea-http` README now documents proxy transport selection, and the completed HTTP proxy task has been removed from the root `TODO.md`.
+
+## Unreleased — scrapyfy invalid JSON payload logging
+
+### Fixed
+- **Scraper JSON parse diagnostics**: `arachnea-scrapyfy::HttpClient` now logs the raw response content that failed JSON parsing, including `__NEXT_DATA__` payloads, with truncation metadata so API errors like `Invalid JSON payload returned by ...` can be diagnosed from backend logs without changing the error sent to the frontend.

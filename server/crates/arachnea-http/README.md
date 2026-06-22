@@ -22,6 +22,7 @@ This README is the design and usage home for the HTTP crate. Remaining work is t
 - `ArachneaHttpClient::default().await?` as the default-configuration constructor.
 - Common HTTP methods, custom methods, request options, and typed responses.
 - Shared in-memory cookie cache with Cloudflare cookie-state helpers.
+- Callers can inspect the current cookie view for one URL through the shared cache when a source-specific login flow needs to reuse redirect-set cookies explicitly.
 - Configurable engine selection through `HttpEngineKind`.
 - Configurable outbound proxy routing through `HttpProxyConfig`.
 - Configurable default request behavior through `HttpRequestMode`.

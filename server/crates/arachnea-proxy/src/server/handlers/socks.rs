@@ -27,7 +27,13 @@ pub async fn handle(
     let mut version = [0u8; 1];
     client.read_exact(&mut version).await?;
     tracing::debug!(
-        socks_version = if version[0] == 0x04 { "4" } else if version[0] == 0x05 { "5" } else { "unknown" },
+        socks_version = if version[0] == 0x04 {
+            "4"
+        } else if version[0] == 0x05 {
+            "5"
+        } else {
+            "unknown"
+        },
         "socks client connected"
     );
     match version[0] {

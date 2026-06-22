@@ -1,7 +1,7 @@
 [
   {
     "path": "rtlplay-be.yaml",
-    "enabled": true
+    "enabled": false
   },
   {
     "path": "rtbf-auvio-be.yaml",
@@ -13,7 +13,7 @@
     "parameters": [
       {
         "name": "catalog_code",
-        "value": "fr-be"
+        "value": "fr"
       }
     ]
   },

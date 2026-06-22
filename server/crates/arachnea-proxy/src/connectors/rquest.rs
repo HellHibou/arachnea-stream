@@ -77,7 +77,15 @@ impl ArachneaRquestLoopback {
                 let conn_config = Arc::clone(&config);
                 let conn_core = core.clone();
                 tokio::spawn(async move {
-                    let _ = handlers::http::handle(stream, peer, conn_config, conn_core).await;
+                    if let Err(error) =
+                        handlers::http::handle(stream, peer, conn_config, conn_core).await
+                    {
+                        tracing::warn!(
+                            peer = %peer,
+                            %error,
+                            "rquest loopback proxy connection failed"
+                        );
+                    }
                 });
             }
         });

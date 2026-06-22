@@ -36,6 +36,12 @@ enum ProxyPoolCheckMode {
     HttpForward,
 }
 
+/// Number of attempts before a pool member is considered incompatible.
+const PROXY_POOL_MEMBER_CHECK_ATTEMPTS: usize = 2;
+
+/// Maximum number of full proxy-pool scan passes before giving up.
+const PROXY_POOL_SELECTION_PASSES: usize = 2;
+
 /// Concrete chain produced after resolving proxy pool markers.
 #[derive(Clone, Debug)]
 struct ResolvedProxyChain {
@@ -846,7 +852,11 @@ impl ArachneaProxyCore {
         })?;
         self.mark_proxy_pool_members_untested(&pool);
 
-        loop {
+        if check_mode == ProxyPoolCheckMode::Tunnel {
+            return self.select_proxy_pool_member_without_preflight(&pool);
+        }
+
+        for pass in 1..=PROXY_POOL_SELECTION_PASSES {
             if let Some(selected) = self.first_ok_proxy_pool_member(&pool) {
                 self.store_proxy_pool_selected_member(&pool.name, &selected.name);
                 return Ok(selected);
@@ -854,6 +864,15 @@ impl ArachneaProxyCore {
 
             let candidates = self.next_untested_proxy_pool_batch(&pool)?;
             if candidates.is_empty() {
+                if pass < PROXY_POOL_SELECTION_PASSES && self.reset_proxy_pool_ko_members(&pool) {
+                    tracing::debug!(
+                        proxy_pool = %pool.name,
+                        pass = %pass,
+                        max_passes = %PROXY_POOL_SELECTION_PASSES,
+                        "retrying exhausted proxy pool"
+                    );
+                    continue;
+                }
                 return Err(ProxyError::RouteUnavailable(format!(
                     "egress pool '{}' has no working proxy candidates",
                     pool.name
@@ -895,6 +914,44 @@ impl ArachneaProxyCore {
             }
             self.merge_proxy_pool_statuses(&pool.name, statuses);
         }
+
+        Err(ProxyError::RouteUnavailable(format!(
+            "egress pool '{}' has no working proxy candidates",
+            pool.name
+        )))
+    }
+
+    /// Selects a tunnel candidate without opening a destructive probe tunnel.
+    fn select_proxy_pool_member_without_preflight(
+        &self,
+        pool: &crate::core::EgressPool,
+    ) -> Result<ProxyNode> {
+        for pass in 1..=PROXY_POOL_SELECTION_PASSES {
+            if let Some(selected) = self.first_available_proxy_pool_member(pool) {
+                self.store_proxy_pool_selected_member(&pool.name, &selected.name);
+                return Ok(selected);
+            }
+
+            if pass < PROXY_POOL_SELECTION_PASSES && self.reset_proxy_pool_ko_members(pool) {
+                tracing::debug!(
+                    proxy_pool = %pool.name,
+                    pass = %pass,
+                    max_passes = %PROXY_POOL_SELECTION_PASSES,
+                    "retrying exhausted proxy pool"
+                );
+                continue;
+            }
+
+            return Err(ProxyError::RouteUnavailable(format!(
+                "egress pool '{}' has no working proxy candidates",
+                pool.name
+            )));
+        }
+
+        Err(ProxyError::RouteUnavailable(format!(
+            "egress pool '{}' has no working proxy candidates",
+            pool.name
+        )))
     }
 
     /// Returns the first working pool member in configured order.
@@ -921,6 +978,28 @@ impl ArachneaProxyCore {
         pool.proxy_nodes
             .iter()
             .find(|node| state.statuses.get(&node.name) == Some(&ProxyPoolMemberStatus::Ok))
+            .cloned()
+    }
+
+    /// Returns the selected or first non-failed pool member in configured order.
+    fn first_available_proxy_pool_member(
+        &self,
+        pool: &crate::core::EgressPool,
+    ) -> Option<ProxyNode> {
+        let states = self.proxy_pool_states.read().ok()?;
+        let state = states.get(&pool.name)?;
+        if let Some(selected) = &state.selected {
+            if state.statuses.get(selected) != Some(&ProxyPoolMemberStatus::Ko) {
+                return pool
+                    .proxy_nodes
+                    .iter()
+                    .find(|node| node.name == *selected)
+                    .cloned();
+            }
+        }
+        pool.proxy_nodes
+            .iter()
+            .find(|node| state.statuses.get(&node.name) != Some(&ProxyPoolMemberStatus::Ko))
             .cloned()
     }
 
@@ -975,6 +1054,27 @@ impl ArachneaProxyCore {
                     .or_insert(ProxyPoolMemberStatus::Untested);
             }
         }
+    }
+
+    /// Resets failed pool members so transient upstream failures can be retried.
+    fn reset_proxy_pool_ko_members(&self, pool: &crate::core::EgressPool) -> bool {
+        let Ok(mut states) = self.proxy_pool_states.write() else {
+            return false;
+        };
+        let state = states.entry(pool.name.clone()).or_default();
+        let mut changed = false;
+        for node in &pool.proxy_nodes {
+            if state.statuses.get(&node.name) == Some(&ProxyPoolMemberStatus::Ko) {
+                state
+                    .statuses
+                    .insert(node.name.clone(), ProxyPoolMemberStatus::Untested);
+                changed = true;
+            }
+        }
+        if changed {
+            state.selected = None;
+        }
+        changed
     }
 
     /// Stores the selected proxy pool member.
@@ -1086,6 +1186,43 @@ impl ArachneaProxyCore {
                 node.name
             )));
         }
+
+        for attempt in 1..=PROXY_POOL_MEMBER_CHECK_ATTEMPTS {
+            let result = self
+                .check_proxy_pool_member_once(pool_name, node, target, check_mode)
+                .await;
+
+            match result {
+                Ok(()) => return Ok(()),
+                Err(error) if attempt < PROXY_POOL_MEMBER_CHECK_ATTEMPTS => {
+                    tracing::debug!(
+                        proxy_pool = %pool_name,
+                        proxy_node = %node.name,
+                        target = %target.authority(),
+                        attempt = %attempt,
+                        max_attempts = %PROXY_POOL_MEMBER_CHECK_ATTEMPTS,
+                        %error,
+                        "retrying proxy pool compatibility check"
+                    );
+                }
+                Err(error) => return Err(error),
+            }
+        }
+
+        Err(ProxyError::RouteUnavailable(format!(
+            "proxy pool '{pool_name}' member '{}' compatibility check exhausted",
+            node.name
+        )))
+    }
+
+    /// Runs one compatibility check attempt for a pool member.
+    async fn check_proxy_pool_member_once(
+        &self,
+        pool_name: &str,
+        node: &ProxyNode,
+        target: &Destination,
+        check_mode: ProxyPoolCheckMode,
+    ) -> Result<()> {
         let chain = ProxyChain::single(format!("egress_pool:{pool_name}"), node.clone());
         if check_mode == ProxyPoolCheckMode::HttpForward
             && matches!(
@@ -1099,6 +1236,7 @@ impl ArachneaProxyCore {
             }
             return Ok(());
         }
+
         self.connect_chain(&chain, &ConnectRequest::new(target.clone()))
             .await
             .map(|_| ())
@@ -1408,7 +1546,7 @@ impl ArachneaProxyCore {
         target: &Destination,
     ) -> Result<()> {
         let target = self.target_for_proxy_node(node, target).await?;
-        match node.kind {
+        let result = match node.kind {
             TransportKind::HttpProxy | TransportKind::HttpsProxy => {
                 let credentials = node.credentials()?;
                 http::connect_tunnel(
@@ -1448,7 +1586,29 @@ impl ArachneaProxyCore {
                 Err(ProxyError::Unsupported("masque connect-udp transport"))
             }
             TransportKind::Direct => Ok(()),
+        };
+
+        match &result {
+            Ok(()) => {
+                tracing::debug!(
+                    node = %node.name,
+                    target = %target.authority(),
+                    transport = ?node.kind,
+                    "proxy hop connected"
+                );
+            }
+            Err(error) => {
+                tracing::warn!(
+                    node = %node.name,
+                    target = %target.authority(),
+                    transport = ?node.kind,
+                    %error,
+                    "proxy hop connection failed"
+                );
+            }
         }
+
+        result
     }
 
     /// Resolves the relay endpoint returned by a SOCKS5 UDP association.
@@ -1771,7 +1931,12 @@ impl ArachneaProxyCore {
 /// - `destination`: Final destination.
 /// - `attempt`: Current attempt number (0-based).
 fn log_connect_chain_iteration(chain: &ProxyChain, destination: &Destination, attempt: usize) {
-    let hops: Vec<&str> = chain.nodes.iter().filter(|n| n.kind != TransportKind::Direct).map(|n| n.name.as_str()).collect();
+    let hops: Vec<&str> = chain
+        .nodes
+        .iter()
+        .filter(|n| n.kind != TransportKind::Direct)
+        .map(|n| n.name.as_str())
+        .collect();
     tracing::debug!(
         chain = %chain.name,
         destination = %destination.authority(),

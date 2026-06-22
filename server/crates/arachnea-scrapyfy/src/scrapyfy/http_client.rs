@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::Duration;
 use tokio::sync::RwLock as AsyncRwLock;
-use tracing::trace;
+use tracing::{error, trace};
 use url::Url;
 
 use crate::scrapyfy::query_helpers;
@@ -26,6 +26,9 @@ static HTTP_CLIENT_ROUTER: OnceLock<Mutex<Option<RouterFn>>> = OnceLock::new();
 
 /// Compiled regex used to extract the `__NEXT_DATA__` JSON payload from HTML pages.
 static NEXT_DATA_REGEX: OnceLock<Regex> = OnceLock::new();
+
+/// Maximum number of characters included in invalid JSON payload logs.
+const INVALID_JSON_LOG_PREVIEW_LIMIT: usize = 8_192;
 
 /// Mutable proxy transport shared by one scraper instance and its derived HTTP clients.
 #[derive(Clone, Default)]
@@ -82,6 +85,32 @@ impl SharedProxyConfigHandle {
             .map(|guard| guard.clone())
             .unwrap_or_default()
     }
+}
+
+fn log_invalid_json_payload(
+    url: &str,
+    payload_kind: &str,
+    payload: &str,
+    error: &serde_json::Error,
+) {
+    let truncated = payload.chars().count() > INVALID_JSON_LOG_PREVIEW_LIMIT;
+    let payload_preview = if truncated {
+        payload
+            .chars()
+            .take(INVALID_JSON_LOG_PREVIEW_LIMIT)
+            .collect::<String>()
+    } else {
+        payload.to_string()
+    };
+
+    error!(
+        url = %url,
+        payload_kind = payload_kind,
+        parse_error = %error,
+        payload_truncated = truncated,
+        payload = %payload_preview,
+        "Invalid JSON payload received"
+    );
 }
 
 /// YAML-selectable request mode for scraper HTTP calls.
@@ -318,6 +347,22 @@ impl HttpClient {
         Ok(())
     }
 
+    /// Returns the shared-cookie view currently applicable to one absolute URL.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - Absolute URL whose matching cookies should be returned.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `url` is invalid.
+    pub async fn cookies_for_url(url: &str) -> Result<HashMap<String, String>> {
+        let cache = global_cookie_cache();
+        let mut cache = cache.write().await;
+        let cookies = cache.cookies_for_url(url)?;
+        Ok(cookies)
+    }
+
     /// Lazily initializes and returns the underlying [`ArachneaHttpClient`].
     async fn http_client(&self) -> Result<Arc<ArachneaHttpClient>> {
         let proxy_state = self.proxy_handle.snapshot();
@@ -478,16 +523,21 @@ impl HttpClient {
     ) -> Result<Value> {
         if url.starts_with("file://") {
             let payload = std::fs::read_to_string(url.replacen("file://", "", 1))?;
-            return serde_json::from_str(&payload)
-                .with_context(|| format!("Invalid JSON payload returned by {}", url));
+            return serde_json::from_str(&payload).map_err(|error| {
+                log_invalid_json_payload(url, "response", &payload, &error);
+                anyhow::Error::new(error)
+                    .context(format!("Invalid JSON payload returned by {}", url))
+            });
         }
 
         let response = self
             .send_for_request(method, url, request_headers, request_body)
             .await?;
-        response
-            .json::<Value>()
-            .with_context(|| format!("Invalid JSON payload returned by {}", url))
+        let payload = response.text().await?;
+        serde_json::from_str(&payload).map_err(|error| {
+            log_invalid_json_payload(url, "response", &payload, &error);
+            anyhow::Error::new(error).context(format!("Invalid JSON payload returned by {}", url))
+        })
     }
 
     /// Downloads an HTML page and parses the JSON payload embedded in `__NEXT_DATA__`.
@@ -562,8 +612,13 @@ impl HttpClient {
             .map(|capture| capture.as_str())
             .with_context(|| format!("Invalid __NEXT_DATA__ capture in {}", url))?;
 
-        serde_json::from_str(json_payload)
-            .with_context(|| format!("Invalid __NEXT_DATA__ JSON payload returned by {}", url))
+        serde_json::from_str(json_payload).map_err(|error| {
+            log_invalid_json_payload(url, "__NEXT_DATA__", json_payload, &error);
+            anyhow::Error::new(error).context(format!(
+                "Invalid __NEXT_DATA__ JSON payload returned by {}",
+                url
+            ))
+        })
     }
 
     /// Sends an HTTP request using the configured mode, headers, and optional body.
@@ -582,7 +637,7 @@ impl HttpClient {
     ///
     /// Returns an error if the request fails, if the response body cannot be read,
     /// or if one custom header is invalid.
-    async fn send_for_request(
+    pub async fn send_for_request(
         &self,
         method: Method,
         url: &str,
@@ -628,6 +683,6 @@ impl HttpClient {
         request_builder
             .send()
             .await
-            .with_context(|| format!("Fetch fail {}", url))
+            .map_err(|error| anyhow::anyhow!("Fetch fail {}: {}", url, error))
     }
 }

@@ -164,6 +164,34 @@ impl SharedCookieCache {
         Ok((!pairs.is_empty()).then(|| pairs.join("; ")))
     }
 
+    /// Returns cookie name/value pairs currently applicable to one URL.
+    ///
+    /// # Parameters
+    ///
+    /// - `url`: Request URL.
+    ///
+    /// # Returns
+    ///
+    /// A map of matching cookie names to their current values.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidUrl` when `url` cannot be parsed.
+    pub fn cookies_for_url(
+        &mut self,
+        url: &str,
+    ) -> Result<HashMap<String, String>, ArachneaHttpError> {
+        let url = Url::parse(url).map_err(|err| ArachneaHttpError::InvalidUrl(err.to_string()))?;
+        let now = SystemTime::now();
+        self.clear_expired(now);
+        Ok(self
+            .cookies
+            .values()
+            .filter(|cookie| cookie_matches_url(cookie, &url, now))
+            .map(|cookie| (cookie.name.clone(), cookie.value.clone()))
+            .collect())
+    }
+
     /// Returns Cloudflare cookie state for an origin URL.
     ///
     /// # Parameters

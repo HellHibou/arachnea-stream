@@ -5,6 +5,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
+use tokio::sync::Mutex as AsyncMutex;
 
 use arachnea_core::persistence::CredentialsStore;
 use arachnea_scrapyfy::{HttpClient, ScraperAgregator, ScraperQueryCollectionParameter};
@@ -38,6 +39,7 @@ static SIXPLAY_JS_ID_REGEX: OnceLock<Regex> = OnceLock::new();
 static SIXPLAY_API_KEY_REGEX: OnceLock<Regex> = OnceLock::new();
 static SIXPLAY_SESSION_CACHE: OnceLock<Mutex<HashMap<String, CachedSixPlaySession>>> =
     OnceLock::new();
+static SIXPLAY_LOGIN_LOCK: OnceLock<AsyncMutex<()>> = OnceLock::new();
 
 #[derive(Clone)]
 struct SixPlaySession {
@@ -70,11 +72,22 @@ impl PlayerStreamResolver for M6PlayResolver {
     ) -> Result<ResolvedPlayerStream> {
         match resolver_kind.trim() {
             "m6play-video" => {
-                resolve_replay_stream(scraper_agregator, credentials_store, resolver_target, resolver_stream_kind)
-                    .await
+                resolve_replay_stream(
+                    scraper_agregator,
+                    credentials_store,
+                    resolver_target,
+                    resolver_stream_kind,
+                )
+                .await
             }
             "m6play-live" => {
-                resolve_live_stream(scraper_agregator, credentials_store, resolver_target, resolver_stream_kind).await
+                resolve_live_stream(
+                    scraper_agregator,
+                    credentials_store,
+                    resolver_target,
+                    resolver_stream_kind,
+                )
+                .await
             }
             kind => bail!(
                 "Unsupported player resolver `{}` for source `{}`.",
@@ -233,6 +246,15 @@ async fn get_or_login_session(
         return Ok(session);
     }
 
+    let _login_guard = SIXPLAY_LOGIN_LOCK
+        .get_or_init(|| AsyncMutex::new(()))
+        .lock()
+        .await;
+
+    if let Some(session) = load_cached_session(&login) {
+        return Ok(session);
+    }
+
     let api_key = fetch_api_key(http_client)
         .await
         .unwrap_or_else(|_| SIXPLAY_API_KEY_FALLBACK.to_string());
@@ -298,14 +320,8 @@ async fn get_or_login_session(
         SIXPLAY_CUSTOMER_NAME.to_string(),
     );
 
-    let uuid_payload = http_client
-        .get_json_for_request(
-            http::Method::GET,
-            SIXPLAY_TOKEN_UUID_URL,
-            &uuid_headers,
-            None,
-        )
-        .await?;
+    let uuid_payload =
+        fetch_sixplay_front_auth_json(http_client, SIXPLAY_TOKEN_UUID_URL, &uuid_headers).await?;
     let login_token = read_json_string(
         &uuid_payload,
         &["token"],
@@ -319,6 +335,39 @@ async fn get_or_login_session(
 
     save_cached_session(&login, &session);
     Ok(session)
+}
+
+async fn fetch_sixplay_front_auth_json(
+    http_client: &HttpClient,
+    url: &str,
+    headers: &HashMap<String, String>,
+) -> Result<Value> {
+    let response = http_client
+        .send_for_request(http::Method::GET, url, headers, None)
+        .await
+        .map_err(|error| anyhow!("Failed to fetch 6play front-auth token: {}", error))?;
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .context("Failed to read the 6play front-auth response.")?;
+
+    if !status.is_success() {
+        bail!(
+            "6play front-auth request failed with HTTP {}: {}",
+            status,
+            preview_error_body(&body)
+        );
+    }
+
+    serde_json::from_str(&body).with_context(|| {
+        format!(
+            "Invalid 6play front-auth JSON returned by {} (HTTP {}): {}",
+            url,
+            status,
+            preview_error_body(&body)
+        )
+    })
 }
 
 async fn fetch_api_key(http_client: &HttpClient) -> Result<String> {
@@ -476,6 +525,19 @@ fn read_json_string(payload: &Value, path: &[&str], error_message: &str) -> Resu
     }
 
     bail!(error_message.to_string())
+}
+
+fn preview_error_body(body: &str) -> String {
+    let value = body.trim();
+    if value.is_empty() {
+        return "<empty body>".to_string();
+    }
+
+    let mut preview: String = value.chars().take(300).collect();
+    if value.chars().count() > 300 {
+        preview.push_str("...");
+    }
+    preview
 }
 
 fn load_credentials(credentials_store: &dyn CredentialsStore) -> Result<(String, String)> {

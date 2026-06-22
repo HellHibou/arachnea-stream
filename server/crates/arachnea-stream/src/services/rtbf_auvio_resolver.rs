@@ -59,8 +59,13 @@ impl PlayerStreamResolver for RtbfAuvioResolver {
     ) -> Result<ResolvedPlayerStream> {
         match resolver_kind.trim() {
             "rtbf-auvio-live" | "rtbf-auvio-video" => {
-                resolve_redbee_stream(scraper_agregator, credentials_store, resolver_target, resolver_stream_kind)
-                    .await
+                resolve_redbee_stream(
+                    scraper_agregator,
+                    credentials_store,
+                    resolver_target,
+                    resolver_stream_kind,
+                )
+                .await
             }
             kind => bail!(
                 "Unsupported player resolver `{}` for source `{}`.",

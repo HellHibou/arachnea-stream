@@ -92,6 +92,12 @@ where
     {
         Ok(stream) => stream,
         Err(error) => {
+            tracing::warn!(
+                method = "CONNECT",
+                target = %request.target,
+                %error,
+                "http proxy connect failed"
+            );
             let _ = write_error(&mut client, 502, "Bad Gateway").await;
             return Err(error);
         }

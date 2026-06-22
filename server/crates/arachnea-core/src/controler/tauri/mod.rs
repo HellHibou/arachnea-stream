@@ -331,7 +331,8 @@ impl ControlerService for TauriControlerService {
             self.api_prefix.trim_matches('/'),
             command
         );
-        self.stream_handlers.push((command.to_string(), call, entry_point));
+        self.stream_handlers
+            .push((command.to_string(), call, entry_point));
     }
 
     fn register_web_directory(&mut self, directory_path: &str, path: &str) {
