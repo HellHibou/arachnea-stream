@@ -493,7 +493,7 @@ queries:
     row_selector: "html"
     entries:
       - name: title
-        selector: "h4#titreOeuvre"
+        selector: "h1"
         actions:  
           - type: get_text
       - name: title/alt
@@ -501,15 +501,18 @@ queries:
         actions:  
           - type: get_text
       - name: img/poster > link
-        selector: "img#coverOeuvre"
-        actions: *actions_get_src
+        selector: "meta[property=\"og:image\"]"
+        actions: 
+          - type: get_attribut
+            argument: content
       - name: description
-        selector: "div.oeuvre-right p.leading-relaxed"
+        selector: "#synopsisText"
         actions:  
           - type: get_text
       - name: theme
-        selector: "div.oeuvre-right > div:last-child > a.text-sm.text-gray-300"
-        actions: *actions_split_comma_text
+        selector: "span.genre-pill"
+        actions: 
+          - type: get_text
       - name: season > label
         selector: "div.flex.flex-wrap.overflow-y-hidden.justify-start.bg-slate-900.bg-opacity-70.rounded.mt-2.h-auto > script"
         actions:
@@ -522,6 +525,7 @@ queries:
             format: "{1}"
       - name: season > link
         selector: "div.flex.flex-wrap.overflow-y-hidden.justify-start.bg-slate-900.bg-opacity-70.rounded.mt-2.h-auto > script"
+        select: all
         actions:
           - type: get_text
           - type: regex_find_all

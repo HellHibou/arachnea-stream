@@ -209,7 +209,6 @@ pub async fn execute_query_items(
     for item in items {
         root.merge(item);
     }
-    root.keep_first_values();
 
     Ok(vec![root.children])
 }

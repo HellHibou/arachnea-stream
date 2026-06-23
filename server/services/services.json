@@ -1,25 +1,25 @@
 [
   {
     "path": "rtlplay-be.yaml",
-    "enabled": true
+    "enabled": false
   },
   {
     "path": "rtbf-auvio-be.yaml",
-    "enabled": true
+    "enabled": false
   },
   {
     "path": "tf1-fr.yaml",
     "enabled": true,
     "parameters": [
       {
-        "name": "catalog_code",
+        "name": "country",
         "value": "fr"
       }
     ]
   },
   {
     "path": "m6play-fr.yaml",
-    "enabled": true
+    "enabled": false
   },
   {
     "path":"francetv.yaml",
@@ -39,14 +39,14 @@
   }, 
   {
     "path": "darkstream/coflix.yaml",
-    "enabled": true
+    "enabled": false
   },
   {
     "path": "darkstream/frenchanimes.yaml",
-    "enabled": true
+    "enabled": false
   },
   {
     "path": "darkstream/animeultime.yaml",
-    "enabled": true
+    "enabled": false
   }
 ]

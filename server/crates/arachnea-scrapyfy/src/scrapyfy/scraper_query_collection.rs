@@ -6,6 +6,7 @@ use std::io::{BufReader, Read};
 use std::path::Path;
 
 use super::*;
+use crate::scrapyfy::query_helpers::replace_template_placeholders;
 use crate::scrapyfy::scraper::query_trait::ScraperQuery;
 use crate::scrapyfy::scraper_html::query::HtmlScraperSubQuery;
 use crate::scrapyfy::scraper_json::query::JsonScraperSubQuery;
@@ -20,6 +21,9 @@ pub struct ScraperQueryCollectionParameter {
     /// Optional human-readable description of the parameter's purpose.
     #[serde(default)]
     pub description: Option<String>,
+    /// Optional actions applied to the parameter value before use.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub actions: Vec<crate::scrapyfy::actions::ScraperAction>,
 }
 
 impl ScraperQueryCollectionParameter {
@@ -336,7 +340,7 @@ impl ScraperQueryCollection {
     /// * `logo` - Logo URL or path for the source.
     /// * `description` - Multi-language description map.
     /// * `parameters` - Collection-level default parameters merged into every execution.
-    /// * `parameter_defaults` - Validated parameter defaults indexed by parameter name.
+    /// * `parameter_defaults` - Resolved and action-processed parameter defaults indexed by name.
     /// * `queries` - Query definitions indexed by their individual names.
     pub fn new(
         name: &str,
@@ -484,11 +488,18 @@ impl ScraperQueryCollection {
         }
     }
 
-    /// Validates all collection parameters and builds a defaults map.
+    /// Process all collection parameters sequentially in YAML declaration order.
+    ///
+    /// For each parameter:
+    /// 1. Resolve `{placeholder}` references using already-resolved parameters.
+    /// 2. Apply its actions (e.g. map) to transform the resolved value.
+    ///
+    /// This ensures that a parameter defined later in the YAML file can reference
+    /// an earlier parameter's final (action-processed) value.
     ///
     /// # Arguments
     ///
-    /// * `parameters` - Collection-level parameters to validate.
+    /// * `parameters` - Collection-level parameters to validate and resolve.
     ///
     /// # Errors
     ///
@@ -496,20 +507,33 @@ impl ScraperQueryCollection {
     fn build_parameter_defaults(
         parameters: &[ScraperQueryCollectionParameter],
     ) -> Result<HashMap<String, String>> {
-        let mut defaults = HashMap::new();
+        let mut resolved = HashMap::new();
 
         for parameter in parameters {
-            let (parameter_name, parameter_value) = parameter.validate_and_normalize()?;
+            let (parameter_name, mut current_value) = parameter.validate_and_normalize()?;
 
-            if defaults
-                .insert(parameter_name.clone(), parameter_value)
+            // 1. Resolve {placeholders} using already-processed parameters
+            let (resolved_value, _) = replace_template_placeholders(&current_value, &resolved);
+            current_value = resolved_value;
+
+            // 2. Apply actions in order on the resolved value
+            let mut values = vec![current_value];
+            for action in &parameter.actions {
+                values = action.apply(&None, values, &resolved, "", None, None);
+            }
+
+            // Take the first value after all actions
+            let final_value = values.into_iter().next().unwrap_or_default();
+
+            if resolved
+                .insert(parameter_name.clone(), final_value)
                 .is_some()
             {
                 anyhow::bail!("Duplicate collection parameter: {}", parameter_name);
             }
         }
 
-        Ok(defaults)
+        Ok(resolved)
     }
 
     /// Builds service metadata defaults from the collection identity and description.
@@ -539,6 +563,10 @@ impl ScraperQueryCollection {
 
     /// Merges collection parameter defaults with runtime parameters, then
     /// enriches the result with pagination and query separator helpers.
+    ///
+    /// Parameter defaults are already fully resolved and have had their actions
+    /// applied during collection loading. Runtime parameters may still contain
+    /// `{placeholder}` references that need resolution.
     ///
     /// # Arguments
     ///

@@ -217,14 +217,14 @@ async fn main() -> Result<()> {
             forward_header: false,
             stop_on_match: true,
             routes: vec![ParameterProxyRoute {
-                value: "FR".to_string(),
+                    value: "FR".to_string(),
                 proxy: proxy_fr,
             }],
         }],
         ..ProxyConfig::default()
     };
 
-    let _proxy_core_for_http = match ArachneaProxyCore::new(proxy_config) {
+    let proxy_core_for_http = match ArachneaProxyCore::new(proxy_config) {
         Ok(proxy_core) => {
             manager
                 .get_scraper_agregator_mut()
@@ -249,14 +249,14 @@ async fn main() -> Result<()> {
     } else {
         Box::new(tauri_controler_service())
     };
-    /*
-        // Register proxy_http handler if proxy core is available
-        if let Some(proxy_core) = proxy_core_for_http.as_ref() {
-            arachnea_proxy::core::http::register_service(controler.as_mut(), proxy_core, "proxy");
-        } else {
-            tracing::warn!("proxy_http handler not registered: no proxy core available");
-        }
-    */
+    
+    // Register proxy_http handler if proxy core is available
+    if let Some(proxy_core) = proxy_core_for_http.as_ref() {
+        arachnea_proxy::core::http::register_service(controler.as_mut(), proxy_core, "proxy");
+    } else {
+        tracing::warn!("proxy_http handler not registered: no proxy core available");
+    }
+
     // controler.register_web_directory(resources::get_application_path("front"), "");
     controler.register_embedded_web_assets(web_assets, "");
 

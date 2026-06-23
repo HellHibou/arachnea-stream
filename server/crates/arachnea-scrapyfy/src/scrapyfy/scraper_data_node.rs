@@ -169,6 +169,11 @@ impl ScraperDataNode {
         }
     }
 
+    /// Returns the scalar value at the given index in this node.
+    fn scalar_at(&self, index: usize) -> Option<&str> {
+        self.values.get(index).map(String::as_str)
+    }
+
     /// Returns the aligned array length when the node can be serialized as a
     /// flat array of objects, or `None` otherwise.
     ///
@@ -270,12 +275,12 @@ impl From<&ScraperDataNode> for ScraperDataNodeRaw {
             for index in 0..max_len {
                 let mut obj: HashMap<String, String> = HashMap::new();
                 for (name, child) in &node.children {
-                    if let Some(value) = child.values.get(index) {
-                        obj.insert(name.clone(), value.clone());
+                    if let Some(value) = child.scalar_at(index) {
+                        obj.insert(name.clone(), value.to_string());
                     }
                 }
-                if let Some(value) = node.values.get(index) {
-                    obj.insert("_".to_string(), value.clone());
+                if let Some(value) = node.scalar_at(index) {
+                    obj.insert("_".to_string(), value.to_string());
                 }
                 items.push(obj);
             }

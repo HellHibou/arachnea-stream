@@ -9,14 +9,33 @@ http:
   user_agent_profile: firefox
 
 parameters:
+  - name: country
+    value: fr
+    actions:
+      - type: map
+        default: "fr"
+        argument:
+          "fr": "fr"
+          "be": "be"
+          "lu": "lu"
   - name: catalog_code
-    value: fr-fr
     description: TF1 catalog code used by the Smart TV API.
+    value: "{country}"
+    actions:
+      - type: map
+        default: "fr-fr"
+        argument:
+          "fr": "fr-fr"
+          "be": "fr-be"
+          "lu": "fr-lu"
+  - name: catalog_code_web
+    description: TF1 catalog code used by the Smart TV API.
+    value: "/{catalog_code}"
   - name: base_url
-    value: https://www.tf1.fr/{catalog_code}
+    value: "https://www.tf1.fr{catalog_code_web}"
     description: Public website base URL for TF1+.
   - name: graphql_url
-    value: https://www.tf1.fr/graphql/{catalog_code}/web
+    value: "https://www.tf1.fr/graphql/{catalog_code}/web"
     description: TF1+ public GraphQL endpoint used for catalog data.
   - name: android_graphql_url
     value: https://app-api.tf1.fr/graphql/{catalog_code}/android
