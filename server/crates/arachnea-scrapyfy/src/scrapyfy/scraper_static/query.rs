@@ -20,6 +20,9 @@ pub struct StaticScraperEntryRaw {
     /// Optional scalar YAML value rendered through template placeholders.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<Value>,
+    /// Optional actions applied after rendering `value`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub actions: Vec<ScraperAction>,
     /// Optional list of static objects whose values are also template-rendered.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub items: Vec<HashMap<String, Value>>,
@@ -69,6 +72,10 @@ impl StaticScraperQueryRaw {
                         params,
                     )?;
                 }
+            }
+
+            for action in &entry.actions {
+                action.validate(&entry.name, "static entry")?;
             }
 
             for item in &entry.items {
@@ -252,7 +259,12 @@ impl StaticScraperEntryRaw {
         let entry_path = split_static_path(&self.name);
 
         if let Some(value) = &self.value {
-            for value in render_yaml_values(value, params)? {
+            let mut values = render_yaml_values(value, params)?;
+            for action in &self.actions {
+                values = action.apply(&None, values, params, "", None, None);
+            }
+
+            for value in values {
                 root.push_value(&entry_path, value);
             }
         }
@@ -308,8 +320,7 @@ impl ScraperEntrySpec for StaticScraperEntryRaw {
 
     /// Returns an empty action list (static entries do not run actions).
     fn actions(&self) -> &[ScraperAction] {
-        const EMPTY: &[ScraperAction] = &[];
-        EMPTY
+        &self.actions
     }
 
     /// Returns the nested sub-entries (always empty for static entries).

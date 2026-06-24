@@ -28,15 +28,11 @@ shared:
       format: "{1}"
     - type: max
 
-  actions_get_href_resolve: &actions_get_href_resolve
-    - type: get_attribut
-      argument: href
-    - type: resolve_url
-
   actions_get_src_resolve: &actions_get_src_resolve
     - type: get_attribut
       argument: src
     - type: resolve_url
+      proxy: true
 
   # Catalog row entries — div.mov.clearfix elements
   entries_catalog_row: &entries_catalog_row
@@ -169,6 +165,9 @@ queries:
         value: "{service_title}"
       - name: logo
         value: "{service_logo}"
+        actions:
+          - type: resolve_url
+            proxy: true
       - name: description
         value: "{service_description}"
 
@@ -425,6 +424,7 @@ queries:
           - type: get_attribut
             argument: src
           - type: resolve_url
+            proxy: true
       - name: year
         actions:
           - type: get_response_body

@@ -15,7 +15,7 @@ pub use http_client::{
 
 /// Text extraction and normalization actions.
 pub mod actions;
-pub use actions::{GetDateSource, GetDateSources, ScraperAction};
+pub use actions::{GetDateSource, GetDateSources, ScraperAction, HTTP_PROXY_PUBLIC_PATH_PARAM};
 
 /// Post-process transformations applied after raw extraction.
 pub mod post_processes;

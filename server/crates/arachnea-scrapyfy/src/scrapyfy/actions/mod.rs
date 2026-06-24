@@ -24,6 +24,9 @@ mod resolve_url;
 mod split;
 mod suffix;
 
+/// Runtime parameter containing the public path of the generic HTTP proxy.
+pub const HTTP_PROXY_PUBLIC_PATH_PARAM: &str = "__arachnea_http_proxy_public_path";
+
 // `GetDateSource` and `GetDateSources` are owned by the `get_date` module
 // because every consumer of these types belongs to the `get_date` action.
 // Re-export them so the surrounding `ScraperAction` enum can keep naming
@@ -120,12 +123,19 @@ pub enum ScraperAction {
 
     /// Resolves every current value as a URL relative to the fetched page URL and
     /// replaces relative paths with absolute URLs when possible.
-    ResolveUrl,
+    ResolveUrl {
+        /// Whether resolved HTTP(S) URLs should be wrapped through the public proxy route.
+        #[serde(default)]
+        proxy: bool,
+    },
 
     /// Resolves every current value relative to an ancestor of the fetched page URL.
     ResolveUrlFromParent {
         /// Number of trailing path segments removed from the request URL before resolving.
         levels: usize,
+        /// Whether resolved HTTP(S) URLs should be wrapped through the public proxy route.
+        #[serde(default)]
+        proxy: bool,
     },
 
     /// Replaces every current value with its parsed URL host when possible.
@@ -243,9 +253,11 @@ impl ScraperAction {
             ScraperAction::GetResponseBody => get_response_body::apply(texts, response_body),
             ScraperAction::Suffix { argument } => suffix::apply(texts, argument),
             ScraperAction::Max => max::apply(texts),
-            ScraperAction::ResolveUrl => resolve_url::apply(texts, request_url),
-            ScraperAction::ResolveUrlFromParent { levels } => {
-                resolve_url::apply_from_parent(texts, request_url, *levels)
+            ScraperAction::ResolveUrl { proxy } => {
+                resolve_url::apply(texts, request_url, params, *proxy)
+            }
+            ScraperAction::ResolveUrlFromParent { levels, proxy } => {
+                resolve_url::apply_from_parent(texts, request_url, params, *levels, *proxy)
             }
             ScraperAction::GetUrlHost => get_url_host::apply(texts),
             ScraperAction::BuildNextjsDataUrl {

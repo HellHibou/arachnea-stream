@@ -44,6 +44,7 @@ The current action set already covers many common cases:
 - URL handling:
   - `resolve_url`
   - `resolve_url_from_parent`
+  - `resolve_url` and `resolve_url_from_parent` accept `proxy: true` to wrap resolved HTTP(S) URLs through the runtime public HTTP proxy path when the backend provides one. Omit `proxy` or set it to `false` to keep direct URLs.
   - `get_url_host`
   - `build_nextjs_data_url`
 - date normalization:

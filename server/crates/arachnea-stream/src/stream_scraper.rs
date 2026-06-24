@@ -10,7 +10,7 @@ use arachnea_core::{
     },
     persistence::{CredentialsStore, FileCredentialsStore},
 };
-use arachnea_proxy::core::ArachneaProxyCore;
+use arachnea_proxy::core::{ArachneaProxyCore, ProxyConfig};
 use arachnea_scrapyfy::*;
 
 use crate::services::{
@@ -188,6 +188,21 @@ impl StreamScraper {
         self.proxy_http_core = proxy_http_core;
     }
 
+    fn enrich_runtime_params(&self, params: &mut HashMap<String, String>) {
+        if let Some(proxy_public_path) = self
+            .player_resolver_endpoints
+            .http_proxy_public_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            params.insert(
+                HTTP_PROXY_PUBLIC_PATH_PARAM.to_string(),
+                proxy_public_path.to_string(),
+            );
+        }
+    }
+
     /// Executes the `search` query using URL-encoded terms.
     ///
     /// # Arguments
@@ -227,6 +242,7 @@ impl StreamScraper {
         params.insert("media_types".to_string(), media_types.join(","));
         params.insert("themes".to_string(), themes.join(","));
         params.insert("page".to_string(), page.to_string());
+        self.enrich_runtime_params(&mut params);
 
         let media = if media_types.is_empty() {
             None
@@ -265,6 +281,7 @@ impl StreamScraper {
     ) -> Result<Vec<HashMap<String, ScraperDataNode>>> {
         let mut params: HashMap<String, String> = HashMap::new();
         params.insert("query_url".to_string(), query_url);
+        self.enrich_runtime_params(&mut params);
 
         let scrapper_list = vec![query_source];
 
@@ -302,6 +319,7 @@ impl StreamScraper {
         let mut params: HashMap<String, String> = HashMap::new();
         params.insert("query_url".to_string(), query_url);
         params.insert("page".to_string(), page.max(1).to_string());
+        self.enrich_runtime_params(&mut params);
 
         let scrapper_list = vec![query_source];
 
@@ -328,7 +346,8 @@ impl StreamScraper {
     /// Returns an error if one of the configured sources fails to execute the
     /// `list_lives` query.
     pub async fn list_lives(&self) -> Result<Vec<HashMap<String, ScraperDataNode>>> {
-        let params: HashMap<String, String> = HashMap::new();
+        let mut params: HashMap<String, String> = HashMap::new();
+        self.enrich_runtime_params(&mut params);
         let lives = self
             .scraper_agregator
             .execute_query_async(
@@ -363,6 +382,7 @@ impl StreamScraper {
     ) -> Result<HashMap<String, ScraperDataNode>> {
         let mut params: HashMap<String, String> = HashMap::new();
         params.insert("channel".to_string(), channel);
+        self.enrich_runtime_params(&mut params);
 
         let scrapper_list = vec![query_source];
 
@@ -389,7 +409,8 @@ impl StreamScraper {
     /// Returns an error if one of the configured sources fails to execute the
     /// `load_home` query.
     pub async fn load_home(&self) -> Result<Vec<HashMap<String, ScraperDataNode>>> {
-        let params: HashMap<String, String> = HashMap::new();
+        let mut params: HashMap<String, String> = HashMap::new();
+        self.enrich_runtime_params(&mut params);
         self.scraper_agregator
             .execute_query_async("load_home", &params, None, None, None, None, Some("source"))
             .await
@@ -402,7 +423,8 @@ impl StreamScraper {
     /// Returns an error if one of the configured sources fails to execute the
     /// `service_stream_metadata` query.
     pub async fn get_service(&self) -> Result<Vec<HashMap<String, ScraperDataNode>>> {
-        let params: HashMap<String, String> = HashMap::new();
+        let mut params: HashMap<String, String> = HashMap::new();
+        self.enrich_runtime_params(&mut params);
 
         self.scraper_agregator
             .execute_query_async(
@@ -465,6 +487,7 @@ impl StreamScraper {
 
         let mut params: HashMap<String, String> = HashMap::new();
         params.insert("page".to_string(), page.to_string());
+        self.enrich_runtime_params(&mut params);
 
         self.scraper_agregator
             .execute_query_async(
@@ -500,6 +523,7 @@ impl StreamScraper {
     ) -> Result<HashMap<String, ScraperDataNode>> {
         let mut params: HashMap<String, String> = HashMap::new();
         params.insert("page".to_string(), page.max(1).to_string());
+        self.enrich_runtime_params(&mut params);
 
         if !query_url.trim().is_empty() {
             params.insert("query_url".to_string(), query_url.clone());
@@ -634,7 +658,21 @@ impl ScraperManager for StreamScraper {
     }
 
     fn register_service(mut self, controler: &mut dyn ControlerService) {
-        if let Some(proxy_core) = self.proxy_http_core.as_ref() {
+        let proxy_core = match self.proxy_http_core.clone() {
+            Some(proxy_core) => Some(proxy_core),
+            None => match ArachneaProxyCore::new(ProxyConfig::default()) {
+                Ok(proxy_core) => Some(proxy_core),
+                Err(error) => {
+                    tracing::warn!(
+                        error = %error,
+                        "proxy_http handler not registered: failed to create default proxy core"
+                    );
+                    None
+                }
+            },
+        };
+
+        if let Some(proxy_core) = proxy_core.as_ref() {
             let proxy_public_path = controler.stream_public_path(HTTP_PROXY_COMMAND);
             self.player_resolver_endpoints.http_proxy_public_path = Some(proxy_public_path);
             arachnea_proxy::core::http::register_service(controler, proxy_core, HTTP_PROXY_COMMAND);

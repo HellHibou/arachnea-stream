@@ -1,4 +1,7 @@
+use std::collections::HashMap;
 use url::Url;
+
+use super::HTTP_PROXY_PUBLIC_PATH_PARAM;
 
 /// Applies the `resolve_url` scraper action by resolving every value as a URL
 /// relative to `request_url`.
@@ -14,19 +17,25 @@ use url::Url;
 /// A new value list where every value is either a fully qualified URL or
 /// resolved against `request_url`. Values that fail to parse and cannot be
 /// joined onto the base are kept as-is.
-pub(super) fn apply(texts: Vec<String>, request_url: &str) -> Vec<String> {
+pub(super) fn apply(
+    texts: Vec<String>,
+    request_url: &str,
+    params: &HashMap<String, String>,
+    proxy: bool,
+) -> Vec<String> {
     let base_url = Url::parse(request_url).ok();
+    let proxy_path = proxy.then(|| proxy_path(params)).flatten();
 
     texts
         .into_iter()
         .map(|value| {
             if let Ok(url) = Url::parse(&value) {
-                return url.to_string();
+                return resolved_url_string(url, proxy_path);
             }
 
             match &base_url {
                 Some(base_url) => resolve_relative_url(base_url, &value)
-                    .map(|url| url.to_string())
+                    .map(|url| resolved_url_string(url, proxy_path))
                     .unwrap_or(value),
                 _none => value,
             }
@@ -52,28 +61,49 @@ pub(super) fn apply(texts: Vec<String>, request_url: &str) -> Vec<String> {
 pub(super) fn apply_from_parent(
     texts: Vec<String>,
     request_url: &str,
+    params: &HashMap<String, String>,
     levels: usize,
+    proxy: bool,
 ) -> Vec<String> {
     let base_url = Url::parse(request_url)
         .ok()
         .and_then(|url| ancestor_base_url(&url, levels));
+    let proxy_path = proxy.then(|| proxy_path(params)).flatten();
 
     texts
         .into_iter()
         .map(|value| {
             if let Ok(url) = Url::parse(&value) {
-                return url.to_string();
+                return resolved_url_string(url, proxy_path);
             }
 
             match &base_url {
                 Some(base_url) => base_url
                     .join(&value)
-                    .map(|url| url.to_string())
+                    .map(|url| resolved_url_string(url, proxy_path))
                     .unwrap_or(value),
                 None => value,
             }
         })
         .collect()
+}
+
+fn proxy_path(params: &HashMap<String, String>) -> Option<&str> {
+    params
+        .get(HTTP_PROXY_PUBLIC_PATH_PARAM)
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn resolved_url_string(url: Url, proxy_path: Option<&str>) -> String {
+    if matches!(url.scheme(), "http" | "https") {
+        if let Some(proxy_path) = proxy_path {
+            return format!("{}/{}", proxy_path.trim_end_matches('/'), url);
+        }
+    }
+
+    url.to_string()
 }
 
 /// Resolves `value` against `base_url`, falling back to the directory form of
@@ -168,4 +198,46 @@ fn ancestor_base_url(base_url: &Url, levels: usize) -> Option<Url> {
 
     ancestor_base_url.set_path(&path);
     Some(ancestor_base_url)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn apply_wraps_resolved_urls_when_proxy_is_enabled() {
+        let params = HashMap::from([(
+            HTTP_PROXY_PUBLIC_PATH_PARAM.to_string(),
+            "/arachnea/api/proxy".to_string(),
+        )]);
+
+        let values = apply(
+            vec!["/images/poster.jpg".to_string()],
+            "https://french-anime.com/animes/",
+            &params,
+            true,
+        );
+
+        assert_eq!(
+            values,
+            vec!["/arachnea/api/proxy/https://french-anime.com/images/poster.jpg"]
+        );
+    }
+
+    #[test]
+    fn apply_keeps_direct_urls_when_proxy_is_disabled() {
+        let params = HashMap::from([(
+            HTTP_PROXY_PUBLIC_PATH_PARAM.to_string(),
+            "/arachnea/api/proxy".to_string(),
+        )]);
+
+        let values = apply(
+            vec!["/images/poster.jpg".to_string()],
+            "https://french-anime.com/animes/",
+            &params,
+            false,
+        );
+
+        assert_eq!(values, vec!["https://french-anime.com/images/poster.jpg"]);
+    }
 }
