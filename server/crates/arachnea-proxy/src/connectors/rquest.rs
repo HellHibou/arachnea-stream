@@ -18,7 +18,7 @@ use std::sync::Arc;
 #[cfg(feature = "rquest")]
 use crate::core::{ArachneaProxyCore, ParameterDefinition};
 #[cfg(feature = "rquest")]
-use crate::server::{handlers, NetworkConfig, ProxyAuthConfig, ServerConfig};
+use crate::server::{NetworkConfig, ProxyAuthConfig, ServerConfig, handlers};
 #[cfg(feature = "rquest")]
 use rquest::header::{HeaderMap, HeaderName, HeaderValue};
 #[cfg(feature = "rquest")]
@@ -130,6 +130,7 @@ impl ArachneaRquestLoopback {
             .map_err(|error| ConnectorError::Rquest(error.to_string()))?;
         rquest::Client::builder()
             .proxy(proxy)
+            .redirect(rquest::redirect::Policy::none())
             .build()
             .map_err(|error| ConnectorError::Rquest(error.to_string()))
     }
@@ -188,6 +189,7 @@ impl ArachneaRquestLoopback {
             .custom_http_headers(headers);
         rquest::Client::builder()
             .proxy(proxy)
+            .redirect(rquest::redirect::Policy::none())
             .build()
             .map_err(|error| ConnectorError::Rquest(error.to_string()))
     }

@@ -1,15 +1,16 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
-use base64::{engine::general_purpose, Engine as _};
+use base64::{Engine as _, engine::general_purpose};
 use regex::Regex;
 use rquest::{
-    header::{HeaderMap, HeaderName, HeaderValue},
     Url,
+    header::{HeaderMap, HeaderName, HeaderValue},
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tokio::sync::Mutex as AsyncMutex;
 
 use arachnea_core::persistence::CredentialsStore;
 use arachnea_scrapyfy::{
@@ -17,8 +18,8 @@ use arachnea_scrapyfy::{
 };
 
 use crate::services::player_resolver::{
-    normalize_stream_kind, proxy_drm_today_license_request, save_drm_today_license_proxy_url,
-    PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream,
+    PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream, normalize_stream_kind,
+    proxy_drm_today_license_request, save_drm_today_license_proxy_url,
 };
 
 const RTLPLAY_SERVICE_ID: &str = "rtlplay-be";
@@ -39,6 +40,7 @@ const GIGYA_COOKIE_VALUE: &str = "_gigya_ver4";
 
 static RTLPLAY_SESSION_CACHE: OnceLock<Mutex<HashMap<String, CachedRtlPlaySession>>> =
     OnceLock::new();
+static RTLPLAY_LOGIN_LOCK: OnceLock<AsyncMutex<()>> = OnceLock::new();
 static NEXT_DATA_REGEX: OnceLock<Regex> = OnceLock::new();
 
 #[derive(Clone)]
@@ -156,7 +158,9 @@ async fn resolve_replay_stream(
         bail!("Missing RTL Play video identifier.");
     }
 
-    let http_client = scraper_agregator.create_http_client(rtlplay_http_config());
+    let http_client = scraper_agregator
+        .create_http_client(rtlplay_http_config())
+        .with_isolated_cookies();
     let session = get_or_login_session(&http_client, credentials_store).await?;
     let video_url = format!("{}/player/{}", BASE_URL, normalized_video_id);
     let resolved =
@@ -174,7 +178,9 @@ async fn resolve_live_stream(
 ) -> Result<ResolvedPlayerStream> {
     let normalized_channel = normalize_live_channel(channel_id)?;
 
-    let http_client = scraper_agregator.create_http_client(rtlplay_http_config());
+    let http_client = scraper_agregator
+        .create_http_client(rtlplay_http_config())
+        .with_isolated_cookies();
     let session = get_or_login_session(&http_client, credentials_store).await?;
     let video_url = format!("{}/direct/{}", BASE_URL, normalized_channel.as_str());
     let resolved =
@@ -225,6 +231,15 @@ async fn get_or_login_session(
         return Ok(session);
     }
 
+    let _login_guard = RTLPLAY_LOGIN_LOCK
+        .get_or_init(|| AsyncMutex::new(()))
+        .lock()
+        .await;
+
+    if let Some(session) = load_cached_session(&login) {
+        return Ok(session);
+    }
+
     let mut seen_cookies = HashMap::new();
 
     // Warm-up: fetch the RTL Play root page to obtain initial cookies
@@ -232,24 +247,31 @@ async fn get_or_login_session(
         .send_for_request(http::Method::GET, BASE_URL, &generic_hash_headers(), None)
         .await
         .context("Failed to fetch the RTL Play root page before login.")?;
-    merge_seen_cookies_for_url(BASE_URL, &mut seen_cookies).await?;
+    merge_seen_cookies_for_url(http_client, BASE_URL, &mut seen_cookies).await?;
 
-    seen_cookies
+    let lfvp_device_id = seen_cookies
         .get("lfvp_device_id")
         .map(String::as_str)
         .filter(|value| !value.trim().is_empty())
+        .map(str::to_string)
         .context("Missing RTL Play device cookie after root page warm-up.")?;
 
     seen_cookies.insert("lfvp_auth.redirect_uri".to_string(), BASE_URL.to_string());
-    HttpClient::store_cookies_for_url(BASE_URL, &seen_cookies).await?;
-    HttpClient::store_cookies_for_url(
-        SSO_BASE_URL,
-        &HashMap::from([(
-            GIGYA_COOKIE_NAME.to_string(),
-            GIGYA_COOKIE_VALUE.to_string(),
-        )]),
-    )
-    .await?;
+    http_client
+        .store_cookies_for_url_in_client(BASE_URL, &seen_cookies)
+        .await?;
+    http_client
+        .store_cookies_for_url_in_client(
+            SSO_BASE_URL,
+            &HashMap::from([
+                ("lfvp_device_id".to_string(), lfvp_device_id),
+                (
+                    GIGYA_COOKIE_NAME.to_string(),
+                    GIGYA_COOKIE_VALUE.to_string(),
+                ),
+            ]),
+        )
+        .await?;
 
     // Fetch the SSO redirect URLs
     let connexion_url = format!("{}/connexion", BASE_URL);
@@ -262,15 +284,19 @@ async fn get_or_login_session(
         )
         .await
         .context("Failed to follow the RTL Play SSO redirect.")?;
-    merge_seen_cookies_for_url(BASE_URL, &mut seen_cookies).await?;
-    merge_seen_cookies_for_url(SSO_BASE_URL, &mut seen_cookies).await?;
+    merge_seen_cookies_for_url(http_client, BASE_URL, &mut seen_cookies).await?;
+    merge_seen_cookies_for_url(http_client, SSO_BASE_URL, &mut seen_cookies).await?;
 
+    let redirect_response_url = redirect_response.url().to_string();
+    let redirect_urls = redirect_response.redirect_urls().to_vec();
+    let redirect_response_body = redirect_response
+        .text()
+        .await
+        .context("Failed to decode the RTL Play connexion page.")?;
     let sso_redirect_urls = extract_sso_urls(
-        redirect_response.url(),
-        &redirect_response
-            .text()
-            .await
-            .context("Failed to decode the RTL Play connexion page.")?,
+        &redirect_response_url,
+        &redirect_urls,
+        &redirect_response_body,
     );
     if sso_redirect_urls.is_empty() {
         bail!("Missing RTL Play SSO redirect URL.");
@@ -282,10 +308,13 @@ async fn get_or_login_session(
         "password": password,
     })
     .to_string();
-    let login_headers = HashMap::from([
-        ("content-type".to_string(), "application/json".to_string()),
-        ("accept".to_string(), "application/json".to_string()),
-    ]);
+    let mut login_headers = sso_hash_headers();
+    login_headers.insert("content-type".to_string(), "application/json".to_string());
+    login_headers.insert("accept".to_string(), "application/json".to_string());
+    login_headers.insert(
+        "origin".to_string(),
+        SSO_BASE_URL.trim_end_matches('/').to_string(),
+    );
 
     let login_response = http_client
         .get_json_for_request(
@@ -320,12 +349,64 @@ async fn get_or_login_session(
         .to_string();
 
         let auth_response = http_client
-            .send_for_request(http::Method::GET, &auth_url, &generic_hash_headers(), None)
+            .send_for_request(http::Method::GET, &auth_url, &sso_hash_headers(), None)
             .await
             .context("Failed to authenticate the RTL Play SSO session.")?;
-        merge_seen_cookies_for_url(BASE_URL, &mut seen_cookies).await?;
-        merge_seen_cookies_for_url(SSO_BASE_URL, &mut seen_cookies).await?;
-        merge_seen_cookies_for_url(auth_response.url(), &mut seen_cookies).await?;
+        merge_seen_cookies_for_url(http_client, BASE_URL, &mut seen_cookies).await?;
+        merge_seen_cookies_for_url(http_client, SSO_BASE_URL, &mut seen_cookies).await?;
+        for redirect_url in auth_response.redirect_urls() {
+            merge_seen_cookies_for_url(http_client, redirect_url, &mut seen_cookies).await?;
+        }
+        merge_seen_cookies_for_url(http_client, auth_response.url(), &mut seen_cookies).await?;
+
+        if seen_cookies
+            .get("lfvp_rtlplay_auth")
+            .map(String::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .is_some()
+        {
+            break;
+        }
+
+        if seen_cookies
+            .get("CRTL_SESSION")
+            .map(String::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .is_none()
+        {
+            continue;
+        }
+
+        let post_auth_redirects =
+            extract_sso_urls_from_redirects(auth_response.url(), auth_response.redirect_urls());
+        for authorize_candidate in post_auth_redirects
+            .iter()
+            .chain(std::iter::once(sso_redirect_url))
+        {
+            let Some(authorize_url) = sso_authorize_url_from_redirect(authorize_candidate) else {
+                continue;
+            };
+            let authorize_response = http_client
+                .send_for_request(http::Method::GET, &authorize_url, &sso_hash_headers(), None)
+                .await
+                .context("Failed to complete the RTL Play OIDC authorization redirect.")?;
+            merge_seen_cookies_for_url(http_client, BASE_URL, &mut seen_cookies).await?;
+            merge_seen_cookies_for_url(http_client, SSO_BASE_URL, &mut seen_cookies).await?;
+            for redirect_url in authorize_response.redirect_urls() {
+                merge_seen_cookies_for_url(http_client, redirect_url, &mut seen_cookies).await?;
+            }
+            merge_seen_cookies_for_url(http_client, authorize_response.url(), &mut seen_cookies)
+                .await?;
+
+            if seen_cookies
+                .get("lfvp_rtlplay_auth")
+                .map(String::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .is_some()
+            {
+                break;
+            }
+        }
 
         if seen_cookies
             .get("lfvp_rtlplay_auth")
@@ -371,7 +452,9 @@ async fn resolve_final_video_url(
     is_live: bool,
     api_version: &RtlPlayApiVersion,
 ) -> Result<ResolvedRtlPlayVideo> {
-    HttpClient::store_cookies_for_url(BASE_URL, &rtlplay_player_cookies(&session.cookies)).await?;
+    http_client
+        .store_cookies_for_url_in_client(BASE_URL, &rtlplay_player_cookies(&session.cookies))
+        .await?;
     let html = http_client
         .query_http_for_request(
             http::Method::GET,
@@ -480,15 +563,16 @@ fn select_dash_stream(payload: &Value) -> Option<ResolvedRtlPlayVideo> {
 }
 
 async fn merge_seen_cookies_for_url(
+    http_client: &HttpClient,
     url: &str,
     cookies: &mut HashMap<String, String>,
 ) -> Result<()> {
-    cookies.extend(HttpClient::cookies_for_url(url).await?);
+    cookies.extend(http_client.cookies_for_url_in_client(url).await?);
     Ok(())
 }
 
 /// Extracts SSO redirect URLs from the connexion flow.
-fn extract_sso_urls(response_url: &str, response: &str) -> Vec<String> {
+fn extract_sso_urls(response_url: &str, redirect_urls: &[String], response: &str) -> Vec<String> {
     let re = NEXT_DATA_REGEX.get_or_init(|| {
         Regex::new(r#"(?s)<script[^>]*\bid=["']__NEXT_DATA__["'][^>]*>(.*?)</script>"#)
             .expect("valid NEXT_DATA regex")
@@ -508,7 +592,7 @@ fn extract_sso_urls(response_url: &str, response: &str) -> Vec<String> {
             return urls;
         }
 
-        return extract_sso_urls_from_final_url(response_url);
+        return extract_sso_urls_from_redirects(response_url, redirect_urls);
     };
 
     let json_str = captures.get(1).map(|m| m.as_str()).unwrap_or("");
@@ -525,7 +609,7 @@ fn extract_sso_urls(response_url: &str, response: &str) -> Vec<String> {
         }
     }
 
-    extract_sso_urls_from_final_url(response_url)
+    extract_sso_urls_from_redirects(response_url, redirect_urls)
 }
 
 fn extract_sso_url_from_line(line: &str) -> Option<String> {
@@ -535,42 +619,119 @@ fn extract_sso_url_from_line(line: &str) -> Option<String> {
         .map(|m| m.as_str().to_string())
 }
 
-fn extract_sso_urls_from_final_url(response_url: &str) -> Vec<String> {
-    let Ok(url) = Url::parse(response_url) else {
-        return Vec::new();
-    };
-    let Some(fragment) = url.fragment() else {
-        return Vec::new();
-    };
-    let Some((_, query)) = fragment.split_once('?') else {
-        return Vec::new();
-    };
+fn extract_sso_urls_from_redirects(response_url: &str, redirect_urls: &[String]) -> Vec<String> {
+    let mut urls = Vec::new();
 
-    let Ok(fragment_url) = Url::parse(&format!("https://sso.rtl.be/?{query}")) else {
-        return Vec::new();
-    };
-
-    let mut oidc_callback = None;
-    for (name, value) in fragment_url.query_pairs() {
-        if name == "oidc_callback" {
-            let value = value.trim();
-            if !value.is_empty() {
-                oidc_callback = Some(value.to_string());
-                break;
-            }
-        }
+    if let Some(candidate) = redirect_urls.iter().rev().find_map(|redirect_url| {
+        Url::parse(redirect_url)
+            .ok()
+            .and_then(|url| url.fragment().and_then(sso_oidc_callback_from_fragment))
+    }) {
+        push_unique(&mut urls, candidate);
     }
 
-    let Some(oidc_callback) = oidc_callback else {
-        return Vec::new();
+    for redirect_url in redirect_urls {
+        push_sso_redirect_urls(redirect_url, &mut urls);
+    }
+    push_sso_redirect_urls(response_url, &mut urls);
+
+    urls
+}
+
+fn push_sso_redirect_urls(source_url: &str, urls: &mut Vec<String>) {
+    let Ok(url) = Url::parse(source_url) else {
+        return;
     };
+    if url.host_str() != Some("sso.rtl.be") {
+        return;
+    }
 
-    let login_return_url = format!(
+    if let Some(callback) = url.fragment().and_then(sso_oidc_callback_from_fragment) {
+        let login_return_url = sso_login_return_url(&callback);
+        push_unique(urls, callback);
+        push_unique(urls, login_return_url);
+        return;
+    }
+
+    if url.path() == "/" && url.query().is_none() {
+        return;
+    }
+
+    push_unique(urls, url_path_with_query(&url));
+}
+
+fn push_unique(values: &mut Vec<String>, value: String) {
+    if !values.iter().any(|existing| existing == &value) {
+        values.push(value);
+    }
+}
+
+fn url_path_with_query(url: &Url) -> String {
+    match url.query() {
+        Some(query) if !query.is_empty() => format!("{}?{}", url.path(), query),
+        _ => url.path().to_string(),
+    }
+}
+
+fn sso_oidc_callback_from_fragment(fragment: &str) -> Option<String> {
+    let query = fragment.split_once('?')?.1;
+    let params = serde_urlencoded::from_str::<HashMap<String, String>>(query).ok()?;
+    let callback = params.get("oidc_callback")?.trim();
+    if callback.is_empty() {
+        return None;
+    }
+
+    Some(normalize_sso_redirect_path(callback))
+}
+
+fn sso_login_return_url(oidc_callback: &str) -> String {
+    format!(
         "/oidc/account/login?ReturnUrl={}",
-        encode_query_value(&oidc_callback)
-    );
+        encode_query_value(oidc_callback)
+    )
+}
 
-    vec![login_return_url, oidc_callback]
+fn sso_authorize_url_from_redirect(value: &str) -> Option<String> {
+    let redirect_path = normalize_sso_redirect_path(value);
+    let authorize_path = if redirect_path.starts_with("/oidc/connect/authorize") {
+        Some(redirect_path)
+    } else if redirect_path.starts_with("/oidc/account/login") {
+        sso_return_url_from_login_path(&redirect_path)
+    } else {
+        None
+    }?;
+
+    Some(format!(
+        "{}{}",
+        SSO_BASE_URL.trim_end_matches('/'),
+        authorize_path
+    ))
+}
+
+fn sso_return_url_from_login_path(value: &str) -> Option<String> {
+    let url = Url::parse(&format!("{}{}", SSO_BASE_URL.trim_end_matches('/'), value)).ok()?;
+    if url.host_str() != Some("sso.rtl.be") || url.path() != "/oidc/account/login" {
+        return None;
+    }
+
+    url.query_pairs()
+        .find(|(name, _)| name.eq_ignore_ascii_case("ReturnUrl"))
+        .map(|(_, value)| normalize_sso_redirect_path(&value))
+        .filter(|value| value.starts_with("/oidc/connect/authorize"))
+}
+
+fn normalize_sso_redirect_path(value: &str) -> String {
+    Url::parse(value)
+        .ok()
+        .filter(|url| url.host_str() == Some("sso.rtl.be"))
+        .map(|url| url_path_with_query(&url))
+        .unwrap_or_else(|| {
+            if value.starts_with('/') {
+                value.to_string()
+            } else {
+                format!("/{value}")
+            }
+        })
 }
 
 fn encode_query_value(value: &str) -> String {
@@ -635,6 +796,11 @@ fn generic_hash_headers() -> HashMap<String, String> {
             "accept-language".to_string(),
             "fr,fr-FR;q=0.8,en-US;q=0.5,en;q=0.3".to_string(),
         ),
+        (
+            "user-agent".to_string(),
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0"
+                .to_string(),
+        ),
         ("connection".to_string(), "keep-alive".to_string()),
         ("upgrade-insecure-requests".to_string(), "1".to_string()),
         ("sec-fetch-dest".to_string(), "document".to_string()),
@@ -644,6 +810,13 @@ fn generic_hash_headers() -> HashMap<String, String> {
         ("sec-gpc".to_string(), "1".to_string()),
         ("priority".to_string(), "u=0, i".to_string()),
     ])
+}
+
+fn sso_hash_headers() -> HashMap<String, String> {
+    let mut headers = generic_hash_headers();
+    headers.insert("referer".to_string(), SSO_BASE_URL.to_string());
+    headers.insert("sec-fetch-site".to_string(), "same-origin".to_string());
+    headers
 }
 
 fn rtlplay_headers(api_version: &RtlPlayApiVersion) -> Result<HeaderMap> {

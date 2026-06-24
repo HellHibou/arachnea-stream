@@ -8,10 +8,10 @@ use arachnea_proxy::connectors::ArachneaRquestLoopback;
 use bytes::Bytes;
 use encoding_rs::{Encoding, WINDOWS_1252};
 use http::{
-    header::{CONTENT_TYPE, COOKIE, LOCATION, USER_AGENT},
     HeaderMap, HeaderName, HeaderValue, Method, StatusCode,
+    header::{CONTENT_TYPE, COOKIE, LOCATION, USER_AGENT},
 };
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 use url::Url;
@@ -19,10 +19,10 @@ use url::Url;
 use crate::{
     cloudflare::detect_cloudflare_block,
     config::{ArachneaHttpConfig, CloudflareSolverKind, HttpProxyConfig, HttpRequestMode},
-    cookies::{global_cookie_cache, SharedCookieCache},
+    cookies::{SharedCookieCache, global_cookie_cache},
     engine::{
-        build_auto_smart_cloudflare_solver, build_browser_cloudflare_solver, rquest::RquestEngine,
         DynHttpEngine, EngineRequest, HttpEngine, SOLVER_USER_AGENT_HEADER,
+        build_auto_smart_cloudflare_solver, build_browser_cloudflare_solver, rquest::RquestEngine,
     },
     error::ArachneaHttpError,
 };
@@ -150,7 +150,7 @@ impl PreparedProxyRuntime {
 pub struct ArachneaHttpClient {
     /// Runtime configuration.
     config: ArachneaHttpConfig,
-    /// Shared process-wide cookie cache.
+    /// Shared cookie cache used by this client.
     cookies: Arc<RwLock<SharedCookieCache>>,
     /// Fast rquest engine used by predefined request modes.
     rquest: Option<RquestEngine>,
@@ -227,6 +227,27 @@ impl ArachneaHttpClient {
     ///
     /// Returns engine construction errors.
     pub async fn new(config: ArachneaHttpConfig) -> Result<Self, ArachneaHttpError> {
+        Self::new_with_cookie_cache(config, global_cookie_cache()).await
+    }
+
+    /// Builds a new HTTP client with an explicit cookie cache.
+    ///
+    /// # Parameters
+    ///
+    /// - `config`: Validated runtime configuration.
+    /// - `cookies`: Cookie cache used by this client.
+    ///
+    /// # Returns
+    ///
+    /// A client bound to the provided cookie cache.
+    ///
+    /// # Errors
+    ///
+    /// Returns engine construction errors.
+    pub async fn new_with_cookie_cache(
+        config: ArachneaHttpConfig,
+        cookies: Arc<RwLock<SharedCookieCache>>,
+    ) -> Result<Self, ArachneaHttpError> {
         let proxy_runtime = Arc::new(PreparedProxyRuntime::new(&config).await?);
         let direct_engine = config.engine.direct_engine();
         let rquest = if direct_engine.is_some() {
@@ -244,7 +265,7 @@ impl ArachneaHttpClient {
             build_browser_cloudflare_solver(&config, &config.cloudflare_browser_solver).await?;
         Ok(Self {
             config,
-            cookies: global_cookie_cache(),
+            cookies,
             rquest,
             direct_engine,
             smart_cloudflare_engine,
@@ -1016,9 +1037,11 @@ impl ArachneaHttpClient {
     {
         let max_redirects = self.config.max_redirects.unwrap_or(DEFAULT_MAX_REDIRECTS);
         let mut response = execute_once(options.clone()).await?;
+        let mut redirect_urls = Vec::new();
 
         for redirect_index in 0..max_redirects {
             let Some(next_url) = redirect_target(&response)? else {
+                response.set_redirect_urls(redirect_urls);
                 return Ok(response);
             };
 
@@ -1029,6 +1052,7 @@ impl ArachneaHttpClient {
                 redirect = redirect_index + 1,
                 "following HTTP redirect"
             );
+            redirect_urls.push(next_url.clone());
             options = options.for_redirect(next_url, response.status);
             response = execute_once(options.clone()).await?;
         }
@@ -1039,6 +1063,7 @@ impl ArachneaHttpClient {
             });
         }
 
+        response.set_redirect_urls(redirect_urls);
         Ok(response)
     }
 
@@ -1339,6 +1364,8 @@ impl RequestOptions {
 pub struct ArachneaResponse {
     /// Final URL reported by the engine.
     url: String,
+    /// Redirect target URLs followed by the HTTP facade.
+    redirect_urls: Vec<String>,
     /// HTTP status code.
     status: StatusCode,
     /// Response headers.
@@ -1360,6 +1387,7 @@ impl ArachneaResponse {
     fn from_engine(response: crate::engine::EngineResponse) -> Self {
         Self {
             url: response.url,
+            redirect_urls: Vec::new(),
             status: response.status,
             headers: response.headers,
             body: response.body,
@@ -1373,6 +1401,7 @@ impl ArachneaResponse {
     pub fn from_text(url: impl Into<String>, body: impl Into<Bytes>) -> Self {
         Self {
             url: url.into(),
+            redirect_urls: Vec::new(),
             status: StatusCode::OK,
             headers: HeaderMap::new(),
             body: body.into(),
@@ -1386,6 +1415,20 @@ impl ArachneaResponse {
     /// Final response URL as a string slice.
     pub fn url(&self) -> &str {
         &self.url
+    }
+
+    /// Returns redirect target URLs followed before this response.
+    ///
+    /// # Returns
+    ///
+    /// Redirect target URLs in request order.
+    pub fn redirect_urls(&self) -> &[String] {
+        &self.redirect_urls
+    }
+
+    /// Replaces the redirect target URL history.
+    fn set_redirect_urls(&mut self, redirect_urls: Vec<String>) {
+        self.redirect_urls = redirect_urls;
     }
 
     /// Returns the HTTP status.
@@ -1593,8 +1636,8 @@ fn redacted_headers(headers: &HeaderMap) -> HashMap<String, String> {
 /// Unit tests for client URL helpers.
 mod tests {
     use std::sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     };
 
     use http::header::SET_COOKIE;

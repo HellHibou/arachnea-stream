@@ -1,7 +1,8 @@
 use anyhow::{Context, Result};
 use arachnea_http::{
-    global_cookie_cache, header_map_from_strings, ArachneaHttpClient, ArachneaHttpConfig,
-    ArachneaResponse, BrowserProfile, CookieEntry, HttpProxyConfig, HttpRequestMode,
+    ArachneaHttpClient, ArachneaHttpConfig, ArachneaResponse, BrowserProfile, CookieEntry,
+    HttpProxyConfig, HttpRequestMode, SharedCookieCache, global_cookie_cache,
+    header_map_from_strings,
 };
 #[cfg(feature = "arachnea-proxy")]
 use arachnea_proxy::core::{ArachneaProxyCore, UsageProfile};
@@ -301,6 +302,7 @@ pub fn remove_router() {
 pub struct HttpClient {
     http_config: ScraperHttpConfig,
     proxy_handle: SharedProxyConfigHandle,
+    cookie_cache: Arc<AsyncRwLock<SharedCookieCache>>,
     client: Arc<AsyncRwLock<Option<CachedHttpClient>>>,
 }
 
@@ -326,11 +328,33 @@ impl HttpClient {
         http_config: ScraperHttpConfig,
         proxy_handle: SharedProxyConfigHandle,
     ) -> Self {
+        Self::with_http_config_proxy_handle_and_cookie_cache(
+            http_config,
+            proxy_handle,
+            global_cookie_cache(),
+        )
+    }
+
+    fn with_http_config_proxy_handle_and_cookie_cache(
+        http_config: ScraperHttpConfig,
+        proxy_handle: SharedProxyConfigHandle,
+        cookie_cache: Arc<AsyncRwLock<SharedCookieCache>>,
+    ) -> Self {
         Self {
             http_config,
             proxy_handle,
+            cookie_cache,
             client: Arc::new(AsyncRwLock::new(None)),
         }
+    }
+
+    /// Returns a clone using a fresh cookie cache while preserving HTTP and proxy config.
+    pub fn with_isolated_cookies(&self) -> Self {
+        Self::with_http_config_proxy_handle_and_cookie_cache(
+            self.http_config.clone(),
+            self.proxy_handle.clone(),
+            Arc::new(AsyncRwLock::new(SharedCookieCache::default())),
+        )
     }
 
     /// Returns the shared mutable proxy handle used by this client family.
@@ -344,11 +368,32 @@ impl HttpClient {
             return self.clone();
         }
 
-        Self::with_http_config_and_proxy_handle(http_config, self.proxy_handle.clone())
+        Self::with_http_config_proxy_handle_and_cookie_cache(
+            http_config,
+            self.proxy_handle.clone(),
+            self.cookie_cache.clone(),
+        )
     }
 
     /// Stores simple name/value cookies for a URL in the shared HTTP cache.
     pub async fn store_cookies_for_url(url: &str, cookies: &HashMap<String, String>) -> Result<()> {
+        Self::store_cookies_in_cache(global_cookie_cache(), url, cookies).await
+    }
+
+    /// Stores simple name/value cookies for a URL in this client's cookie cache.
+    pub async fn store_cookies_for_url_in_client(
+        &self,
+        url: &str,
+        cookies: &HashMap<String, String>,
+    ) -> Result<()> {
+        Self::store_cookies_in_cache(self.cookie_cache.clone(), url, cookies).await
+    }
+
+    async fn store_cookies_in_cache(
+        cache: Arc<AsyncRwLock<SharedCookieCache>>,
+        url: &str,
+        cookies: &HashMap<String, String>,
+    ) -> Result<()> {
         let url = Url::parse(url)?;
         let domain = url
             .host_str()
@@ -360,7 +405,6 @@ impl HttpClient {
             url.path().to_string()
         };
         let secure = url.scheme() == "https";
-        let cache = global_cookie_cache();
         let mut cache = cache.write().await;
 
         for (name, value) in cookies {
@@ -395,7 +439,18 @@ impl HttpClient {
     ///
     /// Returns an error if `url` is invalid.
     pub async fn cookies_for_url(url: &str) -> Result<HashMap<String, String>> {
-        let cache = global_cookie_cache();
+        Self::cookies_for_url_in_cache(global_cookie_cache(), url).await
+    }
+
+    /// Returns this client's cookie view currently applicable to one absolute URL.
+    pub async fn cookies_for_url_in_client(&self, url: &str) -> Result<HashMap<String, String>> {
+        Self::cookies_for_url_in_cache(self.cookie_cache.clone(), url).await
+    }
+
+    async fn cookies_for_url_in_cache(
+        cache: Arc<AsyncRwLock<SharedCookieCache>>,
+        url: &str,
+    ) -> Result<HashMap<String, String>> {
         let mut cache = cache.write().await;
         let cookies = cache.cookies_for_url(url)?;
         Ok(cookies)
@@ -426,7 +481,9 @@ impl HttpClient {
             builder = builder.proxy_parameter("country", proxy_country);
         }
         let config = builder.build()?;
-        let client = Arc::new(ArachneaHttpClient::new(config).await?);
+        let client = Arc::new(
+            ArachneaHttpClient::new_with_cookie_cache(config, self.cookie_cache.clone()).await?,
+        );
 
         let mut guard = self.client.write().await;
         *guard = Some(CachedHttpClient {
