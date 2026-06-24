@@ -82,7 +82,7 @@ fn filter_non_transferable(headers: &mut HashMap<String, String>) {
         "host",
         "proxy-authorization",
         "proxy-connection",
-        "referer"
+        "referer",
     ];
     headers.retain(|key, _| {
         let lower = key.to_ascii_lowercase();

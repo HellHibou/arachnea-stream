@@ -1,12 +1,12 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
-use base64::{Engine as _, engine::general_purpose};
+use base64::{engine::general_purpose, Engine as _};
 use regex::Regex;
 use rquest::{
-    Url,
     header::{HeaderMap, HeaderName, HeaderValue},
+    Url,
 };
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -18,8 +18,8 @@ use arachnea_scrapyfy::{
 };
 
 use crate::services::player_resolver::{
-    PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream, normalize_stream_kind,
-    proxy_drm_today_license_request, save_drm_today_license_proxy_url,
+    normalize_stream_kind, proxy_drm_today_license_request, save_drm_today_license_proxy_url,
+    PlayerResolverEndpoints, PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream,
 };
 
 const RTLPLAY_SERVICE_ID: &str = "rtlplay-be";
@@ -104,6 +104,7 @@ impl PlayerStreamResolver for RtlPlayResolver {
         resolver_target: &str,
         resolver_stream_kind: Option<String>,
         service_parameters: &[ScraperQueryCollectionParameter],
+        _endpoints: &PlayerResolverEndpoints,
     ) -> Result<ResolvedPlayerStream> {
         match resolver_kind.trim() {
             "rtlplay-video" => {

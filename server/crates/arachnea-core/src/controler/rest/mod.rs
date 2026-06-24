@@ -391,6 +391,40 @@ impl ControlerService for RestControlerService {
         self.add_route(post_filter.or(get_filter).unify().boxed());
     }
 
+    fn stream_public_path(&self, command: &str) -> String {
+        let mut parts: Vec<String> = self
+            .entrypoint_root
+            .iter()
+            .flat_map(|segment| segment.split('/'))
+            .map(str::trim)
+            .filter(|segment| !segment.is_empty())
+            .map(ToString::to_string)
+            .collect();
+
+        if let Some(api) = &self.entrypoint_api {
+            parts.extend(
+                api.split('/')
+                    .map(str::trim)
+                    .filter(|segment| !segment.is_empty())
+                    .map(ToString::to_string),
+            );
+        }
+
+        parts.extend(
+            command
+                .split('/')
+                .map(str::trim)
+                .filter(|segment| !segment.is_empty())
+                .map(ToString::to_string),
+        );
+
+        if parts.is_empty() {
+            "/".to_string()
+        } else {
+            format!("/{}", parts.join("/"))
+        }
+    }
+
     fn register_stream_function(&mut self, command: &str, call: StreamControlerFunction) {
         let base_filter = self.make_base_filter(true, command);
 

@@ -18,7 +18,7 @@ use std::sync::Arc;
 #[cfg(feature = "rquest")]
 use crate::core::{ArachneaProxyCore, ParameterDefinition};
 #[cfg(feature = "rquest")]
-use crate::server::{NetworkConfig, ProxyAuthConfig, ServerConfig, handlers};
+use crate::server::{handlers, NetworkConfig, ProxyAuthConfig, ServerConfig};
 #[cfg(feature = "rquest")]
 use rquest::header::{HeaderMap, HeaderName, HeaderValue};
 #[cfg(feature = "rquest")]

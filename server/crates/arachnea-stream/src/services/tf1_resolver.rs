@@ -13,7 +13,8 @@ use arachnea_scrapyfy::{
 };
 
 use crate::services::player_resolver::{
-    normalize_stream_kind, PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream,
+    normalize_stream_kind, PlayerResolverEndpoints, PlayerStreamResolver, ProxiedStreamResponse,
+    ResolvedPlayerStream,
 };
 
 const TF1_SERVICE_ID: &str = "tf1-fr";
@@ -70,6 +71,7 @@ impl PlayerStreamResolver for Tf1Resolver {
         resolver_target: &str,
         resolver_stream_kind: Option<String>,
         _service_parameters: &[ScraperQueryCollectionParameter],
+        _endpoints: &PlayerResolverEndpoints,
     ) -> Result<ResolvedPlayerStream> {
         match resolver_kind.trim() {
             "tf1-video" => {

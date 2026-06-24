@@ -53,6 +53,8 @@ const DEFAULT_SERVER_CREDENTIALS_KEY: [u8; 32] = *b"hell_hibou-arachnea-key-2026
 struct RuntimeOptions {
     mode_server: bool,
     server_port: u16,
+    entrypoint_root: Option<String>,
+    entrypoint_api: Option<String>,
 }
 
 /// Result of parsing command line arguments.
@@ -87,6 +89,10 @@ Options:
   --desktop              Run in desktop application mode (forces mode_server to false)
   --server               Run in server mode (forces mode_server to true)
   --server-port <PORT>   Override the server port (default: {DEFAULT_SERVER_PORT})
+  --entrypoint-root <PATH>
+                          Public root path used before API routes in server mode
+  --entrypoint-api <PATH>
+                          Public API path segment used in server mode
   --help                 Show this help message and exit"
     )
 }
@@ -130,6 +136,8 @@ fn parse_runtime_options(program_name: &str) -> Result<CliAction> {
     let mut options = RuntimeOptions {
         mode_server: DEFAULT_MODE_SERVER,
         server_port: DEFAULT_SERVER_PORT,
+        entrypoint_root: None,
+        entrypoint_api: None,
     };
     let mut args = std::env::args().skip(1);
 
@@ -148,6 +156,18 @@ fn parse_runtime_options(program_name: &str) -> Result<CliAction> {
                     .parse::<u16>()
                     .with_context(|| format!("invalid value for `--server-port`: `{port}`"))?;
             }
+            "--entrypoint-root" => {
+                options.entrypoint_root = Some(
+                    args.next()
+                        .context("missing value for `--entrypoint-root`")?,
+                );
+            }
+            "--entrypoint-api" => {
+                options.entrypoint_api = Some(
+                    args.next()
+                        .context("missing value for `--entrypoint-api`")?,
+                );
+            }
             _ => bail!("unknown argument: `{arg}`"),
         }
     }
@@ -158,7 +178,7 @@ fn parse_runtime_options(program_name: &str) -> Result<CliAction> {
 /// Starts the configured backend controller using command line runtime options.
 #[tokio::main]
 async fn main() -> Result<()> {
-    arachnea_core::logger::set_default_log_level_debug!(DEBUG);
+    arachnea_core::logger::set_default_log_level_debug!(INFO);
     StreamScraper::init_sub_logger_levels();
     arachnea_core::logger::init_logger();
 
@@ -195,7 +215,7 @@ async fn main() -> Result<()> {
         .add_query_collection_from_config_json(resources::get_application_path(
             DEFAULT_SERVICES_CONFIG_PATH,
         ))?;
-
+ /*
     manager.clear_proxy();
 
     let proxy_fr = ProxyNode::from_url(
@@ -217,7 +237,7 @@ async fn main() -> Result<()> {
             forward_header: false,
             stop_on_match: true,
             routes: vec![ParameterProxyRoute {
-                    value: "FR".to_string(),
+                value: "FR".to_string(),
                 proxy: proxy_fr,
             }],
         }],
@@ -240,22 +260,24 @@ async fn main() -> Result<()> {
             None
         }
     };
+    manager.set_proxy_http_core(proxy_core_for_http);
+// */
     let web_assets = generated_embedded_web_assets();
 
     let mut controler: Box<dyn ControlerService> = if options.mode_server {
-        Box::new(RestControlerService::new(
-            RestControlerConfiguration::default().server_port(options.server_port),
-        ))
+        let mut configuration =
+            RestControlerConfiguration::default().server_port(options.server_port);
+        if let Some(entrypoint_root) = &options.entrypoint_root {
+            configuration = configuration.entrypoint_root(entrypoint_root);
+        }
+        if let Some(entrypoint_api) = &options.entrypoint_api {
+            configuration = configuration.entrypoint_api(entrypoint_api);
+        }
+
+        Box::new(RestControlerService::new(configuration))
     } else {
         Box::new(tauri_controler_service())
     };
-    
-    // Register proxy_http handler if proxy core is available
-    if let Some(proxy_core) = proxy_core_for_http.as_ref() {
-        arachnea_proxy::core::http::register_service(controler.as_mut(), proxy_core, "proxy");
-    } else {
-        tracing::warn!("proxy_http handler not registered: no proxy core available");
-    }
 
     // controler.register_web_directory(resources::get_application_path("front"), "");
     controler.register_embedded_web_assets(web_assets, "");

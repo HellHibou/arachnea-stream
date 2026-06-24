@@ -14,7 +14,7 @@ use arachnea_core::persistence::CredentialsStore;
 use arachnea_scrapyfy::{HttpClient, ScraperAgregator, ScraperQueryCollectionParameter};
 
 use crate::services::player_resolver::{
-    PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream,
+    PlayerResolverEndpoints, PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream,
 };
 
 const FRANCETV_SERVICE_ID: &str = "francetv";
@@ -57,6 +57,7 @@ impl PlayerStreamResolver for FrancetvResolver {
         resolver_target: &str,
         resolver_stream_kind: Option<String>,
         service_parameters: &[ScraperQueryCollectionParameter],
+        _endpoints: &PlayerResolverEndpoints,
     ) -> Result<ResolvedPlayerStream> {
         match resolver_kind.trim() {
             "francetv-video" => {

@@ -12,7 +12,7 @@ use arachnea_scrapyfy::{HttpClient, ScraperAgregator, ScraperQueryCollectionPara
 
 use crate::services::player_resolver::{
     normalize_stream_kind, proxy_drm_today_license_request, save_drm_today_license_proxy_url,
-    PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream,
+    PlayerResolverEndpoints, PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream,
 };
 
 const SIXPLAY_LOGIN_URL: &str = "https://login-gigya.m6.fr/accounts.login";
@@ -69,6 +69,7 @@ impl PlayerStreamResolver for M6PlayResolver {
         resolver_target: &str,
         resolver_stream_kind: Option<String>,
         _service_parameters: &[ScraperQueryCollectionParameter],
+        _endpoints: &PlayerResolverEndpoints,
     ) -> Result<ResolvedPlayerStream> {
         match resolver_kind.trim() {
             "m6play-video" => {

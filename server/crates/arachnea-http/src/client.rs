@@ -8,10 +8,10 @@ use arachnea_proxy::connectors::ArachneaRquestLoopback;
 use bytes::Bytes;
 use encoding_rs::{Encoding, WINDOWS_1252};
 use http::{
-    HeaderMap, HeaderName, HeaderValue, Method, StatusCode,
     header::{CONTENT_TYPE, COOKIE, LOCATION, USER_AGENT},
+    HeaderMap, HeaderName, HeaderValue, Method, StatusCode,
 };
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Serialize};
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 use url::Url;
@@ -19,10 +19,10 @@ use url::Url;
 use crate::{
     cloudflare::detect_cloudflare_block,
     config::{ArachneaHttpConfig, CloudflareSolverKind, HttpProxyConfig, HttpRequestMode},
-    cookies::{SharedCookieCache, global_cookie_cache},
+    cookies::{global_cookie_cache, SharedCookieCache},
     engine::{
-        DynHttpEngine, EngineRequest, HttpEngine, SOLVER_USER_AGENT_HEADER,
         build_auto_smart_cloudflare_solver, build_browser_cloudflare_solver, rquest::RquestEngine,
+        DynHttpEngine, EngineRequest, HttpEngine, SOLVER_USER_AGENT_HEADER,
     },
     error::ArachneaHttpError,
 };
@@ -1636,8 +1636,8 @@ fn redacted_headers(headers: &HeaderMap) -> HashMap<String, String> {
 /// Unit tests for client URL helpers.
 mod tests {
     use std::sync::{
-        Arc,
         atomic::{AtomicUsize, Ordering},
+        Arc,
     };
 
     use http::header::SET_COOKIE;

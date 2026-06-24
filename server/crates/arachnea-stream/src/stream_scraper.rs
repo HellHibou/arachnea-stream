@@ -10,16 +10,20 @@ use arachnea_core::{
     },
     persistence::{CredentialsStore, FileCredentialsStore},
 };
+use arachnea_proxy::core::ArachneaProxyCore;
 use arachnea_scrapyfy::*;
 
 use crate::services::{
     francetv_resolver::FrancetvResolver,
     m6play_resolver::M6PlayResolver,
-    player_resolver::{PlayerStreamResolver, ResolvedPlayerStream},
+    player_resolver::{PlayerResolverEndpoints, PlayerStreamResolver, ResolvedPlayerStream},
     rtbf_auvio_resolver::RtbfAuvioResolver,
     rtlplay_resolver::RtlPlayResolver,
     tf1_resolver::Tf1Resolver,
 };
+
+const HTTP_PROXY_COMMAND: &str = "proxy";
+const STREAM_PROXY_COMMAND: &str = "get_stream";
 
 static M6PLAY_RESOLVER: M6PlayResolver = M6PlayResolver;
 static RTBF_AUVIO_RESOLVER: RtbfAuvioResolver = RtbfAuvioResolver;
@@ -120,6 +124,8 @@ pub struct StreamScraper {
     scraper_agregator: ScraperAgregator,
     credentials_store: Arc<dyn CredentialsStore>,
     proxy_handle: SharedProxyConfigHandle,
+    proxy_http_core: Option<ArachneaProxyCore>,
+    player_resolver_endpoints: PlayerResolverEndpoints,
 }
 
 impl StreamScraper {
@@ -154,6 +160,8 @@ impl StreamScraper {
             scraper_agregator: ScraperAgregator::new_with_proxy_handle(proxy_handle.clone()),
             credentials_store,
             proxy_handle,
+            proxy_http_core: None,
+            player_resolver_endpoints: PlayerResolverEndpoints::default(),
         }
     }
 
@@ -170,6 +178,14 @@ impl StreamScraper {
     /// Disables the proxy override used by this scraper instance.
     pub fn clear_proxy(&self) {
         self.proxy_handle.clear_proxy();
+    }
+
+    /// Stores the generic HTTP proxy core registered with the controller.
+    ///
+    /// # Arguments
+    /// * `proxy_http_core` - Optional proxy core used by the `/proxy` stream command.
+    pub fn set_proxy_http_core(&mut self, proxy_http_core: Option<ArachneaProxyCore>) {
+        self.proxy_http_core = proxy_http_core;
     }
 
     /// Executes the `search` query using URL-encoded terms.
@@ -553,6 +569,7 @@ impl StreamScraper {
                 &resolver_target,
                 resolver_stream_kind,
                 service_parameters,
+                &self.player_resolver_endpoints,
             )
             .await
     }
@@ -616,7 +633,15 @@ impl ScraperManager for StreamScraper {
         self.scraper_agregator.create_http_client(http_config)
     }
 
-    fn register_service(self, controler: &mut dyn ControlerService) {
+    fn register_service(mut self, controler: &mut dyn ControlerService) {
+        if let Some(proxy_core) = self.proxy_http_core.as_ref() {
+            let proxy_public_path = controler.stream_public_path(HTTP_PROXY_COMMAND);
+            self.player_resolver_endpoints.http_proxy_public_path = Some(proxy_public_path);
+            arachnea_proxy::core::http::register_service(controler, proxy_core, HTTP_PROXY_COMMAND);
+        } else {
+            tracing::warn!("proxy_http handler not registered: no proxy core available");
+        }
+
         let connector = Arc::new(self);
 
         controler.register_result_function_with_state(
@@ -724,7 +749,7 @@ impl ScraperManager for StreamScraper {
         );
 
         controler.register_stream_function_with_state(
-            "get_stream",
+            STREAM_PROXY_COMMAND,
             Arc::clone(&connector),
             |scraper, input| async move { scraper.get_stream(input).await },
         );

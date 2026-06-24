@@ -335,6 +335,18 @@ impl ControlerService for TauriControlerService {
             .push((command.to_string(), call, entry_point));
     }
 
+    fn stream_public_path(&self, command: &str) -> String {
+        let mut path = self.api_prefix.trim_end_matches('/').to_string();
+        let command = command.trim_matches('/');
+
+        if !command.is_empty() {
+            path.push('/');
+            path.push_str(command);
+        }
+
+        path
+    }
+
     fn register_web_directory(&mut self, directory_path: &str, path: &str) {
         TauriControlerService::register_web_directory(self, directory_path, path);
     }

@@ -14,12 +14,15 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **`ScraperManagerQuery` trait removed**: The legacy `async_trait`-based query trait and its single `impl` for `HtmlScraperQuery` are deleted. All query execution now goes through `ScraperQuery` (the unified trait).
 - **Legacy `execute_query` methods removed**: `HtmlScraperQuery::execute_query`, `JsonScraperQuery::execute_query`, `StaticScraperQuery::execute_query` — all replaced by the unified executor.
 - **`mod.rs` exports cleaned**: `ScraperManagerQuery` removed from public re-exports. `ScraperManager` trait retained for runtime integration.
+- **Stream proxy endpoint ownership**: `StreamScraper` now registers the generic HTTP `proxy` stream route and passes the controller-computed public proxy path into player resolvers, so RTBF Auvio media URLs no longer depend on a hardcoded `/api/proxy/` path.
+- **Server public API mount configuration**: `arachnea` now accepts `--entrypoint-root` and `--entrypoint-api` in server mode so generated stream URLs can match reverse-proxy mounts such as `/arachnea/api/proxy`.
 
 ### Removed
 - Dead helpers: `process_root`, `parse_html_rows`, `collect_ordered_results`, `matches` (response_parser), `resolve_request_headers`/`resolve_request_body`/`execution_options` (JsonScraperQuery), `split_static_path`, `render_static_value`, `render_yaml_value`, `render_yaml_values` (StaticScraperQuery).
 - `JsonScraperSubQuery::execute` / `execute_siblings` / `execute_context` / `execute_indexed_context` / `execute_indexed_sibling` / `build_row_node` — re-used through the new `JsonScraperSubQuery::execute_query_level` unified entry point (see regression fix below).
 
 ### Fixed
+- **RTBF Auvio playback CORS**: RTBF RedBee media manifest URLs returned by the player resolver now use the same-origin `/api/proxy/` route, so the DASH MPD and relative segment requests are fetched through Arachnea while the Widevine license proxy remains on `/api/get_stream/rtbf-auvio-be/...`.
 - **RTBF Auvio home banners**: Query-level sub-query fetches now execute child sub-queries on fetched responses and resolve nested request headers/bodies from the parent response, allowing `load_home` PROMOBOX banners to include the RedBee HLS `video` URL.
 - **coflix.yaml**: Updated `get_entry` query to correctly extract season labels and links from the HTML entry page.
 - **coflix.yaml**: Fixed `get_season` query to correctly iterate over all episodes in the `episodes` array.

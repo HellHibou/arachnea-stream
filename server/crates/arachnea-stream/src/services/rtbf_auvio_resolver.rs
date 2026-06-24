@@ -11,7 +11,7 @@ use arachnea_core::persistence::CredentialsStore;
 use arachnea_scrapyfy::{HttpClient, ScraperAgregator, ScraperQueryCollectionParameter};
 
 use crate::services::player_resolver::{
-    PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream,
+    PlayerResolverEndpoints, PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream,
 };
 
 const RTBF_AUVIO_SERVICE_ID: &str = "rtbf-auvio-be";
@@ -56,6 +56,7 @@ impl PlayerStreamResolver for RtbfAuvioResolver {
         resolver_target: &str,
         resolver_stream_kind: Option<String>,
         _service_parameters: &[ScraperQueryCollectionParameter],
+        endpoints: &PlayerResolverEndpoints,
     ) -> Result<ResolvedPlayerStream> {
         match resolver_kind.trim() {
             "rtbf-auvio-live" | "rtbf-auvio-video" => {
@@ -64,6 +65,7 @@ impl PlayerStreamResolver for RtbfAuvioResolver {
                     credentials_store,
                     resolver_target,
                     resolver_stream_kind,
+                    endpoints,
                 )
                 .await
             }
@@ -90,6 +92,7 @@ async fn resolve_redbee_stream(
     credentials_store: &dyn CredentialsStore,
     asset_id: &str,
     stream_kind: Option<String>,
+    endpoints: &PlayerResolverEndpoints,
 ) -> Result<ResolvedPlayerStream> {
     let normalized_asset_id = asset_id.trim();
     if normalized_asset_id.is_empty() {
@@ -108,11 +111,34 @@ async fn resolve_redbee_stream(
         .map(|license_url| save_redbee_license_proxy_url(&license_url, &stream_kind));
 
     Ok(ResolvedPlayerStream {
-        stream_url: selected_format.media_locator,
+        stream_url: proxied_redbee_media_url(
+            &selected_format.media_locator,
+            endpoints.http_proxy_public_path.as_deref(),
+        ),
         manifest_type: selected_format.manifest_type,
         license_url,
         license_headers: HashMap::new(),
     })
+}
+
+fn proxied_redbee_media_url(media_locator: &str, http_proxy_public_path: Option<&str>) -> String {
+    let normalized_media_locator = media_locator.trim();
+    if normalized_media_locator.starts_with("http://")
+        || normalized_media_locator.starts_with("https://")
+    {
+        if let Some(proxy_path) = http_proxy_public_path
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return format!(
+                "{}/{}",
+                proxy_path.trim_end_matches('/'),
+                normalized_media_locator
+            );
+        }
+    }
+
+    normalized_media_locator.to_string()
 }
 
 async fn authenticate_redbee(

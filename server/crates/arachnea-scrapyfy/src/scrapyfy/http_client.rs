@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use arachnea_http::{
-    ArachneaHttpClient, ArachneaHttpConfig, ArachneaResponse, BrowserProfile, CookieEntry,
-    HttpProxyConfig, HttpRequestMode, SharedCookieCache, global_cookie_cache,
-    header_map_from_strings,
+    global_cookie_cache, header_map_from_strings, ArachneaHttpClient, ArachneaHttpConfig,
+    ArachneaResponse, BrowserProfile, CookieEntry, HttpProxyConfig, HttpRequestMode,
+    SharedCookieCache,
 };
 #[cfg(feature = "arachnea-proxy")]
 use arachnea_proxy::core::{ArachneaProxyCore, UsageProfile};

@@ -86,6 +86,15 @@ pub trait ControlerService {
     /// Registers a type-erased binary stream callback under a command name.
     fn register_stream_function(&mut self, name: &str, fct: StreamControlerFunction);
 
+    /// Returns the browser-facing path for a binary stream command.
+    ///
+    /// The returned value is path-only so it remains valid when a REST
+    /// deployment is published behind a reverse proxy on the current origin.
+    ///
+    /// # Arguments
+    /// * `command` - Registered stream command name.
+    fn stream_public_path(&self, command: &str) -> String;
+
     /// Mounts frontend assets loaded directly from a directory on disk.
     ///
     /// # Arguments

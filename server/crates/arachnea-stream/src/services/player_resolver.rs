@@ -44,6 +44,13 @@ pub(crate) struct ProxiedStreamResponse {
     pub headers: HashMap<String, String>,
 }
 
+/// Browser-facing stream endpoints available to source-specific resolvers.
+#[derive(Clone, Default)]
+pub(crate) struct PlayerResolverEndpoints {
+    /// Public path for the generic HTTP proxy stream command.
+    pub http_proxy_public_path: Option<String>,
+}
+
 /// Common contract implemented by source-specific protected playback resolvers.
 #[async_trait]
 pub(crate) trait PlayerStreamResolver: Send + Sync {
@@ -59,6 +66,7 @@ pub(crate) trait PlayerStreamResolver: Send + Sync {
         resolver_target: &str,
         resolver_stream_kind: Option<String>,
         service_parameters: &[ScraperQueryCollectionParameter],
+        endpoints: &PlayerResolverEndpoints,
     ) -> Result<ResolvedPlayerStream>;
 
     /// Handles a follow-up binary stream request owned by this resolver.
