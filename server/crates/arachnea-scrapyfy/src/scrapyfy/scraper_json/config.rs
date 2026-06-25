@@ -422,11 +422,6 @@ impl EntrySubQueryRaw {
                     ..
                 } = common;
 
-                // Merge context_entries + entries into a single list
-                let mut all_entries: Vec<crate::scrapyfy::scraper_json::entry::JsonScraperEntry> =
-                    context_entries;
-                all_entries.extend(entries);
-
                 let mut query = crate::scrapyfy::scraper_json::query::JsonScraperQuery::try_new(
                     "json-sub-query",
                     base_url,
@@ -437,9 +432,10 @@ impl EntrySubQueryRaw {
                     8,
                     filters,
                     &row_pointer,
-                    all_entries,
+                    entries,
                     sub_queries,
                 )?;
+                query.context_entries = context_entries;
                 query.extract_next_data = extract_next_data;
                 query.request_method = request_method;
                 query.request_body_pointer = request_body_pointer;

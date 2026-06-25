@@ -321,6 +321,12 @@ async fn execute_query_internal(
                             let use_array_items = !target_path.is_empty();
                             let mut merged = ScraperDataNode::default();
                             for ctx in context_values {
+                                let context_item = extract_json_context_entries(
+                                    sibling,
+                                    ctx,
+                                    context,
+                                    &request_url,
+                                );
                                 // Apply filters on context rows.
                                 let filters = sibling.filters();
                                 let mut filtered_out = false;
@@ -482,11 +488,15 @@ async fn execute_query_internal(
                                 if use_array_items {
                                     let target = walk_mut(&mut item, &target_path);
                                     for result in ctx_results {
-                                        target.items.push(result);
+                                        let mut combined = context_item.clone();
+                                        combined.merge(result);
+                                        target.items.push(combined);
                                     }
                                 } else {
                                     for result in ctx_results {
-                                        merged.merge(result);
+                                        let mut combined = context_item.clone();
+                                        combined.merge(result);
+                                        merged.merge(combined);
                                     }
                                 }
                             }
@@ -579,6 +589,22 @@ fn as_html_entry(entry: &dyn ScraperEntrySpec) -> Option<&HtmlScraperEntry> {
 /// `Some(&JsonScraperEntry)` if the entry is a JSON entry, `None` otherwise.
 fn as_json_entry(entry: &dyn ScraperEntrySpec) -> Option<&JsonScraperEntry> {
     entry.as_any().downcast_ref::<JsonScraperEntry>()
+}
+
+/// Extracts query-level context fields from the current JSON context row.
+fn extract_json_context_entries(
+    query: &dyn ScraperQuery,
+    row: &Value,
+    context: &QueryContext<'_>,
+    request_url: &str,
+) -> ScraperDataNode {
+    let mut item = ScraperDataNode::default();
+    for entry in query.context_entries() {
+        if let Some(json_entry) = as_json_entry(entry) {
+            json_entry.apply_to(&mut item, row, context.params, request_url);
+        }
+    }
+    item
 }
 
 /// Returns JSON row filters for a concrete JSON query or sub-query.

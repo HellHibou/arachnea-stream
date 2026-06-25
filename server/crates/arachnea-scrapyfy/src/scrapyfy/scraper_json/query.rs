@@ -102,6 +102,10 @@ pub struct JsonScraperQuery {
     /// Field extractors executed for every matched row.
     pub(crate) scraper_entries: Vec<JsonScraperEntry>,
 
+    /// Entries extracted from the parent context row when this query is used
+    /// as a query-level sub-query.
+    pub(crate) context_entries: Vec<JsonScraperEntry>,
+
     /// Top-level sub-queries attached to this query. Polymorphic slot:
     /// a typical YAML config attaches only [`JsonScraperSubQuery`] children,
     /// but the trait object slot allows future heterogeneous composition.
@@ -439,6 +443,7 @@ impl JsonScraperQuery {
             row_pointer: row_pointer.to_string(),
             result_item_field: None,
             scraper_entries: Vec::new(),
+            context_entries: Vec::new(),
             sub_queries,
             post_processes: Vec::new(),
             // Champs sub-query (par défaut)
@@ -616,9 +621,10 @@ impl ScraperQuery for JsonScraperQuery {
     }
 
     fn context_entries(&self) -> Vec<&dyn ScraperEntrySpec> {
-        // No dedicated context_entries on JsonScraperQuery yet;
-        // context entries are merged into scraper_entries.
-        Vec::new()
+        self.context_entries
+            .iter()
+            .map(|entry| entry as &dyn ScraperEntrySpec)
+            .collect()
     }
 
     fn filters(&self) -> &HashMap<String, Vec<String>> {

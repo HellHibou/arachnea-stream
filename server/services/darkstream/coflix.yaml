@@ -644,9 +644,13 @@ queries:
             pointer: "/image"
             actions: *actions_img_html_to_url
         entries:
-          - name: players > embed-link
-            pointer: "/links/online/*/link"
+          - name: players
+            pointer: "/links/online/*"
             select: all
+            entries:
+              - name: embed-link
+                pointer: "/link"
+                select: all
           - name: release-date
             pointer: "/links/online/*/date"
             select: first
