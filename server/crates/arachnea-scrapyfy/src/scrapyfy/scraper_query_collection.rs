@@ -877,6 +877,7 @@ queries:
     scraper_type: static
     entries:
       - name: logo
+        type: string
         value: "{base_url}/logo.png"
         actions:
           - type: resolve_url

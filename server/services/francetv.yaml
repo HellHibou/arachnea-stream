@@ -98,99 +98,130 @@ shared:
 
   source_entry: &source_entry
     name: source
+    type: string
     actions:
       - type: format_text
         argument: "{source}"
 
   common_image_poster_3x4: &common_image_poster_3x4
     name: img/poster > link
+    type: string
     pointer: /images/*[type=vignette_3x4]/urls/w:1024
     select: first
 
   common_image_poster_2x3: &common_image_poster_2x3
     name: img/poster > link
+    type: string
     pointer: /images/*[type=vignette_2x3]/urls/w:2000
     select: first
 
   common_image_poster_square: &common_image_poster_square
     name: img/poster > link
+    type: string
     pointer: /images/*[type=carre]/urls/w:800
     select: first
 
   common_image_landscape_background: &common_image_landscape_background
     name: img/landscape > link
+    type: string
     pointer: /images/*[type=background_16x9]/urls/w:2500
     select: first
 
   common_image_landscape_thumbnail: &common_image_landscape_thumbnail
     name: img/landscape > link
+    type: string
     pointer: /images/*[type=vignette_16x9]/urls/w:1024
     select: first
 
   common_image_logo: &common_image_logo
     name: img/logo > link
+    type: string
     pointer: /images/*[type=logo]/urls/w:450
     select: first
 
   item_image_poster_3x4: &item_image_poster_3x4
     name: img/poster > link
+    type: string
     pointer: /item/images/*[type=vignette_3x4]/urls/w:1024
     select: first
 
   item_image_poster_2x3: &item_image_poster_2x3
     name: img/poster > link
+    type: string
     pointer: /item/images/*[type=vignette_2x3]/urls/w:2000
     select: first
 
   item_image_poster_square: &item_image_poster_square
     name: img/poster > link
+    type: string
     pointer: /item/images/*[type=carre]/urls/w:800
     select: first
 
   item_image_landscape_background: &item_image_landscape_background
     name: img/landscape > link
+    type: string
     pointer: /item/images/*[type=background_16x9]/urls/w:2500
     select: first
 
   item_image_landscape_thumbnail: &item_image_landscape_thumbnail
     name: img/landscape > link
+    type: string
     pointer: /item/images/*[type=vignette_16x9]/urls/w:1024
     select: first
 
   item_image_logo: &item_image_logo
     name: img/logo > link
+    type: string
     pointer: /item/images/*[type=logo]/urls/w:450
     select: first
 
   program_card_entries: &program_card_entries
     - *source_entry
     - name: title
+      type: string
+      select: first
       pointer: /label
     - name: description
+      type: string
+      select: first
       pointer: /description
     - name: description
+      type: string
+      select: first
       pointer: /synopsis
     - name: media-type
+      type: string[]
       pointer: /category/url_complete
       actions: *actions_francetv_category_media_type
     - name: media-type
+      type: string[]
       pointer: /type
       actions: *actions_francetv_item_media_type
     - name: link
+      type: string
+      select: first
       pointer: /program_path
       actions: *actions_api_program_link
     - name: web-link
+      type: string
+      select: first
       pointer: /program_path
       actions: *actions_program_web_link
     - name: theme
+      type: string[]
       pointer: /categories/*/label
       select: all
     - name: theme
+      type: string[]
       pointer: /sub_categories/*/label
       select: all
     - name: count-season
+      type: number
+      select: first
       pointer: /number_of_seasons
     - name: count-season
+      type: number
+      select: first
       pointer: /number_of_episodes
     - *common_image_poster_3x4
     - *common_image_poster_2x3
@@ -202,21 +233,32 @@ shared:
   collection_card_entries: &collection_card_entries
     - *source_entry
     - name: title
+      type: string
+      select: first
       pointer: /label
     - name: description
+      type: string
+      select: first
       pointer: /description
     - name: description
+      type: string
+      select: first
       pointer: /subtitle
     - name: media-type
+      type: string[]
       pointer: /category/url_complete
       actions: *actions_francetv_category_media_type
     - name: media-type
+      type: string[]
       pointer: /type
       actions: *actions_francetv_item_media_type
     - name: link
+      type: string
+      select: first
       pointer: /collection_path
       actions: *actions_api_collection_link
     - name: theme
+      type: string[]
       pointer: /category/label
     - *common_image_poster_3x4
     - *common_image_poster_2x3
@@ -228,18 +270,29 @@ shared:
   category_card_entries: &category_card_entries
     - *source_entry
     - name: title
+      type: string
+      select: first
       pointer: /label
     - name: description
+      type: string
+      select: first
       pointer: /description
     - name: description
+      type: string
+      select: first
       pointer: /synopsis
     - name: media-type
+      type: string[]
       pointer: /url_complete
       actions: *actions_francetv_category_media_type
     - name: link
+      type: string
+      select: first
       pointer: /url_complete
       actions: *actions_api_sub_category_link
     - name: web-link
+      type: string
+      select: first
       pointer: /url_complete
       actions:
         - type: format_text
@@ -254,19 +307,28 @@ shared:
   event_card_entries: &event_card_entries
     - *source_entry
     - name: title
+      type: string
+      select: first
       pointer: /label
     - name: description
+      type: string
+      select: first
       pointer: /description
     - name: media-type
+      type: string[]
       pointer: /category/url_complete
       actions: *actions_francetv_category_media_type
     - name: media-type
+      type: string[]
       pointer: /type
       actions: *actions_francetv_item_media_type
     - name: link
+      type: string
+      select: first
       pointer: /url_complete
       actions: *actions_api_event_link
     - name: theme
+      type: string[]
       pointer: /sub_categories/*/label
       select: all
     - *common_image_poster_3x4
@@ -279,40 +341,66 @@ shared:
   video_card_entries: &video_card_entries
     - *source_entry
     - name: title
+      type: string
+      select: first
       pointer: /episode_title
     - name: title
+      type: string
+      select: first
       pointer: /title
     - name: title/alt
+      type: string
+      select: first
       pointer: /program/label
     - name: description
+      type: string
+      select: first
       pointer: /description
     - name: description
+      type: string
+      select: first
       pointer: /text
     - name: media-type
+      type: string[]
       pointer: /category/url_complete
       actions: *actions_francetv_category_media_type
     - name: media-type
+      type: string[]
       pointer: /type
       actions: *actions_francetv_item_media_type
     - name: link
+      type: string
+      select: first
       pointer: /id
       actions: *actions_api_front_content_link
     - name: duration
+      type: string
+      select: first
       pointer: /duration
     - name: content-advisor
+      type: string
+      select: first
       pointer: /rating_csa
     - name: content-advisor
+      type: string
+      select: first
       pointer: /rating_csa_code
     - name: theme
+      type: string[]
       pointer: /category/label
     - name: theme
+      type: string[]
       pointer: /sub_categories/*/label
       select: all
     - name: channel
+      type: string
+      select: first
       pointer: /channel/label
     - name: director
+      type: string[]
       pointer: /director
     - name: casting
+      type: string[]
       pointer: /casting
     - *common_image_poster_3x4
     - *common_image_poster_2x3
@@ -323,184 +411,273 @@ shared:
 
   episode_entries: &episode_entries
     - name: title
+      type: string
+      select: first
       pointer: /episode_title
     - name: title
+      type: string
+      select: first
       pointer: /title
     - name: title/alt
+      type: string
+      select: first
       pointer: /program/label
     - name: description
+      type: string
+      select: first
       pointer: /description
     - name: duration
+      type: string
+      select: first
       pointer: /duration
     - name: season-name
+      type: string
+      select: first
       pointer: /season
       actions:
         - type: format_text
           argument: "Season {}"
     - name: episode-number
+      type: string
+      select: first
       pointer: /episode
     - name: content-advisor
+      type: string
+      select: first
       pointer: /rating_csa
     - name: content-advisor
+      type: string
+      select: first
       pointer: /rating_csa_code
     - name: channel
+      type: string
+      select: first
       pointer: /channel/label
     - name: link
+      type: string
+      select: first
       pointer: /id
       actions: *actions_api_front_content_link
     - name: players
+      type: object[]
       pointer: /si_id
       entries:
         - name: name
+          type: string
           actions:
             - type: format_text
               argument: "FranceTV"
         - name: resolver > kind
+          type: string
           actions:
             - type: format_text
               argument: "francetv-video"
         - name: resolver > stream > kind
+          type: string
           actions:
             - type: format_text
               argument: "francetv-license-proxy"
         - name: resolver > target_id
+          type: string
     - name: img/preview > link
+      type: string
       pointer: /images/*[type=vignette_16x9]/urls/w:1024
       select: first
     - name: img/poster > link
+      type: string
       pointer: /images/*[type=vignette_3x4]/urls/w:1024
       select: first
 
   live_item_entries: &live_item_entries
     - name: title
+      type: string
+      select: first
       pointer: /channel/label
     - name: title
+      type: string
+      select: first
       pointer: /partner/label
     - name: title/alt
+      type: string
+      select: first
       pointer: /program/label
     - name: title/alt
+      type: string
+      select: first
       pointer: /title
     - name: description
+      type: string
+      select: first
       pointer: /program/description
     - name: description
+      type: string
+      select: first
       pointer: /description
     - name: key
+      type: string
+      select: first
       pointer: /channel/channel_path
     - name: key
+      type: string
+      select: first
       pointer: /partner/partner_path
     - name: key
+      type: string
+      select: first
       pointer: /channel/si_id
     - name: key
+      type: string
+      select: first
       pointer: /partner/si_id
     - name: media-type
+      type: string[]
       actions:
         - type: format_text
           argument: "video/live"
     - name: link
+      type: string
+      select: first
       pointer: /channel/si_id
     - name: link
+      type: string
+      select: first
       pointer: /partner/si_id
     - name: web-link
+      type: string
+      select: first
       pointer: /channel/channel_path
       actions:
         - type: format_text
           argument: "{base_url}/{}/direct.html"
     - name: web-link
+      type: string
+      select: first
       pointer: /partner/partner_path
       actions:
         - type: format_text
           argument: "{base_url}/{}/direct"
     - name: channel
+      type: string
+      select: first
       pointer: /channel/label
     - name: channel
+      type: string
+      select: first
       pointer: /partner/label
     - name: img/poster > link
+      type: string
       pointer: /images/*[type=vignette_16x9]/urls/w:1024
       select: first
     - name: img/poster > link
+      type: string
       pointer: /program/images/*[type=vignette_16x9]/urls/w:1024
       select: first
     - name: img/landscape > link
+      type: string
       pointer: /images/*[type=background_16x9]/urls/w:2500
       select: first
     - name: img/landscape > link
+      type: string
       pointer: /program/images/*[type=background_16x9]/urls/w:2500
       select: first
 
   live_player_entries: &live_player_entries
     - name: name
+      type: string
       actions:
         - type: format_text
           argument: "FranceTV"
     - name: resolver
+      type: object
+      select: first
       entries:
         - name: kind
+          type: string
           actions:
             - type: format_text
               argument: "francetv-live"
         - name: stream
+          type: object
+          select: first
           entries:
             - name: kind
+              type: string
               actions:
                 - type: format_text
                   argument: "francetv-license-proxy"
         - name: target_id
+          type: string
           actions:
             - type: format_text
               argument: "{channel}"
 
   section_entries: &section_entries
     - name: label
+      type: string
+      select: first
       pointer: /label
     - name: current_page
+      type: number
       actions:
         - type: format_text
           argument: "{page}"
     - name: have_more
+      type: boolean
       actions:
         - type: format_text
           argument: "false"
     - name: entries
+      type: object[]
       pointer: /items/*[type=program]
       select: all
       entries: *program_card_entries
     - name: entries
+      type: object[]
       pointer: /items/*[type=collection]
       select: all
       entries: *collection_card_entries
     - name: entries
+      type: object[]
       pointer: /items/*[type=categorie]
       select: all
       entries: *category_card_entries
     - name: entries
+      type: object[]
       pointer: /items/*[type=sous_categorie]
       select: all
       entries: *category_card_entries
     - name: entries
+      type: object[]
       pointer: /items/*[type=event]
       select: all
       entries: *event_card_entries
     - name: entries
+      type: object[]
       pointer: /items/*[type=integrale]
       select: all
       entries: *video_card_entries
     - name: entries
+      type: object[]
       pointer: /items/*[type=unitaire]
       select: all
       entries: *video_card_entries
     - name: entries
+      type: object[]
       pointer: /items/*[type=extrait]
       select: all
       entries: *video_card_entries
     - name: entries
+      type: object[]
       pointer: /items/*[type=resume]
       select: all
       entries: *video_card_entries
     - name: entries
+      type: object[]
       pointer: /items/*[type=bonus]
       select: all
       entries: *video_card_entries
     - name: entries
+      type: object[]
       pointer: /items/*[type=bande-annonce]
       select: all
       entries: *video_card_entries
@@ -510,12 +687,16 @@ queries:
     scraper_type: static
     entries:
       - name: id
+        type: string
         value: "{service_id}"
       - name: title
+        type: string
         value: "{service_title}"
       - name: logo
+        type: string
         value: "{service_logo}"
       - name: description
+        type: object
         value: "{service_description}"
 
   - name: search
@@ -528,54 +709,67 @@ queries:
     entries:
       - *source_entry
       - name: current_page
+        type: number
         actions:
           - type: format_text
             argument: "{page}"
       - name: have_more
+        type: boolean
         actions:
           - type: format_text
             argument: "false"
       - name: entries
+        type: object[]
         pointer: /collections/*/items/*[type=program]
         select: all
         entries: *program_card_entries
       - name: entries
+        type: object[]
         pointer: /collections/*/items/*[type=collection]
         select: all
         entries: *collection_card_entries
       - name: entries
+        type: object[]
         pointer: /collections/*/items/*[type=categorie]
         select: all
         entries: *category_card_entries
       - name: entries
+        type: object[]
         pointer: /collections/*/items/*[type=sous_categorie]
         select: all
         entries: *category_card_entries
       - name: entries
+        type: object[]
         pointer: /collections/*/items/*[type=event]
         select: all
         entries: *event_card_entries
       - name: entries
+        type: object[]
         pointer: /collections/*/items/*[type=integrale]
         select: all
         entries: *video_card_entries
       - name: entries
+        type: object[]
         pointer: /collections/*/items/*[type=unitaire]
         select: all
         entries: *video_card_entries
       - name: entries
+        type: object[]
         pointer: /collections/*/items/*[type=extrait]
         select: all
         entries: *video_card_entries
       - name: entries
+        type: object[]
         pointer: /collections/*/items/*[type=resume]
         select: all
         entries: *video_card_entries
       - name: entries
+        type: object[]
         pointer: /collections/*/items/*[type=bonus]
         select: all
         entries: *video_card_entries
       - name: entries
+        type: object[]
         pointer: /collections/*/items/*[type=bande-annonce]
         select: all
         entries: *video_card_entries
@@ -590,44 +784,59 @@ queries:
     entries:
       - *source_entry
       - name: categories
+        type: object[]
         pointer: /collections/*[type=playlist_categories]/items/*
         select: all
         entries:
           - name: key
+            type: string
+            select: first
             pointer: /url_complete
           - name: label
+            type: string
+            select: first
             pointer: /label
           - name: image
+            type: string
             pointer: /images/*[type=background_16x9]/urls/w:1024
             select: first
           - name: request > name
+            type: string
             actions:
               - type: format_text
                 argument: "{source}"
           - name: request > source
+            type: string
             actions:
               - type: format_text
                 argument: "{source}"
           - name: request > query_url
+            type: string
+            select: first
             pointer: /url_complete
             actions: *actions_api_category_link
       - name: sections
+        type: object[]
         pointer: /collections/*[type=mise_en_avant]
         select: all
         entries: *section_entries
       - name: sections
+        type: object[]
         pointer: /collections/*[type=playlist_mixed]
         select: all
         entries: *section_entries
       - name: sections
+        type: object[]
         pointer: /collections/*[type=playlist_top_10]
         select: all
         entries: *section_entries
       - name: sections
+        type: object[]
         pointer: /collections/*[type=playlist_program]
         select: all
         entries: *section_entries
       - name: sections
+        type: object[]
         pointer: /collections/*[type=playlist_video]
         select: all
         entries: *section_entries
@@ -642,6 +851,7 @@ queries:
     entries:
       - *source_entry
       - name: sections
+        type: object[]
         pointer: /collections/*
         select: all
         entries: *section_entries
@@ -666,6 +876,7 @@ queries:
     row_pointer: /
     entries:
       - name: players
+        type: object[]
         entries: *live_player_entries
 
   - name: get_entry
@@ -677,92 +888,142 @@ queries:
     row_pointer: /
     entries:
       - name: title
+        type: string
+        select: first
         pointer: /item/label
       - name: title
+        type: string
+        select: first
         pointer: /item/title
       - name: title
+        type: string
+        select: first
         pointer: /label
       - name: title
+        type: string
+        select: first
         pointer: /title
       - name: description
+        type: string
+        select: first
         pointer: /item/description
       - name: description
+        type: string
+        select: first
         pointer: /item/synopsis
       - name: description
+        type: string
+        select: first
         pointer: /description
       - name: description
+        type: string
+        select: first
         pointer: /text
       - name: media-type
+        type: string[]
         pointer: /item/category/url_complete
         actions: *actions_francetv_category_media_type
       - name: media-type
+        type: string[]
         pointer: /category/url_complete
         actions: *actions_francetv_category_media_type
       - name: media-type
+        type: string[]
         pointer: /item/type
         actions: *actions_francetv_item_media_type
       - name: media-type
+        type: string[]
         pointer: /type
         actions: *actions_francetv_item_media_type
       - name: link
+        type: string
+        select: first
         pointer: /item/program_path
         actions: *actions_program_web_link
       - name: link
+        type: string
+        select: first
         pointer: /path
         actions:
           - type: format_text
             argument: "{base_url}/{}/"
       - name: web-link
+        type: string
+        select: first
         pointer: /item/program_path
         actions: *actions_program_web_link
       - name: web-link
+        type: string
+        select: first
         pointer: /path
         actions:
           - type: format_text
             argument: "{base_url}/{}/"
       - name: count-season
+        type: number
+        select: first
         pointer: /item/number_of_seasons
       - name: count-season
+        type: number
+        select: first
         pointer: /item/number_of_episodes
       - name: theme
+        type: string[]
         pointer: /item/categories/*/label
         select: all
       - name: theme
+        type: string[]
         pointer: /item/sub_categories/*/label
         select: all
       - name: theme
+        type: string[]
         pointer: /content_has_taxonomys/*/taxonomy/label
         select: all
       - name: director
+        type: string[]
         pointer: /item/director
       - name: director
+        type: string[]
         pointer: /director
       - name: casting
+        type: string[]
         pointer: /item/casting
       - name: casting
+        type: string[]
         pointer: /casting
       - name: content-advisor
+        type: string
+        select: first
         pointer: /item/rating_csa_code
       - name: content-advisor
+        type: string
+        select: first
         pointer: /content_has_medias/0/media/rating_csa_code
       - name: duration
+        type: string
+        select: first
         pointer: /content_has_medias/0/media/duration
       - name: players
+        type: object[]
         pointer: /content_has_medias/0/media/si_id
         entries:
           - name: name
+            type: string
             actions:
               - type: format_text
                 argument: "FranceTV"
           - name: resolver > kind
+            type: string
             actions:
               - type: format_text
                 argument: "francetv-video"
           - name: resolver > stream > kind
+            type: string
             actions:
               - type: format_text
                 argument: "francetv-license-proxy"
           - name: resolver > target_id
+            type: string
       - *item_image_poster_3x4
       - *item_image_poster_2x3
       - *item_image_poster_square
@@ -770,26 +1031,32 @@ queries:
       - *item_image_landscape_thumbnail
       - *item_image_logo
       - name: episode
+        type: object[]
         pointer: /collections/*/items/*[type=integrale]
         select: all
         entries: *episode_entries
       - name: episode
+        type: object[]
         pointer: /collections/*/items/*[type=unitaire]
         select: all
         entries: *episode_entries
       - name: episode
+        type: object[]
         pointer: /collections/*/items/*[type=extrait]
         select: all
         entries: *episode_entries
       - name: episode
+        type: object[]
         pointer: /collections/*/items/*[type=resume]
         select: all
         entries: *episode_entries
       - name: episode
+        type: object[]
         pointer: /collections/*/items/*[type=bonus]
         select: all
         entries: *episode_entries
       - name: episode
+        type: object[]
         pointer: /collections/*/items/*[type=bande-annonce]
         select: all
         entries: *episode_entries

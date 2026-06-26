@@ -66,12 +66,16 @@ queries:
     scraper_type: static
     entries:
       - name: id
+        type: string
         value: "{service_id}"
       - name: title
+        type: string
         value: "{service_title}"
       - name: logo
+        type: string
         value: "{service_logo}"
       - name: description
+        type: object
         value: "{service_description}"
 
   - name: search
@@ -99,38 +103,57 @@ queries:
     row_pointer: /results/*/hits/*
     entries:
       - name: source
+        type: string
         actions:
           - type: format_text
             argument: "{source}"
       - name: current_page
+        type: number
         actions:
           - type: format_text
             argument: "{page}"
       - name: total_pages
+        type: number
+        select: first
         pointer: /results/0/nbPages
       - name: entries
+        type: object[]
         entries:
           - name: title
+            type: string
+            select: first
             pointer: /item/itemContent/title
           - name: description
+            type: string
+            select: first
             pointer: /item/itemContent/description
           - name: media-type
+            type: string[]
             pointer: /metadata/tags/type
             actions: *actions_default_media_type
           - name: link
+            type: string
+            select: first
             pointer: /content/id
           - name: img/poster > link
+            type: string
+            select: first
             pointer: /item/itemContent/image/id
             actions: *actions_image_key_to_url
           - name: img/poster > link
+            type: string
+            select: first
             pointer: /item/itemContent/secondaryImage/id
             actions: *actions_image_key_to_url
           - name: theme
+            type: string[]
             pointer: /item/itemContent/extraDetails
             actions:
               - type: split
                 argument: " | "
           - name: release-date
+            type: string
+            select: first
             pointer: /metadata/last_activity_date
             actions: *actions_extract_release_date
     post_process:
@@ -148,88 +171,113 @@ queries:
     row_pointer: /
     entries:
       - name: categories
+        type: object[]
         entries:
           - name: key
+            type: string
             actions:
               - type: format_text
                 argument: "m6"
           - name: label
+            type: string
             actions:
               - type: format_text
                 argument: "M6"
           - name: description
+            type: string
             actions:
               - type: format_text
                 argument: "Replay catalogue for M6."
           - name: request > query_url
+            type: string
             actions:
               - type: format_text
                 argument: "{api_root}/m6replay/folders?limit=999&offset=0"
 
       - name: categories
+        type: object[]
         entries:
           - name: key
+            type: string
             actions:
               - type: format_text
                 argument: "w9"
           - name: label
+            type: string
             actions:
               - type: format_text
                 argument: "W9"
           - name: description
+            type: string
             actions:
               - type: format_text
                 argument: "Replay catalogue for W9."
           - name: request > query_url
+            type: string
             actions:
               - type: format_text
                 argument: "{api_root}/w9replay/folders?limit=999&offset=0"
 
       - name: categories
+        type: object[]
         entries:
           - name: key
+            type: string
             actions:
               - type: format_text
                 argument: "6ter"
           - name: label
+            type: string
             actions:
               - type: format_text
                 argument: "6ter"
           - name: description
+            type: string
             actions:
               - type: format_text
                 argument: "Replay catalogue for 6ter."
           - name: request > query_url
+            type: string
             actions:
               - type: format_text
                 argument: "{api_root}/6terreplay/folders?limit=999&offset=0"
 
       - name: categories
+        type: object[]
         entries:
           - name: key
+            type: string
             actions:
               - type: format_text
                 argument: "gulli"
           - name: label
+            type: string
             actions:
               - type: format_text
                 argument: "Gulli"
           - name: description
+            type: string
             actions:
               - type: format_text
                 argument: "Replay catalogue for Gulli."
           - name: request > query_url
+            type: string
             actions:
               - type: format_text
                 argument: "{api_root}/gulli/folders?limit=999&offset=0"
 
       - name: sections
+        type: object[]
         pointer: /*
         select: all
         entries:
           - name: label
+            type: string
+            select: first
             pointer: /name
           - name: link
+            type: string
+            select: first
             pointer: /id
             actions:
               - type: format_text
@@ -244,32 +292,55 @@ queries:
         target: banners
         entries:
           - name: key
+            type: string
+            select: first
             pointer: /id
           - name: title
+            type: string
+            select: first
             pointer: /title
           - name: description
+            type: string
+            select: first
             pointer: /description
           - name: link
+            type: string
+            select: first
             pointer: /id
           - name: entryUrl
+            type: string
+            select: first
             pointer: /id
           - name: web-link
+            type: string
+            select: first
             pointer: /id
           - name: image
+            type: string
+            select: first
             pointer: /images_with_context/defaults/banner_31/external_key
             actions: *actions_image_key_to_url
-          - name: logo 
+          - name: logo
+            type: string
+            select: first
             pointer: /images_with_context/defaults/logo/external_key
             actions: *actions_image_key_to_url
           - name: expire
+            type: string
+            select: first
             pointer: publication_date_vi/date_start_max
             actions: *actions_extract_release_date
           - name: year
+            type: number
             pointer: /year_copyright
             select: all
           - name: year
+            type: number
+            select: first
             pointer: /year_production
           - name: release-date
+            type: string
+            select: first
             pointer: year_copyright
 
   - name: get_category
@@ -281,12 +352,17 @@ queries:
     row_pointer: /
     entries:
       - name: sections
+        type: object[]
         pointer: /*
         select: all
         entries:
           - name: label
+            type: string
+            select: first
             pointer: /name
           - name: link
+            type: string
+            select: first
             pointer: /id
             actions:
               - type: format_text
@@ -301,65 +377,94 @@ queries:
     row_pointer: /
     entries:
       - name: current_page
+        type: number
         actions:
           - type: format_text
             argument: "{page}"
       - name: have_more
+        type: boolean
         actions:
           - type: format_text
             argument: "false"
       - name: page_size
+        type: number
         actions:
           - type: format_text
             argument: "{page_size}"
       - name: infer_have_more_from_full_page
+        type: boolean
         actions:
           - type: format_text
             argument: "true"
       - name: entries
+        type: object[]
         pointer: /*
         select: all
         entries:
           - name: source
+            type: string
             actions:
               - type: format_text
                 argument: "{source}"
           - name: title
+            type: string
+            select: first
             pointer: /title
           - name: description
+            type: string
+            select: first
             pointer: /description
           - name: duration
+            type: string
+            select: first
             pointer: /duration
           - name: release-date
+            type: string
+            select: first
             pointer: /product/last_diffusion
             actions: *actions_extract_release_date
           - name: release-date
+            type: string
+            select: first
             pointer: update_date
             actions: *actions_extract_release_date
           - name: media-type
+            type: string[]
             pointer: /neustar/category
             actions: *actions_default_media_type
           - name: media-type
+            type: string[]
             pointer: /program_type_wording/code
             actions: *actions_default_media_type
           - name: link
+            type: string
+            select: first
             pointer: /id
           - name: web-link
+            type: string
+            select: first
             pointer: /id
           - name: img/poster > link
+            type: string
             pointer: /images/*[role=cover]/external_key
             select: all
             actions: *actions_image_key_to_url
           - name: img/landscape > link
+            type: string
             pointer: /images/*[role=vignette]/external_key
             select: all
             actions: *actions_image_key_to_url
           - name: year
+            type: number
             pointer: /year_copyright
             select: all
           - name: year
+            type: number
+            select: first
             pointer: /year_production
           - name: release-date
+            type: string
+            select: first
             pointer: year_copyright
     post_process:
       - type: derive_pagination
@@ -380,68 +485,98 @@ queries:
     row_pointer: /
     entries:
       - name: title
+        type: string
+        select: first
         pointer: /title
       - name: description
+        type: string
+        select: first
         pointer: /description
       - name: media-type
+        type: string[]
         pointer: /program_type_wording/code
         actions: *actions_default_media_type
       - name: img/poster > link
+        type: string
         pointer: /images/*[role=cover]/external_key
         select: all
         actions: *actions_image_key_to_url
       - name: img/landscape > link
+        type: string
         pointer: /images/*[role=box]/external_key
         select: all
         actions: *actions_image_key_to_url
       - name: img/logo > link
+        type: string
         pointer: /images/*[role=logo]/external_key
         select: all
         actions: *actions_image_key_to_url
       - name: year
+        type: number
         pointer: /year_copyright
         select: all
       - name: year
+        type: number
         pointer: /year_production
         select: all
-      - name: content-advisor 
+      - name: content-advisor
+        type: string
+        select: first
         pointer: /csa/label
       - name: release-date
+        type: string
+        select: first
         pointer: first_local_air_date/date
         actions: *actions_extract_release_date
       - name: duration
+        type: string
+        select: first
         pointer: /duration
       - name: expire
+        type: string
+        select: first
         pointer: publication_date_vi/date_end_max
         actions: *actions_extract_release_date
       - name: link
+        type: string
+        select: first
         pointer: /code
         actions:
           - type: format_text
             argument: "{base_url}/{}-p_{query_url}"
       - name: web-link
+        type: string
+        select: first
         pointer: /code
         actions:
           - type: format_text
             argument: "{base_url}/{}-p_{query_url}"
       - name: season
+        type: object[]
         entries:
           - name: label
+            type: string
             actions:
               - type: format_text
                 argument: "All videos"
           - name: link
+            type: string
             actions:
               - type: format_text
                 argument: "{query_url}/videos?"
 
       - name: season
+        type: object[]
         pointer: /program_subcats/*
         select: all
         entries:
            - name: label
+             type: string
+             select: first
              pointer: /title
            - name: link
+             type: string
+             select: first
              pointer: /id
              actions:
                - type: format_text
@@ -456,61 +591,87 @@ queries:
     row_pointer: /
     entries:
       - name: current_page
+        type: number
         select: first
         actions:
           - type: format_text
             argument: "1"
       - name: have_more
+        type: boolean
         select: first
         actions:
           - type: format_text
             argument: "false"
       - name: episodes
+        type: object[]
         pointer: /*
         entries:
           - name: title
+            type: string
+            select: first
             pointer: /title
           - name: description
+            type: string
+            select: first
             pointer: /clips/0/description
           - name: description
+            type: string
+            select: first
             pointer: /description
           - name: duration
+            type: string
+            select: first
             pointer: /clips/0/duration
           - name: duration
+            type: string
+            select: first
             pointer: /duration
           - name: season-name
+            type: string
+            select: first
             pointer: /clips/0/product/season_title
           - name: season-name
+            type: string
+            select: first
             pointer: /product/season_title
           - name: release-date
+            type: string
+            select: first
             pointer: /clips/0/product/last_diffusion
             actions: *actions_extract_release_date
           - name: release-date
+            type: string
+            select: first
             pointer: /product/last_diffusion
             actions: *actions_extract_release_date
           - name: players > name
+            type: string
             actions:
               - type: format_text
                 argument: "M6+"
 
           - name: players > storyboard > link
+            type: string
             pointer: /images/*[role=storyboard]/external_key
             select: all
             actions: *actions_image_key_to_url
 
           - name: players > storyboard > width
+            type: number
             pointer: /images/*[role=storyboard]/external_key
             select: all
             actions:
               - type: format_text
                 argument: "200"
           - name: players > storyboard > height
+            type: number
             pointer: /images/*[role=storyboard]/external_key
             select: all
             actions:
               - type: format_text
                 argument: "112"
           - name: players > storyboard > columns
+            type: number
             pointer: /images/*[role=storyboard]/external_key
             select: all
             actions:
@@ -518,16 +679,21 @@ queries:
                 argument: "300"
 
           - name: players > resolver > kind
+            type: string
             actions:
               - type: format_text
                 argument: "m6play-video"
           - name: players > resolver > stream > kind
+            type: string
             actions:
               - type: format_text
                 argument: "widevine-license-proxy"
           - name: players > resolver > target_id
+            type: string
+            select: first
             pointer: /id
           - name: link
+            type: string
             actions:
               - type: build_url
                 base: "https://www.m6.fr/{prg}-p_{query_url}/{prg}-c_{cid}"
@@ -535,6 +701,7 @@ queries:
                   prg: /code
                   cid: /clips/0/id
           - name: players > embed-link
+            type: string
             actions:
               - type: build_url
                 base: "https://www.m6.fr/{prg}-p_{query_url}/{prg}-c_{cid}"
@@ -545,13 +712,17 @@ queries:
                 pattern: '^(https://www\.m6\.fr/[^/]+-p_[^/]+)/videos\?/(.+)$'
                 format: "{1}/{2}"
           - name: img/preview > link
+            type: string
+            select: first
             pointer: /display_image/external_key
             actions: *actions_image_key_to_url
           - name: img/preview > link
+            type: string
             pointer: /clips/0/images/*/external_key
             select: all
             actions: *actions_image_key_to_url
           - name: img/preview > link
+            type: string
             pointer: /images/*[role=vignette]/external_key
             select: all
             actions: *actions_image_key_to_url
@@ -580,18 +751,29 @@ queries:
     result_item_field: entries
     entries:
       - name: entries
+        type: object[]
         pointer: /*/*
         select: all
         entries:
           - name: title
+            type: string
+            select: first
             pointer: /service_display/title
           - name: title/alt
+            type: string
+            select: first
             pointer: /title
           - name: key
+            type: string
+            select: first
             pointer: /live/channel/code_url
           - name: description
+            type: string
+            select: first
             pointer: /description
           - name: link
+            type: string
+            select: first
             pointer: /live/channel/code_url
             actions:
               - type: map
@@ -602,17 +784,25 @@ queries:
                   6ter: 6T
                   gulli: gulli
           - name: web-link
+            type: string
+            select: first
             pointer: /live/channel/code_url
             actions:
               - type: format_text
                 argument: "{base_url}/{}/direct"
           - name: img/poster > link
+            type: string
+            select: first
             pointer: /display_image/external_key
             actions: *actions_image_key_to_url
           - name: release-date
+            type: string
+            select: first
             pointer: /diffusion_start_date
             actions: *actions_extract_release_date
           - name: expire
+            type: string
+            select: first
             pointer: /diffusion_end_date
             actions: *actions_extract_release_date
 
@@ -626,23 +816,34 @@ queries:
     row_pointer: "/*/*"
     entries:
       - name: players
+        type: object[]
         entries:
           - name: embed-link
+            type: string
+            select: first
             pointer: /live/channel/code_url
             actions:
               - type: format_text
                 argument: "{base_url}/{}/direct"
           - name: resolver
+            type: object
+            select: first
             entries:
               - name: kind
+                type: string
                 actions:
                   - type: format_text
                     argument: "m6play-live"
               - name: stream
+                type: object
+                select: first
                 entries:
                   - name: kind
+                    type: string
                     actions:
                       - type: format_text
                         argument: "widevine-license-proxy"
               - name: target_id
+                type: string
+                select: first
                 pointer: /live/channel/code_url

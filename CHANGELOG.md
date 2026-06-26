@@ -94,3 +94,17 @@ All notable changes to the server workspace are recorded here. Add new entries a
 
 ### Fixed
 - **Scraper JSON parse diagnostics**: `arachnea-scrapyfy::HttpClient` now logs the raw response content that failed JSON parsing, including `__NEXT_DATA__` payloads, with truncation metadata so API errors like `Invalid JSON payload returned by ...` can be diagnosed from backend logs without changing the error sent to the frontend.
+
+## Unreleased — scrapyfy typed output contract
+
+### Added
+- **YAML output typing**: scraper entries now declare their JSON output shape with `type` (`string`, `number`, `boolean`, `object`, and array variants). Missing declared fields serialize as `null`, and failed casts report contextual errors.
+- **Typed `ScraperDataNode` serialization**: scraper output nodes now render directly to `serde_json::Value`, including object/object-array handling for explicit groups and aligned implicit groups.
+
+### Changed
+- **Service YAML migration**: service definitions under `server/services/**/*.yaml` now declare output types and use `select: first` for scalar fields where needed. Pagination/count/rating fields are numeric, booleans are boolean, and duration remains string.
+- **Frontend response normalization**: `rustify.ts` now consumes typed numbers and booleans directly, reads service descriptions as typed objects, and expects `get_entry` to return one object instead of a single-element array.
+- **Static metadata test expectations**: service metadata descriptions are now validated as object fields such as `description > fr`.
+
+### Fixed
+- **Regex/post-process generated output**: generated fields now carry explicit output types, and implicit nested groups with aligned repeated children serialize as arrays of objects.

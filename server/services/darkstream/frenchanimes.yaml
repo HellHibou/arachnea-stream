@@ -37,30 +37,40 @@ shared:
   # Catalog row entries — div.mov.clearfix elements
   entries_catalog_row: &entries_catalog_row
     - name: source
+      type: string
       actions:
         - type: format_text
           argument: "{source}"
     - name: title
+      type: string
+      select: first
       selector: "img"
       actions:
         - type: get_attribut
           argument: alt
     - name: link
+      type: string
+      select: first
       selector: a
       actions:
         - type: get_attribut
           argument: href
         - type: resolve_url
     - name: web-link
+      type: string
+      select: first
       selector: a
       actions:
         - type: get_attribut
           argument: href
         - type: resolve_url
     - name: img/poster > link
+      type: string
+      select: first
       selector: "img"
       actions: *actions_get_src_resolve
     - name: media-type
+      type: string[]
       actions:
         - type: format_text
           argument: "video/show/anime"
@@ -68,29 +78,40 @@ shared:
   # Carousel entries (.owl-carousel.caroustyle > .item)
   entries_carousel_item: &entries_carousel_item
     - name: title
+      type: string
+      select: first
       selector: "span.title1"
       actions:
         - type: get_text
     - name: title/alt
+      type: string
+      select: first
       selector: "span.title0"
       actions:
         - type: get_text
     - name: link
+      type: string
+      select: first
       selector: "a"
       actions:
         - type: get_attribut
           argument: href
         - type: resolve_url
     - name: web-link
+      type: string
+      select: first
       selector: "a"
       actions:
         - type: get_attribut
           argument: href
         - type: resolve_url
     - name: img/poster > link
+      type: string
+      select: first
       selector: "img"
       actions: *actions_get_src_resolve
     - name: media-type
+      type: string[]
       actions:
         - type: format_text
           argument: "video/show/anime"
@@ -98,22 +119,29 @@ shared:
   # Latest-added list items
   entries_latest_added: &entries_latest_added
     - name: title
+      type: string
+      select: first
       selector: "a"
       actions:
         - type: get_text
     - name: link
+      type: string
+      select: first
       selector: "a"
       actions:
         - type: get_attribut
           argument: href
         - type: resolve_url
     - name: web-link
+      type: string
+      select: first
       selector: "a"
       actions:
         - type: get_attribut
           argument: href
         - type: resolve_url
     - name: media-type
+      type: string[]
       actions:
         - type: format_text
           argument: "video/show/anime"
@@ -121,34 +149,46 @@ shared:
   # Block catalog entries (div.mov.clearfix inside .block-main)
   entries_block_catalog: &entries_block_catalog
     - name: source
+      type: string
       actions:
         - type: format_text
           argument: "{source}"
     - name: title
+      type: string
+      select: first
       selector: "a.mov-t"
       actions:
         - type: get_text
     - name: link
+      type: string
+      select: first
       selector: "a.mov-t"
       actions:
         - type: get_attribut
           argument: href
         - type: resolve_url
     - name: web-link
+      type: string
+      select: first
       selector: "a.mov-t"
       actions:
         - type: get_attribut
           argument: href
         - type: resolve_url
     - name: title/alt
+      type: string
+      select: first
       selector: "div.mov-i img"
       actions:
         - type: get_attribut
           argument: alt
     - name: img/poster > link
+      type: string
+      select: first
       selector: "div.mov-i img"
       actions: *actions_get_src_resolve
     - name: media-type
+      type: string[]
       actions:
         - type: format_text
           argument: "video/show/anime"
@@ -160,15 +200,19 @@ queries:
     scraper_type: static
     entries:
       - name: id
+        type: string
         value: "{service_id}"
       - name: title
+        type: string
         value: "{service_title}"
       - name: logo
+        type: string
         value: "{service_logo}"
         actions:
           - type: resolve_url
             proxy: true
       - name: description
+        type: object
         value: "{service_description}"
 
   # ---------------------------------------------------------------
@@ -193,61 +237,78 @@ queries:
     row_selector: "html"
     entries:
       - name: source
+        type: string
         select: first
         actions:
           - type: format_text
             argument: "{source}"
 
       - name: categories
+        type: object[]
         entries:
           - name: key
+            type: string
             actions:
               - type: format_text
                 argument: "vf"
           - name: label
+            type: string
             actions:
               - type: format_text
                 argument: "Animés VF"
           - name: request > query_url
+            type: string
             actions:
               - type: format_text
                 argument: "{base_url}/animes-vf/"
       - name: categories
+        type: object[]
         entries:
           - name: key
+            type: string
             actions:
               - type: format_text
                 argument: "vostfr"
           - name: label
+            type: string
             actions:
               - type: format_text
                 argument: "Animés VOSTFR"
           - name: request > query_url
+            type: string
             actions:
               - type: format_text
                 argument: "{base_url}/animes-vostfr/"
       - name: categories
+        type: object[]
         entries:
           - name: key
+            type: string
             actions:
               - type: format_text
                 argument: "films"
           - name: label
+            type: string
             actions:
               - type: format_text
                 argument: "Films Animés"
           - name: request > query_url
+            type: string
             actions:
               - type: format_text
                 argument: "{base_url}/films-vf-vostfr/"
 
       - name: sections
+        type: object[]
         entries:
           - name: id
+            type: string
             actions:
               - type: format_text
                 argument: "top-carousel"
           - name: label
+            type: string
+            select: first
             selector: "h1.rel-title"
             actions:
               - type: get_text
@@ -255,17 +316,22 @@ queries:
                 pattern: "^([^:]+)"
                 format: "{1}"
           - name: items
+            type: object[]
             selector: ".owl-carousel.caroustyle > .item"
             select: all
             entries: *entries_carousel_item
 
       - name: sections
+        type: object[]
         entries:
           - name: id
+            type: string
             actions:
               - type: format_text
                 argument: "latest-added"
           - name: label
+            type: string
+            select: first
             selector: "span.t-b-recent"
             actions:
               - type: get_text
@@ -273,37 +339,46 @@ queries:
                 pattern: "^([^:]+)"
                 format: "{1}"
           - name: items
+            type: object[]
             selector: ".lastserieadd li"
             select: all
             entries: *entries_latest_added
 
       - name: sections
+        type: object[]
         entries:
           - name: id
+            type: string
             actions:
               - type: format_text
                 argument: "latest-added-vf"
           - name: label
+            type: string
             actions:
               - type: format_text
                 argument: "Derniers Animes VF ajoutées"
           - name: items
+            type: object[]
             selector: ".lastfilmadd li"
             select: all
             entries: *entries_latest_added
 
       - name: sections
+        type: object[]
         entries:
           - name: id
+            type: string
             actions:
               - type: format_text
                 argument: "top-vostfr"
           - name: label
+            type: string
             selector: "div.block-main div.block-title span.left-ma"
             select: first
             actions:
               - type: get_text
           - name: items
+            type: object[]
             selector: "div.block-main div.mov.clearfix"
             select: all
             entries: *entries_block_catalog
@@ -319,27 +394,34 @@ queries:
     row_selector: "html"
     entries:
       - name: source
+        type: string
         select: first
         actions:
           - type: format_text
             argument: "{source}"
       - name: sections
+        type: object[]
         entries:
           - name: current_page
+            type: number
             actions:
               - type: format_text
                 argument: "{page}"
           - name: page_size
+            type: number
             actions:
               - type: format_text
                 argument: "12"
           - name: total_pages
+            type: number
             actions: *actions_total_pages_from_pagi
           - name: link
+            type: string
             actions:
               - type: format_text
                 argument: "{query_url}"
           - name: entries
+            type: object[]
             selector: "div.mov.clearfix"
             select: all
             entries: *entries_catalog_row
@@ -359,25 +441,31 @@ queries:
     row_selector: "html"
     entries:
       - name: source
+        type: string
         select: first
         actions:
           - type: format_text
             argument: "{source}"
       - name: current_page
+        type: number
         actions:
           - type: format_text
             argument: "{page}"
       - name: page_size
+        type: number
         actions:
           - type: format_text
             argument: "12"
       - name: total_pages
+        type: number
         actions: *actions_total_pages_from_pagi
       - name: link
+        type: string
         actions:
           - type: format_text
             argument: "{query_url}"
       - name: entries
+        type: object[]
         selector: "div.mov.clearfix"
         select: all
         entries: *entries_catalog_row
@@ -405,20 +493,27 @@ queries:
     row_selector: "html"
     entries:
       - name: title
+        type: string
+        select: first
         selector: "h1[itemprop='name'], h1"
         actions:
           - type: get_text
       - name: title/alt
+        type: string
         actions:
           - type: get_response_body
           - type: regex_find_all
             pattern: 'TITRE ORIGINAL:\s*</div>\s*<div class="mov-desc">([^<]+)'
             format: "{1}"
       - name: description
+        type: string
+        select: first
         selector: 'span[itemprop="description"]'
         actions:
           - type: get_text
       - name: img/poster > link
+        type: string
+        select: first
         selector: "#posterimg"
         actions:
           - type: get_attribut
@@ -426,12 +521,14 @@ queries:
           - type: resolve_url
             proxy: true
       - name: year
+        type: number
         actions:
           - type: get_response_body
           - type: regex_find_all
             pattern: 'Date de sortie:\s*</div>\s*<div class="mov-desc">(\d{4})'
             format: "{1}"
       - name: theme
+        type: string[]
         actions:
           - type: get_response_body
           - type: regex_find_all
@@ -441,24 +538,28 @@ queries:
             pattern: '>([^<]+)</a>'
             format: "{1}"
       - name: director
+        type: string[]
         actions:
           - type: get_response_body
           - type: regex_find_all
             pattern: 'RÉALISATEUR:\s*</div>\s*<div class="mov-desc"(?:[^>]*)>\s*<span[^>]*>(?:<span[^>]*>)?([^<]+)'
             format: "{1}"
       - name: casting
+        type: string[]
         actions:
           - type: get_response_body
           - type: regex_find_all
             pattern: 'ACTEURS:\s*</div>\s*<div class="mov-desc"(?:[^>]*)>\s*<span[^>]*>(?:<span[^>]*>)?([^<]+)'
             format: "{1}"
       - name: lang/audio
+        type: string[]
         actions:
           - type: get_response_body
           - type: regex_find_all
             pattern: 'Version:\s*</div>\s*<div class="mov-desc">\s*<span[^>]*>([^<]+)'
             format: "{1}"
       - name: duration
+        type: string
         actions:
           - type: get_response_body
           - type: regex_find_all
@@ -467,6 +568,8 @@ queries:
       # Raw episode block — <div class="eps"> contient les blocs épisode
       # Format par épisode : <num>!<url1>,<url2>,...
       - name: _raw_eps
+        type: string
+        select: first
         selector: "div.eps"
         actions:
           - type: get_text
@@ -484,20 +587,24 @@ queries:
         pattern: '(\d+)!((?:https?://[^,\s]+(?:,\s*https?://[^,\s]+)*))'
         entries:
           - name: episode-number
+            type: string
             capture_group: 1
           - name: title
+            type: string
             capture_group: 1
             actions:
               - type: format_text
                 argument: "Episode {}"
           # Toutes les URLs de cet épisode en une seule chaîne, puis splittées
           - name: players > embed-link
+            type: string
             capture_group: 2
             actions:
               - type: split
                 argument: ","
           # Nom du player extrait du nom de domaine de chaque URL
           - name: players > name
+            type: string
             capture_group: 2
             actions:
               - type: split

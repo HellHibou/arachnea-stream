@@ -221,7 +221,10 @@ fn get_entry(get_entry_url: Option<String>, yaml_file: &str) -> Result<()> {
                 // Use yaml_file without extension as source
                 let source_path = Path::new(&yaml_file_inner).with_extension("");
                 let source_name = source_path.to_string_lossy();
-                scraper.get_entry(source_name.to_string(), entry_url).await
+                scraper
+                    .get_entry(source_name.to_string(), entry_url)
+                    .await
+                    .map(|entry| vec![entry])
             })
         },
     )

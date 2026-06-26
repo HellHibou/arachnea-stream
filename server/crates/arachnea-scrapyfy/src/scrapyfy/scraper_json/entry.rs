@@ -22,6 +22,10 @@ pub struct JsonScraperEntryRaw {
     /// The identifier used for the extracted value in the output.
     name: String,
 
+    /// JSON output type expected for this entry.
+    #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
+    output_type: Option<ScraperOutputType>,
+
     /// Optional JSON pointer selecting the value from the row.
     ///
     /// JSON pointer or pointer-like path used to locate the value in the JSON row.
@@ -67,6 +71,9 @@ pub enum JsonScraperEntry {
         /// Field name.
         name: String,
 
+        /// JSON output type requested by this field entry.
+        output_type: ScraperOutputType,
+
         /// Optional JSON pointer selecting the value from the row.
         pointer: Option<String>,
 
@@ -89,6 +96,9 @@ pub enum JsonScraperEntry {
     Group {
         /// Group name.
         name: String,
+
+        /// JSON output type requested by this group entry.
+        output_type: ScraperOutputType,
 
         /// Optional JSON pointer selecting the values from the row.
         pointer: Option<String>,
@@ -139,6 +149,7 @@ impl JsonScraperEntry {
         match self {
             JsonScraperEntry::Field {
                 name,
+                output_type,
                 pointer,
                 select,
                 actions,
@@ -146,6 +157,7 @@ impl JsonScraperEntry {
             } => {
                 let path: Vec<&str> = name.split('>').map(|segment| segment.trim()).collect();
                 let is_first = *select == HtmlScraperSelectMode::First;
+                root.set_output_type(&path, *output_type);
 
                 for selected in select_json_values(row, pointer.as_deref(), *select) {
                     let mut values = json_value_to_strings(selected);
@@ -155,23 +167,25 @@ impl JsonScraperEntry {
 
                     if is_first {
                         if let Some(value) = values.into_iter().next() {
-                            root.set_value(&path, value);
+                            root.set_value_typed(&path, value, *output_type);
                         }
                     } else {
                         for value in values {
-                            root.push_value(&path, value);
+                            root.push_value_typed(&path, value, *output_type);
                         }
                     }
                 }
             }
             JsonScraperEntry::Group {
                 name,
+                output_type,
                 pointer,
                 select,
                 entries,
                 ..
             } => {
                 let path: Vec<&str> = name.split('>').map(|segment| segment.trim()).collect();
+                root.set_output_type(&path, *output_type);
 
                 for selected in select_json_values(row, pointer.as_deref(), *select) {
                     let mut item = ScraperDataNode::default();
@@ -179,7 +193,7 @@ impl JsonScraperEntry {
                         entry.apply_to(&mut item, selected, params, request_url);
                     }
 
-                    root.push_node(&path, item);
+                    root.push_node_typed(&path, item, *output_type);
                 }
             }
         }
@@ -240,6 +254,72 @@ impl JsonScraperEntry {
 
         Ok(())
     }
+
+    /// Validates and returns the output type for one scalar JSON entry.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `type` is missing or when an object type is used
+    /// without nested `entries`.
+    fn require_field_output_type(
+        name: &str,
+        output_type: Option<ScraperOutputType>,
+        has_sub_queries: bool,
+    ) -> Result<ScraperOutputType> {
+        let Some(output_type) = output_type else {
+            anyhow::bail!("JSON entry {} must define type", name);
+        };
+
+        if !has_sub_queries
+            && matches!(
+                output_type,
+                ScraperOutputType::Object | ScraperOutputType::ObjectArray
+            )
+        {
+            anyhow::bail!(
+                "JSON entry {} uses {} but does not define entries",
+                name,
+                output_type.as_str()
+            );
+        }
+
+        Ok(output_type)
+    }
+
+    /// Resolves the output type for one grouped JSON entry.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `type` is missing, scalar, or contradicts
+    /// `select: first`.
+    fn resolve_group_output_type(
+        name: &str,
+        output_type: Option<ScraperOutputType>,
+        select: HtmlScraperSelectMode,
+    ) -> Result<ScraperOutputType> {
+        let Some(output_type) = output_type else {
+            anyhow::bail!("JSON group entry {} must define type", name);
+        };
+
+        match (output_type, select) {
+            (ScraperOutputType::ObjectArray, HtmlScraperSelectMode::First) => {
+                anyhow::bail!(
+                    "JSON group entry {} cannot combine type object[] with select: first",
+                    name
+                );
+            }
+            (ScraperOutputType::ObjectArray, _) => Ok(ScraperOutputType::ObjectArray),
+            (ScraperOutputType::Object, HtmlScraperSelectMode::First) => {
+                Ok(ScraperOutputType::Object)
+            }
+            (ScraperOutputType::Object, _) => Ok(ScraperOutputType::ObjectArray),
+            _ => anyhow::bail!(
+                "JSON group entry {} must use type object or object[], got {}",
+                name,
+                output_type.as_str()
+            ),
+        }
+    }
 }
 
 impl TryFrom<JsonScraperEntryRaw> for JsonScraperEntry {
@@ -253,6 +333,7 @@ impl TryFrom<JsonScraperEntryRaw> for JsonScraperEntry {
     fn try_from(config: JsonScraperEntryRaw) -> Result<Self> {
         let JsonScraperEntryRaw {
             name,
+            output_type,
             pointer,
             select,
             actions,
@@ -268,9 +349,15 @@ impl TryFrom<JsonScraperEntryRaw> for JsonScraperEntry {
 
         if entries.is_empty() {
             JsonScraperEntry::validate_actions(&name, &actions)?;
+            let output_type = JsonScraperEntry::require_field_output_type(
+                &name,
+                output_type,
+                !sub_queries.is_empty(),
+            )?;
 
             return Ok(Self::Field {
                 name,
+                output_type,
                 pointer,
                 select,
                 actions,
@@ -282,6 +369,8 @@ impl TryFrom<JsonScraperEntryRaw> for JsonScraperEntry {
             anyhow::bail!("JSON group entry {} cannot define actions", name);
         }
 
+        let output_type = JsonScraperEntry::resolve_group_output_type(&name, output_type, select)?;
+
         let entries = entries
             .into_iter()
             .map(TryInto::try_into)
@@ -289,6 +378,7 @@ impl TryFrom<JsonScraperEntryRaw> for JsonScraperEntry {
 
         Ok(Self::Group {
             name,
+            output_type,
             pointer,
             select,
             entries,
@@ -303,12 +393,14 @@ impl From<&JsonScraperEntry> for JsonScraperEntryRaw {
         match entry {
             JsonScraperEntry::Field {
                 name,
+                output_type,
                 pointer,
                 select,
                 actions,
                 ..
             } => Self {
                 name: name.clone(),
+                output_type: Some(*output_type),
                 pointer: pointer.clone(),
                 select: *select,
                 actions: actions.clone(),
@@ -317,12 +409,14 @@ impl From<&JsonScraperEntry> for JsonScraperEntryRaw {
             },
             JsonScraperEntry::Group {
                 name,
+                output_type,
                 pointer,
                 select,
                 entries,
                 ..
             } => Self {
                 name: name.clone(),
+                output_type: Some(*output_type),
                 pointer: pointer.clone(),
                 select: *select,
                 actions: Vec::new(),

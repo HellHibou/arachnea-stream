@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::scrapyfy::post_processes::{ScraperPostProcess, ScraperPostProcessContext};
 use crate::scrapyfy::query_helpers;
-use crate::scrapyfy::scraper_data_node::ScraperDataNode;
+use crate::scrapyfy::scraper_data_node::{ScraperDataNode, ScraperOutputType};
 use crate::scrapyfy::scraper_html::entry::{HtmlScraperEntry, HtmlScraperSelectMode};
 use crate::scrapyfy::scraper_json::entry::{
     json_value_to_strings, select_json_values, JsonScraperEntry,
@@ -1159,8 +1159,7 @@ async fn execute_entry_sub_queries(
                                         .collect()
                                 };
                                 for val in scalar_values {
-                                    let mut entry = ScraperDataNode::default();
-                                    entry.values.push(val);
+                                    let entry = scalar_node_from_source_value(val, child);
                                     target.items.push(entry);
                                 }
                                 continue;
@@ -1214,9 +1213,10 @@ async fn execute_entry_sub_queries(
                                         for (name, values) in &common {
                                             item_node.children.insert(
                                                 (*name).clone(),
-                                                ScraperDataNode::from_values(vec![
-                                                    values[i].clone()
-                                                ]),
+                                                scalar_node_from_source_value(
+                                                    values[i].clone(),
+                                                    merged.children.get(*name).unwrap(),
+                                                ),
                                             );
                                         }
                                         target.items.push(item_node);
@@ -1227,7 +1227,10 @@ async fn execute_entry_sub_queries(
                                             let mut item_node = ScraperDataNode::default();
                                             item_node.children.insert(
                                                 (*name).clone(),
-                                                ScraperDataNode::from_values(vec![val.clone()]),
+                                                scalar_node_from_source_value(
+                                                    val.clone(),
+                                                    child,
+                                                ),
                                             );
                                             target.items.push(item_node);
                                         }
@@ -1240,14 +1243,19 @@ async fn execute_entry_sub_queries(
                                             let mut item_node = ScraperDataNode::default();
                                             item_node.children.insert(
                                                 (*name).clone(),
-                                                ScraperDataNode::from_values(vec![val.clone()]),
+                                                scalar_node_from_source_value(
+                                                    val.clone(),
+                                                    child,
+                                                ),
                                             );
                                             target.items.push(item_node);
                                         }
                                     }
                                     for val in &merged.values {
-                                        let mut entry = ScraperDataNode::default();
-                                        entry.values.push(val.clone());
+                                        let entry = ScraperDataNode::from_values_typed(
+                                            vec![val.clone()],
+                                            ScraperOutputType::String,
+                                        );
                                         target.items.push(entry);
                                     }
                                 }
@@ -1258,14 +1266,16 @@ async fn execute_entry_sub_queries(
                                         let mut item_node = ScraperDataNode::default();
                                         item_node.children.insert(
                                             (*name).clone(),
-                                            ScraperDataNode::from_values(vec![val.clone()]),
+                                            scalar_node_from_source_value(val.clone(), child),
                                         );
                                         target.items.push(item_node);
                                     }
                                 }
                                 for val in &merged.values {
-                                    let mut entry = ScraperDataNode::default();
-                                    entry.values.push(val.clone());
+                                    let entry = ScraperDataNode::from_values_typed(
+                                        vec![val.clone()],
+                                        ScraperOutputType::String,
+                                    );
                                     target.items.push(entry);
                                 }
                             }
@@ -1277,14 +1287,16 @@ async fn execute_entry_sub_queries(
                                     let mut item_node = ScraperDataNode::default();
                                     item_node.children.insert(
                                         name.clone(),
-                                        ScraperDataNode::from_values(vec![val.clone()]),
+                                        scalar_node_from_source_value(val.clone(), child),
                                     );
                                     target.items.push(item_node);
                                 }
                             }
                             for val in &merged.values {
-                                let mut entry = ScraperDataNode::default();
-                                entry.values.push(val.clone());
+                                let entry = ScraperDataNode::from_values_typed(
+                                    vec![val.clone()],
+                                    ScraperOutputType::String,
+                                );
                                 target.items.push(entry);
                             }
                         }
@@ -1593,11 +1605,24 @@ fn merge_targeted(item: &mut ScraperDataNode, source: ScraperDataNode, target: O
         if path.is_empty() {
             item.merge(source);
         } else {
-            item.push_node(&path, source);
+            item.push_node_typed(&path, source, ScraperOutputType::ObjectArray);
         }
         return;
     }
     item.merge(source);
+}
+
+fn scalar_output_type_from_source(source: &ScraperDataNode) -> ScraperOutputType {
+    source
+        .output_type
+        .and_then(ScraperOutputType::array_element_type)
+        .or(source.output_type)
+        .filter(|output_type| output_type.is_scalar())
+        .unwrap_or(ScraperOutputType::String)
+}
+
+fn scalar_node_from_source_value(value: String, source: &ScraperDataNode) -> ScraperDataNode {
+    ScraperDataNode::from_values_typed(vec![value], scalar_output_type_from_source(source))
 }
 
 // ---------------------------------------------------------------------------

@@ -42,5 +42,5 @@ function _escapeHtml(text: string): string {
     '\x27': apos,
   }
 
-  return text.replace(/[&<>"']/g, (char) => chars[char])
+  return text.replace(/[&<>"']/g, (char) => chars[char] ?? char)
 }

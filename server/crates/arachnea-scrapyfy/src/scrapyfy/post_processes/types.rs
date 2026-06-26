@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::super::actions::ScraperAction;
+use super::super::scraper_data_node::ScraperOutputType;
 
 /// Runtime context exposed to query post-processors.
 pub struct ScraperPostProcessContext<'a> {
@@ -20,6 +21,9 @@ pub struct ScraperPostProcessContext<'a> {
 pub struct ScraperRegexItemEntry {
     /// Output field name (supports nested `>` paths).
     pub name: String,
+    /// JSON output type expected for this generated field.
+    #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
+    pub output_type: Option<ScraperOutputType>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     /// Capture group index to extract from the regex match.
     pub capture_group: Option<usize>,
@@ -42,6 +46,9 @@ pub struct ScraperFieldMapping {
 pub struct ScraperGeneratedField {
     /// Output field name generated for each indexed target item.
     pub name: String,
+    /// JSON output type expected for the generated scalar.
+    #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
+    pub output_type: Option<ScraperOutputType>,
     /// String template where `{}` is replaced by the 1-based index.
     pub format: String,
 }

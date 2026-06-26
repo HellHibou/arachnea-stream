@@ -3,7 +3,7 @@ use std::collections::HashMap;
 /// Tree-shaped output node model used by all scraper pipelines.
 pub mod scraper_data_node;
 
-pub use scraper_data_node::ScraperDataNode;
+pub use scraper_data_node::{ScraperDataNode, ScraperOutputType};
 
 /// HTTP client helpers used by query executors and tests.
 pub mod http_client;

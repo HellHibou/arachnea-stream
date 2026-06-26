@@ -6,125 +6,160 @@ queries:
     scraper_type: static
     entries:
       - name: id
+        type: string
         value: "{service_id}"
       - name: title
+        type: string
         value: "{service_title}"
       - name: logo
+        type: string
         value: "{service_logo}"
       - name: description
+        type: object
         value: "{service_description}"
 
   - name: search
     scraper_type: html
     base_url: https://www.crunchyroll.com/fr
-    media_types: 
+    media_types:
       - video/show/anime
     query_url: "{base_url}/search?f=series&q={search_terms}"
     row_selector: '[data-t*="search-series-card"]'
     entries:
       - name: title
+        type: string
+        select: first
         selector: "h2 > a"
         actions:
           - type: get_text
       - name: link
+        type: string
+        select: first
         selector: "h2 > a"
         actions:
           - type: get_attribut
             argument: href
           - type: resolve_url
       - name: web-link
+        type: string
+        select: first
         selector: "h2 > a"
         actions:
           - type: get_attribut
             argument: href
           - type: resolve_url
       - name: img/poster
+        type: string
+        select: first
         selector: '[data-t*="original-image"]'
         actions:
           - type: get_attribut
             argument: src
           - type: resolve_url
       - name: count-season
+        type: number
+        select: first
         selector: span.search-show-card-hover__extended-meta-item--NgVOV
         actions:
           - type: get_text
       - name: count-episodes
+        type: number
+        select: first
         selector: span.search-show-card-hover__extended-meta-item--NgVOV + span
         actions:
           - type: get_text
       - name: rating
+        type: number
+        select: first
         selector: p.star-rating-short-static__rating--bdAfR
         actions:
           - type: get_text
           - type: ratio
             argument: 20
       - name: rating-count
+        type: string
+        select: first
         selector: '[data-t*="rating-count"]'
         actions:
           - type: get_text
   - name: get_entry
     scraper_type: html
     base_url: https://www.crunchyroll.com/fr
-    media_types: 
+    media_types:
       - video/show/anime
     query_url: "{query_url}"
     row_selector: "html"
     entries:
       - name: title
+        type: string
+        select: first
         selector: h1
         actions:
           - type: get_text
       - name: description
+        type: string
+        select: first
         selector: div.erc-series-description > p
         actions:
           - type: get_text
       - name: lang/audio
+        type: string[]
         selector: '[data-t*="detail-row-audio-language"] > dd > span'
         actions:
           - type: get_text
           - type: split
             argument: ","
       - name: lang/subtitles
+        type: string[]
         selector: '[data-t*="detail-row-subtitles-language"] > dd > span'
         actions:
           - type: get_text
           - type: split
             argument: ","
       - name: theme
+        type: string[]
         selector: 'dd > div > div > span > a'
         select: all
         actions:
           - type: get_text
       - name: content-advisor
+        type: string
+        select: first
         selector: '[data-t*="detail-row-content-advisor"] > dd > span + span'
         actions:
           - type: get_text
           - type: split
             argument: ","
       - name: img/poster
+        type: string
+        select: first
         selector: 'figure > div > picture + picture > img'
         actions:
           - type: get_attribut
             argument: src
           - type: resolve_url
       - name: season > label
+        type: string
         selector: "h3 > a"
         select: all
         actions:
           - type: get_text
       - name: season > link
+        type: string
         selector: "h3 > a"
         select: all
         actions:
           - type: get_attribut
             argument: href
-          - type: resolve_url   
+          - type: resolve_url
       - name: season > description
+        type: string
         selector: 'div.playable-card-hover__description-wrapper--T4J30 > p'
         select: all
         actions:
           - type: get_text
       - name: season > img/poster
+        type: string
         selector: 'div.episode-list > div > div > div > a > div > div > div > div > figure > div > picture + picture > img'
         select: all
         actions:
@@ -132,6 +167,7 @@ queries:
             argument: src
           - type: resolve_url
       - name: season > release-date
+        type: string
         selector: '[data-t*="meta-info"]'
         select: all
         actions:

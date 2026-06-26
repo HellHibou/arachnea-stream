@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::super::scraper_data_node::ScraperDataNode;
+use super::super::scraper_data_node::{ScraperDataNode, ScraperOutputType};
 use super::node_helpers::{copy_field, get_node, set_node, split_path};
 use super::types::{ScraperFieldMapping, ScraperGeneratedField};
 
@@ -113,11 +113,14 @@ pub(super) fn apply(
             for (generated_field, generated_field_path) in
                 generated_fields.iter().zip(generated_field_paths.iter())
             {
-                target_item.push_value(
+                let generated_output_type =
+                    generated_field.output_type.unwrap_or(ScraperOutputType::String);
+                target_item.push_value_typed(
                     generated_field_path,
                     generated_field
                         .format
                         .replace("{}", &(index + 1).to_string()),
+                    generated_output_type,
                 );
             }
 
@@ -128,9 +131,18 @@ pub(super) fn apply(
                 let Some(value) = value_node.values.get(index) else {
                     continue;
                 };
+                let nested_value_output_type = value_node
+                    .output_type
+                    .and_then(ScraperOutputType::array_element_type)
+                    .or(value_node.output_type)
+                    .unwrap_or(ScraperOutputType::String);
 
                 let mut nested_item = ScraperDataNode::default();
-                nested_item.push_value(&nested_value_field_path, value.clone());
+                nested_item.push_value_typed(
+                    &nested_value_field_path,
+                    value.clone(),
+                    nested_value_output_type,
+                );
 
                 for field in copy_item_fields {
                     copy_field(source_item, &field.source, &mut nested_item, &field.target);
@@ -162,6 +174,7 @@ pub(super) fn apply(
                 &mut target_item,
                 &nested_field_path,
                 ScraperDataNode {
+                    output_type: Some(ScraperOutputType::ObjectArray),
                     values: Vec::new(),
                     children: HashMap::new(),
                     items: nested_items,
@@ -183,6 +196,7 @@ pub(super) fn apply(
         root,
         &target_path,
         ScraperDataNode {
+            output_type: Some(ScraperOutputType::ObjectArray),
             values: Vec::new(),
             children: HashMap::new(),
             items: target_items,
