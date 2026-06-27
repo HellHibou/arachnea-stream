@@ -76,6 +76,8 @@ pub enum ScraperPostProcess {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         promote_first_nested_fields: Vec<ScraperFieldMapping>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        copy_target_fields: Vec<ScraperFieldMapping>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
         generated_fields: Vec<ScraperGeneratedField>,
     },
 
@@ -270,6 +272,7 @@ impl ScraperPostProcess {
                 copy_item_fields,
                 copy_root_fields,
                 promote_first_nested_fields,
+                copy_target_fields,
                 generated_fields,
             } => {
                 pivot_items_by_index::apply(
@@ -283,6 +286,7 @@ impl ScraperPostProcess {
                     copy_item_fields,
                     copy_root_fields,
                     promote_first_nested_fields,
+                    copy_target_fields,
                     generated_fields,
                 );
                 Ok(())

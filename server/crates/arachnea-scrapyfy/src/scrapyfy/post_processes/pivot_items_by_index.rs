@@ -18,8 +18,9 @@ pub(super) fn validate() -> Result<(), anyhow::Error> {
 /// For every index up to the longest aligned value list, a fresh target item
 /// is produced with optional `generated_fields` plus a nested group containing
 /// one entry per source item. `copy_item_fields` and `copy_root_fields` are
-/// copied into each nested entry, and `promote_first_nested_fields` is copied
-/// from the first nested entry into the target item. `sort_by` (when
+/// copied into each nested entry, `promote_first_nested_fields` is copied
+/// from the first nested entry into the target item, and `copy_target_fields`
+/// is copied directly from `root` into the target item. `sort_by` (when
 /// provided) is used to order the source items before pivotting.
 ///
 /// # Arguments
@@ -41,6 +42,8 @@ pub(super) fn validate() -> Result<(), anyhow::Error> {
 ///   entry.
 /// * `promote_first_nested_fields` - Field mappings copied from the first
 ///   nested entry into the target item.
+/// * `copy_target_fields` - Field mappings copied from `root` directly into
+///   each target item (without passing through nested entries).
 /// * `generated_fields` - Scalar fields generated for each indexed target.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn apply(
@@ -54,6 +57,7 @@ pub(super) fn apply(
     copy_item_fields: &[ScraperFieldMapping],
     copy_root_fields: &[ScraperFieldMapping],
     promote_first_nested_fields: &[ScraperFieldMapping],
+    copy_target_fields: &[ScraperFieldMapping],
     generated_fields: &[ScraperGeneratedField],
 ) {
     let target_items = {
@@ -168,6 +172,10 @@ pub(super) fn apply(
                         &field.target,
                     );
                 }
+            }
+
+            for field in copy_target_fields {
+                copy_field(root, &field.source, &mut target_item, &field.target);
             }
 
             set_node(

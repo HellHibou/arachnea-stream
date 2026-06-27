@@ -3,17 +3,23 @@ title: Coflix
 logo: "{base_url}/wp-content/uploads/2023/01/cropped-coflix.png"
 description:
   fr: "Films, Séries et Animés en streaming VF/HD."
-
 http:
   mode: auto
 
+
+# ############################################################################
+# Parameters
+# ############################################################################
 parameters:
   - name: base_url
-    value: https://coflix.band/
+    value: https://coflix.trade
     description: "Base URL — update on domain change"
 
-shared:
 
+# ############################################################################
+# Shared structs
+# ############################################################################
+shared:
   media_types_coflix: &media_types_coflix
     - video/movie
     - video/show/serie
@@ -24,136 +30,20 @@ shared:
       pattern: 'src="(?:https?:)?(//[^"]+)'
       format: "https:{1}"
 
-  actions_get_href_resolve: &actions_get_href_resolve
-    - type: get_attribut
-      argument: href
-    - type: resolve_url
-
-  actions_get_src_resolve: &actions_get_src_resolve
-    - type: get_attribut
-      argument: src
-    - type: resolve_url
-
   optional_html_entry: &optional_html_entry
     - type: map
       default: "{}"
       argument:
         "false": null
 
-  entries_catalog_item: &entries_catalog_item
-    - name: title
-      type: string
-      select: first
-      pointer: "/name"
-    - name: link
-      type: string
-      select: first
-      pointer: "/url"
-    - name: web-link
-      type: string
-      select: first
-      pointer: "/url"
-    - name: img/poster > link
-      type: string
-      select: first
-      pointer: "/path"
-      actions: *actions_img_html_to_url
-    - name: img/poster > link
-      type: string
-      select: first
-      pointer: "/image"
-      actions: *actions_img_html_to_url
-    - name: media-type
-      type: string[]
-      pointer: "/ts"
-      actions:
-        - type: map
-          argument:
-            movies: "video/movie"
-            series: "video/show/serie"
-            animes: "video/show/anime"
-    - name: year
-      type: number
-      select: first
-      pointer: "/release"
-      actions:
-        - type: map
-          default: "{}"
-          argument:
-            "false": null
-    - name: description
-      type: string
-      select: first
-      pointer: "/excerpt"
-      actions: *optional_html_entry
-    - name: rating
-      type: number
-      select: first
-      pointer: "/rating"
-    - name: director
-      type: string[]
-      pointer: "/director"
-      actions: *optional_html_entry
-    - name: casting
-      type: string[]
-      pointer: "/casts"
-      actions: *optional_html_entry
-
-  entries_search_item: &entries_search_item
-    - name: title
-      type: string
-      select: first
-      pointer: "/title"
-    - name: link
-      type: string
-      select: first
-      pointer: "/url"
-    - name: web-link
-      type: string
-      select: first
-      pointer: "/url"
-    - name: img/poster > link
-      type: string
-      select: first
-      pointer: "/image"
-      actions: *actions_img_html_to_url
-    - name: media-type
-      type: string[]
-      pointer: "/post_type"
-      actions:
-        - type: map
-          argument:
-            movies: "video/movie"
-            series: "video/show/serie"
-            animes: "video/show/anime"
-    - name: year
-      type: number
-      select: first
-      pointer: "/year"
-      actions:
-      - type: map
-        default: "{}"
-        argument:
-          "false": null
-    - name: description
-      type: string
-      select: first
-      pointer: "/excerpt"
-    - name: rating
-      type: number
-      select: first
-      pointer: "/rating"
-    - name: director
-      type: string[]
-      pointer: "/director"
-      actions: *optional_html_entry
-    - name: casting
-      type: string[]
-      pointer: "/cast"
-      actions: *optional_html_entry
-
+# ==========================================================
+# Queries
+# ==========================================================
 queries:
 
+  # --------------------------------------------------------------------------
+  # Service stream metadata
+  # --------------------------------------------------------------------------
   - name: service_stream_metadata
     scraper_type: static
     entries:
@@ -170,92 +60,10 @@ queries:
         type: object
         value: "{service_description}"
 
-  - name: search
-    scraper_type: json
-    base_url: "{base_url}"
-    query_url: "{base_url}/suggest.php?query={search_terms}"
-    media_types: *media_types_coflix
-    row_pointer: "/"
-    entries:
-    - name: source
-      type: string
-      pointer: "/0"
-      select: first
-      actions:
-        - type: format_text
-          argument: "{source}"
-    - name: current_page
-      type: number
-      pointer: "/0"
-      select: first
-      actions:
-        - type: format_text
-          argument: "1"
-    - name: have_more
-      type: boolean
-      pointer: "/0"
-      select: first
-      actions:
-        - type: format_text
-          argument: "false"
-    - name: entries
-      type: object[]
-      pointer: "/*"
-      select: all
-      entries:
-        - name: title
-          type: string
-          select: first
-          pointer: "/title"
-        - name: link
-          type: string
-          select: first
-          pointer: "/url"
-        - name: web-link
-          type: string
-          select: first
-          pointer: "/url"
-        - name: img/poster > link
-          type: string
-          select: first
-          pointer: "/image"
-          actions: *actions_img_html_to_url
-        - name: media-type
-          type: string[]
-          pointer: "/post_type"
-          actions:
-            - type: map
-              argument:
-                movies: "video/movie"
-                series: "video/show/serie"
-                animes: "video/show/anime"
-        - name: year
-          type: number
-          select: first
-          pointer: "/year"
-          actions:
-          - type: map
-            default: "{}"
-            argument:
-              "false": null
-        - name: description
-          type: string
-          select: first
-          pointer: "/excerpt"
-        - name: rating
-          type: number
-          select: first
-          pointer: "/rating"
-        - name: director
-          type: string[]
-          pointer: "/director"
-          actions: *optional_html_entry
-        - name: casting
-          type: string[]
-          pointer: "/cast"
-          actions: *optional_html_entry
 
-
+  # ---------------------------------------------------------------
+  # Home page
+  # ---------------------------------------------------------------
   - name: load_home
     scraper_type: html
     media_types: *media_types_coflix
@@ -268,7 +76,6 @@ queries:
         actions:
           - type: format_text
             argument: "{source}"
-
       - name: banners
         type: object[]
         selector: 'article.splide__slide'
@@ -313,7 +120,6 @@ queries:
             selector: "span.categories > div > a"
             actions:
               - type: get_text
-
       - name: categories
         type: object[]
         entries:
@@ -427,6 +233,10 @@ queries:
                 actions:
                   - type: get_text
 
+
+  # ---------------------------------------------------------------
+  # Category listing
+  # ---------------------------------------------------------------
   - name: get_category
     scraper_type: json
     base_url: "{base_url}"
@@ -496,8 +306,9 @@ queries:
                     pattern: 'src="(?:https?:)?(//[^"]+)'
                     format: "https:{1}"
               - name: media-type
-                type: string[]
+                type: string
                 pointer: "/ts"
+                select: first
                 actions:
                   - type: map
                     argument:
@@ -531,6 +342,9 @@ queries:
                 type: string[]
                 pointer: "/director"
                 actions:
+                  - type: regex_find_all
+                    pattern: ">([^<]+)</a>"
+                    format: "{1}"
                   - type: map
                     default: "{}"
                     argument:
@@ -539,11 +353,18 @@ queries:
                 type: string[]
                 pointer: "/casts"
                 actions:
+                  - type: regex_find_all
+                    pattern: ">([^<]+)</a>"
+                    format: "{1}"
                   - type: map
-                    default: "{}"
                     argument:
                       "false": null
+                    default: "{}"
 
+
+  # ---------------------------------------------------------------
+  # Sections listing
+  # ---------------------------------------------------------------
   - name: get_section
     scraper_type: json
     base_url: "{base_url}"
@@ -619,7 +440,8 @@ queries:
                 pattern: 'src="(?:https?:)?(//[^"]+)'
                 format: "https:{1}"
           - name: media-type
-            type: string[]
+            type: string
+            select: first
             pointer: "/ts"
             actions:
               - type: map
@@ -649,7 +471,7 @@ queries:
           - name: rating
             type: number
             select: first
-            pointer: "/rating"
+            pointer: "/ranking"
           - name: director
             type: string[]
             pointer: "/director"
@@ -662,11 +484,105 @@ queries:
             type: string[]
             pointer: "/casts"
             actions:
+              - type: html_to_text
+              - type: split
+                argument: ","
               - type: map
-                default: "{}"
                 argument:
                   "false": null
+                default: "{}"
+       
+  # --------------------------------------------------------------------------
+  # Search
+  # --------------------------------------------------------------------------
+  - name: search
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{base_url}/suggest.php?query={search_terms}"
+    media_types: *media_types_coflix
+    row_pointer: "/"
+    entries:
+    - name: source
+      type: string
+      pointer: "/0"
+      select: first
+      actions:
+        - type: format_text
+          argument: "{source}"
+    - name: current_page
+      type: number
+      pointer: "/0"
+      select: first
+      actions:
+        - type: format_text
+          argument: "1"
+    - name: have_more
+      type: boolean
+      pointer: "/0"
+      select: first
+      actions:
+        - type: format_text
+          argument: "false"
+    - name: entries
+      type: object[]
+      pointer: "/*"
+      select: all
+      entries:
+        - name: title
+          type: string
+          select: first
+          pointer: "/title"
+        - name: link
+          type: string
+          select: first
+          pointer: "/url"
+        - name: web-link
+          type: string
+          select: first
+          pointer: "/url"
+        - name: img/poster > link
+          type: string
+          select: first
+          pointer: "/image"
+          actions: *actions_img_html_to_url
+        - name: media-type
+          type: string[]
+          pointer: "/post_type"
+          actions:
+            - type: map
+              argument:
+                movies: "video/movie"
+                series: "video/show/serie"
+                animes: "video/show/anime"
+        - name: year
+          type: number
+          select: first
+          pointer: "/year"
+          actions:
+          - type: map
+            default: "{}"
+            argument:
+              "false": null
+        - name: description
+          type: string
+          select: first
+          pointer: "/excerpt"
+        - name: rating
+          type: number
+          select: first
+          pointer: "/rating"
+        - name: director
+          type: string[]
+          pointer: "/director"
+          actions: *optional_html_entry
+        - name: casting
+          type: string[]
+          pointer: "/cast"
+          actions: *optional_html_entry
 
+  # ---------------------------------------------------------------
+  # Entry detail page
+  # ---------------------------------------------------------------
   - name: get_entry
     scraper_type: html
     base_url: "{base_url}"
@@ -695,7 +611,10 @@ queries:
         type: string
         select: first
         selector: "figure > img"
-        actions: *actions_get_src_resolve
+        actions:
+          - type: get_attribut
+            argument: src
+          - type: resolve_url
       - name: year
         type: number
         select: first
@@ -784,6 +703,9 @@ queries:
         actions:
           - type: get_text
 
+  # ---------------------------------------------------------------
+  # Season
+  # ---------------------------------------------------------------
   - name: get_season
     scraper_type: json
     base_url: "{base_url}"
@@ -810,7 +732,7 @@ queries:
         request_pointer: "/id"
         request_actions:
           - type: format_text
-            argument: "{base_url}wp-json/apiflix/v1/playerepisode?post_id={}"
+            argument: "{base_url}/wp-json/apiflix/v1/playerepisode?post_id={}"
         row_pointer: "/"
         context_entries:
           - name: id
@@ -833,13 +755,37 @@ queries:
         entries:
           - name: players
             type: object[]
-            pointer: "/links/online/*"
-            select: all
-            entries:
-              - name: embed-link
-                type: string
-                pointer: "/link"
-                select: all
+            actions:
+              - type: get_response_body
+              - type: regex_find_all
+                pattern: '"link":"([^"]+)"'
+                format: "{1}"
+            sub_queries:
+              - scraper_type: html
+                row_selector: "html"
+                request_headers:
+                  - name: "Referer"
+                    actions:
+                      - type: format_text
+                        argument: "{base_url}"
+                entries:
+                  - name: embed-link
+                    type: string
+                    actions:
+                      - type: get_response_body
+                      - type: regex_find_all
+                        pattern: "showVideo\\(\\s*['\"]([A-Za-z0-9+/=]+)['\"]"
+                        format: "{1}"
+                      - type: base64_decode
+                  - name: name
+                    type: string
+                    actions:
+                      - type: get_response_body
+                      - type: regex_find_all
+                        pattern: "showVideo\\(\\s*['\"]([A-Za-z0-9+/=]+)['\"]"
+                        format: "{1}"
+                      - type: base64_decode
+                      - type: get_url_host
           - name: release-date
             type: string
             pointer: "/links/online/*/date"

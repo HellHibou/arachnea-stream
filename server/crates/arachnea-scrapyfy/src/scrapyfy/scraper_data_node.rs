@@ -476,6 +476,10 @@ impl ScraperDataNode {
             return Ok(Value::Null);
         };
 
+        if value.trim().is_empty() {
+            return Ok(Value::Null);
+        }
+
         Ok(Value::Number(parse_json_number(
             value,
             path,

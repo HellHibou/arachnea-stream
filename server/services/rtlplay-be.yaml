@@ -991,10 +991,10 @@ queries:
         type: string
         select: first
         pointer: /durationSeconds
-      - name: duration
-        type: string
-        pointer: /headerLabels/*[accessibilityLabel=Durée]/label
-        select: all
+#      - name: duration
+#        type: string
+#        select: first
+#        pointer: /headerLabels/*[accessibilityLabel=Durée]/label
       - name: expire
         type: string
         pointer: /headerLabels/*/label
@@ -1104,11 +1104,13 @@ queries:
     entries:
       - name: current_page
         type: number
+        select: first
         actions:
           - type: format_text
             argument: "1"
       - name: have_more
         type: boolean
+        select: first
         actions:
           - type: format_text
             argument: "false"

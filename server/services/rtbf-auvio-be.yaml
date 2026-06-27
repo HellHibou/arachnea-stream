@@ -453,15 +453,17 @@ queries:
     base_url: https://auvio.rtbf.be
     query_url: "https://bff-service.rtbf.be/auvio/v1.23/mosaic/search?dataResourceType=MEDIA_LIST&query={search_terms}&includeFastTv=true&_page={page}&_limit={page_size}"
     media_types: *media_types_rtbf
-    row_pointer: /data/*
+    row_pointer: /
     entries:
       - name: source
         type: string
+        select: first
         actions:
           - type: format_text
             argument: "{source}"
       - name: current_page
         type: number
+        select: first
         actions:
           - type: format_text
             argument: "{page}"
@@ -471,7 +473,14 @@ queries:
         pointer: /meta/page/last
       - name: entries
         type: object[]
+        pointer: /data/*
+        select: all
         entries:
+          - name: source
+            type: string
+            actions:
+              - type: format_text
+                argument: "{source}"
           - name: id
             type: string
             select: first
@@ -1014,7 +1023,7 @@ queries:
               - type: regex_find_all
                 pattern: '^(\d+)'
                 format: "{1}"
-          - name: img/poster
+          - name: img/poster > link
             type: string
             select: first
             pointer: /illustration/m

@@ -17,7 +17,8 @@
     "images/webtoon": "Livre webtoon",
     "audio/show": "Emission audio",
     "audio/show/serie": "Serie audio",
-    "audio/other": "Audio autre"
+    "audio/other": "Audio autre",
+    "audio/ost": "Bande original"
   },
   "themes": {
     "action": "Action",
