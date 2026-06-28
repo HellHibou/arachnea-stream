@@ -200,8 +200,8 @@ impl Default for TimeoutConfig {
     /// Returns conservative core transport timeouts.
     fn default() -> Self {
         Self {
-            connect_ms: 10_000,
-            handshake_ms: 10_000,
+            connect_ms: 30_000,
+            handshake_ms: 30_000,
             idle_ms: 60_000,
         }
     }

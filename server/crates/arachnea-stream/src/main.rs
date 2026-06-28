@@ -215,53 +215,56 @@ async fn main() -> Result<()> {
         .add_query_collection_from_config_json(resources::get_application_path(
             DEFAULT_SERVICES_CONFIG_PATH,
         ))?;
-    /*
-        manager.clear_proxy();
 
-        let proxy_fr = ProxyNode::from_url(
-            "proxy-fr",
-            "socks5://158.178.198.31:1080", // "socks5://62.133.62.3:1081"
-        )
-        .context("Failed to configure the FR proxy node")?;
-        let proxy_config = ProxyConfig {
-            profile: ProxyProfile::Advanced,
-            chains: vec![ProxyChain::direct()],
-            routing: RoutePolicy {
-                default_chain: Some("direct".to_string()),
-                ..RoutePolicy::default()
-            },
-            parameter_handlers: vec![ParameterHandlerConfig {
-                kind: ParameterHandlerKind::CountryRouting,
-                parameter_name: Some(PROXY_PARAMETER_COUNTRY.to_string()),
-                http_header: Some(PROXY_HEADER_PARAMETER_COUNTRY.to_string()),
-                forward_header: false,
-                stop_on_match: true,
-                routes: vec![ParameterProxyRoute {
-                    value: "FR".to_string(),
-                    proxy: proxy_fr,
-                }],
+    //*
+    manager.clear_proxy();
+
+    let proxy_fr = ProxyNode::from_url(
+        "proxy-fr",
+    // "socks5://158.178.198.31:1080", // "socks5://62.133.62.3:1081"
+        "socks5://45.95.233.237:1081"
+    )
+    .context("Failed to configure the FR proxy node")?;
+    let proxy_config = ProxyConfig {
+        profile: ProxyProfile::Advanced,
+        chains: vec![ProxyChain::direct()],
+        routing: RoutePolicy {
+            default_chain: Some("direct".to_string()),
+            ..RoutePolicy::default()
+        },
+        parameter_handlers: vec![ParameterHandlerConfig {
+            kind: ParameterHandlerKind::CountryRouting,
+            parameter_name: Some(PROXY_PARAMETER_COUNTRY.to_string()),
+            http_header: Some(PROXY_HEADER_PARAMETER_COUNTRY.to_string()),
+            forward_header: false,
+            stop_on_match: true,
+            routes: vec![ParameterProxyRoute {
+                value: "FR".to_string(),
+                proxy: proxy_fr,
             }],
-            ..ProxyConfig::default()
-        };
+        }],
+        ..ProxyConfig::default()
+    };
 
-        let proxy_core_for_http = match ArachneaProxyCore::new(proxy_config) {
-            Ok(proxy_core) => {
-                manager
-                    .get_scraper_agregator_mut()
-                    .set_proxy_core(proxy_core.clone());
-                tracing::info!("Proxy core created with FR country routing");
-                Some(proxy_core)
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "Failed to create proxy core: {}; proxy_http will be unavailable",
-                    e
-                );
-                None
-            }
-        };
-        manager.set_proxy_http_core(proxy_core_for_http);
+    let proxy_core_for_http = match ArachneaProxyCore::new(proxy_config) {
+        Ok(proxy_core) => {
+            manager
+                .get_scraper_agregator_mut()
+                .set_proxy_core(proxy_core.clone());
+            tracing::info!("Proxy core created with FR country routing");
+            Some(proxy_core)
+        }
+        Err(e) => {
+            tracing::warn!(
+                "Failed to create proxy core: {}; proxy_http will be unavailable",
+                e
+            );
+            None
+        }
+    };
+    manager.set_proxy_http_core(proxy_core_for_http);
     // */
+    
     let web_assets = generated_embedded_web_assets();
 
     let mut controler: Box<dyn ControlerService> = if options.mode_server {

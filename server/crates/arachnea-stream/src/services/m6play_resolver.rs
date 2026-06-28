@@ -1,4 +1,5 @@
 use anyhow::{anyhow, bail, Context, Result};
+use arachnea_proxy::http::proxy_service::proxied_url;
 use async_trait::async_trait;
 use regex::Regex;
 use serde_json::Value;
@@ -69,7 +70,7 @@ impl PlayerStreamResolver for M6PlayResolver {
         resolver_target: &str,
         resolver_stream_kind: Option<String>,
         _service_parameters: &[ScraperQueryCollectionParameter],
-        _endpoints: &PlayerResolverEndpoints,
+        endpoints: &PlayerResolverEndpoints,
     ) -> Result<ResolvedPlayerStream> {
         match resolver_kind.trim() {
             "m6play-video" => {
@@ -78,6 +79,7 @@ impl PlayerStreamResolver for M6PlayResolver {
                     credentials_store,
                     resolver_target,
                     resolver_stream_kind,
+                    endpoints
                 )
                 .await
             }
@@ -87,6 +89,7 @@ impl PlayerStreamResolver for M6PlayResolver {
                     credentials_store,
                     resolver_target,
                     resolver_stream_kind,
+                    endpoints
                 )
                 .await
             }
@@ -113,6 +116,7 @@ async fn resolve_replay_stream(
     credentials_store: &dyn CredentialsStore,
     video_id: &str,
     stream_kind: Option<String>,
+    endpoints: &PlayerResolverEndpoints,
 ) -> Result<ResolvedPlayerStream> {
     let normalized_video_id = video_id.trim();
     if normalized_video_id.is_empty() {
@@ -133,7 +137,9 @@ async fn resolve_replay_stream(
     );
 
     Ok(ResolvedPlayerStream {
-        stream_url: manifest_url,
+        stream_url:  proxied_url(
+            &manifest_url,
+            endpoints.http_proxy_public_path.as_deref()),
         manifest_type: "mpd".to_string(),
         license_url: Some(license_url),
         license_headers: HashMap::new(),
@@ -145,6 +151,7 @@ async fn resolve_live_stream(
     credentials_store: &dyn CredentialsStore,
     channel_id: &str,
     stream_kind: Option<String>,
+    endpoints: &PlayerResolverEndpoints,
 ) -> Result<ResolvedPlayerStream> {
     let normalized_channel = channel_id.trim();
     if normalized_channel.is_empty() {
@@ -157,8 +164,9 @@ async fn resolve_live_stream(
     // Map channel identifier to the API's live_item_id format.
     let live_item_id = match normalized_channel {
         "6ter" => "6T".to_string(),
-        "gulli" => "gulli".to_string(),
-        other => other.to_uppercase(),
+        "m6" => "M6".to_string(),
+        "w9" => "W9".to_string(),
+        other => other.to_string()
     };
 
     // Fetch upfront token for live stream.
@@ -235,7 +243,9 @@ async fn resolve_live_stream(
     );
 
     Ok(ResolvedPlayerStream {
-        stream_url: manifest_url,
+        stream_url: proxied_url(
+            &manifest_url,
+            endpoints.http_proxy_public_path.as_deref()),
         manifest_type: "mpd".to_string(),
         license_url: Some(license_url),
         license_headers: HashMap::new(),

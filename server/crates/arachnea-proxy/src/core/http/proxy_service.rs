@@ -240,9 +240,9 @@ fn encode_proxy_path(api_prefix: &str, resolved_url: &Url, opts_encoded: &str) -
         .map(|q| format!("?{}", q))
         .unwrap_or_default();
 
-    let protocol_segment = match port {
-        Some(p) => format!("{}_{}", protocol, p),
-        None => protocol.to_string(),
+    let port_segment = match port {
+        Some(p) => format!(":{}", p),
+        _none => format!(""),
     };
 
     let opts_segment = if opts_encoded.is_empty() {
@@ -251,7 +251,7 @@ fn encode_proxy_path(api_prefix: &str, resolved_url: &Url, opts_encoded: &str) -
         format!("opts_{}/", opts_encoded)
     };
 
-    format!("/{api}/{opts_segment}{protocol_segment}/{host}{path}{query}")
+    format!("{api}/{opts_segment}{protocol}://{host}{port_segment}/{path}{query}")
 }
 
 /// Recovers the absolute target URL from a potentially relative Location
@@ -619,4 +619,48 @@ pub fn register_service(
     controler.register_stream_function_with_state(name, core, |core, input| async move {
         handle_proxy_http(core, input).await
     });
+}
+
+
+/// Constructs a URL for proxied media access.
+///
+/// If the provided `media_locator` starts with `http://` or `https://` and a
+/// non‑empty `http_proxy_public_path` is supplied, the function returns a
+/// combination of the trimmed proxy path and the media locator. Otherwise it
+/// returns the `media_locator` unchanged.
+///
+/// # Arguments
+/// - `media_locator`: The location of the media resource. If it starts with
+///   `http://` or `https://`, it may be combined with a proxy path.
+/// - `http_proxy_public_path`: An optional path to be used as the public
+///   proxy base. If provided and non‑empty, it is combined with
+///   `media_locator` when the latter is an HTTP URL.
+///
+/// # Returns
+/// A String representing either the combined proxied URL or the original
+/// `media_locator` if no combination is needed.
+///
+/// # Examples
+/// ```
+/// let url = proxied_url("http://example.com/media", Some("/proxy"));
+/// assert_eq!(url, "/proxy/http://example.com/media");
+/// ```
+///
+/// 
+pub fn proxied_url(media_locator: &str, http_proxy_public_path: Option<&str>) -> String {
+    let normalized_media_locator = media_locator.trim();
+    if normalized_media_locator.starts_with("http://") || normalized_media_locator.starts_with("https://") {
+        if let Some(proxy_path) = http_proxy_public_path
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return format!(
+                "{}/{}",
+                proxy_path.trim_end_matches('/'),
+                normalized_media_locator
+            );
+        }
+    }
+
+    normalized_media_locator.to_string()
 }

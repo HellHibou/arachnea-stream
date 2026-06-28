@@ -1,4 +1,5 @@
 use anyhow::{bail, Context, Result};
+use arachnea_proxy::http::proxy_service::proxied_url;
 use async_trait::async_trait;
 use rand::{distr::Alphanumeric, Rng};
 use rquest::{
@@ -57,7 +58,7 @@ impl PlayerStreamResolver for FrancetvResolver {
         resolver_target: &str,
         resolver_stream_kind: Option<String>,
         service_parameters: &[ScraperQueryCollectionParameter],
-        _endpoints: &PlayerResolverEndpoints,
+        endpoints: &PlayerResolverEndpoints,
     ) -> Result<ResolvedPlayerStream> {
         match resolver_kind.trim() {
             "francetv-video" => {
@@ -66,6 +67,7 @@ impl PlayerStreamResolver for FrancetvResolver {
                     resolver_target,
                     resolver_stream_kind,
                     service_parameters,
+                    endpoints,
                     false,
                 )
                 .await
@@ -76,6 +78,7 @@ impl PlayerStreamResolver for FrancetvResolver {
                     resolver_target,
                     resolver_stream_kind,
                     service_parameters,
+                    endpoints,
                     true,
                 )
                 .await
@@ -103,6 +106,7 @@ async fn resolve_francetv_stream(
     media_id: &str,
     stream_kind: Option<String>,
     service_parameters: &[ScraperQueryCollectionParameter],
+    endpoints: &PlayerResolverEndpoints,
     is_live: bool,
 ) -> Result<ResolvedPlayerStream> {
     let normalized_media_id = media_id.trim();
@@ -139,10 +143,11 @@ async fn resolve_francetv_stream(
     let stream_url =
         fetch_signed_manifest_url(&http_client, &manifest_token_url, &raw_manifest_url).await?;
     let manifest_type = manifest_type_from_format_or_url(format, &stream_url);
-
+    let stream_url_proxy = proxied_url(&stream_url, endpoints.http_proxy_public_path.as_deref());
+  
     if !drm_enabled {
         return Ok(ResolvedPlayerStream {
-            stream_url,
+            stream_url: stream_url_proxy,
             manifest_type,
             license_url: None,
             license_headers: HashMap::new(),
@@ -160,9 +165,10 @@ async fn resolve_francetv_stream(
         FRANCETV_WIDEVINE_LICENSE_URL,
     );
 
+    let stream_url_proxy = proxied_url(&stream_url, endpoints.http_proxy_public_path.as_deref());
     Ok(ResolvedPlayerStream {
-        stream_url,
-        manifest_type,
+        stream_url: stream_url_proxy,
+        manifest_type: manifest_type,
         license_url: Some(license_url),
         license_headers: HashMap::new(),
     })

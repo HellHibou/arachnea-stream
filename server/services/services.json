@@ -23,7 +23,7 @@
   },
   {
     "path":"francetv.yaml",
-    "enabled": false
+    "enabled": true
   },
   {
     "path": "papystreaming.yaml",
@@ -36,17 +36,22 @@
         "name": "base_url",
         "value": "https://anime-sama.to"
      }]
+  },  
+  {
+    "path": "darkstream/animeultime.yaml",
+    "enabled": false
   }, 
   {
     "path": "darkstream/coflix.yaml",
-    "enabled": true
+    "enabled": false
   },
   {
     "path": "darkstream/frenchanimes.yaml",
-    "enabled": true
+    "enabled": false
   },
   {
     "path": "darkstream/animeultime.yaml",
-    "enabled": true
+    "enabled": false
   }
+
 ]
