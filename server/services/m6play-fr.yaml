@@ -8,6 +8,10 @@ http:
   mode: direct
   user_agent_profile: firefox
 
+
+# ############################################################################
+# Parameters
+# ############################################################################
 parameters:
   - name: base_url
     value: https://www.6play.fr
@@ -25,12 +29,16 @@ parameters:
     value: 18
     description: Default number of catalog entries requested for one paged section.
   - name: live_channels
-    value: "M6,W9,6T,gulli"
+    value: "M6,W9,6T,gulli,fast3,fats7,fats8,fast14,fast6,fast9"
     description: Comma-separated list of 6play live channel identifiers for the API.
   - name: search_pagination
     value: true
     description: Whether search supports reliable page-based pagination.
 
+
+# ############################################################################
+# Shared structs
+# ############################################################################
 shared:
   media_types_6play: &media_types_6play
     - video/movie
@@ -61,7 +69,14 @@ shared:
     - type: get_date
       format: yyyy_mm_dd_hh_mm_ss
 
+# ==========================================================
+# Queries
+# ==========================================================
 queries:
+
+  # --------------------------------------------------------------------------
+  # Service stream metadata
+  # --------------------------------------------------------------------------
   - name: service_stream_metadata
     scraper_type: static
     entries:
@@ -78,90 +93,10 @@ queries:
         type: object
         value: "{service_description}"
 
-  - name: search
-    scraper_type: json
-    base_url: "{base_url}"
-    query_url: "https://nhacvivxxk-dsn.algolia.net/1/indexes/*/queries?x-algolia-agent=Algolia%20for%20JavaScript%20(4.24.0)%3B%20Browser"
-    request_method: post
-    request_headers:
-      - name: content-type
-        actions:
-          - type: format_text
-            argument: "application/json"
-      - name: x-algolia-api-key
-        actions:
-          - type: format_text
-            argument: "6ef59fc6d78ac129339ab9c35edd41fa"
-      - name: x-algolia-application-id
-        actions:
-          - type: format_text
-            argument: "NHACVIVXXK"
-    request_body_actions:
-      - type: format_text
-        argument: '{"requests":[{"indexName":"rtlmutu_prod_bedrock_layout_items_v2_m6web_main","query":{search_query_json},"params":"clickAnalytics=true&hitsPerPage={page_size}&page={page_index}&facetFilters=[[\"metadata.item_type:program\"],[\"metadata.platforms_assets:m6group_web\"]]"}]}'
-    media_types: *media_types_6play
-    row_pointer: /results/*/hits/*
-    entries:
-      - name: source
-        type: string
-        actions:
-          - type: format_text
-            argument: "{source}"
-      - name: current_page
-        type: number
-        actions:
-          - type: format_text
-            argument: "{page}"
-      - name: total_pages
-        type: number
-        select: first
-        pointer: /results/0/nbPages
-      - name: entries
-        type: object[]
-        entries:
-          - name: title
-            type: string
-            select: first
-            pointer: /item/itemContent/title
-          - name: description
-            type: string
-            select: first
-            pointer: /item/itemContent/description
-          - name: media-type
-            type: string[]
-            pointer: /metadata/tags/type
-            actions: *actions_default_media_type
-          - name: link
-            type: string
-            select: first
-            pointer: /content/id
-          - name: img/poster > link
-            type: string
-            select: first
-            pointer: /item/itemContent/image/id
-            actions: *actions_image_key_to_url
-          - name: img/poster > link
-            type: string
-            select: first
-            pointer: /item/itemContent/secondaryImage/id
-            actions: *actions_image_key_to_url
-          - name: theme
-            type: string[]
-            pointer: /item/itemContent/extraDetails
-            actions:
-              - type: split
-                argument: " | "
-          - name: release-date
-            type: string
-            select: first
-            pointer: /metadata/last_activity_date
-            actions: *actions_extract_release_date
-    post_process:
-      - type: derive_pagination
-        total_pages_field: total_pages
-        remove_fields:
-          - total_pages
 
+  # ---------------------------------------------------------------
+  # Home page
+  # ---------------------------------------------------------------
   - name: load_home
     scraper_type: json
     base_url: "{base_url}"
@@ -175,21 +110,25 @@ queries:
         entries:
           - name: key
             type: string
+            select: first
             actions:
               - type: format_text
                 argument: "m6"
           - name: label
             type: string
+            select: first
             actions:
               - type: format_text
                 argument: "M6"
           - name: description
             type: string
+            select: first
             actions:
               - type: format_text
                 argument: "Replay catalogue for M6."
           - name: request > query_url
             type: string
+            select: first
             actions:
               - type: format_text
                 argument: "{api_root}/m6replay/folders?limit=999&offset=0"
@@ -199,21 +138,25 @@ queries:
         entries:
           - name: key
             type: string
+            select: first
             actions:
               - type: format_text
                 argument: "w9"
           - name: label
             type: string
+            select: first
             actions:
               - type: format_text
                 argument: "W9"
           - name: description
             type: string
+            select: first
             actions:
               - type: format_text
                 argument: "Replay catalogue for W9."
           - name: request > query_url
             type: string
+            select: first
             actions:
               - type: format_text
                 argument: "{api_root}/w9replay/folders?limit=999&offset=0"
@@ -223,21 +166,25 @@ queries:
         entries:
           - name: key
             type: string
+            select: first
             actions:
               - type: format_text
                 argument: "6ter"
           - name: label
             type: string
+            select: first
             actions:
               - type: format_text
                 argument: "6ter"
           - name: description
             type: string
+            select: first
             actions:
               - type: format_text
                 argument: "Replay catalogue for 6ter."
           - name: request > query_url
             type: string
+            select: first
             actions:
               - type: format_text
                 argument: "{api_root}/6terreplay/folders?limit=999&offset=0"
@@ -247,21 +194,25 @@ queries:
         entries:
           - name: key
             type: string
+            select: first
             actions:
               - type: format_text
                 argument: "gulli"
           - name: label
             type: string
+            select: first
             actions:
               - type: format_text
                 argument: "Gulli"
           - name: description
             type: string
+            select: first
             actions:
               - type: format_text
                 argument: "Replay catalogue for Gulli."
           - name: request > query_url
             type: string
+            select: first
             actions:
               - type: format_text
                 argument: "{api_root}/gulli/folders?limit=999&offset=0"
@@ -293,41 +244,32 @@ queries:
         entries:
           - name: key
             type: string
-            select: first
             pointer: /id
           - name: title
             type: string
-            select: first
             pointer: /title
           - name: description
             type: string
-            select: first
             pointer: /description
           - name: link
             type: string
-            select: first
             pointer: /id
           - name: entryUrl
             type: string
-            select: first
             pointer: /id
           - name: web-link
             type: string
-            select: first
             pointer: /id
           - name: image
             type: string
-            select: first
             pointer: /images_with_context/defaults/banner_31/external_key
             actions: *actions_image_key_to_url
           - name: logo
             type: string
-            select: first
             pointer: /images_with_context/defaults/logo/external_key
             actions: *actions_image_key_to_url
           - name: expire
             type: string
-            select: first
             pointer: publication_date_vi/date_start_max
             actions: *actions_extract_release_date
           - name: year
@@ -336,13 +278,15 @@ queries:
             select: all
           - name: year
             type: number
-            select: first
             pointer: /year_production
           - name: release-date
             type: string
-            select: first
             pointer: year_copyright
 
+
+  # ---------------------------------------------------------------
+  # Category listing
+  # ---------------------------------------------------------------
   - name: get_category
     scraper_type: json
     base_url: "{base_url}"
@@ -368,6 +312,10 @@ queries:
               - type: format_text
                 argument: "{api_root}/6play/folders/{}/programs?csa=6&with=parentcontext"
 
+
+  # ---------------------------------------------------------------
+  # Sections listing
+  # ---------------------------------------------------------------
   - name: get_section
     scraper_type: json
     base_url: "{base_url}"
@@ -476,6 +424,98 @@ queries:
           - page_size
           - infer_have_more_from_full_page
 
+
+  # --------------------------------------------------------------------------
+  # Search
+  # --------------------------------------------------------------------------
+  - name: search
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "https://nhacvivxxk-dsn.algolia.net/1/indexes/*/queries?x-algolia-agent=Algolia%20for%20JavaScript%20(4.24.0)%3B%20Browser"
+    request_method: post
+    request_headers:
+      - name: content-type
+        actions:
+          - type: format_text
+            argument: "application/json"
+      - name: x-algolia-api-key
+        actions:
+          - type: format_text
+            argument: "6ef59fc6d78ac129339ab9c35edd41fa"
+      - name: x-algolia-application-id
+        actions:
+          - type: format_text
+            argument: "NHACVIVXXK"
+    request_body_actions:
+      - type: format_text
+        argument: '{"requests":[{"indexName":"rtlmutu_prod_bedrock_layout_items_v2_m6web_main","query":{search_query_json},"params":"clickAnalytics=true&hitsPerPage={page_size}&page={page_index}&facetFilters=[[\"metadata.item_type:program\"],[\"metadata.platforms_assets:m6group_web\"]]"}]}'
+    media_types: *media_types_6play
+    row_pointer: /results/*/hits/*
+    entries:
+      - name: source
+        type: string
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: current_page
+        type: number
+        actions:
+          - type: format_text
+            argument: "{page}"
+      - name: total_pages
+        type: number
+        select: first
+        pointer: /results/0/nbPages
+      - name: entries
+        type: object[]
+        entries:
+          - name: title
+            type: string
+            select: first
+            pointer: /item/itemContent/title
+          - name: description
+            type: string
+            select: first
+            pointer: /item/itemContent/description
+          - name: media-type
+            type: string[]
+            pointer: /metadata/tags/type
+            actions: *actions_default_media_type
+          - name: link
+            type: string
+            select: first
+            pointer: /content/id
+          - name: img/poster > link
+            type: string
+            select: first
+            pointer: /item/itemContent/image/id
+            actions: *actions_image_key_to_url
+          - name: img/poster > link
+            type: string
+            select: first
+            pointer: /item/itemContent/secondaryImage/id
+            actions: *actions_image_key_to_url
+          - name: theme
+            type: string[]
+            pointer: /item/itemContent/extraDetails
+            actions:
+              - type: split
+                argument: " | "
+          - name: release-date
+            type: string
+            select: first
+            pointer: /metadata/last_activity_date
+            actions: *actions_extract_release_date
+    post_process:
+      - type: derive_pagination
+        total_pages_field: total_pages
+        remove_fields:
+          - total_pages
+
+
+  # ---------------------------------------------------------------
+  # Entry detail page
+  # ---------------------------------------------------------------
   - name: get_entry
     scraper_type: json
     base_url: "{base_url}"
@@ -582,6 +622,9 @@ queries:
                - type: format_text
                  argument: "{query_url}/videos?subcat={}"
 
+  # ---------------------------------------------------------------
+  # Season
+  # ---------------------------------------------------------------
   - name: get_season
     scraper_type: json
     base_url: "{base_url}"
@@ -740,6 +783,10 @@ queries:
             path: storyboard > columns
             scope: current
 
+
+  # ---------------------------------------------------------------
+  # List lives
+  # ---------------------------------------------------------------
   - name: list_lives
     scraper_type: json
     base_url: ""
@@ -806,6 +853,9 @@ queries:
             pointer: /diffusion_end_date
             actions: *actions_extract_release_date
 
+  # ---------------------------------------------------------------
+  # Get live
+  # ---------------------------------------------------------------
   - name: get_live
     scraper_type: json
     base_url: ""

@@ -618,11 +618,13 @@ shared:
       pointer: /label
     - name: current_page
       type: number
+      select: first
       actions:
         - type: format_text
           argument: "{page}"
     - name: have_more
       type: boolean
+      select: first
       actions:
         - type: format_text
           argument: "false"
