@@ -24,6 +24,8 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - `JsonScraperSubQuery::execute` / `execute_siblings` / `execute_context` / `execute_indexed_context` / `execute_indexed_sibling` / `build_row_node` — re-used through the new `JsonScraperSubQuery::execute_query_level` unified entry point (see regression fix below).
 
 ### Fixed
+- **`francetv.yaml` `load_home` section pagination**: Added a default `page` parameter so shared section metadata serializes `current_page` as a number instead of leaking the unresolved `{page}` placeholder on non-paginated home responses.
+- **`francetv.yaml` `get_entry` season grouping**: FranceTV program details now build seasons from `collections` filtered to `type: playlist_video`, keeping each season's episodes under that season instead of flattening every playlist video item into a top-level `episode` list.
 - **RTBF Auvio playback CORS**: RTBF RedBee media manifest URLs returned by the player resolver now use the same-origin `/api/proxy/` route, so the DASH MPD and relative segment requests are fetched through Arachnea while the Widevine license proxy remains on `/api/get_stream/rtbf-auvio-be/...`.
 - **RTBF Auvio home banners**: Query-level sub-query fetches now execute child sub-queries on fetched responses and resolve nested request headers/bodies from the parent response, allowing `load_home` PROMOBOX banners to include the RedBee HLS `video` URL.
 - **coflix.yaml**: Updated `get_entry` query to correctly extract season labels and links from the HTML entry page.
@@ -38,6 +40,7 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **Proxy CONNECT diagnostics**: the rquest loopback proxy now logs failed CONNECT requests and proxy-hop handshake errors instead of silently dropping them, making upstream SOCKS failures visible.
 - **Proxy pool transient failures**: tunnel proxy-pool selection no longer opens a destructive preflight tunnel before the real connection, compatibility checks retry a candidate once before marking it unusable, and an exhausted pool gets one fresh scan of KO members before failing, reducing false negatives from flaky SOCKS upstreams that intermittently return `network unreachable`.
 - **6play front-auth login**: M6Play login token retrieval is now serialized to avoid concurrent Gigya/front-auth request storms, while still reporting HTTP status/body details when `front-auth.6cloud.fr` returns non-JSON.
+- **`francetv.yaml` `list_lives` flattening**: the FranceTV live catalog now groups `/items/*` under `entries` with `result_item_field: entries`, so typed scalar fields are serialized per live item instead of receiving values from the whole feed.
 
 ## Unreleased — RTBF Auvio home banner RedBee auth simplification
 
@@ -108,3 +111,18 @@ All notable changes to the server workspace are recorded here. Add new entries a
 
 ### Fixed
 - **Regex/post-process generated output**: generated fields now carry explicit output types, and implicit nested groups with aligned repeated children serialize as arrays of objects.
+
+## Unreleased — M6 Play home banner logo typing
+
+### Fixed
+- **Targeted sub-query row cardinality**: query-level sub-queries with a `target` now append each returned row as a separate object item instead of merging all rows into one object. This preserves `object[]` output shape for cases such as `m6play-fr.yaml` `load_home` banners.
+- **`m6play-fr.yaml` `load_home` banner fields**: banner scalar extraction now keeps the first value per program, matching the declared `type: string`/`number` output contracts and avoiding typed serialization failures when 6play returns multiple banner values.
+- **`m6play-fr.yaml` `load_home` banner request URL**: the banner follow-up query now uses one scalar request context before applying its constant URL action, avoiding repeated fetches of the same five banners.
+- **`get_section` scalar pagination fields**: section rows are merged with first-scalar semantics and scalar leaves are collapsed after merge, so flattened entry rows no longer duplicate fields such as `current_page`.
+- **`m6play-fr.yaml` `get_entry` year field**: detail pages now keep one numeric year value when both copyright and production years are present.
+- **`m6play-fr.yaml` `get_season` preview images**: episode preview fallback image extraction now keeps one image URL per episode, matching the scalar `img/preview > link` output contract.
+- **`rtlplay-be.yaml` `get_season` pagination fields**: season pagination fields are now emitted once per response while episodes are collected through the `episodes` object array, avoiding repeated scalar booleans such as `have_more`.
+- **`rtlplay-be.yaml` `search` pagination fields**: search pagination fields are now emitted once per response while results are collected through the `entries` object array, avoiding repeated scalar booleans such as `have_more`.
+- **`tf1-fr.yaml` `load_home` video tags**: video slider tags are now emitted as a string array, matching the multiple tag slugs returned by TF1.
+- **`tf1-fr.yaml` `get_category` section link**: category section links now use the formatted GraphQL URL instead of serializing the whole response object through `get_request_url`.
+- **`tf1-fr.yaml` category pagination**: category and section requests now send TF1 GraphQL item offsets, first-page links start at offset `0`, and the page size matches TF1's 10-item responses so `have_more` can be derived from the actual paged result count.

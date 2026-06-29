@@ -522,11 +522,7 @@ async fn execute_query_internal(
                     parent_response: parent_json,
                 };
                 let sibling_root = Box::pin(execute_query_internal(sibling, &sub_context)).await?;
-                let mut merged = ScraperDataNode::default();
-                for child in sibling_root {
-                    merged.merge(child);
-                }
-                merge_targeted(&mut item, merged, sibling.target());
+                merge_targeted_items(&mut item, sibling_root, sibling.target());
             }
 
             // d. Apply post-processes on this item.
@@ -1313,11 +1309,7 @@ async fn execute_entry_sub_queries(
                     };
                     let sub_items =
                         Box::pin(execute_query_internal(sub_query, &sub_context)).await?;
-                    let mut merged = ScraperDataNode::default();
-                    for child in sub_items {
-                        merged.merge(child);
-                    }
-                    merge_targeted(item, merged, sub_query.target());
+                    merge_targeted_items(item, sub_items, sub_query.target());
                 }
             } else {
                 // No parent values available — try the generic executor path.
@@ -1330,11 +1322,7 @@ async fn execute_entry_sub_queries(
                     parent_response: None,
                 };
                 let sub_items = Box::pin(execute_query_internal(sub_query, &sub_context)).await?;
-                let mut merged = ScraperDataNode::default();
-                for child in sub_items {
-                    merged.merge(child);
-                }
-                merge_targeted(item, merged, sub_query.target());
+                merge_targeted_items(item, sub_items, sub_query.target());
             }
         }
     }
@@ -1610,6 +1598,42 @@ fn merge_targeted(item: &mut ScraperDataNode, source: ScraperDataNode, target: O
         return;
     }
     item.merge(source);
+}
+
+/// Merges sub-query rows into an item, preserving row cardinality when a
+/// target path is declared.
+///
+/// A targeted sub-query represents an object array; each returned row must
+/// become one item under the target. Without a target, rows are merged into
+/// the current item as before.
+fn merge_targeted_items(
+    item: &mut ScraperDataNode,
+    sources: Vec<ScraperDataNode>,
+    target: Option<&str>,
+) {
+    if let Some(target) = target {
+        let path: Vec<&str> = target
+            .split('>')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .collect();
+        if path.is_empty() {
+            for source in sources {
+                item.merge(source);
+            }
+        } else {
+            for source in sources {
+                item.push_node_typed(&path, source, ScraperOutputType::ObjectArray);
+            }
+        }
+        return;
+    }
+
+    let mut merged = ScraperDataNode::default();
+    for source in sources {
+        merged.merge(source);
+    }
+    item.merge(merged);
 }
 
 fn scalar_output_type_from_source(source: &ScraperDataNode) -> ScraperOutputType {

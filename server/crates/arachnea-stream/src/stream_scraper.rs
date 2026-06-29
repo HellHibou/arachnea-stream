@@ -564,11 +564,12 @@ impl StreamScraper {
 
         let mut root = ScraperDataNode::default();
         for row in rows {
-            root.merge(ScraperDataNode {
+            root.merge_first(&ScraperDataNode {
                 children: row,
                 ..Default::default()
             });
         }
+        root.keep_first_values();
 
         Ok(root.children)
     }

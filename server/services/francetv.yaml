@@ -616,12 +616,6 @@ shared:
       type: string
       select: first
       pointer: /label
-    - name: current_page
-      type: number
-      select: first
-      actions:
-        - type: format_text
-          argument: "{page}"
     - name: have_more
       type: boolean
       select: first
@@ -710,11 +704,6 @@ queries:
     row_pointer: /
     entries:
       - *source_entry
-      - name: current_page
-        type: number
-        actions:
-          - type: format_text
-            argument: "{page}"
       - name: have_more
         type: boolean
         actions:
@@ -846,7 +835,7 @@ queries:
   - name: get_category
     scraper_type: json
     base_url: "{base_url}"
-    query_url: "{query_url}{query_separator}page={page}"
+    query_url: "{query_url}{query_separator}"
     request_headers: *generic_request_headers
     media_types: *media_types_francetv
     row_pointer: /
@@ -865,8 +854,14 @@ queries:
     request_headers: *generic_request_headers
     media_types:
       - video/live
-    row_pointer: /items/*
-    entries: *live_item_entries
+    row_pointer: /
+    result_item_field: entries
+    entries:
+      - name: entries
+        type: object[]
+        pointer: /items/*
+        select: all
+        entries: *live_item_entries
 
   - name: get_live
     scraper_type: json
@@ -1032,33 +1027,42 @@ queries:
       - *item_image_landscape_background
       - *item_image_landscape_thumbnail
       - *item_image_logo
-      - name: episode
+      - name: season
         type: object[]
-        pointer: /collections/*/items/*[type=integrale]
+        pointer: /collections/*[type=playlist_video]
         select: all
-        entries: *episode_entries
-      - name: episode
-        type: object[]
-        pointer: /collections/*/items/*[type=unitaire]
-        select: all
-        entries: *episode_entries
-      - name: episode
-        type: object[]
-        pointer: /collections/*/items/*[type=extrait]
-        select: all
-        entries: *episode_entries
-      - name: episode
-        type: object[]
-        pointer: /collections/*/items/*[type=resume]
-        select: all
-        entries: *episode_entries
-      - name: episode
-        type: object[]
-        pointer: /collections/*/items/*[type=bonus]
-        select: all
-        entries: *episode_entries
-      - name: episode
-        type: object[]
-        pointer: /collections/*/items/*[type=bande-annonce]
-        select: all
-        entries: *episode_entries
+        entries:
+          - name: label
+            type: string
+            select: first
+            pointer: /label
+          - name: episode
+            type: object[]
+            pointer: /items/*[type=integrale]
+            select: all
+            entries: *episode_entries
+          - name: episode
+            type: object[]
+            pointer: /items/*[type=unitaire]
+            select: all
+            entries: *episode_entries
+          - name: episode
+            type: object[]
+            pointer: /items/*[type=extrait]
+            select: all
+            entries: *episode_entries
+          - name: episode
+            type: object[]
+            pointer: /items/*[type=resume]
+            select: all
+            entries: *episode_entries
+          - name: episode
+            type: object[]
+            pointer: /items/*[type=bonus]
+            select: all
+            entries: *episode_entries
+          - name: episode
+            type: object[]
+            pointer: /items/*[type=bande-annonce]
+            select: all
+            entries: *episode_entries

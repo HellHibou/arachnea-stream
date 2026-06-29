@@ -5,7 +5,7 @@
   },
   {
     "path": "rtbf-auvio-be.yaml",
-    "enabled": true
+    "enabled": false
   },
   {
     "path": "tf1-fr.yaml",
@@ -19,7 +19,7 @@
   },
   {
     "path": "m6play-fr.yaml",
-    "enabled": false
+    "enabled": true
   },
   {
     "path":"francetv.yaml",

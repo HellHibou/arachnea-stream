@@ -53,7 +53,7 @@ parameters:
     value: 120
     description: Number of programs fetched for the TF1 home payload.
   - name: page_size
-    value: 20
+    value: 10
     description: Default TF1 page size for paged program and season requests.
   - name: search_program_limit
     value: 50
@@ -198,7 +198,7 @@ shared:
           type: string
           actions:
             - type: format_text
-              argument: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22tf1%22%7D%2C%22offset%22%3A1%2C%22limit%22%3A{page_size}%7D"
+              argument: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22tf1%22%7D%2C%22offset%22%3A0%2C%22limit%22%3A{page_size}%7D"
     - &load_home_category_tmc
       name: categories
       type: object[]
@@ -240,7 +240,7 @@ shared:
           type: string
           actions:
             - type: format_text
-              argument: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22tmc%22%7D%2C%22offset%22%3A1%2C%22limit%22%3A{page_size}%7D"
+              argument: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22tmc%22%7D%2C%22offset%22%3A0%2C%22limit%22%3A{page_size}%7D"
     - &load_home_category_tfx
       name: categories
       type: object[]
@@ -282,7 +282,7 @@ shared:
           type: string
           actions:
             - type: format_text
-              argument: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22tfx%22%7D%2C%22offset%22%3A1%2C%22limit%22%3A{page_size}%7D"
+              argument: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22tfx%22%7D%2C%22offset%22%3A0%2C%22limit%22%3A{page_size}%7D"
     - &load_home_category_tf1_series_films
       name: categories
       type: object[]
@@ -324,7 +324,7 @@ shared:
           type: string
           actions:
             - type: format_text
-              argument: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22tf1-series-films%22%7D%2C%22offset%22%3A1%2C%22limit%22%3A{page_size}%7D"
+              argument: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22tf1-series-films%22%7D%2C%22offset%22%3A0%2C%22limit%22%3A{page_size}%7D"
     - &load_home_category_lci
       name: categories
       type: object[]
@@ -366,7 +366,7 @@ shared:
           type: string
           actions:
             - type: format_text
-              argument: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22lci%22%7D%2C%22offset%22%3A1%2C%22limit%22%3A{page_size}%7D"
+              argument: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22lci%22%7D%2C%22offset%22%3A0%2C%22limit%22%3A{page_size}%7D"
     - &load_home_category_all
       name: categories
       type: object[]
@@ -408,7 +408,7 @@ shared:
           type: string
           actions:
             - type: format_text
-              argument: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22%22%7D%2C%22offset%22%3A1%2C%22limit%22%3A{page_size}%7D"
+              argument: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22%22%7D%2C%22offset%22%3A0%2C%22limit%22%3A{page_size}%7D"
 
   android_home_item_entries: &android_home_item_entries
     - name: source
@@ -495,7 +495,7 @@ shared:
       pointer: /video/program/topics/*
       select: all
     - name: tags
-      type: string
+      type: string[]
       pointer: /video/tags/*/slug
       select: all
     - name: link
@@ -1152,7 +1152,7 @@ queries:
   - name: get_category
     scraper_type: json
     base_url: "{base_url}"
-    query_url: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22{channel}%22%7D%2C%22offset%22%3A{page}%2C%22limit%22%3A{page_size}%7D"
+    query_url: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22{channel}%22%7D%2C%22offset%22%3A{offset}%2C%22limit%22%3A{page_size}%7D"
     request_headers: *generic_request_headers
     media_types: *media_types_tf1
     row_pointer: /data/programs
@@ -1187,7 +1187,8 @@ queries:
           - name: link
             type: string
             actions:
-              - type: get_request_url
+              - type: format_text
+                argument: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22{channel}%22%7D%2C%22offset%22%3A{offset}%2C%22limit%22%3A{page_size}%7D"
           - name: request > channel
             type: string
             actions:
@@ -1227,7 +1228,7 @@ queries:
   - name: get_section
     scraper_type: json
     base_url: "{base_url}"
-    query_url: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22{channel}%22%7D%2C%22offset%22%3A{page}%2C%22limit%22%3A{page_size}%7D"
+    query_url: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22{channel}%22%7D%2C%22offset%22%3A{offset}%2C%22limit%22%3A{page_size}%7D"
     request_headers: *generic_request_headers
     media_types: *media_types_tf1
     row_pointer: /data/programs

@@ -235,6 +235,8 @@ queries:
                 argument: "{api_root}/6play/folders/{}/programs?csa=6&with=parentcontext"
     sub_queries:
       - scraper_type: json
+        request_pointer: /0/id
+        request_select: first
         request_actions:
           - type: format_text
             argument: "{api_root}/m6replay/programs?limit={max_banners}&offset=0&csa=6&sort=last_video_publication&with=layout"
@@ -244,43 +246,54 @@ queries:
         entries:
           - name: key
             type: string
+            select: first
             pointer: /id
           - name: title
             type: string
+            select: first
             pointer: /title
           - name: description
             type: string
+            select: first
             pointer: /description
           - name: link
             type: string
+            select: first
             pointer: /id
           - name: entryUrl
             type: string
+            select: first
             pointer: /id
           - name: web-link
             type: string
+            select: first
             pointer: /id
           - name: image
             type: string
+            select: first
             pointer: /images_with_context/defaults/banner_31/external_key
             actions: *actions_image_key_to_url
           - name: logo
             type: string
             pointer: /images_with_context/defaults/logo/external_key
+            select: first
             actions: *actions_image_key_to_url
           - name: expire
             type: string
+            select: first
             pointer: publication_date_vi/date_start_max
             actions: *actions_extract_release_date
           - name: year
             type: number
             pointer: /year_copyright
-            select: all
+            select: first
           - name: year
             type: number
+            select: first
             pointer: /year_production
           - name: release-date
             type: string
+            select: first
             pointer: year_copyright
 
 
@@ -554,11 +567,11 @@ queries:
       - name: year
         type: number
         pointer: /year_copyright
-        select: all
+        select: first
       - name: year
         type: number
         pointer: /year_production
-        select: all
+        select: first
       - name: content-advisor
         type: string
         select: first
@@ -762,12 +775,12 @@ queries:
           - name: img/preview > link
             type: string
             pointer: /clips/0/images/*/external_key
-            select: all
+            select: first
             actions: *actions_image_key_to_url
           - name: img/preview > link
             type: string
             pointer: /images/*[role=vignette]/external_key
-            select: all
+            select: first
             actions: *actions_image_key_to_url
     post_process:
       - type: compute_items_field

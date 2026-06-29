@@ -790,7 +790,7 @@ queries:
     query_url: "{api_root}/search?query={search_terms}&limit={search_limit}"
     request_headers: *rtlplay_request_headers
     media_types: *media_types_rtlplay
-    row_pointer: /results/*[type=exact]/teasers/*
+    row_pointer: /
     entries:
       - name: source
         type: string
@@ -799,16 +799,20 @@ queries:
             argument: "{source}"
       - name: current_page
         type: number
+        select: first
         actions:
           - type: format_text
             argument: "{page}"
       - name: have_more
         type: boolean
+        select: first
         actions:
           - type: format_text
             argument: "false"
       - name: entries
         type: object[]
+        pointer: /results/*[type=exact]/teasers/*
+        select: all
         entries:
           - name: title
             type: string
@@ -1100,7 +1104,7 @@ queries:
     query_url: "{query_url}"
     request_headers: *rtlplay_request_headers
     media_types: *media_types_rtlplay
-    row_pointer: /seasonPicker/selected/episodes/*
+    row_pointer: /
     entries:
       - name: current_page
         type: number
@@ -1116,6 +1120,8 @@ queries:
             argument: "false"
       - name: episodes
         type: object[]
+        pointer: /seasonPicker/selected/episodes/*
+        select: all
         entries: *detail_episode_entries
 
   - name: list_lives
