@@ -604,7 +604,7 @@ queries:
         actions:
           - type: format_text
             argument: "{base_url}/{}-p_{query_url}"
-      - name: season
+      - name: seasons
         type: object[]
         entries:
           - name: label
@@ -618,7 +618,7 @@ queries:
               - type: format_text
                 argument: "{query_url}/videos?"
 
-      - name: season
+      - name: seasons
         type: object[]
         pointer: /program_subcats/*
         select: all

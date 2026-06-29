@@ -1115,7 +1115,6 @@ return {
 function normalizeEntryDetails(entry: unknown, source: string, entryUrl: string): EntryDetails {
   const record = isJsonRecord(entry) ? entry : {}
   const seasons = normalizeEntrySeasons(record, source)
-  const episodes = normalizeEntryEpisodes(record, source)
   const players = normalizeEntryPlayers(record, source)
   const imagePosterUrl = resolveAssetUrl(readFirstLink(record, 'img/poster', ['img', 'poster']), source)
   const imagePortraitUrl = resolveAssetUrl(readFirstLink(record, 'img/portrait', ['img', 'portrait']), source)
@@ -1152,7 +1151,6 @@ function normalizeEntryDetails(entry: unknown, source: string, entryUrl: string)
     castingLabels: dedupeDisplayStrings(readStringList(record.casting)),
     directorLabels: dedupeDisplayStrings(readStringList(record.director)),
     seasons,
-    episodes,
     score: firstNumber(record.rating),
   }
 }
@@ -1348,29 +1346,36 @@ function normalizeResolvedPlayerStream(payload: unknown): EntryResolvedPlayerStr
 /**
  * Converts the backend season lists into normalized season entries.
  *
+ * Reads the canonical `seasons[]` field produced by `get_entry`. Each season may contain
+ * embedded `episodes[]` (eager) and/or a `link` (lazy through `get_season`). When both are
+ * present, the frontend prefers the embedded episodes.
+ *
  * @param entry Raw backend entry returned by `get_entry`.
  * @param source Source name used to resolve the season links.
  * @returns Normalized season entries.
  */
 function normalizeEntrySeasons(entry: JsonRecord, source: string): EntrySeason[] {
-  return readRecordList(entry.season)
+  return readRecordList(entry.seasons)
     .map((season, index) => {
       const label = firstNonEmptyString([season.label])
       const normalizedLabel = label ? normalizeString(label) : null
-
-      if (!normalizedLabel) {
-        return null
-      }
-
       const link = resolveEntryUrl(firstNonEmptyString([season.link]), source)
+      const rawEpisodes = readRecordList(season.episodes)
+      const episodes = rawEpisodes.length > 0
+        ? rawEpisodes
+            .map((episode, epIndex) => normalizeEntryEpisode(episode, epIndex, source, normalizedLabel))
+            .filter((episode) => !isUnavailableEpisode(episode))
+        : []
 
+      // A season without label is only acceptable when it is the only season.
+      // Let the caller decide the final filtering strategy.
       return {
-        id: buildMediaId(index, link, normalizedLabel, source),
+        id: buildMediaId(index, link, normalizedLabel ?? 'season', source),
         label: normalizedLabel,
         link,
+        episodes,
       }
     })
-    .filter((season): season is EntrySeason => Boolean(season))
 }
 
 /**

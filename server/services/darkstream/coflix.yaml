@@ -624,13 +624,13 @@ queries:
           - type: regex_find_all
             pattern: '(\d{4})'
             format: "{1}"
-      - name: season > label
+      - name: seasons > label
         type: string
         selector: 'input[name="seasons"] + span'
         select: all
         actions:
           - type: get_text
-      - name: season > link
+      - name: seasons > link
         type: string
         actions:
           - type: get_response_body

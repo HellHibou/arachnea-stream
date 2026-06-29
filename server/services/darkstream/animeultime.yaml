@@ -544,7 +544,7 @@ queries:
       - type: fetch_regex_items_from_items
         source: playlists
         request_field: link
-        target: episode
+        target: seasons > episodes
         pattern: '(?s)<item>.*?<title>([^<]+)</title>.*?<pubDate>([^<]+)</pubDate>.*?<media:content[^>]+url="([^"]+)"[^>]+duration="([^"]+)".*?<media:thumbnail[^>]+url="([^"]+)".*?<jwplayer:mediaid>([^<]+)</jwplayer:file>.*?<jwplayer:file>([^<]+)</jwplayer:file>.*?<jwplayer:hd.file>([^<]+)</jwplayer:hd.file>.*?</item>'
         entries:
           - name: title

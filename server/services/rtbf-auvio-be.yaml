@@ -171,7 +171,7 @@ shared:
     request_pointer: /contentPath
     row_pointer: /data/content/*
     entries:
-      - name: season
+      - name: seasons
         type: object[]
         entries:
           - name: label
@@ -193,7 +193,7 @@ shared:
             argument: "{}&_page=1&_limit=50&_embed=content&includeFastTv=true"
         row_pointer: /data/content/*[resourceType=MEDIA]
         entries:
-          - name: episode
+          - name: episodes
             type: object[]
             entries: *rtbf_episode_entries
       - scraper_type: json
@@ -206,7 +206,7 @@ shared:
             argument: "{}&_page=2&_limit=50&_embed=content&includeFastTv=true"
         row_pointer: /data/content/*[resourceType=MEDIA]
         entries:
-          - name: episode
+          - name: episodes
             type: object[]
             entries: *rtbf_episode_entries
 

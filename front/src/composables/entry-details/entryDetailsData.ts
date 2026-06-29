@@ -70,17 +70,16 @@ export function entryDetailsData(options: UseEntryDetailsDataOptions) {
   }
 
   /**
-   * Loads one season page from the backend and updates the local pagination state.
+   * Loads one season page from the backend or from embedded episodes and updates the local state.
+   *
+   * When the season has embedded episodes, they are used directly without a network request.
+   * Otherwise the backend `get_season` endpoint is called for dynamic/lazy loading.
    *
    * @param season Season currently being fetched.
    * @param page Requested page number.
    * @param append Indicates whether the fetched episodes should be appended to the current list.
    */
   async function loadSeasonPage(season: EntrySeason, page: number, append: boolean) {
-    if (!season.link) {
-      return
-    }
-
     const requestId = ++latestSeasonRequestId
     selectedSeasonId.value = season.id
     seasonErrorMessage.value = null
@@ -93,6 +92,31 @@ export function entryDetailsData(options: UseEntryDetailsDataOptions) {
       isSeasonLoadingMore.value = false
       currentSeasonPage.value = 1
       hasMoreSeasonEpisodes.value = false
+    }
+
+    // Embedded episodes take precedence: no network call needed.
+    if (season.episodes.length > 0) {
+      if (requestId !== latestSeasonRequestId) {
+        return
+      }
+
+      seasonEpisodes.value = season.episodes
+      currentSeasonPage.value = 1
+      hasMoreSeasonEpisodes.value = false
+      isSeasonLoading.value = false
+      isSeasonLoadingMore.value = false
+      return
+    }
+
+    if (!season.link) {
+      if (requestId !== latestSeasonRequestId) {
+        return
+      }
+
+      seasonEpisodes.value = []
+      isSeasonLoading.value = false
+      isSeasonLoadingMore.value = false
+      return
     }
 
     try {
@@ -130,14 +154,14 @@ export function entryDetailsData(options: UseEntryDetailsDataOptions) {
   }
 
   /**
-   * Loads the first page of episodes for the requested season from the backend.
+   * Loads the first page of episodes for the requested season.
    *
    * @param item Season card selected from the season collection.
    */
   async function handleSeasonSelect(item: MediaItem) {
     const season = (details.value?.seasons ?? []).find((entry) => entry.id === item.id)
 
-    if (!season?.link) {
+    if (!season) {
       return
     }
 
@@ -157,7 +181,7 @@ export function entryDetailsData(options: UseEntryDetailsDataOptions) {
 
     const season = (details.value?.seasons ?? []).find((entry) => entry.id === seasonId)
 
-    if (!season?.link) {
+    if (!season) {
       return false
     }
 
@@ -208,7 +232,7 @@ export function entryDetailsData(options: UseEntryDetailsDataOptions) {
 
         if (!restoredSeasonLoaded) {
           const firstSeason = nextDetails.seasons[0]
-          if (firstSeason?.link) {
+          if (firstSeason && (firstSeason.episodes.length > 0 || firstSeason.link)) {
             await loadSeasonPage(firstSeason, 1, false)
           }
         }

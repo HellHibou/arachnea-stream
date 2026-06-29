@@ -632,6 +632,12 @@ impl HttpClient {
             .send_for_request(method, url, request_headers, request_body)
             .await?;
         let payload = response.text().await?;
+
+/////////////////////////////////////////////////////////////////////////////
+// Log response
+// println!("{}", payload);
+ /////////////////////////////////////////////////////////////////////////////
+
         serde_json::from_str(&payload).map_err(|error| {
             log_invalid_json_payload(url, "response", &payload, &error);
             anyhow::Error::new(error).context(format!("Invalid JSON payload returned by {}", url))

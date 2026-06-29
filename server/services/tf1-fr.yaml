@@ -1379,7 +1379,7 @@ queries:
         type: string
         select: first
         pointer: /id
-      - name: season
+      - name: seasons
         type: object[]
         pointer: /editorialSections/*/lists/*
         select: all

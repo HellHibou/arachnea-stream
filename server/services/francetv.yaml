@@ -1027,7 +1027,7 @@ queries:
       - *item_image_landscape_background
       - *item_image_landscape_thumbnail
       - *item_image_logo
-      - name: season
+      - name: seasons
         type: object[]
         pointer: /collections/*[type=playlist_video]
         select: all
@@ -1036,32 +1036,32 @@ queries:
             type: string
             select: first
             pointer: /label
-          - name: episode
+          - name: episodes
             type: object[]
             pointer: /items/*[type=integrale]
             select: all
             entries: *episode_entries
-          - name: episode
+          - name: episodes
             type: object[]
             pointer: /items/*[type=unitaire]
             select: all
             entries: *episode_entries
-          - name: episode
+          - name: episodes
             type: object[]
             pointer: /items/*[type=extrait]
             select: all
             entries: *episode_entries
-          - name: episode
+          - name: episodes
             type: object[]
             pointer: /items/*[type=resume]
             select: all
             entries: *episode_entries
-          - name: episode
+          - name: episodes
             type: object[]
             pointer: /items/*[type=bonus]
             select: all
             entries: *episode_entries
-          - name: episode
+          - name: episodes
             type: object[]
             pointer: /items/*[type=bande-annonce]
             select: all

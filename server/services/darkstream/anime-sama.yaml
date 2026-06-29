@@ -864,7 +864,7 @@ queries:
           - type: regex_find_all
             pattern: '\s*Année\n\s*(\d\d\d\d)\n'
             format: '{1}'
-      - name: season > label
+      - name: seasons > label
         type: string
         select: all
         selector: "div.flex.flex-wrap.overflow-y-hidden.justify-start.bg-slate-900.bg-opacity-70.rounded.mt-2.h-auto > script"
@@ -876,7 +876,7 @@ queries:
           - type: regex_find_all
             pattern: '(?m)^[ \t]*panneauAnime\("([^"]+)"\s*,\s*"[^"]+"\);\s*$'
             format: "{1}"
-      - name: season > link
+      - name: seasons > link
         type: string
         selector: "div.flex.flex-wrap.overflow-y-hidden.justify-start.bg-slate-900.bg-opacity-70.rounded.mt-2.h-auto > script"
         select: all

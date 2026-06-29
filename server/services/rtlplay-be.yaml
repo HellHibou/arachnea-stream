@@ -983,10 +983,10 @@ queries:
         type: string
         select: first
         pointer: /title/imageUrl
-      - name: img/logo > link
-        type: string
-        select: first
-        pointer: /broadcasterLogo/imageUrl
+  #    - name: img/logo > link
+  #      type: string
+  #      select: first
+  #      pointer: /broadcasterLogo/imageUrl
       - name: year
         type: number
         pointer: /headerLabels/*[accessibilityLabel=Année de production]/label
@@ -1076,7 +1076,7 @@ queries:
         select: first
         pointer: /primaryButton/playableId
 
-      - name: season
+      - name: seasons
         type: object[]
         pointer: /seasonPicker/indices/*
         select: all
@@ -1091,12 +1091,6 @@ queries:
             actions:
               - type: format_text
                 argument: "{request_url}?selectedSeasonIndex={}"
-
-      - name: episode
-        type: object[]
-        pointer: /seasonPicker/selected/episodes/*
-        select: all
-        entries: *detail_episode_entries
 
   - name: get_season
     scraper_type: json

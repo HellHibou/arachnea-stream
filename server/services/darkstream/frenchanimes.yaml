@@ -629,7 +629,7 @@ queries:
     post_process:
       - type: extract_regex_items
         source: _raw_eps
-        target: episode
+        target: seasons > episodes
         pattern: '(\d+)!((?:https?://[^,\s]+(?:,\s*https?://[^,\s]+)*))'
         entries:
           - name: episode-number
