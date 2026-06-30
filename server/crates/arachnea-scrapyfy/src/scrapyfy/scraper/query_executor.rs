@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::scrapyfy::post_processes::{ScraperPostProcess, ScraperPostProcessContext};
 use crate::scrapyfy::query_helpers;
-use crate::scrapyfy::scraper_data_node::ScraperDataNode;
+use crate::scrapyfy::scraper_data_node::{ScraperDataNode, ScraperOutputType};
 use crate::scrapyfy::scraper_html::entry::{HtmlScraperEntry, HtmlScraperSelectMode};
 use crate::scrapyfy::scraper_json::entry::{
     json_value_to_strings, select_json_values, JsonScraperEntry,
@@ -522,11 +522,7 @@ async fn execute_query_internal(
                     parent_response: parent_json,
                 };
                 let sibling_root = Box::pin(execute_query_internal(sibling, &sub_context)).await?;
-                let mut merged = ScraperDataNode::default();
-                for child in sibling_root {
-                    merged.merge(child);
-                }
-                merge_targeted(&mut item, merged, sibling.target());
+                merge_targeted_items(&mut item, sibling_root, sibling.target());
             }
 
             // d. Apply post-processes on this item.
@@ -1158,10 +1154,13 @@ async fn execute_entry_sub_queries(
                                         .flat_map(|item| item.values.clone())
                                         .collect()
                                 };
-                                for val in scalar_values {
-                                    let mut entry = ScraperDataNode::default();
-                                    entry.values.push(val);
-                                    target.items.push(entry);
+                                if target.output_type.is_some_and(ScraperOutputType::is_scalar) {
+                                    target.values = scalar_values.into_iter().take(1).collect();
+                                } else {
+                                    for val in scalar_values {
+                                        let entry = scalar_node_from_source_value(val, child);
+                                        target.items.push(entry);
+                                    }
                                 }
                                 continue;
                             }
@@ -1214,9 +1213,10 @@ async fn execute_entry_sub_queries(
                                         for (name, values) in &common {
                                             item_node.children.insert(
                                                 (*name).clone(),
-                                                ScraperDataNode::from_values(vec![
-                                                    values[i].clone()
-                                                ]),
+                                                scalar_node_from_source_value(
+                                                    values[i].clone(),
+                                                    merged.children.get(*name).unwrap(),
+                                                ),
                                             );
                                         }
                                         target.items.push(item_node);
@@ -1227,7 +1227,10 @@ async fn execute_entry_sub_queries(
                                             let mut item_node = ScraperDataNode::default();
                                             item_node.children.insert(
                                                 (*name).clone(),
-                                                ScraperDataNode::from_values(vec![val.clone()]),
+                                                scalar_node_from_source_value(
+                                                    val.clone(),
+                                                    child,
+                                                ),
                                             );
                                             target.items.push(item_node);
                                         }
@@ -1240,14 +1243,19 @@ async fn execute_entry_sub_queries(
                                             let mut item_node = ScraperDataNode::default();
                                             item_node.children.insert(
                                                 (*name).clone(),
-                                                ScraperDataNode::from_values(vec![val.clone()]),
+                                                scalar_node_from_source_value(
+                                                    val.clone(),
+                                                    child,
+                                                ),
                                             );
                                             target.items.push(item_node);
                                         }
                                     }
                                     for val in &merged.values {
-                                        let mut entry = ScraperDataNode::default();
-                                        entry.values.push(val.clone());
+                                        let entry = ScraperDataNode::from_values_typed(
+                                            vec![val.clone()],
+                                            ScraperOutputType::String,
+                                        );
                                         target.items.push(entry);
                                     }
                                 }
@@ -1258,14 +1266,16 @@ async fn execute_entry_sub_queries(
                                         let mut item_node = ScraperDataNode::default();
                                         item_node.children.insert(
                                             (*name).clone(),
-                                            ScraperDataNode::from_values(vec![val.clone()]),
+                                            scalar_node_from_source_value(val.clone(), child),
                                         );
                                         target.items.push(item_node);
                                     }
                                 }
                                 for val in &merged.values {
-                                    let mut entry = ScraperDataNode::default();
-                                    entry.values.push(val.clone());
+                                    let entry = ScraperDataNode::from_values_typed(
+                                        vec![val.clone()],
+                                        ScraperOutputType::String,
+                                    );
                                     target.items.push(entry);
                                 }
                             }
@@ -1277,14 +1287,16 @@ async fn execute_entry_sub_queries(
                                     let mut item_node = ScraperDataNode::default();
                                     item_node.children.insert(
                                         name.clone(),
-                                        ScraperDataNode::from_values(vec![val.clone()]),
+                                        scalar_node_from_source_value(val.clone(), child),
                                     );
                                     target.items.push(item_node);
                                 }
                             }
                             for val in &merged.values {
-                                let mut entry = ScraperDataNode::default();
-                                entry.values.push(val.clone());
+                                let entry = ScraperDataNode::from_values_typed(
+                                    vec![val.clone()],
+                                    ScraperOutputType::String,
+                                );
                                 target.items.push(entry);
                             }
                         }
@@ -1301,11 +1313,7 @@ async fn execute_entry_sub_queries(
                     };
                     let sub_items =
                         Box::pin(execute_query_internal(sub_query, &sub_context)).await?;
-                    let mut merged = ScraperDataNode::default();
-                    for child in sub_items {
-                        merged.merge(child);
-                    }
-                    merge_targeted(item, merged, sub_query.target());
+                    merge_targeted_items(item, sub_items, sub_query.target());
                 }
             } else {
                 // No parent values available — try the generic executor path.
@@ -1318,11 +1326,7 @@ async fn execute_entry_sub_queries(
                     parent_response: None,
                 };
                 let sub_items = Box::pin(execute_query_internal(sub_query, &sub_context)).await?;
-                let mut merged = ScraperDataNode::default();
-                for child in sub_items {
-                    merged.merge(child);
-                }
-                merge_targeted(item, merged, sub_query.target());
+                merge_targeted_items(item, sub_items, sub_query.target());
             }
         }
     }
@@ -1593,11 +1597,60 @@ fn merge_targeted(item: &mut ScraperDataNode, source: ScraperDataNode, target: O
         if path.is_empty() {
             item.merge(source);
         } else {
-            item.push_node(&path, source);
+            item.push_node_typed(&path, source, ScraperOutputType::ObjectArray);
         }
         return;
     }
     item.merge(source);
+}
+
+/// Merges sub-query rows into an item, preserving row cardinality when a
+/// target path is declared.
+///
+/// A targeted sub-query represents an object array; each returned row must
+/// become one item under the target. Without a target, rows are merged into
+/// the current item as before.
+fn merge_targeted_items(
+    item: &mut ScraperDataNode,
+    sources: Vec<ScraperDataNode>,
+    target: Option<&str>,
+) {
+    if let Some(target) = target {
+        let path: Vec<&str> = target
+            .split('>')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .collect();
+        if path.is_empty() {
+            for source in sources {
+                item.merge(source);
+            }
+        } else {
+            for source in sources {
+                item.push_node_typed(&path, source, ScraperOutputType::ObjectArray);
+            }
+        }
+        return;
+    }
+
+    let mut merged = ScraperDataNode::default();
+    for source in sources {
+        merged.merge(source);
+    }
+    item.merge(merged);
+}
+
+fn scalar_output_type_from_source(source: &ScraperDataNode) -> ScraperOutputType {
+    source
+        .output_type
+        .and_then(ScraperOutputType::array_element_type)
+        .or(source.output_type)
+        .filter(|output_type| output_type.is_scalar())
+        .unwrap_or(ScraperOutputType::String)
+}
+
+fn scalar_node_from_source_value(value: String, source: &ScraperDataNode) -> ScraperDataNode {
+    ScraperDataNode::from_values_typed(vec![value], scalar_output_type_from_source(source))
 }
 
 // ---------------------------------------------------------------------------

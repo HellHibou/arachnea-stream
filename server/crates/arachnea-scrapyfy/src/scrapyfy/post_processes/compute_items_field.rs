@@ -228,7 +228,10 @@ pub(super) fn apply(
                     set_node(
                         nested_node,
                         &target_path,
-                        ScraperDataNode::from_values(vec![computed_value]),
+                        ScraperDataNode::from_values_typed(
+                            vec![computed_value],
+                            crate::scrapyfy::ScraperOutputType::Number,
+                        ),
                     );
                 }
                 ComputedTargetValues::Single(None) => {}
@@ -245,7 +248,10 @@ pub(super) fn apply(
                         set_node(
                             nested_item,
                             &target_path,
-                            ScraperDataNode::from_values(vec![computed_value]),
+                            ScraperDataNode::from_values_typed(
+                                vec![computed_value],
+                                crate::scrapyfy::ScraperOutputType::Number,
+                            ),
                         );
                     }
                 }
@@ -259,7 +265,10 @@ pub(super) fn apply(
                 set_node(
                     source_item,
                     &target_path,
-                    ScraperDataNode::from_values(vec![computed_value]),
+                    ScraperDataNode::from_values_typed(
+                        vec![computed_value],
+                        crate::scrapyfy::ScraperOutputType::Number,
+                    ),
                 );
             }
             ComputedTargetValues::Single(None) | ComputedTargetValues::Many(_) => {}

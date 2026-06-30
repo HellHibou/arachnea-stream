@@ -2,7 +2,7 @@ use anyhow::{bail, Result};
 use std::collections::HashMap;
 
 use super::super::query_helpers;
-use super::super::scraper_data_node::ScraperDataNode;
+use super::super::scraper_data_node::{ScraperDataNode, ScraperOutputType};
 use super::node_helpers::{collect_existing_scalar_values, get_node, split_path};
 use super::types::ScraperPostProcessContext;
 
@@ -74,6 +74,7 @@ pub(super) fn apply(
     let mut existing_values = collect_existing_scalar_values(get_node(root, target), unique_field);
 
     let target_path = split_path(target);
+    root.set_output_type(&target_path, ScraperOutputType::ObjectArray);
     for static_item in items {
         if let Some(unique_field) = unique_field {
             if let Some(value) = static_item.get(unique_field) {
@@ -90,9 +91,9 @@ pub(super) fn apply(
             let (value, _missing_keys) =
                 query_helpers::replace_template_placeholders(value, context.params);
             let value = value.replace("{request_url}", context.request_url);
-            item.push_value(&split_path(field), value);
+            item.push_value_typed(&split_path(field), value, ScraperOutputType::String);
         }
 
-        root.push_node(&target_path, item);
+        root.push_node_typed(&target_path, item, ScraperOutputType::ObjectArray);
     }
 }

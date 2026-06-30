@@ -75,11 +75,16 @@ export interface EntryEpisodePage {
 
 /**
  * Normalized season entry consumed by the featured media detail component.
+ *
+ * A season can provide episodes eagerly (embedded in `episodes[]`) or lazily
+ * (via `link` for dynamic loading through `get_season`). When both are present,
+ * the frontend prefers the embedded episodes.
  */
 export interface EntrySeason {
   id: string
-  label: string
+  label: string | null
   link: string | null
+  episodes: EntryEpisode[]
 }
 
 /**
@@ -111,6 +116,5 @@ export interface EntryDetails {
   castingLabels: string[]
   directorLabels: string[]
   seasons: EntrySeason[]
-  episodes: EntryEpisode[]
   score: number | null
 }

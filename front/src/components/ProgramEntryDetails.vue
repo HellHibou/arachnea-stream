@@ -305,7 +305,9 @@ const hasLaterSeason = computed(() => {
     return false
   }
 
-  return seasons.slice(currentSeasonIndex + 1).some((season) => Boolean(season.link))
+  return seasons.slice(currentSeasonIndex + 1).some((season) =>
+    season.episodes.length > 0 || Boolean(season.link),
+  )
 })
 
 /**
@@ -405,7 +407,16 @@ function applyEpisodeSelectionEffects(autoplay: boolean) {
 async function findFirstPlayableEpisodeInSeason(seasonId: string): Promise<EntryEpisode | null> {
   const season = (details.value?.seasons ?? []).find((entrySeason) => entrySeason.id === seasonId)
 
-  if (!season?.link) {
+  if (!season) {
+    return null
+  }
+
+  // Check embedded episodes first.
+  if (season.episodes.length > 0) {
+    return findFirstPlayableEpisode(season.episodes)
+  }
+
+  if (!season.link) {
     return null
   }
 

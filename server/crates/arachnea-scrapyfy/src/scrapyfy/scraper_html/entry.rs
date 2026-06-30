@@ -31,6 +31,9 @@ pub struct HtmlScraperEntryRaw {
     /// This name is used as the key in the output data structure.
     /// Hierarchical paths like "parent>child" create nested objects.
     name: String,
+    /// JSON output type expected for this entry.
+    #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
+    output_type: Option<ScraperOutputType>,
     /// Optional CSS selector applied relative to each result row.
     ///
     /// If provided, this selector is used to find elements within each row.
@@ -146,6 +149,8 @@ pub enum HtmlScraperEntry {
         /// The raw selector string as defined in the configuration,
         /// used for serialization and debugging.
         selector_template: Option<String>,
+        /// JSON output type requested by this field entry.
+        output_type: ScraperOutputType,
         /// Compiled CSS selector used at runtime.
         ///
         /// The parsed and validated selector used for actual HTML element matching.
@@ -181,6 +186,8 @@ pub enum HtmlScraperEntry {
         /// The raw selector string as defined in the configuration,
         /// used for serialization and debugging.
         selector_template: Option<String>,
+        /// JSON output type requested by this group entry.
+        output_type: ScraperOutputType,
         /// Compiled CSS selector used at runtime.
         ///
         /// The parsed and validated selector used for actual HTML element matching.
@@ -242,6 +249,7 @@ impl HtmlScraperEntry {
             name,
             Some(selector),
             Some(selector),
+            ScraperOutputType::String,
             HtmlScraperSelectMode::First,
             actions,
         )
@@ -328,12 +336,14 @@ impl HtmlScraperEntry {
             HtmlScraperEntry::Field {
                 name,
                 selector_template: _,
+                output_type,
                 selector,
                 select,
                 actions,
                 ..
             } => {
                 let path: Vec<&str> = name.split('>').map(|s| s.trim()).collect();
+                root.set_output_type(&path, *output_type);
                 Self::for_each_selected(selector, *select, card, |selected| {
                     let mut values: Vec<String> = Vec::new();
                     let selected = Some(selected);
@@ -347,26 +357,34 @@ impl HtmlScraperEntry {
                             None,
                         );
                     }
-                    for value in values {
-                        root.push_value(&path, value);
+                    if *select == HtmlScraperSelectMode::First {
+                        if let Some(value) = values.into_iter().next() {
+                            root.set_value_typed(&path, value, *output_type);
+                        }
+                    } else {
+                        for value in values {
+                            root.push_value_typed(&path, value, *output_type);
+                        }
                     }
                 });
             }
             HtmlScraperEntry::Group {
                 name,
                 selector_template: _,
+                output_type,
                 selector,
                 select,
                 entries,
                 ..
             } => {
                 let path: Vec<&str> = name.split('>').map(|s| s.trim()).collect();
+                root.set_output_type(&path, *output_type);
                 Self::for_each_selected(selector, *select, card, |selected| {
                     let mut item = ScraperDataNode::default();
                     for entry in entries {
                         entry.apply_to(&mut item, selected, params, request_url, response_body);
                     }
-                    root.push_node(&path, item);
+                    root.push_node_typed(&path, item, *output_type);
                 });
             }
         }
@@ -423,6 +441,76 @@ impl HtmlScraperEntry {
         }
 
         Ok(())
+    }
+
+    /// Validates and returns the output type for one field entry.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the YAML entry omits `type` or uses an object
+    /// type on a scalar field.
+    fn require_field_output_type(
+        name: &str,
+        output_type: Option<ScraperOutputType>,
+        has_sub_queries: bool,
+    ) -> Result<ScraperOutputType> {
+        let Some(output_type) = output_type else {
+            anyhow::bail!("Entry {} must define type", name);
+        };
+
+        if !has_sub_queries
+            && matches!(
+                output_type,
+                ScraperOutputType::Object | ScraperOutputType::ObjectArray
+            )
+        {
+            anyhow::bail!(
+                "Entry {} uses {} but does not define entries",
+                name,
+                output_type.as_str()
+            );
+        }
+
+        Ok(output_type)
+    }
+
+    /// Resolves the YAML output type for one group entry into its final shape.
+    ///
+    /// `type: object` means an object family: `select: first` produces one
+    /// object, while the default `select: all` produces an array of objects.
+    /// `type: object[]` is accepted as an explicit array alias.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `type` is missing, when a scalar type is used on a
+    /// group, or when `object[]` is combined with `select: first`.
+    fn resolve_group_output_type(
+        name: &str,
+        output_type: Option<ScraperOutputType>,
+        select: HtmlScraperSelectMode,
+    ) -> Result<ScraperOutputType> {
+        let Some(output_type) = output_type else {
+            anyhow::bail!("Group entry {} must define type", name);
+        };
+
+        match (output_type, select) {
+            (ScraperOutputType::ObjectArray, HtmlScraperSelectMode::First) => {
+                anyhow::bail!(
+                    "Group entry {} cannot combine type object[] with select: first",
+                    name
+                );
+            }
+            (ScraperOutputType::ObjectArray, _) => Ok(ScraperOutputType::ObjectArray),
+            (ScraperOutputType::Object, HtmlScraperSelectMode::First) => {
+                Ok(ScraperOutputType::Object)
+            }
+            (ScraperOutputType::Object, _) => Ok(ScraperOutputType::ObjectArray),
+            _ => anyhow::bail!(
+                "Group entry {} must use type object or object[], got {}",
+                name,
+                output_type.as_str()
+            ),
+        }
     }
 
     /// Normalizes an optional selector template by trimming and discarding empty strings.
@@ -493,6 +581,7 @@ impl HtmlScraperEntry {
         name: &str,
         selector_template: Option<&str>,
         resolved_selector: Option<&str>,
+        output_type: ScraperOutputType,
         select: HtmlScraperSelectMode,
         actions: &[ScraperAction],
     ) -> Result<Self> {
@@ -501,6 +590,7 @@ impl HtmlScraperEntry {
         Ok(HtmlScraperEntry::Field {
             name: name.to_string(),
             selector_template: Self::normalize_selector_template(selector_template),
+            output_type,
             selector: Self::parse_selector(name, resolved_selector)?,
             select,
             actions: actions.to_vec(),
@@ -531,12 +621,14 @@ impl HtmlScraperEntry {
         name: &str,
         selector_template: Option<&str>,
         resolved_selector: Option<&str>,
+        output_type: ScraperOutputType,
         select: HtmlScraperSelectMode,
         entries: Vec<HtmlScraperEntry>,
     ) -> Result<Self> {
         Ok(HtmlScraperEntry::Group {
             name: name.to_string(),
             selector_template: Self::normalize_selector_template(selector_template),
+            output_type,
             selector: Self::parse_selector(name, resolved_selector)?,
             select,
             entries,
@@ -605,6 +697,7 @@ impl HtmlScraperEntry {
     fn from_raw_with_base_url(config: HtmlScraperEntryRaw, base_url: &str) -> Result<Self> {
         let HtmlScraperEntryRaw {
             name,
+            output_type,
             selector,
             resolved_selector,
             select,
@@ -621,10 +714,16 @@ impl HtmlScraperEntry {
 
         match (actions.is_empty(), entries.is_empty()) {
             (false, true) => {
+                let output_type = HtmlScraperEntry::require_field_output_type(
+                    &name,
+                    output_type,
+                    !sub_queries.is_empty(),
+                )?;
                 let mut entry = HtmlScraperEntry::try_new_field_with_optional_selector(
                     &name,
                     selector.as_deref(),
                     resolved_selector.as_deref().or(selector.as_deref()),
+                    output_type,
                     select,
                     &actions,
                 )?;
@@ -638,6 +737,8 @@ impl HtmlScraperEntry {
                 Ok(entry)
             }
             (true, false) => {
+                let output_type =
+                    HtmlScraperEntry::resolve_group_output_type(&name, output_type, select)?;
                 let mut entry = {
                     let entries = entries
                         .into_iter()
@@ -647,6 +748,7 @@ impl HtmlScraperEntry {
                         &name,
                         selector.as_deref(),
                         resolved_selector.as_deref().or(selector.as_deref()),
+                        output_type,
                         select,
                         entries,
                     )?
@@ -661,10 +763,16 @@ impl HtmlScraperEntry {
                 Ok(entry)
             }
             (true, true) if !sub_queries.is_empty() => {
+                let output_type = HtmlScraperEntry::require_field_output_type(
+                    &name,
+                    output_type,
+                    !sub_queries.is_empty(),
+                )?;
                 // Entry with only sub_queries and no actions/entries: it's a passthrough
                 Ok(HtmlScraperEntry::Field {
                     name: name.clone(),
                     selector_template: Self::normalize_selector_template(selector.as_deref()),
+                    output_type,
                     selector: Self::parse_selector(
                         &name,
                         resolved_selector.as_deref().or(selector.as_deref()),
@@ -852,12 +960,14 @@ impl From<&HtmlScraperEntry> for HtmlScraperEntryRaw {
             HtmlScraperEntry::Field {
                 name,
                 selector_template,
+                output_type,
                 selector,
                 select,
                 actions,
                 ..
             } => Self {
                 name: name.clone(),
+                output_type: Some(*output_type),
                 selector: HtmlScraperEntry::serialize_selector(selector_template, selector),
                 resolved_selector: None,
                 select: *select,
@@ -868,12 +978,14 @@ impl From<&HtmlScraperEntry> for HtmlScraperEntryRaw {
             HtmlScraperEntry::Group {
                 name,
                 selector_template,
+                output_type,
                 selector,
                 select,
                 entries,
                 ..
             } => Self {
                 name: name.clone(),
+                output_type: Some(*output_type),
                 selector: HtmlScraperEntry::serialize_selector(selector_template, selector),
                 resolved_selector: None,
                 select: *select,

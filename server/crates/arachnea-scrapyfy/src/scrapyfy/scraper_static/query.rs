@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize, Serializer};
 use serde_yaml::Value;
 use std::collections::HashMap;
@@ -17,6 +17,9 @@ use crate::scrapyfy::*;
 pub struct StaticScraperEntryRaw {
     /// Entry name, supporting `>`-separated hierarchical paths.
     pub name: String,
+    /// JSON output type expected for this static entry.
+    #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
+    pub output_type: Option<ScraperOutputType>,
     /// Optional scalar YAML value rendered through template placeholders.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<Value>,
@@ -138,9 +141,21 @@ impl StaticScraperQuery {
                 anyhow::bail!("Static query {} has an empty entry name", name);
             }
 
+            let Some(output_type) = entry.output_type else {
+                anyhow::bail!("Static query {} entry {} must define type", name, entry.name);
+            };
+
             if entry.value.is_some() && !entry.items.is_empty() {
                 anyhow::bail!(
                     "Static query {} entry {} cannot define both value and items",
+                    name,
+                    entry.name
+                );
+            }
+
+            if !entry.items.is_empty() && output_type.is_scalar() {
+                anyhow::bail!(
+                    "Static query {} entry {} must use type object or object[] for items",
                     name,
                     entry.name
                 );
@@ -183,8 +198,13 @@ impl StaticScraperQuery {
         let mut names = Vec::new();
 
         for entry in &self.entries {
-            if entry.value.is_some() {
-                names.push(entry.name.clone());
+            if let Some(value) = &entry.value {
+                match entry.output_type {
+                    Some(ScraperOutputType::Object | ScraperOutputType::ObjectArray) => {
+                        collect_static_object_field_names(&entry.name, value, &mut names);
+                    }
+                    _ => names.push(entry.name.clone()),
+                }
             }
 
             for item in &entry.items {
@@ -197,6 +217,32 @@ impl StaticScraperQuery {
         names.sort();
         names.dedup();
         names
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+fn collect_static_object_field_names(prefix: &str, value: &Value, names: &mut Vec<String>) {
+    match value {
+        Value::Mapping(mapping) => {
+            for (key, child) in mapping {
+                let Some(key) = key.as_str() else {
+                    continue;
+                };
+                let child_prefix = format!("{} > {}", prefix, key);
+                match child {
+                    Value::Mapping(_) | Value::Sequence(_) => {
+                        collect_static_object_field_names(&child_prefix, child, names);
+                    }
+                    _ => names.push(child_prefix),
+                }
+            }
+        }
+        Value::Sequence(items) => {
+            for item in items {
+                collect_static_object_field_names(prefix, item, names);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -257,16 +303,40 @@ impl StaticScraperEntryRaw {
         params: &HashMap<String, String>,
     ) -> Result<()> {
         let entry_path = split_static_path(&self.name);
+        let output_type = self
+            .output_type
+            .ok_or_else(|| anyhow::anyhow!("Static entry {} must define type", self.name))?;
 
         if let Some(value) = &self.value {
+            root.set_output_type(&entry_path, output_type);
             let mut values = render_yaml_values(value, params)?;
             for action in &self.actions {
                 values = action.apply(&None, values, params, "", None, None);
             }
 
-            for value in values {
-                root.push_value(&entry_path, value);
+            if matches!(
+                output_type,
+                ScraperOutputType::Object | ScraperOutputType::ObjectArray
+            ) {
+                let node = rendered_json_values_to_node(&self.name, &values, output_type)?;
+                set_static_node(root, &entry_path, node);
+                return Ok(());
             }
+
+            for value in values {
+                root.push_value_typed(&entry_path, value, output_type);
+            }
+        }
+
+        let item_output_type = match output_type {
+            ScraperOutputType::Object | ScraperOutputType::ObjectArray => {
+                ScraperOutputType::ObjectArray
+            }
+            _ => output_type,
+        };
+
+        if !self.items.is_empty() {
+            root.set_output_type(&entry_path, item_output_type);
         }
 
         for item in &self.items {
@@ -274,10 +344,10 @@ impl StaticScraperEntryRaw {
             for (item_name, item_value) in item {
                 if let Some(value) = render_yaml_value(item_value, params)? {
                     let item_path = split_static_path(item_name);
-                    item_node.push_value(&item_path, value);
+                    item_node.push_value_typed(&item_path, value, ScraperOutputType::String);
                 }
             }
-            root.push_node(&entry_path, item_node);
+            root.push_node_typed(&entry_path, item_node, item_output_type);
         }
 
         Ok(())
@@ -507,6 +577,110 @@ fn yaml_value_to_template(value: &Value) -> Option<String> {
         Value::String(value) => Some(value.clone()),
         Value::Sequence(_) | Value::Mapping(_) | Value::Tagged(_) => {
             serde_json::to_string(value).ok()
+        }
+    }
+}
+
+fn set_static_node(root: &mut ScraperDataNode, path: &[&str], node: ScraperDataNode) {
+    if path.is_empty() {
+        return;
+    }
+
+    let mut current = root;
+    for segment in &path[..path.len().saturating_sub(1)] {
+        current = current.children.entry((*segment).to_string()).or_default();
+    }
+
+    current
+        .children
+        .insert(path[path.len().saturating_sub(1)].to_string(), node);
+}
+
+fn rendered_json_values_to_node(
+    entry_name: &str,
+    values: &[String],
+    output_type: ScraperOutputType,
+) -> Result<ScraperDataNode> {
+    if values.is_empty() {
+        let mut node = ScraperDataNode::default();
+        node.set_self_output_type(output_type);
+        return Ok(node);
+    }
+
+    if matches!(output_type, ScraperOutputType::Object) && values.len() != 1 {
+        anyhow::bail!(
+            "Static entry {} cannot serialize {} values as object",
+            entry_name,
+            values.len()
+        );
+    }
+
+    if matches!(output_type, ScraperOutputType::Object) {
+        let value: serde_json::Value = serde_json::from_str(&values[0]).with_context(|| {
+            format!(
+                "Static entry {} expected a JSON object value for type object",
+                entry_name
+            )
+        })?;
+        let mut node = json_value_to_node(value, Some(ScraperOutputType::Object))?;
+        node.set_self_output_type(ScraperOutputType::Object);
+        return Ok(node);
+    }
+
+    let mut node = ScraperDataNode::default();
+    node.set_self_output_type(ScraperOutputType::ObjectArray);
+    for value in values {
+        let value: serde_json::Value = serde_json::from_str(value).with_context(|| {
+            format!(
+                "Static entry {} expected JSON object values for type object[]",
+                entry_name
+            )
+        })?;
+        let item = json_value_to_node(value, Some(ScraperOutputType::Object))?;
+        node.items.push(item);
+    }
+    Ok(node)
+}
+
+fn json_value_to_node(
+    value: serde_json::Value,
+    forced_type: Option<ScraperOutputType>,
+) -> Result<ScraperDataNode> {
+    match value {
+        serde_json::Value::Null => {
+            let mut node = ScraperDataNode::default();
+            if let Some(output_type) = forced_type {
+                node.set_self_output_type(output_type);
+            }
+            Ok(node)
+        }
+        serde_json::Value::Bool(value) => Ok(ScraperDataNode::from_values_typed(
+            vec![value.to_string()],
+            forced_type.unwrap_or(ScraperOutputType::Boolean),
+        )),
+        serde_json::Value::Number(value) => Ok(ScraperDataNode::from_values_typed(
+            vec![value.to_string()],
+            forced_type.unwrap_or(ScraperOutputType::Number),
+        )),
+        serde_json::Value::String(value) => Ok(ScraperDataNode::from_values_typed(
+            vec![value],
+            forced_type.unwrap_or(ScraperOutputType::String),
+        )),
+        serde_json::Value::Array(values) => {
+            let mut node = ScraperDataNode::default();
+            node.set_self_output_type(forced_type.unwrap_or(ScraperOutputType::ObjectArray));
+            for value in values {
+                node.items.push(json_value_to_node(value, None)?);
+            }
+            Ok(node)
+        }
+        serde_json::Value::Object(values) => {
+            let mut node = ScraperDataNode::default();
+            node.set_self_output_type(forced_type.unwrap_or(ScraperOutputType::Object));
+            for (key, value) in values {
+                node.children.insert(key, json_value_to_node(value, None)?);
+            }
+            Ok(node)
         }
     }
 }

@@ -262,10 +262,10 @@ function readSearchExplicitSourceParams(
   group: JsonRecord,
   source: string,
 ): Record<string, string>[] {
-  const rawSourceParams = readRecordList(group.source_params).map(readStringMap)
+  const rawSourceParams = readRecordList(group.source_params).map(readStringParamMap)
 
   if (rawSourceParams.length === 0) {
-    rawSourceParams.push(...readRecordList(group.sourceParams).map(readStringMap))
+    rawSourceParams.push(...readRecordList(group.sourceParams).map(readStringParamMap))
   }
 
   return rawSourceParams
@@ -450,13 +450,13 @@ export async function getEntryDetails(
   entry: string,
   webUrl: string | null = null,
 ): Promise<EntryDetails> {
-  const response = await call_api<unknown[]>('get_entry', { source, entry })
+  const response = await call_api<unknown>('get_entry', { source, entry })
 
-  if (!Array.isArray(response) || response.length === 0) {
+  if (!isJsonRecord(response)) {
     throw new Error(t('errors.unexpectedEntryResponseFormat'))
   }
 
-  return normalizeEntryDetails(response[0], source, webUrl ?? entry)
+  return normalizeEntryDetails(response, source, webUrl ?? entry)
 }
 
 /**
@@ -568,7 +568,7 @@ function normalizeServiceMetadata(payload: unknown): ServiceMetadata | null {
 }
 
 /**
- * Reads localized service descriptions from either a structured object or JSON string.
+ * Reads localized service descriptions from the typed backend object.
  *
  * @param value Backend description node.
  * @returns Language-keyed description strings.
@@ -578,17 +578,7 @@ function normalizeServiceDescription(value: unknown): Record<string, string> {
     return readStringMap(value)
   }
 
-  const rawDescription = firstNonEmptyString([value])
-  if (!rawDescription) {
-    return {}
-  }
-
-  try {
-    const parsedDescription: unknown = JSON.parse(rawDescription)
-    return isJsonRecord(parsedDescription) ? readStringMap(parsedDescription) : {}
-  } catch {
-    return {}
-  }
+  return {}
 }
 
 /**
@@ -767,7 +757,7 @@ function normalizeHomeCategorySource(
   record: JsonRecord,
   inheritedSource: string | null,
 ): HomeCategorySource | null {
-  const source = readStringMap(record.source)
+  const source = readStringParamMap(record.source)
 
   if (Object.keys(source).length > 0) {
     return source
@@ -779,7 +769,7 @@ function normalizeHomeCategorySource(
 
   return {
     name: inheritedSource,
-    ...readStringMap(record.request),
+    ...readStringParamMap(record.request),
   }
 }
 
@@ -813,10 +803,7 @@ function normalizeHomeSection(
   inheritedSource: string | null = null,
 ): HomeSection {
   const record = isJsonRecord(payload) ? payload : {}
-  let rawItems = readRecordList(record.items)
-  if (rawItems.length === 0) {
-    rawItems = readRecordList(record.entries)
-  }
+  const rawItems = readRecordList(record.entries)
   const label = firstNonEmptyString([record.label])
   const currentPage = Math.max(1, Math.trunc(firstNumber(record.current_page) ?? 1))
   const haveMore = readBoolean(record.have_more)
@@ -854,7 +841,7 @@ function normalizeHomeSectionSources(
   currentPage: number,
   haveMore: boolean,
 ): HomeSectionSource[] {
-  const link = firstNonEmptyString([record.link, record.query_url, record.queryUrl])
+  const link = firstNonEmptyString([record.link])
 
   if (!link || !inheritedSource) {
     return []
@@ -866,7 +853,7 @@ function normalizeHomeSectionSources(
       link,
       currentPage,
       haveMore,
-      params: readStringMap(record.request),
+      params: readStringParamMap(record.request),
     },
   ]
 }
@@ -1125,7 +1112,6 @@ return {
 function normalizeEntryDetails(entry: unknown, source: string, entryUrl: string): EntryDetails {
   const record = isJsonRecord(entry) ? entry : {}
   const seasons = normalizeEntrySeasons(record, source)
-  const episodes = normalizeEntryEpisodes(record, source)
   const players = normalizeEntryPlayers(record, source)
   const imagePosterUrl = resolveAssetUrl(readFirstLink(record, 'img/poster', ['img', 'poster']), source)
   const imagePortraitUrl = resolveAssetUrl(readFirstLink(record, 'img/portrait', ['img', 'portrait']), source)
@@ -1136,36 +1122,35 @@ function normalizeEntryDetails(entry: unknown, source: string, entryUrl: string)
     source,
   )
 
-   return {
-      source,
-      entryUrl: webLink ?? entryUrl,
-      title: firstNonEmptyString([record.title]),
-      alternativeTitleLabel: firstNonEmptyString([record['title/alt']]),
-      trailerUrl,
-      players,
-      description: firstNonEmptyString([record.description]),
-      imagePosterUrl,
-      imagePortraitUrl,
-      imageLandscapeUrl,
-      logoUrl: resolveAssetUrl(readFirstLink(record, 'img/logo', ['img', 'logo']), source),
-      heroImageUrl: imagePortraitUrl ?? imagePosterUrl,
-     yearLabel: firstNonEmptyString([record.year]),
-     releaseDateLabel: formatReleaseDateLabel(firstNonEmptyString([record['release-date']])),
-     expireLabel: formatReleaseDateLabel(firstNonEmptyString([record.expire])),
-     durationLabel: formatDurationLabel(firstNonEmptyString([record.duration])),
-     seasonCountLabel: formatSeasonCount(firstNonEmptyString([record['count-season']])),
-     audioLanguageLabel: buildAudioLanguageLabel(record),
-     subtitleLanguageLabel: buildSubtitleLanguageLabel(record),
-     contentAdvisorLabel: firstNonEmptyString([record['content-advisor']]),
-     themeLabels: dedupeDisplayStrings(readStringList(record.theme)),
-     genreLabels: dedupeDisplayStrings(readStringList(record.genre)),
-     castingLabels: dedupeDisplayStrings(readStringList(record.casting)),
-     directorLabels: dedupeDisplayStrings(readStringList(record.director)),
-     seasons,
-     episodes,
-     score: firstNumber(record.rating),
-   }
+  return {
+    source,
+    entryUrl: webLink ?? entryUrl,
+    title: firstNonEmptyString([record.title]),
+    alternativeTitleLabel: firstNonEmptyString([record['title/alt']]),
+    trailerUrl,
+    players,
+    description: firstNonEmptyString([record.description]),
+    imagePosterUrl,
+    imagePortraitUrl,
+    imageLandscapeUrl,
+    logoUrl: resolveAssetUrl(readFirstLink(record, 'img/logo', ['img', 'logo']), source),
+    heroImageUrl: imagePortraitUrl ?? imagePosterUrl,
+    yearLabel: formatNumberLabel(firstNumber(record.year)),
+    releaseDateLabel: formatReleaseDateLabel(firstNonEmptyString([record['release-date']])),
+    expireLabel: formatReleaseDateLabel(firstNonEmptyString([record.expire])),
+    durationLabel: formatDurationLabel(firstNonEmptyString([record.duration])),
+    seasonCountLabel: formatSeasonCount(firstNumber(record['count-season'])),
+    audioLanguageLabel: buildAudioLanguageLabel(record),
+    subtitleLanguageLabel: buildSubtitleLanguageLabel(record),
+    contentAdvisorLabel: firstNonEmptyString([record['content-advisor']]),
+    themeLabels: dedupeDisplayStrings(readStringList(record.theme)),
+    genreLabels: dedupeDisplayStrings(readStringList(record.genre)),
+    castingLabels: dedupeDisplayStrings(readStringList(record.casting)),
+    directorLabels: dedupeDisplayStrings(readStringList(record.director)),
+    seasons,
+    score: firstNumber(record.rating),
   }
+}
 
 /**
  * Converts raw backend player records into normalized embedded player entries.
@@ -1358,29 +1343,36 @@ function normalizeResolvedPlayerStream(payload: unknown): EntryResolvedPlayerStr
 /**
  * Converts the backend season lists into normalized season entries.
  *
+ * Reads the canonical `seasons[]` field produced by `get_entry`. Each season may contain
+ * embedded `episodes[]` (eager) and/or a `link` (lazy through `get_season`). When both are
+ * present, the frontend prefers the embedded episodes.
+ *
  * @param entry Raw backend entry returned by `get_entry`.
  * @param source Source name used to resolve the season links.
  * @returns Normalized season entries.
  */
 function normalizeEntrySeasons(entry: JsonRecord, source: string): EntrySeason[] {
-  return readRecordList(entry.season)
+  return readRecordList(entry.seasons)
     .map((season, index) => {
       const label = firstNonEmptyString([season.label])
       const normalizedLabel = label ? normalizeString(label) : null
-
-      if (!normalizedLabel) {
-        return null
-      }
-
       const link = resolveEntryUrl(firstNonEmptyString([season.link]), source)
+      const rawEpisodes = readRecordList(season.episodes)
+      const episodes = rawEpisodes.length > 0
+        ? rawEpisodes
+            .map((episode, epIndex) => normalizeEntryEpisode(episode, epIndex, source, normalizedLabel))
+            .filter((episode) => !isUnavailableEpisode(episode))
+        : []
 
+      // A season without label is only acceptable when it is the only season.
+      // Let the caller decide the final filtering strategy.
       return {
-        id: buildMediaId(index, link, normalizedLabel, source),
+        id: buildMediaId(index, link, normalizedLabel ?? 'season', source),
         label: normalizedLabel,
         link,
+        episodes,
       }
     })
-    .filter((season): season is EntrySeason => Boolean(season))
 }
 
 /**
@@ -1412,7 +1404,7 @@ function normalizeEntryEpisode(
   fallbackSeasonName: string | null = null,
 ): EntryEpisode {
   const previewEntries = readRecordList(readPath(entry, 'img/preview'))
-  const imagePosterUrl = firstNonEmptyString([readPath(entry, 'img/poster'), readPath(entry, 'img/preview')])
+  const imagePosterUrl = readFirstLink(entry, 'img/poster', ['img', 'poster'])
   const link = resolveEntryUrl(firstNonEmptyString([entry.link]), source)
   const duration = firstNonEmptyString([entry.duration])
   const players = normalizePlayers(readRecordList(entry.players), source)
@@ -1552,7 +1544,7 @@ function readPath(value: unknown, ...path: string[]): unknown {
 }
 
 /**
- * Collects flattened strings from serialized scraper nodes.
+ * Collects typed string values from a backend scalar or array.
  *
  * @param value Unknown backend node.
  * @returns Flat list of trimmed non-empty strings.
@@ -1564,15 +1556,14 @@ function readStringList(value: unknown): string[] {
   }
 
   if (Array.isArray(value)) {
-    return value.flatMap((item) => readStringList(item))
-  }
+    return value.flatMap((item) => {
+      if (typeof item !== 'string') {
+        return []
+      }
 
-  if (!isJsonRecord(value)) {
-    return []
-  }
-
-  if ('_' in value) {
-    return readStringList(value._)
+      const normalized = normalizeString(item)
+      return normalized ? [normalized] : []
+    })
   }
 
   return []
@@ -1592,10 +1583,45 @@ function readStringMap(value: unknown): Record<string, string> {
   const output: Record<string, string> = {}
 
   Object.entries(value).forEach(([key, entryValue]) => {
-    const normalizedValue = firstNonEmptyString([entryValue])
+    const normalizedValue = typeof entryValue === 'string' ? normalizeString(entryValue) : null
 
     if (normalizedValue) {
       output[key] = normalizedValue
+    }
+  })
+
+  return output
+}
+
+/**
+ * Reads primitive backend values into request parameter strings.
+ *
+ * @param value Unknown backend object used as source/request params.
+ * @returns String-only parameter record accepted by backend calls.
+ */
+function readStringParamMap(value: unknown): Record<string, string> {
+  if (!isJsonRecord(value)) {
+    return {}
+  }
+
+  const output: Record<string, string> = {}
+
+  Object.entries(value).forEach(([key, entryValue]) => {
+    if (typeof entryValue === 'string') {
+      const normalizedValue = normalizeString(entryValue)
+      if (normalizedValue) {
+        output[key] = normalizedValue
+      }
+      return
+    }
+
+    if (typeof entryValue === 'number' && Number.isFinite(entryValue)) {
+      output[key] = String(entryValue)
+      return
+    }
+
+    if (typeof entryValue === 'boolean') {
+      output[key] = String(entryValue)
     }
   })
 
@@ -1745,24 +1771,17 @@ function firstNonEmptyString(values: unknown[]): string | null {
 }
 
 /**
- * Parses the first numeric value available in a backend node.
+ * Reads a typed numeric backend value.
  *
- * @param value Backend node that may contain a number-like string.
- * @returns Parsed number when available.
+ * @param value Backend value.
+ * @returns Number when the backend emitted one.
  */
 function firstNumber(value: unknown): number | null {
   if (typeof value === 'number') {
     return Number.isFinite(value) ? value : null
   }
 
-  const firstValue = firstNonEmptyString([value])
-
-  if (!firstValue) {
-    return null
-  }
-
-  const parsedValue = Number.parseFloat(firstValue)
-  return Number.isFinite(parsedValue) ? parsedValue : null
+  return null
 }
 
 /**
@@ -1781,47 +1800,28 @@ function toPositiveInteger(value: number | null): number | null {
 }
 
 /**
- * Reads a boolean value while tolerating raw booleans and stringified booleans.
+ * Reads a typed boolean backend value.
  *
- * @param value Backend node that may contain a boolean-like value.
- * @returns Parsed boolean when available, otherwise `false`.
+ * @param value Backend value.
+ * @returns Boolean when available, otherwise `false`.
  */
 function readBoolean(value: unknown): boolean {
   if (typeof value === 'boolean') {
     return value
   }
 
-  const firstValue = firstNonEmptyString([value])?.toLocaleLowerCase()
-
-  if (!firstValue) {
-    return false
-  }
-
-  return firstValue === 'true'
+  return false
 }
 
 /**
- * Reads a boolean only when the backend explicitly emitted a boolean-like value.
+ * Reads a boolean only when the backend explicitly emitted a typed boolean.
  *
- * @param value Backend node that may contain a boolean-like value.
- * @returns Parsed boolean, or `null` when the field is absent/unknown.
+ * @param value Backend value.
+ * @returns Boolean, or `null` when the field is absent/unknown.
  */
 function readOptionalBoolean(value: unknown): boolean | null {
   if (typeof value === 'boolean') {
     return value
-  }
-
-  const firstValue = firstNonEmptyString([value])?.toLocaleLowerCase()
-  if (!firstValue) {
-    return null
-  }
-
-  if (firstValue === 'true') {
-    return true
-  }
-
-  if (firstValue === 'false') {
-    return false
   }
 
   return null
@@ -1889,7 +1889,7 @@ function resolveAssetUrl(value: string | null, source: string | null): string | 
     return `https:${value}`
   }
 
-   return value
+  return value
 }
 
 /**
@@ -1922,25 +1922,30 @@ function resolveEntryUrl(value: string | null, source: string | null): string | 
 
 
 /**
+ * Formats a typed number for display.
+ *
+ * @param value Typed backend number.
+ * @returns Display-ready numeric label.
+ */
+function formatNumberLabel(value: number | null): string | null {
+  return value === null ? null : String(value)
+}
+
+/**
  * Formats a season count extracted from the backend entry.
  *
- * @param value Raw season count.
+ * @param value Typed season count.
  * @returns Display-ready season count label.
  */
-function formatSeasonCount(value: string | null): string | null {
-  if (!value) {
+function formatSeasonCount(value: number | null): string | null {
+  const count = toPositiveInteger(value)
+  if (count === null) {
     return null
   }
 
-  const parsedValue = Number.parseInt(value, 10)
-
-  if (!Number.isFinite(parsedValue)) {
-    return value
-  }
-
-  return parsedValue > 1
-    ? t('entry.seasonCountPlural', { count: String(parsedValue) })
-    : t('entry.seasonCountSingular', { count: String(parsedValue) })
+  return count > 1
+    ? t('entry.seasonCountPlural', { count: String(count) })
+    : t('entry.seasonCountSingular', { count: String(count) })
 }
 
 /**

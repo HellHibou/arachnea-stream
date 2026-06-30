@@ -240,18 +240,26 @@ fn derive_pagination_for_node(
         set_node(
             root,
             &split_path(have_more_field),
-            ScraperDataNode::from_values(vec![have_more.to_string()]),
+            ScraperDataNode::from_values_typed(
+                vec![have_more.to_string()],
+                crate::scrapyfy::ScraperOutputType::Boolean,
+            ),
         );
     }
 
     if have_more == Some(true) {
         if let Some(next_param_value) = next_param_value {
             let mut source_param_item = ScraperDataNode::default();
-            source_param_item.push_value(&split_path(next_param), next_param_value);
+            source_param_item.push_value_typed(
+                &split_path(next_param),
+                next_param_value,
+                crate::scrapyfy::ScraperOutputType::String,
+            );
             set_node(
                 root,
                 &split_path(source_params_target),
                 ScraperDataNode {
+                    output_type: Some(crate::scrapyfy::ScraperOutputType::ObjectArray),
                     values: Vec::new(),
                     children: HashMap::new(),
                     items: vec![source_param_item],

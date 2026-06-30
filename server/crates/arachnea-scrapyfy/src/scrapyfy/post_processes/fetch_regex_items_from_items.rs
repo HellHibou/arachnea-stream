@@ -36,6 +36,25 @@ pub(super) fn validate(
 ) -> Result<()> {
     Regex::new(pattern).with_context(|| format!("Invalid post-process regex for {}", owner))?;
     for entry in entries {
+        let Some(output_type) = entry.output_type else {
+            anyhow::bail!(
+                "fetch_regex_items_from_items for {} entry {} must define type",
+                owner,
+                entry.name
+            );
+        };
+        if matches!(
+            output_type,
+            crate::scrapyfy::ScraperOutputType::Object
+                | crate::scrapyfy::ScraperOutputType::ObjectArray
+        ) {
+            anyhow::bail!(
+                "fetch_regex_items_from_items for {} entry {} cannot use {} without nested entries",
+                owner,
+                entry.name,
+                output_type.as_str()
+            );
+        }
         for action in &entry.actions {
             action.validate(&entry.name, "post-process entry")?;
         }
@@ -171,8 +190,13 @@ pub(super) async fn apply(
         }
     }
 
+    root.set_output_type(&target_path, crate::scrapyfy::ScraperOutputType::ObjectArray);
     for item in extracted_items {
-        root.push_node(&target_path, item);
+        root.push_node_typed(
+            &target_path,
+            item,
+            crate::scrapyfy::ScraperOutputType::ObjectArray,
+        );
     }
 
     Ok(())

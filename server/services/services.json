@@ -26,10 +26,6 @@
     "enabled": true
   },
   {
-    "path": "papystreaming.yaml",
-    "enabled": false
-  },
-  {
     "path": "darkstream/anime-sama.yaml",
     "enabled": true,
     "parameters": [{
@@ -43,7 +39,7 @@
   }, 
   {
     "path": "darkstream/coflix.yaml",
-    "enabled": false
+    "enabled": true 
   },
   {
     "path": "darkstream/frenchanimes.yaml",

@@ -1,35 +1,29 @@
 id: anime-sama
 title: Anime-Sama
 logo: https://raw.githubusercontent.com/Anime-Sama/IMG/img/autres/logo.png
-description: 
+description:
   fr : "Anime-Sama est une plateforme de streaming et de lecture en ligne dédiée aux animés, mangas et webtoons. Elle propose un large catalogue de contenus, allant des dernières sorties aux classiques du genre, avec des options de filtrage par type de média, thème et langue."
-
 http:
   mode: auto
 
+
+# ############################################################################
+# Parameters
+# ############################################################################
 parameters:
   - name: base_url
     value: https://anime-sama.to
     description: Base URL used to resolve Anime-Sama requests.
 
-shared:
 
+# ############################################################################
+# Shared structs
+# ############################################################################
+shared:
   media_types_anime_sama: &media_types_anime_sama
     - video/show/anime
     - images/manga
     - images/webtoon
-
-  actions_get_src: &actions_get_src
-    - type: get_attribut
-      argument: src
-
-  actions_get_alt: &actions_get_alt
-    - type: get_attribut
-      argument: alt
-
-  actions_get_href: &actions_get_href
-    - type: get_attribut
-      argument: href
 
   actions_catalog_total_pages_from_response: &actions_catalog_total_pages_from_response
     - type: get_response_body
@@ -76,234 +70,151 @@ shared:
     - type: get_date
       format: dd_mm_yyyy
 
-  actions_lang_from_request_url: &actions_lang_from_request_url
-    - type: get_request_url
-    - type: regex_find_all
-      pattern: '/(fr|vf|vostfr|vo|va|var|vkr|vcn|vqc|vf1|vf2)(?:/|$)'
-      format: "{1}"
-    - type: map
-      argument:
-        fr: vf
-        vostfr: vo
-      default: "{}"
-
-  actions_lang_from_switch_href: &actions_lang_from_switch_href
-    - type: get_attribut
-      argument: href
-    - type: regex_find_all
-      pattern: '/?([^/]+)/?$'
-      format: "{1}"
-    - type: map
-      argument:
-        fr: vf
-        vostfr: vo
-      default: "{}"
-
   entries_catalog_cards: &entries_catalog_cards
     - name: title
+      type: string
+      select: first
       selector: "h2.card-title"
-      actions: 
+      actions:
         - type: get_text
     - name: title/alt
+      type: string
+      select: first
       selector: "p.alternate-titles"
-      actions: 
+      actions:
         - type: get_text
     - name: media-type
-      selector: "div.catalog-info > div.info-row:nth-child(2) > p.info-value"
+      type: string
+      select: first
+      selector: div.catalog-info > div > div.type-row > p
       actions: *actions_media_type_search
     - name: img/landscape > link
+      type: string
+      select: first
       selector: "img.card-image"
-      actions: *actions_get_src
+      actions: 
+      - type: get_attribut
+        argument: src
     - name: description
+      type: string
+      select: first
       selector: "div.synopsis-content"
-      actions:  
+      actions:
         - type: get_text
     - name: link
+      type: string
+      select: first
       selector: "a"
       actions: *actions_get_href_resolve
     - name: web-link
+      type: string
+      select: first
       selector: "a"
       actions: *actions_get_href_resolve
     - name: theme
+      type: string[]
       selector: "div.catalog-info > div.info-row:nth-child(1) > p.info-value"
       actions: *actions_split_comma_text
+    - name: theme
+      type: string[]
+      selector: "span.genre-tag"
+      actions: *actions_split_comma_text     
     - name: lang
+      type: string[]
+      selector: "span.lang-flag"
+      actions:
+        - type: get_attribut
+          argument: title
+    - name: lang
+      type: string[]
       selector: "div.catalog-info > div.info-row:nth-child(3) > p.info-value"
       actions: *actions_split_comma_text
 
   entries_catalog_cards_with_other: &entries_catalog_cards_with_other
     - name: source
+      type: string
       actions:
         - type: format_text
           argument: "{source}"
     - name: title
+      type: string
+      select: first
       selector: "h2.card-title"
-      actions:  
+      actions:
         - type: get_text
     - name: title/alt
+      type: string
+      select: first
       selector: "p.alternate-titles"
-      actions:  
+      actions:
         - type: get_text
     - name: media-type
+      type: string
       selector: "div.catalog-info > div.info-row:nth-child(2) > p.info-value"
+      select: first
       actions: *actions_media_type_search
     - name: img/landscape > link
+      type: string
+      select: first
       selector: "img.card-image"
-      actions: *actions_get_src
+      actions: 
+        - type: get_attribut
+          argument: src
     - name: description
+      type: string
+      select: first
       selector: "div.synopsis-content"
-      actions:  
+      actions:
         - type: get_text
     - name: link
+      type: string
+      select: first
       selector: "a"
       actions: *actions_get_href_resolve
     - name: web-link
+      type: string
+      select: first
       selector: "a"
       actions: *actions_get_href_resolve
     - name: theme
+      type: string[]
       selector: "div.catalog-info > div.info-row:nth-child(1) > p.info-value"
       actions: *actions_split_comma_text
+    - name: theme
+      type: string[]
+      selector: "span.genre-tag"
+      actions: *actions_split_comma_text
     - name: lang
+      type: string[]
       selector: "div.catalog-info > div.info-row:nth-child(3) > p.info-value"
       actions: *actions_split_comma_text
 
-  entries_latest_anime: &entries_latest_anime
-    - name: title
-      selector: "h2.card-title"
-      actions:  
-        - type: get_text
-    - name: media-type
-      actions:
-        - type: format_text
-          argument: "video/show/anime"
-    - name: episode > label
-      selector: "div.info-item.episode span.info-text"
-      actions:  
-        - type: get_text
-    - name: release-date
-      selector: "div.info-item.release-time span.time-text"
-      actions: *actions_release_date_dd_mm_yyyy
-    - name: lang
-      selector: ".language-badge-top img"
-      actions: *actions_get_alt
-    - name: link
-      selector: "a"
-      actions: *actions_get_href_catalog_root_resolve
-    - name: web-link
-      selector: "a"
-      actions: *actions_get_href_catalog_root_resolve
-    - name: img/landscape > link
-      selector: "img.card-image"
-      actions: *actions_get_src
-
-  entries_latest_scans: &entries_latest_scans
-    - name: title
-      selector: "h2.card-title"
-      actions:  
-        - type: get_text
-    - name: media-type
-      selector: ".scan-badge .badge-text"
-      actions: *actions_media_type_search
-    - name: episode > label
-      selector: "div.info-item.chapter span.info-text"
-      actions:  
-        - type: get_text
-    - name: release-date
-      selector: "div.info-item.release-time span.time-text"
-      actions: *actions_release_date_dd_mm_yyyy
-    - name: lang
-      selector: ".language-badge-top img"
-      actions: *actions_get_alt
-    - name: link
-      selector: "a"
-      actions: *actions_get_href_catalog_root_resolve
-    - name: web-link
-      selector: "a"
-      actions: *actions_get_href_catalog_root_resolve
-    - name: img/landscape > link
-      selector: "img.card-image"
-      actions: *actions_get_src
-
-  get_category_entries: &get_category_entries
-    - name: categories
-      entries:
-        - name: key
-          actions:
-            - type: format_text
-              argument: "anime"
-        - name: label
-          actions:
-            - type: format_text
-              argument: "Anime"
-        - name: request > query_url
-          actions:
-            - type: format_text
-              argument: "{base_url}/catalogue/?type%5B%5D=Anime"
-    - name: categories
-      entries:
-        - name: key
-          actions:
-            - type: format_text
-              argument: "manga"
-        - name: label
-          actions:
-            - type: format_text
-              argument: "Scans"
-        - name: request > query_url
-          actions:
-            - type: format_text
-              argument: "{base_url}/catalogue/?type%5B%5D=Scans"
-    - name: categories
-      entries:
-        - name: key
-          actions:
-            - type: format_text
-              argument: "webtoon"
-        - name: label
-          actions:
-            - type: format_text
-              argument: "Webtoon"
-        - name: request > query_url
-          actions:
-            - type: format_text
-              argument: "{base_url}/catalogue/?type%5B%5D=Webtoon"
-    - name: sections
-      entries:
-        - name: label
-          actions:
-            - type: format_text
-              argument: "Catalogue"
-        - name: link
-          actions:
-            - type: format_text
-              argument: "{query_url}"
-        - name: current_page
-          actions:
-            - type: format_text
-              argument: "{page}"
-        - name: total_pages
-          actions: *actions_catalog_total_pages_from_response
-        - name: entries
-          selector: "div.catalog-card.card-base"
-          select: all
-          entries: *entries_catalog_cards_with_other
 
 # ==========================================================
 # Queries
 # ==========================================================
 queries:
+
+  # --------------------------------------------------------------------------
+  # Service stream metadata
+  # --------------------------------------------------------------------------
   - name: service_stream_metadata
     scraper_type: static
     entries:
       - name: id
+        type: string
         value: "{service_id}"
       - name: title
+        type: string
         value: "{service_title}"
       - name: logo
+        type: string
         value: "{service_logo}"
       - name: description
+        type: object
         value: "{service_description}"
       - name: search_themes
+        type: string[]
         value:
           - "Action"
           - "Adolescence"
@@ -359,12 +270,406 @@ queries:
           - "Revenge"
           - "Time Travel"
 
+
+  # ---------------------------------------------------------------
+  # Home page
+  # ---------------------------------------------------------------
+  - name: load_home
+    scraper_type: html
+    base_url: "{base_url}"
+    query_url: "{base_url}"
+    media_types: *media_types_anime_sama
+    row_selector: "html"
+    entries:
+    - name: banners
+      type: object[]
+      selector: "div.ak-slide:not([aria-hidden=\"true\"])"
+      select: all
+      entries:
+      - name: key
+        type: string
+        actions:
+          - type: format_text
+            argument: "anime-sama-season-banner"
+      - name: title
+        type: string
+        select: first
+        selector: "h2.ak-slide-title"
+        actions:
+          - type: get_text
+      - name: image
+        type: string
+        select: first
+        selector: "img"
+        actions: 
+          - type: get_attribut
+            argument: src
+      - name: link
+        type: string
+        select: first
+        selector: ".ak-slide-cta"
+        actions:
+        - type: get_attribut
+          argument: href
+        - type: regex_find_all
+          pattern: '(/catalogue/[^/]+)(?:/[^/]+)*'
+          format: "{base_url}{1}"
+      - name: web-link
+        type: string
+        select: first
+        selector: ".ak-slide-cta"
+        actions:
+        - type: get_attribut
+          argument: href
+        - type: regex_find_all
+          pattern: '(/catalogue/[^/]+)(?:/[^/]+)*'
+          format: "{base_url}{1}"
+      - name: description
+        type: string
+        select: first
+        selector: "p.ak-slide-synopsis"
+        actions:
+          - type: get_text
+    - name: categories
+      type: object[]
+      entries:
+        - name: key
+          type: string
+          actions:
+            - type: format_text
+              argument: "Animés"
+        - name: label
+          type: string
+          actions:
+            - type: format_text
+              argument: "Animés"
+        - name: link
+          type: string
+          actions:
+            - type: format_text
+              argument: "{base_url}/catalogue/?type%5B%5D=Anime"
+    - name: categories
+      type: object[]
+      entries:
+        - name: key
+          type: string
+          actions:
+            - type: format_text
+              argument: "manga"
+        - name: label
+          type: string
+          actions:
+            - type: format_text
+              argument: "Scans"
+        - name: link
+          type: string
+          actions:
+            - type: format_text
+              argument: "{base_url}/catalogue/?type%5B%5D=Scans"
+    - name: categories
+      type: object[]
+      entries:
+        - name: key
+          type: string
+          actions:
+            - type: format_text
+              argument: "webtoon"
+        - name: label
+          type: string
+          actions:
+            - type: format_text
+              argument: "Webtoon"
+        - name: link
+          type: string
+          actions:
+            - type: format_text
+              argument: "{base_url}/catalogue/?type%5B%5D=Webtoon"
+    - name: sections
+      type: object[]
+      selector: "div#containerSorties"
+      entries:
+        - name: label
+          type: string
+          actions:
+            - type: format_text
+              argument: "Derniers contenus sortis"
+        - name: entries
+          type: object[]
+          selector: "div.catalog-card.card-base"
+          select: all
+          entries: *entries_catalog_cards
+    - name: sections
+      type: object[]
+      selector: "div#containerAjoutsAnimes"
+      entries:
+        - name: label
+          type: string
+          actions:
+            - type: format_text
+              argument: "Derniers épisodes ajoutés"
+        - name: entries
+          type: object[]
+          selector: "div.anime-card-premium.card-base"
+          select: all
+          entries:
+            - name: title
+              type: string
+              select: first
+              selector: "h2.card-title"
+              actions:
+                - type: get_text
+            - name: media-type
+              type: string
+              select: first
+              actions:
+                - type: format_text
+                  argument: "video/show/anime"
+            - name: episode > label
+              type: string
+              select: first
+              selector: "div.info-item.episode span.info-text"
+              actions:
+                - type: get_text
+            - name: release-date
+              type: string
+              select: first
+              selector: "div.info-item.release-time span.time-text"
+              actions: *actions_release_date_dd_mm_yyyy
+            - name: lang
+              type: string[]
+              selector: ".language-badge-top img"
+              actions:
+                - type: get_attribut
+                  argument: alt
+            - name: link
+              type: string
+              select: first
+              selector: "a"
+              actions: *actions_get_href_catalog_root_resolve
+            - name: web-link
+              type: string
+              select: first
+              selector: "a"
+              actions: *actions_get_href_catalog_root_resolve
+            - name: img/landscape > link
+              type: string
+              select: first
+              selector: "img.card-image"
+              actions:
+                - type: get_attribut
+                  argument: src
+    - name: sections
+      type: object[]
+      selector: "div#containerAjoutsScans"
+      entries:
+        - name: label
+          type: string
+          actions:
+            - type: format_text
+              argument: "Derniers scans ajoutés"
+        - name: entries
+          type: object[]
+          selector: "div.scan-card-premium.card-base"
+          select: all
+          entries:
+            - name: title
+              type: string
+              select: first
+              selector: "h2.card-title"
+              actions:
+                - type: get_text
+            - name: media-type
+              type: string
+              select: first
+              selector: ".scan-badge .badge-text"
+              actions: *actions_media_type_search
+            - name: episode > label
+              type: string
+              select: first
+              selector: "div.info-item.chapter span.info-text"
+              actions:
+                - type: get_text
+            - name: release-date
+              type: string
+              select: first
+              selector: "div.info-item.release-time span.time-text"
+              actions: *actions_release_date_dd_mm_yyyy
+            - name: lang
+              type: string[]
+              selector: ".language-badge-top img"
+              actions:
+                - type: get_attribut
+                  argument: alt
+            - name: link
+              type: string
+              select: first
+              selector: "a"
+              actions: *actions_get_href_catalog_root_resolve
+            - name: web-link
+              type: string
+              select: first
+              selector: "a"
+              actions: *actions_get_href_catalog_root_resolve
+            - name: img/landscape > link
+              type: string
+              select: first
+              selector: "img.card-image"
+              actions:
+                - type: get_attribut
+                  argument: src
+    - name: sections
+      type: object[]
+      selector: "div#containerPepites"
+      entries:
+        - name: label
+          type: string
+          actions:
+            - type: format_text
+              argument: "Découvrez des pépites"
+        - name: entries
+          type: object[]
+          selector: "div.catalog-card.card-base"
+          select: all
+          entries: *entries_catalog_cards
+
+
+  # ---------------------------------------------------------------
+  # Category listing
+  # ---------------------------------------------------------------
+  - name: get_category
+    scraper_type: html
+    base_url: "{base_url}"
+    query_url: "{query_url}&page={page}"
+    media_types: *media_types_anime_sama
+    row_selector: "html"
+    entries:
+      - name: categories
+        type: object[]
+        entries:
+          - name: key
+            type: string
+            actions:
+              - type: format_text
+                argument: "anime"
+          - name: label
+            type: string
+            actions:
+              - type: format_text
+                argument: "Anime"
+          - name: link
+            type: string
+            actions:
+              - type: format_text
+                argument: "{base_url}/catalogue/?type%5B%5D=Anime"
+      - name: categories
+        type: object[]
+        entries:
+          - name: key
+            type: string
+            actions:
+              - type: format_text
+                argument: "manga"
+          - name: label
+            type: string
+            actions:
+              - type: format_text
+                argument: "Scans"
+          - name: link
+            type: string
+            actions:
+              - type: format_text
+                argument: "{base_url}/catalogue/?type%5B%5D=Scans"
+      - name: categories
+        type: object[]
+        entries:
+          - name: key
+            type: string
+            actions:
+              - type: format_text
+                argument: "webtoon"
+          - name: label
+            type: string
+            actions:
+              - type: format_text
+                argument: "Webtoon"
+          - name: link
+            type: string
+            actions:
+              - type: format_text
+                argument: "{base_url}/catalogue/?type%5B%5D=Webtoon"
+      - name: sections
+        type: object[]
+        entries:
+          - name: label
+            type: string
+            actions:
+              - type: format_text
+                argument: "Catalogue"
+          - name: link
+            type: string
+            actions:
+              - type: format_text
+                argument: "{query_url}"
+          - name: current_page
+            type: number
+            actions:
+              - type: format_text
+                argument: "{page}"
+          - name: total_pages
+            type: number
+            actions: *actions_catalog_total_pages_from_response
+          - name: entries
+            type: object[]
+            selector: "div.catalog-card.card-base"
+            select: all
+            entries: *entries_catalog_cards_with_other
+    post_process:
+      - type: derive_pagination
+        source: sections
+        total_pages_field: total_pages
+        remove_fields:
+          - total_pages
+
+
+  # ---------------------------------------------------------------
+  # Sections listing
+  # ---------------------------------------------------------------
+  - name: get_section
+    scraper_type: html
+    base_url: "{base_url}"
+    query_url: "{query_url}&page={page}"
+    media_types: *media_types_anime_sama
+    row_selector: "html"
+    entries:
+      - name: current_page
+        type: number
+        actions:
+          - type: format_text
+            argument: "{page}"
+      - name: total_pages
+        type: number
+        actions: *actions_catalog_total_pages_from_response
+      - name: entries
+        type: object[]
+        selector: "div.catalog-card.card-base"
+        select: all
+        entries: *entries_catalog_cards_with_other
+    post_process:
+      - type: derive_pagination
+        total_pages_field: total_pages
+        remove_fields:
+          - total_pages
+
+
+  # --------------------------------------------------------------------------
+  # Search
+  # --------------------------------------------------------------------------
   - name: search
     scraper_type: html
     base_url: "{base_url}"
     media_types: *media_types_anime_sama
     query_url: "{base_url}/catalogue/?{media_type_filter}{themes_filter}search={search_terms}&page={page}"
-    query_param_mappings: 
+    query_param_mappings:
       - target_param: media_type_filter
         source_param: media_types
         item_suffix: "&"
@@ -431,60 +736,89 @@ queries:
           "Vampires" : "genre%5B%5D=Vampires"
           "Revenge" : "genre%5B%5D=Vengeance"
           "Time Travel" : "genre%5B%5D=Voyage temporel"
-
-
     row_selector: "html"
     entries:
       - name: source
+        type: string
         actions:
           - type: format_text
             argument: "{source}"
       - name: current_page
+        type: number
         actions:
           - type: format_text
             argument: "{page}"
       - name: total_pages
+        type: number
         actions: *actions_catalog_total_pages_from_response
       - name: entries
+        type: object[]
         selector: "div.catalog-card.card-base"
         select: all
         entries:
           - name: title
+            type: string
+            select: first
             selector: "h2.card-title"
-            actions:  
+            actions:
               - type: get_text
           - name: title/alt
+            type: string
+            select: first
             selector: "p.alternate-titles"
-            actions:  
+            actions:
               - type: get_text
           - name: media-type
+            type: string
+            select: first
             selector: "div.catalog-info > div.info-row:nth-child(2) > p.info-value"
             actions: *actions_media_type_search
           - name: img/poster > link
+            type: string
+            select: first
             selector: "img.card-image"
-            actions: *actions_get_src
+            actions: 
+              - type: get_attribut
+                argument: src
           - name: description
+            type: string
+            select: first
             selector: "div.synopsis-content"
-            actions:  
+            actions:
               - type: get_text
           - name: link
+            type: string
+            select: first
             selector: "a"
-            actions: *actions_get_href
+            actions:
+              - type: get_attribut
+                argument: href
           - name: web-link
+            type: string
+            select: first
             selector: "a"
-            actions: *actions_get_href
+            actions:
+              - type: get_attribut
+                argument: href
           - name: theme
-            selector: "div.catalog-info > div.info-row:nth-child(1) > p.info-value"
+            type: string[]
+            selector: "span.genre-tag"
             actions: *actions_split_comma_text
           - name: lang
-            selector: "div.catalog-info > div.info-row:nth-child(3) > p.info-value"
-            actions: *actions_split_comma_text
+            type: string[]
+            selector: "span.lang-flag"
+            actions:
+              - type: get_attribut
+                argument: title
     post_process:
       - type: derive_pagination
         total_pages_field: total_pages
         remove_fields:
           - total_pages
 
+  # ---------------------------------------------------------------
+  # Entry detail page
+  # ---------------------------------------------------------------
   - name: get_entry
     scraper_type: html
     base_url: "{base_url}"
@@ -493,27 +827,46 @@ queries:
     row_selector: "html"
     entries:
       - name: title
+        type: string
+        select: first
         selector: "h1"
-        actions:  
+        actions:
           - type: get_text
       - name: title/alt
+        type: string
+        select: first
         selector: "h2#titreAlter"
-        actions:  
+        actions:
           - type: get_text
       - name: img/poster > link
+        type: string
+        select: first
         selector: "meta[property=\"og:image\"]"
-        actions: 
+        actions:
           - type: get_attribut
             argument: content
       - name: description
+        type: string
+        select: first
         selector: "#synopsisText"
-        actions:  
+        actions:
           - type: get_text
       - name: theme
+        type: string[]
         selector: "span.genre-pill"
-        actions: 
+        actions:
           - type: get_text
-      - name: season > label
+      - name: year
+        type: string
+        selector: .info-grid
+        actions:
+          - type: get_text
+          - type: regex_find_all
+            pattern: '\s*Année\n\s*(\d\d\d\d)\n'
+            format: '{1}'
+      - name: seasons > label
+        type: string
+        select: all
         selector: "div.flex.flex-wrap.overflow-y-hidden.justify-start.bg-slate-900.bg-opacity-70.rounded.mt-2.h-auto > script"
         actions:
           - type: get_text
@@ -523,7 +876,8 @@ queries:
           - type: regex_find_all
             pattern: '(?m)^[ \t]*panneauAnime\("([^"]+)"\s*,\s*"[^"]+"\);\s*$'
             format: "{1}"
-      - name: season > link
+      - name: seasons > link
+        type: string
         selector: "div.flex.flex-wrap.overflow-y-hidden.justify-start.bg-slate-900.bg-opacity-70.rounded.mt-2.h-auto > script"
         select: all
         actions:
@@ -536,6 +890,8 @@ queries:
             format: "{1}"
           - type: resolve_url
       - name: video/trailer
+        type: string
+        select: first
         selector: 'div[id="sousBlocMiddle"] > div > script'
         actions:
           - type: get_text
@@ -543,173 +899,17 @@ queries:
           - type: regex_find_all
             pattern: '(https?://(?:www\.)?(?:youtube(?:-nocookie)?\.com/(?:embed/[A-Za-z0-9_-]+|watch\?v=[A-Za-z0-9_-]+)|youtu\.be/[A-Za-z0-9_-]+))'
             format: "{1}"
+      - name: video/trailer
+        type: string
+        select: first
+        selector: "iframe#bandeannonce"
+        actions:
+          - type: get_attribut
+            argument: src
 
-  - name: load_home
-    scraper_type: html
-    base_url: "{base_url}"
-    query_url: "{base_url}"
-    media_types: *media_types_anime_sama
-    row_selector: "html"
-    entries: 
-    - name: banners
-      selector: "div.ak-slide"
-      select: all
-      entries: 
-      - name: key
-        actions:
-          - type: format_text
-            argument: "anime-sama-season-banner"
-      - name: title
-        selector: "h2.ak-slide-title"
-        actions:
-          - type: get_text
-      - name: image
-        selector: "img"
-        actions: *actions_get_src
-      - name: link
-        selector: ".ak-slide-cta"
-        actions:
-        - type: get_attribut
-          argument: href
-        - type: regex_find_all
-          pattern: '(/catalogue/[^/]+)(?:/[^/]+)*'
-          format: "{base_url}{1}"
-      - name: web-link
-        selector: ".ak-slide-cta"
-        actions:
-        - type: get_attribut
-          argument: href
-        - type: regex_find_all
-          pattern: '(/catalogue/[^/]+)(?:/[^/]+)*'
-          format: "{base_url}{1}"
-      - name: description
-        selector: "p.ak-slide-synopsis"
-        actions:
-          - type: get_text
-    - name: categories
-      entries:
-        - name: key
-          actions:
-            - type: format_text
-              argument: "Animés"
-        - name: label
-          actions:
-            - type: format_text
-              argument: "Animés"
-        - name: request > query_url
-          actions:
-            - type: format_text
-              argument: "{base_url}/catalogue/?type%5B%5D=Anime"
-    - name: categories
-      entries:
-        - name: key
-          actions:
-            - type: format_text
-              argument: "manga"
-        - name: label
-          actions:
-            - type: format_text
-              argument: "Scans"
-        - name: request > query_url
-          actions:
-            - type: format_text
-              argument: "{base_url}/catalogue/?type%5B%5D=Scans"
-    - name: categories
-      entries:
-        - name: key
-          actions:
-            - type: format_text
-              argument: "webtoon"
-        - name: label
-          actions:
-            - type: format_text
-              argument: "Webtoon"
-        - name: request > query_url
-          actions:
-            - type: format_text
-              argument: "{base_url}/catalogue/?type%5B%5D=Webtoon"
-    - name: sections
-      selector: "div#containerSorties"
-      entries:
-        - name: label
-          actions:
-            - type: format_text
-              argument: "Derniers contenus sortis"
-        - name: entries
-          selector: "div.catalog-card.card-base"
-          select: all
-          entries: *entries_catalog_cards
-    - name: sections
-      selector: "div#containerAjoutsAnimes"
-      entries:
-        - name: label
-          actions:
-            - type: format_text
-              argument: "Derniers épisodes ajoutés"
-        - name: entries
-          selector: "div.anime-card-premium.card-base"
-          select: all
-          entries: *entries_latest_anime
-    - name: sections
-      selector: "div#containerAjoutsScans"
-      entries:
-        - name: label
-          actions:
-            - type: format_text
-              argument: "Derniers scans ajoutés"
-        - name: entries
-          selector: "div.scan-card-premium.card-base"
-          select: all
-          entries: *entries_latest_scans
-    - name: sections
-      selector: "div#containerPepites"
-      entries:
-        - name: label
-          actions:
-            - type: format_text
-              argument: "Découvrez des pépites"
-        - name: entries
-          selector: "div.catalog-card.card-base"
-          select: all
-          entries: *entries_catalog_cards
-
-  - name: get_category
-    scraper_type: html
-    base_url: "{base_url}"
-    query_url: "{query_url}&page={page}"
-    media_types: *media_types_anime_sama
-    row_selector: "html"
-    entries: *get_category_entries
-    post_process:
-      - type: derive_pagination
-        source: sections
-        total_pages_field: total_pages
-        remove_fields:
-          - total_pages
-
-  - name: get_section
-    scraper_type: html
-    base_url: "{base_url}"
-    query_url: "{query_url}&page={page}"
-    media_types: *media_types_anime_sama
-    row_selector: "html"
-    entries:
-      - name: current_page
-        actions:
-          - type: format_text
-            argument: "{page}"
-      - name: total_pages
-        actions: *actions_catalog_total_pages_from_response
-      - name: entries
-        selector: "div.catalog-card.card-base"
-        select: all
-        entries: *entries_catalog_cards_with_other
-    post_process:
-      - type: derive_pagination
-        total_pages_field: total_pages
-        remove_fields:
-          - total_pages
-
+  # ---------------------------------------------------------------
+  # Season
+  # ---------------------------------------------------------------
   - name: get_season
     scraper_type: html
     base_url: "{base_url}"
@@ -718,34 +918,62 @@ queries:
     row_selector: "html"
     entries:
       - name: current_page
+        type: number
         actions:
           - type: format_text
             argument: "1"
       - name: have_more
+        type: boolean
         actions:
           - type: format_text
             argument: "false"
       - name: link
+        type: string
         actions:
           - type: get_request_url
       - name: languages
+        type: object
         entries:
           - name: lang
-            actions: *actions_lang_from_request_url
+            type: string
+            actions:
+              - type: get_request_url
+              - type: regex_find_all
+                pattern: '/(fr|vf|vostfr|vo|va|var|vkr|vcn|vqc|vf1|vf2)(?:/|$)'
+                format: "{1}"
+              - type: map
+                argument:
+                  fr: vf
+                default: "{}"
           - name: link
+            type: string
             actions:
               - type: get_request_url
       - name: languages
+        type: object
         selector: "a[id^='switch']"
         select: all
         entries:
           - name: class
+            type: string
             actions:
               - type: get_attribut
                 argument: class
           - name: lang
-            actions: *actions_lang_from_switch_href
+            type: string
+            actions:
+              - type: get_attribut
+                argument: href
+              - type: regex_find_all
+                pattern: '/?([^/]+)/?$'
+                format: "{1}"
+              - type: map
+                argument:
+                  fr: vf
+                  vostfr: vo
+                default: "{}"
           - name: link
+            type: string
             actions: *actions_get_href_resolve
     post_process:
       - type: fetch_regex_items_from_items
@@ -764,14 +992,17 @@ queries:
             target: lang
         entries:
           - name: server-index
+            type: number
             capture_group: 1
           - name: links
+            type: string[]
             capture_group: 2
             actions:
               - type: regex_find_all
                 pattern: "['\\\"]([^'\\\"]+)['\\\"]"
                 format: "{1}"
           - name: name
+            type: string
             capture_group: 2
             actions:
               - type: regex_find_all
@@ -790,14 +1021,15 @@ queries:
             target: name
           - source: lang
             target: lang
-        copy_root_fields:
+        copy_target_fields:
           - source: link
-            target: season-link
-        promote_first_nested_fields:
-          - source: season-link
             target: link
         generated_fields:
           - name: episode-number
             format: "{}"
           - name: title
             format: "Episode {}"
+      - type: derive_pagination
+        remove_fields:
+          - languages
+          - player-arrays

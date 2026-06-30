@@ -331,7 +331,10 @@ impl ScraperAgregator {
                     // Preserve the origin of each row when the caller requests it.
                     entry.insert(
                         source_field_name.to_string(),
-                        ScraperDataNode::from_values(vec![query.name().to_string()]),
+                        ScraperDataNode::from_values_typed(
+                            vec![query.name().to_string()],
+                            ScraperOutputType::String,
+                        ),
                     );
                 }
 

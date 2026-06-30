@@ -278,14 +278,15 @@ impl StreamScraper {
         &self,
         query_source: String,
         query_url: String,
-    ) -> Result<Vec<HashMap<String, ScraperDataNode>>> {
+    ) -> Result<HashMap<String, ScraperDataNode>> {
         let mut params: HashMap<String, String> = HashMap::new();
         params.insert("query_url".to_string(), query_url);
         self.enrich_runtime_params(&mut params);
 
         let scrapper_list = vec![query_source];
 
-        self.scraper_agregator
+        let mut results = self
+            .scraper_agregator
             .execute_query_async(
                 "get_entry",
                 &params,
@@ -295,7 +296,9 @@ impl StreamScraper {
                 None,
                 None,
             )
-            .await
+            .await?;
+
+        Ok(results.pop().unwrap_or_default())
     }
 
     /// Convenience helper for the `get_season` query using the provided absolute season URL.
@@ -561,11 +564,12 @@ impl StreamScraper {
 
         let mut root = ScraperDataNode::default();
         for row in rows {
-            root.merge(ScraperDataNode {
+            root.merge_first(&ScraperDataNode {
                 children: row,
                 ..Default::default()
             });
         }
+        root.keep_first_values();
 
         Ok(root.children)
     }

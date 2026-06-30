@@ -79,31 +79,83 @@ function resolveNativeVideoMimeType(pathname: string): string | null {
   return null
 }
 
+/**
+ * Converts a parsed URL into a native video source when its path targets a supported asset.
+ *
+ * @param url Parsed candidate media URL.
+ * @returns Native video asset metadata when the URL points to a supported video or manifest.
+ */
+function createNativeVideoAssetFromUrl(url: URL): ResolvedNativeVideoAsset | null {
+  const pathname = url.pathname.toLocaleLowerCase()
+  const mimeType = resolveNativeVideoMimeType(pathname)
+
+  if (!mimeType) {
+    return null
+  }
+
+  return {
+    src: url.toString(),
+    mimeType,
+    transport:
+      mimeType === HLS_MIME_TYPE
+        ? 'hls'
+        : mimeType === DASH_MIME_TYPE
+          ? 'dash'
+          : 'file',
+  }
+}
+
+/**
+ * Indicates whether the full raw value should be resolved before looking for embedded URLs.
+ *
+ * @param value Trimmed media value returned by the backend.
+ * @returns True when the value looks like a URL, path, or plain media filename.
+ */
+function shouldResolveNativeVideoValue(value: string): boolean {
+  return (
+    /^[a-z][a-z\d+.-]*:\/\//i.test(value) ||
+    value.startsWith('/') ||
+    value.startsWith('./') ||
+    value.startsWith('../') ||
+    (/^[^\s"'<>]+$/i.test(value) && /\.(?:mp4|webm|ogg|m3u8|mpd)(?:[?#].*)?$/i.test(value))
+  )
+}
+
 function resolveNativeVideoAsset(value: string | null): ResolvedNativeVideoAsset | null {
   if (!value) {
     return null
   }
 
-  try {
-    const candidateUrl = extractAbsoluteUrl(value) ?? resolveProtocolRelativeUrl(value) ?? value
-    const url = new URL(candidateUrl)
-    const pathname = url.pathname.toLocaleLowerCase()
-    const mimeType = resolveNativeVideoMimeType(pathname)
+  const normalizedValue = value.trim()
 
-    if (!mimeType) {
+  if (!normalizedValue) {
+    return null
+  }
+
+  try {
+    const candidateUrl = resolveProtocolRelativeUrl(normalizedValue) ?? normalizedValue
+
+    if (shouldResolveNativeVideoValue(candidateUrl)) {
+      const nativeVideoAsset = createNativeVideoAssetFromUrl(
+        new URL(candidateUrl, window.location.href),
+      )
+
+      if (nativeVideoAsset) {
+        return nativeVideoAsset
+      }
+    }
+  } catch {
+    // Continue with the embedded URL fallback below.
+  }
+
+  try {
+    const embeddedUrl = extractAbsoluteUrl(normalizedValue)
+
+    if (!embeddedUrl) {
       return null
     }
 
-    return {
-      src: url.toString(),
-      mimeType,
-      transport:
-        mimeType === HLS_MIME_TYPE
-          ? 'hls'
-          : mimeType === DASH_MIME_TYPE
-            ? 'dash'
-            : 'file',
-    }
+    return createNativeVideoAssetFromUrl(new URL(embeddedUrl))
   } catch {
     return null
   }

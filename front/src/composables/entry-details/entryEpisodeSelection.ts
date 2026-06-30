@@ -26,6 +26,7 @@ interface UseEntryEpisodeSelectionOptions {
 export function entryEpisodeSelection(options: UseEntryEpisodeSelectionOptions) {
   const selectedEpisodeId = shallowRef<string | null>(null)
   const allEpisodes = shallowRef<Map<string, EntryEpisode>>(new Map())
+  let initialEpisodeSelected = false
 
   /**
    * Indicates whether the current entry exposes seasons.
@@ -34,21 +35,15 @@ export function entryEpisodeSelection(options: UseEntryEpisodeSelectionOptions) 
 
   /**
    * Exposes the episodes currently rendered in the details view.
+   *
+   * Episodes always come from the season episodes, never from a top-level field.
    */
-  const displayedEpisodes = computed<EntryEpisode[]>(() =>
-    hasSeasons.value ? options.seasonEpisodes.value : (options.details.value?.episodes ?? []),
-  )
+  const displayedEpisodes = computed<EntryEpisode[]>(() => options.seasonEpisodes.value)
 
   /**
-   * Accumulates episodes from all loaded seasons into a persistent map.
-   * This lets the player keep the same episode selected when switching seasons.
-   * Overwrites existing entries to keep data fresh on entry reloads.
-   */
-  /**
    * Tracks whether the first playable episode auto-selection has been applied
-   * for the current non-seasonal entry load.
+   * for the current entry load.
    */
-  let initialEpisodeSelected = false
 
   watch(displayedEpisodes, (eps) => {
     const map = allEpisodes.value

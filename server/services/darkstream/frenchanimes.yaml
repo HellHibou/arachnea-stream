@@ -3,24 +3,27 @@ title: French Animes
 logo: "{base_url}/templates/franime/images/favicon3.png"
 description:
   fr: "Animés VF et VOSTFR en streaming."
-
 http:
   mode: auto
 
+
+# ############################################################################
+# Parameters
+# ############################################################################
 parameters:
   - name: base_url
     value: https://french-anime.com
     description: "Base URL — update on domain change"
 
-shared:
 
+# ############################################################################
+# Shared structs
+# ############################################################################
+shared:
   media_types_anime: &media_types_anime
     - video/show/anime
     - video/movie
 
-  # Extracts total pages from the pagination nav: <span class="navigation">
-  # <span>1</span> <a href="...page/2/">2</a> ... <a href="...page/44/">44</a>
-  # Extracts all page numbers from hrefs and returns the max.
   actions_total_pages_from_pagi: &actions_total_pages_from_pagi
     - type: get_response_body
     - type: regex_find_all
@@ -34,153 +37,126 @@ shared:
     - type: resolve_url
       proxy: true
 
-  # Catalog row entries — div.mov.clearfix elements
   entries_catalog_row: &entries_catalog_row
     - name: source
+      select: first
+      type: string
       actions:
         - type: format_text
           argument: "{source}"
     - name: title
+      type: string
+      select: first
       selector: "img"
       actions:
         - type: get_attribut
           argument: alt
     - name: link
+      type: string
+      select: first
       selector: a
       actions:
         - type: get_attribut
           argument: href
         - type: resolve_url
     - name: web-link
+      type: string
+      select: first
       selector: a
       actions:
         - type: get_attribut
           argument: href
         - type: resolve_url
     - name: img/poster > link
+      type: string
+      select: first
       selector: "img"
       actions: *actions_get_src_resolve
     - name: media-type
+      type: string
       actions:
         - type: format_text
           argument: "video/show/anime"
-
-  # Carousel entries (.owl-carousel.caroustyle > .item)
-  entries_carousel_item: &entries_carousel_item
-    - name: title
-      selector: "span.title1"
+    - name: lang
+      type: string[]
+      selector: :is(span.block-sai, span.nbloc1)
       actions:
         - type: get_text
-    - name: title/alt
-      selector: "span.title0"
-      actions:
-        - type: get_text
-    - name: link
-      selector: "a"
-      actions:
-        - type: get_attribut
-          argument: href
-        - type: resolve_url
-    - name: web-link
-      selector: "a"
-      actions:
-        - type: get_attribut
-          argument: href
-        - type: resolve_url
-    - name: img/poster > link
-      selector: "img"
-      actions: *actions_get_src_resolve
-    - name: media-type
-      actions:
-        - type: format_text
-          argument: "video/show/anime"
+        - type: regex_find_all
+          pattern: '(VOSTFR|FRENCH)'
+          format: "{1}"
+        - type: map
+          argument:
+            "VOSTFR" : vostfr
+            "FRENCH" : "vf"
 
-  # Latest-added list items
   entries_latest_added: &entries_latest_added
     - name: title
+      type: string
+      select: first
       selector: "a"
       actions:
         - type: get_text
     - name: link
+      type: string
+      select: first
       selector: "a"
       actions:
         - type: get_attribut
           argument: href
         - type: resolve_url
     - name: web-link
+      type: string
+      select: first
       selector: "a"
       actions:
         - type: get_attribut
           argument: href
         - type: resolve_url
     - name: media-type
+      type: string
       actions:
         - type: format_text
           argument: "video/show/anime"
+    - name: lang
+      type: string[]
+      selector: "i.langue"
+      actions:
+        - type: get_attribut
+          argument: "class"
+        - type: map
+          default: "{}"
+          argument:
+            "langue vostfr": vostfr
+            "langue vf": vf
 
-  # Block catalog entries (div.mov.clearfix inside .block-main)
-  entries_block_catalog: &entries_block_catalog
-    - name: source
-      actions:
-        - type: format_text
-          argument: "{source}"
-    - name: title
-      selector: "a.mov-t"
-      actions:
-        - type: get_text
-    - name: link
-      selector: "a.mov-t"
-      actions:
-        - type: get_attribut
-          argument: href
-        - type: resolve_url
-    - name: web-link
-      selector: "a.mov-t"
-      actions:
-        - type: get_attribut
-          argument: href
-        - type: resolve_url
-    - name: title/alt
-      selector: "div.mov-i img"
-      actions:
-        - type: get_attribut
-          argument: alt
-    - name: img/poster > link
-      selector: "div.mov-i img"
-      actions: *actions_get_src_resolve
-    - name: media-type
-      actions:
-        - type: format_text
-          argument: "video/show/anime"
-
+# ==========================================================
+# Queries
+# ==========================================================
 queries:
 
-  # ---------------------------------------------------------------
+  # --------------------------------------------------------------------------
+  # Service stream metadata
+  # --------------------------------------------------------------------------
   - name: service_stream_metadata
     scraper_type: static
     entries:
       - name: id
+        type: string
         value: "{service_id}"
       - name: title
+        type: string
         value: "{service_title}"
       - name: logo
+        type: string
         value: "{service_logo}"
         actions:
           - type: resolve_url
             proxy: true
       - name: description
+        type: object
         value: "{service_description}"
 
-  # ---------------------------------------------------------------
-  # Search
-  # ---------------------------------------------------------------
-  - name: search
-    scraper_type: html
-    base_url: "{base_url}"
-    query_url: "{base_url}/?do=search&mode=advanced&subaction=search&story={search_terms}"
-    media_types: *media_types_anime
-    row_selector: "div.mov.clearfix"
-    entries: *entries_catalog_row
 
   # ---------------------------------------------------------------
   # Home page
@@ -193,61 +169,80 @@ queries:
     row_selector: "html"
     entries:
       - name: source
+        type: string
         select: first
         actions:
           - type: format_text
             argument: "{source}"
 
       - name: categories
+        type: object[]
         entries:
           - name: key
+            type: string
             actions:
               - type: format_text
                 argument: "vf"
           - name: label
+            type: string
             actions:
               - type: format_text
                 argument: "Animés VF"
-          - name: request > query_url
+          - name: link
+            type: string
             actions:
               - type: format_text
                 argument: "{base_url}/animes-vf/"
+
       - name: categories
+        type: object[]
         entries:
           - name: key
+            type: string
             actions:
               - type: format_text
                 argument: "vostfr"
           - name: label
+            type: string
             actions:
               - type: format_text
                 argument: "Animés VOSTFR"
-          - name: request > query_url
+          - name: link
+            type: string
             actions:
               - type: format_text
                 argument: "{base_url}/animes-vostfr/"
+
       - name: categories
+        type: object[]
         entries:
           - name: key
+            type: string
             actions:
               - type: format_text
                 argument: "films"
           - name: label
+            type: string
             actions:
               - type: format_text
                 argument: "Films Animés"
-          - name: request > query_url
+          - name: link
+            type: string
             actions:
               - type: format_text
                 argument: "{base_url}/films-vf-vostfr/"
 
       - name: sections
+        type: object[]
         entries:
           - name: id
+            type: string
             actions:
               - type: format_text
                 argument: "top-carousel"
           - name: label
+            type: string
+            select: first
             selector: "h1.rel-title"
             actions:
               - type: get_text
@@ -255,17 +250,59 @@ queries:
                 pattern: "^([^:]+)"
                 format: "{1}"
           - name: items
+            type: object[]
             selector: ".owl-carousel.caroustyle > .item"
             select: all
-            entries: *entries_carousel_item
-
+            entries: 
+              - name: title
+                type: string
+                select: first
+                selector: "span.title1"
+                actions:
+                  - type: get_text
+              - name: title/alt
+                type: string
+                select: first
+                selector: "span.title0"
+                actions:
+                  - type: get_text
+              - name: link
+                type: string
+                select: first
+                selector: "a"
+                actions:
+                  - type: get_attribut
+                    argument: href
+                  - type: resolve_url
+              - name: web-link
+                type: string
+                select: first
+                selector: "a"
+                actions:
+                  - type: get_attribut
+                    argument: href
+                  - type: resolve_url
+              - name: img/poster > link
+                type: string
+                select: first
+                selector: "img"
+                actions: *actions_get_src_resolve
+              - name: media-type
+                type: string
+                actions:
+                  - type: format_text
+                    argument: "video/show/anime"
       - name: sections
+        type: object[]
         entries:
           - name: id
+            type: string
             actions:
               - type: format_text
                 argument: "latest-added"
           - name: label
+            type: string
+            select: first
             selector: "span.t-b-recent"
             actions:
               - type: get_text
@@ -273,41 +310,98 @@ queries:
                 pattern: "^([^:]+)"
                 format: "{1}"
           - name: items
+            type: object[]
             selector: ".lastserieadd li"
             select: all
             entries: *entries_latest_added
 
       - name: sections
+        type: object[]
         entries:
           - name: id
+            type: string
             actions:
               - type: format_text
                 argument: "latest-added-vf"
           - name: label
+            type: string
             actions:
               - type: format_text
                 argument: "Derniers Animes VF ajoutées"
           - name: items
+            type: object[]
             selector: ".lastfilmadd li"
             select: all
             entries: *entries_latest_added
 
       - name: sections
+        type: object[]
         entries:
           - name: id
+            type: string
             actions:
               - type: format_text
                 argument: "top-vostfr"
           - name: label
+            type: string
             selector: "div.block-main div.block-title span.left-ma"
             select: first
             actions:
               - type: get_text
           - name: items
+            type: object[]
             selector: "div.block-main div.mov.clearfix"
             select: all
-            entries: *entries_block_catalog
-
+            entries:
+              - name: source
+                type: string
+                actions:
+                  - type: format_text
+                    argument: "{source}"
+              - name: title
+                type: string
+                select: first
+                selector: "a.mov-t"
+                actions:
+                  - type: get_text
+              - name: link
+                type: string
+                select: first
+                selector: "a.mov-t"
+                actions:
+                  - type: get_attribut
+                    argument: href
+                  - type: resolve_url
+              - name: web-link
+                type: string
+                select: first
+                selector: "a.mov-t"
+                actions:
+                  - type: get_attribut
+                    argument: href
+                  - type: resolve_url
+              - name: title/alt
+                type: string
+                select: first
+                selector: "div.mov-i img"
+                actions:
+                  - type: get_attribut
+                    argument: alt
+              - name: img/poster > link
+                type: string
+                select: first
+                selector: "div.mov-i img"
+                actions: *actions_get_src_resolve
+              - name: media-type
+                type: string
+                actions:
+                  - type: format_text
+                    argument: "video/show/anime"
+              - name: lang
+                type: string[]
+                actions:
+                  - type: format_text
+                    argument: "vostfr"
   # ---------------------------------------------------------------
   # Category listing with pagination
   # ---------------------------------------------------------------
@@ -319,27 +413,34 @@ queries:
     row_selector: "html"
     entries:
       - name: source
+        type: string
         select: first
         actions:
           - type: format_text
             argument: "{source}"
       - name: sections
+        type: object[]
         entries:
           - name: current_page
+            type: number
             actions:
               - type: format_text
                 argument: "{page}"
           - name: page_size
+            type: number
             actions:
               - type: format_text
                 argument: "12"
           - name: total_pages
+            type: number
             actions: *actions_total_pages_from_pagi
           - name: link
+            type: string
             actions:
               - type: format_text
                 argument: "{query_url}"
           - name: entries
+            type: object[]
             selector: "div.mov.clearfix"
             select: all
             entries: *entries_catalog_row
@@ -359,25 +460,76 @@ queries:
     row_selector: "html"
     entries:
       - name: source
+        type: string
         select: first
         actions:
           - type: format_text
             argument: "{source}"
       - name: current_page
+        type: number
         actions:
           - type: format_text
             argument: "{page}"
       - name: page_size
+        type: number
         actions:
           - type: format_text
             argument: "12"
       - name: total_pages
+        type: number
         actions: *actions_total_pages_from_pagi
       - name: link
+        type: string
         actions:
           - type: format_text
             argument: "{query_url}"
       - name: entries
+        type: object[]
+        selector: "div.mov.clearfix"
+        select: all
+        entries: *entries_catalog_row
+    post_process:
+      - type: derive_pagination
+        total_pages_field: total_pages
+
+  # ---------------------------------------------------------------
+  # Search
+  # ---------------------------------------------------------------
+  - name: search
+    scraper_type: html
+    base_url: "{base_url}"
+    query_url: "{base_url}/?do=search&mode=advanced&subaction=search&story={search_terms}&search_start={page}"
+    media_types: *media_types_anime
+    row_selector: "html"
+    entries:
+      - name: source
+        type: string
+        select: first
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: current_page
+        type: number
+        actions:
+          - type: format_text
+            argument: "{page}"
+      - name: page_size
+        type: number
+        actions:
+          - type: format_text
+            argument: "10"
+      - name: total_pages
+        type: number
+        selector: span.navigation
+        select: first
+        actions:
+          - type: get_text
+          - type: regex_find_all
+            pattern: '\b(\d+)\b'
+            format: "{1}"
+          - type: max
+      - name: entries
+        type: object[]
         selector: "div.mov.clearfix"
         select: all
         entries: *entries_catalog_row
@@ -387,15 +539,6 @@ queries:
 
   # ---------------------------------------------------------------
   # Entry / detail page
-  #
-  # Le <div class="eps"> contient les épisodes au format brut :
-  #   1!https://vidmoly.biz/embed-xxx.html,https://other.com/yyy.html
-  #   2!https://vidmoly.biz/embed-zzz.html,...
-  #
-  # Le post_process extract_regex_items capture chaque bloc épisode
-  # avec TOUTES ses URLs (séparées par des virgules), puis les URLs
-  # sont splittées automatiquement en plusieurs objets players.
-  # Le nom du player est le nom de domaine de l'URL.
   # ---------------------------------------------------------------
   - name: get_entry
     scraper_type: html
@@ -405,20 +548,27 @@ queries:
     row_selector: "html"
     entries:
       - name: title
+        type: string
+        select: first
         selector: "h1[itemprop='name'], h1"
         actions:
           - type: get_text
       - name: title/alt
+        type: string
         actions:
           - type: get_response_body
           - type: regex_find_all
             pattern: 'TITRE ORIGINAL:\s*</div>\s*<div class="mov-desc">([^<]+)'
             format: "{1}"
       - name: description
+        type: string
+        select: first
         selector: 'span[itemprop="description"]'
         actions:
           - type: get_text
       - name: img/poster > link
+        type: string
+        select: first
         selector: "#posterimg"
         actions:
           - type: get_attribut
@@ -426,12 +576,14 @@ queries:
           - type: resolve_url
             proxy: true
       - name: year
+        type: number
         actions:
           - type: get_response_body
           - type: regex_find_all
             pattern: 'Date de sortie:\s*</div>\s*<div class="mov-desc">(\d{4})'
             format: "{1}"
       - name: theme
+        type: string[]
         actions:
           - type: get_response_body
           - type: regex_find_all
@@ -441,69 +593,67 @@ queries:
             pattern: '>([^<]+)</a>'
             format: "{1}"
       - name: director
+        type: string[]
         actions:
           - type: get_response_body
           - type: regex_find_all
             pattern: 'RÉALISATEUR:\s*</div>\s*<div class="mov-desc"(?:[^>]*)>\s*<span[^>]*>(?:<span[^>]*>)?([^<]+)'
             format: "{1}"
       - name: casting
+        type: string[]
         actions:
           - type: get_response_body
           - type: regex_find_all
             pattern: 'ACTEURS:\s*</div>\s*<div class="mov-desc"(?:[^>]*)>\s*<span[^>]*>(?:<span[^>]*>)?([^<]+)'
             format: "{1}"
       - name: lang/audio
+        type: string[]
         actions:
           - type: get_response_body
           - type: regex_find_all
             pattern: 'Version:\s*</div>\s*<div class="mov-desc">\s*<span[^>]*>([^<]+)'
             format: "{1}"
       - name: duration
+        type: string
         actions:
           - type: get_response_body
           - type: regex_find_all
             pattern: 'Durée:\s*</div>\s*<div class="mov-desc">\s*<span[^>]*>([^<]+)'
             format: "{1}"
-      # Raw episode block — <div class="eps"> contient les blocs épisode
-      # Format par épisode : <num>!<url1>,<url2>,...
       - name: _raw_eps
+        type: string
+        select: first
         selector: "div.eps"
         actions:
           - type: get_text
     post_process:
-      # Transforme les paires "1!url1,2!url2,..." en objets episode structurés.
-      # Chaque épisode peut avoir plusieurs URLs de mirrors séparées par des virgules.
-      # Les URLs sont splittées en plusieurs objets players,
-      # et le nom du player est extrait du nom de domaine de chaque URL.
-      #
-      # Format brut attendu :  1!https://a.com/x,https://b.com/y  2!https://a.com/z,...
-      # Résultat épisode : [{ episode-number: [1], players: [{embed-link: url_a, name: a.com}, {embed-link: url_b, name: b.com}], title: Episode 1 }]
       - type: extract_regex_items
         source: _raw_eps
-        target: episode
+        target: seasons > episodes
         pattern: '(\d+)!((?:https?://[^,\s]+(?:,\s*https?://[^,\s]+)*))'
         entries:
           - name: episode-number
+            type: string
             capture_group: 1
           - name: title
+            type: string
             capture_group: 1
             actions:
               - type: format_text
                 argument: "Episode {}"
-          # Toutes les URLs de cet épisode en une seule chaîne, puis splittées
           - name: players > embed-link
+            type: string
             capture_group: 2
             actions:
               - type: split
                 argument: ","
-          # Nom du player extrait du nom de domaine de chaque URL
           - name: players > name
+            type: string
             capture_group: 2
             actions:
               - type: split
                 argument: ","
               - type: get_url_host
-      # Supprime le champ brut intermédiaire
       - type: derive_pagination
         remove_fields:
           - _raw_eps

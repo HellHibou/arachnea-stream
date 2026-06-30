@@ -47,22 +47,30 @@ shared:
 
   rtbf_live_player_entries: &rtbf_live_player_entries
     - name: name
+      type: string
       actions:
         - type: format_text
           argument: "RTBF Auvio"
     - name: resolver
+      type: object
+      select: first
       entries:
         - name: kind
+          type: string
           actions:
             - type: format_text
               argument: "rtbf-auvio-live"
         - name: stream
+          type: object
+          select: first
           entries:
             - name: kind
+              type: string
               actions:
                 - type: format_text
                   argument: "redbee-license-proxy"
         - name: target_id
+          type: string
 
   actions_media_type: &actions_media_type
     - type: map
@@ -95,38 +103,63 @@ shared:
 
   rtbf_episode_entries: &rtbf_episode_entries
     - name: link
+      type: string
+      select: first
       pointer: /path
     - name: title
+      type: string
+      select: first
       pointer: /subtitle
     - name: description
+      type: string
+      select: first
       pointer: /description
     - name: duration
+      type: string
+      select: first
       pointer: /duration
     - name: release-date
+      type: string
+      select: first
       pointer: /releaseDate
       actions: *actions_get_date_dd_mm_yy
     - name: expire
+      type: string
+      select: first
       pointer: /publishedTo
       actions: *actions_get_date_yyyy_mm_dd
     - name: players
+      type: object[]
       entries:
         - name: resolver
+          type: object
+          select: first
           entries:
             - name: kind
+              type: string
               actions:
                 - type: format_text
                   argument: "rtbf-auvio-video"
             - name: stream
+              type: object
+              select: first
               entries:
                 - name: kind
+                  type: string
                   actions:
                     - type: format_text
                       argument: "redbee-license-proxy"
             - name: target_id
+              type: string
+              select: first
               pointer: /assetId
     - name: season-name
+      type: string
+      select: first
       pointer: /title
     - name: img/poster > link
+      type: string
+      select: first
       pointer: /illustration/m
 
   rtbf_program_episode_sub_query: &rtbf_program_episode_sub_query
@@ -138,11 +171,16 @@ shared:
     request_pointer: /contentPath
     row_pointer: /data/content/*
     entries:
-      - name: season
+      - name: seasons
+        type: object[]
         entries:
           - name: label
+            type: string
+            select: first
             pointer: /title
           - name: link
+            type: string
+            select: first
             pointer: /contentPath
     sub_queries:
       - scraper_type: json
@@ -155,7 +193,8 @@ shared:
             argument: "{}&_page=1&_limit=50&_embed=content&includeFastTv=true"
         row_pointer: /data/content/*[resourceType=MEDIA]
         entries:
-          - name: episode
+          - name: episodes
+            type: object[]
             entries: *rtbf_episode_entries
       - scraper_type: json
         filters:
@@ -167,7 +206,8 @@ shared:
             argument: "{}&_page=2&_limit=50&_embed=content&includeFastTv=true"
         row_pointer: /data/content/*[resourceType=MEDIA]
         entries:
-          - name: episode
+          - name: episodes
+            type: object[]
             entries: *rtbf_episode_entries
 
   # ================== SUB-QUERIES COMMUNES (load_home + get_category) ==================
@@ -181,10 +221,13 @@ shared:
       row_pointer: /data
       entries:
         - name: categories
+          type: object[]
           pointer: /content/*
           select: all
           entries:
             - name: key
+              type: string
+              select: first
               pointer: /label
               actions:
                 - type: map
@@ -197,10 +240,16 @@ shared:
                     Kids: kids
                     Documentaires: documentaires
             - name: label
+              type: string
+              select: first
               pointer: /label
             - name: image
+              type: string
+              select: first
               pointer: /illustration/m
             - name: request > query_url
+              type: string
+              select: first
               pointer: /path
               actions: *actions_format_rtbf_pages
 
@@ -209,29 +258,45 @@ shared:
       filters:
         /type:
           - PROMOBOX
-      request_pointer: /contentPath 
+      request_pointer: /contentPath
       row_pointer: /data/content/*
       target: banners
       entries:
-        - name: key          
+        - name: key
+          type: string
+          select: first
           pointer: /mediaId
-        - name: title        
+        - name: title
+          type: string
+          select: first
           pointer: /title
-        - name: subtitle     
+        - name: subtitle
+          type: string
+          select: first
           pointer: /subtitle
-        - name: description  
+        - name: description
+          type: string
+          select: first
           pointer: /description
-        - name: image        
+        - name: image
+          type: string
+          select: first
           pointer: /image/xl
         - name: link
+          type: string
+          select: first
           pointer: /deeplink
           actions: *actions_format_rtbf_pages
         - name: web-link
+          type: string
+          select: first
           pointer: /deeplink
           actions:
             - type: format_text
               argument: "https://auvio.rtbf.be{}"
         - name: video
+          type: string
+          select: first
           pointer: /mediaId
           actions:
             - type: format_text
@@ -254,6 +319,8 @@ shared:
               row_pointer: /
               entries:
                 - name: video
+                  type: string
+                  select: first
                   actions:
                     - type: get_request_url
                     - type: regex_find_all
@@ -273,7 +340,12 @@ shared:
                           - HLS
                       entries:
                         - name: video
+                          type: string
+                          select: first
                           pointer: /mediaLocator
+                          actions:
+                            - type: resolve_url
+                              proxy: true
 
     - scraper_type: json
       context_pointer: /widgets/*
@@ -285,44 +357,96 @@ shared:
       row_pointer: /data
       entries:
         - name: banners
+          type: object[]
           entries:
-            - name: key          
+            - name: key
+              type: string
+              select: first
               pointer: /id
-            - name: title        
+            - name: title
+              type: string
+              select: first
               pointer: /title
-            - name: subtitle     
+            - name: subtitle
+              type: string
+              select: first
               pointer: /subtitle
-            - name: description  
+            - name: description
+              type: string
+              select: first
               pointer: /description
-            - name: description  
+            - name: description
+              type: string
+              select: first
               pointer: /programDescription
-            - name: image        
+            - name: image
+              type: string
+              select: first
               pointer: /image/xl
-            - name: image        
+            - name: image
+              type: string
+              select: first
               pointer: /illustration/xl
-            - name: video        
+            - name: video
+              type: string
+              select: first
               pointer: /video/url
-            - name: video        
+              actions:
+                - type: resolve_url
+                  proxy: true
+            - name: video
+              type: string
+              select: first
               pointer: /media/url
-            - name: video        
+              actions:
+                - type: resolve_url
+                  proxy: true
+            - name: video
+              type: string
+              select: first
               pointer: /url
-            - name: video        
+              actions:
+                - type: resolve_url
+                  proxy: true
+            - name: video
+              type: string
+              select: first
               pointer: /trailerUrl
+              actions:
+                - type: resolve_url
+                  proxy: true
             - name: video
+              type: string
+              select: first
               pointer: /trailer/url
+              actions:
+                - type: resolve_url
+                  proxy: true
             - name: video
+              type: string
+              select: first
               pointer: /embedPath
-              actions: *actions_resolve_url
+              actions:
+                - type: resolve_url
+                  proxy: true
             - name: link
+              type: string
+              select: first
               pointer: /deepLink
               actions: *actions_format_rtbf_pages
             - name: link
+              type: string
+              select: first
               pointer: /path
               actions: *actions_format_rtbf_pages
             - name: web-link
+              type: string
+              select: first
               pointer: /deepLink
               actions: *actions_resolve_url
             - name: web-link
+              type: string
+              select: first
               pointer: /path
               actions: *actions_resolve_url
 
@@ -334,12 +458,16 @@ queries:
     scraper_type: static
     entries:
       - name: id
+        type: string
         value: "{service_id}"
       - name: title
+        type: string
         value: "{service_title}"
       - name: logo
+        type: string
         value: "{service_logo}"
       - name: description
+        type: object
         value: "{service_description}"
 
   - name: search
@@ -347,53 +475,93 @@ queries:
     base_url: https://auvio.rtbf.be
     query_url: "https://bff-service.rtbf.be/auvio/v1.23/mosaic/search?dataResourceType=MEDIA_LIST&query={search_terms}&includeFastTv=true&_page={page}&_limit={page_size}"
     media_types: *media_types_rtbf
-    row_pointer: /data/*
+    row_pointer: /
     entries:
       - name: source
+        type: string
+        select: first
         actions:
           - type: format_text
             argument: "{source}"
       - name: current_page
+        type: number
+        select: first
         actions:
           - type: format_text
             argument: "{page}"
       - name: total_pages
+        type: number
+        select: first
         pointer: /meta/page/last
       - name: entries
+        type: object[]
+        pointer: /data/*
+        select: all
         entries:
+          - name: source
+            type: string
+            actions:
+              - type: format_text
+                argument: "{source}"
           - name: id
+            type: string
+            select: first
             pointer: /id
           - name: title
+            type: string
+            select: first
             pointer: /title
           - name: subtitle
+            type: string
+            select: first
             pointer: /subtitle
           - name: description
+            type: string
+            select: first
             pointer: /description
           - name: link
+            type: string
+            select: first
             pointer: /path
             actions: *actions_format_rtbf_pages
           - name: web-link
+            type: string
+            select: first
             pointer: /path
             actions: *actions_resolve_url
           - name: embed-link
+            type: string
+            select: first
             pointer: /embedPath
             actions: *actions_resolve_url
           - name: media-type
+            type: string[]
             pointer: /type
             actions: *actions_media_type
           - name: release-date
+            type: string
+            select: first
             pointer: /releaseDate
             actions: *actions_get_date_dd_mm_yy
           - name: expire
+            type: string
+            select: first
             pointer: /publishedTo
             actions: *actions_get_date_yyyy_mm_dd
           - name: duration
+            type: string
+            select: first
             pointer: /duration
           - name: channel
+            type: string
+            select: first
             pointer: /channelLabel
           - name: theme
+            type: string[]
             pointer: /categoryLabel
           - name: img/poster > link
+            type: string
+            select: first
             pointer: /illustration/m
     post_process:
       - type: derive_pagination
@@ -409,142 +577,227 @@ queries:
     row_pointer: /
     entries:
       - name: title
+        type: string
+        select: first
         pointer: /data/content/title
       - name: title
+        type: string
+        select: first
         pointer: /data/content/0/title
       - name: title/alt
+        type: string
+        select: first
         pointer: /data/content/subtitle
       - name: title/alt
+        type: string
+        select: first
         pointer: /data/content/media/subtitle
       - name: title/alt
+        type: string
+        select: first
         pointer: /data/content/0/subtitle
       - name: description
+        type: string
+        select: first
         pointer: /data/content/description
       - name: description
+        type: string
+        select: first
         pointer: /data/content/0/description
       - name: img/poster > link
+        type: string
+        select: first
         pointer: /data/content/background/xl
       - name: img/poster > link
+        type: string
+        select: first
         pointer: /data/content/0/illustration/xl
       - name: img/logo > link
+        type: string
+        select: first
         pointer: /data/content/logo/m
 
       - name: players
+        type: object[]
         entries:
           - name: resolver
+            type: object
+            select: first
             entries:
               - name: kind
+                type: string
                 actions:
                   - type: format_text
                     argument: "rtbf-auvio-video"
               - name: stream
+                type: object
+                select: first
                 entries:
                   - name: kind
+                    type: string
                     actions:
                       - type: format_text
                         argument: "redbee-license-proxy"
               - name: target_id
+                type: string
+                select: first
                 pointer: /data/content/assetId
               - name: target_id
+                type: string
+                select: first
                 pointer: /data/content/media/assetId
               - name: target_id
+                type: string
+                select: first
                 pointer: /data/content/0/assetId
       - name: web-link
+        type: string
+        select: first
         pointer: /meta/seo/canonical
       - name: web-link
+        type: string
+        select: first
         pointer: /data/content/0/path
 
       - name: duration
+        type: string
+        select: first
         pointer: /data/content/duration
       - name: duration
+        type: string
+        select: first
         pointer: /data/content/media/duration
       - name: duration
+        type: string
+        select: first
         pointer: /data/content/0/duration
 
       - name: lang/subtitles
+        type: string[]
         pointer: /data/content/hasSubtitles
         actions: *map_true_vf
       - name: lang/subtitles
+        type: string[]
         pointer: /data/content/media/hasSubtitles
         actions: *map_true_vf
       - name: lang/subtitles
+        type: string[]
         pointer: /data/content/0/hasSubtitles
         actions: *map_true_vf
 
       - name: lang/audio
+        type: string[]
         pointer: /data/content/hasMultilingualVersions
         actions: *map_true_vf
       - name: lang/audio
+        type: string[]
         pointer: /data/content/media/hasMultilingualVersions
         actions: *map_true_vf
       - name: lang/audio
+        type: string[]
         pointer: /data/content/0/hasMultilingualVersions
         actions: *map_true_vf
 
       - name: lang/audio
+        type: string[]
         pointer: /data/content/hasMultilingualVersions
         actions: *map_true_vo
       - name: lang/audio
+        type: string[]
         pointer: /data/content/media/hasMultilingualVersions
         actions: *map_true_vo
       - name: lang/audio
+        type: string[]
         pointer: /data/content/0/hasMultilingualVersions
         actions: *map_true_vo
 
       - name: lang/audio
+        type: string[]
         pointer: /data/content/hasAudioDescriptions
         actions: *map_true_ad
       - name: lang/audio
+        type: string[]
         pointer: /data/content/media/hasAudioDescriptions
         actions: *map_true_ad
       - name: lang/audio
+        type: string[]
         pointer: /data/content/0/hasAudioDescriptions
         actions: *map_true_ad
 
       - name: release-date
+        type: string
+        select: first
         pointer: /data/content/releaseDate
         actions: *actions_get_date_dd_mm_yy
       - name: release-date
+        type: string
+        select: first
         pointer: /data/content/media/releaseDate
         actions: *actions_get_date_dd_mm_yy
       - name: release-date
+        type: string
+        select: first
         pointer: /data/content/0/releaseDate
         actions: *actions_get_date_dd_mm_yy
       - name: release-date
+        type: string
+        select: first
         pointer: /data/content/publishedFrom
         actions: *actions_get_date_yyyy_mm_dd
       - name: release-date
+        type: string
+        select: first
         pointer: /data/content/media/publishedFrom
         actions: *actions_get_date_yyyy_mm_dd
       - name: release-date
+        type: string
+        select: first
         pointer: /data/content/0/publishedFrom
         actions: *actions_get_date_yyyy_mm_dd
 
       - name: expire
+        type: string
+        select: first
         pointer: /data/content/publishedTo
         actions: *actions_get_date_yyyy_mm_dd
       - name: expire
+        type: string
+        select: first
         pointer: /data/content/media/publishedTo
         actions: *actions_get_date_yyyy_mm_dd
       - name: expire
+        type: string
+        select: first
         pointer: /data/content/0/publishedTo
         actions: *actions_get_date_yyyy_mm_dd
 
       - name: count-season
+        type: number
+        select: first
         pointer: /data/content/seasonCount
       - name: theme
+        type: string[]
         pointer: /data/content/category/label
       - name: theme
+        type: string[]
         pointer: /data/content/media/categoryLabel
       - name: theme
+        type: string[]
         pointer: /data/content/0/categoryLabel
       - name: content-advisor
+        type: string
+        select: first
         pointer: /data/content/rating
       - name: content-advisor
+        type: string
+        select: first
         pointer: /data/content/media/rating
       - name: content-advisor
+        type: string
+        select: first
         pointer: /data/content/0/rating
       - name: casting
+        type: string[]
         pointer: /data/content/casting/*/name
         select: all
 
@@ -569,20 +822,30 @@ queries:
     row_pointer: /data
     entries:
       - name: sections
+        type: object[]
         pointer: /widgets/*[type=MEDIA_LIST]
         select: all
         entries:
           - name: label
+            type: string
+            select: first
             pointer: /title
           - name: link
+            type: string
+            select: first
             pointer: /contentPath
       - name: sections
+        type: object[]
         pointer: /widgets/*[type=PROGRAM_LIST]
         select: all
         entries:
           - name: label
+            type: string
+            select: first
             pointer: /title
           - name: link
+            type: string
+            select: first
             pointer: /contentPath
     sub_queries: *home_sub_queries
 
@@ -597,20 +860,30 @@ queries:
     row_pointer: /data
     entries:
       - name: sections
+        type: object[]
         pointer: /widgets/*[type=MEDIA_LIST]
         select: all
         entries:
           - name: label
+            type: string
+            select: first
             pointer: /title
           - name: link
+            type: string
+            select: first
             pointer: /contentPath
       - name: sections
+        type: object[]
         pointer: /widgets/*[type=PROGRAM_LIST]
         select: all
         entries:
           - name: label
+            type: string
+            select: first
             pointer: /title
           - name: link
+            type: string
+            select: first
             pointer: /contentPath
     sub_queries: *home_sub_queries
 
@@ -622,46 +895,74 @@ queries:
     row_pointer: /
     entries:
       - name: current_page
+        type: number
+        select: first
         pointer: /meta/page/current
       - name: have_more
+        type: boolean
+        select: first
         pointer: /links/next
         actions: *map_null_false_default_true
       - name: entries
+        type: object[]
         pointer: /data/content/*
         select: all
         entries:
           - name: source
+            type: string
             actions:
               - type: format_text
                 argument: "{source}"
           - name: title
+            type: string
+            select: first
             pointer: /title
           - name: title/alt
+            type: string
+            select: first
             pointer: /subtitle
           - name: description
+            type: string
+            select: first
             pointer: /description
           - name: link
+            type: string
+            select: first
             pointer: /path
             actions: *actions_format_rtbf_pages
           - name: web-link
+            type: string
+            select: first
             pointer: /path
             actions: *actions_resolve_url
           - name: media-type
+            type: string[]
             pointer: /type
             actions: *actions_media_type
           - name: release-date
+            type: string
+            select: first
             pointer: /releaseDate
             actions: *actions_get_date_dd_mm_yy
           - name: expire
+            type: string
+            select: first
             pointer: /publishedTo
             actions: *actions_get_date_yyyy_mm_dd
           - name: duration
+            type: string
+            select: first
             pointer: /duration
           - name: channel
+            type: string
+            select: first
             pointer: /channelLabel
           - name: theme
+            type: string[]
             pointer: /categoryLabel
           - name: img/poster > link
+            type: string
+            select: first
             pointer: /illustration/m
 
   - name: get_season
@@ -672,51 +973,81 @@ queries:
     row_pointer: /data/content/*
     entries:
       - name: current_page
+        type: number
+        select: first
         pointer: /meta/page/current
       - name: have_more
+        type: boolean
+        select: first
         pointer: /links/next
         actions: *map_null_false_default_true
 
       # === ÉPISODES (utilise les champs communs de l'ancre) ===
       - name: episodes
+        type: object[]
         entries:
           - name: link
+            type: string
+            select: first
             pointer: /path
           - name: title
+            type: string
+            select: first
             pointer: /subtitle
           - name: description
+            type: string
+            select: first
             pointer: /description
           - name: duration
+            type: string
+            select: first
             pointer: /duration
           - name: release-date
+            type: string
+            select: first
             pointer: /releaseDate
             actions: *actions_get_date_dd_mm_yy
           - name: expire
+            type: string
+            select: first
             pointer: /publishedTo
             actions: *actions_get_date_yyyy_mm_dd
           - name: players
+            type: object[]
             entries:
               - name: resolver
+                type: object
+                select: first
                 entries:
                   - name: kind
+                    type: string
                     actions:
                       - type: format_text
                         argument: "rtbf-auvio-video"
                   - name: stream
+                    type: object
+                    select: first
                     entries:
                       - name: kind
+                        type: string
                         actions:
                           - type: format_text
                             argument: "redbee-license-proxy"
                   - name: target_id
+                    type: string
+                    select: first
                     pointer: /assetId
           - name: episode-number
+            type: string
+            select: first
             pointer: /subtitle
             actions:
               - type: regex_find_all
                 pattern: '^(\d+)'
                 format: "{1}"
-          - name: img/poster
+          - name: img/poster > link
+            type: string
+            select: first
             pointer: /illustration/m
 
   - name: list_lives
@@ -729,40 +1060,64 @@ queries:
     result_item_field: entries
     entries:
       - name: entries
+        type: object[]
         pointer: /data/content/*
         select: all
         entries:
           - name: title
+            type: string
+            select: first
             pointer: /title
           - name: title/alt
+            type: string
+            select: first
             pointer: /subtitle
           - name: key
+            type: string
+            select: first
             pointer: /assetId
           - name: key
+            type: string
+            select: first
             pointer: /streamId
           - name: media-type
+            type: string[]
             actions:
               - type: format_text
                 argument: "video/live"
           - name: link
+            type: string
+            select: first
             pointer: /path
             actions: *actions_format_rtbf_pages
           - name: web-link
+            type: string
+            select: first
             pointer: /path
             actions:
               - type: format_text
                 argument: "https://auvio.rtbf.be{}"
           - name: release-date
+            type: string
+            select: first
             pointer: /scheduledFrom
             actions: *actions_get_date_yyyy_mm_dd_hh_mm_ss
           - name: expire
+            type: string
+            select: first
             pointer: /scheduledTo
             actions: *actions_get_date_yyyy_mm_dd_hh_mm_ss
           - name: channel
+            type: string
+            select: first
             pointer: /channelLabel
           - name: img/poster > link
+            type: string
+            select: first
             pointer: /illustration/m
           - name: img/landscape > link
+            type: string
+            select: first
             pointer: /illustration/xl
 
   - name: get_live
@@ -774,8 +1129,10 @@ queries:
     row_pointer: /
     entries:
       - name: players
+        type: object[]
         pointer: /data/content/assetId
         entries: *rtbf_live_player_entries
       - name: players
+        type: object[]
         pointer: /data/content/streamId
         entries: *rtbf_live_player_entries

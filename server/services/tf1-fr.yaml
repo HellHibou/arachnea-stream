@@ -3,7 +3,7 @@ title: TF1+
 logo: "https://www.tf1.fr/_next/static/media/tf1-plus-logo-white.107m~.6am38d6.svg"
 description:
   fr: "TF1+ est la plateforme de streaming du groupe audiovisuel français TF1, offrant un large catalogue de programmes télévisés, films, séries, documentaires et contenus exclusifs en ligne. Les utilisateurs peuvent accéder à leurs émissions préférées en direct ou à la demande, avec des fonctionnalités de recherche avancées et une interface conviviale pour une expérience de visionnage optimale."
-  
+
 http:
   mode: direct
   user_agent_profile: firefox
@@ -53,9 +53,9 @@ parameters:
     value: 120
     description: Number of programs fetched for the TF1 home payload.
   - name: page_size
-    value: 20
+    value: 10
     description: Default TF1 page size for paged program and season requests.
-  - name: search_program_limit 
+  - name: search_program_limit
     value: 50
     description: Limit for the number of programs to search for.
   - name: search_video_limit
@@ -71,16 +71,19 @@ shared:
 
   generic_request_headers: &generic_request_headers
     - name: content-type
+      type: string
       actions:
         - type: format_text
           argument: "application/json"
     - name: referer
+      type: string
       actions:
         - type: format_text
           argument: "{base_url}/programmes-tv"
 
   android_request_headers: &android_request_headers
     - name: content-type
+      type: string
       actions:
         - type: format_text
           argument: "application/json"
@@ -156,217 +159,277 @@ shared:
   load_home_categories: &load_home_categories
     - &load_home_category_tf1
       name: categories
+      type: object[]
       entries:
         - name: key
+          type: string
           actions:
             - type: format_text
               argument: tf1
         - name: label
+          type: string
           actions:
             - type: format_text
               argument: TF1
         - name: request > name
+          type: string
           actions:
             - *action_static_request_source
         - name: request > source
+          type: string
           actions:
             - *action_static_request_source
         - name: request > channel
+          type: string
           actions:
             - type: format_text
               argument: tf1
         - name: request > channel_label
+          type: string
           actions:
             - type: format_text
               argument: TF1
         - name: request > page_size
+          type: number
           actions:
             - type: format_text
               argument: "{page_size}"
         - name: request > query_url
+          type: string
           actions:
             - type: format_text
-              argument: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22tf1%22%7D%2C%22offset%22%3A1%2C%22limit%22%3A{page_size}%7D"
+              argument: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22tf1%22%7D%2C%22offset%22%3A0%2C%22limit%22%3A{page_size}%7D"
     - &load_home_category_tmc
       name: categories
+      type: object[]
       entries:
         - name: key
+          type: string
           actions:
             - type: format_text
               argument: tmc
         - name: label
+          type: string
           actions:
             - type: format_text
               argument: TMC
         - name: request > name
+          type: string
           actions:
             - *action_static_request_source
         - name: request > source
+          type: string
           actions:
             - *action_static_request_source
         - name: request > channel
+          type: string
           actions:
             - type: format_text
               argument: tmc
         - name: request > channel_label
+          type: string
           actions:
             - type: format_text
               argument: TMC
         - name: request > page_size
+          type: number
           actions:
             - type: format_text
               argument: "{page_size}"
         - name: request > query_url
+          type: string
           actions:
             - type: format_text
-              argument: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22tmc%22%7D%2C%22offset%22%3A1%2C%22limit%22%3A{page_size}%7D"
+              argument: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22tmc%22%7D%2C%22offset%22%3A0%2C%22limit%22%3A{page_size}%7D"
     - &load_home_category_tfx
       name: categories
+      type: object[]
       entries:
         - name: key
+          type: string
           actions:
             - type: format_text
               argument: tfx
         - name: label
+          type: string
           actions:
             - type: format_text
               argument: TFX
         - name: request > name
+          type: string
           actions:
             - *action_static_request_source
         - name: request > source
+          type: string
           actions:
             - *action_static_request_source
         - name: request > channel
+          type: string
           actions:
             - type: format_text
               argument: tfx
         - name: request > channel_label
+          type: string
           actions:
             - type: format_text
               argument: TFX
         - name: request > page_size
+          type: number
           actions:
             - type: format_text
               argument: "{page_size}"
         - name: request > query_url
+          type: string
           actions:
             - type: format_text
-              argument: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22tfx%22%7D%2C%22offset%22%3A1%2C%22limit%22%3A{page_size}%7D"
+              argument: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22tfx%22%7D%2C%22offset%22%3A0%2C%22limit%22%3A{page_size}%7D"
     - &load_home_category_tf1_series_films
       name: categories
+      type: object[]
       entries:
         - name: key
+          type: string
           actions:
             - type: format_text
               argument: tf1-series-films
         - name: label
+          type: string
           actions:
             - type: format_text
               argument: TF1 Séries Films
         - name: request > name
+          type: string
           actions:
             - *action_static_request_source
         - name: request > source
+          type: string
           actions:
             - *action_static_request_source
         - name: request > channel
+          type: string
           actions:
             - type: format_text
               argument: tf1-series-films
         - name: request > channel_label
+          type: string
           actions:
             - type: format_text
               argument: TF1 Séries Films
         - name: request > page_size
+          type: number
           actions:
             - type: format_text
               argument: "{page_size}"
         - name: request > query_url
+          type: string
           actions:
             - type: format_text
-              argument: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22tf1-series-films%22%7D%2C%22offset%22%3A1%2C%22limit%22%3A{page_size}%7D"
+              argument: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22tf1-series-films%22%7D%2C%22offset%22%3A0%2C%22limit%22%3A{page_size}%7D"
     - &load_home_category_lci
       name: categories
+      type: object[]
       entries:
         - name: key
+          type: string
           actions:
             - type: format_text
               argument: lci
         - name: label
+          type: string
           actions:
             - type: format_text
               argument: LCI
         - name: request > name
+          type: string
           actions:
             - *action_static_request_source
         - name: request > source
+          type: string
           actions:
             - *action_static_request_source
         - name: request > channel
+          type: string
           actions:
             - type: format_text
               argument: lci
         - name: request > channel_label
+          type: string
           actions:
             - type: format_text
               argument: LCI
         - name: request > page_size
+          type: number
           actions:
             - type: format_text
               argument: "{page_size}"
         - name: request > query_url
+          type: string
           actions:
             - type: format_text
-              argument: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22lci%22%7D%2C%22offset%22%3A1%2C%22limit%22%3A{page_size}%7D"
+              argument: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22lci%22%7D%2C%22offset%22%3A0%2C%22limit%22%3A{page_size}%7D"
     - &load_home_category_all
       name: categories
+      type: object[]
       entries:
         - name: key
+          type: string
           actions:
             - type: format_text
               argument: all
         - name: label
+          type: string
           actions:
             - type: format_text
               argument: ALL
         - name: request > name
+          type: string
           actions:
             - *action_static_request_source
         - name: request > source
+          type: string
           actions:
             - *action_static_request_source
         - name: request > channel
+          type: string
           actions:
             - type: format_text
               argument: ""
         - name: request > channel_label
+          type: string
           actions:
             - type: format_text
               argument: ALL
         - name: request > page_size
+          type: number
           actions:
             - type: format_text
               argument: "{page_size}"
         - name: request > query_url
+          type: string
           actions:
             - type: format_text
-              argument: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22%22%7D%2C%22offset%22%3A1%2C%22limit%22%3A{page_size}%7D"
+              argument: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22%22%7D%2C%22offset%22%3A0%2C%22limit%22%3A{page_size}%7D"
 
   android_home_item_entries: &android_home_item_entries
     - name: source
+      type: string
       actions:
         - type: format_text
           argument: "{source}"
     - name: title
+      type: string
+      select: first
       pointer: /program/name
     - name: media-type
+      type: string[]
       pointer: /program/typology
       actions: *actions_typology_media_type
     - name: theme
+      type: string[]
       pointer: /program/topics/*
       select: all
     - name: link
+      type: string
       actions:
         - type: build_url
           base: "{smarttv_api_root}?id=379fec96081ab1a2&variables=%7B%22programId%22%3A%22{id}%22%7D&programSlug={slug}&channel={channel}"
@@ -375,6 +438,7 @@ shared:
             slug: /program/slug
             channel: /program/mainChannel/slug
     - name: web-link
+      type: string
       actions:
         - type: build_url
           base: "{base_url}/{channel}/{slug}"
@@ -382,39 +446,60 @@ shared:
             slug: /program/slug
             channel: /program/mainChannel/slug
     - name: img/poster > link
+      type: string
+      select: first
       pointer: /image/sourcesWithScales/0/src
       actions: *actions_android_photo_url
     - name: img/portrait > link
+      type: string
+      select: first
       pointer: /image/sourcesWithScales/0/src
       actions: *actions_android_photo_url
 
   android_home_video_item_entries: &android_home_video_item_entries
     - name: source
+      type: string
       actions:
         - type: format_text
           argument: "{source}"
     - name: title
+      type: string
+      select: first
       pointer: /video/decoration/label
     - name: title
+      type: string
+      select: first
       pointer: /video/title
     - name: title/alt
+      type: string
+      select: first
       pointer: /video/decoration/subLabel
     - name: description
+      type: string
+      select: first
       pointer: /video/decoration/description
     - name: duration
+      type: string
+      select: first
       pointer: /video/playingInfos/duration
     - name: media-type
+      type: string[]
       pointer: /video/program/typology
       actions: *actions_typology_media_type
     - name: season
+      type: string
+      select: first
       pointer: /video/season
     - name: theme
+      type: string[]
       pointer: /video/program/topics/*
       select: all
     - name: tags
+      type: string[]
       pointer: /video/tags/*/slug
       select: all
     - name: link
+      type: string
       actions:
         - type: build_url
           base: "{smarttv_api_root}?id=379fec96081ab1a2&variables=%7B%22programId%22%3A%22{id}%22%7D&programSlug={slug}&channel={channel}"
@@ -423,6 +508,7 @@ shared:
             slug: /video/program/slug
             channel: /video/program/mainChannel/slug
     - name: web-link
+      type: string
       actions:
         - type: build_url
           base: "{base_url}/{channel}/{program_slug}/videos/{slug}.html"
@@ -431,26 +517,41 @@ shared:
             program_slug: /video/program/slug
             slug: /video/slug
     - name: img/poster > link
+      type: string
+      select: first
       pointer: /image/sourcesWithScales/0/src
       actions: *actions_android_photo_url
     - name: img/landscape > link
+      type: string
+      select: first
       pointer: /image/sourcesWithScales/0/src
       actions: *actions_android_photo_url
 
   android_slider_banner_program_entries: &android_slider_banner_program_entries
     - name: key
+      type: string
+      select: first
       pointer: /id
     - name: title
+      type: string
+      select: first
       pointer: /decoration/label
     - name: description
+      type: string
+      select: first
       pointer: /bannerDecoration/catchPhrase
     - name: image
+      type: string
+      select: first
       pointer: /bannerDecoration/tabletBannerImg/sourcesWithScales/0/src
       actions: *actions_android_photo_url
     - name: logo
+      type: string
+      select: first
       pointer: /bannerDecoration/logoImg/sourcesWithScales/0/src
       actions: *actions_android_photo_url
     - name: link
+      type: string
       actions:
         - type: build_url
           base: "{smarttv_api_root}?id=379fec96081ab1a2&variables=%7B%22programId%22%3A%22{id}%22%7D&programSlug={slug}&channel={channel}"
@@ -459,6 +560,7 @@ shared:
             slug: /program/slug
             channel: /program/mainChannel/slug
     - name: web-link
+      type: string
       actions:
         - type: build_url
           base: "{base_url}/{channel}/{slug}"
@@ -468,34 +570,59 @@ shared:
 
   android_slider_banner_category_entries: &android_slider_banner_category_entries
     - name: key
+      type: string
+      select: first
       pointer: /id
     - name: title
+      type: string
+      select: first
       pointer: /decoration/label
     - name: description
+      type: string
+      select: first
       pointer: /bannerDecoration/catchPhrase
     - name: image
+      type: string
+      select: first
       pointer: /bannerDecoration/tabletBannerImg/sourcesWithScales/0/src
       actions: *actions_android_photo_url
     - name: logo
+      type: string
+      select: first
       pointer: /bannerDecoration/logoImg/sourcesWithScales/0/src
       actions: *actions_android_photo_url
 
   android_cover_program_banner_entries: &android_cover_program_banner_entries
     - name: key
+      type: string
+      select: first
       pointer: /id
     - name: title
+      type: string
+      select: first
       pointer: /program/name
     - name: description
+      type: string
+      select: first
       pointer: /decoration/catchPhrase
     - name: logo
+      type: string
+      select: first
       pointer: /decoration/logo/sourcesWithScales/0/url
     - name: image
+      type: string
+      select: first
       pointer: /decoration/phoneCoverImage/sourcesWithScales/0/url
     - name: image
+      type: string
+      select: first
       pointer: /decoration/tabletCoverImage/sourcesWithScales/0/url
     - name: video
+      type: string
+      select: first
       pointer: /decoration/coverVideo/sourcesWithScales/0/url
     - name: link
+      type: string
       actions:
         - type: build_url
           base: "{smarttv_api_root}?id=379fec96081ab1a2&variables=%7B%22programId%22%3A%22{id}%22%7D&programSlug={slug}&channel={channel}"
@@ -504,6 +631,7 @@ shared:
             slug: /program/slug
             channel: /program/mainChannel/slug
     - name: web-link
+      type: string
       actions:
         - type: build_url
           base: "{base_url}/{channel}/{slug}"
@@ -513,20 +641,35 @@ shared:
 
   android_cover_video_banner_entries: &android_cover_video_banner_entries
     - name: key
+      type: string
+      select: first
       pointer: /id
     - name: title
+      type: string
+      select: first
       pointer: /video/title
     - name: description
+      type: string
+      select: first
       pointer: /decoration/catchPhrase
     - name: logo
+      type: string
+      select: first
       pointer: /decoration/logo/sourcesWithScales/0/url
     - name: image
+      type: string
+      select: first
       pointer: /decoration/phoneCoverImage/sourcesWithScales/0/url
     - name: image
+      type: string
+      select: first
       pointer: /decoration/tabletCoverImage/sourcesWithScales/0/url
     - name: video
+      type: string
+      select: first
       pointer: /decoration/coverVideo/sourcesWithScales/0/url
     - name: link
+      type: string
       actions:
         - type: build_url
           base: "{smarttv_api_root}?id=379fec96081ab1a2&variables=%7B%22programId%22%3A%22{id}%22%7D&programSlug={slug}&channel={channel}"
@@ -535,6 +678,7 @@ shared:
             slug: /video/program/slug
             channel: /video/program/mainChannel/slug
     - name: web-link
+      type: string
       actions:
         - type: build_url
           base: "{base_url}/{channel}/{program_slug}/videos/{slug}.html"
@@ -545,106 +689,171 @@ shared:
 
   category_program_entries: &category_program_entries
     - name: source
+      type: string
       actions:
         - type: format_text
           argument: "{source}"
     - name: title
+      type: string
+      select: first
       pointer: /name
     - name: description
+      type: string
+      select: first
       pointer: /decoration/description
     - name: theme
+      type: string[]
       pointer: /topics/*
       select: all
     - name: media-type
+      type: string[]
       pointer: /categories/0/slug
       actions: *actions_program_media_type
     - name: media-type
+      type: string[]
       pointer: /typology
       actions: *actions_typology_media_type
     - name: link
+      type: string
       actions: *actions_program_link
     - name: web-link
+      type: string
       actions: *actions_program_web_link
     - name: img/poster > link
+      type: string
+      select: first
       pointer: /decoration/image/sources/0/url
     - name: img/poster > link
+      type: string
+      select: first
       pointer: /decoration/image/source/0/url
     - name: img/portrait > link
+      type: string
+      select: first
       pointer: /decoration/image/sources/0/url
     - name: img/portrait > link
+      type: string
+      select: first
       pointer: /decoration/image/source/0/url
     - name: img/portrait > link
+      type: string
+      select: first
       pointer: /image/sources/0/url
     - name: img/portrait > link
+      type: string
+      select: first
       pointer: /image/source/0/url
     - name: img/landscape > link
+      type: string
+      select: first
       pointer: /decoration/thumbnail/sources/0/url
     - name: img/landscape > link
+      type: string
+      select: first
       pointer: /decoration/thumbnail/source/0/url
     - name: img/landscape > link
+      type: string
+      select: first
       pointer: /thumbnail/sources/0/url
     - name: img/landscape > link
+      type: string
+      select: first
       pointer: /thumbnail/source/0/url
 
   live_item_entries: &live_item_entries
     - name: title
+      type: string
+      select: first
       pointer: /live/liveChannel/label
     - name: title/alt
+      type: string
+      select: first
       pointer: /live/title
     - name: key
+      type: string
+      select: first
       pointer: /live/streamId
       actions: *actions_live_channel_id
     - name: media-type
+      type: string[]
       actions:
         - type: format_text
           argument: "video/live"
     - name: link
+      type: string
+      select: first
       pointer: /live/streamId
       actions: *actions_live_channel_id
     - name: web-link
+      type: string
+      select: first
       pointer: /live/liveChannel/slug
       actions:
         - type: format_text
           argument: "{base_url}/{}/direct"
     - name: description
+      type: string
+      select: first
       pointer: /live/liveDecoration/description
     - name: release-date
+      type: string
+      select: first
       pointer: /live/startAt
       actions: *actions_live_date
     - name: expire
+      type: string
+      select: first
       pointer: /live/endAt
       actions: *actions_live_date
     - name: channel
+      type: string
+      select: first
       pointer: /live/liveChannel/label
     - name: img/poster > link
+      type: string
+      select: first
       pointer: /live/liveDecoration/image/sourcesWithScales/0/src
       actions: *actions_android_photo_url
     - name: img/poster > link
+      type: string
+      select: first
       pointer: /live/playerDecoration/image/sourcesWithScales/0/url
     - name: img/landscape > link
+      type: string
+      select: first
       pointer: /image/sourcesWithScales/0/src
       actions: *actions_android_photo_url
     - name: img/landscape > link
+      type: string
+      select: first
       pointer: /live/playerDecoration/image/sourcesWithScales/0/url
 
   live_player_entries: &live_player_entries
     - name: name
+      type: string
       actions:
         - type: format_text
           argument: "TF1+"
     - name: resolver
+      type: object
+      select: first
       entries:
         - name: kind
+          type: string
           actions:
             - type: format_text
               argument: "tf1-live"
         - name: stream
+          type: object
+          select: first
           entries:
             - name: kind
+              type: string
               actions:
                 - type: format_text
                   argument: "tf1-license-proxy"
         - name: target_id
+          type: string
           actions:
             - type: format_text
               argument: "{channel}"
@@ -654,14 +863,18 @@ queries:
     scraper_type: static
     entries:
       - name: id
+        type: string
         value: "{service_id}"
       - name: title
+        type: string
         value: "{service_title}"
       - name: logo
+        type: string
         value: "{service_logo}"
       - name: description
+        type: object
         value: "{service_description}"
- 
+
   - name: search
     scraper_type: json
     base_url: "{base_url}"
@@ -671,28 +884,38 @@ queries:
     row_pointer: /
     entries:
       - name: have_more
+        type: boolean
         actions:
           - type: format_text
             argument: "false"
       - name: entries
+        type: object[]
         pointer: /data/sliderOfSearchPrograms/items/*
         select: all
         entries:
           - name: source
+            type: string
             actions:
               - type: format_text
                 argument: "{source}"
           - name: title
+            type: string
+            select: first
             pointer: /program/name
           - name: description
+            type: string
+            select: first
             pointer: /program/decoration/description
           - name: theme
+            type: string[]
             pointer: /program/topics/*
             select: all
           - name: media-type
+            type: string[]
             pointer: /program/typology
             actions: *actions_typology_media_type
           - name: link
+            type: string
             actions:
               - type: build_url
                 base: "{smarttv_api_root}?id=379fec96081ab1a2&variables=%7B%22programId%22%3A%22{id}%22%7D&programSlug={slug}&channel={channel}"
@@ -701,6 +924,7 @@ queries:
                   slug: /program/slug
                   channel: /program/mainChannel/slug
           - name: web-link
+            type: string
             actions:
               - type: build_url
                 base: "{base_url}/{channel}/{slug}"
@@ -708,30 +932,45 @@ queries:
                   slug: /program/slug
                   channel: /program/mainChannel/slug
           - name: img/poster > link
+            type: string
+            select: first
             pointer: /program/decoration/image/sourcesWithScales/0/url
           - name: img/portrait > link
+            type: string
+            select: first
             pointer: /program/decoration/portrait/sourcesWithScales/0/url
           - name: img/landscape > link
+            type: string
+            select: first
             pointer: /program/decoration/thumbnail/sourcesWithScales/0/url
       - name: entries
+        type: object[]
         pointer: /data/sliderOfSearchVideos/items/*
         select: all
         entries:
           - name: source
+            type: string
             actions:
               - type: format_text
                 argument: "{source}"
           - name: title
+            type: string
+            select: first
             pointer: /video/decoration/label
           - name: description
+            type: string
+            select: first
             pointer: /video/decoration/shortLabel
           - name: theme
+            type: string[]
             pointer: /video/program/topics/*
             select: all
           - name: media-type
+            type: string[]
             pointer: /video/program/typology
             actions: *actions_typology_media_type
           - name: link
+            type: string
             actions:
               - type: build_url
                 base: "{smarttv_api_root}?id=379fec96081ab1a2&variables=%7B%22programId%22%3A%22{id}%22%7D&programSlug={slug}&channel={channel}"
@@ -740,6 +979,7 @@ queries:
                   slug: /video/program/slug
                   channel: /video/program/mainChannel/slug
           - name: web-link
+            type: string
             actions:
               - type: build_url
                 base: "{base_url}/{channel}/{slug}"
@@ -747,8 +987,10 @@ queries:
                   slug: /video/program/slug
                   channel: /video/program/mainChannel/slug
           - name: img/poster > link
+            type: string
+            select: first
             pointer: /video/decoration/image/sourcesWithScales/0/url
-            
+
   - name: load_home
     scraper_type: json
     base_url: "{base_url}"
@@ -760,6 +1002,7 @@ queries:
     row_pointer: /
     entries:
       - name: source
+        type: string
         actions:
           - type: format_text
             argument: "{source}"
@@ -770,64 +1013,84 @@ queries:
       - *load_home_category_lci
       - *load_home_category_all
       - name: sections
+        type: object[]
         pointer: /data/homeSliders/*[__typename=SliderOfTopProgram]
         select: all
         entries:
           - name: label
+            type: string
+            select: first
             pointer: /decoration/label
           - name: entries
+            type: object[]
             pointer: /items/*[__typename=TopProgramItem]
             select: all
             entries: *android_home_item_entries
           - name: entries
+            type: object[]
             pointer: /items/*[__typename=ProgramItem]
             select: all
             entries: *android_home_item_entries
           - name: entries
+            type: object[]
             pointer: /items/*[__typename=VideoItem]
             select: all
             entries: *android_home_video_item_entries
       - name: sections
+        type: object[]
         pointer: /data/homeSliders/*[__typename=SliderOfProgram]
         select: all
         entries:
           - name: label
+            type: string
+            select: first
             pointer: /decoration/label
           - name: entries
+            type: object[]
             pointer: /items/*[__typename=TopProgramItem]
             select: all
             entries: *android_home_item_entries
           - name: entries
+            type: object[]
             pointer: /items/*[__typename=ProgramItem]
             select: all
             entries: *android_home_item_entries
           - name: entries
+            type: object[]
             pointer: /items/*[__typename=VideoItem]
             select: all
             entries: *android_home_video_item_entries
       - name: sections
+        type: object[]
         pointer: /data/homeSliders/*[__typename=SliderOfVideo]
         select: all
         entries:
           - name: label
+            type: string
+            select: first
             pointer: /decoration/label
           - name: entries
+            type: object[]
             pointer: /items/*[__typename=TopProgramItem]
             select: all
             entries: *android_home_item_entries
           - name: entries
+            type: object[]
             pointer: /items/*[__typename=ProgramItem]
             select: all
             entries: *android_home_item_entries
           - name: entries
+            type: object[]
             pointer: /items/*[__typename=VideoItem]
             select: all
             entries: *android_home_video_item_entries
       - name: banners
+        type: object[]
         pointer: /data/homeSliders/*[__typename=BannerOfProgram]
         select: all
         entries: *android_slider_banner_program_entries
       - name: banners
+        type: object[]
         pointer: /data/homeSliders/*[__typename=BannerOfCategory]
         select: all
         entries: *android_slider_banner_category_entries
@@ -866,6 +1129,7 @@ queries:
     result_item_field: entries
     entries:
       - name: entries
+        type: object[]
         pointer: /data/homeSliders/*[__typename=SliderOfLive]/items/*
         select: all
         entries: *live_item_entries
@@ -882,52 +1146,66 @@ queries:
     row_pointer: /
     entries:
       - name: players
+        type: object[]
         entries: *live_player_entries
 
   - name: get_category
     scraper_type: json
     base_url: "{base_url}"
-    query_url: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22{channel}%22%7D%2C%22offset%22%3A{page}%2C%22limit%22%3A{page_size}%7D"
+    query_url: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22{channel}%22%7D%2C%22offset%22%3A{offset}%2C%22limit%22%3A{page_size}%7D"
     request_headers: *generic_request_headers
     media_types: *media_types_tf1
     row_pointer: /data/programs
     entries:
       - name: source
+        type: string
         actions:
           - type: format_text
             argument: "{source}"
       - name: sections
+        type: object[]
         entries:
           - name: label
+            type: string
             actions:
               - type: format_text
                 argument: "{channel_label}"
           - name: current_page
+            type: number
             actions:
               - type: format_text
                 argument: "{page}"
           - name: page_size
+            type: number
             actions:
               - type: format_text
                 argument: "{page_size}"
           - name: total
+            type: number
+            select: first
             pointer: /total
           - name: link
+            type: string
             actions:
-              - type: get_request_url
+              - type: format_text
+                argument: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22{channel}%22%7D%2C%22offset%22%3A{offset}%2C%22limit%22%3A{page_size}%7D"
           - name: request > channel
+            type: string
             actions:
               - type: format_text
                 argument: "{channel}"
           - name: request > channel_label
+            type: string
             actions:
               - type: format_text
                 argument: "{channel_label}"
           - name: request > page_size
+            type: number
             actions:
               - type: format_text
                 argument: "{page_size}"
           - name: entries
+            type: object[]
             pointer: /items/*
             select: all
             entries: *category_program_entries
@@ -950,24 +1228,30 @@ queries:
   - name: get_section
     scraper_type: json
     base_url: "{base_url}"
-    query_url: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22{channel}%22%7D%2C%22offset%22%3A{page}%2C%22limit%22%3A{page_size}%7D"
+    query_url: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22{channel}%22%7D%2C%22offset%22%3A{offset}%2C%22limit%22%3A{page_size}%7D"
     request_headers: *generic_request_headers
     media_types: *media_types_tf1
     row_pointer: /data/programs
     entries:
       - name: sections
+        type: object[]
         entries:
           - name: current_page
+            type: number
             actions:
               - type: format_text
                 argument: "{page}"
           - name: page_size
+            type: number
             actions:
               - type: format_text
                 argument: "{page_size}"
           - name: total
+            type: number
+            select: first
             pointer: /total
           - name: entries
+            type: object[]
             pointer: /items/*
             select: all
             entries: *category_program_entries
@@ -996,13 +1280,19 @@ queries:
     row_pointer: /data/programById
     entries:
       - name: title
+        type: string
+        select: first
         pointer: decoration/label
       - name: description
+        type: string
+        select: first
         pointer: decoration/description
       - name: media-type
+        type: string[]
         pointer: typology
         actions: *actions_typology_media_type
       - name: language
+        type: string[]
         pointer: hasDescriptionTrack/total
         actions:
           - type: map
@@ -1010,6 +1300,8 @@ queries:
             argument:
               0: ""
       - name: subtitles
+        type: string
+        select: first
         pointer: hasFrenchDeafSubtitles/total
         actions:
           - type: map
@@ -1017,6 +1309,8 @@ queries:
             argument:
               0: ""
       - name: subtitles
+        type: string
+        select: first
         pointer: hasFrenchSubtitles/total
         actions:
           - type: map
@@ -1024,6 +1318,7 @@ queries:
             argument:
               0: ""
       - name: link
+        type: string
         actions:
           - type: get_request_url
           - type: regex_find_all
@@ -1032,6 +1327,7 @@ queries:
           - type: format_text
             argument: "{base_url}/{}"
       - name: web-link
+        type: string
         actions:
           - type: get_request_url
           - type: regex_find_all
@@ -1040,21 +1336,31 @@ queries:
           - type: format_text
             argument: "{base_url}/{}"
       - name: img/logo > link
+        type: string
+        select: first
         pointer: decoration/logoImage/logo/0/url
       - name: img/logo > link
+        type: string
+        select: first
         pointer: decoration/logo/logo/0/url
       - name: img/poster > link
+        type: string
+        select: first
         pointer: decoration/image/sourcesWithScales/0/url
       - name: count-season
+        type: number
+        select: first
         pointer: decoration/subLabel
         actions:
           - type: regex_find_all
             pattern: '([0-9]+)'
             format: '{1}'
       - name: theme
+        type: string[]
         pointer: topics/*
         select: all
       - name: director
+        type: string[]
         pointer: editorialSections/*/directors/*/members/*
         select: all
         actions:
@@ -1062,6 +1368,7 @@ queries:
             pattern: '"firstName":"([^"]*)","lastName":"([^"]*)"'
             format: "{1} {2}"
       - name: casting
+        type: string[]
         pointer: editorialSections/*/actors/*/members/*
         select: all
         actions:
@@ -1069,14 +1376,21 @@ queries:
             pattern: '"firstName":"([^"]*)","lastName":"([^"]*)"'
             format: "{1} {2}"
       - name: program-id
+        type: string
+        select: first
         pointer: /id
-      - name: season
+      - name: seasons
+        type: object[]
         pointer: /editorialSections/*/lists/*
         select: all
         entries:
           - name: label
+            type: string
+            select: first
             pointer: /decoration/label
           - name: link
+            type: string
+            select: first
             pointer: /id
             actions:
               - type: format_text
@@ -1096,10 +1410,14 @@ queries:
         row_pointer: /data/programBySlug/editorialSections/*/listById/items/0/video
         entries:
           - name: video/trailer
+            type: string
+            select: first
             pointer: /decoration/preview/sourcesWithScales/0/url
           - name: players
+            type: object[]
             entries:
               - name: embed-link
+                type: string
                 actions:
                   - type: build_url
                     base: "{base_url}/{channel}/{program_slug}/videos/{slug}.html"
@@ -1108,18 +1426,26 @@ queries:
                       program_slug: /program/slug
                       slug: /slug
               - name: resolver
+                type: object
+                select: first
                 entries:
                   - name: kind
+                    type: string
                     actions:
                       - type: format_text
                         argument: tf1-video
                   - name: stream
+                    type: object
+                    select: first
                     entries:
                       - name: kind
+                        type: string
                         actions:
                           - type: format_text
                             argument: tf1-license-proxy
                   - name: target_id
+                    type: string
+                    select: first
                     pointer: /id
       # Some program pages expose a playable video without an editorial list.
       - scraper_type: json
@@ -1133,10 +1459,14 @@ queries:
         row_pointer: /data/sliderOfSearchVideos/items/0/video
         entries:
           - name: video/trailer
+            type: string
+            select: first
             pointer: /decoration/preview/sourcesWithScales/0/url
           - name: players
+            type: object[]
             entries:
               - name: embed-link
+                type: string
                 actions:
                   - type: build_url
                     base: "{base_url}/{channel}/{program_slug}/videos/{slug}.html"
@@ -1145,18 +1475,26 @@ queries:
                       program_slug: /program/slug
                       slug: /slug
               - name: resolver
+                type: object
+                select: first
                 entries:
                   - name: kind
+                    type: string
                     actions:
                       - type: format_text
                         argument: tf1-video
                   - name: stream
+                    type: object
+                    select: first
                     entries:
                       - name: kind
+                        type: string
                         actions:
                           - type: format_text
                             argument: tf1-license-proxy
                   - name: target_id
+                    type: string
+                    select: first
                     pointer: /id
 
   - name: get_season
@@ -1168,10 +1506,13 @@ queries:
     row_pointer: /
     entries:
       - name: current_page
+        type: number
         actions:
           - type: format_text
             argument: "{page}"
       - name: have_more
+        type: boolean
+        select: first
         pointer: /data/programBySlug/editorialSections/0/listById/hasNext
         actions:
           - type: map
@@ -1180,23 +1521,35 @@ queries:
               true: "true"
               false: "false"
       - name: episodes
+        type: object[]
         pointer: /data/programBySlug/editorialSections/*/listById/items/*
         select: all
         entries:
           - name: title
+            type: string
+            select: first
             pointer: /video/decoration/label
           - name: episode-number
+            type: string
+            select: first
             pointer: /video/episode
           - name: description
+            type: string
+            select: first
             pointer: /video/decoration/summary
           - name: duration
+            type: string
+            select: first
             pointer: /video/playingInfos/duration
           - name: release-date
+            type: string
+            select: first
             pointer: /video/date
             actions:
               - type: get_date
                 format: yyyy_mm_dd
           - name: link
+            type: string
             actions:
               - type: build_url
                 base: "{base_url}/{channel}/{program_slug}/videos/{slug}.html"
@@ -1205,6 +1558,7 @@ queries:
                   program_slug: /video/program/slug
                   slug: /video/slug
           - name: web-link
+            type: string
             actions:
               - type: build_url
                 base: "{base_url}/{channel}/{program_slug}/videos/{slug}.html"
@@ -1213,12 +1567,18 @@ queries:
                   program_slug: /video/program/slug
                   slug: /video/slug
           - name: img/preview > link
+            type: string
+            select: first
             pointer: /image/sourcesWithScales/0/url
           - name: img/preview > link
+            type: string
+            select: first
             pointer: /video/decoration/image/sourcesWithScales/0/url
           - name: players
+            type: object[]
             entries:
               - name: embed-link
+                type: string
                 actions:
                   - type: build_url
                     base: "{base_url}/{channel}/{program_slug}/videos/{slug}.html"
@@ -1227,16 +1587,24 @@ queries:
                       program_slug: /video/program/slug
                       slug: /video/slug
               - name: resolver
+                type: object
+                select: first
                 entries:
                   - name: kind
+                    type: string
                     actions:
                       - type: format_text
                         argument: tf1-video
                   - name: stream
+                    type: object
+                    select: first
                     entries:
                       - name: kind
+                        type: string
                         actions:
                           - type: format_text
                             argument: tf1-license-proxy
                   - name: target_id
+                    type: string
+                    select: first
                     pointer: /video/id

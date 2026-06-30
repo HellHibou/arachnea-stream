@@ -79,6 +79,10 @@ pub(super) fn build_regex_items(
         let mut item = ScraperDataNode::default();
 
         for (entry, path) in entries.iter().zip(entry_paths.iter()) {
+            let output_type = entry.output_type.unwrap_or_else(|| {
+                unreachable!("regex post-process entries are validated before execution")
+            });
+            item.set_output_type(path, output_type);
             let mut values = entry
                 .capture_group
                 .and_then(|group| {
@@ -93,7 +97,7 @@ pub(super) fn build_regex_items(
             }
 
             for value in values {
-                item.push_value(path, value);
+                item.push_value_typed(path, value, output_type);
             }
         }
 

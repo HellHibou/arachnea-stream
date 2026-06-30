@@ -17,7 +17,8 @@
     "images/webtoon": "Webtoon book",
     "audio/show": "Audio show",
     "audio/show/serie": "Audio series",
-    "audio/other": "Other audio"
+    "audio/other": "Other audio" ,
+    "audio/ost": "OST"
   },
   "themes": {
     "action": "Action",

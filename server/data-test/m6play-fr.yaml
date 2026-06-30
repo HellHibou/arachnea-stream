@@ -4,7 +4,7 @@ queries:
       - id
       - title
       - logo
-      - description
+      - description > fr
 
   - name: search
     fields_result:

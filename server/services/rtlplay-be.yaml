@@ -37,26 +37,32 @@ shared:
 
   rtlplay_request_headers: &rtlplay_request_headers
     - name: accept
+      type: string
       actions:
         - type: format_text
           argument: "*/*"
     - name: accept-encoding
+      type: string
       actions:
         - type: format_text
           argument: "gzip"
     - name: connection
+      type: string
       actions:
         - type: format_text
           argument: "Keep-Alive"
     - name: content-type
+      type: string
       actions:
         - type: format_text
           argument: "application/json; charset=UTF-8"
     - name: lfvp-device-segment
+      type: string
       actions:
         - type: format_text
           argument: "TV>Android"
     - name: x-app-version
+      type: string
       actions:
         - type: format_text
           argument: "{api_version_major}"
@@ -143,42 +149,64 @@ shared:
 
   teaser_entries: &teaser_entries
     - name: title
+      type: string
+      select: first
       pointer: /title
     - name: title/alt
+      type: string
+      select: first
       pointer: /name
     - name: description
+      type: string
+      select: first
       pointer: /description
     - name: subtitle
+      type: string
+      select: first
       pointer: /editorialByline
     - name: key
+      type: string
+      select: first
       pointer: /detailId
     - name: link
+      type: string
+      select: first
       pointer: /detailId
       actions: *actions_program_link
     - name: web-link
+      type: string
+      select: first
       pointer: /detailId
       actions: *actions_program_web_link
     - name: media-type
+      type: string[]
       actions: *actions_default_media_type
     - name: theme
+      type: string[]
       pointer: /genre
     - name: genre
+      type: string[]
       pointer: /genre
     - name: year
+      type: number
       pointer: /labels/*[accessibilityLabel=Année de production]/label
       select: all
     - name: duration
+      type: string
       pointer: /labels/*[accessibilityLabel=Durée]/label
       select: all
     - name: release-date
+      type: string
       pointer: /labels/*[accessibilityLabel=Date de diffusion]/label
       select: all
       actions: *actions_release_date_label
     - name: expire
+      type: string
       pointer: /labels/*/label
       select: all
       actions: *actions_expire_label
     - name: count-season
+      type: number
       pointer: /labels/*/label
       select: all
       actions:
@@ -186,42 +214,73 @@ shared:
           pattern: '^([0-9]+)\s+saisons?$'
           format: "{1}"
     - name: img/poster > link
+      type: string
+      select: first
       pointer: /imageUrl
     - name: img/poster > link
+      type: string
+      select: first
       pointer: /portraitImageUrl
     - name: img/poster > link
+      type: string
+      select: first
       pointer: /portraitOverlayImageUrl
     - name: img/poster > link
+      type: string
+      select: first
       pointer: /overlayImageUrl
     - name: img/landscape > link
+      type: string
+      select: first
       pointer: /landscapeImageUrl
     - name: img/landscape > link
+      type: string
+      select: first
       pointer: /heroImageUrl
     - name: img/logo > link
+      type: string
+      select: first
       pointer: /titleArtImageUrl
 
   live_entries: &live_entries
     - name: title
+      type: string
+      select: first
       pointer: /title
     - name: title/alt
+      type: string
+      select: first
       pointer: /name
     - name: key
+      type: string
+      select: first
       pointer: /channelSeoKey
       actions: *actions_normalize_live_channel
     - name: channel-id
+      type: string
+      select: first
       pointer: /channelId
     - name: description
+      type: string
+      select: first
       pointer: /description
     - name: subtitle
+      type: string
+      select: first
       pointer: /editorialByline
     - name: media-type
+      type: string[]
       actions:
         - type: format_text
           argument: "video/live"
     - name: link
+      type: string
+      select: first
       pointer: /channelSeoKey
       actions: *actions_normalize_live_channel
     - name: web-link
+      type: string
+      select: first
       pointer: /channelSeoKey
       actions:
         - type: map
@@ -235,26 +294,34 @@ shared:
         - type: format_text
           argument: "{base_url}/rtlplay/direct/{}"
     - name: year
+      type: number
       pointer: /labels/*[accessibilityLabel=Année de production]/label
       select: all
     - name: duration
+      type: string
       pointer: /labels/*[accessibilityLabel=Durée]/label
       select: all
     - name: release-date
+      type: string
       pointer: /labels/*[accessibilityLabel=Date de diffusion]/label
       select: all
       actions: *actions_release_date_label
     - name: release-date
+      type: string
+      select: first
       pointer: /startsAt
       actions:
         - type: get_date
           format: yyyy_mm_dd
     - name: expire
+      type: string
+      select: first
       pointer: /endsAt
       actions:
         - type: get_date
           format: yyyy_mm_dd
     - name: count-season
+      type: number
       pointer: /labels/*/label
       select: all
       actions:
@@ -262,274 +329,440 @@ shared:
           pattern: '^([0-9]+)\s+saisons?$'
           format: "{1}"
     - name: theme
+      type: string[]
       pointer: /labels/*[accessibilityLabel=Genre]/label
       select: all
     - name: genre
+      type: string[]
       pointer: /labels/*[accessibilityLabel=Genre]/label
       select: all
     - name: img/poster > link
+      type: string
+      select: first
       pointer: /teaserImageUrl
     - name: img/poster > link
+      type: string
+      select: first
       pointer: /overlayImageUrl
     - name: img/landscape > link
+      type: string
+      select: first
       pointer: /heroImageUrl
     - name: img/logo > link
+      type: string
+      select: first
       pointer: /titleArtImageUrl
 
   detail_episode_entries: &detail_episode_entries
     - name: title
+      type: string
+      select: first
       pointer: /title
     - name: description
+      type: string
+      select: first
       pointer: /description
     - name: duration
+      type: string
+      select: first
       pointer: /durationSeconds
     - name: episode-number
+      type: string
+      select: first
       pointer: /index
     - name: release-date
+      type: string
       pointer: /labels/*[accessibilityLabel=Date de diffusion]/label
       select: all
       actions: *actions_release_date_label
     - name: expire
+      type: string
       pointer: /labels/*/label
       select: all
       actions: *actions_expire_label
     - name: link
+      type: string
+      select: first
       pointer: /id
       actions:
         - type: format_text
           argument: "{base_url}/rtlplay/player/{}"
     - name: players > name
+      type: string
+      select: first
       pointer: /id
       actions:
         - type: format_text
           argument: "RTL Play"
     - name: players > resolver > kind
+      type: string
+      select: first
       pointer: /id
       actions:
         - type: format_text
           argument: "rtlplay-video"
     - name: players > resolver > stream > kind
+      type: string
+      select: first
       pointer: /id
       actions:
         - type: format_text
           argument: "widevine-license-proxy"
     - name: players > resolver > target_id
+      type: string
+      select: first
       pointer: /id
     - name: img/preview > link
+      type: string
+      select: first
       pointer: /imageUrl
     - name: img/preview > link
+      type: string
+      select: first
       pointer: /overlayImageUrl
 
   section_entries: &section_entries
     - name: banners
+      type: object[]
       pointer: /rows/*[rowType=TOP_BANNER]/teaser
       select: all
       entries:
         - name: key
+          type: string
+          select: first
           pointer: /target/id
         - name: title
+          type: string
+          select: first
           pointer: /title
         - name: title/alt
+          type: string
+          select: first
           pointer: /target/name
         - name: subtitle
+          type: string
+          select: first
           pointer: /byline
         - name: description
+          type: string
+          select: first
           pointer: /editorialByline
         - name: image
+          type: string
+          select: first
           pointer: /largeImageUrl
         - name: image
+          type: string
+          select: first
           pointer: /mediumImageUrl
         - name: image
+          type: string
+          select: first
           pointer: /mobileImageUrl
         - name: image
+          type: string
+          select: first
           pointer: /mobileCompressedImageUrl
         - name: image
+          type: string
+          select: first
           pointer: /smartTvImageUrl
         - name: logo
+          type: string
+          select: first
           pointer: /titleArtImageUrl
         - name: link
+          type: string
+          select: first
           pointer: /target/id
           actions: *actions_program_link
         - name: web-link
+          type: string
+          select: first
           pointer: /target/id
           actions: *actions_program_web_link
 
     - name: categories
+      type: object[]
       pointer: /rows/*[rowType=SPRINGBOARD]/tiles/*
       select: all
       entries:
         - name: key
+          type: string
+          select: first
           pointer: /target/storefront
         - name: key
+          type: string
+          select: first
           pointer: /target/rowId
         - name: label
+          type: string
+          select: first
           pointer: /title
         - name: image
+          type: string
+          select: first
           pointer: /imageUrl
         - name: image
+          type: string
+          select: first
           pointer: /hoverImageUrl
-        - name: request > query_url
+        - name: link
+          type: string
+          select: first
           pointer: /target/rowId
           actions: *actions_row_detail_link
-        - name: request > query_url
+        - name: link
+          type: string
+          select: first
           pointer: /target/storefront
           actions: *actions_storefront_link
 
     - name: sections
+      type: object[]
       pointer: /row
       select: all
       entries:
         - name: key
+          type: string
+          select: first
           pointer: /id
         - name: label
+          type: string
+          select: first
           pointer: /title
         - name: entries
+          type: object[]
           pointer: /teasers/*
           select: all
           entries: *teaser_entries
 
     - name: sections
+      type: object[]
       pointer: /rows/*[rowType=SWIMLANE_LANDSCAPE]
       select: all
       entries:
         - name: key
+          type: string
+          select: first
           pointer: /id
         - name: label
+          type: string
+          select: first
           pointer: /title
         - name: entries
+          type: object[]
           pointer: /teasers/*
           select: all
           entries: *teaser_entries
 
     - name: sections
+      type: object[]
       pointer: /rows/*[rowType=SWIMLANE_PORTRAIT]
       select: all
       entries:
         - name: key
+          type: string
+          select: first
           pointer: /id
         - name: label
+          type: string
+          select: first
           pointer: /title
         - name: entries
+          type: object[]
           pointer: /teasers/*
           select: all
           entries: *teaser_entries
 
     - name: sections
+      type: object[]
       pointer: /rows/*[rowType=SWIMLANE_TOP10]
       select: all
       entries:
         - name: key
+          type: string
+          select: first
           pointer: /id
         - name: label
+          type: string
+          select: first
           pointer: /title
         - name: entries
+          type: object[]
           pointer: /teasers/*
           select: all
           entries: *teaser_entries
 
     - name: sections
+      type: object[]
       pointer: /rows/*[rowType=LIVE_CHANNELS]
       select: all
       entries:
         - name: key
+          type: string
+          select: first
           pointer: /id
         - name: label
+          type: string
+          select: first
           pointer: /title
         - name: entries
+          type: object[]
           pointer: /teasers/*
           select: all
           entries: *live_entries
 
   storefront_entries: &storefront_entries
     - name: banners
+      type: object[]
       pointer: /rows/*[rowType=TOP_BANNER]/teaser
       select: all
       entries:
         - name: key
+          type: string
+          select: first
           pointer: /target/id
         - name: title
+          type: string
+          select: first
           pointer: /title
         - name: title/alt
+          type: string
+          select: first
           pointer: /target/name
         - name: subtitle
+          type: string
+          select: first
           pointer: /byline
         - name: description
+          type: string
+          select: first
           pointer: /editorialByline
         - name: image
+          type: string
+          select: first
           pointer: /largeImageUrl
         - name: image
+          type: string
+          select: first
           pointer: /mediumImageUrl
         - name: image
+          type: string
+          select: first
           pointer: /mobileImageUrl
         - name: image
+          type: string
+          select: first
           pointer: /mobileCompressedImageUrl
         - name: image
+          type: string
+          select: first
           pointer: /smartTvImageUrl
         - name: logo
+          type: string
+          select: first
           pointer: /titleArtImageUrl
         - name: link
+          type: string
+          select: first
           pointer: /target/id
           actions: *actions_program_link
         - name: web-link
+          type: string
+          select: first
           pointer: /target/id
           actions: *actions_program_web_link
 
     - name: categories
+      type: object[]
       pointer: /rows/*[rowType=SPRINGBOARD]/tiles/*
       select: all
       entries:
         - name: key
+          type: string
+          select: first
           pointer: /target/storefront
         - name: key
+          type: string
+          select: first
           pointer: /target/rowId
         - name: label
+          type: string
+          select: first
           pointer: /title
         - name: image
+          type: string
+          select: first
           pointer: /imageUrl
         - name: image
+          type: string
+          select: first
           pointer: /hoverImageUrl
-        - name: request > query_url
+        - name: link
+          type: string
+          select: first
           pointer: /target/rowId
           actions: *actions_row_detail_link
-        - name: request > query_url
+        - name: link
+          type: string
+          select: first
           pointer: /target/storefront
           actions: *actions_storefront_link
 
     - name: sections
+      type: object[]
       pointer: /rows/*[rowType=SWIMLANE_LANDSCAPE]
       select: all
       entries:
         - name: key
+          type: string
+          select: first
           pointer: /id
         - name: label
+          type: string
+          select: first
           pointer: /title
         - name: entries
+          type: object[]
           pointer: /teasers/*
           select: all
           entries: *teaser_entries
 
     - name: sections
+      type: object[]
       pointer: /rows/*[rowType=SWIMLANE_PORTRAIT]
       select: all
       entries:
         - name: key
+          type: string
+          select: first
           pointer: /id
         - name: label
+          type: string
+          select: first
           pointer: /title
         - name: entries
+          type: object[]
           pointer: /teasers/*
           select: all
           entries: *teaser_entries
 
     - name: sections
+      type: object[]
       pointer: /rows/*[rowType=SWIMLANE_TOP10]
       select: all
       entries:
         - name: key
+          type: string
+          select: first
           pointer: /id
         - name: label
+          type: string
+          select: first
           pointer: /title
         - name: entries
+          type: object[]
           pointer: /teasers/*
           select: all
           entries: *teaser_entries
@@ -539,12 +772,16 @@ queries:
     scraper_type: static
     entries:
       - name: id
+        type: string
         value: "{service_id}"
       - name: title
+        type: string
         value: "{service_title}"
       - name: logo
+        type: string
         value: "{service_logo}"
       - name: description
+        type: object
         value: "{service_description}"
 
   - name: search
@@ -553,59 +790,89 @@ queries:
     query_url: "{api_root}/search?query={search_terms}&limit={search_limit}"
     request_headers: *rtlplay_request_headers
     media_types: *media_types_rtlplay
-    row_pointer: /results/*[type=exact]/teasers/*
+    row_pointer: /
     entries:
       - name: source
+        type: string
         actions:
           - type: format_text
             argument: "{source}"
       - name: current_page
+        type: number
+        select: first
         actions:
           - type: format_text
             argument: "{page}"
       - name: have_more
+        type: boolean
+        select: first
         actions:
           - type: format_text
             argument: "false"
       - name: entries
+        type: object[]
+        pointer: /results/*[type=exact]/teasers/*
+        select: all
         entries:
           - name: title
+            type: string
+            select: first
             pointer: /title
           - name: title/alt
+            type: string
+            select: first
             pointer: /name
           - name: description
+            type: string
+            select: first
             pointer: /description
           - name: subtitle
+            type: string
+            select: first
             pointer: /editorialByline
           - name: key
+            type: string
+            select: first
             pointer: /detailId
           - name: link
+            type: string
+            select: first
             pointer: /detailId
             actions: *actions_program_link
           - name: web-link
+            type: string
+            select: first
             pointer: /detailId
             actions: *actions_program_web_link
           - name: media-type
+            type: string[]
             actions: *actions_default_media_type
           - name: theme
+            type: string[]
             pointer: /genre
           - name: genre
+            type: string[]
             pointer: /genre
           - name: year
+            type: number
             pointer: /labels/*[accessibilityLabel=Année de production]/label
             select: all
           - name: duration
+            type: string
             pointer: /labels/*[accessibilityLabel=Durée]/label
             select: all
           - name: release-date
+            type: string
             pointer: /labels/*[accessibilityLabel=Date de diffusion]/label
             select: all
             actions: *actions_release_date_label
           - name: expire
+            type: string
             pointer: /labels/*/label
             select: all
             actions: *actions_expire_label
           - name: count-season
+            type: number
             pointer: /labels/*/label
             select: all
             actions:
@@ -613,18 +880,32 @@ queries:
                 pattern: '^([0-9]+)\s+saisons?$'
                 format: "{1}"
           - name: img/poster > link
+            type: string
+            select: first
             pointer: /imageUrl
           - name: img/poster > link
+            type: string
+            select: first
             pointer: /portraitImageUrl
           - name: img/poster > link
+            type: string
+            select: first
             pointer: /portraitOverlayImageUrl
           - name: img/poster > link
+            type: string
+            select: first
             pointer: /overlayImageUrl
           - name: img/landscape > link
+            type: string
+            select: first
             pointer: /landscapeImageUrl
           - name: img/landscape > link
+            type: string
+            select: first
             pointer: /heroImageUrl
           - name: img/logo > link
+            type: string
+            select: first
             pointer: /titleArtImageUrl
 
   - name: load_home
@@ -654,48 +935,77 @@ queries:
     row_pointer: /
     entries:
       - name: title
+        type: string
+        select: first
         pointer: /title/label
       - name: title/alt
+        type: string
+        select: first
         pointer: /linkedTitle/label
       - name: description
+        type: string
+        select: first
         pointer: /description
       - name: media-type
+        type: string[]
         actions: *actions_default_media_type
       - name: link
+        type: string
+        select: first
         pointer: /primaryButton/playableId
         actions:
           - type: format_text
             argument: "{base_url}/rtlplay/player/{}"
       - name: web-link
+        type: string
+        select: first
         pointer: /share/url
       - name: web-link
+        type: string
+        select: first
         pointer: /id
         actions:
           - type: format_text
             argument: "{base_url}/rtlplay/~{}"
       - name: img/poster > link
+        type: string
+        select: first
         pointer: /landscapeTeaserImageUrl
       - name: img/poster > link
+        type: string
+        select: first
         pointer: /share/imageUrl
       - name: img/landscape > link
+        type: string
+        select: first
         pointer: /backgroundImageUrl
       - name: img/logo > link
+        type: string
+        select: first
         pointer: /title/imageUrl
-      - name: img/logo > link
-        pointer: /broadcasterLogo/imageUrl
+  #    - name: img/logo > link
+  #      type: string
+  #      select: first
+  #      pointer: /broadcasterLogo/imageUrl
       - name: year
+        type: number
         pointer: /headerLabels/*[accessibilityLabel=Année de production]/label
         select: all
       - name: duration
+        type: string
+        select: first
         pointer: /durationSeconds
-      - name: duration
-        pointer: /headerLabels/*[accessibilityLabel=Durée]/label
-        select: all
+#      - name: duration
+#        type: string
+#        select: first
+#        pointer: /headerLabels/*[accessibilityLabel=Durée]/label
       - name: expire
+        type: string
         pointer: /headerLabels/*/label
         select: all
         actions: *actions_expire_label
       - name: count-season
+        type: number
         pointer: /headerLabels/*/label
         select: all
         actions:
@@ -703,69 +1013,84 @@ queries:
             pattern: '^([0-9]+)\s+saisons?$'
             format: "{1}"
       - name: theme
+        type: string[]
         pointer: /headerLabels/*[accessibilityLabel=Genre]/label
         select: all
       - name: theme
+        type: string[]
         pointer: /moreInfo/meta/*[label=Genre]/items/*/label
         select: all
       - name: genre
+        type: string[]
         pointer: /headerLabels/*[accessibilityLabel=Genre]/label
         select: all
       - name: genre
+        type: string[]
         pointer: /moreInfo/meta/*[label=Genre]/items/*/label
         select: all
       - name: casting
+        type: string[]
         pointer: /moreInfo/meta/*[label=Rôles]/items/*/label
         select: all
       - name: casting
+        type: string[]
         pointer: /moreInfo/meta/*[label=Présentation]/items/*/label
         select: all
       - name: director
+        type: string[]
         pointer: /moreInfo/meta/*[label=Réalisation]/items/*/label
         select: all
       - name: language
+        type: string[]
         pointer: /moreInfo/meta/*[label=Langue]/items/*/label
         select: all
         actions: *actions_language_label
       - name: content-advisor
+        type: string
         pointer: /ratingIcons/*
         select: all
 
       - name: players > name
+        type: string
+        select: first
         pointer: /primaryButton/playableId
         actions:
           - type: format_text
             argument: "RTL Play"
       - name: players > resolver > kind
+        type: string
+        select: first
         pointer: /primaryButton/playableId
         actions:
           - type: format_text
             argument: "rtlplay-video"
       - name: players > resolver > stream > kind
+        type: string
+        select: first
         pointer: /primaryButton/playableId
         actions:
           - type: format_text
             argument: "widevine-license-proxy"
       - name: players > resolver > target_id
+        type: string
+        select: first
         pointer: /primaryButton/playableId
 
-      - name: season
+      - name: seasons
+        type: object[]
         pointer: /seasonPicker/indices/*
         select: all
         entries:
           - name: label
+            type: string
             actions:
               - type: format_text
                 argument: "Saison {}"
           - name: link
+            type: string
             actions:
               - type: format_text
                 argument: "{request_url}?selectedSeasonIndex={}"
-
-      - name: episode
-        pointer: /seasonPicker/selected/episodes/*
-        select: all
-        entries: *detail_episode_entries
 
   - name: get_season
     scraper_type: json
@@ -773,17 +1098,24 @@ queries:
     query_url: "{query_url}"
     request_headers: *rtlplay_request_headers
     media_types: *media_types_rtlplay
-    row_pointer: /seasonPicker/selected/episodes/*
+    row_pointer: /
     entries:
       - name: current_page
+        type: number
+        select: first
         actions:
           - type: format_text
             argument: "1"
       - name: have_more
+        type: boolean
+        select: first
         actions:
           - type: format_text
             argument: "false"
       - name: episodes
+        type: object[]
+        pointer: /seasonPicker/selected/episodes/*
+        select: all
         entries: *detail_episode_entries
 
   - name: list_lives
@@ -797,6 +1129,7 @@ queries:
     result_item_field: entries
     entries:
       - name: entries
+        type: object[]
         pointer: /rows/*[rowType=LIVE_CHANNELS]/teasers/*
         select: all
         entries: *live_entries
@@ -846,24 +1179,33 @@ queries:
     row_pointer: /
     entries:
       - name: players
+        type: object[]
         entries:
           - name: name
+            type: string
             actions:
               - type: format_text
                 argument: "RTL Play"
           - name: resolver
+            type: object
+            select: first
             entries:
               - name: kind
+                type: string
                 actions:
                   - type: format_text
                     argument: "rtlplay-live"
               - name: stream
+                type: object
+                select: first
                 entries:
                   - name: kind
+                    type: string
                     actions:
                       - type: format_text
                         argument: "widevine-license-proxy"
               - name: target_id
+                type: string
                 actions:
                   - type: format_text
                     argument: "{channel}"
