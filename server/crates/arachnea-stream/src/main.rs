@@ -221,8 +221,8 @@ async fn main() -> Result<()> {
 
     let proxy_fr = ProxyNode::from_url(
         "proxy-fr",
-    // "socks5://158.178.198.31:1080", // "socks5://62.133.62.3:1081"
-        "socks5://45.95.233.237:1081"
+        // "socks5://158.178.198.31:1080", // "socks5://62.133.62.3:1081"
+        "socks5://45.95.233.237:1081",
     )
     .context("Failed to configure the FR proxy node")?;
     let proxy_config = ProxyConfig {
@@ -264,7 +264,6 @@ async fn main() -> Result<()> {
     };
     manager.set_proxy_http_core(proxy_core_for_http);
     // */
-    
     let web_assets = generated_embedded_web_assets();
 
     let mut controler: Box<dyn ControlerService> = if options.mode_server {

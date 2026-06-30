@@ -617,11 +617,7 @@ impl ScraperDataNode {
         Ok(Value::Object(object))
     }
 
-    fn render_indexed_value(
-        &self,
-        index: usize,
-        path: &str,
-    ) -> std::result::Result<Value, String> {
+    fn render_indexed_value(&self, index: usize, path: &str) -> std::result::Result<Value, String> {
         if self.values.is_empty() {
             return self.to_json_value_at(path);
         }

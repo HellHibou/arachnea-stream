@@ -142,7 +142,11 @@ impl StaticScraperQuery {
             }
 
             let Some(output_type) = entry.output_type else {
-                anyhow::bail!("Static query {} entry {} must define type", name, entry.name);
+                anyhow::bail!(
+                    "Static query {} entry {} must define type",
+                    name,
+                    entry.name
+                );
             };
 
             if entry.value.is_some() && !entry.items.is_empty() {

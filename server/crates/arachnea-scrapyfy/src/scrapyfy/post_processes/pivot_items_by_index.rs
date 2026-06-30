@@ -117,8 +117,9 @@ pub(super) fn apply(
             for (generated_field, generated_field_path) in
                 generated_fields.iter().zip(generated_field_paths.iter())
             {
-                let generated_output_type =
-                    generated_field.output_type.unwrap_or(ScraperOutputType::String);
+                let generated_output_type = generated_field
+                    .output_type
+                    .unwrap_or(ScraperOutputType::String);
                 target_item.push_value_typed(
                     generated_field_path,
                     generated_field

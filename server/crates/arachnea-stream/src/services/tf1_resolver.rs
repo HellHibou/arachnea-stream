@@ -81,7 +81,7 @@ impl PlayerStreamResolver for Tf1Resolver {
                     credentials_store,
                     resolver_target,
                     resolver_stream_kind,
-                    endpoints
+                    endpoints,
                 )
                 .await
             }
@@ -91,7 +91,7 @@ impl PlayerStreamResolver for Tf1Resolver {
                     credentials_store,
                     resolver_target,
                     resolver_stream_kind,
-                    endpoints
+                    endpoints,
                 )
                 .await
             }
@@ -161,7 +161,7 @@ async fn resolve_replay_stream(
         normalized_video_id,
         stream_kind,
         ScraperHttpConfig::default(),
-        endpoints
+        endpoints,
     )
     .await
 }
@@ -178,7 +178,14 @@ async fn resolve_replay_stream_with_config(
     let session = get_or_login_session(&http_client, credentials_store).await?;
     let media_info = fetch_media_info(&http_client, &session, normalized_video_id, false).await?;
 
-    build_resolved_player_stream(&http_client, normalized_video_id, &media_info, stream_kind, endpoints).await
+    build_resolved_player_stream(
+        &http_client,
+        normalized_video_id,
+        &media_info,
+        stream_kind,
+        endpoints,
+    )
+    .await
 }
 
 async fn resolve_live_stream(
@@ -229,7 +236,7 @@ async fn resolve_live_stream(
         normalized_channel_id,
         stream_kind,
         ScraperHttpConfig::default(),
-        endpoints
+        endpoints,
     )
     .await
 }
@@ -247,7 +254,14 @@ async fn resolve_live_stream_with_config(
     let live_video_id = format!("L_{}", normalized_channel_id.to_uppercase());
     let media_info = fetch_media_info(&http_client, &session, &live_video_id, true).await?;
 
-    build_resolved_player_stream(&http_client, &live_video_id, &media_info, stream_kind, endpoints).await
+    build_resolved_player_stream(
+        &http_client,
+        &live_video_id,
+        &media_info,
+        stream_kind,
+        endpoints,
+    )
+    .await
 }
 
 fn tf1_http_config() -> ScraperHttpConfig {
@@ -315,7 +329,11 @@ async fn build_resolved_player_stream(
     let proxy_url = save_tf1_license_proxy_url(&license_url, &license_headers, &stream_kind);
 
     Ok(ResolvedPlayerStream {
-        stream_url: proxied_url(&manifest_url, endpoints.http_proxy_public_path.as_deref()),
+        stream_url: proxied_url(
+            &manifest_url,
+            endpoints.http_proxy_public_path.as_deref(),
+            None,
+        ),
         manifest_type,
         license_url: Some(proxy_url),
         license_headers: HashMap::new(),

@@ -143,8 +143,12 @@ async fn resolve_francetv_stream(
     let stream_url =
         fetch_signed_manifest_url(&http_client, &manifest_token_url, &raw_manifest_url).await?;
     let manifest_type = manifest_type_from_format_or_url(format, &stream_url);
-    let stream_url_proxy = proxied_url(&stream_url, endpoints.http_proxy_public_path.as_deref());
-  
+    let stream_url_proxy = proxied_url(
+        &stream_url,
+        endpoints.http_proxy_public_path.as_deref(),
+        None,
+    );
+
     if !drm_enabled {
         return Ok(ResolvedPlayerStream {
             stream_url: stream_url_proxy,
@@ -165,7 +169,11 @@ async fn resolve_francetv_stream(
         FRANCETV_WIDEVINE_LICENSE_URL,
     );
 
-    let stream_url_proxy = proxied_url(&stream_url, endpoints.http_proxy_public_path.as_deref());
+    let stream_url_proxy = proxied_url(
+        &stream_url,
+        endpoints.http_proxy_public_path.as_deref(),
+        None,
+    );
     Ok(ResolvedPlayerStream {
         stream_url: stream_url_proxy,
         manifest_type: manifest_type,

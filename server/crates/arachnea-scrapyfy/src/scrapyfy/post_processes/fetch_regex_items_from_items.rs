@@ -190,7 +190,10 @@ pub(super) async fn apply(
         }
     }
 
-    root.set_output_type(&target_path, crate::scrapyfy::ScraperOutputType::ObjectArray);
+    root.set_output_type(
+        &target_path,
+        crate::scrapyfy::ScraperOutputType::ObjectArray,
+    );
     for item in extracted_items {
         root.push_node_typed(
             &target_path,

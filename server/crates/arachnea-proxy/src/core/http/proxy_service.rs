@@ -13,12 +13,15 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use base64::Engine;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde::Deserialize;
 use url::Url;
 
 use crate::core::http::{ProxiedHttpRequest, SimpleHttpClient};
-use crate::core::ArachneaProxyCore;
+use crate::core::{
+    normalize_parameter_value, ArachneaProxyCore, ClientContext, ClientParameter,
+    ParameterDefinition, PROXY_HEADER_PARAMETER_COUNTRY,
+};
 use arachnea_core::controler::{
     ControlerService, ControlerServiceExt, ControlerStreamInput, ControlerStreamOutput,
 };
@@ -108,6 +111,36 @@ fn remove_header_case_insensitive(
         .find(|name| name.eq_ignore_ascii_case(wanted))
         .cloned()?;
     headers.remove(&key)
+}
+
+fn context_from_header_map(
+    headers: &HashMap<String, String>,
+    definitions: &[ParameterDefinition],
+) -> ClientContext {
+    let mut context = ClientContext::new();
+    for definition in definitions {
+        if let Some((_, value)) = headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case(&definition.http_header))
+        {
+            context.insert(
+                definition.name.clone(),
+                ClientParameter::String(normalize_parameter_value(&definition.name, value)),
+            );
+        }
+    }
+    context
+}
+
+fn strip_non_forwarded_parameter_headers(
+    headers: &mut HashMap<String, String>,
+    definitions: &[ParameterDefinition],
+) {
+    headers.retain(|name, _| {
+        definitions.iter().all(|definition| {
+            definition.forward_header || !name.eq_ignore_ascii_case(&definition.http_header)
+        })
+    });
 }
 
 /// Validates that header names and values are syntactically acceptable.
@@ -529,6 +562,9 @@ pub async fn handle_proxy_http(
         Ok(value) => value,
         Err(error) => return Ok(stream_error(400, error)),
     };
+    let parameter_definitions = proxy_core.parameter_definitions();
+    let client_context = context_from_header_map(&headers, &parameter_definitions);
+    strip_non_forwarded_parameter_headers(&mut headers, &parameter_definitions);
 
     // Set the Host header from the target URL (host is removed as non-transferable
     //    from the incoming request since it refers to the proxy, not the target).
@@ -557,6 +593,7 @@ pub async fn handle_proxy_http(
         headers,
         cookies,
         body: input.body,
+        client_context,
     };
 
     let proxy_response = match client.request_proxied(proxy_request).await {
@@ -621,20 +658,22 @@ pub fn register_service(
     });
 }
 
-
 /// Constructs a URL for proxied media access.
 ///
 /// If the provided `media_locator` starts with `http://` or `https://` and a
-/// non‑empty `http_proxy_public_path` is supplied, the function returns a
-/// combination of the trimmed proxy path and the media locator. Otherwise it
-/// returns the `media_locator` unchanged.
+/// non-empty `http_proxy_public_path` is supplied, the function returns a
+/// combination of the trimmed proxy path and the media locator. When `country`
+/// is supplied, the generated proxy URL carries the proxy country header in an
+/// `opts` segment. Otherwise it returns the `media_locator` unchanged.
 ///
 /// # Arguments
 /// - `media_locator`: The location of the media resource. If it starts with
 ///   `http://` or `https://`, it may be combined with a proxy path.
 /// - `http_proxy_public_path`: An optional path to be used as the public
-///   proxy base. If provided and non‑empty, it is combined with
+///   proxy base. If provided and non-empty, it is combined with
 ///   `media_locator` when the latter is an HTTP URL.
+/// - `country`: Optional country or region hint passed to the proxy country
+///   routing parameter. When omitted or empty, no country routing is requested.
 ///
 /// # Returns
 /// A String representing either the combined proxied URL or the original
@@ -642,18 +681,38 @@ pub fn register_service(
 ///
 /// # Examples
 /// ```
-/// let url = proxied_url("http://example.com/media", Some("/proxy"));
+/// let url = proxied_url("http://example.com/media", Some("/proxy"), None);
 /// assert_eq!(url, "/proxy/http://example.com/media");
 /// ```
 ///
-/// 
-pub fn proxied_url(media_locator: &str, http_proxy_public_path: Option<&str>) -> String {
+///
+pub fn proxied_url(
+    media_locator: &str,
+    http_proxy_public_path: Option<&str>,
+    country: Option<&str>,
+) -> String {
     let normalized_media_locator = media_locator.trim();
-    if normalized_media_locator.starts_with("http://") || normalized_media_locator.starts_with("https://") {
+    if normalized_media_locator.starts_with("http://")
+        || normalized_media_locator.starts_with("https://")
+    {
         if let Some(proxy_path) = http_proxy_public_path
             .map(str::trim)
             .filter(|value| !value.is_empty())
         {
+            if let Some(country) = country.map(str::trim).filter(|value| !value.is_empty()) {
+                let mut proxy_headers = HashMap::new();
+                proxy_headers.insert(PROXY_HEADER_PARAMETER_COUNTRY, country);
+                let opts = serde_json::json!({ "headers": proxy_headers });
+                let opts_encoded = URL_SAFE_NO_PAD.encode(opts.to_string());
+
+                return format!(
+                    "{}/opts_{}/{}",
+                    proxy_path.trim_end_matches('/'),
+                    opts_encoded,
+                    normalized_media_locator
+                );
+            }
+
             return format!(
                 "{}/{}",
                 proxy_path.trim_end_matches('/'),

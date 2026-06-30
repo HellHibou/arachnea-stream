@@ -1227,10 +1227,7 @@ async fn execute_entry_sub_queries(
                                             let mut item_node = ScraperDataNode::default();
                                             item_node.children.insert(
                                                 (*name).clone(),
-                                                scalar_node_from_source_value(
-                                                    val.clone(),
-                                                    child,
-                                                ),
+                                                scalar_node_from_source_value(val.clone(), child),
                                             );
                                             target.items.push(item_node);
                                         }
@@ -1243,10 +1240,7 @@ async fn execute_entry_sub_queries(
                                             let mut item_node = ScraperDataNode::default();
                                             item_node.children.insert(
                                                 (*name).clone(),
-                                                scalar_node_from_source_value(
-                                                    val.clone(),
-                                                    child,
-                                                ),
+                                                scalar_node_from_source_value(val.clone(), child),
                                             );
                                             target.items.push(item_node);
                                         }

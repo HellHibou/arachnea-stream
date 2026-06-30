@@ -18,6 +18,7 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **Server public API mount configuration**: `arachnea` now accepts `--entrypoint-root` and `--entrypoint-api` in server mode so generated stream URLs can match reverse-proxy mounts such as `/arachnea/api/proxy`.
 - **YAML URL proxy option**: `resolve_url` and `resolve_url_from_parent` now accept optional `proxy: true` to wrap resolved HTTP(S) URLs through the controller-computed generic HTTP proxy path. Omitting `proxy` preserves direct URL output.
 - **Static query actions**: `scraper_type: static` entries with scalar `value` now honor their `actions` pipeline, allowing metadata fields such as service logos to use `resolve_url proxy: true`.
+- **M6Play manifest proxy country hint**: `proxied_url` now accepts an optional country hint. When provided, generated controller proxy URLs carry `Arachnea-Proxy-Country` through the existing `opts` header mechanism; when omitted, URL generation is unchanged.
 
 ### Removed
 - Dead helpers: `process_root`, `parse_html_rows`, `collect_ordered_results`, `matches` (response_parser), `resolve_request_headers`/`resolve_request_body`/`execution_options` (JsonScraperQuery), `split_static_path`, `render_static_value`, `render_yaml_value`, `render_yaml_values` (StaticScraperQuery).

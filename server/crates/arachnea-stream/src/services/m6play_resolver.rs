@@ -35,6 +35,7 @@ const SIXPLAY_CALLBACK_NAME: &str = "jsonp_arachnea";
 const SIXPLAY_DEVICE_ID: &str = "_luid_arachnea";
 const SIXPLAY_SESSION_TTL: Duration = Duration::from_secs(15 * 60);
 const M6PLAY_SERVICE_ID: &str = "m6play-fr";
+const M6PLAY_PROXY_COUNTRY: &str = "fr";
 
 static SIXPLAY_JS_ID_REGEX: OnceLock<Regex> = OnceLock::new();
 static SIXPLAY_API_KEY_REGEX: OnceLock<Regex> = OnceLock::new();
@@ -79,7 +80,7 @@ impl PlayerStreamResolver for M6PlayResolver {
                     credentials_store,
                     resolver_target,
                     resolver_stream_kind,
-                    endpoints
+                    endpoints,
                 )
                 .await
             }
@@ -89,7 +90,7 @@ impl PlayerStreamResolver for M6PlayResolver {
                     credentials_store,
                     resolver_target,
                     resolver_stream_kind,
-                    endpoints
+                    endpoints,
                 )
                 .await
             }
@@ -137,9 +138,11 @@ async fn resolve_replay_stream(
     );
 
     Ok(ResolvedPlayerStream {
-        stream_url:  proxied_url(
+        stream_url: proxied_url(
             &manifest_url,
-            endpoints.http_proxy_public_path.as_deref()),
+            endpoints.http_proxy_public_path.as_deref(),
+            Some(M6PLAY_PROXY_COUNTRY),
+        ),
         manifest_type: "mpd".to_string(),
         license_url: Some(license_url),
         license_headers: HashMap::new(),
@@ -166,7 +169,7 @@ async fn resolve_live_stream(
         "6ter" => "6T".to_string(),
         "m6" => "M6".to_string(),
         "w9" => "W9".to_string(),
-        other => other.to_string()
+        other => other.to_string(),
     };
 
     // Fetch upfront token for live stream.
@@ -245,7 +248,9 @@ async fn resolve_live_stream(
     Ok(ResolvedPlayerStream {
         stream_url: proxied_url(
             &manifest_url,
-            endpoints.http_proxy_public_path.as_deref()),
+            endpoints.http_proxy_public_path.as_deref(),
+            Some(M6PLAY_PROXY_COUNTRY),
+        ),
         manifest_type: "mpd".to_string(),
         license_url: Some(license_url),
         license_headers: HashMap::new(),

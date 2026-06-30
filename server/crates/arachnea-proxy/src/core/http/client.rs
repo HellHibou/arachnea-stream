@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use crate::core::{
-    ArachneaProxyCore, ConnectRequest, Destination, HttpRequestTargetForm, ProxyError, Result,
+    ArachneaProxyCore, ClientContext, ConnectRequest, Destination, HttpRequestTargetForm,
+    ProxyError, Result,
 };
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
@@ -39,6 +40,8 @@ pub struct ProxiedHttpRequest {
     pub cookies: HashMap<String, String>,
     /// Request body bytes.
     pub body: Vec<u8>,
+    /// Request-local proxy context used by routing parameter handlers.
+    pub client_context: ClientContext,
 }
 
 /// Minimal HTTP client that uses `ArachneaProxyCore` for connections.
@@ -150,7 +153,10 @@ impl SimpleHttpClient {
         let destination = Destination::host_port(host, port).with_protocol(protocol);
         let stream = self
             .core
-            .connect_http_request(ConnectRequest::new(destination))
+            .connect_http_request(
+                ConnectRequest::new(destination)
+                    .with_client_context(request.client_context.clone()),
+            )
             .await?;
 
         // Build request headers
