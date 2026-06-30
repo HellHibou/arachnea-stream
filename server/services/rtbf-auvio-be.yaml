@@ -295,7 +295,8 @@ shared:
             - type: format_text
               argument: "https://auvio.rtbf.be{}"
         - name: video
-          type: object[]
+          type: string
+          select: first
           pointer: /mediaId
           actions:
             - type: format_text
@@ -318,7 +319,8 @@ shared:
               row_pointer: /
               entries:
                 - name: video
-                  type: object[]
+                  type: string
+                  select: first
                   actions:
                     - type: get_request_url
                     - type: regex_find_all
@@ -341,6 +343,9 @@ shared:
                           type: string
                           select: first
                           pointer: /mediaLocator
+                          actions:
+                            - type: resolve_url
+                              proxy: true
 
     - scraper_type: json
       context_pointer: /widgets/*
@@ -386,27 +391,44 @@ shared:
               type: string
               select: first
               pointer: /video/url
+              actions:
+                - type: resolve_url
+                  proxy: true
             - name: video
               type: string
               select: first
               pointer: /media/url
+              actions:
+                - type: resolve_url
+                  proxy: true
             - name: video
               type: string
               select: first
               pointer: /url
+              actions:
+                - type: resolve_url
+                  proxy: true
             - name: video
               type: string
               select: first
               pointer: /trailerUrl
+              actions:
+                - type: resolve_url
+                  proxy: true
             - name: video
               type: string
               select: first
               pointer: /trailer/url
+              actions:
+                - type: resolve_url
+                  proxy: true
             - name: video
               type: string
               select: first
               pointer: /embedPath
-              actions: *actions_resolve_url
+              actions:
+                - type: resolve_url
+                  proxy: true
             - name: link
               type: string
               select: first

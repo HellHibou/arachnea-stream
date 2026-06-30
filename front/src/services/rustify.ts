@@ -803,10 +803,7 @@ function normalizeHomeSection(
   inheritedSource: string | null = null,
 ): HomeSection {
   const record = isJsonRecord(payload) ? payload : {}
-  let rawItems = readRecordList(record.items)
-  if (rawItems.length === 0) {
-    rawItems = readRecordList(record.entries)
-  }
+  const rawItems = readRecordList(record.entries)
   const label = firstNonEmptyString([record.label])
   const currentPage = Math.max(1, Math.trunc(firstNumber(record.current_page) ?? 1))
   const haveMore = readBoolean(record.have_more)
@@ -844,7 +841,7 @@ function normalizeHomeSectionSources(
   currentPage: number,
   haveMore: boolean,
 ): HomeSectionSource[] {
-  const link = firstNonEmptyString([record.link, record.query_url, record.queryUrl])
+  const link = firstNonEmptyString([record.link])
 
   if (!link || !inheritedSource) {
     return []

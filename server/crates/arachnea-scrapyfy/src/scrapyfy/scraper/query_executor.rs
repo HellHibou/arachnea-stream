@@ -1154,9 +1154,13 @@ async fn execute_entry_sub_queries(
                                         .flat_map(|item| item.values.clone())
                                         .collect()
                                 };
-                                for val in scalar_values {
-                                    let entry = scalar_node_from_source_value(val, child);
-                                    target.items.push(entry);
+                                if target.output_type.is_some_and(ScraperOutputType::is_scalar) {
+                                    target.values = scalar_values.into_iter().take(1).collect();
+                                } else {
+                                    for val in scalar_values {
+                                        let entry = scalar_node_from_source_value(val, child);
+                                        target.items.push(entry);
+                                    }
                                 }
                                 continue;
                             }

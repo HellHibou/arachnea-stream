@@ -25,6 +25,11 @@ All notable changes to the server workspace are recorded here. Add new entries a
 
 ### Fixed
 - **`francetv.yaml` `load_home` section pagination**: Added a default `page` parameter so shared section metadata serializes `current_page` as a number instead of leaking the unresolved `{page}` placeholder on non-paginated home responses.
+- **`rtbf-auvio-be.yaml` `load_home` PROMOBOX banner video shape**: RedBee banner preview extraction now keeps `banners[].video` as a single string URL instead of serializing it as an array containing an `_` object.
+- **`rtbf-auvio-be.yaml` `load_home` PROMOBOX banner video proxying**: RedBee HLS banner preview URLs are now wrapped through the configured generic HTTP proxy path.
+- **Frontend banner video proxy URLs**: Native video source detection now preserves same-origin proxy paths such as `/api/proxy/https://...m3u8` instead of extracting and playing the embedded upstream URL directly.
+- **`anime-sama.yaml` `load_home` banners**: Carousel clone slides marked with `aria-hidden="true"` are now ignored, keeping the home banners list to the four real featured items.
+- **`m6play-fr.yaml` `search` result grouping**: Search now extracts one root response with hits nested under `entries`, preventing repeated root `source` values from breaking typed serialization.
 - **`francetv.yaml` `get_entry` season grouping**: FranceTV program details now build seasons from `collections` filtered to `type: playlist_video`, keeping each season's episodes under that season instead of flattening every playlist video item into a top-level `episode` list.
 - **RTBF Auvio playback CORS**: RTBF RedBee media manifest URLs returned by the player resolver now use the same-origin `/api/proxy/` route, so the DASH MPD and relative segment requests are fetched through Arachnea while the Widevine license proxy remains on `/api/get_stream/rtbf-auvio-be/...`.
 - **RTBF Auvio home banners**: Query-level sub-query fetches now execute child sub-queries on fetched responses and resolve nested request headers/bodies from the parent response, allowing `load_home` PROMOBOX banners to include the RedBee HLS `video` URL.

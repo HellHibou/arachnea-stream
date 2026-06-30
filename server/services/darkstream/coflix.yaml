@@ -133,7 +133,7 @@ queries:
             actions:
               - type: format_text
                 argument: "Films"
-          - name: request > query_url
+          - name: link
             type: string
             actions:
               - type: format_text
@@ -151,7 +151,7 @@ queries:
             actions:
               - type: format_text
                 argument: "Séries"
-          - name: request > query_url
+          - name: link
             type: string
             actions:
               - type: format_text
@@ -169,7 +169,7 @@ queries:
             actions:
               - type: format_text
                 argument: "Animés"
-          - name: request > query_url
+          - name: link
             type: string
             actions:
               - type: format_text

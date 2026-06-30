@@ -507,12 +507,12 @@ shared:
           type: string
           select: first
           pointer: /hoverImageUrl
-        - name: request > query_url
+        - name: link
           type: string
           select: first
           pointer: /target/rowId
           actions: *actions_row_detail_link
-        - name: request > query_url
+        - name: link
           type: string
           select: first
           pointer: /target/storefront
@@ -699,12 +699,12 @@ shared:
           type: string
           select: first
           pointer: /hoverImageUrl
-        - name: request > query_url
+        - name: link
           type: string
           select: first
           pointer: /target/rowId
           actions: *actions_row_detail_link
-        - name: request > query_url
+        - name: link
           type: string
           select: first
           pointer: /target/storefront

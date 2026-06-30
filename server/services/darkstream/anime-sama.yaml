@@ -283,7 +283,7 @@ queries:
     entries:
     - name: banners
       type: object[]
-      selector: "div.ak-slide"
+      selector: "div.ak-slide:not([aria-hidden=\"true\"])"
       select: all
       entries:
       - name: key
@@ -343,7 +343,7 @@ queries:
           actions:
             - type: format_text
               argument: "Animés"
-        - name: request > query_url
+        - name: link
           type: string
           actions:
             - type: format_text
@@ -361,7 +361,7 @@ queries:
           actions:
             - type: format_text
               argument: "Scans"
-        - name: request > query_url
+        - name: link
           type: string
           actions:
             - type: format_text
@@ -379,7 +379,7 @@ queries:
           actions:
             - type: format_text
               argument: "Webtoon"
-        - name: request > query_url
+        - name: link
           type: string
           actions:
             - type: format_text
@@ -556,7 +556,7 @@ queries:
             actions:
               - type: format_text
                 argument: "Anime"
-          - name: request > query_url
+          - name: link
             type: string
             actions:
               - type: format_text
@@ -574,7 +574,7 @@ queries:
             actions:
               - type: format_text
                 argument: "Scans"
-          - name: request > query_url
+          - name: link
             type: string
             actions:
               - type: format_text
@@ -592,7 +592,7 @@ queries:
             actions:
               - type: format_text
                 argument: "Webtoon"
-          - name: request > query_url
+          - name: link
             type: string
             actions:
               - type: format_text

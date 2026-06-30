@@ -463,15 +463,17 @@ queries:
       - type: format_text
         argument: '{"requests":[{"indexName":"rtlmutu_prod_bedrock_layout_items_v2_m6web_main","query":{search_query_json},"params":"clickAnalytics=true&hitsPerPage={page_size}&page={page_index}&facetFilters=[[\"metadata.item_type:program\"],[\"metadata.platforms_assets:m6group_web\"]]"}]}'
     media_types: *media_types_6play
-    row_pointer: /results/*/hits/*
+    row_pointer: /
     entries:
       - name: source
         type: string
+        select: first
         actions:
           - type: format_text
             argument: "{source}"
       - name: current_page
         type: number
+        select: first
         actions:
           - type: format_text
             argument: "{page}"
@@ -481,6 +483,8 @@ queries:
         pointer: /results/0/nbPages
       - name: entries
         type: object[]
+        pointer: /results/*/hits/*
+        select: all
         entries:
           - name: title
             type: string
