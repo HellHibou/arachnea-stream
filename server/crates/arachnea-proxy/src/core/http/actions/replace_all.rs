@@ -9,7 +9,7 @@ use serde::Deserialize;
 
 #[cfg(feature = "controller-service")]
 use super::ParsedProxyActionHeader;
-use super::{ProxyHttpActionConfig, ProxyHttpPostActionConfig};
+use super::{PostActionContext, ProxyHttpActionConfig, ProxyHttpPostActionConfig};
 use crate::core::{ProxyError, Result};
 
 /// Proxy action header that carries a JSON ReplaceAll rule.
@@ -204,6 +204,7 @@ impl super::ProxyHttpPostAction for ReplaceAllAction {
         _status_code: u16,
         headers: &mut HashMap<String, String>,
         body: Vec<u8>,
+        context: &PostActionContext,
     ) -> Result<Vec<u8>> {
         if body.is_empty() {
             return Ok(body);
@@ -248,10 +249,13 @@ impl super::ProxyHttpPostAction for ReplaceAllAction {
             return Ok(body);
         }
 
+        // Resolve variables in replacement string
+        let replacement = resolve_variables(&self.replacement, context);
+
         // Apply regex replacement
         let replaced = self
             .pattern
-            .replace_all(&decoded, self.replacement.as_str());
+            .replace_all(&decoded, replacement.as_str());
 
         // Re-encode using the same encoding
         let (result_bytes, _encoding_used, _had_errors) = encoding_used.encode(&replaced);
@@ -266,6 +270,30 @@ impl super::ProxyHttpPostAction for ReplaceAllAction {
 
         Ok(result)
     }
+}
+
+/// Resolves predefined variables in a replacement string using request context.
+fn resolve_variables(template: &str, context: &PostActionContext) -> String {
+    let base_url = context
+        .target_url
+        .trim_end_matches('/')
+        .to_string();
+
+    let path = url::Url::parse(&context.target_url)
+        .ok()
+        .map(|u| u.path().to_string())
+        .unwrap_or_default();
+
+    let path_base = match path.rfind('/') {
+        Some(idx) => path[..=idx].to_string(),
+        None => String::new(),
+    };
+
+    template
+        .replace("{proxy}", &context.entry_point)
+        .replace("{base_url}", &base_url)
+        .replace("{path}", &path)
+        .replace("{path_base}", &path_base)
 }
 
 /// Detects the character encoding from a `content-type` header value.
@@ -296,6 +324,7 @@ fn detect_encoding(content_type: &str) -> &'static Encoding {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::http::actions::PostActionContext;
     use crate::core::http::actions::ProxyHttpPostAction;
 
     #[test]
@@ -338,7 +367,7 @@ mod tests {
         let mut headers = HashMap::new();
         headers.insert("content-type".to_string(), "text/plain".to_string());
         let body = b"hello world, hello!".to_vec();
-        let result = action.post_apply(200, &mut headers, body).unwrap();
+        let result = action.post_apply(200, &mut headers, body, &PostActionContext::default()).unwrap();
         assert_eq!(result, b"hi world, hi!".to_vec());
     }
 
@@ -356,7 +385,7 @@ mod tests {
         let mut headers = HashMap::new();
         headers.insert("content-type".to_string(), "text/plain".to_string());
         let body = b"hello world".to_vec();
-        let result = action.post_apply(200, &mut headers, body.clone()).unwrap();
+        let result = action.post_apply(200, &mut headers, body.clone(), &PostActionContext::default()).unwrap();
         assert_eq!(result, body);
     }
 
@@ -374,7 +403,7 @@ mod tests {
         let mut headers = HashMap::new();
         headers.insert("content-type".to_string(), "image/png".to_string());
         let body = b"hello world".to_vec();
-        let result = action.post_apply(200, &mut headers, body.clone()).unwrap();
+        let result = action.post_apply(200, &mut headers, body.clone(), &PostActionContext::default()).unwrap();
         assert_eq!(result, body);
     }
 

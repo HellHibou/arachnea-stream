@@ -160,6 +160,15 @@ pub(crate) fn parse_proxy_action_header_value(
     Ok(None)
 }
 
+/// Context passed to post-response actions for variable substitution.
+#[derive(Clone, Debug, Default)]
+pub struct PostActionContext {
+    /// Entry point / proxy base path, e.g. "http://127.0.0.1:8080/api/proxy".
+    pub entry_point: String,
+    /// Full target URL string, e.g. "https://host.com:8080/mon/chemin.jpg".
+    pub target_url: String,
+}
+
 /// Trait implemented by post-response HTTP actions.
 pub trait ProxyHttpPostAction: Send + Sync {
     /// Applies the action to a response.
@@ -169,6 +178,7 @@ pub trait ProxyHttpPostAction: Send + Sync {
     /// * `status_code` - HTTP status code of the response.
     /// * `headers` - Mutable response headers.
     /// * `body` - Response body bytes, consumed and returned.
+    /// * `context` - Request context for variable substitution.
     ///
     /// # Returns
     ///
@@ -182,6 +192,7 @@ pub trait ProxyHttpPostAction: Send + Sync {
         status_code: u16,
         headers: &mut HashMap<String, String>,
         body: Vec<u8>,
+        context: &PostActionContext,
     ) -> Result<Vec<u8>>;
 }
 
@@ -221,6 +232,7 @@ pub fn build_action(config: &ProxyHttpPostActionConfig) -> Result<Box<dyn ProxyH
 /// * `headers` - Mutable response headers.
 /// * `body` - Response body bytes.
 /// * `actions` - Actions to apply.
+/// * `context` - Request context for variable substitution.
 ///
 /// # Returns
 ///
@@ -234,6 +246,7 @@ pub fn apply_post_actions(
     headers: &mut HashMap<String, String>,
     body: Vec<u8>,
     actions: &[ProxyHttpPostActionConfig],
+    context: &PostActionContext,
 ) -> Result<Vec<u8>> {
     if actions.is_empty() {
         return Ok(body);
@@ -258,7 +271,7 @@ pub fn apply_post_actions(
     let mut current_body = body;
     for (_, config) in &indexed {
         let action = build_action(config)?;
-        current_body = action.post_apply(status_code, headers, current_body)?;
+        current_body = action.post_apply(status_code, headers, current_body, context)?;
     }
 
     Ok(current_body)

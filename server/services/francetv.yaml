@@ -509,10 +509,14 @@ shared:
       type: string
       select: first
       pointer: /program/description
+      actions:
+        - type: html_to_text
     - name: description
       type: string
       select: first
       pointer: /description
+      actions:
+        - type: html_to_text
     - name: key
       type: string
       select: first

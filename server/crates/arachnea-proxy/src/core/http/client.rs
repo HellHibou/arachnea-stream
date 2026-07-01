@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use crate::core::http::actions::{apply_post_actions, ProxyHttpPostActionConfig};
+use crate::core::http::actions::{apply_post_actions, PostActionContext, ProxyHttpPostActionConfig};
 use crate::core::{
     ArachneaProxyCore, ClientContext, ConnectRequest, Destination, HttpRequestTargetForm,
     ProxyError, Result,
@@ -47,6 +47,8 @@ pub struct ProxiedHttpRequest {
     pub post_actions: Vec<ProxyHttpPostActionConfig>,
     /// Whether only response headers should be read (e.g. HEAD requests).
     pub headers_only: bool,
+    /// Request context for action variable substitution.
+    pub context: PostActionContext,
 }
 
 /// Minimal HTTP client that uses `ArachneaProxyCore` for connections.
@@ -270,7 +272,7 @@ impl SimpleHttpClient {
 
         let headers_only = request.headers_only;
         let post_actions = request.post_actions.clone();
-        parse_http_response(&response_bytes, headers_only, &post_actions)
+        parse_http_response(&response_bytes, headers_only, &post_actions, &request.context)
     }
 }
 
@@ -338,6 +340,7 @@ fn parse_http_response(
     bytes: &[u8],
     headers_only: bool,
     post_actions: &[ProxyHttpPostActionConfig],
+    context: &PostActionContext,
 ) -> Result<ProxiedHttpResponse> {
     // Find the end of headers
     let header_end = bytes
@@ -403,7 +406,7 @@ fn parse_http_response(
         body
     } else {
         let original_len = body.len();
-        let new_body = apply_post_actions(status_code, &mut headers, body, post_actions)?;
+        let new_body = apply_post_actions(status_code, &mut headers, body, post_actions, context)?;
 
         // If body was modified, fix content-length and remove validation headers
         if new_body.len() != original_len {

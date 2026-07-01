@@ -1,5 +1,5 @@
 use anyhow::{bail, Context, Result};
-use arachnea_proxy::http::proxy_service::proxied_url;
+use arachnea_proxy::{PROXY_HEADER_PARAMETER_COUNTRY, http::{actions::{ProxyHttpActionConfig, REMOVE_HEADER_ACTION_HEADER, RemoveHeader}, proxy_service::proxied_url}};
 use async_trait::async_trait;
 use rand::{distr::Alphanumeric, Rng};
 use rquest::{
@@ -146,7 +146,7 @@ async fn resolve_francetv_stream(
     let stream_url_proxy = proxied_url(
         &stream_url,
         endpoints.http_proxy_public_path.as_deref(),
-        None,
+        Some("fr"),
         &[],
     );
 
@@ -170,11 +170,12 @@ async fn resolve_francetv_stream(
         FRANCETV_WIDEVINE_LICENSE_URL,
     );
 
+    let stream_actions = stream_headers(endpoints.http_proxy_public_path.as_deref());
     let stream_url_proxy = proxied_url(
         &stream_url,
         endpoints.http_proxy_public_path.as_deref(),
-        None,
-        &[],
+        Some("fr"),
+        &stream_actions,
     );
     Ok(ResolvedPlayerStream {
         stream_url: stream_url_proxy,
@@ -488,4 +489,16 @@ async fn proxy_francetv_license_request(
         content_type,
         headers: HashMap::from([("cache-control".to_string(), "no-store".to_string())]),
     })
+}
+
+fn stream_headers(http_proxy_public_path: Option<&str>) -> Vec<ProxyHttpActionConfig> {
+    let proxy_path = http_proxy_public_path
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_default()
+        .trim_end_matches('/');
+
+    vec![
+        RemoveHeader::on_http302([PROXY_HEADER_PARAMETER_COUNTRY, REMOVE_HEADER_ACTION_HEADER]),
+    ]
 }

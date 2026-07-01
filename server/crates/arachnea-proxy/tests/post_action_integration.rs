@@ -1,4 +1,4 @@
-use arachnea_proxy::core::http::actions::{apply_post_actions, ProxyHttpPostActionConfig};
+use arachnea_proxy::core::http::actions::{apply_post_actions, PostActionContext, ProxyHttpPostActionConfig};
 use std::collections::HashMap;
 
 #[test]
@@ -20,7 +20,7 @@ fn test_replace_all_action_pipeline() {
         ]),
     }];
 
-    let result = apply_post_actions(200, &mut headers, body, &actions).unwrap();
+    let result = apply_post_actions(200, &mut headers, body, &actions, &PostActionContext::default()).unwrap();
 
     let result_str = String::from_utf8(result.clone()).unwrap();
     assert!(
@@ -52,7 +52,7 @@ fn test_replace_all_preserves_non_text_body() {
         ]),
     }];
 
-    let result = apply_post_actions(200, &mut headers, body.clone(), &actions).unwrap();
+    let result = apply_post_actions(200, &mut headers, body.clone(), &actions, &PostActionContext::default()).unwrap();
     assert_eq!(result, body);
 }
 
@@ -62,7 +62,7 @@ fn test_no_actions_preserves_body() {
     let mut headers = HashMap::new();
     headers.insert("content-type".to_string(), "text/plain".to_string());
 
-    let result = apply_post_actions(200, &mut headers, body.clone(), &[]).unwrap();
+    let result = apply_post_actions(200, &mut headers, body.clone(), &[], &PostActionContext::default()).unwrap();
     assert_eq!(result, body);
 }
 
@@ -81,6 +81,6 @@ fn test_empty_body_unchanged() {
         ]),
     }];
 
-    let result = apply_post_actions(200, &mut headers, body.clone(), &actions).unwrap();
+    let result = apply_post_actions(200, &mut headers, body.clone(), &actions, &PostActionContext::default()).unwrap();
     assert_eq!(result, body);
 }

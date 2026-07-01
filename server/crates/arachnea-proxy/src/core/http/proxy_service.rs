@@ -19,8 +19,8 @@ use url::Url;
 use crate::core::http::actions::{
     parse_proxy_action_header_into, parse_proxy_action_headers,
     post_actions_require_identity_encoding, proxy_action_header,
-    should_remove_opts_header_on_redirect, ParsedProxyActionHeaders, ProxyHttpActionConfig,
-    ProxyHttpPostActionConfig, ProxyHttpRedirectActionConfig,
+    should_remove_opts_header_on_redirect, ParsedProxyActionHeaders, PostActionContext,
+    ProxyHttpActionConfig, ProxyHttpPostActionConfig, ProxyHttpRedirectActionConfig,
 };
 use crate::core::http::{ProxiedHttpRequest, SimpleHttpClient};
 use crate::core::{
@@ -760,6 +760,10 @@ pub async fn handle_proxy_http(
         client_context,
         post_actions,
         headers_only,
+        context: PostActionContext {
+            entry_point: input.entry_point.clone(),
+            target_url: target_url_str.clone(),
+        },
     };
 
     let proxy_response = match client.request_proxied(proxy_request).await {
