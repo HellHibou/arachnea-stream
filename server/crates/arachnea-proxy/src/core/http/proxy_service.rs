@@ -16,7 +16,12 @@ use std::sync::Arc;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use url::Url;
 
-use crate::core::http::actions::{ProxyHttpPostActionConfig, ReplaceAllHeaderValue};
+use crate::core::http::actions::{
+    parse_proxy_action_header_into, parse_proxy_action_headers,
+    post_actions_require_identity_encoding, proxy_action_header,
+    should_remove_opts_header_on_redirect, ParsedProxyActionHeaders, ProxyHttpActionConfig,
+    ProxyHttpPostActionConfig, ProxyHttpRedirectActionConfig,
+};
 use crate::core::http::{ProxiedHttpRequest, SimpleHttpClient};
 use crate::core::{
     normalize_parameter_value, ArachneaProxyCore, ClientContext, ClientParameter,
@@ -32,6 +37,7 @@ const MAX_LOCAL_URL_BYTES: usize = 8192;
 const ALLOWED_OPTS_FIELDS: &[&str] = &["headers", "cookies", "proxy"];
 
 /// Parsed options from the `opts` segment of a proxy URL.
+#[derive(Clone)]
 struct ProxyHttpOpts {
     /// Headers as ordered pairs (from object or array-of-pairs format).
     headers: Vec<(String, String)>,
@@ -46,6 +52,7 @@ struct MergedProxyHttpInput {
     headers: HashMap<String, String>,
     cookies: HashMap<String, String>,
     post_actions: Vec<ProxyHttpPostActionConfig>,
+    redirect_actions: Vec<ProxyHttpRedirectActionConfig>,
 }
 
 /// Decodes a base64url (no-padding) value from a path segment.
@@ -85,10 +92,12 @@ fn parse_opts_value(value: &serde_json::Value) -> Result<ProxyHttpOpts, (u16, St
         match headers_val {
             serde_json::Value::Object(map) => {
                 // Legacy object format: {"name": "value", ...}
-                map.iter().map(|(k, v)| {
-                    let val = v.as_str().unwrap_or("").to_string();
-                    (k.clone(), val)
-                }).collect()
+                map.iter()
+                    .map(|(k, v)| {
+                        let val = v.as_str().unwrap_or("").to_string();
+                        (k.clone(), val)
+                    })
+                    .collect()
             }
             serde_json::Value::Array(arr) => {
                 // Array-of-pairs format: [["name", "value"], ...]
@@ -96,20 +105,30 @@ fn parse_opts_value(value: &serde_json::Value) -> Result<ProxyHttpOpts, (u16, St
                 for (i, item) in arr.iter().enumerate() {
                     match item {
                         serde_json::Value::Array(pair) if pair.len() == 2 => {
-                            let name = pair[0].as_str()
-                                .ok_or_else(|| (400, format!("headers[{}][0] must be a string", i)))?;
-                            let value = pair[1].as_str()
-                                .ok_or_else(|| (400, format!("headers[{}][1] must be a string", i)))?;
+                            let name = pair[0].as_str().ok_or_else(|| {
+                                (400, format!("headers[{}][0] must be a string", i))
+                            })?;
+                            let value = pair[1].as_str().ok_or_else(|| {
+                                (400, format!("headers[{}][1] must be a string", i))
+                            })?;
                             pairs.push((name.to_string(), value.to_string()));
                         }
-                        _ => return Err((400, format!(
-                            "headers[{}] must be a string pair [name, value]", i
-                        ))),
+                        _ => {
+                            return Err((
+                                400,
+                                format!("headers[{}] must be a string pair [name, value]", i),
+                            ))
+                        }
                     }
                 }
                 pairs
             }
-            _ => return Err((400, "'headers' must be a JSON object or array of pairs".to_string())),
+            _ => {
+                return Err((
+                    400,
+                    "'headers' must be a JSON object or array of pairs".to_string(),
+                ))
+            }
         }
     } else {
         Vec::new()
@@ -118,12 +137,13 @@ fn parse_opts_value(value: &serde_json::Value) -> Result<ProxyHttpOpts, (u16, St
     // Parse cookies
     let cookies = if let Some(cookies_val) = obj.get("cookies") {
         match cookies_val {
-            serde_json::Value::Object(map) => {
-                map.iter().map(|(k, v)| {
+            serde_json::Value::Object(map) => map
+                .iter()
+                .map(|(k, v)| {
                     let val = v.as_str().unwrap_or("").to_string();
                     (k.clone(), val)
-                }).collect()
-            }
+                })
+                .collect(),
             _ => return Err((400, "'cookies' must be a JSON object".to_string())),
         }
     } else {
@@ -132,7 +152,11 @@ fn parse_opts_value(value: &serde_json::Value) -> Result<ProxyHttpOpts, (u16, St
 
     let proxy = obj.get("proxy").cloned().unwrap_or(serde_json::Value::Null);
 
-    Ok(ProxyHttpOpts { headers, cookies, proxy })
+    Ok(ProxyHttpOpts {
+        headers,
+        cookies,
+        proxy,
+    })
 }
 
 /// Filters out non-transferable headers.
@@ -337,7 +361,7 @@ fn encode_proxy_path(api_prefix: &str, resolved_url: &Url, opts_encoded: &str) -
     let protocol = resolved_url.scheme();
     let host = resolved_url.host_str().unwrap_or("");
     let port = resolved_url.port();
-    let path = resolved_url.path();
+    let path = resolved_url.path().trim_start_matches('/');
     let query = resolved_url
         .query()
         .map(|q| format!("?{}", q))
@@ -355,6 +379,51 @@ fn encode_proxy_path(api_prefix: &str, resolved_url: &Url, opts_encoded: &str) -
     };
 
     format!("{api}/{opts_segment}{protocol}://{host}{port_segment}/{path}{query}")
+}
+
+fn encode_proxy_opts(opts: &ProxyHttpOpts) -> String {
+    if opts.headers.is_empty() && opts.cookies.is_empty() && opts.proxy.is_null() {
+        return String::new();
+    }
+
+    let mut object = serde_json::Map::new();
+    if !opts.headers.is_empty() {
+        let headers: Vec<Vec<String>> = opts
+            .headers
+            .iter()
+            .map(|(name, value)| vec![name.clone(), value.clone()])
+            .collect();
+        object.insert("headers".to_string(), serde_json::json!(headers));
+    }
+    if !opts.cookies.is_empty() {
+        object.insert("cookies".to_string(), serde_json::json!(opts.cookies));
+    }
+    if !opts.proxy.is_null() {
+        object.insert("proxy".to_string(), opts.proxy.clone());
+    }
+
+    URL_SAFE_NO_PAD.encode(serde_json::Value::Object(object).to_string())
+}
+
+fn redirect_opts_encoded(
+    status: u16,
+    current_opts_encoded: &str,
+    current_opts: Option<&ProxyHttpOpts>,
+    redirect_actions: &[ProxyHttpRedirectActionConfig],
+) -> String {
+    if redirect_actions.is_empty() {
+        return current_opts_encoded.to_string();
+    }
+
+    let Some(current_opts) = current_opts else {
+        return current_opts_encoded.to_string();
+    };
+
+    let mut next_opts = current_opts.clone();
+    next_opts
+        .headers
+        .retain(|(name, _)| !should_remove_opts_header_on_redirect(redirect_actions, status, name));
+    encode_proxy_opts(&next_opts)
 }
 
 /// Recovers the absolute target URL from a potentially relative Location
@@ -409,7 +478,7 @@ fn merge_opts(
 ) -> Result<MergedProxyHttpInput, (u16, String)> {
     let mut headers = incoming_headers.clone();
     let mut cookies = HashMap::new();
-    let mut post_actions = parse_post_action_headers(&mut headers)?;
+    let mut proxy_actions = parse_proxy_action_headers(&mut headers)?;
 
     // Extract cookies from incoming Cookie header
     if let Some(cookie_header) = headers.get("cookie").or_else(|| headers.get("Cookie")) {
@@ -440,9 +509,7 @@ fn merge_opts(
 
         // Merge headers: opts override incoming
         for (key, value) in &opts.headers {
-            if let Some(action) = parse_post_action_header_value(key, value)? {
-                post_actions.push(action);
-            } else {
+            if !parse_proxy_action_header_into(&mut proxy_actions, key, value)? {
                 headers.insert(key.clone(), value.clone());
             }
         }
@@ -454,10 +521,16 @@ fn merge_opts(
         }
     }
 
+    let ParsedProxyActionHeaders {
+        post_actions,
+        redirect_actions,
+    } = proxy_actions;
+
     Ok(MergedProxyHttpInput {
         headers,
         cookies,
         post_actions,
+        redirect_actions,
     })
 }
 
@@ -632,11 +705,14 @@ pub async fn handle_proxy_http(
         Some(opts_parsed)
     };
 
+    let redirect_opts = opts.clone();
+
     // Merge headers and cookies
     let MergedProxyHttpInput {
         mut headers,
         cookies,
         post_actions,
+        redirect_actions,
     } = match merge_opts(&input.headers, opts) {
         Ok(value) => value,
         Err((status, error)) => return Ok(stream_error(status, error)),
@@ -655,15 +731,9 @@ pub async fn handle_proxy_http(
 
     // When post-actions are present, force Accept-Encoding: identity to avoid
     // dealing with compressed bodies.
-    if !post_actions.is_empty() {
-        let has_text_actions = post_actions.iter().any(|a| a.action == "ReplaceAll");
-        if has_text_actions {
-            remove_header_variants(&mut headers, "accept-encoding");
-            headers.insert(
-                "Accept-Encoding".to_string(),
-                "identity".to_string(),
-            );
-        }
+    if post_actions_require_identity_encoding(&post_actions) {
+        remove_header_variants(&mut headers, "accept-encoding");
+        headers.insert("Accept-Encoding".to_string(), "identity".to_string());
     }
 
     // Log the target URL being called
@@ -701,10 +771,16 @@ pub async fn handle_proxy_http(
 
     // Rewrite Location header for redirects
     if (300..400).contains(&proxy_response.status) {
+        let redirect_opts_encoded = redirect_opts_encoded(
+            proxy_response.status,
+            &parsed.opts_encoded,
+            redirect_opts.as_ref(),
+            &redirect_actions,
+        );
         if let Err(error) = rewrite_location_header(
             &mut response_headers,
             &target_url_str,
-            &parsed.opts_encoded,
+            &redirect_opts_encoded,
             &input.entry_point,
         ) {
             return Ok(stream_error(502, error));
@@ -754,63 +830,6 @@ pub fn register_service(
     });
 }
 
-/// Parses post-action headers (e.g. `Arachnea-Proxy-ReplaceAll`) from the
-/// headers map and removes them so they are not forwarded to the upstream.
-///
-/// # Arguments
-///
-/// * `headers` - Mutable headers map. Action headers are removed.
-///
-/// # Returns
-///
-/// Parsed post-action configurations.
-fn parse_post_action_headers(
-    headers: &mut HashMap<String, String>,
-) -> Result<Vec<ProxyHttpPostActionConfig>, (u16, String)> {
-    const ACTION_HEADER_PREFIX: &str = "arachnea-proxy-";
-
-    let mut actions = Vec::new();
-
-    let header_names: Vec<String> = headers.keys().cloned().collect();
-    for name in &header_names {
-        let name_lower = name.to_ascii_lowercase();
-        if !name_lower.starts_with(ACTION_HEADER_PREFIX) {
-            continue;
-        }
-
-        if let Some(value) = headers.remove(name) {
-            if let Some(action) = parse_post_action_header_value(name, &value)? {
-                actions.push(action);
-            }
-        }
-    }
-
-    Ok(actions)
-}
-
-fn parse_post_action_header_value(
-    name: &str,
-    value: &str,
-) -> Result<Option<ProxyHttpPostActionConfig>, (u16, String)> {
-    const ACTION_HEADER_PREFIX: &str = "arachnea-proxy-";
-    const ACTION_REPLACE_ALL: &str = "arachnea-proxy-replaceall";
-
-    let name_lower = name.to_ascii_lowercase();
-    if !name_lower.starts_with(ACTION_HEADER_PREFIX) {
-        return Ok(None);
-    }
-
-    match name_lower.as_str() {
-        ACTION_REPLACE_ALL => serde_json::from_str::<ReplaceAllHeaderValue>(value)
-            .map(|header_value| Some(header_value.into_config()))
-            .map_err(|error| (502, format!("invalid {name} header value: {error}"))),
-        other => {
-            tracing::debug!("Unknown proxy action header '{}', skipping", other);
-            Ok(None)
-        }
-    }
-}
-
 /// Constructs a URL for proxied media access.
 ///
 /// If the provided `media_locator` starts with `http://` or `https://` and a
@@ -846,7 +865,7 @@ pub fn proxied_url(
     media_locator: &str,
     http_proxy_public_path: Option<&str>,
     country: Option<&str>,
-    actions: &[ProxyHttpPostActionConfig],
+    actions: &[ProxyHttpActionConfig],
 ) -> String {
     let normalized_media_locator = media_locator.trim();
     if normalized_media_locator.starts_with("http://")
@@ -876,19 +895,9 @@ pub fn proxied_url(
 
                 // Action headers (preserving duplicates)
                 for action in actions {
-                    let action_header = match action.action.as_str() {
-                        "ReplaceAll" => "Arachnea-Proxy-ReplaceAll",
-                        _ => continue,
-                    };
-                    let action_value = serde_json::json!({
-                        "order": action.order,
-                        "pattern": action.params.get("pattern"),
-                        "replacement": action.params.get("replacement"),
-                    });
-                    proxy_headers.push(vec![
-                        action_header.to_string(),
-                        action_value.to_string(),
-                    ]);
+                    if let Some((action_header, action_value)) = proxy_action_header(action) {
+                        proxy_headers.push(vec![action_header.to_string(), action_value]);
+                    }
                 }
 
                 let opts = serde_json::json!({ "headers": proxy_headers });
@@ -911,4 +920,131 @@ pub fn proxied_url(
     }
 
     normalized_media_locator.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::http::actions::{
+        parse_proxy_action_header_value, ParsedProxyActionHeader, ProxyHttpRedirectActionConfig,
+        ProxyHttpRemoveHeaderConfig, RemoveHeader, REMOVE_HEADER_ACTION_HEADER,
+    };
+
+    fn decode_opts(encoded: &str) -> serde_json::Value {
+        let bytes = URL_SAFE_NO_PAD.decode(encoded).unwrap();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    #[test]
+    fn parses_remove_header_json_action() {
+        let action = parse_proxy_action_header_value(
+            REMOVE_HEADER_ACTION_HEADER,
+            r#"{"type":"onHttp302","headers":["Arachnea-Proxy-Country"]}"#,
+        )
+        .unwrap();
+
+        match action {
+            Some(ParsedProxyActionHeader::RedirectAction(
+                ProxyHttpRedirectActionConfig::RemoveHeader(action),
+            )) => {
+                assert_eq!(action.trigger, "onHttp302");
+                assert_eq!(action.headers, vec!["Arachnea-Proxy-Country".to_string()]);
+            }
+            _ => panic!("expected RemoveHeader action"),
+        }
+    }
+
+    #[test]
+    fn proxied_url_encodes_remove_header_action() {
+        let url = proxied_url(
+            "https://example.test/manifest.mpd",
+            Some("/proxy"),
+            Some("fr"),
+            &[RemoveHeader::on_http302([
+                PROXY_HEADER_PARAMETER_COUNTRY,
+                REMOVE_HEADER_ACTION_HEADER,
+            ])],
+        );
+
+        let opts_encoded = url
+            .split("/opts_")
+            .nth(1)
+            .and_then(|value| value.split('/').next())
+            .expect("proxied URL should contain an opts segment");
+        let opts = decode_opts(opts_encoded);
+        let headers = opts
+            .get("headers")
+            .and_then(serde_json::Value::as_array)
+            .expect("opts should contain headers");
+
+        assert_eq!(headers.len(), 2);
+        assert_eq!(headers[0][0], PROXY_HEADER_PARAMETER_COUNTRY);
+        assert_eq!(headers[0][1], "fr");
+        assert_eq!(headers[1][0], REMOVE_HEADER_ACTION_HEADER);
+
+        let action_value: serde_json::Value = serde_json::from_str(headers[1][1].as_str().unwrap())
+            .expect("RemoveHeader value should be JSON");
+        assert_eq!(action_value.get("type").unwrap(), "onHttp302");
+        assert_eq!(
+            action_value.get("headers").unwrap(),
+            &serde_json::json!([PROXY_HEADER_PARAMETER_COUNTRY, REMOVE_HEADER_ACTION_HEADER])
+        );
+    }
+
+    #[test]
+    fn remove_header_updates_redirect_opts_on_http_302() {
+        let opts = ProxyHttpOpts {
+            headers: vec![
+                ("Arachnea-Proxy-Country".to_string(), "fr".to_string()),
+                (
+                    REMOVE_HEADER_ACTION_HEADER.to_string(),
+                    r#"{"type":"onHttp302","headers":["Arachnea-Proxy-Country","Arachnea-Proxy-RemoveHeader"]}"#.to_string(),
+                ),
+                ("X-Keep".to_string(), "1".to_string()),
+            ],
+            cookies: HashMap::new(),
+            proxy: serde_json::Value::Null,
+        };
+        let encoded = encode_proxy_opts(&opts);
+        let redirect_actions = vec![ProxyHttpRedirectActionConfig::RemoveHeader(
+            ProxyHttpRemoveHeaderConfig {
+                trigger: "onHttp302".to_string(),
+                headers: vec![
+                    "Arachnea-Proxy-Country".to_string(),
+                    REMOVE_HEADER_ACTION_HEADER.to_string(),
+                ],
+            },
+        )];
+
+        let next_encoded = redirect_opts_encoded(302, &encoded, Some(&opts), &redirect_actions);
+        let next = decode_opts(&next_encoded);
+        let headers = next
+            .get("headers")
+            .and_then(serde_json::Value::as_array)
+            .unwrap();
+
+        assert_eq!(headers.len(), 1);
+        assert_eq!(headers[0][0], "X-Keep");
+        assert_eq!(headers[0][1], "1");
+    }
+
+    #[test]
+    fn remove_header_keeps_redirect_opts_for_non_302() {
+        let opts = ProxyHttpOpts {
+            headers: vec![("Arachnea-Proxy-Country".to_string(), "fr".to_string())],
+            cookies: HashMap::new(),
+            proxy: serde_json::Value::Null,
+        };
+        let encoded = encode_proxy_opts(&opts);
+        let redirect_actions = vec![ProxyHttpRedirectActionConfig::RemoveHeader(
+            ProxyHttpRemoveHeaderConfig {
+                trigger: "onHttp302".to_string(),
+                headers: vec!["Arachnea-Proxy-Country".to_string()],
+            },
+        )];
+
+        let next_encoded = redirect_opts_encoded(301, &encoded, Some(&opts), &redirect_actions);
+
+        assert_eq!(next_encoded, encoded);
+    }
 }

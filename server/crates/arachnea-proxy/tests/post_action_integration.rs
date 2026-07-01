@@ -1,6 +1,4 @@
-use arachnea_proxy::core::http::actions::{
-    apply_post_actions, ProxyHttpPostActionConfig,
-};
+use arachnea_proxy::core::http::actions::{apply_post_actions, ProxyHttpPostActionConfig};
 use std::collections::HashMap;
 
 #[test]
@@ -35,15 +33,8 @@ fn test_replace_all_action_pipeline() {
     );
 
     // Content-Length must be managed by the caller (parse_http_response in client.rs)
-    assert!(
-        !result.is_empty(),
-        "Body should not be empty after replace"
-    );
-    eprintln!(
-        "ReplaceAll result ({} bytes): {}",
-        result.len(),
-        result_str
-    );
+    assert!(!result.is_empty(), "Body should not be empty after replace");
+    eprintln!("ReplaceAll result ({} bytes): {}", result.len(), result_str);
 }
 
 #[test]

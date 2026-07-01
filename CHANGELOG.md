@@ -8,6 +8,7 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **YAML `sub_queries` at entry level**: New `EntrySubQueryRaw` type (tagged by `scraper_type: html|json`) allows entries to declare follow-up HTTP requests seeded by the entry value. Supported in both `HtmlScraperEntryRaw` and `JsonScraperEntryRaw`. Parsed into `Box<dyn ScraperQuery>` via `EntrySubQueryRaw::into_boxed_query()`.
 - **Unified polymorphic executor**: `scraper::query_executor::execute_query_items` dispatches on `ScraperType` (Html/Json/Static) using the common `ScraperQuery` trait. Single execution path for all query types.
 - **`ScraperRequestMethod` and `ScraperRequestHeader` made public** — now visible through the `ScraperQuery` trait return types.
+- **Proxy `RemoveHeader` redirect action**: controller proxy URLs can now carry `Arachnea-Proxy-RemoveHeader` JSON action headers with `type` and `headers` fields that remove selected `opts.headers` entries when an HTTP `302` redirect is rewritten.
 
 ### Changed
 - **Module layout**: `scraper_json/query.rs` decoupled into `config.rs`, `response_parser.rs`, `pointer.rs`, `row_extractor.rs`. Same for `scraper_html/query.rs` → `config.rs`, `response_parser.rs`, `row_extractor.rs`.
@@ -19,6 +20,8 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **YAML URL proxy option**: `resolve_url` and `resolve_url_from_parent` now accept optional `proxy: true` to wrap resolved HTTP(S) URLs through the controller-computed generic HTTP proxy path. Omitting `proxy` preserves direct URL output.
 - **Static query actions**: `scraper_type: static` entries with scalar `value` now honor their `actions` pipeline, allowing metadata fields such as service logos to use `resolve_url proxy: true`.
 - **M6Play manifest proxy country hint**: `proxied_url` now accepts an optional country hint. When provided, generated controller proxy URLs carry `Arachnea-Proxy-Country` through the existing `opts` header mechanism; when omitted, URL generation is unchanged.
+- **M6Play manifest redirects**: M6 manifest proxy URLs now remove the `Arachnea-Proxy-Country` option after HTTP `302` redirects so the redirected manifest request no longer forces country routing.
+- **M6Play MPD initialization URLs**: M6 proxied manifests now rewrite `/m6web/` initialization paths to the proxied Bedrock CDN URL so segment initialization requests stay on the controller proxy route.
 
 ### Removed
 - Dead helpers: `process_root`, `parse_html_rows`, `collect_ordered_results`, `matches` (response_parser), `resolve_request_headers`/`resolve_request_body`/`execution_options` (JsonScraperQuery), `split_static_path`, `render_static_value`, `render_yaml_value`, `render_yaml_values` (StaticScraperQuery).

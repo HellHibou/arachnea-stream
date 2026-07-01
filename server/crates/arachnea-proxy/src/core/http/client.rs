@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use crate::core::http::actions::{apply_post_actions, ProxyHttpPostActionConfig};
 use crate::core::{
     ArachneaProxyCore, ClientContext, ConnectRequest, Destination, HttpRequestTargetForm,
     ProxyError, Result,
 };
-use crate::core::http::actions::{apply_post_actions, ProxyHttpPostActionConfig};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 /// Minimal HTTP response returned by the core convenience client.
@@ -396,7 +396,7 @@ fn parse_http_response(
         remove_header_case_insensitive(&mut headers, "content-length");
     }
 
-   ////////////////// Post actions (status_code, headers, body) ///////////////////////
+    ////////////////// Post actions (status_code, headers, body) ///////////////////////
 
     // Apply post-response actions (skip body transformations for HEAD)
     let body = if headers_only || post_actions.is_empty() {

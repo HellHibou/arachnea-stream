@@ -1,5 +1,9 @@
 use anyhow::{anyhow, bail, Context, Result};
+use arachnea_proxy::http::actions::{
+    ProxyHttpActionConfig, RemoveHeader, ReplaceAll, REMOVE_HEADER_ACTION_HEADER,
+};
 use arachnea_proxy::http::proxy_service::proxied_url;
+use arachnea_proxy::PROXY_HEADER_PARAMETER_COUNTRY;
 use async_trait::async_trait;
 use regex::Regex;
 use serde_json::Value;
@@ -136,13 +140,14 @@ async fn resolve_replay_stream(
         SIXPLAY_LICENSE_URL,
         None,
     );
+    let stream_actions = stream_headers(endpoints.http_proxy_public_path.as_deref());
 
     Ok(ResolvedPlayerStream {
         stream_url: proxied_url(
             &manifest_url,
             endpoints.http_proxy_public_path.as_deref(),
             Some(M6PLAY_PROXY_COUNTRY),
-            &[],
+            &stream_actions,
         ),
         manifest_type: "mpd".to_string(),
         license_url: Some(license_url),
@@ -245,18 +250,45 @@ async fn resolve_live_stream(
         SIXPLAY_LICENSE_URL,
         None,
     );
+    let stream_actions = stream_headers(endpoints.http_proxy_public_path.as_deref());
 
     Ok(ResolvedPlayerStream {
         stream_url: proxied_url(
             &manifest_url,
             endpoints.http_proxy_public_path.as_deref(),
             Some(M6PLAY_PROXY_COUNTRY),
-            &[],
+            &stream_actions,
         ),
         manifest_type: "mpd".to_string(),
         license_url: Some(license_url),
         license_headers: HashMap::new(),
     })
+}
+
+fn stream_headers(http_proxy_public_path: Option<&str>) -> Vec<ProxyHttpActionConfig> {
+    let proxy_path = http_proxy_public_path
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_default()
+        .trim_end_matches('/');
+
+    vec![
+        RemoveHeader::on_http302([PROXY_HEADER_PARAMETER_COUNTRY, REMOVE_HEADER_ACTION_HEADER]),
+        ReplaceAll::new(
+            r#"initialization="/m6web/"#,
+            format!(
+                r#"initialization="{}/https://th2-edge-01.cdn.bedrock.tech/m6web/"#,
+                proxy_path
+            ),
+        ),
+        ReplaceAll::new(
+            r#"media="/m6web/"#,
+            format!(
+                r#"media="{}/https://th2-edge-01.cdn.bedrock.tech/m6web/"#,
+                proxy_path
+            ),
+        ),
+    ]
 }
 
 async fn get_or_login_session(

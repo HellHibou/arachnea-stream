@@ -5,9 +5,129 @@ use std::collections::HashMap;
 
 use encoding_rs::Encoding;
 use regex::Regex;
+use serde::Deserialize;
 
-use super::ProxyHttpPostActionConfig;
+#[cfg(feature = "controller-service")]
+use super::ParsedProxyActionHeader;
+use super::{ProxyHttpActionConfig, ProxyHttpPostActionConfig};
 use crate::core::{ProxyError, Result};
+
+/// Proxy action header that carries a JSON ReplaceAll rule.
+pub const REPLACE_ALL_ACTION_HEADER: &str = "Arachnea-Proxy-ReplaceAll";
+#[cfg(feature = "controller-service")]
+const REPLACE_ALL_ACTION_HEADER_LOWER: &str = "arachnea-proxy-replaceall";
+
+/// Constructor namespace for ReplaceAll proxy actions.
+pub struct ReplaceAll;
+
+impl ReplaceAll {
+    /// Creates a ReplaceAll action without an explicit execution order.
+    pub fn new(
+        pattern: impl Into<String>,
+        replacement: impl Into<String>,
+    ) -> ProxyHttpActionConfig {
+        Self::with_order(None, pattern, replacement)
+    }
+
+    /// Creates a ReplaceAll action with an explicit execution order.
+    pub fn ordered(
+        order: i32,
+        pattern: impl Into<String>,
+        replacement: impl Into<String>,
+    ) -> ProxyHttpActionConfig {
+        Self::with_order(Some(order), pattern, replacement)
+    }
+
+    fn with_order(
+        order: Option<i32>,
+        pattern: impl Into<String>,
+        replacement: impl Into<String>,
+    ) -> ProxyHttpActionConfig {
+        let mut params = HashMap::new();
+        params.insert("pattern".to_string(), pattern.into());
+        params.insert("replacement".to_string(), replacement.into());
+        ProxyHttpActionConfig::PostAction(ProxyHttpPostActionConfig {
+            action: "ReplaceAll".to_string(),
+            order,
+            params,
+        })
+    }
+}
+
+/// JSON configuration for a ReplaceAll action header value.
+#[derive(Clone, Debug, Deserialize)]
+#[allow(dead_code)]
+pub(crate) struct ReplaceAllHeaderValue {
+    /// Optional execution order.
+    #[serde(default)]
+    pub order: Option<i32>,
+    /// Regular expression pattern to match.
+    pub pattern: String,
+    /// Replacement text.
+    pub replacement: String,
+}
+
+impl ReplaceAllHeaderValue {
+    /// Converts this header value into an action config.
+    #[allow(dead_code)]
+    pub fn into_config(self) -> ProxyHttpPostActionConfig {
+        match ReplaceAll::with_order(self.order, self.pattern, self.replacement) {
+            ProxyHttpActionConfig::PostAction(action) => action,
+            ProxyHttpActionConfig::RemoveHeader(_) => {
+                unreachable!("ReplaceAll builds post actions")
+            }
+        }
+    }
+}
+
+/// Returns true when the post action needs identity response encoding.
+#[cfg(feature = "controller-service")]
+pub(crate) fn requires_identity_response_encoding(action: &ProxyHttpPostActionConfig) -> bool {
+    action.action == "ReplaceAll"
+}
+
+/// Serializes a ReplaceAll action to its proxy action header.
+#[cfg(feature = "controller-service")]
+pub(crate) fn proxy_action_header(
+    action: &ProxyHttpActionConfig,
+) -> Option<(&'static str, String)> {
+    let ProxyHttpActionConfig::PostAction(action) = action else {
+        return None;
+    };
+    if action.action != "ReplaceAll" {
+        return None;
+    }
+
+    Some((
+        REPLACE_ALL_ACTION_HEADER,
+        serde_json::json!({
+            "order": action.order,
+            "pattern": action.params.get("pattern"),
+            "replacement": action.params.get("replacement"),
+        })
+        .to_string(),
+    ))
+}
+
+/// Parses the JSON value of a ReplaceAll proxy action header.
+#[cfg(feature = "controller-service")]
+pub(crate) fn parse_proxy_action_header_value(
+    name_lower: &str,
+    name: &str,
+    value: &str,
+) -> std::result::Result<Option<ParsedProxyActionHeader>, (u16, String)> {
+    if name_lower != REPLACE_ALL_ACTION_HEADER_LOWER {
+        return Ok(None);
+    }
+
+    serde_json::from_str::<ReplaceAllHeaderValue>(value)
+        .map(|header_value| {
+            Some(ParsedProxyActionHeader::PostAction(
+                header_value.into_config(),
+            ))
+        })
+        .map_err(|error| (502, format!("invalid {name} header value: {error}")))
+}
 
 /// Action that replaces all regex matches in the response body.
 ///
@@ -42,13 +162,14 @@ impl ReplaceAllAction {
                 )
             })?;
         let replacement = config.params.get("replacement").ok_or_else(|| {
-            ProxyError::Protocol(
-                "ReplaceAll action requires a 'replacement' parameter".to_string(),
-            )
+            ProxyError::Protocol("ReplaceAll action requires a 'replacement' parameter".to_string())
         })?;
 
         let pattern = Regex::new(pattern_str).map_err(|e| {
-            ProxyError::Protocol(format!("ReplaceAll invalid regex pattern '{}': {}", pattern_str, e))
+            ProxyError::Protocol(format!(
+                "ReplaceAll invalid regex pattern '{}': {}",
+                pattern_str, e
+            ))
         })?;
 
         Ok(Self {
@@ -128,7 +249,9 @@ impl super::ProxyHttpPostAction for ReplaceAllAction {
         }
 
         // Apply regex replacement
-        let replaced = self.pattern.replace_all(&decoded, self.replacement.as_str());
+        let replaced = self
+            .pattern
+            .replace_all(&decoded, self.replacement.as_str());
 
         // Re-encode using the same encoding
         let (result_bytes, _encoding_used, _had_errors) = encoding_used.encode(&replaced);
@@ -155,7 +278,10 @@ fn detect_encoding(content_type: &str) -> &'static Encoding {
     // Try to extract charset from content-type
     for part in content_type.split(';') {
         let part = part.trim();
-        if let Some(charset_value) = part.strip_prefix("charset=").or_else(|| part.strip_prefix("charset =")) {
+        if let Some(charset_value) = part
+            .strip_prefix("charset=")
+            .or_else(|| part.strip_prefix("charset ="))
+        {
             let charset = charset_value.trim().trim_matches('"').trim_matches('\'');
             if let Some(encoding) = Encoding::for_label(charset.as_bytes()) {
                 return encoding;
@@ -175,15 +301,27 @@ mod tests {
     #[test]
     fn test_is_textual_content_type() {
         assert!(ReplaceAllAction::is_textual_content_type("text/html"));
-        assert!(ReplaceAllAction::is_textual_content_type("text/plain; charset=utf-8"));
-        assert!(ReplaceAllAction::is_textual_content_type("application/json"));
-        assert!(ReplaceAllAction::is_textual_content_type("application/javascript"));
+        assert!(ReplaceAllAction::is_textual_content_type(
+            "text/plain; charset=utf-8"
+        ));
+        assert!(ReplaceAllAction::is_textual_content_type(
+            "application/json"
+        ));
+        assert!(ReplaceAllAction::is_textual_content_type(
+            "application/javascript"
+        ));
         assert!(ReplaceAllAction::is_textual_content_type("image/svg+xml"));
-        assert!(ReplaceAllAction::is_textual_content_type("application/vnd.apple.mpegurl"));
-        assert!(ReplaceAllAction::is_textual_content_type("application/dash+xml"));
+        assert!(ReplaceAllAction::is_textual_content_type(
+            "application/vnd.apple.mpegurl"
+        ));
+        assert!(ReplaceAllAction::is_textual_content_type(
+            "application/dash+xml"
+        ));
         assert!(!ReplaceAllAction::is_textual_content_type("image/png"));
         assert!(!ReplaceAllAction::is_textual_content_type("video/mp4"));
-        assert!(!ReplaceAllAction::is_textual_content_type("application/octet-stream"));
+        assert!(!ReplaceAllAction::is_textual_content_type(
+            "application/octet-stream"
+        ));
     }
 
     #[test]

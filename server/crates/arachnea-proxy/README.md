@@ -24,7 +24,7 @@ This README is the design and usage home for the proxy crate. Remaining work is 
 - Multi-hop TCP chaining, proxy pools, route selection, fallback behavior, and typed route errors.
 - `tower` and hyper-oriented client connector adapters.
 - `rquest` loopback helper for clients that require a proxy URL.
-- Controller HTTP proxy URL helpers can carry optional request-local country routing hints through the existing `opts` header mechanism.
+- Controller HTTP proxy URL helpers can carry optional request-local country routing hints and redirect-time `RemoveHeader` rules through the existing `opts` header mechanism.
 - Optional HTTP proxy, HTTP CONNECT, HTTPS proxy, SOCKS4/SOCKS4a, SOCKS5 CONNECT, and SOCKS5 UDP ASSOCIATE server listeners.
 - Public-bind safety checks, ACLs, optional HTTP/SOCKS authentication, connection limits, and typed errors.
 - Optional integration with `arachnea-dns` when local resolution or Smart DNS decisions are required.

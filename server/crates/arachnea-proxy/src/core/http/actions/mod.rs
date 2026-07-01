@@ -3,13 +3,58 @@
 //! This module defines the trait and types for actions that can transform
 //! HTTP responses after they are received from the upstream server.
 
+pub mod remove_header;
 pub mod replace_all;
 
 use std::collections::HashMap;
 
-use serde::Deserialize;
-
 use crate::core::Result;
+
+pub use remove_header::{ProxyHttpRemoveHeaderConfig, RemoveHeader, REMOVE_HEADER_ACTION_HEADER};
+pub use replace_all::ReplaceAll;
+
+#[cfg(feature = "controller-service")]
+pub(crate) struct ParsedProxyActionHeaders {
+    pub post_actions: Vec<ProxyHttpPostActionConfig>,
+    pub redirect_actions: Vec<ProxyHttpRedirectActionConfig>,
+}
+
+#[cfg(feature = "controller-service")]
+pub(crate) enum ProxyHttpRedirectActionConfig {
+    RemoveHeader(ProxyHttpRemoveHeaderConfig),
+}
+
+#[cfg(feature = "controller-service")]
+impl ParsedProxyActionHeaders {
+    fn new() -> Self {
+        Self {
+            post_actions: Vec::new(),
+            redirect_actions: Vec::new(),
+        }
+    }
+
+    fn push(&mut self, action: ParsedProxyActionHeader) {
+        match action {
+            ParsedProxyActionHeader::PostAction(action) => self.post_actions.push(action),
+            ParsedProxyActionHeader::RedirectAction(action) => self.redirect_actions.push(action),
+        }
+    }
+}
+
+#[cfg(feature = "controller-service")]
+pub(crate) enum ParsedProxyActionHeader {
+    PostAction(ProxyHttpPostActionConfig),
+    RedirectAction(ProxyHttpRedirectActionConfig),
+}
+
+/// Serializable proxy action carried through controller proxy URL options.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ProxyHttpActionConfig {
+    /// Post-response action applied to the upstream response body/headers.
+    PostAction(ProxyHttpPostActionConfig),
+    /// Redirect-time action that removes headers from encoded proxy options.
+    RemoveHeader(ProxyHttpRemoveHeaderConfig),
+}
 
 /// Common configuration for a post-response action.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -20,6 +65,99 @@ pub struct ProxyHttpPostActionConfig {
     pub order: Option<i32>,
     /// Action-specific parameters.
     pub params: HashMap<String, String>,
+}
+
+/// Returns true when post actions require identity response encoding.
+#[cfg(feature = "controller-service")]
+pub(crate) fn post_actions_require_identity_encoding(
+    actions: &[ProxyHttpPostActionConfig],
+) -> bool {
+    actions
+        .iter()
+        .any(replace_all::requires_identity_response_encoding)
+}
+
+/// Returns true when redirect actions should remove an encoded opts header.
+#[cfg(feature = "controller-service")]
+pub(crate) fn should_remove_opts_header_on_redirect(
+    actions: &[ProxyHttpRedirectActionConfig],
+    status: u16,
+    header: &str,
+) -> bool {
+    actions.iter().any(|action| match action {
+        ProxyHttpRedirectActionConfig::RemoveHeader(action) => {
+            remove_header::should_remove_opts_header_on_redirect(action, status, header)
+        }
+    })
+}
+
+/// Serializes a proxy action to the action header carried in `opts.headers`.
+#[cfg(feature = "controller-service")]
+pub(crate) fn proxy_action_header(
+    action: &ProxyHttpActionConfig,
+) -> Option<(&'static str, String)> {
+    replace_all::proxy_action_header(action).or_else(|| remove_header::proxy_action_header(action))
+}
+
+/// Parses and removes proxy action headers from a mutable request header map.
+#[cfg(feature = "controller-service")]
+pub(crate) fn parse_proxy_action_headers(
+    headers: &mut HashMap<String, String>,
+) -> std::result::Result<ParsedProxyActionHeaders, (u16, String)> {
+    let mut actions = ParsedProxyActionHeaders::new();
+
+    let header_names: Vec<String> = headers.keys().cloned().collect();
+    for name in &header_names {
+        let Some(value) = headers.get(name).cloned() else {
+            continue;
+        };
+
+        if parse_proxy_action_header_into(&mut actions, name, &value)? {
+            headers.remove(name);
+        }
+    }
+
+    Ok(actions)
+}
+
+/// Parses one proxy action header and appends it to the parsed action buckets.
+#[cfg(feature = "controller-service")]
+pub(crate) fn parse_proxy_action_header_into(
+    actions: &mut ParsedProxyActionHeaders,
+    name: &str,
+    value: &str,
+) -> std::result::Result<bool, (u16, String)> {
+    let Some(action) = parse_proxy_action_header_value(name, value)? else {
+        return Ok(false);
+    };
+
+    actions.push(action);
+    Ok(true)
+}
+
+/// Parses one proxy action header value, if the header name is known.
+#[cfg(feature = "controller-service")]
+pub(crate) fn parse_proxy_action_header_value(
+    name: &str,
+    value: &str,
+) -> std::result::Result<Option<ParsedProxyActionHeader>, (u16, String)> {
+    const ACTION_HEADER_PREFIX: &str = "arachnea-proxy-";
+
+    let name_lower = name.to_ascii_lowercase();
+    if !name_lower.starts_with(ACTION_HEADER_PREFIX) {
+        return Ok(None);
+    }
+
+    if let Some(action) = replace_all::parse_proxy_action_header_value(&name_lower, name, value)? {
+        return Ok(Some(action));
+    }
+    if let Some(action) = remove_header::parse_proxy_action_header_value(&name_lower, name, value)?
+    {
+        return Ok(Some(action));
+    }
+
+    tracing::debug!("Unknown proxy action header '{}', skipping", name_lower);
+    Ok(None)
 }
 
 /// Trait implemented by post-response HTTP actions.
@@ -62,7 +200,9 @@ pub trait ProxyHttpPostAction: Send + Sync {
 /// Returns an error when the action type is unknown or configuration is invalid.
 pub fn build_action(config: &ProxyHttpPostActionConfig) -> Result<Box<dyn ProxyHttpPostAction>> {
     match config.action.as_str() {
-        "ReplaceAll" => Ok(Box::new(replace_all::ReplaceAllAction::from_config(config)?)),
+        "ReplaceAll" => Ok(Box::new(replace_all::ReplaceAllAction::from_config(
+            config,
+        )?)),
         _ => Err(crate::core::ProxyError::Protocol(format!(
             "unknown post-response action '{}'",
             config.action
@@ -106,7 +246,8 @@ pub fn apply_post_actions(
     );
 
     // Sort actions: ordered first by value, then unordered in original order.
-    let mut indexed: Vec<(usize, &ProxyHttpPostActionConfig)> = actions.iter().enumerate().collect();
+    let mut indexed: Vec<(usize, &ProxyHttpPostActionConfig)> =
+        actions.iter().enumerate().collect();
     indexed.sort_by(|(ia, a), (ib, b)| match (a.order, b.order) {
         (Some(oa), Some(ob)) => oa.cmp(&ob).then_with(|| ia.cmp(ib)),
         (Some(_), None) => std::cmp::Ordering::Less,
@@ -121,32 +262,4 @@ pub fn apply_post_actions(
     }
 
     Ok(current_body)
-}
-
-/// JSON configuration for a ReplaceAll action header value.
-#[derive(Clone, Debug, Deserialize)]
-#[allow(dead_code)]
-pub(crate) struct ReplaceAllHeaderValue {
-    /// Optional execution order.
-    #[serde(default)]
-    pub order: Option<i32>,
-    /// Regular expression pattern to match.
-    pub pattern: String,
-    /// Replacement text.
-    pub replacement: String,
-}
-
-impl ReplaceAllHeaderValue {
-    /// Converts this header value into an action config.
-    #[allow(dead_code)]
-    pub fn into_config(self) -> ProxyHttpPostActionConfig {
-        let mut params = HashMap::new();
-        params.insert("pattern".to_string(), self.pattern);
-        params.insert("replacement".to_string(), self.replacement);
-        ProxyHttpPostActionConfig {
-            action: "ReplaceAll".to_string(),
-            order: self.order,
-            params,
-        }
-    }
 }
