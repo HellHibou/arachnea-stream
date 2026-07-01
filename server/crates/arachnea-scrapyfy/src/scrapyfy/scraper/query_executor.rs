@@ -838,7 +838,14 @@ async fn fetch_responses(
     // for each parallel job.
     let configured_client = context.http_client.configured(query.http_config().clone());
 
-    let jobs = urls.iter().cloned().enumerate().map(|(index, url)| {
+    // Filter out empty URLs before fetching.
+    let non_empty_urls: Vec<String> = urls
+        .iter()
+        .filter(|url| !url.trim().is_empty())
+        .cloned()
+        .collect();
+
+    let jobs = non_empty_urls.iter().cloned().enumerate().map(|(index, url)| {
         let headers = headers.clone();
         let body = body.clone();
         let method = method.clone();
@@ -1101,9 +1108,19 @@ async fn execute_entry_sub_queries(
                 // Entry-level sub-query: use the entry values as fetch URL(s).
                 let rp = sub_query.request_pointer();
                 if rp.is_none() || rp == Some(PARENT_SENTINEL) {
-                    // Fetch each value as a URL, parse, extract, merge.
+                    // Fetch each non-empty value as a URL, parse, extract, merge.
+                    // Skip empty URLs, URLs with unresolved placeholders ({}),
+                    // and URLs with empty query parameter values (e.g. ?assetId=)
+                    // to avoid sending invalid requests to remote servers.
                     let mut merged = ScraperDataNode::default();
                     for url in &parent_urls {
+                        let trimmed = url.trim();
+                        if trimmed.is_empty()
+                            || trimmed.contains("{}")
+                            || !is_valid_fetch_url(trimmed)
+                        {
+                            continue;
+                        }
                         let mut item_clone = ScraperDataNode::default();
                         let _ = fetch_and_extract_for_entry_sub_query(
                             sub_query,
@@ -1680,6 +1697,43 @@ fn walk_mut<'a>(item: &'a mut ScraperDataNode, path: &[&str]) -> &'a mut Scraper
         current = current.children.entry((*segment).to_string()).or_default();
     }
     current
+}
+
+/// Returns `true` if the given string is a valid fetchable URL.
+///
+/// A valid fetch URL must start with `http://` or `https://` and have
+/// a non-empty host component. This prevents sending requests to invalid
+/// URLs with empty query parameters or unresolved placeholders.
+fn is_valid_fetch_url(url: &str) -> bool {
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return false;
+    }
+    // Check that the URL has no unresolved placeholders in the host portion.
+    // The host is between "://" and the next "/" or end of string.
+    if let Some(proto_end) = url.find("://") {
+        let after_proto = url.get(proto_end + 3..).unwrap_or("");
+        let host = if let Some(path_start) = after_proto.find('/') {
+            after_proto.get(..path_start).unwrap_or("")
+        } else {
+            after_proto
+        };
+        if host.is_empty() || host.contains("{}") {
+            return false;
+        }
+    }
+    // Check that query parameter values are not empty (e.g. ?assetId=)
+    if let Some(query_start) = url.find('?') {
+        let query = url.get(query_start + 1..).unwrap_or("");
+        for param in query.split('&') {
+            if let Some(eq_pos) = param.find('=') {
+                let value = param.get(eq_pos + 1..).unwrap_or("");
+                if value.is_empty() {
+                    return false;
+                }
+            }
+        }
+    }
+    true
 }
 
 /// Deduplicates a list of URLs preserving order.
