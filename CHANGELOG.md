@@ -25,6 +25,7 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - `JsonScraperSubQuery::execute` / `execute_siblings` / `execute_context` / `execute_indexed_context` / `execute_indexed_sibling` / `build_row_node` — re-used through the new `JsonScraperSubQuery::execute_query_level` unified entry point (see regression fix below).
 
 ### Fixed
+- **HTTP proxy `ReplaceAll` post-action responses**: proxy action headers are now parsed before lossy `HashMap` merging so repeated `opts.headers` actions are preserved, invalid action JSON returns an explicit proxy error, and `Accept-Encoding: identity` is enforced case-insensitively to avoid corrupting compressed upstream bodies during text replacement.
 - **`francetv.yaml` `load_home` section pagination**: Added a default `page` parameter so shared section metadata serializes `current_page` as a number instead of leaking the unresolved `{page}` placeholder on non-paginated home responses.
 - **`rtbf-auvio-be.yaml` `load_home` PROMOBOX banner video shape**: RedBee banner preview extraction now keeps `banners[].video` as a single string URL instead of serializing it as an array containing an `_` object.
 - **`rtbf-auvio-be.yaml` `load_home` PROMOBOX banner video proxying**: RedBee HLS banner preview URLs are now wrapped through the configured generic HTTP proxy path.
@@ -132,3 +133,19 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **`tf1-fr.yaml` `load_home` video tags**: video slider tags are now emitted as a string array, matching the multiple tag slugs returned by TF1.
 - **`tf1-fr.yaml` `get_category` section link**: category section links now use the formatted GraphQL URL instead of serializing the whole response object through `get_request_url`.
 - **`tf1-fr.yaml` category pagination**: category and section requests now send TF1 GraphQL item offsets, first-page links start at offset `0`, and the page size matches TF1's 10-item responses so `have_more` can be derived from the actual paged result count.
+
+## Unreleased — Proxy post-response actions
+
+### Added
+- **Post-response HTTP action system**: `arachnea-proxy` now supports pluggable post-response actions that run after the upstream response is received. Actions can modify status, headers, and body before the response is returned to the caller.
+- **`ReplaceAll` action**: Replaces all regex occurrences in textual responses (text/*, application/json, application/javascript, image/svg+xml, etc.). Text encoding is detected from `charset` parameter, then UTF-8, with fallback to Windows-1252/ISO-8859-1 via `encoding_rs`.
+- **Action header transport**: Actions are carried via `Arachnea-Proxy-ReplaceAll` headers (JSON value with `order`, `pattern`, `replacement`). Multiple actions of the same type are supported via the array-of-pairs format in `opts/headers`. Action headers are consumed by the proxy and never forwarded upstream.
+- **`Accept-Encoding: identity` enforcement**: When text-transforming actions are present, the proxy forces `identity` encoding to avoid dealing with compressed bodies.
+- **Action ordering**: Each action supports an optional `order` field (lower runs first). Actions without `order` execute after ordered ones, preserving discovery order.
+- **Dependencies**: `regex` and `encoding_rs` added to `arachnea-proxy`.
+
+### Changed
+- **`ProxiedHttpRequest`**: Added `post_actions: Vec<ProxyHttpPostActionConfig>` and `headers_only: bool` fields.
+- **`parse_http_response`**: Now accepts `headers_only` and `post_actions` parameters; applies actions at the designated extension point after chunked decoding, then fixes `content-length` and removes `etag`/`content-md5`/`digest` when body changes.
+- **`proxied_url`**: Added `actions: &[ProxyHttpPostActionConfig]` parameter. All existing callers updated with `&[]` — no behavioural change for existing usage.
+- **`handle_proxy_http`**: Now parses action headers from the request headers and passes them through to the HTTP client.

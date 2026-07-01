@@ -5,6 +5,7 @@ use crate::core::{
     ArachneaProxyCore, ClientContext, ConnectRequest, Destination, HttpRequestTargetForm,
     ProxyError, Result,
 };
+use crate::core::http::actions::{apply_post_actions, ProxyHttpPostActionConfig};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 /// Minimal HTTP response returned by the core convenience client.
@@ -42,6 +43,10 @@ pub struct ProxiedHttpRequest {
     pub body: Vec<u8>,
     /// Request-local proxy context used by routing parameter handlers.
     pub client_context: ClientContext,
+    /// Post-response actions to apply to the response.
+    pub post_actions: Vec<ProxyHttpPostActionConfig>,
+    /// Whether only response headers should be read (e.g. HEAD requests).
+    pub headers_only: bool,
 }
 
 /// Minimal HTTP client that uses `ArachneaProxyCore` for connections.
@@ -263,7 +268,9 @@ impl SimpleHttpClient {
             .await?
         };
 
-        parse_http_response(&response_bytes)
+        let headers_only = request.headers_only;
+        let post_actions = request.post_actions.clone();
+        parse_http_response(&response_bytes, headers_only, &post_actions)
     }
 }
 
@@ -325,8 +332,13 @@ async fn read_headers_only(stream: &mut (impl tokio::io::AsyncRead + Unpin)) -> 
     Ok(buf)
 }
 
-/// Parses an HTTP/1.1 response into status, headers, and body.
-fn parse_http_response(bytes: &[u8]) -> Result<ProxiedHttpResponse> {
+/// Parses an HTTP/1.1 response into status, headers, and body, applying any
+/// post-response actions.
+fn parse_http_response(
+    bytes: &[u8],
+    headers_only: bool,
+    post_actions: &[ProxyHttpPostActionConfig],
+) -> Result<ProxiedHttpResponse> {
     // Find the end of headers
     let header_end = bytes
         .windows(4)
@@ -383,6 +395,27 @@ fn parse_http_response(bytes: &[u8]) -> Result<ProxiedHttpResponse> {
         remove_header_case_insensitive(&mut headers, "transfer-encoding");
         remove_header_case_insensitive(&mut headers, "content-length");
     }
+
+   ////////////////// Post actions (status_code, headers, body) ///////////////////////
+
+    // Apply post-response actions (skip body transformations for HEAD)
+    let body = if headers_only || post_actions.is_empty() {
+        body
+    } else {
+        let original_len = body.len();
+        let new_body = apply_post_actions(status_code, &mut headers, body, post_actions)?;
+
+        // If body was modified, fix content-length and remove validation headers
+        if new_body.len() != original_len {
+            remove_header_case_insensitive(&mut headers, "content-length");
+            remove_header_case_insensitive(&mut headers, "etag");
+            remove_header_case_insensitive(&mut headers, "content-md5");
+            remove_header_case_insensitive(&mut headers, "digest");
+            headers.insert("Content-Length".to_string(), new_body.len().to_string());
+        }
+
+        new_body
+    };
 
     Ok(ProxiedHttpResponse {
         status: status_code,

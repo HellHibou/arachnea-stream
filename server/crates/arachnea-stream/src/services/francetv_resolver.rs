@@ -147,6 +147,7 @@ async fn resolve_francetv_stream(
         &stream_url,
         endpoints.http_proxy_public_path.as_deref(),
         None,
+        &[],
     );
 
     if !drm_enabled {
@@ -173,6 +174,7 @@ async fn resolve_francetv_stream(
         &stream_url,
         endpoints.http_proxy_public_path.as_deref(),
         None,
+        &[],
     );
     Ok(ResolvedPlayerStream {
         stream_url: stream_url_proxy,
