@@ -269,13 +269,60 @@ const mergedAttrs = computed(() => ({
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-volume-panel) {
   order: 2;
   display: flex !important;
-  flex: 0 0 7.5rem;
-  align-items: center;
-  width: 7.5rem !important;
+  flex: 0 0 auto;
+  width: auto !important;
+  height: var(--videojs-time-line-height);
   margin: 0 0.9rem 0 0;
   padding-top: 0 !important;
   overflow: visible;
-  transition: none;
+  transition: width var(--duration-fast) ease;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-volume-control.vjs-volume-horizontal) {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 0 !important;
+  height: var(--videojs-time-line-height);
+  min-width: 0;
+  margin: 0 !important;
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
+  transition: flex-basis var(--duration-fast) ease !important, opacity var(--duration-fast) ease !important;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-volume-panel:hover .vjs-volume-control.vjs-volume-horizontal) {
+  flex: 0 0 5.15rem !important;
+  opacity: 1;
+  pointer-events: auto;
+  transition: flex-basis var(--duration-fast) ease !important, opacity var(--duration-fast) ease !important;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-volume-level::after) {
+  position: absolute;
+  top: 50%;
+  right: -0.55rem;
+  z-index: 1;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  background: var(--color-primary);
+  content: '';
+  transform: translateY(-50%);
+  opacity: 0;
+  transition: opacity var(--duration-fast) ease !important;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-volume-panel:hover .vjs-volume-level::after) {
+  opacity: 1;
+  transition: opacity var(--duration-fast) ease !important;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-volume-panel:hover .vjs-volume-control.vjs-volume-horizontal) {
+  width: 5.15rem !important;
+  opacity: 1;
+  visibility: visible;
+  transition: width var(--duration-fast) ease 0s, opacity var(--duration-fast) ease 0s, visibility var(--duration-fast) ease 0s;
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-mute-control) {
@@ -293,24 +340,27 @@ const mergedAttrs = computed(() => ({
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-mute-control::before) {
   position: absolute;
   top: 50%;
-  left: 50%;
+  left: 55%;
   width: 1.7rem;
-  height: 1.45rem;
-  background: center / contain no-repeat url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2024'%20fill='none'%20stroke='white'%20stroke-width='3'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpath%20d='M3%209v6h5l8%206V3L8%209H3z'/%3E%3Cpath%20d='M24%209v6'/%3E%3C/svg%3E");
-  content: '';
+  height: 1.7rem;
+   background: center / contain no-repeat url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2024'%20fill='none'%20stroke='white'%20stroke-width='3'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpath%20d='M3%209v6h5l8%206V3L8%209H3z'/%3E%3C/svg%3E");  content: '';
   transform: translate(-50%, -50%);
 }
 
-.videojs-media-host :deep(.arachnea-videojs-theme .vjs-mute-control.vjs-vol-0)::after {
-  position: absolute;
-  top: 50%;
-  left: 1.7rem;
-  width: 0.18rem;
-  height: 1.35rem;
-  border-radius: 999px;
-  background: var(--text-primary);
-  content: '';
-  transform: translateY(-50%) rotate(-35deg);
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-mute-control.vjs-vol-0::before) {
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2024'%20fill='none'%20stroke='white'%20stroke-width='3'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpath%20d='M3%209v6h5l8%206V3L8%209H3z'/%3E%3Cpath%20d='M22%208l8%208M30%208l-8%208'/%3E%3C/svg%3E");
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-mute-control.vjs-vol-1::before) {
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2024'%20fill='none'%20stroke='white'%20stroke-width='3'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpath%20d='M3%209v6h5l8%206V3L8%209H3z'/%3E%3Cpath%20d='M22%2010v4'/%3E%3C/svg%3E");
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-mute-control.vjs-vol-2::before) {
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2024'%20fill='none'%20stroke='white'%20stroke-width='3'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpath%20d='M3%209v6h5l8%206V3L8%209H3z'/%3E%3Cpath%20d='M22%2010v4M26%208v8'/%3E%3C/svg%3E");
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-mute-control.vjs-vol-3::before) {
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2024'%20fill='none'%20stroke='white'%20stroke-width='3'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpath%20d='M3%209v6h5l8%206V3L8%209H3z'/%3E%3Cpath%20d='M22%2010v4M26%208v8M30%206v12'/%3E%3C/svg%3E");
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-mute-control .vjs-icon-placeholder::before),
@@ -485,21 +535,54 @@ const mergedAttrs = computed(() => ({
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-episode-autoplay-toggle) {
   order: 39;
   flex: 0 0 auto;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
   width: auto !important;
-  min-width: 3.65rem;
+  min-width: 44px;
   margin-left: auto;
-  padding: 0 0.7rem;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-disabled);
-  font-size: 0.74rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  padding: 0 10px;
+  background: transparent !important;
+  cursor: pointer;
 }
 
-.videojs-media-host :deep(.arachnea-videojs-theme .vjs-episode-autoplay-toggle--active) {
-  color: var(--color-primary);
+.videojs-media-host :deep(.vjs-episode-autoplay-track) {
+  position: relative;
+  width: 36px;
+  height: 14px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.2);
+  transition: background-color var(--duration-fast) ease;
+}
+
+.videojs-media-host :deep(.vjs-episode-autoplay-toggle--active .vjs-episode-autoplay-track) {
+  background: var(--color-primary);
+}
+
+.videojs-media-host :deep(.vjs-episode-autoplay-toggle .vjs-episode-autoplay-thumb) {
+  position: absolute;
+  top: -2.5px;
+  left: 0;
+  width: 19px;
+  height: 19px;
+  border-radius: 999px !important;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  transition: transform var(--duration-fast) ease;
+}
+
+.videojs-media-host :deep(.vjs-episode-autoplay-toggle--active .vjs-episode-autoplay-thumb) {
+  transform: translateX(17px);
+}
+
+.videojs-media-host :deep(.vjs-episode-autoplay-icon) {
+  width: 14px;
+  height: 14px;
+  fill: #000;
+  display: block;
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-fullscreen-control) {
@@ -651,12 +734,21 @@ const mergedAttrs = computed(() => ({
   color: var(--text-primary);
 }
 
-.videojs-media-host :deep(.arachnea-videojs-theme .vjs-time-tooltip),
-.videojs-media-host :deep(.arachnea-videojs-theme .vjs-mouse-display .vjs-time-tooltip) {
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-time-tooltip) {
   border-radius: 999px;
   background: rgb(9 12 18 / 0.92);
   color: var(--text-primary);
   font-size: var(--player-font-size);
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-mouse-display .vjs-time-tooltip) {
+  display: flex !important;
+  align-items: flex-end !important;
+  justify-content: center !important;
+  padding-bottom: 4px !important;
+  transform: translateY(-10px) !important;
+  font-weight: 700 !important;
+  border: 2px solid rgba(255, 255, 255, .9) !important;
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-play-progress .vjs-time-tooltip) {

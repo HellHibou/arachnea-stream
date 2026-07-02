@@ -102,6 +102,10 @@ const { t } = useI18n()
 const loadingTitle = computed(() => props.loadingTitle ?? t('entry.loadingTitle'))
 const loadingDescription = computed(() => props.loadingDescription ?? t('entry.loadingMessage'))
 
+const resolvedShowAutoplayToggle = computed(() =>
+  props.showAutoplayToggle && (props.hasPreviousPlayable || props.hasNextPlayable)
+)
+
 const { showScrollToTop, scrollToTop } = useScrollToTop({
   target: 'title-section',
   shouldShow: () => {
@@ -211,8 +215,8 @@ const emit = defineEmits<{
              :initial-playback-time="props.initialPlaybackTime"
              :media-autoplay="props.mediaAutoplay"
              :prefer-persisted-media-surface="props.preferPersistedMediaSurface"
-             :show-autoplay-toggle="props.showAutoplayToggle"
-             :is-autoplay-enabled="props.isAutoplayEnabled"
+              :show-autoplay-toggle="resolvedShowAutoplayToggle"
+              :is-autoplay-enabled="props.isAutoplayEnabled"
              @step-playable="emit('step-playable', $event)"
              @toggle-bookmark="emit('toggle-bookmark')"
              @update:active-language-key="emit('update:active-language-key', $event)"

@@ -364,13 +364,13 @@ onBeforeUnmount(() => {
     class="home-hero-banner"
     :aria-label="activeBanner.title ?? t('catalog.featuredContent')"
   >
-    <img
+      <img
       v-if="activeBanner.imageUrl && !activeBannerVideoSource"
-      class="home-hero-banner__image"
-      :src="activeBanner.imageUrl"
-      alt=""
-      aria-hidden="true"
-    >
+        class="home-hero-banner__image"
+        :src="activeBanner.imageUrl"
+        alt=""
+        aria-hidden="true"
+      >
 
     <VideoPlayer
       v-if="activeBannerPlayableVideoSource"
@@ -381,19 +381,19 @@ onBeforeUnmount(() => {
         activeBannerPlayableVideoSource.renderer === 'iframe' ? 'home-hero-banner__video--frame' : null,
       ]"
       :style="activeBannerVideoStyle"
-      :iframe-title="t('media.decorativeBannerVideo')"
-      :poster="activeBanner.imageUrl ?? undefined"
-      autoplay
-      :muted="isBannerVideoMuted"
-      :loop="shouldLoopActiveBannerVideo"
-      playsinline
-      preload="auto"
-      allow="autoplay; encrypted-media; picture-in-picture"
-      :aria-hidden="true"
-      :tab-index="-1"
-      @playback-ended="handleBannerVideoPlaybackEnded"
-      @video-metadata-loaded="handleBannerVideoMetadataLoaded"
-    />
+        :iframe-title="t('media.decorativeBannerVideo')"
+        :poster="activeBanner.imageUrl ?? undefined"
+        autoplay
+        :muted="isBannerVideoMuted"
+        :loop="shouldLoopActiveBannerVideo"
+        playsinline
+        preload="auto"
+        allow="autoplay; encrypted-media; picture-in-picture"
+        :aria-hidden="true"
+        :tab-index="-1"
+        @playback-ended="handleBannerVideoPlaybackEnded"
+        @video-metadata-loaded="handleBannerVideoMetadataLoaded"
+      />
 
     <button
       v-if="activeBannerPlayableVideoSource"
@@ -451,7 +451,6 @@ onBeforeUnmount(() => {
      </div>
 
 <div v-if="props.banners.length > 1" class="home-hero-banner__controls">
-        <div class="home-hero-banner__filler"></div>
        <button
          class="home-hero-banner__arrow"
          type="button"
@@ -500,11 +499,20 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-color-primary);
   border-radius: calc(var(--radius) + 6px);
   overflow: hidden;
-  background-color: rgba(10, 14, 20,1 );
+  background-color: rgba(10, 14, 20, 1);
   background-image: linear-gradient(140deg, rgba(12, 17, 25, 0.98), rgba(24, 35, 47, 0.92));
   box-shadow:
     var(--shadow-heavy),
     var(--inset-light);
+}
+
+.home-hero-banner::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  box-shadow: inset 0 0 20px rgba(0, 0, 0, 1);
 }
 
 :deep(.home-hero-banner__image),
@@ -756,6 +764,10 @@ onBeforeUnmount(() => {
   justify-content: center;
   gap: 10px;
   flex: 0 0 auto;
+  padding: 8px 18px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color-primary);
+  border-radius: 100px;
 }
 
 .home-hero-banner__dot {
@@ -773,12 +785,13 @@ onBeforeUnmount(() => {
 
 .home-hero-banner__dot--active {
   transform: scale(1.14);
-  background: #ffffff;
+  background: var(--bg-accent-blue);
 }
 
 .home-hero-banner__controls {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 20px;
   min-height: 44px;
   padding: 24px 20px 0;
@@ -789,11 +802,6 @@ onBeforeUnmount(() => {
   right: 0;
   z-index: 10;
   pointer-events: none;
-}
-
-.home-hero-banner__filler {
-  flex-grow: 1;
-  width: 0;
 }
 
 .home-hero-banner__arrow,

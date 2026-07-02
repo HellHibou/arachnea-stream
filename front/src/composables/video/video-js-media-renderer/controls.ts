@@ -88,10 +88,18 @@ function positionControlBarMenu(playerElement: HTMLElement, menuButtonElement: H
 function syncEpisodeAutoplayToggleState(button: HTMLButtonElement, isEpisodeAutoplayEnabled: boolean) {
   const nextTitle = isEpisodeAutoplayEnabled ? t('player.disableAutoplay') : t('player.enableAutoplay')
 
-  button.classList.toggle(EPISODE_AUTOPLAY_CONTROL_ACTIVE_CLASS, isEpisodeAutoplayEnabled, )
+  button.classList.toggle(EPISODE_AUTOPLAY_CONTROL_ACTIVE_CLASS, isEpisodeAutoplayEnabled)
   button.setAttribute('aria-pressed', String(isEpisodeAutoplayEnabled))
   button.setAttribute('aria-label', nextTitle)
   button.setAttribute('title', nextTitle)
+
+  const iconElement = button.querySelector<SVGElement>('.vjs-episode-autoplay-icon')
+
+  if (iconElement) {
+    iconElement.innerHTML = isEpisodeAutoplayEnabled
+      ? '<polygon points="8,5 19,12 8,19" />'
+      : '<rect x="7" y="5" width="4" height="14" rx="1" /><rect x="13" y="5" width="4" height="14" rx="1" />'
+  }
 }
 
 /**
@@ -146,7 +154,7 @@ export function syncEpisodeAutoplayToggleControl(
   if (!existingButton) {
     button.type = 'button'
     button.className = `vjs-control vjs-button ${EPISODE_AUTOPLAY_CONTROL_CLASS}`
-    button.textContent = 'Auto'
+    button.innerHTML = '<span class="vjs-episode-autoplay-track"><span class="vjs-episode-autoplay-thumb"><svg class="vjs-episode-autoplay-icon" viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><polygon points="8,5 19,12 8,19" /></svg></span></span>'
     button.addEventListener('click', options.onEpisodeAutoplayToggle)
 
     const qualityButton = controlBarElement.querySelector(
