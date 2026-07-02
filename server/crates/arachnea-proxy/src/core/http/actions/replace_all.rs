@@ -25,8 +25,9 @@ impl ReplaceAll {
     pub fn new(
         pattern: impl Into<String>,
         replacement: impl Into<String>,
+        content_types: Option<Vec<String>>,
     ) -> ProxyHttpActionConfig {
-        Self::with_order(None, pattern, replacement)
+        Self::with_order(None, pattern, replacement, content_types)
     }
 
     /// Creates a ReplaceAll action with an explicit execution order.
@@ -34,18 +35,26 @@ impl ReplaceAll {
         order: i32,
         pattern: impl Into<String>,
         replacement: impl Into<String>,
+        content_types: Option<Vec<String>>,
     ) -> ProxyHttpActionConfig {
-        Self::with_order(Some(order), pattern, replacement)
+        Self::with_order(Some(order), pattern, replacement, content_types)
     }
 
     fn with_order(
         order: Option<i32>,
         pattern: impl Into<String>,
         replacement: impl Into<String>,
+        content_types: Option<Vec<String>>,
     ) -> ProxyHttpActionConfig {
         let mut params = HashMap::new();
         params.insert("pattern".to_string(), pattern.into());
         params.insert("replacement".to_string(), replacement.into());
+        if let Some(content_types) = content_types {
+            params.insert(
+                "content_types".to_string(),
+                serde_json::to_string(&content_types).unwrap_or_else(|_| "[]".to_string()),
+            );
+        }
         ProxyHttpActionConfig::PostAction(ProxyHttpPostActionConfig {
             action: "ReplaceAll".to_string(),
             order,
@@ -65,13 +74,21 @@ pub(crate) struct ReplaceAllHeaderValue {
     pub pattern: String,
     /// Replacement text.
     pub replacement: String,
+    /// Optional response content types on which the replacement may run.
+    #[serde(default)]
+    pub content_types: Option<Vec<String>>,
 }
 
 impl ReplaceAllHeaderValue {
     /// Converts this header value into an action config.
     #[allow(dead_code)]
     pub fn into_config(self) -> ProxyHttpPostActionConfig {
-        match ReplaceAll::with_order(self.order, self.pattern, self.replacement) {
+        match ReplaceAll::with_order(
+            self.order,
+            self.pattern,
+            self.replacement,
+            self.content_types,
+        ) {
             ProxyHttpActionConfig::PostAction(action) => action,
             ProxyHttpActionConfig::RemoveHeader(_) => {
                 unreachable!("ReplaceAll builds post actions")
@@ -104,6 +121,10 @@ pub(crate) fn proxy_action_header(
             "order": action.order,
             "pattern": action.params.get("pattern"),
             "replacement": action.params.get("replacement"),
+            "content_types": action
+                .params
+                .get("content_types")
+                .and_then(|value| serde_json::from_str::<Vec<String>>(value).ok()),
         })
         .to_string(),
     ))
@@ -135,6 +156,7 @@ pub(crate) fn parse_proxy_action_header_value(
 pub struct ReplaceAllAction {
     pattern: Regex,
     replacement: String,
+    content_types: Option<Vec<String>>,
 }
 
 impl ReplaceAllAction {
@@ -171,15 +193,25 @@ impl ReplaceAllAction {
                 pattern_str, e
             ))
         })?;
+        let content_types = config
+            .params
+            .get("content_types")
+            .map(|value| parse_content_types(value))
+            .transpose()?;
 
         Ok(Self {
             pattern,
             replacement: replacement.clone(),
+            content_types,
         })
     }
 
     /// Detects whether the content type is textual.
-    fn is_textual_content_type(content_type: &str) -> bool {
+    fn is_textual_content_type(&self, content_type: &str) -> bool {
+        if let Some(content_types) = &self.content_types {
+            return content_type_matches(content_type, content_types);
+        }
+
         let ct = content_type.to_ascii_lowercase();
         if ct.starts_with("text/") {
             return true;
@@ -217,7 +249,7 @@ impl super::ProxyHttpPostAction for ReplaceAllAction {
             .map(|(_, value)| value.as_str())
             .unwrap_or("");
 
-        if !Self::is_textual_content_type(content_type) {
+        if !self.is_textual_content_type(content_type) {
             return Ok(body);
         }
 
@@ -253,9 +285,7 @@ impl super::ProxyHttpPostAction for ReplaceAllAction {
         let replacement = resolve_variables(&self.replacement, context);
 
         // Apply regex replacement
-        let replaced = self
-            .pattern
-            .replace_all(&decoded, replacement.as_str());
+        let replaced = self.pattern.replace_all(&decoded, replacement.as_str());
 
         // Re-encode using the same encoding
         let (result_bytes, _encoding_used, _had_errors) = encoding_used.encode(&replaced);
@@ -272,12 +302,37 @@ impl super::ProxyHttpPostAction for ReplaceAllAction {
     }
 }
 
+fn parse_content_types(value: &str) -> Result<Vec<String>> {
+    let content_types: Vec<String> = serde_json::from_str(value).map_err(|error| {
+        ProxyError::Protocol(format!(
+            "ReplaceAll invalid content_types parameter: {}",
+            error
+        ))
+    })?;
+    Ok(content_types
+        .into_iter()
+        .map(|content_type| content_type.trim().to_ascii_lowercase())
+        .filter(|content_type| !content_type.is_empty())
+        .collect())
+}
+
+fn content_type_matches(content_type: &str, allowed_content_types: &[String]) -> bool {
+    let media_type = content_type
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+
+    allowed_content_types
+        .iter()
+        .any(|allowed| allowed.trim().eq_ignore_ascii_case(&media_type))
+}
+
 /// Resolves predefined variables in a replacement string using request context.
 fn resolve_variables(template: &str, context: &PostActionContext) -> String {
-    let base_url = context
-        .target_url
-        .trim_end_matches('/')
-        .to_string();
+    let base_url = target_origin(&context.target_url);
+    let proxy_path = entry_point_public_path(&context.entry_point);
 
     let path = url::Url::parse(&context.target_url)
         .ok()
@@ -290,10 +345,66 @@ fn resolve_variables(template: &str, context: &PostActionContext) -> String {
     };
 
     template
-        .replace("{proxy}", &context.entry_point)
+        .replace("{proxy}", &proxy_path)
         .replace("{base_url}", &base_url)
         .replace("{path}", &path)
         .replace("{path_base}", &path_base)
+}
+
+fn target_origin(target_url: &str) -> String {
+    let normalized = target_url.trim().trim_end_matches('/');
+    let Ok(url) = url::Url::parse(normalized) else {
+        return normalized.to_string();
+    };
+
+    let Some(host) = url.host_str() else {
+        return normalized.to_string();
+    };
+
+    let host = if host.contains(':') && !host.starts_with('[') {
+        format!("[{}]", host)
+    } else {
+        host.to_string()
+    };
+    let mut origin = format!("{}://{}", url.scheme(), host);
+    if let Some(port) = url.port() {
+        origin.push(':');
+        origin.push_str(&port.to_string());
+    }
+    origin
+}
+
+fn entry_point_public_path(entry_point: &str) -> String {
+    let normalized = entry_point.trim().trim_end_matches('/');
+    if normalized.is_empty() {
+        return String::new();
+    }
+
+    let Ok(url) = url::Url::parse(normalized) else {
+        return normalized.to_string();
+    };
+
+    let mut path = match url.scheme() {
+        "http" | "https" => url.path().to_string(),
+        _ => {
+            let mut value = String::new();
+            if let Some(host) = url.host_str() {
+                value.push('/');
+                value.push_str(host.trim_matches('/'));
+            }
+            value.push_str(url.path());
+            value
+        }
+    };
+
+    if path.is_empty() {
+        path.push('/');
+    }
+    if let Some(query) = url.query() {
+        path.push('?');
+        path.push_str(query);
+    }
+    path.trim_end_matches('/').to_string()
 }
 
 /// Detects the character encoding from a `content-type` header value.
@@ -327,30 +438,86 @@ mod tests {
     use crate::core::http::actions::PostActionContext;
     use crate::core::http::actions::ProxyHttpPostAction;
 
+    fn replace_all_action(params: HashMap<String, String>) -> ReplaceAllAction {
+        ReplaceAllAction::from_config(&ProxyHttpPostActionConfig {
+            action: "ReplaceAll".to_string(),
+            order: None,
+            params,
+        })
+        .unwrap()
+    }
+
     #[test]
     fn test_is_textual_content_type() {
-        assert!(ReplaceAllAction::is_textual_content_type("text/html"));
-        assert!(ReplaceAllAction::is_textual_content_type(
-            "text/plain; charset=utf-8"
-        ));
-        assert!(ReplaceAllAction::is_textual_content_type(
-            "application/json"
-        ));
-        assert!(ReplaceAllAction::is_textual_content_type(
-            "application/javascript"
-        ));
-        assert!(ReplaceAllAction::is_textual_content_type("image/svg+xml"));
-        assert!(ReplaceAllAction::is_textual_content_type(
-            "application/vnd.apple.mpegurl"
-        ));
-        assert!(ReplaceAllAction::is_textual_content_type(
-            "application/dash+xml"
-        ));
-        assert!(!ReplaceAllAction::is_textual_content_type("image/png"));
-        assert!(!ReplaceAllAction::is_textual_content_type("video/mp4"));
-        assert!(!ReplaceAllAction::is_textual_content_type(
-            "application/octet-stream"
-        ));
+        let action = replace_all_action(HashMap::from([
+            ("pattern".to_string(), "hello".to_string()),
+            ("replacement".to_string(), "hi".to_string()),
+        ]));
+
+        assert!(action.is_textual_content_type("text/html"));
+        assert!(action.is_textual_content_type("text/plain; charset=utf-8"));
+        assert!(action.is_textual_content_type("application/json"));
+        assert!(action.is_textual_content_type("application/javascript"));
+        assert!(action.is_textual_content_type("image/svg+xml"));
+        assert!(action.is_textual_content_type("application/vnd.apple.mpegurl"));
+        assert!(action.is_textual_content_type("application/dash+xml"));
+        assert!(!action.is_textual_content_type("application/x-mpegURL"));
+        assert!(!action.is_textual_content_type("audio/mpegurl; charset=utf-8"));
+        assert!(!action.is_textual_content_type("audio/x-mpegurl"));
+        assert!(!action.is_textual_content_type("image/png"));
+        assert!(!action.is_textual_content_type("video/mp4"));
+        assert!(!action.is_textual_content_type("application/octet-stream"));
+    }
+
+    #[test]
+    fn test_custom_content_types_override_default_filter() {
+        let action = replace_all_action(HashMap::from([
+            ("pattern".to_string(), "hello".to_string()),
+            ("replacement".to_string(), "hi".to_string()),
+            (
+                "content_types".to_string(),
+                serde_json::json!(["application/x-mpegurl", "audio/mpegurl"]).to_string(),
+            ),
+        ]));
+
+        assert!(action.is_textual_content_type("application/x-mpegURL"));
+        assert!(action.is_textual_content_type("audio/mpegurl; charset=utf-8"));
+        assert!(!action.is_textual_content_type("text/plain"));
+        assert!(!action.is_textual_content_type("application/vnd.apple.mpegurl"));
+    }
+
+    #[test]
+    fn test_proxy_variable_uses_public_path() {
+        let context = PostActionContext {
+            entry_point: "http://127.0.0.1:8080/api/proxy".to_string(),
+            target_url: "https://example.test/manifest.mpd".to_string(),
+        };
+        assert_eq!(
+            resolve_variables("{proxy}/https://cdn.test/a", &context),
+            "/api/proxy/https://cdn.test/a"
+        );
+
+        let context = PostActionContext {
+            entry_point: "arachnea://api/proxy".to_string(),
+            target_url: "https://example.test/manifest.mpd".to_string(),
+        };
+        assert_eq!(
+            resolve_variables("{proxy}/https://cdn.test/a", &context),
+            "/api/proxy/https://cdn.test/a"
+        );
+    }
+
+    #[test]
+    fn test_base_url_variable_uses_target_origin() {
+        let context = PostActionContext {
+            entry_point: "http://127.0.0.1:8080/api/proxy".to_string(),
+            target_url: "https://myhost.be:8080/path/to/manifest.mpd?token=abc".to_string(),
+        };
+
+        assert_eq!(
+            resolve_variables("{proxy}/{base_url}/m6web/", &context),
+            "/api/proxy/https://myhost.be:8080/m6web/"
+        );
     }
 
     #[test]
@@ -367,7 +534,9 @@ mod tests {
         let mut headers = HashMap::new();
         headers.insert("content-type".to_string(), "text/plain".to_string());
         let body = b"hello world, hello!".to_vec();
-        let result = action.post_apply(200, &mut headers, body, &PostActionContext::default()).unwrap();
+        let result = action
+            .post_apply(200, &mut headers, body, &PostActionContext::default())
+            .unwrap();
         assert_eq!(result, b"hi world, hi!".to_vec());
     }
 
@@ -385,7 +554,14 @@ mod tests {
         let mut headers = HashMap::new();
         headers.insert("content-type".to_string(), "text/plain".to_string());
         let body = b"hello world".to_vec();
-        let result = action.post_apply(200, &mut headers, body.clone(), &PostActionContext::default()).unwrap();
+        let result = action
+            .post_apply(
+                200,
+                &mut headers,
+                body.clone(),
+                &PostActionContext::default(),
+            )
+            .unwrap();
         assert_eq!(result, body);
     }
 
@@ -403,7 +579,14 @@ mod tests {
         let mut headers = HashMap::new();
         headers.insert("content-type".to_string(), "image/png".to_string());
         let body = b"hello world".to_vec();
-        let result = action.post_apply(200, &mut headers, body.clone(), &PostActionContext::default()).unwrap();
+        let result = action
+            .post_apply(
+                200,
+                &mut headers,
+                body.clone(),
+                &PostActionContext::default(),
+            )
+            .unwrap();
         assert_eq!(result, body);
     }
 

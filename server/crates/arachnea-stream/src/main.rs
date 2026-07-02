@@ -86,14 +86,14 @@ fn help_message(program_name: &str) -> String {
         "Usage: {program_name} [OPTIONS]
 
 Options:
+  --help                 Show this help message and exit
   --desktop              Run in desktop application mode (forces mode_server to false)
   --server               Run in server mode (forces mode_server to true)
   --server-port <PORT>   Override the server port (default: {DEFAULT_SERVER_PORT})
   --entrypoint-root <PATH>
                           Public root path used before API routes in server mode
   --entrypoint-api <PATH>
-                          Public API path segment used in server mode
-  --help                 Show this help message and exit"
+                          Public API path segment used in server mode"
     )
 }
 
@@ -221,8 +221,10 @@ async fn main() -> Result<()> {
 
     let proxy_fr = ProxyNode::from_url(
         "proxy-fr",
-        // "socks5://158.178.198.31:1080", // "socks5://62.133.62.3:1081"
-        "socks5://45.95.233.237:1081",
+       //  "socks5://158.178.198.31:1080", 
+        // "socks5://62.133.62.3:1081"
+        //"socks5://45.95.233.237:1081",
+       "socks5://51.210.5.144:1088"
     )
     .context("Failed to configure the FR proxy node")?;
     let proxy_config = ProxyConfig {

@@ -152,3 +152,12 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **`parse_http_response`**: Now accepts `headers_only` and `post_actions` parameters; applies actions at the designated extension point after chunked decoding, then fixes `content-length` and removes `etag`/`content-md5`/`digest` when body changes.
 - **`proxied_url`**: Added `actions: &[ProxyHttpPostActionConfig]` parameter. All existing callers updated with `&[]` — no behavioural change for existing usage.
 - **`handle_proxy_http`**: Now parses action headers from the request headers and passes them through to the HTTP client.
+
+## Unreleased — FranceTV HLS key proxying
+
+### Fixed
+- **FranceTV HLS AES-128 keys**: FranceTV proxied manifests now rewrite `cloudreplay.ftven.fr/keys/*.key` `#EXT-X-KEY` and `#EXT-X-SESSION-KEY` URIs through the generic HTTP proxy without a country hint, while keeping the manifest request itself routed through France.
+- **Proxy text action filtering**: `ReplaceAll` now accepts an optional per-action `content_types` allowlist. FranceTV key rewrites use it for HLS MIME variants such as `application/x-mpegurl` without changing the default proxy text filter.
+- **M6Play MPD URL rewrites**: M6Play manifest replacements now use the proxy action `{proxy}` placeholder instead of embedding the resolved proxy path in the response sent to the client.
+- **Proxy action `{proxy}` placeholder**: `{proxy}` now resolves to the public proxy path such as `/api/proxy` instead of the absolute local entry-point URL.
+- **Proxy action `{base_url}` placeholder**: `{base_url}` now resolves to the target origin such as `https://myhost.be:8080`, without the target path or query string.

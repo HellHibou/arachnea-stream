@@ -1,5 +1,8 @@
 use anyhow::{bail, Context, Result};
-use arachnea_proxy::{PROXY_HEADER_PARAMETER_COUNTRY, http::{actions::{ProxyHttpActionConfig, REMOVE_HEADER_ACTION_HEADER, RemoveHeader}, proxy_service::proxied_url}};
+use arachnea_proxy::http::{
+    actions::{ProxyHttpActionConfig, ReplaceAll},
+    proxy_service::proxied_url,
+};
 use async_trait::async_trait;
 use rand::{distr::Alphanumeric, Rng};
 use rquest::{
@@ -143,11 +146,12 @@ async fn resolve_francetv_stream(
     let stream_url =
         fetch_signed_manifest_url(&http_client, &manifest_token_url, &raw_manifest_url).await?;
     let manifest_type = manifest_type_from_format_or_url(format, &stream_url);
+    let stream_actions = stream_headers(endpoints.http_proxy_public_path.as_deref());
     let stream_url_proxy = proxied_url(
         &stream_url,
         endpoints.http_proxy_public_path.as_deref(),
         Some("fr"),
-        &[],
+        &stream_actions,
     );
 
     if !drm_enabled {
@@ -170,16 +174,9 @@ async fn resolve_francetv_stream(
         FRANCETV_WIDEVINE_LICENSE_URL,
     );
 
-    let stream_actions = stream_headers(endpoints.http_proxy_public_path.as_deref());
-    let stream_url_proxy = proxied_url(
-        &stream_url,
-        endpoints.http_proxy_public_path.as_deref(),
-        Some("fr"),
-        &stream_actions,
-    );
     Ok(ResolvedPlayerStream {
         stream_url: stream_url_proxy,
-        manifest_type: manifest_type,
+        manifest_type,
         license_url: Some(license_url),
         license_headers: HashMap::new(),
     })
@@ -497,8 +494,23 @@ fn stream_headers(http_proxy_public_path: Option<&str>) -> Vec<ProxyHttpActionCo
         .filter(|value| !value.is_empty())
         .unwrap_or_default()
         .trim_end_matches('/');
+    let hls_content_types = hls_manifest_content_types();
 
-    vec![
-        RemoveHeader::on_http302([PROXY_HEADER_PARAMETER_COUNTRY, REMOVE_HEADER_ACTION_HEADER]),
+    vec![ReplaceAll::new(
+        r#"#EXT-X-(SESSION-)?KEY:([^\r\n]*?)URI="(https://cloudreplay\.ftven\.fr/keys/[^"]+\.key)""#,
+        format!(r#"#EXT-X-${{1}}KEY:${{2}}URI="{}/${{3}}""#, proxy_path),
+        Some(hls_content_types.clone()),
+    )]
+}
+
+fn hls_manifest_content_types() -> Vec<String> {
+    [
+        "application/vnd.apple.mpegurl",
+        "application/x-mpegurl",
+        "audio/mpegurl",
+        "audio/x-mpegurl",
     ]
+    .into_iter()
+    .map(str::to_string)
+    .collect()
 }

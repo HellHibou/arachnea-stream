@@ -140,7 +140,7 @@ async fn resolve_replay_stream(
         SIXPLAY_LICENSE_URL,
         None,
     );
-    let stream_actions = stream_headers(endpoints.http_proxy_public_path.as_deref());
+    let stream_actions = stream_headers();
 
     Ok(ResolvedPlayerStream {
         stream_url: proxied_url(
@@ -250,7 +250,7 @@ async fn resolve_live_stream(
         SIXPLAY_LICENSE_URL,
         None,
     );
-    let stream_actions = stream_headers(endpoints.http_proxy_public_path.as_deref());
+    let stream_actions = stream_headers();
 
     Ok(ResolvedPlayerStream {
         stream_url: proxied_url(
@@ -265,28 +265,18 @@ async fn resolve_live_stream(
     })
 }
 
-fn stream_headers(http_proxy_public_path: Option<&str>) -> Vec<ProxyHttpActionConfig> {
-    let proxy_path = http_proxy_public_path
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or_default()
-        .trim_end_matches('/');
-
+fn stream_headers() -> Vec<ProxyHttpActionConfig> {
     vec![
         RemoveHeader::on_http302([PROXY_HEADER_PARAMETER_COUNTRY, REMOVE_HEADER_ACTION_HEADER]),
         ReplaceAll::new(
             r#"initialization="/m6web/"#,
-            format!(
-                r#"initialization="{}/https://th2-edge-01.cdn.bedrock.tech/m6web/"#,
-                proxy_path
-            ),
+            r#"initialization="{proxy}/{base_url}/m6web/"#,
+            None,
         ),
         ReplaceAll::new(
             r#"media="/m6web/"#,
-            format!(
-                r#"media="{}/https://th2-edge-01.cdn.bedrock.tech/m6web/"#,
-                proxy_path
-            ),
+            r#"media="{proxy}/{base_url}/m6web/"#,
+            None,
         ),
     ]
 }
