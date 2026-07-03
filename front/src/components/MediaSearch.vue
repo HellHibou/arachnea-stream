@@ -10,6 +10,7 @@ import { mediaSearchResults } from '@/composables/media-search/mediaSearchResult
 import { useScrollToTop } from '@/composables/useScrollToTop'
 import { useI18n } from '@/i18n'
 
+/** Available collection modes for the media search, excluding single-row. */
 type SearchCollectionMode = Exclude<MediaCardCollectionMode, 'single-row'>
 
 /**
@@ -57,6 +58,7 @@ interface Props {
    submittedThemes?: string[]
 }
 
+/** Component props with applied defaults. */
 const props = withDefaults(defineProps<Props>(), {
    submittedQuery: '',
    searchRequestId: 0,
@@ -67,17 +69,27 @@ const props = withDefaults(defineProps<Props>(), {
    submittedThemes: () => [],
 })
 const emit = defineEmits<{
+  /** Emitted when a media item is selected. */
    'select-item': [item: MediaItem]
 }>()
 
+/** Search results state and actions. */
 const {
+   /** List of media items matching the search. */
    mediaItems,
+   /** Whether a search has been performed. */
    hasSearched,
+   /** Whether a search is currently in progress. */
    isSearching,
+   /** Whether more items are currently loading. */
    isLoadingMore,
+   /** Whether more items are available to load. */
    haveMore,
+   /** Error message from search request. */
    errorMessage,
+   /** Error message from load-more operation. */
    loadMoreErrorMessage,
+   /** Function to load more search results. */
    loadMore,
 } = mediaSearchResults({
    submittedQuery: toRef(props, 'submittedQuery'),
@@ -86,6 +98,7 @@ const {
    selectedThemes: toRef(props, 'submittedThemes'),
 })
 
+/** Organized collections from search results. */
 const { visibleCollections } = mediaSearchCollections({
    mediaItems,
    collectionLabel: toRef(props, 'collectionLabel'),
@@ -100,7 +113,9 @@ function handleSelectItem(item: MediaItem) {
    emit('select-item', item)
 }
 
+/** Scroll-to-top button state and handler. */
 const { showScrollToTop, scrollToTop } = useScrollToTop()
+/** Internationalization utilities. */
 const { t } = useI18n()
 </script>
 <template>

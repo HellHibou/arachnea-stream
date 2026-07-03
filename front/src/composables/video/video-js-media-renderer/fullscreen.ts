@@ -5,6 +5,11 @@ import type {
   VideoJsPlayer,
 } from '@/composables/video/video-js-media-renderer/types'
 
+/**
+ * Gets the current fullscreen element from the document using cross-browser APIs.
+ *
+ * @returns The fullscreen element or null if not in fullscreen mode.
+ */
 function getFullscreenElement(): Element | null {
   const fullscreenDocument = document as FullscreenDocument
 
@@ -15,6 +20,12 @@ function getFullscreenElement(): Element | null {
     null
 }
 
+/**
+ * Requests fullscreen mode for the given host element using cross-browser APIs.
+ *
+ * @param element - Host element to enter fullscreen mode.
+ * @returns Promise that resolves when fullscreen is entered, or undefined if not supported.
+ */
 function requestHostFullscreen(element: FullscreenHostElement): Promise<unknown> | unknown {
   if (typeof element.requestFullscreen === 'function') {
     return element.requestFullscreen()
@@ -31,6 +42,11 @@ function requestHostFullscreen(element: FullscreenHostElement): Promise<unknown>
   return undefined
 }
 
+/**
+ * Exits fullscreen mode using cross-browser APIs.
+ *
+ * @returns Promise that resolves when fullscreen is exited, or undefined if not supported.
+ */
 function exitDocumentFullscreen(): Promise<unknown> | unknown {
   const fullscreenDocument = document as FullscreenDocument
 
@@ -49,6 +65,12 @@ function exitDocumentFullscreen(): Promise<unknown> | unknown {
   return undefined
 }
 
+/**
+ * Type guard for PromiseLikeWithCatch type.
+ *
+ * @param value - Value to check.
+ * @returns True when the value is a Promise-like with a catch method.
+ */
 function isPromiseLikeWithCatch<T = unknown>(value: unknown): value is PromiseLikeWithCatch<T> {
   return typeof value === 'object' &&
     value !== null &&
@@ -56,6 +78,12 @@ function isPromiseLikeWithCatch<T = unknown>(value: unknown): value is PromiseLi
     typeof value.catch === 'function'
 }
 
+/**
+ * Synchronizes the Video.js player fullscreen state with the actual DOM fullscreen state.
+ *
+ * @param player - Video.js player instance.
+ * @param getHostElement - Callback to get the host element.
+ */
 function syncPlayerFullscreenState(
   player: VideoJsPlayer,
   getHostElement: () => HTMLDivElement | null,

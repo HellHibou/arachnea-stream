@@ -20,6 +20,7 @@ import type {
   VideoJsTrackPreference,
 } from '@/types/media'
 
+/** Keys for text track settings that can be persisted. */
 const TEXT_TRACK_SETTINGS_KEYS = [
   'backgroundColor',
   'backgroundOpacity',
@@ -32,8 +33,10 @@ const TEXT_TRACK_SETTINGS_KEYS = [
   'windowOpacity',
 ] as const
 
+/** Set of text track kinds that should be displayed. */
 const DISPLAY_TEXT_TRACK_KINDS = new Set(['captions', 'subtitles'])
 
+/** Default text track preference representing disabled state. */
 const DISABLED_TEXT_TRACK_PREFERENCE: VideoJsTextTrackPreference = {
   id: null,
   language: null,
@@ -42,10 +45,22 @@ const DISABLED_TEXT_TRACK_PREFERENCE: VideoJsTextTrackPreference = {
   mode: 'disabled',
 }
 
+/**
+ * Normalizes a track field value to a string or null.
+ *
+ * @param value - Value to normalize.
+ * @returns Trimmed string or null if not a valid string.
+ */
 function normalizeTrackField(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null
 }
 
+/**
+ * Creates a track preference object from a track handle.
+ *
+ * @param track - Audio or text track handle.
+ * @returns Track preference object with normalized fields.
+ */
 function createTrackPreference(
   track: VideoJsAudioTrackHandle | VideoJsTextTrackHandle,
 ): VideoJsTrackPreference {
@@ -57,10 +72,22 @@ function createTrackPreference(
   }
 }
 
+/**
+ * Checks if a text track should be displayed.
+ *
+ * @param track - Text track to check.
+ * @returns True when the track kind is in the displayable set.
+ */
 function isDisplayTextTrack(track: VideoJsTextTrackHandle): boolean {
   return Boolean(track.kind && DISPLAY_TEXT_TRACK_KINDS.has(track.kind))
 }
 
+/**
+ * Gets the text track settings handle from the player.
+ *
+ * @param player - Video.js player instance.
+ * @returns Text track settings handle or null.
+ */
 function getTextTrackSettings(player: VideoJsPlayer): VideoJsTextTrackSettingsHandle | null {
   const settings = player.textTrackSettings ??
     (player.getChild?.('textTrackSettings') as VideoJsTextTrackSettingsHandle | null | undefined)
@@ -68,14 +95,32 @@ function getTextTrackSettings(player: VideoJsPlayer): VideoJsTextTrackSettingsHa
   return settings ?? null
 }
 
+/**
+ * Gets the audio track list handle from the player.
+ *
+ * @param player - Video.js player instance.
+ * @returns Audio track list handle or null.
+ */
 function getAudioTracks(player: VideoJsPlayer): VideoJsAudioTrackListHandle | null {
   return (player.audioTracks?.() as unknown as VideoJsAudioTrackListHandle | undefined) ?? null
 }
 
+/**
+ * Gets the text track list handle from the player.
+ *
+ * @param player - Video.js player instance.
+ * @returns Text track list handle or null.
+ */
 function getTextTracks(player: VideoJsPlayer): VideoJsTextTrackListHandle | null {
   return (player.textTracks?.() as unknown as VideoJsTextTrackListHandle | undefined) ?? null
 }
 
+/**
+ * Captures the currently selected audio track from the player.
+ *
+ * @param player - Video.js player instance.
+ * @returns Audio track preference or null if none selected.
+ */
 function captureSelectedAudioTrack(player: VideoJsPlayer): VideoJsTrackPreference | null {
   const audioTracks = getAudioTracks(player)
 
@@ -94,6 +139,12 @@ function captureSelectedAudioTrack(player: VideoJsPlayer): VideoJsTrackPreferenc
   return null
 }
 
+/**
+ * Captures the currently selected text track from the player.
+ *
+ * @param player - Video.js player instance.
+ * @returns Text track preference or disabled preference if none selected.
+ */
 function captureSelectedTextTrack(player: VideoJsPlayer): VideoJsTextTrackPreference {
   const textTracks = getTextTracks(player)
 
@@ -115,6 +166,12 @@ function captureSelectedTextTrack(player: VideoJsPlayer): VideoJsTextTrackPrefer
   return DISABLED_TEXT_TRACK_PREFERENCE
 }
 
+/**
+ * Captures the current text track settings from the player.
+ *
+ * @param player - Video.js player instance.
+ * @returns Text track settings object or null if no settings available.
+ */
 function captureTextTrackSettings(player: VideoJsPlayer): VideoJsTextTrackSettings | null {
   const values = getTextTrackSettings(player)?.getValues?.()
 
@@ -137,6 +194,14 @@ function captureTextTrackSettings(player: VideoJsPlayer): VideoJsTextTrackSettin
   return Object.keys(settings).length ? settings : null
 }
 
+/**
+ * Calculates a match score between a track and a preference.
+ * Higher scores indicate better matches.
+ *
+ * @param track - Track to match.
+ * @param preference - Preference to match against.
+ * @returns Match score (0-100).
+ */
 function getTrackMatchScore(
   track: VideoJsAudioTrackHandle | VideoJsTextTrackHandle,
   preference: VideoJsTrackPreference,
@@ -167,6 +232,14 @@ function getTrackMatchScore(
   return score
 }
 
+/**
+ * Finds the best matching track for a given preference.
+ *
+ * @param tracks - Array-like collection of tracks.
+ * @param preference - Preference to match.
+ * @param filter - Optional filter function for tracks.
+ * @returns Best matching track or null.
+ */
 function findBestMatchingTrack<T extends VideoJsAudioTrackHandle | VideoJsTextTrackHandle>(
   tracks: ArrayLike<T>,
   preference: VideoJsTrackPreference,
@@ -193,6 +266,12 @@ function findBestMatchingTrack<T extends VideoJsAudioTrackHandle | VideoJsTextTr
   return matchingTrack
 }
 
+/**
+ * Restores the audio track selection based on preference.
+ *
+ * @param player - Video.js player instance.
+ * @param preference - Audio track preference to restore.
+ */
 function restoreAudioTrack(player: VideoJsPlayer, preference: VideoJsTrackPreference | null) {
   if (!preference) {
     return
@@ -219,6 +298,12 @@ function restoreAudioTrack(player: VideoJsPlayer, preference: VideoJsTrackPrefer
   }
 }
 
+/**
+ * Restores the text track selection based on preference.
+ *
+ * @param player - Video.js player instance.
+ * @param preference - Text track preference to restore.
+ */
 function restoreTextTrack(
   player: VideoJsPlayer,
   preference: VideoJsTextTrackPreference | null | undefined,
@@ -256,6 +341,12 @@ function restoreTextTrack(
   }
 }
 
+/**
+ * Restores the text track settings based on preference.
+ *
+ * @param player - Video.js player instance.
+ * @param settings - Text track settings to restore.
+ */
 function restoreTextTrackSettings(
   player: VideoJsPlayer,
   settings: VideoJsTextTrackSettings | null,

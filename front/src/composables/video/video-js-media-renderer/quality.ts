@@ -7,6 +7,13 @@ import type {
   VhsPlaylist,
 } from '@/composables/video/video-js-media-renderer/types'
 
+/**
+ * Gets a menu button component from the player control bar by trying multiple possible names.
+ *
+ * @param player - Video.js player instance.
+ * @param childNames - Array of possible child names for the menu button.
+ * @returns Menu button component or null if not found.
+ */
 function getControlBarMenuButton(
   player: VideoJsPlayer,
   childNames: string[],
@@ -24,6 +31,7 @@ function getControlBarMenuButton(
   return null
 }
 
+/** Options for syncing displayed quality preference. */
 interface SyncDisplayedQualityPreferenceOptions {
   /**
    * When true, a missing quality menu means the manual preference cannot apply.
@@ -106,6 +114,12 @@ export function resolveQualityPreferenceToken(qualityLabel: string | null): stri
   return normalizedQualityLabel
 }
 
+/**
+ * Gets the list of VHS playlists that can be selected.
+ *
+ * @param vhs - VHS handler from the player.
+ * @returns Array of selectable playlists.
+ */
 function getSelectableVhsPlaylists(vhs: VhsHandlerHandle): VhsPlaylist[] {
   const playlists = vhs.playlists?.main?.playlists ?? []
   const compatiblePlaylists = playlists.filter((playlist) => playlist.excludeUntil !== Infinity)
@@ -121,11 +135,23 @@ function getSelectableVhsPlaylists(vhs: VhsHandlerHandle): VhsPlaylist[] {
   return compatiblePlaylists.filter((playlist) => !playlist.disabled)
 }
 
+/**
+ * Gets the height of a VHS playlist from its resolution attributes.
+ *
+ * @param playlist - VHS playlist to get height from.
+ * @returns Playlist height in pixels or null.
+ */
 function getVhsPlaylistHeight(playlist: VhsPlaylist): number | null {
   const height = playlist.attributes?.RESOLUTION?.height
   return typeof height === 'number' && Number.isFinite(height) ? height : null
 }
 
+/**
+ * Gets the bandwidth of a VHS playlist from its attributes.
+ *
+ * @param playlist - VHS playlist to get bandwidth from.
+ * @returns Playlist bandwidth in bits per second, or maximum safe integer as fallback.
+ */
 function getVhsPlaylistBandwidth(playlist: VhsPlaylist): number {
   const bandwidth = playlist.attributes?.BANDWIDTH
 
@@ -136,6 +162,13 @@ function getVhsPlaylistBandwidth(playlist: VhsPlaylist): number {
   return Number.MAX_SAFE_INTEGER
 }
 
+/**
+ * Picks the preferred playlist based on available bandwidth.
+ *
+ * @param playlists - Array of playlists to choose from.
+ * @param systemBandwidth - Current estimated system bandwidth in bits per second.
+ * @returns Preferred playlist or null if none available.
+ */
 function pickPreferredPlaylistByBandwidth(
   playlists: VhsPlaylist[],
   systemBandwidth: number | undefined,
@@ -274,6 +307,11 @@ export function syncDisplayedQualityPreference(
   return true
 }
 
+/**
+ * Disables hover behavior on a menu button component.
+ *
+ * @param menuButtonComponent - Menu button component to disable hover on.
+ */
 function disableMenuHoverBehavior(menuButtonComponent: VideoJsMenuButtonComponent | null) {
   const menuButton = menuButtonComponent?.menuButton_
 

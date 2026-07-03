@@ -34,9 +34,11 @@ interface Props {
   serviceTitle: string | null
 }
 
+/** Component props without defaults. */
 defineProps<Props>()
 
 defineEmits<{
+  /** Emitted when the action button is clicked. */
   select: []
 }>()
 </script>

@@ -13,24 +13,43 @@ import { syncTimerToggleState } from '@/composables/video/video-js-media-rendere
 import type { VideoJsPlayer } from '@/composables/video/video-js-media-renderer/types'
 import { t } from '@/i18n'
 
+/** Options for installing the timer toggle control. */
 interface InstallTimerToggleOptions {
+  /** Whether player controls are enabled. */
   controls: boolean
+  /** Callback invoked when the timer toggle state changes. */
   onStateChange: () => void
 }
 
+/** Options for installing seek-on-click behavior. */
 interface InstallSeekOnClickOptions {
+  /** Whether player controls are enabled. */
   controls: boolean
 }
 
+/** Padding in pixels from the edges of the control bar for menu positioning. */
 const CONTROL_BAR_MENU_EDGE_PADDING_PX = 8
 
+/** Options for syncing episode autoplay toggle control. */
 interface SyncEpisodeAutoplayToggleControlOptions {
+  /** Whether player controls are enabled. */
   controls: boolean
+  /** Whether the episode autoplay toggle should be shown. */
   showEpisodeAutoplayToggle: boolean
+  /** Whether episode autoplay is currently enabled. */
   isEpisodeAutoplayEnabled: boolean
+  /** Callback invoked when the toggle is clicked. */
   onEpisodeAutoplayToggle: () => void
 }
 
+/**
+ * Clamps a value between minimum and maximum bounds.
+ *
+ * @param value - Value to clamp.
+ * @param min - Minimum allowed value.
+ * @param max - Maximum allowed value.
+ * @returns Clamped value.
+ */
 function clampMenuLeftOffset(value: number, min: number, max: number): number {
   if (max < min) {
     return min
@@ -39,10 +58,22 @@ function clampMenuLeftOffset(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
 }
 
+/**
+ * Gets the episode autoplay toggle button element from the player.
+ *
+ * @param player - Video.js player instance.
+ * @returns Episode autoplay toggle button element or null.
+ */
 function getEpisodeAutoplayToggleElement(player: VideoJsPlayer): HTMLButtonElement | null {
   return player.el()?.querySelector<HTMLButtonElement>(`.${EPISODE_AUTOPLAY_CONTROL_CLASS}`) ?? null
 }
 
+/**
+ * Determines whether a menu button should have its menu positioned.
+ *
+ * @param menuButtonElement - Menu button element to check.
+ * @returns True when the menu should be positioned.
+ */
 function shouldPositionControlBarMenu(menuButtonElement: HTMLElement): boolean {
   return (
     !menuButtonElement.classList.contains('vjs-quality-menu-button') &&
@@ -51,11 +82,23 @@ function shouldPositionControlBarMenu(menuButtonElement: HTMLElement): boolean {
   )
 }
 
+/**
+ * Gets all menu buttons in the player that should have their menus positioned.
+ *
+ * @param playerElement - Root player element.
+ * @returns Array of menu button elements.
+ */
 function getPositionableControlBarMenuButtons(playerElement: HTMLElement): HTMLElement[] {
   const menuButtonElements = playerElement.querySelectorAll<HTMLElement>('.vjs-menu-button-popup')
   return Array.from(menuButtonElements).filter(shouldPositionControlBarMenu)
 }
 
+/**
+ * Positions a control bar menu relative to its button.
+ *
+ * @param playerElement - Root player element.
+ * @param menuButtonElement - Menu button element to position.
+ */
 function positionControlBarMenu(playerElement: HTMLElement, menuButtonElement: HTMLElement) {
   const menuElement = menuButtonElement.querySelector<HTMLElement>(':scope > .vjs-menu')
   const menuContentElement = menuElement?.querySelector<HTMLElement>('.vjs-menu-content')
@@ -85,6 +128,12 @@ function positionControlBarMenu(playerElement: HTMLElement, menuButtonElement: H
   menuElement.style.width = `${menuWidth}px`
 }
 
+/**
+ * Synchronizes the visual state of the episode autoplay toggle button.
+ *
+ * @param button - Episode autoplay toggle button element.
+ * @param isEpisodeAutoplayEnabled - Whether episode autoplay is currently enabled.
+ */
 function syncEpisodeAutoplayToggleState(button: HTMLButtonElement, isEpisodeAutoplayEnabled: boolean) {
   const nextTitle = isEpisodeAutoplayEnabled ? t('player.disableAutoplay') : t('player.enableAutoplay')
 

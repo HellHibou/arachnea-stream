@@ -17,71 +17,135 @@ import type { ThumbnailImageFit } from '@/types/media'
   * Props accepted by the shared entry details shell.
   */
   interface Props {
+    /** Error message to display when loading fails. */
     errorMessage: string | null
+    /** Whether the component is currently loading content. */
     isLoading: boolean
+    /** Whether the component has content to display. */
     hasContent: boolean
+    /** Title to display during loading state. */
     loadingTitle?: string
+    /** Description to display during loading state. */
     loadingDescription?: string
+    /** URL of the background video to display. */
     backgroundVideoUrl: string | null
+    /** URL of the hero background image to display. */
     heroBackgroundUrl: string | null
+    /** URL of the portrait-oriented hero background image. */
     heroBackgroundPortraitUrl: string | null
+    /** URL of the landscape-oriented hero background image. */
     heroBackgroundLandscapeUrl: string | null
+    /** Whether the background should have animation effects. */
     isBackgroundAnimated?: boolean
+    /** How the background image should fit its container. */
     backgroundImageFit?: ThumbnailImageFit
+    /** Whether to use catalog banners as the background source. */
     useCatalogBannersAsBackground?: boolean
+    /** Primary title to display for the entry. */
     displayTitle: string
-   posterFrameImageUrl: string | null
-   posterFrameUsesContain: boolean
-   showTrailerAction: boolean
-   trailerActionLabel: string
-   entryUrl: string | null
-   source: string | null
-   alternativeTitleLabel: string | null
-   selectedPlayableTitle: string | null
-   showAdjacentNavigation?: boolean
-   hasPreviousPlayable?: boolean
-   hasNextPlayable?: boolean
-   showBookmarkAction?: boolean
-   isBookmarked?: boolean
-   showTrailerPlayer: boolean
-   showMediaPlayer: boolean
-   trailerMediaSource: ResolvedPlayerMediaSource | null
-   mediaSource: ResolvedPlayerMediaSource | null
-   mediaOpenUrl: string | null
-   isMediaPlayerLoading: boolean
-   mediaPlayerErrorMessage: string | null
-   showPlayerControls: boolean
-   showLanguageSelector: boolean
-   showPlayerSelector: boolean
-   availableLanguages: EntryPlayerLanguageOption[]
-   activeLanguageKey: string | null
-   filteredPlayers: EntryPlayer[]
-   activePlayerId: string | null
-   mediaPosterUrl: string | null
-   trailerPosterUrl: string | null
-   mediaOverlayLogoUrl: string | null
-   displayDescription: string
-   initialPlaybackTime: number | null
-   mediaAutoplay: boolean
-   preferPersistedMediaSurface: boolean
-   showAutoplayToggle?: boolean
-   isAutoplayEnabled?: boolean
-   isFullWidthContent?: boolean
-   metadataBadges: string[]
-   topicChips: string[]
-   genreText: string | null
-   yearLabel: string | null
-   displayReleaseDateLabel: string | null
-   displayExpireLabel: string | null
-   contentAdvisorLabel: string | null
-   audioLanguageLabel: string | null
-   subtitleLanguageLabel: string | null
-   displayDurationLabel: string | null
-   castingText: string | null
-   directorText: string | null
-   score: number | null
+    /** URL of the poster frame image to display. */
+    posterFrameImageUrl: string | null
+    /** Whether the poster frame should use contain sizing. */
+    posterFrameUsesContain: boolean
+    /** Whether to show the trailer action button. */
+    showTrailerAction: boolean
+    /** Label for the trailer action button. */
+    trailerActionLabel: string
+    /** URL to the entry detail page. */
+    entryUrl: string | null
+    /** Source identifier for the entry. */
+    source: string | null
+    /** Alternative title label to display. */
+    alternativeTitleLabel: string | null
+    /** Currently selected playable title. */
+    selectedPlayableTitle: string | null
+    /** Whether to show adjacent navigation controls. */
+    showAdjacentNavigation?: boolean
+    /** Whether there is a previous playable item. */
+    hasPreviousPlayable?: boolean
+    /** Whether there is a next playable item. */
+    hasNextPlayable?: boolean
+    /** Whether to show the bookmark action button. */
+    showBookmarkAction?: boolean
+    /** Whether the entry is currently bookmarked. */
+    isBookmarked?: boolean
+    /** Whether to show the trailer player. */
+    showTrailerPlayer: boolean
+    /** Whether to show the main media player. */
+    showMediaPlayer: boolean
+    /** Trailer media source for the player. */
+    trailerMediaSource: ResolvedPlayerMediaSource | null
+    /** Main media source for the player. */
+    mediaSource: ResolvedPlayerMediaSource | null
+    /** URL to open the media in a new tab. */
+    mediaOpenUrl: string | null
+    /** Whether the media player is currently loading. */
+    isMediaPlayerLoading: boolean
+    /** Error message from the media player. */
+    mediaPlayerErrorMessage: string | null
+    /** Whether to show player controls. */
+    showPlayerControls: boolean
+    /** Whether to show the language selector. */
+    showLanguageSelector: boolean
+    /** Whether to show the player selector. */
+    showPlayerSelector: boolean
+    /** Available language options for the player. */
+    availableLanguages: EntryPlayerLanguageOption[]
+    /** Currently active language key. */
+    activeLanguageKey: string | null
+    /** Filtered list of available players. */
+    filteredPlayers: EntryPlayer[]
+    /** Currently active player ID. */
+    activePlayerId: string | null
+    /** URL of the media poster image. */
+    mediaPosterUrl: string | null
+    /** URL of the trailer poster image. */
+    trailerPosterUrl: string | null
+    /** URL of the media overlay logo. */
+    mediaOverlayLogoUrl: string | null
+    /** Description text to display for the entry. */
+    displayDescription: string
+    /** Initial playback time in seconds. */
+    initialPlaybackTime: number | null
+    /** Whether media should autoplay. */
+    mediaAutoplay: boolean
+    /** Whether to prefer persisted media surface. */
+    preferPersistedMediaSurface: boolean
+    /** Whether to show autoplay toggle control. */
+    showAutoplayToggle?: boolean
+    /** Whether autoplay is currently enabled. */
+    isAutoplayEnabled?: boolean
+    /** Whether to display content in full width mode. */
+    isFullWidthContent?: boolean
+    /** List of metadata badges to display. */
+    metadataBadges: string[]
+    /** List of topic chips to display. */
+    topicChips: string[]
+    /** Genre text to display. */
+    genreText: string | null
+    /** Year label to display. */
+    yearLabel: string | null
+    /** Release date label to display. */
+    displayReleaseDateLabel: string | null
+    /** Expiration date label to display. */
+    displayExpireLabel: string | null
+    /** Content advisor label to display. */
+    contentAdvisorLabel: string | null
+    /** Audio language label to display. */
+    audioLanguageLabel: string | null
+    /** Subtitle language label to display. */
+    subtitleLanguageLabel: string | null
+    /** Duration label to display. */
+    displayDurationLabel: string | null
+    /** Casting text to display. */
+    castingText: string | null
+    /** Director text to display. */
+    directorText: string | null
+    /** Score to display for the entry. */
+    score: number | null
  }
 
+/** Component props with applied defaults. */
 const props = withDefaults(defineProps<Props>(), {
    isBackgroundAnimated: false,
    backgroundImageFit: 'contain',
@@ -97,15 +161,20 @@ const props = withDefaults(defineProps<Props>(), {
    heroBackgroundLandscapeUrl: null,
    useCatalogBannersAsBackground: true,
   })
+/** Internationalization utilities. */
 const { t } = useI18n()
 
+/** Resolved loading title with fallback to translated default. */
 const loadingTitle = computed(() => props.loadingTitle ?? t('entry.loadingTitle'))
+/** Resolved loading description with fallback to translated default. */
 const loadingDescription = computed(() => props.loadingDescription ?? t('entry.loadingMessage'))
 
+/** Whether the autoplay toggle should be shown based on props. */
 const resolvedShowAutoplayToggle = computed(() =>
   props.showAutoplayToggle && (props.hasPreviousPlayable || props.hasNextPlayable)
 )
 
+/** Scroll-to-top button state and handler. */
 const { showScrollToTop, scrollToTop } = useScrollToTop({
   target: 'title-section',
   shouldShow: () => {
@@ -120,16 +189,27 @@ const { showScrollToTop, scrollToTop } = useScrollToTop({
 })
 
 const emit = defineEmits<{
+  /** Emitted when navigating to adjacent playable entries. */
   'step-playable': [offset: -1 | 1]
+  /** Emitted when the bookmark toggle is clicked. */
   'toggle-bookmark': []
+  /** Emitted when the trailer toggle is clicked. */
   'toggle-trailer': []
+  /** Emitted when the active language key changes. */
   'update:active-language-key': [value: string | null]
+  /** Emitted to remember the current language selection. */
   'remember-current-language': []
+  /** Emitted when the active player ID changes. */
   'update:active-player-id': [value: string | null]
+  /** Emitted to remember the current player selection. */
   'remember-current-player': []
+  /** Emitted when playback progress updates. */
   'update:playback-progress': [value: number | null]
+  /** Emitted when autoplay enabled state changes. */
   'update:is-autoplay-enabled': [value: boolean]
+  /** Emitted when media playback starts. */
   'playback-started': [sourceUrl: string | null]
+  /** Emitted when media playback ends. */
   'playback-ended': []
 }>()
 </script>

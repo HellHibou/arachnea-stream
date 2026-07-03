@@ -34,22 +34,36 @@ interface UseEntryDetailsDataOptions {
  * @returns Entry details data state and actions for seasons.
  */
 export function entryDetailsData(options: UseEntryDetailsDataOptions) {
+  /** Reactive reference to the loaded entry details, or null if not yet loaded. */
   const details = ref<EntryDetails | null>(null)
+  /** Whether the entry details are currently being loaded. */
   const isLoading = shallowRef(false)
+  /** Error message from entry details loading, or null if successful. */
   const errorMessage = shallowRef<string | null>(null)
+  /** Reactive array of episodes for the currently selected season. */
   const seasonEpisodes = ref<EntryEpisode[]>([])
+  /** The currently selected season identifier. */
   const selectedSeasonId = shallowRef<string | null>(null)
+  /** Whether season episodes are currently being loaded. */
   const isSeasonLoading = shallowRef(false)
+  /** Whether additional season episodes are currently being loaded. */
   const isSeasonLoadingMore = shallowRef(false)
+  /** Error message from season episodes loading, or null if successful. */
   const seasonErrorMessage = shallowRef<string | null>(null)
+  /** The current page number for season episodes pagination. */
   const currentSeasonPage = shallowRef(1)
+  /** Whether there are more season episodes available to load. */
   const hasMoreSeasonEpisodes = shallowRef(false)
 
+  /** Request identifier counter for entry details requests to ignore stale responses. */
   let latestRequestId = 0
+  /** Request identifier counter for season requests to ignore stale responses. */
   let latestSeasonRequestId = 0
 
   /**
    * Resolves the currently selected season from the fetched entry details.
+   *
+   * @returns The selected season object, or null if not found.
    */
   const selectedSeason = computed<EntrySeason | null>(() =>
     (details.value?.seasons ?? []).find((season) => season.id === selectedSeasonId.value) ?? null,
@@ -57,8 +71,9 @@ export function entryDetailsData(options: UseEntryDetailsDataOptions) {
 
   /**
    * Clears the season-specific state whenever the featured entry changes.
+   * Resets all season-related reactive state to initial values.
    */
-  function resetSeasonState() {
+  function resetSeasonState(): void {
     latestSeasonRequestId += 1
     selectedSeasonId.value = null
     seasonEpisodes.value = []
@@ -191,8 +206,9 @@ export function entryDetailsData(options: UseEntryDetailsDataOptions) {
 
   /**
    * Loads the next available page for the currently selected season.
+   * Does nothing if there are no more episodes, no season link, or loading is already in progress.
    */
-  async function handleLoadMoreSeasonEpisodes() {
+  async function handleLoadMoreSeasonEpisodes(): Promise<void> {
     const season = selectedSeason.value
 
     if (!season?.link || !hasMoreSeasonEpisodes.value || isSeasonLoadingMore.value) {
@@ -204,8 +220,9 @@ export function entryDetailsData(options: UseEntryDetailsDataOptions) {
 
   /**
    * Loads the detailed entry from the backend and ignores stale responses when props change quickly.
+   * Also auto-selects the preferred season if available, or the first season with content.
    */
-  async function loadEntryDetails() {
+  async function loadEntryDetails(): Promise<void> {
     const requestId = ++latestRequestId
 
     isLoading.value = true

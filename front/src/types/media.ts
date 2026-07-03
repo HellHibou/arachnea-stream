@@ -12,7 +12,9 @@ export type ThumbnailImageFit = 'cover' | 'contain'
  * Raw media candidate that can be rendered behind the page.
  */
 export interface BackgroundMediaCandidate {
+  /** URL of the background image, or null if not available. */
   imageUrl: string | null
+  /** URL of the background video, or null if not available. */
   videoUrl: string | null
 }
 
@@ -25,8 +27,11 @@ export type MediaCardCollectionMode = 'grid' | 'single-row' | 'list'
  * Minimal target required to open an entry details screen.
  */
 export interface MediaSelectionTarget {
+  /** The source identifier for the media entry. */
   source: string | null
+  /** The internal API URL to fetch entry details. */
   entryUrl: string | null
+  /** The public web URL to access the entry. */
   webUrl: string | null
 }
 
@@ -34,22 +39,39 @@ export interface MediaSelectionTarget {
  * Normalized media entry consumed by the frontend catalog components.
  */
 export interface MediaItem extends MediaSelectionTarget {
+  /** The unique identifier for the media item. */
   id: string
+  /** The primary title of the media item. */
   title: string | null
+  /** Alternative title label for the media item. */
   alternativeTitleLabel: string | null
+  /** URL for the poster image of the media item. */
   imagePosterUrl: string | null
+  /** URL for the portrait-oriented thumbnail image. */
   imagePortraitUrl: string | null
+  /** URL for the landscape-oriented thumbnail image. */
   imageLandscapeUrl: string | null
+  /** Display label for the media type. */
   mediaTypeLabel: string | null
+  /** Raw media type values for categorization. */
   mediaTypeValues: string[]
+  /** Labels for the themes associated with this media. */
   themeLabels: string[]
+  /** Display label for the audio track. */
   audioLabel: string | null
+  /** Display label for the duration. */
   durationLabel: string | null
+  /** Numeric rating for the media item. */
   rating: number | null
+  /** Summary or description of the media content. */
   overview: string | null
+  /** Display label for the episode information. */
   episodeLabel: string | null
+  /** Display label for the release date. */
   releaseDateLabel: string | null
+  /** Display label for the expiration date. */
   expireLabel: string | null
+  /** Additional metadata line to display. */
   metaLine: string | null
 }
 
@@ -62,9 +84,13 @@ export type VideoJsTextTrackModePreference = 'showing' | 'disabled'
  * Minimal media track identity used to restore audio and subtitle choices.
  */
 export interface VideoJsTrackPreference {
+  /** The unique identifier for the track. */
   id: string | null
+  /** The language code for the track. */
   language: string | null
+  /** The display label for the track. */
   label: string | null
+  /** The kind of track (e.g., 'audio', 'subtitles'). */
   kind: string | null
 }
 
@@ -72,6 +98,7 @@ export interface VideoJsTrackPreference {
  * Persisted subtitle track preference, including whether subtitles were disabled.
  */
 export interface VideoJsTextTrackPreference extends VideoJsTrackPreference {
+  /** The display mode preference for text tracks. */
   mode: VideoJsTextTrackModePreference
 }
 
@@ -95,13 +122,22 @@ export type VideoJsTextTrackSettings = Partial<Record<
  * Persistent Video.js session state restored when the integrated player switches source.
  */
 export interface VideoJsPlayerState {
+  /** The current volume level (0.0 to 1.0). */
   volume: number
+  /** Whether the player is muted. */
   muted: boolean
+  /** The current playback rate. */
   playbackRate: number
+  /** The current quality label for the video source. */
   qualityLabel: string | null
+  /** The selected audio track preference. */
   audioTrack: VideoJsTrackPreference | null
+  /** The selected text track preference. */
   textTrack: VideoJsTextTrackPreference
+  /** The current text track display settings. */
   textTrackSettings: VideoJsTextTrackSettings | null
+  /** Whether the player is in fullscreen mode. */
   isFullscreen: boolean
+  /** Whether to show remaining time instead of elapsed time. */
   showsRemainingTime: boolean
 }

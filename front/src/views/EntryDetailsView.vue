@@ -18,9 +18,12 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+
+/** Application parameters loaded from persistent storage. */
 const parameters = useStorage().getParameters()
 const { t } = useI18n()
 
+/** Decoded entry payload from the route path. */
 const entryPayload = computed(() => decodeEntryRoutePayload(props.encodedEntry))
 </script>
 

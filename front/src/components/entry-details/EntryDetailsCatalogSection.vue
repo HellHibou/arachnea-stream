@@ -34,26 +34,42 @@ interface Props {
   showServiceLogo?: boolean
 }
 
+/** Component props with applied defaults. */
 const props = withDefaults(defineProps<Props>(), {
   showServiceLogo: true,
 })
+/** Internationalization utilities. */
 const { t } = useI18n()
 
+/** Resolved label for the group section. */
 const groupSectionLabel = computed(() => props.groupSectionLabel ?? t('entry.group'))
+/** Resolved label for the item section. */
 const itemSectionLabel = computed(() => props.itemSectionLabel ?? t('entry.contents'))
+/** Resolved label for the select field. */
 const selectFieldLabel = computed(() => props.selectFieldLabel ?? t('entry.group'))
+/** Resolved label for the state eyebrow. */
 const stateEyebrow = computed(() => props.stateEyebrow ?? t('entry.group'))
+/** Resolved title for the loading state. */
 const loadingStateTitle = computed(() => props.loadingStateTitle ?? t('entry.loadingTitle'))
+/** Resolved message for the loading state. */
 const loadingStateMessage = computed(() => props.loadingStateMessage ?? t('entry.loadingMessage'))
+/** Resolved title for the prompt state. */
 const promptTitle = computed(() => props.promptTitle ?? t('entry.promptTitle'))
+/** Resolved message for the prompt state. */
 const promptMessage = computed(() => props.promptMessage ?? t('entry.promptMessage'))
+/** Resolved title for the empty state. */
 const emptyStateTitle = computed(() => props.emptyStateTitle ?? t('entry.emptyContentTitle'))
+/** Resolved message for the empty state. */
 const emptyStateMessage = computed(() => props.emptyStateMessage ?? t('entry.emptyContentMessage'))
+/** Resolved label for the load more button. */
 const loadMoreLabel = computed(() => props.loadMoreLabel ?? t('catalog.loadMore'))
 
 const emit = defineEmits<{
+  /** Emitted when a group is selected. */
   'select-group': [item: MediaItem]
+  /** Emitted when an item is selected. */
   'select-item': [item: MediaItem]
+  /** Emitted when more items should be loaded. */
   'load-more': []
 }>()
 

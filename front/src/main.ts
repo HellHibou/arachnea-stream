@@ -12,6 +12,7 @@ import { useServiceMetadata } from './composables/useServiceMetadata'
 import { initializeI18n } from './i18n'
 
 
+/** The Vuetify instance with configured icon sets and aliases. */
 const vuetify = createVuetify({
   icons: {
     defaultSet: 'mdi',
@@ -27,6 +28,7 @@ const vuetify = createVuetify({
   },
 })
 
+/** The Vue application instance. */
 const app = createApp(App)
 
 app
@@ -34,6 +36,12 @@ app
   .use(createPinia())
   .use(router)
 
+/**
+ * Bootstraps the Vue application by initializing i18n and service metadata,
+ * then mounts the app to the DOM.
+ *
+ * @returns Promise that resolves when the application is fully bootstrapped.
+ */
 async function bootstrap(): Promise<void> {
   await initializeI18n()
   void useServiceMetadata().load()

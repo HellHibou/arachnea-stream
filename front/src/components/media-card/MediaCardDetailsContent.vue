@@ -32,12 +32,14 @@ interface Props {
   serviceLogo?: string | null
 }
 
+/** Component props with applied defaults. */
 const props = withDefaults(defineProps<Props>(), {
   variant: 'preview',
   showDurationFact: false,
   serviceTitle: null,
   serviceLogo: null,
 })
+/** Internationalization utilities. */
 const { t } = useI18n()
 
 /**

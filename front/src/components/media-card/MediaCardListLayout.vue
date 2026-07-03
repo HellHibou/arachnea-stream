@@ -59,11 +59,15 @@ interface Props {
   showServiceLogo: boolean
 }
 
+/** Component props without defaults. */
 defineProps<Props>()
 
 defineEmits<{
+  /** Emitted when the poster image fails to load. */
   imageError: []
+  /** Emitted when the service logo fails to load. */
   serviceLogoError: []
+  /** Emitted when the card is selected. */
   select: []
 }>()
 </script>

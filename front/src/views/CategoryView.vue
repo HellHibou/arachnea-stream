@@ -20,16 +20,29 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+
+/** Application parameters loaded from persistent storage. */
 const parameters = useStorage().getParameters()
 const { t } = useI18n()
+
+/** Resolved category from the route parameter. */
 const category = shallowRef<HomeCategory | null>(null)
+
+/** Whether a category resolution is currently in progress. */
 const isResolvingCategory = shallowRef(false)
+
+/** Error message displayed when category resolution fails. */
 const errorMessage = shallowRef<string | null>(null)
+
+/** Counter to track the latest category resolution request. */
 let latestRequestId = 0
 
 const emit = defineEmits<{
+  /** Emitted when a media item is selected. */
   'select-item': [target: MediaSelectionTarget]
+  /** Emitted when a category is selected. */
   'select-category': [category: HomeCategory]
+  /** Emitted when background media items are updated. */
   'update:background-media-items': [mediaItems: BackgroundMediaCandidate[]]
 }>()
 

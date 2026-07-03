@@ -21,22 +21,34 @@ interface Props {
   banners: HomeBanner[]
 }
 
+/** Component props without defaults. */
 const props = defineProps<Props>()
 
 const emit = defineEmits<{
+  /** Emitted when a media item is selected from a banner. */
   'select-item': [target: MediaSelectionTarget]
 }>()
 
+/** Delay in milliseconds between automatic banner rotations. */
 const AUTO_ROTATION_DELAY_MS = 20000
+/** Default aspect ratio for banner videos. */
 const DEFAULT_BANNER_VIDEO_ASPECT_RATIO = 16 / 9
 
+/** Index of the currently active banner. */
 const activeIndex = shallowRef(0)
+/** Timer ID for the automatic rotation. */
 const autoRotationTimer = shallowRef<ReturnType<typeof window.setTimeout> | null>(null)
+/** Template reference to the banner element. */
 const bannerElement = useTemplateRef<HTMLElement>('bannerElement')
+/** Resize observer for the banner element. */
 const bannerResizeObserver = shallowRef<ResizeObserver | null>(null)
+/** Current size of the banner element. */
 const bannerSize = shallowRef({ width: 0, height: 0 })
+/** Current video aspect ratio for the active banner. */
 const bannerVideoAspectRatio = shallowRef(DEFAULT_BANNER_VIDEO_ASPECT_RATIO)
+/** Whether the banner video is muted. */
 const isBannerVideoMuted = shallowRef(true)
+/** Internationalization utilities. */
 const { t } = useI18n()
 
 /**
@@ -333,6 +345,7 @@ function restartAutoRotation() {
   }, AUTO_ROTATION_DELAY_MS)
 }
 
+/** Sets up resize observer and initial size measurement when component mounts. */
 onMounted(() => {
   const element = bannerElement.value
 
@@ -350,6 +363,7 @@ onMounted(() => {
   bannerResizeObserver.value = resizeObserver
 })
 
+/** Cleans up rotation timer and resize observer when component unmounts. */
 onBeforeUnmount(() => {
   stopAutoRotation()
   bannerResizeObserver.value?.disconnect()

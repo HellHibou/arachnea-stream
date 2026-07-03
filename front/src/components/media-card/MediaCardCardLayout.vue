@@ -59,21 +59,33 @@ interface Props {
   showServiceLogo: boolean
 }
 
+/** Component props without defaults. */
 const props = defineProps<Props>()
 
 const emit = defineEmits<{
+  /** Emitted when the poster image fails to load. */
   imageError: []
+  /** Emitted when the service logo fails to load. */
   serviceLogoError: []
+  /** Emitted when the card is selected. */
   select: []
+  /** Emitted when the preview should be opened. */
   openPreview: []
+  /** Emitted when the preview should be closed. */
   closePreview: []
+  /** Emitted when the root element changes. */
   rootChange: [element: HTMLElement | null]
 }>()
 
+/** Media card preview composable results. */
 const {
+  /** Template reference to the card element. */
   cardRef,
+  /** Function to open the preview. */
   openPreview,
+  /** Function to close the preview. */
   closePreview,
+  /** Function to handle focus out events. */
   handleFocusOut,
 } = mediaCardPreview({
   onOpen: () => {

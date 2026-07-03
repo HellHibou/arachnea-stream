@@ -65,6 +65,7 @@ interface Props {
   serviceLogo?: string | null
 }
 
+/** Component props with applied defaults. */
 const props = withDefaults(defineProps<Props>(), {
   mediaTypeLabel: null,
   audioLabel: null,
@@ -89,7 +90,9 @@ const imageSource = computed(() => {
 })
 
 defineEmits<{
+  /** Emitted when the poster image fails to load. */
   imageError: []
+  /** Emitted when the service logo fails to load. */
   serviceLogoError: []
 }>()
 </script>

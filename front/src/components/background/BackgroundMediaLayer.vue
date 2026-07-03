@@ -21,15 +21,20 @@ interface Props {
   backgroundImageClasses?: Record<string, boolean>
 }
 
+/** Component props with applied defaults. */
 const props = withDefaults(defineProps<Props>(), {
   mediaItems: () => [],
   backgroundImageClasses: () => ({}),
 })
 
+/** Delay in milliseconds between automatic background media rotations. */
 const AUTO_ROTATION_DELAY_MS = 20000
 
+/** Index of the currently active background media item. */
 const activeBackgroundMediaIndex = shallowRef(0)
+/** Timer ID for the automatic rotation. */
 const rotationTimer = shallowRef<ReturnType<typeof window.setTimeout> | null>(null)
+/** Internationalization utilities. */
 const { t } = useI18n()
 
 /**
@@ -164,6 +169,7 @@ function restartAutoRotation() {
   }, AUTO_ROTATION_DELAY_MS)
 }
 
+/** Resets rotation state when background media items change. */
 watch(
   backgroundMediaItems,
   () => {
@@ -173,6 +179,7 @@ watch(
   { immediate: true },
 )
 
+/** Cleans up the rotation timer when the component is unmounted. */
 onBeforeUnmount(() => {
   stopAutoRotation()
 })

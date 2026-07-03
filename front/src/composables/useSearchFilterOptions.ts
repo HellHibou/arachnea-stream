@@ -6,6 +6,8 @@ import { useServiceMetadata } from './useServiceMetadata'
 
 /**
  * Builds localized search filter options from static media types and service metadata.
+ *
+ * @returns Object containing all filter options for search: allFilterOption, mediaTypeFilterOptions, themeFilterOptions.
  */
 export function useSearchFilterOptions() {
   const { services } = useServiceMetadata()

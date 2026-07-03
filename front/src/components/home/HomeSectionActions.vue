@@ -33,15 +33,21 @@ interface Props {
   thumbnailImageFit: ThumbnailImageFit
 }
 
+/** Component props without defaults. */
 const props = defineProps<Props>()
 
 const emit = defineEmits<{
+  /** Emitted when a section pinned state should be toggled. */
   'toggle-pinned': [section: HomeSection]
+  /** Emitted when a pinned section should be moved. */
   'move-pinned': [section: HomeSection, direction: 'up' | 'down']
+  /** Emitted when a section thumbnail orientation should be updated. */
   'update-thumbnail-orientation': [sectionPreferenceKey: string, orientation: ThumbnailOrientation | null]
+  /** Emitted when a section thumbnail image fit should be updated. */
   'update-thumbnail-image-fit': [sectionPreferenceKey: string, imageFit: ThumbnailImageFit | null]
 }>()
 
+/** Internationalization utilities. */
 const { t } = useI18n()
 </script>
 

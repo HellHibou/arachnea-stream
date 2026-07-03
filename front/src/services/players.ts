@@ -1,39 +1,78 @@
+/**
+ * Resolved media source for iframe-based player rendering.
+ */
 export interface ResolvedIframeMediaSource {
+  /** The renderer type for this source. */
   renderer: 'iframe'
+  /** The URL to embed in the iframe. */
   src: string
 }
 
+/**
+ * Sprite thumbnail metadata for video storyboards.
+ */
 export interface ResolvedVideoSpriteThumbnails {
+  /** The URL to the sprite thumbnail image. */
   url: string
+  /** The width of each thumbnail in the sprite. */
   width: number
+  /** The height of each thumbnail in the sprite. */
   height: number
+  /** The number of columns in the sprite image. */
   columns: number
+  /** The time interval between thumbnails in seconds. */
   interval: number
 }
 
+/**
+ * Resolved media source for native video player rendering.
+ */
 export interface ResolvedVideoMediaSource {
+  /** The renderer type for this source. */
   renderer: 'video'
+  /** The URL to the video source or manifest. */
   src: string
+  /** The MIME type of the video source. */
   mimeType: string | null
+  /** The transport protocol used for the video. */
   transport: 'file' | 'hls' | 'dash'
+  /** The URL to the DRM license server, or null for unprotected content. */
   licenseUrl: string | null
+  /** Headers to include when requesting the license. */
   licenseHeaders: Record<string, string>
+  /** The sprite storyboard metadata for this source. */
   storyboard: ResolvedVideoSpriteThumbnails | null
 }
 
+/** Union type for all resolved player media sources. */
 export type ResolvedPlayerMediaSource =
   | ResolvedIframeMediaSource
   | ResolvedVideoMediaSource
 
+/** MIME type for HLS streaming manifests. */
 export const HLS_MIME_TYPE = 'application/vnd.apple.mpegurl'
+/** MIME type for DASH streaming manifests. */
 export const DASH_MIME_TYPE = 'application/dash+xml'
 
+/**
+ * Internal representation of a native video asset extracted from a URL.
+ */
 interface ResolvedNativeVideoAsset {
+  /** The URL to the video source. */
   src: string
+  /** The MIME type of the video source. */
   mimeType: string | null
+  /** The transport protocol used for the video. */
   transport: ResolvedVideoMediaSource['transport']
 }
 
+/**
+ * Extracts a URL matching the given pattern from a string.
+ *
+ * @param value - The string to search for a URL.
+ * @param pattern - Regular expression to match the URL.
+ * @returns The matched URL or null if not found.
+ */
 function extractEmbeddedUrl(value: string, pattern: RegExp): string | null {
   const match = value.match(pattern)
 
@@ -44,10 +83,22 @@ function extractEmbeddedUrl(value: string, pattern: RegExp): string | null {
   return match[1] ?? match[0] ?? null
 }
 
+/**
+ * Extracts an absolute HTTP/HTTPS URL from a string.
+ *
+ * @param value - The string to extract a URL from.
+ * @returns The absolute URL or null if not found.
+ */
 function extractAbsoluteUrl(value: string): string | null {
   return extractEmbeddedUrl(value, /(https?:\/\/[^"'\\\s<>]+)/i)
 }
 
+/**
+ * Resolves a protocol-relative URL to an absolute HTTPS URL.
+ *
+ * @param value - The URL string to resolve.
+ * @returns The absolute HTTPS URL or null if not protocol-relative.
+ */
 function resolveProtocolRelativeUrl(value: string): string | null {
   if (value.startsWith('//')) {
     return 'https:' + value
@@ -55,6 +106,12 @@ function resolveProtocolRelativeUrl(value: string): string | null {
   return null
 }
 
+/**
+ * Resolves the MIME type for a video file based on its pathname.
+ *
+ * @param pathname - The pathname or URL path to check.
+ * @returns The MIME type for supported video formats, or null if not recognized.
+ */
 function resolveNativeVideoMimeType(pathname: string): string | null {
   if (pathname.endsWith('.mp4')) {
     return 'video/mp4'
@@ -121,6 +178,12 @@ function shouldResolveNativeVideoValue(value: string): boolean {
   )
 }
 
+/**
+ * Resolves a raw media value into a native video asset.
+ *
+ * @param value - The media URL or path to resolve.
+ * @returns Resolved native video asset or null if not a supported format.
+ */
 function resolveNativeVideoAsset(value: string | null): ResolvedNativeVideoAsset | null {
   if (!value) {
     return null
@@ -161,6 +224,12 @@ function resolveNativeVideoAsset(value: string | null): ResolvedNativeVideoAsset
   }
 }
 
+/**
+ * Resolves a URL string to an absolute URL.
+ *
+ * @param value - The URL string to resolve.
+ * @returns The absolute URL or null if resolution fails.
+ */
 function resolveAbsoluteUrl(value: string | null): string | null {
   if (!value) {
     return null

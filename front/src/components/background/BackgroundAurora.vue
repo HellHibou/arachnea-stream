@@ -10,6 +10,7 @@ interface Props {
   isAnimated?: boolean
 }
 
+/** Component props with applied defaults. */
 withDefaults(defineProps<Props>(), {
   isAnimated: false,
 })

@@ -5,15 +5,17 @@ import { onBeforeUnmount, ref, watch } from 'vue'
  */
 interface UseMediaCardPreviewOptions {
   /**
-   * Called when the current card should expose its preview.
+   * Callback invoked when the current card should expose its preview.
    */
   onOpen: () => void
   /**
-   * Called when the current card should hide its preview.
+   * Callback invoked when the current card should hide its preview.
    */
   onClose: () => void
   /**
-   * Called whenever the current card root element changes.
+   * Callback invoked whenever the current card root element changes.
+   *
+   * @param element - The card root element, or null when unmounted.
    */
   onRootChange?: (element: HTMLElement | null) => void
 }
@@ -25,6 +27,7 @@ interface UseMediaCardPreviewOptions {
  * @returns Preview state and DOM event handlers bound to the card root.
  */
 export function mediaCardPreview(options: UseMediaCardPreviewOptions) {
+  /** Reference to the card root element. */
   const cardRef = ref<HTMLElement | null>(null)
 
   watch(cardRef, (element) => {
@@ -38,23 +41,23 @@ export function mediaCardPreview(options: UseMediaCardPreviewOptions) {
   /**
    * Opens the hover and focus preview for the current card.
    */
-  function openPreview() {
+  function openPreview(): void {
     options.onOpen()
   }
 
   /**
    * Closes the hover and focus preview for the current card.
    */
-  function closePreview() {
+  function closePreview(): void {
     options.onClose()
   }
 
   /**
    * Keeps the preview open while focus stays inside the current card.
    *
-   * @param event Focus transition emitted by the card container.
+   * @param event - Focus transition emitted by the card container.
    */
-  function handleFocusOut(event: FocusEvent) {
+  function handleFocusOut(event: FocusEvent): void {
     const nextTarget = event.relatedTarget as Node | null
 
     if (nextTarget && cardRef.value?.contains(nextTarget)) {

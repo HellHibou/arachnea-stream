@@ -11,6 +11,7 @@ defineOptions({
   inheritAttrs: false,
 })
 
+/** Component props with applied defaults. */
 const props = withDefaults(defineProps<VideoJsMediaRendererProps & {
   /**
    * Controls visibility of the big play button overlay.
@@ -41,13 +42,20 @@ const props = withDefaults(defineProps<VideoJsMediaRendererProps & {
 })
 
 const emit = defineEmits<VideoJsMediaRendererEmits>()
+/** Component attributes. */
 const attrs = useAttrs()
+/** Template reference to the host element. */
 const hostElement = useTemplateRef<HTMLDivElement>('hostElement')
+/** Template reference to the video element. */
 const videoElement = useTemplateRef<HTMLVideoElement>('videoElement')
 
+/** Video.js media renderer composable results. */
 const {
+  /** Whether the poster overlay is currently visible. */
   isPosterOverlayVisible,
+  /** Whether the poster overlay should be rendered. */
   shouldRenderPosterOverlay,
+  /** Whether the video is in initial loading state. */
   isVideoInitialLoading,
 } = useVideoJsMediaRenderer({
   props,
@@ -56,6 +64,7 @@ const {
   videoElement,
 })
 
+/** Whether the big play button should be suppressed. */
 const isBigPlayButtonSuppressed = computed(() =>
   isVideoInitialLoading.value || props.isExternalLoading,
 )

@@ -11,6 +11,7 @@ import {
 import { resolvePlayerStream } from '@/services/rustify'
 import type { EntryDetails, EntryPlayableItem, EntryPlayer } from '@/types/entry'
 
+/** Sentinel value used for players without a language code. */
 const unknownLanguageKey = '__unknown__'
 
 /**
@@ -31,7 +32,9 @@ interface UseEntryVideoPlayerOptions {
  * Display-ready language option rendered in the embedded player selector.
  */
 export interface EntryPlayerLanguageOption {
+  /** The stable language key used for selection. */
   key: string
+  /** The human-readable language label displayed in the UI. */
   label: string
 }
 
@@ -149,31 +152,48 @@ function attachStoryboardToVideoSource(
  * @returns Player state, derived values, and explicit actions consumed by entry detail pages.
  */
 export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
+  /** The currently selected language key in the language selector. */
   const selectedLanguageKey = shallowRef<string | null>(null)
+  /** The currently selected player identifier. */
   const selectedPlayerId = shallowRef<string | null>(null)
+  /** The language key selected for the current playable item. */
   const selectedPlayableLanguageKey = shallowRef<string | null>(null)
+  /** The player identifier selected for the current playable item. */
   const selectedPlayablePlayerId = shallowRef<string | null>(null)
+  /** The preferred language key persisted across playable item changes. */
   const preferredLanguageKey = shallowRef<string | null>(null)
+  /** The preferred player key persisted across playable item changes. */
   const preferredPlayerKey = shallowRef<string | null>(null)
+  /** The current video mode: 'media' for playable content or 'trailer' for trailer playback. */
   const activeVideoMode = shallowRef<'media' | 'trailer'>('media')
+  /** The resolved media source for the current player, after backend resolution. */
   const resolvedMediaSource = shallowRef<ResolvedPlayerMediaSource | null>(null)
+  /** Whether the media player is currently resolving a stream. */
   const isMediaPlayerLoading = shallowRef(false)
+  /** Error message from media player resolution, or null if successful. */
   const mediaPlayerErrorMessage = shallowRef<string | null>(null)
 
+  /** Request identifier counter for player resolution requests to ignore stale responses. */
   let activeResolutionId = 0
 
   /**
    * Exposes the backend source currently driving the active entry details view.
+   *
+   * @returns The source identifier or null.
    */
   const currentSource = computed(() => options.details.value?.source ?? null)
 
   /**
    * Exposes the optional trailer URL returned by the backend payload.
+   *
+   * @returns The trailer URL or null if not available.
    */
   const trailerUrl = computed(() => options.details.value?.trailerUrl ?? null)
 
   /**
    * Exposes the resolved trailer media source used by the embedded player.
+   *
+   * @returns The resolved media source for the trailer, or null.
    */
   const trailerMediaSource = computed<ResolvedPlayerMediaSource | null>(() =>
     resolvePlayerMediaSource(trailerUrl.value),
@@ -181,16 +201,23 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
 
   /**
    * Indicates whether the current entry exposes a trailer.
+   *
+   * @returns True if a trailer media source is available.
    */
   const hasTrailer = computed(() => Boolean(trailerMediaSource.value))
 
   /**
    * Exposes the embedded players returned by the backend entry payload.
+   *
+   * @returns Array of all players for the entry.
    */
   const availablePlayers = computed<EntryPlayer[]>(() => options.details.value?.players ?? [])
 
   /**
    * Exposes the players that should drive the built-in player.
+   * Uses playable item players if available, otherwise falls back to entry players.
+   *
+   * @returns Array of players relevant to the current playable context.
    */
   const activePlayers = computed<EntryPlayer[]>(() => {
     const selectedItemPlayers = options.selectedPlayableItem.value?.players ?? []
@@ -199,6 +226,9 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
 
   /**
    * Exposes the language identifier currently selected in the UI.
+   * Automatically switches between playable item and entry language selection.
+   *
+   * @returns The active language key.
    */
   const activeLanguageKey = computed<string | null>({
     get() {
@@ -218,6 +248,9 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
 
   /**
    * Exposes the player identifier currently selected in the UI.
+   * Automatically switches between playable item and entry player selection.
+   *
+   * @returns The active player identifier.
    */
   const activePlayerId = computed<string | null>({
     get() {
@@ -237,11 +270,16 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
 
   /**
    * Exposes the distinct language filters available for the current player list.
+   *
+   * @returns Array of language options for the language selector.
    */
   const availableLanguages = computed(() => buildEntryPlayerLanguageOptions(activePlayers.value))
 
   /**
    * Exposes the effective language key driving the filtered player list.
+   * Falls back to the first available language if the active one is not available.
+   *
+   * @returns The resolved language key or null.
    */
   const resolvedLanguageKey = computed<string | null>(() => {
     if (availableLanguages.value.length === 0) {
@@ -260,6 +298,8 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
 
   /**
    * Exposes the players available for the selected language.
+   *
+   * @returns Array of players filtered by the selected language.
    */
   const filteredPlayers = computed<EntryPlayer[]>(() => {
     if (availableLanguages.value.length < 2) {
@@ -274,6 +314,8 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
 
   /**
    * Resolves the embedded player currently selected in the UI.
+   *
+   * @returns The selected player, or the first filtered player, or null.
    */
   const selectedPlayer = computed<EntryPlayer | null>(() => {
     const players = filteredPlayers.value
@@ -287,6 +329,8 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
 
   /**
    * Exposes the selected playable item title displayed above the built-in player.
+   *
+   * @returns The playable item title or null.
    */
   const selectedPlayableTitle = computed(() =>
     options.selectedPlayableItem.value?.title?.trim() || null,
@@ -294,16 +338,22 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
 
   /**
    * Indicates whether the embedded language selector should be shown.
+   *
+   * @returns True when multiple languages are available.
    */
   const showLanguageSelector = computed(() => availableLanguages.value.length > 1)
 
   /**
    * Indicates whether the embedded player selector should be shown.
+   *
+   * @returns True when multiple players are available for the selected language.
    */
   const showPlayerSelector = computed(() => filteredPlayers.value.length > 1)
 
   /**
    * Indicates whether at least one selector should be rendered below the player.
+   *
+   * @returns True when language or player selector should be shown.
    */
   const showPlayerControls = computed(() =>
     showLanguageSelector.value || showPlayerSelector.value,
@@ -311,6 +361,8 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
 
   /**
    * Indicates whether the integrated player should prefer a backend-resolved stream.
+   *
+   * @returns True when the selected player has a resolver.
    */
   const shouldResolvePlayer = computed(() =>
     Boolean(selectedPlayer.value?.resolver),
@@ -318,6 +370,8 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
 
   /**
    * Indicates whether the selected player should be rendered through the iframe surface directly.
+   *
+   * @returns True when the player has an embed link and should use iframe mode.
    */
   const shouldForceIframePlayer = computed(() =>
     Boolean(selectedPlayer.value?.embedLink) &&
@@ -329,6 +383,9 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
 
   /**
    * Exposes the direct media source that can be rendered without an extra backend request.
+   * Handles direct links, iframe embeds, and storyboard attachment.
+   *
+   * @returns The resolved direct media source or null.
    */
   const directMediaSource = computed<ResolvedPlayerMediaSource | null>(() =>
     selectedPlayer.value?.directLink
@@ -348,6 +405,9 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
 
   /**
    * Exposes the media source currently selected for rendering.
+   * Prefers resolved source when available.
+   *
+   * @returns The active media source for playback.
    */
   const mediaSource = computed<ResolvedPlayerMediaSource | null>(() =>
     shouldResolvePlayer.value
@@ -357,6 +417,8 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
 
   /**
    * Exposes the public player URL that can still be opened externally when available.
+   *
+   * @returns The direct or embed link URL, or null.
    */
   const mediaOpenUrl = computed(() =>
     selectedPlayer.value?.directLink ?? selectedPlayer.value?.embedLink ?? null
@@ -364,6 +426,8 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
 
   /**
    * Indicates whether the current player can eventually produce media for the built-in surface.
+   *
+   * @returns True when a direct link, iframe embed, or resolver is available.
    */
   const hasMediaCandidate = computed(() =>
     selectedPlayer.value?.directLink
@@ -378,6 +442,8 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
   /**
    * Keeps the media surface mounted when one playable selection is available but no trailer
    * can cover the transition state.
+   *
+   * @returns True when players are available and a playable item is selected or no trailer exists.
    */
   const shouldKeepMediaSurfaceVisible = computed(() =>
     activePlayers.value.length > 0 &&
@@ -386,6 +452,8 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
 
   /**
    * Exposes whether the built-in trailer player should be rendered.
+   *
+   * @returns True when a trailer is available and should be shown.
    */
   const showTrailerPlayer = computed(() =>
     hasTrailer.value &&
@@ -394,6 +462,8 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
 
   /**
    * Exposes whether the built-in media player should be rendered.
+   *
+   * @returns True when in media mode and a candidate, loading state, or error exists.
    */
   const showMediaPlayer = computed(() =>
     activeVideoMode.value !== 'trailer' &&
@@ -407,11 +477,15 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
 
   /**
    * Exposes whether the trailer toggle action should be shown below the cover.
+   *
+   * @returns True when a trailer is available.
    */
   const showTrailerAction = computed(() => hasTrailer.value)
 
   /**
    * Exposes the trailer action label depending on the current player mode.
+   *
+   * @returns The label for the trailer toggle action.
    */
   const trailerActionLabel = computed(() =>
     activeVideoMode.value === 'trailer' && hasMediaCandidate.value ? t('entry.video'):  t('entry.trailer'),
@@ -420,7 +494,7 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
   /**
    * Clears the selected-item-specific language and player state.
    */
-  function clearSelectedPlayablePlayerState() {
+  function clearSelectedPlayablePlayerState(): void {
     selectedPlayableLanguageKey.value = null
     selectedPlayablePlayerId.value = null
   }
@@ -428,7 +502,7 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
   /**
    * Clears the current player state before loading another entry.
    */
-  function resetForEntryLoad() {
+  function resetForEntryLoad(): void {
     activeResolutionId += 1
     activeVideoMode.value = 'media'
     selectedLanguageKey.value = null
@@ -442,9 +516,9 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
   /**
    * Applies the initial player state for one freshly loaded entry.
    *
-   * @param nextDetails Detailed entry returned by the backend.
+   * @param nextDetails - Detailed entry returned by the backend.
    */
-  function applyLoadedEntryDefaults(nextDetails: EntryDetails) {
+  function applyLoadedEntryDefaults(nextDetails: EntryDetails): void {
     activeVideoMode.value = nextDetails.players.length > 0
       ? 'media'
       : (resolvePlayerMediaSource(nextDetails.trailerUrl) ? 'trailer' : 'media')
@@ -456,7 +530,7 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
   /**
    * Toggles the built-in player between the trailer and the current media video.
    */
-  function handleTrailerToggle() {
+  function handleTrailerToggle(): void {
     if (!hasTrailer.value) {
       return
     }
@@ -472,21 +546,21 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
   /**
    * Forces the built-in player back to media mode after an explicit selection.
    */
-  function activateMediaPlayer() {
+  function activateMediaPlayer(): void {
     activeVideoMode.value = 'media'
   }
 
   /**
    * Stores the currently selected language as the preferred language for the next playable video.
    */
-  function rememberCurrentLanguage() {
+  function rememberCurrentLanguage(): void {
     preferredLanguageKey.value = resolvedLanguageKey.value
   }
 
   /**
    * Stores the currently selected player as the preferred player for the next playable video.
    */
-  function rememberCurrentPlayer() {
+  function rememberCurrentPlayer(): void {
     if (!selectedPlayer.value) {
       return
     }

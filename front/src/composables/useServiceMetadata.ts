@@ -4,10 +4,14 @@ import { t } from '@/i18n'
 import { loadServiceMetadata } from '@/services/rustify'
 import type { ServiceMetadata } from '@/types/serviceMetadata'
 
+/** Reactive array of loaded service metadata. */
 const services = shallowRef<ServiceMetadata[]>([])
+/** Loading state for service metadata. */
 const isLoading = shallowRef(false)
+/** Error message from service metadata loading, or null if successful. */
 const errorMessage = shallowRef<string | null>(null)
 
+/** Map of service metadata indexed by service id for quick lookup. */
 const servicesById = computed(() => {
   const registry = new Map<string, ServiceMetadata>()
 

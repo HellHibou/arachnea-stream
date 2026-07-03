@@ -31,7 +31,10 @@ interface UseHomeCatalogOptions {
    */
   category: MaybeRefOrGetter<HomeCategory | null>
   /**
+   * Callback invoked when background media items change.
    * Receives the ordered banner background image candidates whenever the current catalog changes.
+   *
+   * @param mediaItems - Array of background media candidates from banners.
    */
   onBackgroundMediaItemsChange?: (mediaItems: BackgroundMediaCandidate[]) => void
 }
@@ -43,12 +46,19 @@ interface UseHomeCatalogOptions {
  * @returns State and actions consumed by the home catalog view.
  */
 export function useHomeCatalog(options: UseHomeCatalogOptions) {
+  /** Reactive reference to the catalog mode. */
   const mode = toRef(options.mode)
+  /** Reactive reference to the selected category. */
   const category = toRef(options.category)
+  /** Home preferences from storage. */
   const homePreferences: HomePreferences = useStorage().getHomePreferences()
+  /** Map of section preference keys to their rendered DOM elements. */
   const sectionElementRefs = new Map<string, HTMLElement>()
+  /** Set of section keys currently loading data. */
   const loadingSectionKeys = shallowRef(new Set<string>())
+  /** Record of section load errors keyed by preference key. */
   const sectionLoadErrors = shallowRef<Record<string, string>>({})
+  /** Intersection observer for lazy loading sections. */
   let sectionObserver: IntersectionObserver | null = null
 
   const { catalog, isLoading, hasLoaded, errorMessage } = homeCatalogData({
@@ -56,21 +66,31 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
     category,
   })
 
+  /** The collection mode for pinned sections, from user preferences. */
   const pinnedSectionCollectionMode = computed<MediaCardCollectionMode>(
     () => homePreferences.favoriteCollectionMode.value,
   )
+  /** Whether section editing buttons should be shown, from user preferences. */
   const showSectionEditingButtons = computed(
     () => homePreferences.showSectionEditingButtons.value,
   )
+  /** The current catalog data with fallback empty object. */
   const currentCatalog = computed<HomeCatalogData>(
     () => catalog.value ?? { banners: [], categories: [], sections: [] },
   )
+  /** Whether the catalog has any content (banners, categories, or sections). */
   const hasContent = computed(
     () =>
       currentCatalog.value.banners.length > 0 ||
       currentCatalog.value.categories.length > 0 ||
       currentCatalog.value.sections.length > 0,
   )
+  /**
+   * Background media candidates derived from banner images.
+   * Deduplicates banner image URLs for the background media component.
+   *
+   * @returns Array of background media candidates from banners.
+   */
   const backgroundMediaItems = computed<BackgroundMediaCandidate[]>(() => {
     const items: BackgroundMediaCandidate[] = []
     const uniqueImageUrls = new Set<string>()
@@ -92,10 +112,18 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
 
     return items
   })
+  /** Whether the current mode is 'home' (as opposed to 'category'). */
   const isHomeMode = computed(() => mode.value === 'home')
+  /** Sections that can be pinned, filtered from the current catalog. */
   const pinnableSections = computed(() =>
     currentCatalog.value.sections.filter((section) => isSectionPinnable(section)),
   )
+  /**
+   * Ordered list of pinned section preference keys that are currently visible.
+   * Filters the user's pinned section order to only include visible, pinnable sections.
+   *
+   * @returns Array of preference keys for visible pinned sections in user's order.
+   */
   const pinnedSectionKeys = computed(() => {
     if (!isHomeMode.value) {
       return []
@@ -109,6 +137,11 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
       visiblePinnableSectionKeys.has(key),
     )
   })
+  /**
+   * Pinned sections in the order specified by user preferences.
+   *
+   * @returns Array of pinned home sections.
+   */
   const pinnedSections = computed<HomeSection[]>(() => {
     if (!isHomeMode.value) {
       return []
@@ -123,7 +156,9 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
       return section ? [section] : []
     })
   })
+  /** Set of pinned section preference keys for quick lookup. */
   const pinnedSectionKeySet = computed(() => new Set(pinnedSectionKeys.value))
+  /** Sections that are not pinned. */
   const otherSections = computed(() =>
     currentCatalog.value.sections.filter(
       (section) => !pinnedSectionKeySet.value.has(section.preferenceKey),
@@ -141,7 +176,8 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
   /**
    * Returns the thumbnail orientation override for one section.
    *
-   * @param section Section displayed in the current catalog.
+   * @param section - Section displayed in the current catalog.
+   * @returns The orientation override, or undefined if not set.
    */
   function getSectionThumbnailOrientation(section: HomeSection): ThumbnailOrientation | undefined {
     return homePreferences.sectionThumbnailOrientation.value[section.preferenceKey]
@@ -150,7 +186,8 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
   /**
    * Returns the thumbnail image fit override for one section.
    *
-   * @param section Section displayed in the current catalog.
+   * @param section - Section displayed in the current catalog.
+   * @returns The image fit override, or undefined if not set.
    */
   function getSectionThumbnailImageFit(section: HomeSection): ThumbnailImageFit | undefined {
     return homePreferences.sectionThumbnailImageFit.value[section.preferenceKey]
@@ -159,10 +196,10 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
   /**
    * Registers a rendered section root for deferred section loading.
    *
-   * @param section Section represented by the rendered element.
-   * @param element Rendered section root or null when Vue unmounts it.
+   * @param section - Section represented by the rendered element.
+   * @param element - Rendered section root or null when Vue unmounts it.
    */
-  function setSectionElementRef(section: HomeSection, element: Element | null) {
+  function setSectionElementRef(section: HomeSection, element: Element | null): void {
     const key = section.preferenceKey
 
     if (!(element instanceof HTMLElement)) {
@@ -181,7 +218,8 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
   /**
    * Returns whether one section is currently requesting backend entries.
    *
-   * @param section Section displayed in the current catalog.
+   * @param section - Section displayed in the current catalog.
+   * @returns True if the section is currently loading.
    */
   function isSectionLoading(section: HomeSection): boolean {
     return loadingSectionKeys.value.has(section.preferenceKey)
@@ -190,7 +228,8 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
   /**
    * Returns whether one section can request another page from the backend.
    *
-   * @param section Section displayed in the current catalog.
+   * @param section - Section displayed in the current catalog.
+   * @returns True if the section has sources, has more items, and is not currently loading.
    */
   function canLoadMoreSection(section: HomeSection): boolean {
     return section.sources.length > 0 && section.haveMore && !isSectionLoading(section)
@@ -199,7 +238,8 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
   /**
    * Returns the last deferred loading error for one section.
    *
-   * @param section Section displayed in the current catalog.
+   * @param section - Section displayed in the current catalog.
+   * @returns The error message or null if no error.
    */
   function getSectionLoadError(section: HomeSection): string | null {
     return sectionLoadErrors.value[section.preferenceKey] || null
@@ -208,9 +248,9 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
   /**
    * Requests the next backend page for one section.
    *
-   * @param section Section displayed in the current catalog.
+   * @param section - Section displayed in the current catalog.
    */
-  function handleLoadMoreSection(section: HomeSection) {
+  function handleLoadMoreSection(section: HomeSection): void {
     if (!canLoadMoreSection(section)) {
       return
     }
@@ -221,7 +261,8 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
   /**
    * Returns whether one section exposes a visible label and can be pinned.
    *
-   * @param section Section displayed in the current catalog.
+   * @param section - Section displayed in the current catalog.
+   * @returns True if the section can be pinned.
    */
   function isSectionPinnable(section: HomeSection): boolean {
     return mode.value === 'home' && Boolean(section.label)
@@ -230,7 +271,8 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
   /**
    * Returns whether one section is currently pinned in the visible home order.
    *
-   * @param section Section displayed in the current catalog.
+   * @param section - Section displayed in the current catalog.
+   * @returns True if the section is pinned.
    */
   function isSectionPinned(section: HomeSection): boolean {
     return pinnedSectionKeySet.value.has(section.preferenceKey)
@@ -239,8 +281,9 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
   /**
    * Returns whether one pinned section can be moved within the visible pinned subset.
    *
-   * @param section Section displayed in the current catalog.
-   * @param direction Direction requested by the UI.
+   * @param section - Section displayed in the current catalog.
+   * @param direction - Direction requested by the UI.
+   * @returns True if the section can be moved in the specified direction.
    */
   function canMovePinnedSection(section: HomeSection, direction: 'up' | 'down'): boolean {
     const currentIndex = pinnedSectionKeys.value.indexOf(section.preferenceKey)
@@ -254,9 +297,9 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
   /**
    * Toggles the pinned state of one section.
    *
-   * @param section Section selected from the home catalog.
+   * @param section - Section selected from the home catalog.
    */
-  function toggleSectionPinned(section: HomeSection) {
+  function toggleSectionPinned(section: HomeSection): void {
     if (!isSectionPinnable(section)) {
       return
     }
@@ -278,10 +321,10 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
   /**
    * Moves one pinned section inside the visible pinned subset.
    *
-   * @param section Section selected from the home catalog.
-   * @param direction Direction requested by the user.
+   * @param section - Section selected from the home catalog.
+   * @param direction - Direction requested by the user.
    */
-  function movePinnedSection(section: HomeSection, direction: 'up' | 'down') {
+  function movePinnedSection(section: HomeSection, direction: 'up' | 'down'): void {
     const currentVisibleIndex = pinnedSectionKeys.value.indexOf(section.preferenceKey)
     const targetVisibleIndex = direction === 'up' ? currentVisibleIndex - 1 : currentVisibleIndex + 1
     const targetPreferenceKey = pinnedSectionKeys.value[targetVisibleIndex]
@@ -306,13 +349,13 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
   /**
    * Updates the thumbnail orientation for a specific section.
    *
-   * @param sectionPreferenceKey The preference key of the section.
-   * @param orientation The new orientation value.
+   * @param sectionPreferenceKey - The preference key of the section.
+   * @param orientation - The new orientation value.
    */
   function updateSectionThumbnailOrientation(
     sectionPreferenceKey: string,
     orientation: ThumbnailOrientation | null,
-  ) {
+  ): void {
     if (!orientation) {
       return
     }
@@ -326,13 +369,13 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
   /**
    * Updates the thumbnail image fit for a specific section.
    *
-   * @param sectionPreferenceKey The preference key of the section.
-   * @param imageFit The new image fit value.
+   * @param sectionPreferenceKey - The preference key of the section.
+   * @param imageFit - The new image fit value.
    */
   function updateSectionThumbnailImageFit(
     sectionPreferenceKey: string,
     imageFit: ThumbnailImageFit | null,
-  ) {
+  ): void {
     if (!imageFit) {
       return
     }
@@ -346,7 +389,8 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
   /**
    * Returns whether one section still needs its first deferred backend page.
    *
-   * @param section Section displayed in the current catalog.
+   * @param section - Section displayed in the current catalog.
+   * @returns True if the section has sources but no items loaded.
    */
   function shouldLoadInitialSection(section: HomeSection): boolean {
     return section.sources.length > 0 && section.items.length === 0
@@ -355,10 +399,10 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
   /**
    * Loads the requested deferred page and replaces the section in the current catalog.
    *
-   * @param section Section displayed in the current catalog.
-   * @param page 1-based page requested from the backend.
+   * @param section - Section displayed in the current catalog.
+   * @param page - 1-based page requested from the backend.
    */
-  async function loadSectionPage(section: HomeSection, page: number) {
+  async function loadSectionPage(section: HomeSection, page: number): Promise<void> {
     if (section.sources.length === 0 || isSectionLoading(section)) {
       return
     }
@@ -385,9 +429,9 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
   /**
    * Replaces one section while preserving the rest of the current catalog payload.
    *
-   * @param nextSection Updated section returned by the backend normalizer.
+   * @param nextSection - Updated section returned by the backend normalizer.
    */
-  function replaceCatalogSection(nextSection: HomeSection) {
+  function replaceCatalogSection(nextSection: HomeSection): void {
     if (!catalog.value) {
       return
     }
@@ -402,8 +446,9 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
 
   /**
    * Starts observing currently rendered deferred sections.
+   * Sets up intersection observer for lazy loading.
    */
-  function observeDeferredSections() {
+  function observeDeferredSections(): void {
     if (!sectionObserver) {
       return
     }
@@ -420,9 +465,9 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
   /**
    * Removes persisted display overrides for one section.
    *
-   * @param sectionPreferenceKey Preference key of the unpinned section.
+   * @param sectionPreferenceKey - Preference key of the unpinned section.
    */
-  function removeSectionDisplayPreferences(sectionPreferenceKey: string) {
+  function removeSectionDisplayPreferences(sectionPreferenceKey: string): void {
     const { [sectionPreferenceKey]: _orientation, ...nextOrientations } =
       homePreferences.sectionThumbnailOrientation.value
     const { [sectionPreferenceKey]: _imageFit, ...nextImageFits } =

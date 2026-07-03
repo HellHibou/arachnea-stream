@@ -14,13 +14,17 @@ interface Props {
   title?: string
 }
 
+/** Component props with applied defaults. */
 const props = withDefaults(defineProps<Props>(), {
   title: undefined,
 })
+/** Internationalization utilities. */
 const { t } = useI18n()
+/** Resolved button title with fallback to translated default. */
 const buttonTitle = computed(() => props.title ?? t('toolbar.scrollTop'))
 
 const emit = defineEmits<{
+  /** Emitted when the button is clicked. */
   click: []
 }>()
 </script>

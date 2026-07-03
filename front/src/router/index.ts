@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 
+/** Application route definitions. */
 const routes: RouteRecordRaw[] = [
   {
     path: '/',
@@ -47,6 +48,7 @@ const routes: RouteRecordRaw[] = [
   },
 ]
 
+/** Vue Router instance with scroll behavior reset on navigation. */
 const router = createRouter({
   history: createWebHistory(),
   routes,
@@ -55,6 +57,12 @@ const router = createRouter({
   },
 })
 
+/**
+ * Extracts a string route parameter from a potentially array-valued parameter.
+ *
+ * @param value - Route parameter value which may be a string, string array, or undefined.
+ * @returns The first string value, or empty string if not available.
+ */
 function readRouteParam(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0] ?? '' : value ?? ''
 }

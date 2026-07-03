@@ -24,12 +24,17 @@ interface UseEntryEpisodeSelectionOptions {
  * @returns Episode state and explicit actions used by the details player controller.
  */
 export function entryEpisodeSelection(options: UseEntryEpisodeSelectionOptions) {
+  /** The currently selected episode identifier. */
   const selectedEpisodeId = shallowRef<string | null>(null)
+  /** Cache of all episodes encountered across seasons, keyed by episode id. */
   const allEpisodes = shallowRef<Map<string, EntryEpisode>>(new Map())
+  /** Whether the first playable episode has been auto-selected for the current entry. */
   let initialEpisodeSelected = false
 
   /**
    * Indicates whether the current entry exposes seasons.
+   *
+   * @returns True if the entry has seasons.
    */
   const hasSeasons = computed(() => Boolean(options.details.value?.seasons.length))
 
@@ -37,6 +42,8 @@ export function entryEpisodeSelection(options: UseEntryEpisodeSelectionOptions) 
    * Exposes the episodes currently rendered in the details view.
    *
    * Episodes always come from the season episodes, never from a top-level field.
+   *
+   * @returns Array of episodes from the currently selected season.
    */
   const displayedEpisodes = computed<EntryEpisode[]>(() => options.seasonEpisodes.value)
 
@@ -65,6 +72,8 @@ export function entryEpisodeSelection(options: UseEntryEpisodeSelectionOptions) 
   /**
    * Exposes the episode currently selected in the built-in player.
    * Resolves from the accumulated episode cache to persist across season changes.
+   *
+   * @returns The selected episode, or null if none is selected.
    */
   const selectedEpisode = computed<EntryEpisode | null>(() => {
     if (!selectedEpisodeId.value) {
@@ -75,6 +84,8 @@ export function entryEpisodeSelection(options: UseEntryEpisodeSelectionOptions) 
 
   /**
    * Exposes the playable episodes available for previous/next navigation.
+   *
+   * @returns Array of episodes that have at least one player.
    */
   const navigableEpisodes = computed<EntryEpisode[]>(() =>
     displayedEpisodes.value.filter((episode) => episode.players.length > 0),
@@ -82,6 +93,8 @@ export function entryEpisodeSelection(options: UseEntryEpisodeSelectionOptions) 
 
   /**
    * Exposes the index of the currently selected playable episode.
+   *
+   * @returns The index of the selected episode in navigableEpisodes, or -1 if not found.
    */
   const selectedNavigableEpisodeIndex = computed(() =>
     navigableEpisodes.value.findIndex((episode) => episode.id === selectedEpisodeId.value),
@@ -89,11 +102,15 @@ export function entryEpisodeSelection(options: UseEntryEpisodeSelectionOptions) 
 
   /**
    * Indicates whether the previous playable episode can be selected.
+   *
+   * @returns True if there is a previous playable episode.
    */
   const hasPreviousEpisode = computed(() => selectedNavigableEpisodeIndex.value > 0)
 
   /**
    * Indicates whether the next playable episode can be selected.
+   *
+   * @returns True if there is a next playable episode.
    */
   const hasNextEpisode = computed(() =>
     selectedNavigableEpisodeIndex.value >= 0 &&
@@ -103,7 +120,7 @@ export function entryEpisodeSelection(options: UseEntryEpisodeSelectionOptions) 
   /**
    * Clears the currently selected episode and the accumulated episode cache.
    */
-  function resetSelectedEpisode() {
+  function resetSelectedEpisode(): void {
     selectedEpisodeId.value = null
     allEpisodes.value.clear()
   }
@@ -111,16 +128,16 @@ export function entryEpisodeSelection(options: UseEntryEpisodeSelectionOptions) 
   /**
    * Updates the built-in player episode selection to match the provided episode.
    *
-   * @param episode Episode that should become active.
+   * @param episode - Episode that should become active.
    */
-  function selectEpisode(episode: EntryEpisode) {
+  function selectEpisode(episode: EntryEpisode): void {
     selectedEpisodeId.value = episode.id
   }
 
   /**
    * Scrolls back to the player title once the DOM has applied the latest episode selection.
    */
-  function scrollToTitleSection() {
+  function scrollToTitleSection(): void {
     void nextTick(() => {
       const element = document.getElementById('title-section')
       if (!element) {
@@ -171,9 +188,9 @@ export function entryEpisodeSelection(options: UseEntryEpisodeSelectionOptions) 
   /**
    * Moves the built-in player to the previous or next playable episode.
    *
-   * @param offset Relative episode offset applied to the current episode selection.
+   * @param offset - Relative episode offset applied to the current episode selection (-1 for previous, 1 for next).
    */
-   function handleEpisodeStep(offset: -1 | 1) {
+   function handleEpisodeStep(offset: -1 | 1): void {
      const nextEpisode =
        navigableEpisodes.value[selectedNavigableEpisodeIndex.value + offset] ?? null
 

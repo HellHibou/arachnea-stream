@@ -13,7 +13,7 @@ import type { MediaCardCollectionMode } from '@/types/media'
  */
 interface UseMediaCardCollectionPreviewManagerOptions {
   /**
-   * Layout currently used by the collection.
+   * Reactive reference to the layout currently used by the collection.
    */
   mode: Ref<MediaCardCollectionMode>
 }
@@ -23,27 +23,29 @@ interface UseMediaCardCollectionPreviewManagerOptions {
  */
 interface MediaCardCollectionPreviewController {
   /**
-   * Layout currently used by the collection.
+   * Reactive reference to the layout currently used by the collection.
    */
   mode: Ref<MediaCardCollectionMode>
   /**
-   * Identifier of the currently open preview item.
+   * Reactive reference to the identifier of the currently open preview item.
    */
   openPreviewItemId: Ref<string | null>
   /**
-   * Card root elements currently rendered by the collection.
+   * Map of card item identifiers to their root elements currently rendered by the collection.
    */
   previewRootElements: Map<string, HTMLElement>
 }
 
+/** Set of all registered preview controllers for media card collections. */
 const previewControllers = new Set<MediaCardCollectionPreviewController>()
 
 /**
  * Handles outside pointer interactions for every registered collection preview manager.
+ * Closes previews when clicking outside the card.
  *
- * @param event Pointer event captured at the document level.
+ * @param event - Pointer event captured at the document level.
  */
-function handleDocumentPointerDown(event: PointerEvent) {
+function handleDocumentPointerDown(event: PointerEvent): void {
   const target = event.target as Node | null
 
   for (const controller of previewControllers) {
@@ -63,10 +65,11 @@ function handleDocumentPointerDown(event: PointerEvent) {
 
 /**
  * Handles Escape presses for every registered collection preview manager.
+ * Closes previews when Escape is pressed.
  *
- * @param event Keyboard event captured at the window level.
+ * @param event - Keyboard event captured at the window level.
  */
-function handleWindowKeyDown(event: KeyboardEvent) {
+function handleWindowKeyDown(event: KeyboardEvent): void {
   if (event.key !== 'Escape') {
     return
   }
@@ -85,9 +88,9 @@ function handleWindowKeyDown(event: KeyboardEvent) {
 /**
  * Registers one mounted collection preview controller and installs shared global listeners.
  *
- * @param controller Collection preview controller to register.
+ * @param controller - Collection preview controller to register.
  */
-function registerPreviewController(controller: MediaCardCollectionPreviewController) {
+function registerPreviewController(controller: MediaCardCollectionPreviewController): void {
   if (!previewControllers.size) {
     document.addEventListener('pointerdown', handleDocumentPointerDown)
     window.addEventListener('keydown', handleWindowKeyDown)
@@ -99,9 +102,9 @@ function registerPreviewController(controller: MediaCardCollectionPreviewControl
 /**
  * Unregisters one mounted collection preview controller and removes shared global listeners when unused.
  *
- * @param controller Collection preview controller to unregister.
+ * @param controller - Collection preview controller to unregister.
  */
-function unregisterPreviewController(controller: MediaCardCollectionPreviewController) {
+function unregisterPreviewController(controller: MediaCardCollectionPreviewController): void {
   previewControllers.delete(controller)
 
   if (!previewControllers.size) {
@@ -120,7 +123,9 @@ function unregisterPreviewController(controller: MediaCardCollectionPreviewContr
 export function mediaCardCollectionPreviewManager(
   options: UseMediaCardCollectionPreviewManagerOptions,
 ) {
+  /** Reactive reference to the identifier of the currently open preview item. */
   const openPreviewItemId = shallowRef<string | null>(null)
+  /** Map of card item identifiers to their root elements. */
   const previewRootElements = new Map<string, HTMLElement>()
   const controller: MediaCardCollectionPreviewController = {
     mode: options.mode,
@@ -131,9 +136,9 @@ export function mediaCardCollectionPreviewManager(
   /**
    * Opens the preview for the requested media card item.
    *
-   * @param itemId Identifier of the card requesting preview visibility.
+   * @param itemId - Identifier of the card requesting preview visibility.
    */
-  function handlePreviewOpen(itemId: string) {
+  function handlePreviewOpen(itemId: string): void {
     if (options.mode.value === 'list') {
       return
     }
@@ -144,9 +149,9 @@ export function mediaCardCollectionPreviewManager(
   /**
    * Closes the preview for the requested media card item when it is currently active.
    *
-   * @param itemId Identifier of the card requesting preview closure.
+   * @param itemId - Identifier of the card requesting preview closure.
    */
-  function handlePreviewClose(itemId: string) {
+  function handlePreviewClose(itemId: string): void {
     if (openPreviewItemId.value !== itemId) {
       return
     }
@@ -158,9 +163,9 @@ export function mediaCardCollectionPreviewManager(
    * Keeps track of the current card root elements so outside clicks only close previews
    * when the interaction happens outside the currently open card.
    *
-   * @param payload Card identifier and current root element.
+   * @param payload - Card identifier and current root element.
    */
-  function handlePreviewRootChange(payload: { itemId: string; element: HTMLElement | null }) {
+  function handlePreviewRootChange(payload: { itemId: string; element: HTMLElement | null }): void {
     if (payload.element) {
       previewRootElements.set(payload.itemId, payload.element)
       return

@@ -15,12 +15,16 @@ interface Props {
   isBookmarked: boolean
 }
 
+/** Component props without defaults. */
 defineProps<Props>()
 
 const emit = defineEmits<{
+  /** Emitted when navigating to adjacent playable entries. */
   'step-playable': [offset: -1 | 1]
+  /** Emitted when the bookmark toggle is clicked. */
   'toggle-bookmark': []
 }>()
+/** Internationalization utilities. */
 const { t } = useI18n()
 
 /**

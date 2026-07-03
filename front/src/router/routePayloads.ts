@@ -1,18 +1,28 @@
+/** Base interface for versioned route payloads. */
 interface VersionedRoutePayload {
+  /** Version identifier for the payload format. */
   v: 1
 }
 
+/** Payload for entry detail routes. */
 export interface EntryRoutePayload {
+  /** Backend source identifier for the entry. */
   source: string
+  /** Absolute entry URL used to fetch entry details. */
   entryUrl: string
 }
 
+/** Payload for live channel routes. */
 export interface LiveRoutePayload extends VersionedRoutePayload {
+  /** Backend source identifier for the live channel. */
   source: string
+  /** Source-specific live channel identifier. */
   channel: string
 }
 
+/** Text encoder used for payload serialization. */
 const textEncoder = new TextEncoder()
+/** Text decoder used for payload deserialization. */
 const textDecoder = new TextDecoder()
 
 /**
@@ -88,6 +98,12 @@ export function decodeLiveRoutePayload(token: string): LiveRoutePayload | null {
   }
 }
 
+/**
+ * Encodes a payload object into a base64url token.
+ *
+ * @param payload - Object to encode.
+ * @returns Base64url-encoded token.
+ */
 function encodeRoutePayload(payload: object): string {
   const json = JSON.stringify(payload)
   const bytes = textEncoder.encode(json)
@@ -103,6 +119,12 @@ function encodeRoutePayload(payload: object): string {
     .replace(/=+$/u, '')
 }
 
+/**
+ * Decodes a base64url token into a payload object.
+ *
+ * @param token - Base64url-encoded token.
+ * @returns Decoded payload object, or null when the token is invalid.
+ */
 function decodeRoutePayload(token: string): unknown {
   const normalizedToken = token.trim()
 
@@ -124,10 +146,22 @@ function decodeRoutePayload(token: string): unknown {
   }
 }
 
+/**
+ * Type guard to check if a value is a plain object record.
+ *
+ * @param value - Value to check.
+ * @returns True if the value is a plain object record.
+ */
 function isRouteRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+/**
+ * Extracts a non-empty trimmed string from an unknown value.
+ *
+ * @param value - Value to normalize.
+ * @returns Trimmed non-empty string, or null when not a valid non-empty string.
+ */
 function readNonEmptyString(value: unknown): string | null {
   if (typeof value !== 'string') {
     return null

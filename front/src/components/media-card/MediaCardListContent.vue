@@ -33,6 +33,7 @@ interface Props {
   serviceLogo: string | null
 }
 
+/** Component props with applied defaults. */
 const props = withDefaults(defineProps<Props>(), {
   serviceTitle: null,
   serviceLogo: null,

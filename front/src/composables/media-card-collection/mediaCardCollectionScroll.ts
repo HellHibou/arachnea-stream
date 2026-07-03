@@ -19,23 +19,23 @@ import type {
  */
 interface UseMediaCardCollectionScrollOptions {
   /**
-   * Layout currently used by the collection.
+   * Reactive reference to the layout currently used by the collection.
    */
   mode: Ref<MediaCardCollectionMode>
   /**
-   * Number of items rendered by the collection.
+   * Reactive reference to the number of items rendered by the collection.
    */
   itemsLength: Ref<number>
   /**
-   * Thumbnail orientation applied to every media card.
+   * Reactive reference to the thumbnail orientation applied to every media card.
    */
   thumbnailOrientation: Ref<ThumbnailOrientation>
   /**
-   * Poster fit mode applied to every media card.
+   * Reactive reference to the poster fit mode applied to every media card.
    */
   thumbnailImageFit: Ref<ThumbnailImageFit>
   /**
-   * Scroll viewport element used by the one-line layout.
+   * Reactive reference to the scroll viewport element used by the one-line layout.
    */
   viewportRef: Ref<HTMLDivElement | null>
 }
@@ -47,12 +47,17 @@ interface UseMediaCardCollectionScrollOptions {
  * @returns Scroll state and explicit actions consumed by the collection component.
  */
 export function mediaCardCollectionScroll(options: UseMediaCardCollectionScrollOptions) {
+  /** Whether the collection can be scrolled to the left. */
   const canScrollLeft = shallowRef(false)
+  /** Whether the collection can be scrolled to the right. */
   const canScrollRight = shallowRef(false)
+  /** Resize observer for the viewport to update scroll state on size changes. */
   let resizeObserver: ResizeObserver | null = null
 
   /**
    * Indicates whether horizontal navigation controls should be displayed.
+   *
+   * @returns True when in single-row mode and scrolling is possible in either direction.
    */
   const showScrollControls = computed(() =>
     options.mode.value === 'single-row' && (canScrollLeft.value || canScrollRight.value),
@@ -61,7 +66,7 @@ export function mediaCardCollectionScroll(options: UseMediaCardCollectionScrollO
   /**
    * Updates the horizontal scroll button state from the current collection viewport position.
    */
-  function updateScrollState() {
+  function updateScrollState(): void {
     const viewport = options.viewportRef.value
 
     if (!viewport || options.mode.value !== 'single-row') {
@@ -78,9 +83,9 @@ export function mediaCardCollectionScroll(options: UseMediaCardCollectionScrollO
   /**
    * Scrolls the one-line viewport by roughly one visible page.
    *
-   * @param direction Horizontal direction applied to the collection viewport.
+   * @param direction - Horizontal direction applied to the collection viewport.
    */
-  function scrollRow(direction: 'left' | 'right') {
+  function scrollRow(direction: 'left' | 'right'): void {
     const viewport = options.viewportRef.value
 
     if (!viewport) {
@@ -97,7 +102,7 @@ export function mediaCardCollectionScroll(options: UseMediaCardCollectionScrollO
   /**
    * Recomputes horizontal navigation state after layout-affecting prop changes.
    */
-  async function syncScrollStateAfterLayoutChange() {
+  async function syncScrollStateAfterLayoutChange(): Promise<void> {
     await nextTick()
     updateScrollState()
   }

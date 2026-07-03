@@ -1,5 +1,7 @@
 <script setup lang="ts" generic="size = 56">
+/** Props accepted by the loading spinner component. */
 defineProps<{
+  /** Size of the spinner in pixels. */
   size?: number
 }>()
 </script>

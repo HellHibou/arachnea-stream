@@ -22,16 +22,22 @@ interface Props {
 const props = withDefaults(defineProps<Props>(), {
   encodedLive: '',
 })
+
+/** Application parameters loaded from persistent storage. */
 const parameters = useStorage().getParameters()
 const { t } = useI18n()
 
 const emit = defineEmits<{
+  /** Emitted when a live stream is selected. */
   'select-live': [item: MediaItem]
 }>()
 
+/** Decoded live payload from the route path. */
 const livePayload = computed(() =>
   props.encodedLive ? decodeLiveRoutePayload(props.encodedLive) : null,
 )
+
+/** Whether the live payload from the route is invalid. */
 const isInvalidLivePayload = computed(() => Boolean(props.encodedLive) && !livePayload.value)
 </script>
 

@@ -61,17 +61,28 @@ const activeMediaSource = computed(() => {
   return null
 })
 
+/** Component props without defaults. */
 const props = defineProps<Props>()
 const emit = defineEmits<{
+  /** Emitted when navigating to adjacent playable entries. */
   'step-playable': [offset: -1 | 1]
+  /** Emitted when the active language key changes. */
   'update:active-language-key': [value: string | null]
+  /** Emitted to remember the current language selection. */
   'remember-current-language': []
+  /** Emitted when the active player ID changes. */
   'update:active-player-id': [value: string | null]
+  /** Emitted to remember the current player selection. */
   'remember-current-player': []
+  /** Emitted when the bookmark toggle is clicked. */
   'toggle-bookmark': []
+  /** Emitted when playback progress updates. */
   'update:playback-progress': [value: number | null]
+  /** Emitted when autoplay enabled state changes. */
   'update:is-autoplay-enabled': [value: boolean]
+  /** Emitted when media playback starts. */
   'playback-started': [sourceUrl: string | null]
+  /** Emitted when media playback ends. */
   'playback-ended': []
 }>()
 

@@ -20,8 +20,10 @@ import type {
 import { t, tm } from '@/i18n'
 import type { ServiceMetadata, ServiceThemeMetadata } from '@/types/serviceMetadata'
 
+/** Base URL for the REST API. Falls back to '/api' when not configured via environment. */
 const restApiBaseUrl = import.meta.env.VITE_RUSTIFY_API_BASE_URL ?? '/api'
 
+/** Supported media type values used for filtering. */
 export const mediaTypeValues = [
   'video/movie',
   'video/show/serie',
@@ -38,11 +40,17 @@ export const mediaTypeValues = [
   'audio/other',
 ] as const
 
+/**
+ * Option for a search filter dropdown.
+ */
 export interface SearchFilterOption {
+  /** The filter value to send to the backend. */
   value: string
+  /** The display label for this filter option. */
   label: string
 }
 
+/** Type alias for a JSON object record with string keys and unknown values. */
 type JsonRecord = Record<string, unknown>
 
 /**
@@ -53,17 +61,31 @@ export interface SearchMediaItemsFilters {
   themes?: string[]
 }
 
+/**
+ * Paginated search results page.
+ */
 export interface SearchMediaItemsPage {
+  /** The media items on this page. */
   items: MediaItem[]
+  /** The current page number. */
   currentPage: number
+  /** Whether there are more pages available. */
   haveMore: boolean
+  /** Source-specific parameters for fetching the next page. */
   sourceParams: Record<string, string>[]
 }
 
+/**
+ * Window type extension for Tauri-specific API access.
+ */
 interface TauriWindow extends Window {
+  /** Tauri-specific global object. */
   __TAURI__?: {
+    /** Tauri invoke function (legacy path). */
     invoke?: <T>(command: string, args?: Record<string, unknown>) => Promise<T>
+    /** Tauri core module. */
     core?: {
+      /** Tauri invoke function (modern path). */
       invoke?: <T>(command: string, args?: Record<string, unknown>) => Promise<T>
     }
   }
@@ -257,6 +279,10 @@ function buildSearchNextSourceParams(
 
 /**
  * Reads explicit next-source params emitted by YAML when a source needs custom pagination keys.
+ *
+ * @param group - The search group to read params from.
+ * @param source - The source identifier for the group.
+ * @returns Array of source param records for the next request.
  */
 function readSearchExplicitSourceParams(
   group: JsonRecord,
@@ -275,6 +301,10 @@ function readSearchExplicitSourceParams(
 
 /**
  * Converts one source search group into the params expected by the next backend request.
+ *
+ * @param group - The search group to build params for.
+ * @param fallbackPage - The page number to use when current_page is not available.
+ * @returns Array of param records for the next request.
  */
 function buildNextParamsForSearchGroup(
   group: JsonRecord,
@@ -315,6 +345,9 @@ function buildNextParamsForSearchGroup(
 
 /**
  * Deduplicates search source params while preserving the first-seen order.
+ *
+ * @param paramsList - Array of param records to deduplicate.
+ * @returns Deduplicated array of param records.
  */
 function dedupeSearchSourceParams(paramsList: Record<string, string>[]): Record<string, string>[] {
   const seen = new Set<string>()

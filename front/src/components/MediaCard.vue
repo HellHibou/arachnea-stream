@@ -7,6 +7,7 @@ import type { MediaItem, ThumbnailImageFit, ThumbnailOrientation } from '@/types
 import MediaCardCardLayout from './media-card/MediaCardCardLayout.vue'
 import MediaCardListLayout from './media-card/MediaCardListLayout.vue'
 
+/** Available layout modes for the media card. */
 type MediaCardLayout = 'card' | 'list'
 
 /**
@@ -47,6 +48,7 @@ interface Props {
   showServiceLogo?: boolean
 }
 
+/** Component props with applied defaults. */
 const props = withDefaults(defineProps<Props>(), {
   layout: 'card',
   hideMissingThumbnail: false,
@@ -55,22 +57,32 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const emit = defineEmits<{
+  /** Emitted when the card is selected. */
   select: [item: MediaItem]
+  /** Emitted when the preview should be opened. */
   previewOpen: [itemId: string]
+  /** Emitted when the preview should be closed. */
   previewClose: [itemId: string]
+  /** Emitted when the preview root element changes. */
   previewRootChange: [payload: { itemId: string; element: HTMLElement | null }]
 }>()
 
+/** Whether the main image is available for display. */
 const imageAvailable = ref(true)
+/** Whether the service logo is available for display. */
 const serviceLogoAvailable = ref(true)
+/** Service metadata utilities. */
 const { getService } = useServiceMetadata()
 
+/** Metadata for the service of the current media item. */
 const serviceMetadata = computed(() => getService(props.item.source))
 
+/** Display title for the service. */
 const serviceTitle = computed(() =>
   serviceMetadata.value?.title?.trim() || props.item.source?.trim() || null,
 )
 
+/** URL of the service logo to display. */
 const serviceLogo = computed(() =>
   serviceLogoAvailable.value ? serviceMetadata.value?.logo ?? null : null,
 )

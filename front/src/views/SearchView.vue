@@ -7,17 +7,26 @@ import { readSearchRouteQuery } from '@/router/searchQuery'
 import { useStorage } from '@/services/storage'
 import type { MediaCardCollectionMode, MediaItem } from '@/types/media'
 
+/** Vue Router current route. */
 const route = useRoute()
+
+/** Application parameters loaded from persistent storage. */
 const parameters = useStorage().getParameters()
+
+/** Counter to trigger new search requests when route query changes. */
 const searchRequestId = shallowRef(0)
+
+/** Collection mode for search results, excluding single-row mode. */
 const searchCollectionMode = computed<Exclude<MediaCardCollectionMode, 'single-row'>>(() =>
   parameters.collectionMode.value === 'list' ? 'list' : 'grid',
 )
 
 const emit = defineEmits<{
+  /** Emitted when a media item is selected from search results. */
   'select-item': [item: MediaItem]
 }>()
 
+/** Search state extracted from the current route query parameters. */
 const routeSearchState = computed(() => readSearchRouteQuery(route.query))
 
 watch(

@@ -52,25 +52,39 @@ interface Props {
   useCatalogBannersAsBackground?: boolean
 }
 
+/** Component props with applied defaults. */
 const props = withDefaults(defineProps<Props>(), {
   useTrailerAsBackground: true,
   isBackgroundAnimated: false,
   backgroundImageFit: 'contain',
   useCatalogBannersAsBackground: true,
 })
+/** Internationalization utilities. */
 const { t } = useI18n()
 
+/** Reactive reference to the source prop. */
 const source = toRef(props, 'source')
+/** Reactive reference to the entry prop. */
 const entry = toRef(props, 'entry')
+/** Reactive reference to the webUrl prop. */
 const webUrl = toRef(props, 'webUrl')
+/** Storage service instance. */
 const storage = useStorage()
+/** Application parameters from persistent storage. */
 const parameters = storage.getParameters()
+/** Latest playback time from the media player. */
 const latestPlaybackTime = shallowRef<number | null>(null)
+/** Key to track restored episode bookmark state. */
 const restoredEpisodeBookmarkKey = shallowRef<string | null>(null)
+/** Whether episode autoplay is pending. */
 const pendingEpisodeAutoplay = shallowRef(false)
+/** Source URL for pending episode autoplay. */
 const pendingEpisodeAutoplaySourceUrl = shallowRef<string | null>(null)
+/** Whether the media surface should remain mounted during episode transition. */
 const shouldKeepMediaSurfaceMounted = shallowRef(false)
+/** Whether episode navigation is currently in progress. */
 const isEpisodeNavigationInProgress = shallowRef(false)
+/** Counter to track the latest episode navigation request ID. */
 let latestEpisodeNavigationId = 0
 
 /**
@@ -95,19 +109,33 @@ const preferredSeasonId = computed(() => currentEntryBookmark.value?.groupId ?? 
  */
 const preferredEpisodeId = computed(() => currentEntryBookmark.value?.selectedItemId ?? null)
 
+/** Entry details data composable results. */
 const {
+  /** Entry details data. */
   details,
+  /** Whether the entry details are currently loading. */
   isLoading,
+  /** Error message from entry details loading. */
   errorMessage,
+  /** Episodes for the selected season. */
   seasonEpisodes,
+  /** Currently selected season ID. */
   selectedSeasonId,
+  /** Currently selected season data. */
   selectedSeason,
+  /** Whether the season is currently loading. */
   isSeasonLoading,
+  /** Whether more season episodes are currently loading. */
   isSeasonLoadingMore,
+  /** Error message from season loading. */
   seasonErrorMessage,
+  /** Whether there are more season episodes available to load. */
   hasMoreSeasonEpisodes,
+  /** Function to handle season selection from data. */
   handleSeasonSelect: handleDataSeasonSelect,
+  /** Function to select a season by ID. */
   selectSeasonById,
+  /** Function to load more season episodes. */
   handleLoadMoreSeasonEpisodes,
 } = entryDetailsData({
   source,
@@ -116,73 +144,131 @@ const {
   preferredSeasonId,
 })
 
+/** Entry episode selection composable results. */
 const {
+  /** Currently selected episode ID. */
   selectedEpisodeId,
+  /** Displayed episodes for the current selection. */
   displayedEpisodes,
+  /** Currently selected episode data. */
   selectedEpisode,
+  /** Whether there is a previous episode available. */
   hasPreviousEpisode,
+  /** Whether there is a next episode available in the current season. */
   hasNextEpisode: hasNextEpisodeInSeason,
+  /** Function to reset the selected episode. */
   resetSelectedEpisode,
+  /** Function to select an episode by ID. */
   selectEpisodeById,
+  /** Function to handle episode selection. */
   handleEpisodeSelect,
+  /** Function to handle episode step navigation. */
   handleEpisodeStep,
 } = entryEpisodeSelection({
   details,
   seasonEpisodes,
 })
 
+/** Entry video player composable results. */
 const {
+  /** Currently active language key. */
   activeLanguageKey,
+  /** Available language options. */
   availableLanguages,
+  /** Filtered list of available players. */
   filteredPlayers,
+  /** Currently active player ID. */
   activePlayerId,
+  /** Current media source for the player. */
   mediaSource,
+  /** URL to open the media in a new tab. */
   mediaOpenUrl,
+  /** Whether the media player is currently loading. */
   isMediaPlayerLoading,
+  /** Error message from the media player. */
   mediaPlayerErrorMessage,
+  /** URL of the trailer media. */
   trailerUrl,
+  /** Trailer media source for the player. */
   trailerMediaSource,
+  /** Whether to show the trailer player. */
   showTrailerPlayer,
+  /** Currently selected playable title. */
   selectedPlayableTitle,
+  /** Whether to show the media player. */
   showMediaPlayer,
+  /** Whether to show the trailer action button. */
   showTrailerAction,
+  /** Label for the trailer action button. */
   trailerActionLabel,
+  /** Whether to show the language selector. */
   showLanguageSelector,
+  /** Whether to show the player selector. */
   showPlayerSelector,
+  /** Whether to show player controls. */
   showPlayerControls,
+  /** Function to activate the media player. */
   activateMediaPlayer,
+  /** Function to handle trailer toggle. */
   handleTrailerToggle,
+  /** Function to remember current language selection. */
   rememberCurrentLanguage,
+  /** Function to remember current player selection. */
   rememberCurrentPlayer,
 } = entryVideoPlayer({
   details,
   selectedPlayableItem: selectedEpisode,
 })
 
+/** Entry details presentation composable results. */
 const {
+  /** Display title for the entry. */
   displayTitle,
+  /** Display description for the entry. */
   displayDescription,
+  /** Alternative title label for the entry. */
   alternativeTitleLabel,
+  /** URL of the poster frame image. */
   posterFrameImageUrl,
+  /** Whether the poster frame should use contain sizing. */
   posterFrameUsesContain,
+  /** URL of the hero background image. */
   heroBackgroundUrl,
+  /** URL of the portrait-oriented hero background image. */
   heroBackgroundPortraitUrl,
+  /** URL of the landscape-oriented hero background image. */
   heroBackgroundLandscapeUrl,
+  /** Display label for the release date. */
   displayReleaseDateLabel,
+  /** Display label for the expiration date. */
   displayExpireLabel,
+  /** Display label for the duration. */
   displayDurationLabel,
+  /** List of metadata badges to display. */
   metadataBadges,
+  /** Genre text to display. */
   genreText,
+  /** List of topic chips to display. */
   topicChips,
+  /** Casting text to display. */
   castingText,
+  /** Director text to display. */
   directorText,
+  /** Season items for the catalog section. */
   seasonItems,
+  /** Label for the selected season. */
   selectedSeasonLabel,
+  /** Displayed episode items for the catalog section. */
   displayedEpisodeItems,
+  /** Label for the displayed episodes. */
   displayedEpisodeLabel,
+  /** Whether to show the season prompt. */
   showSeasonPrompt,
+  /** Whether to show the empty season state. */
   showEmptySeasonState,
+  /** Whether to show the episode section. */
   showEpisodeSection,
+  /** Whether to show the load more season episodes button. */
   showLoadMoreSeasonEpisodes,
 } = entryDetailsPresentation({
   details,
@@ -197,6 +283,7 @@ const {
   hasMoreSeasonEpisodes,
 })
 
+/** Resets entry state when source, entry, or webUrl props change. */
 watch([source, entry, webUrl], () => {
   latestPlaybackTime.value = null
   restoredEpisodeBookmarkKey.value = null
@@ -204,6 +291,7 @@ watch([source, entry, webUrl], () => {
   resetSelectedEpisode()
 }, { immediate: true })
 
+/** Resets media surface mounted state when media source or error changes. */
 watch(
   [() => mediaSource.value?.src ?? null, mediaPlayerErrorMessage],
   ([nextMediaSourceUrl, nextMediaPlayerErrorMessage]) => {
@@ -215,6 +303,7 @@ watch(
   },
 )
 
+/** Restores episode selection from bookmark when episodes or source changes. */
 watch(
   [displayedEpisodes, preferredEpisodeId, source, entry],
   ([episodes, nextEpisodeId, currentSource, currentEntry]) => {

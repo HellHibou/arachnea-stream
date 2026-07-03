@@ -55,6 +55,7 @@ interface Props {
   imageFit?: ThumbnailImageFit
 }
 
+/** Component props with applied defaults. */
 const props = withDefaults(defineProps<Props>(), {
   videoUrl: null,
   imageUrl: null,
@@ -66,9 +67,13 @@ const props = withDefaults(defineProps<Props>(), {
   imageFit: 'contain',
 })
 
+/** Processed background media items from the composable. */
 const {
+  /** List of background media items to render. */
   backgroundMediaItems,
+  /** Whether the fallback background should be displayed. */
   isFallbackBackground,
+  /** CSS classes to apply to the background image element. */
   backgroundImageClasses,
 } =
   backgroundMedia({

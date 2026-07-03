@@ -11,6 +11,7 @@ import { useStorage, type VideoPlayerPreferences } from '@/services/storage'
 import type { VideoJsPlayerState } from '@/types/media'
 import { t } from '@/i18n'
 
+/** Referrer policy options for iframe elements. */
 type MediaIframeReferrerPolicy =
   | 'no-referrer'
   | 'no-referrer-when-downgrade'
@@ -21,6 +22,7 @@ type MediaIframeReferrerPolicy =
   | 'strict-origin-when-cross-origin'
   | 'unsafe-url'
 
+/** Default allow attribute for iframes in entry details mode. */
 const entryDetailsIframeAllow =
   'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share'
 
@@ -259,25 +261,38 @@ interface VideoPlayerProps {
  * Emits accepted by the video player composable.
  */
 interface VideoPlayerEmits {
+  /** Emitted when the active language key changes. */
   (evt: 'update:active-language-key', value: string | null): void
+  /** Emitted when the current language should be remembered for future use. */
   (evt: 'remember-current-language'): void
+  /** Emitted when the active player identifier changes. */
   (evt: 'update:active-player-id', value: string | null): void
+  /** Emitted when the current player should be remembered for future use. */
   (evt: 'remember-current-player'): void
+  /** Emitted when playback progress updates. */
   (evt: 'update:playback-progress', value: number | null): void
+  /** Emitted when the episode autoplay enabled state changes. */
   (evt: 'update:is-episode-autoplay-enabled', value: boolean): void
+  /** Emitted when playback starts. */
   (evt: 'playback-started', sourceUrl: string | null): void
+  /** Emitted when playback ends. */
   (evt: 'playback-ended'): void
 }
 
 /**
  * Composable for managing video player state and logic.
+ *
+ * @param props - Video player configuration props.
+ * @param emit - Event emitter for player events.
+ * @returns Object containing state, computed properties, and handler functions.
  */
 export function useVideoPlayer(props: VideoPlayerProps, emit: VideoPlayerEmits) {
   const attrs = useAttrs()
   const storage = useStorage()
+  /** The last resolved media source, used to keep the media surface mounted during transitions. */
   const lastResolvedMediaSource = ref<ResolvedPlayerMediaSource | null>(null)
 
-  // Ensure the ref values are properly typed
+  /** Type for the last resolved media source reference. */
   type LastResolvedMediaSource = ResolvedPlayerMediaSource | null
 
   watch(
@@ -292,6 +307,8 @@ export function useVideoPlayer(props: VideoPlayerProps, emit: VideoPlayerEmits) 
 
   /**
    * Indicates whether the component should render the entry details player layout.
+   *
+   * @returns True when any entry details player feature is active.
    */
   const isEntryDetailsMode = computed(() =>
     props.displayTitle !== null ||
@@ -305,11 +322,14 @@ export function useVideoPlayer(props: VideoPlayerProps, emit: VideoPlayerEmits) 
 
   /**
    * Limits stored audio and quality preferences to player surfaces controlled by the user.
+   *
+   * @returns True when player preferences should be loaded and saved.
    */
   const shouldUseStoredPlayerPreferences = computed(() =>
     isEntryDetailsMode.value || Boolean(props.controls),
   )
 
+  /** Persisted video player state from storage. */
   const persistedVideoPlayerState = ref<VideoJsPlayerState | null>(
     shouldUseStoredPlayerPreferences.value
       ? createInitialVideoPlayerState(storage.getVideoPlayerPreferences())
@@ -318,11 +338,15 @@ export function useVideoPlayer(props: VideoPlayerProps, emit: VideoPlayerEmits) 
 
   /**
    * Exposes a stable title used by accessibility labels in the entry details player mode.
+   *
+   * @returns The display title or a default translation.
    */
   const detailTitle = computed(() => props.displayTitle ?? t('player.defaultDisplayTitle'))
 
   /**
    * Indicates whether the entry details selector bar should be rendered.
+   *
+   * @returns True when player controls or media open URL is available.
    */
   const showDetailsPlayerControls = computed(() =>
     props.showPlayerControls || Boolean(props.mediaOpenUrl),
@@ -331,6 +355,8 @@ export function useVideoPlayer(props: VideoPlayerProps, emit: VideoPlayerEmits) 
   /**
    * Keeps the media surface mounted through one explicit episode transition while the next media
    * source is being resolved.
+   *
+   * @returns True when a persisted media surface should be kept during transition.
    */
   const shouldKeepMediaSurfaceMountedDuringTransition = computed(() =>
     props.preferPersistedMediaSurface &&
@@ -344,6 +370,8 @@ export function useVideoPlayer(props: VideoPlayerProps, emit: VideoPlayerEmits) 
 
 /**
  * Keeps the latest playable media source mounted while the next source or page state settles.
+ *
+ * @returns The active media source or null.
  */
 const renderedMediaSource = (computed as any)(() => {
   if (props.mediaSource !== null && props.mediaSource !== undefined) {
@@ -358,11 +386,16 @@ const renderedMediaSource = (computed as any)(() => {
   return null
 })
 
+  /** Entry details surface mode type: either 'media' or 'trailer'. */
   type EntryDetailsSurfaceMode = 'media' | 'trailer'
+  
+  /** Active surface mode type including standalone: 'media', 'trailer', or 'standalone'. */
   type ActiveSurfaceMode = EntryDetailsSurfaceMode | 'standalone'
 
   /**
    * Prevents transient page updates from unmounting the media surface while it is still active.
+   *
+   * @returns True when the media surface should be rendered.
    */
   const shouldRenderMediaSurface = computed(() =>
     props.showMediaPlayer || shouldKeepMediaSurfaceMountedDuringTransition.value,
@@ -370,6 +403,8 @@ const renderedMediaSource = (computed as any)(() => {
 
   /**
    * Prevents the trailer fallback from replacing the media surface during one episode transition.
+   *
+   * @returns True when the trailer surface should be rendered.
    */
   const shouldRenderTrailerSurface = computed(() =>
     props.showTrailerPlayer && !shouldKeepMediaSurfaceMountedDuringTransition.value,
@@ -377,6 +412,8 @@ const renderedMediaSource = (computed as any)(() => {
 
   /**
    * Indicates which entry-details surface currently owns the player area.
+   *
+   * @returns The current surface mode: 'media', 'trailer', or null.
    */
   const entryDetailsSurfaceMode = computed<EntryDetailsSurfaceMode | null>(() => {
     if (shouldRenderMediaSurface.value) {
@@ -392,6 +429,8 @@ const renderedMediaSource = (computed as any)(() => {
 
   /**
    * Exposes the current render mode for the unified surface template.
+   *
+   * @returns The active surface mode: 'media', 'trailer', 'standalone', or null.
    */
   const activeSurfaceMode = computed<ActiveSurfaceMode | null>(() => {
     if (isEntryDetailsMode.value) {
@@ -403,6 +442,8 @@ const renderedMediaSource = (computed as any)(() => {
 
   /**
    * Exposes the one source currently rendered by the unified surface template.
+   *
+   * @returns The resolved player media source for the active surface.
    */
   const activeSurfaceSource = computed<ResolvedPlayerMediaSource | null>(() => {
     if (!isEntryDetailsMode.value) {
@@ -422,6 +463,8 @@ const renderedMediaSource = (computed as any)(() => {
 
   /**
    * Indicates whether the shared surface wrapper should be rendered.
+   *
+   * @returns True when a surface should be rendered.
    */
   const shouldRenderSurface = computed(() =>
     isEntryDetailsMode.value
@@ -431,6 +474,8 @@ const renderedMediaSource = (computed as any)(() => {
 
   /**
    * Indicates whether the current entry-details surface should display the loading overlay.
+   *
+   * @returns True when loading state should be shown.
    */
   const shouldRenderSurfaceLoadingState = computed(() =>
     entryDetailsSurfaceMode.value === 'media' && props.isMediaPlayerLoading,
@@ -438,6 +483,8 @@ const renderedMediaSource = (computed as any)(() => {
 
   /**
    * Indicates whether the current entry-details surface should display the error state.
+   *
+   * @returns True when error state should be shown.
    */
   const shouldRenderSurfaceErrorState = computed(() =>
     entryDetailsSurfaceMode.value === 'media' &&
@@ -447,6 +494,8 @@ const renderedMediaSource = (computed as any)(() => {
 
   /**
    * Exposes the classes applied to the shared surface wrapper.
+   *
+   * @returns CSS class for the surface container.
    */
   const surfaceContainerClass = computed(() =>
     isEntryDetailsMode.value
@@ -456,6 +505,8 @@ const renderedMediaSource = (computed as any)(() => {
 
   /**
    * Exposes the classes applied to the loading state overlay when media stays mounted underneath.
+   *
+   * @returns Object with CSS class modifiers.
    */
   const surfaceStateClasses = computed(() => ({
     'entry-details__player-state--overlay':
@@ -464,6 +515,8 @@ const renderedMediaSource = (computed as any)(() => {
 
   /**
    * Ensures the renderer remounts only when the displayed surface context actually changes.
+   *
+   * @returns A key string identifying the current surface renderer.
    */
   const activeSurfaceRendererKey = computed(() =>
     activeSurfaceMode.value && activeSurfaceSource.value
@@ -473,6 +526,8 @@ const renderedMediaSource = (computed as any)(() => {
 
   /**
    * Exposes the iframe variant of the current surface source when selected.
+   *
+   * @returns The iframe media source or null.
    */
   const activeIframeSource = computed<ResolvedIframeMediaSource | null>(() =>
     activeSurfaceSource.value?.renderer === 'iframe'
@@ -482,6 +537,8 @@ const renderedMediaSource = (computed as any)(() => {
 
   /**
    * Exposes the Video.js variant of the current surface source when selected.
+   *
+   * @returns The video media source or null.
    */
   const activeVideoSource = computed<ResolvedVideoMediaSource | null>(() =>
     activeSurfaceSource.value?.renderer === 'video'
@@ -491,6 +548,8 @@ const renderedMediaSource = (computed as any)(() => {
 
   /**
    * Exposes the optional attrs forwarded only by standalone renderers.
+   *
+   * @returns The attrs object or undefined for entry details mode.
    */
   const standaloneRendererAttrs = computed(() =>
     isEntryDetailsMode.value ? undefined : attrs,
@@ -498,6 +557,8 @@ const renderedMediaSource = (computed as any)(() => {
 
   /**
    * Exposes the title applied to the unified iframe renderer.
+   *
+   * @returns The appropriate title based on mode and surface.
    */
   const activeIframeTitle = computed(() => {
     if (!isEntryDetailsMode.value) {
@@ -517,6 +578,8 @@ const renderedMediaSource = (computed as any)(() => {
 
   /**
    * Exposes the permissions string applied to the unified iframe renderer.
+   *
+   * @returns The allow attribute value.
    */
   const activeIframeAllow = computed(() =>
     isEntryDetailsMode.value ? entryDetailsIframeAllow : props.allow,
@@ -524,6 +587,8 @@ const renderedMediaSource = (computed as any)(() => {
 
   /**
    * Indicates whether the unified iframe renderer should allow fullscreen.
+   *
+   * @returns True when fullscreen should be allowed.
    */
   const activeIframeAllowFullscreen = computed(() =>
     isEntryDetailsMode.value || props.allowFullscreen,
@@ -531,6 +596,8 @@ const renderedMediaSource = (computed as any)(() => {
 
   /**
    * Exposes the loading strategy applied to the unified iframe renderer.
+   *
+   * @returns The loading strategy: 'lazy' or 'eager'.
    */
   const activeIframeLoading = computed(() =>
     isEntryDetailsMode.value ? 'lazy' : props.loading,
@@ -538,6 +605,8 @@ const renderedMediaSource = (computed as any)(() => {
 
 /**
  * Exposes the referrer policy applied to the unified iframe renderer.
+ *
+ * @returns The referrer policy or null.
  */
 const activeIframeReferrerPolicy = computed<MediaIframeReferrerPolicy | null>(() => {
   const result = isEntryDetailsMode.value ? 'strict-origin-when-cross-origin' : props.referrerPolicy
@@ -546,17 +615,26 @@ const activeIframeReferrerPolicy = computed<MediaIframeReferrerPolicy | null>(()
 
   /**
    * Exposes the accessibility attributes applied to the unified iframe renderer.
+   *
+   * @returns Whether the iframe should be hidden from accessibility APIs.
    */
   const activeIframeAriaHidden = computed(() =>
     isEntryDetailsMode.value ? false : props.ariaHidden,
   )
 
+  /**
+   * Exposes the tab index applied to the unified iframe renderer.
+   *
+   * @returns The tab index or null for entry details mode.
+   */
   const activeIframeTabIndex = computed(() =>
     isEntryDetailsMode.value ? null : props.tabIndex,
   )
 
   /**
    * Exposes the classes applied to the unified iframe renderer.
+   *
+   * @returns CSS class for the iframe.
    */
   const activeIframeClass = computed(() =>
     isEntryDetailsMode.value ? 'entry-details__trailer-frame' : 'video-player__iframe--standalone',
@@ -564,6 +642,8 @@ const activeIframeReferrerPolicy = computed<MediaIframeReferrerPolicy | null>(()
 
   /**
    * Exposes the accessibility label applied to the unified Video.js renderer.
+   *
+   * @returns The appropriate aria label based on mode and surface.
    */
   const activeVideoAriaLabel = computed(() => {
     if (!isEntryDetailsMode.value) {
@@ -582,72 +662,138 @@ const activeIframeReferrerPolicy = computed<MediaIframeReferrerPolicy | null>(()
   })
 
   /**
-   * Exposes the props forwarded to the unified Video.js renderer.
+   * Exposes the poster URL applied to the unified Video.js renderer.
+   *
+   * @returns The media poster URL in entry details mode, or the standalone poster URL.
    */
   const activeVideoPoster = computed(() =>
     entryDetailsSurfaceMode.value === 'media' ? props.mediaPosterUrl : props.poster,
   )
 
+  /**
+   * Exposes the overlay logo URL applied to the unified Video.js renderer.
+   *
+   * @returns The media overlay logo URL for entry details surfaces, or null for standalone.
+   */
   const activeVideoOverlayLogoUrl = computed(() =>
     (entryDetailsSurfaceMode.value === 'media' || entryDetailsSurfaceMode.value === 'trailer') ? props.mediaOverlayLogoUrl : null,
   )
 
+  /**
+   * Exposes the autoplay setting applied to the unified Video.js renderer.
+   *
+   * @returns True for trailer in entry details mode, media autoplay setting for media surface, or standalone autoplay prop.
+   */
   const activeVideoAutoplay = computed(() =>
     entryDetailsSurfaceMode.value === 'media' ? props.mediaAutoplay :
     entryDetailsSurfaceMode.value === 'trailer' ? true : props.autoplay,
   )
 
+  /**
+   * Exposes the muted setting applied to the unified Video.js renderer.
+   *
+   * @returns False for entry details mode, or the standalone muted prop.
+   */
   const activeVideoMuted = computed(() =>
     isEntryDetailsMode.value ? false : props.muted,
   )
 
+  /**
+   * Exposes the loop setting applied to the unified Video.js renderer.
+   *
+   * @returns False for entry details mode, or the standalone loop prop.
+   */
   const activeVideoLoop = computed(() =>
     isEntryDetailsMode.value ? false : props.loop,
   )
 
+  /**
+   * Exposes the controls visibility setting applied to the unified Video.js renderer.
+   *
+   * @returns True for entry details mode, or the standalone controls prop.
+   */
   const activeVideoControls = computed(() =>
     isEntryDetailsMode.value ? true : props.controls,
   )
 
+  /**
+   * Exposes the playsinline setting applied to the unified Video.js renderer.
+   *
+   * @returns True for entry details mode, or the standalone playsinline prop.
+   */
   const activeVideoPlaysinline = computed(() =>
     isEntryDetailsMode.value ? true : props.playsinline,
   )
 
+  /**
+   * Exposes the preload setting applied to the unified Video.js renderer.
+   *
+   * @returns 'metadata' for entry details mode, or the standalone preload prop.
+   */
   const activeVideoPreload = computed(() =>
     isEntryDetailsMode.value ? 'metadata' : props.preload,
   )
 
+  /**
+   * Exposes the aria hidden setting applied to the unified Video.js renderer.
+   *
+   * @returns False for entry details mode, or the standalone ariaHidden prop.
+   */
   const activeVideoAriaHidden = computed(() =>
     isEntryDetailsMode.value ? false : props.ariaHidden,
   )
 
+  /**
+   * Exposes the tab index applied to the unified Video.js renderer.
+   *
+   * @returns Null for entry details mode, or the standalone tabIndex prop.
+   */
   const activeVideoTabIndex = computed(() =>
     isEntryDetailsMode.value ? null : props.tabIndex,
   )
 
+  /**
+   * Exposes the initial playback time applied to the unified Video.js renderer.
+   *
+   * @returns The initial playback time for media surface or standalone, or null otherwise.
+   */
   const activeVideoInitialPlaybackTime = computed(() =>
     !isEntryDetailsMode.value || entryDetailsSurfaceMode.value === 'media'
       ? props.initialPlaybackTime
       : null,
   )
 
+  /**
+   * Indicates whether the episode autoplay toggle should be shown.
+   *
+   * @returns True when the media surface is active and episode autoplay toggle is enabled.
+   */
   const activeVideoShowEpisodeAutoplayToggle = computed(() =>
     entryDetailsSurfaceMode.value === 'media' && props.showEpisodeAutoplayToggle,
   )
 
-   const activeVideoIsEpisodeAutoplayEnabled = computed(() =>
-     entryDetailsSurfaceMode.value === 'media' && props.isEpisodeAutoplayEnabled,
-   )
+  /**
+   * Indicates whether episode autoplay is currently enabled.
+   *
+   * @returns True when the media surface is active and episode autoplay is enabled.
+   */
+  const activeVideoIsEpisodeAutoplayEnabled = computed(() =>
+    entryDetailsSurfaceMode.value === 'media' && props.isEpisodeAutoplayEnabled,
+  )
 
    /**
-    * Indicates whether the big play button should be displayed on the Video.js player.
-    * Controls visibility based on the controls prop, with CSS handling loading state.
-    */
+   * Indicates whether the big play button should be displayed on the Video.js player.
+   * Controls visibility based on the controls prop, with CSS handling loading state.
+   *
+   * @returns True when the big play button should be shown.
+   */
    const activeVideoShowBigPlayButton = computed(() => activeVideoControls.value)
 
    /**
-    * Exposes the classes applied to the unified Video.js renderer.
-    */
+   * Exposes the classes applied to the unified Video.js renderer.
+   *
+   * @returns CSS class for the video element.
+   */
    const activeVideoClass = computed(() =>
      isEntryDetailsMode.value
        ? 'entry-details__trailer-frame entry-details__trailer-frame--video'
@@ -656,6 +802,8 @@ const activeIframeReferrerPolicy = computed<MediaIframeReferrerPolicy | null>(()
 
   /**
    * Indicates whether the entry-details picker should stay visible below the active media surface.
+   *
+   * @returns True when the picker should be shown.
    */
   const shouldShowDetailsPlayerPicker = computed(() =>
     entryDetailsSurfaceMode.value === 'media' && showDetailsPlayerControls.value,
@@ -663,6 +811,8 @@ const activeIframeReferrerPolicy = computed<MediaIframeReferrerPolicy | null>(()
 
   /**
    * Indicates whether the active Video.js renderer should forward progress and lifecycle events.
+   *
+   * @returns True when events should be forwarded.
    */
   const shouldForwardPrimaryVideoEvents = computed(() =>
     !isEntryDetailsMode.value || entryDetailsSurfaceMode.value === 'media',
@@ -670,6 +820,8 @@ const activeIframeReferrerPolicy = computed<MediaIframeReferrerPolicy | null>(()
 
 /**
  * Exposes a stable language key to the native select element.
+ *
+ * @returns The active language key or the first available language.
  */
 const languageModel = computed(() =>
   props.activeLanguageKey ?? props.availableLanguages?.[0]?.key ?? '',
@@ -677,15 +829,17 @@ const languageModel = computed(() =>
 
 /**
  * Exposes a stable player identifier to the native select element.
+ *
+ * @returns The active player ID or the first available player.
  */
 const playerModel = computed(() => props.activePlayerId ?? props.filteredPlayers?.[0]?.id ?? '')
 
 /**
  * Stores the latest Video.js UI state so it can be restored after a source switch.
  *
- * @param value Latest captured player state, or `null` when unavailable.
+ * @param value - Latest captured player state, or `null` when unavailable.
  */
-const handlePlayerStateUpdate = (value: VideoJsPlayerState | null) => {
+const handlePlayerStateUpdate = (value: VideoJsPlayerState | null): void => {
   persistedVideoPlayerState.value = value
 
   if (value && shouldUseStoredPlayerPreferences.value) {
@@ -696,9 +850,9 @@ const handlePlayerStateUpdate = (value: VideoJsPlayerState | null) => {
 /**
  * Stores the newly selected language in the parent controller.
  *
- * @param event Native select change event.
+ * @param event - Native select change event.
  */
-const handleLanguageChange = (event: Event) => {
+const handleLanguageChange = (event: Event): void => {
   const target = event.target as HTMLSelectElement
 
   emit('update:active-language-key', target.value || null)
@@ -708,9 +862,9 @@ const handleLanguageChange = (event: Event) => {
 /**
  * Stores the newly selected player in the parent controller.
  *
- * @param event Native select change event.
+ * @param event - Native select change event.
  */
-const handlePlayerChange = (event: Event) => {
+const handlePlayerChange = (event: Event): void => {
   const target = event.target as HTMLSelectElement
 
   emit('update:active-player-id', target.value || null)
@@ -720,41 +874,43 @@ const handlePlayerChange = (event: Event) => {
 /**
  * Forwards the current Video.js playback position to the entry details controller.
  *
- * @param value Playback position in seconds, or `null` when it should be cleared.
+ * @param value - Playback position in seconds, or `null` when it should be cleared.
  */
-const handlePlaybackProgressUpdate = (value: number | null) => {
+const handlePlaybackProgressUpdate = (value: number | null): void => {
   emit('update:playback-progress', value)
 }
 
 /**
  * Forwards the effective playback start notification to the parent controller.
+ *
+ * @param sourceUrl - The URL of the source that started playback.
  */
-const handlePlaybackStarted = (sourceUrl: string | null) => {
+const handlePlaybackStarted = (sourceUrl: string | null): void => {
   emit('playback-started', sourceUrl)
 }
 
 /**
  * Forwards the playback-ended notification to the parent controller.
  */
-const handlePlaybackEnded = () => {
+const handlePlaybackEnded = (): void => {
   emit('playback-ended')
 }
 
 /**
  * Forwards the episode autoplay preference update emitted by the embedded Video.js control bar.
  *
- * @param value Indicates whether automatic playback of the next episode is enabled.
+ * @param value - Indicates whether automatic playback of the next episode is enabled.
  */
-const handleEpisodeAutoplayEnabledUpdate = (value: boolean) => {
+const handleEpisodeAutoplayEnabledUpdate = (value: boolean): void => {
   emit('update:is-episode-autoplay-enabled', value)
 }
 
 /**
  * Forwards the active Video.js playback progress only when the current surface is a primary video.
  *
- * @param value Playback position in seconds, or `null` when it should be cleared.
+ * @param value - Playback position in seconds, or `null` when it should be cleared.
  */
-const handleActiveVideoPlaybackProgressUpdate = (value: number | null) => {
+const handleActiveVideoPlaybackProgressUpdate = (value: number | null): void => {
   if (!shouldForwardPrimaryVideoEvents.value) {
     return
   }
@@ -764,8 +920,10 @@ const handleActiveVideoPlaybackProgressUpdate = (value: number | null) => {
 
 /**
  * Forwards the active Video.js playback-started notification only when it belongs to the primary video.
+ *
+ * @param sourceUrl - The URL of the source that started playback.
  */
-const handleActiveVideoPlaybackStarted = (sourceUrl: string | null) => {
+const handleActiveVideoPlaybackStarted = (sourceUrl: string | null): void => {
   if (!shouldForwardPrimaryVideoEvents.value) {
     return
   }
@@ -776,7 +934,7 @@ const handleActiveVideoPlaybackStarted = (sourceUrl: string | null) => {
 /**
  * Forwards the active Video.js playback-ended notification only when it belongs to the primary video.
  */
-const handleActiveVideoPlaybackEnded = () => {
+const handleActiveVideoPlaybackEnded = (): void => {
   if (!shouldForwardPrimaryVideoEvents.value) {
     return
   }
@@ -787,9 +945,9 @@ const handleActiveVideoPlaybackEnded = () => {
 /**
  * Forwards the episode autoplay preference update only when the primary media surface is active.
  *
- * @param value Indicates whether automatic playback of the next episode is enabled.
+ * @param value - Indicates whether automatic playback of the next episode is enabled.
  */
-const handleActiveVideoEpisodeAutoplayEnabledUpdate = (value: boolean) => {
+const handleActiveVideoEpisodeAutoplayEnabledUpdate = (value: boolean): void => {
   if (entryDetailsSurfaceMode.value !== 'media') {
     return
   }
@@ -797,7 +955,7 @@ const handleActiveVideoEpisodeAutoplayEnabledUpdate = (value: boolean) => {
   handleEpisodeAutoplayEnabledUpdate(value)
 }
 
-   return {
+  return {
      // State
      persistedVideoPlayerState,
 

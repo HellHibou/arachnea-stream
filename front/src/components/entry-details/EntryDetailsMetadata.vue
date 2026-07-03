@@ -1,27 +1,41 @@
 <script setup lang="ts">
 import { useI18n } from '@/i18n'
+/** Internationalization utilities. */
 const { t } = useI18n()
 
 /**
  * Props accepted by the metadata section rendered below the hero area.
  */
 interface Props {
+  /** List of metadata badges to display. */
   metadataBadges: string[]
+  /** List of topic chips to display. */
   topicChips: string[]
+  /** Genre text to display. */
   genreText: string | null
+  /** Year label to display. */
   yearLabel: string | null
+  /** Release date label to display. */
   displayReleaseDateLabel: string | null
+  /** Expiration date label to display. */
   displayExpireLabel: string | null
+  /** Content advisor label to display. */
   contentAdvisorLabel: string | null
+  /** Audio language label to display. */
   audioLanguageLabel: string | null
+  /** Subtitle language label to display. */
   subtitleLanguageLabel: string | null
+  /** Duration label to display. */
   displayDurationLabel: string | null
+  /** Casting text to display. */
   castingText: string | null
+  /** Director text to display. */
   directorText: string | null
+  /** Score to display. */
   score: number | null
 }
 
-
+/** Component props without defaults. */
 defineProps<Props>()
 </script>
 

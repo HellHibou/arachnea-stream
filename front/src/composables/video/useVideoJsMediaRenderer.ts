@@ -62,14 +62,22 @@ export type {
  */
 export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions) {
   const { props, emit, hostElement, videoElement } = options
+  /** Current active Video.js player instance. */
   const activePlayer = shallowRef<VideoJsPlayer | null>(null)
+  /** Whether the poster overlay is currently visible. */
   const isPosterOverlayVisible = shallowRef(false)
+  /** Whether the video is in initial loading state. */
   const isVideoInitialLoading = shallowRef(true)
 
+   /** Cleanup function for pending source restore operation. */
    let pendingSourceRestoreCleanup: (() => void) | null = null
+   /** Cleanup function for pending quality selector override. */
    let pendingQualitySelectorCleanup: (() => void) | null = null
+   /** Preferred quality label selected by the user. */
    let preferredQualityLabel: string | null = null
+   /** Whether the video initial load complete event has been emitted. */
    let hasEmittedInitialLoadComplete = false
+   /** Whether the video metadata loaded event has been emitted. */
    let hasEmittedCurrentSourceMetadata = false
 
    /**
@@ -630,8 +638,13 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
           player.spriteThumbnails(source.storyboard ? { ...source.storyboard } : {})
         }
 
+       /** Last playback step that was saved to persist progress. */
        let lastSavedPlaybackStep = -1
 
+       /**
+        * Handles click events on the quality menu.
+        * @param event - DOM click event.
+        */
        const handleQualityMenuClick = (event: Event) => {
         const target = event.target as HTMLElement | null
 
@@ -647,12 +660,19 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
 
       playerElement?.addEventListener('click', handleQualityMenuClick)
 
+      /**
+       * Emits the current player state after UI updates have settled.
+       */
       const emitPlayerStateAfterUiUpdate = () => {
         window.setTimeout(() => {
           emitCurrentPlayerState(player)
         }, 0)
       }
 
+      /**
+       * Handles change events on text track settings.
+       * @param event - DOM change event.
+       */
       const handleTextTrackSettingsChange = (event: Event) => {
         const target = event.target as HTMLElement | null
 
@@ -663,6 +683,10 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
         emitPlayerStateAfterUiUpdate()
       }
 
+      /**
+       * Handles click events on text track settings button.
+       * @param event - DOM click event.
+       */
       const handleTextTrackSettingsClick = (event: Event) => {
         const target = event.target as HTMLElement | null
 
@@ -692,6 +716,9 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       disableControlBarMenuHoverBehavior(player)
       installAdaptiveControlBarMenuPositioning(player)
 
+      /**
+       * Handles duration change events on the player.
+       */
       const handleDurationChange = () => {
         syncDurationAvailabilityState(player)
 
@@ -760,6 +787,9 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
         }
       })
 
+      /**
+       * Hides the poster overlay from the video player.
+       */
       const hidePosterOverlay = () => {
         isPosterOverlayVisible.value = false
       }

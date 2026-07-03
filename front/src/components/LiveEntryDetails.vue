@@ -64,6 +64,7 @@ function scrollToTitleSection() {
   })
 }
 
+/** Component props with applied defaults. */
 const props = withDefaults(defineProps<Props>(), {
    initialSource: null,
    initialChannel: null,
@@ -71,25 +72,43 @@ const props = withDefaults(defineProps<Props>(), {
    backgroundImageFit: 'contain',
    useCatalogBannersAsBackground: true,
   })
+
 const emit = defineEmits<{
+  /** Emitted when a live media item is selected. */
   'select-live': [item: MediaItem]
 }>()
+
+/** Internationalization utilities. */
 const { t } = useI18n()
 
+/** List of available live media items. */
 const liveItems = ref<MediaItem[]>([])
+/** Map of live item IDs to their available players. */
 const livePlayersByItemId = shallowRef<Record<string, EntryPlayer[]>>({})
+/** ID of the currently selected live item. */
 const selectedLiveId = shallowRef<string | null>(null)
+/** Whether live items are currently loading. */
 const isLoading = shallowRef(false)
+/** Error message from live items loading. */
 const errorMessage = shallowRef<string | null>(null)
+/** Whether a live selection is currently loading. */
 const isLiveSelectionLoading = shallowRef(false)
+/** Error message from live selection loading. */
 const liveSelectionErrorMessage = shallowRef<string | null>(null)
+/** Resolved media source for the selected live player. */
 const resolvedLiveMediaSource = shallowRef<ResolvedPlayerMediaSource | null>(null)
+/** Open URL for the selected live media. */
 const resolvedLiveMediaOpenUrl = shallowRef<string | null>(null)
+/** Whether live media resolution is currently loading. */
 const isResolvedLiveMediaLoading = shallowRef(false)
+/** Error message from live media resolution. */
 const resolvedLiveMediaErrorMessage = shallowRef<string | null>(null)
 
+/** Counter to track the latest live list request ID. */
 let latestListRequestId = 0
+/** Counter to track the latest live selection request ID. */
 let latestSelectionRequestId = 0
+/** Counter to track the latest media resolution request ID. */
 let latestMediaResolutionRequestId = 0
 
 /**
@@ -178,22 +197,39 @@ const details = computed<EntryDetailsModel | null>(() => {
   }
 })
 
+/** Video player composable results. */
 const {
+  /** Currently active language key in the player. */
   activeLanguageKey,
+  /** Available language options for the player. */
   availableLanguages,
+  /** Filtered list of available players. */
   filteredPlayers,
+  /** Currently active player ID. */
   activePlayerId,
+  /** URL of the trailer media. */
   trailerUrl,
+  /** Trailer media source for the player. */
   trailerMediaSource,
+  /** Whether to show the trailer player. */
   showTrailerPlayer,
+  /** Currently selected playable title. */
   selectedPlayableTitle,
+  /** Whether to show the trailer action button. */
   showTrailerAction,
+  /** Label for the trailer action button. */
   trailerActionLabel,
+  /** Whether to show the language selector. */
   showLanguageSelector,
+  /** Whether to show the player selector. */
   showPlayerSelector,
+  /** Whether to show player controls. */
   showPlayerControls,
+  /** Function to handle trailer toggle. */
   handleTrailerToggle,
+  /** Function to remember current language selection. */
   rememberCurrentLanguage,
+  /** Function to remember current player selection. */
   rememberCurrentPlayer,
 } = entryVideoPlayer({
   details,

@@ -29,9 +29,11 @@ interface Props {
   options: ParameterSegmentedOption[]
 }
 
+/** Component props without defaults. */
 defineProps<Props>()
 
 const emit = defineEmits<{
+  /** Emitted when the selected option changes. */
   'update:modelValue': [value: string]
 }>()
 

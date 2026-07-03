@@ -11,9 +11,11 @@ interface Props {
    categories: HomeCategory[]
 }
 
+/** Component props without defaults. */
 defineProps<Props>()
 
 const emit = defineEmits<{
+  /** Emitted when a category is selected. */
    'select-category': [category: HomeCategory]
 }>()
 

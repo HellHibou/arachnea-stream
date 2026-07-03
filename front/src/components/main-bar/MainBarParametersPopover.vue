@@ -21,11 +21,13 @@ interface Props {
   panelId: string
 }
 
+/** Component props with applied defaults. */
 const props = withDefaults(defineProps<Props>(), {
   isParametersVisible: false,
 })
 
 const emit = defineEmits<{
+  /** Emitted when the parameters panel should be closed. */
   'close-parameters': []
 }>()
 
@@ -62,14 +64,17 @@ function handleWindowKeyDown(event: KeyboardEvent) {
   closeParameters()
 }
 
+/** Adds keyboard event listener when component mounts. */
 onMounted(() => {
   window.addEventListener('keydown', handleWindowKeyDown)
 })
 
+/** Removes keyboard event listener when component unmounts. */
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleWindowKeyDown)
 })
 
+/** Restores focus to toggle button when parameters panel is closed. */
 watch(
   () => props.isParametersVisible,
   (isParametersVisible, wasParametersVisible) => {

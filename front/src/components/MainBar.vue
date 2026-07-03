@@ -50,6 +50,7 @@ interface Props {
   selectedThemes?: string[]
 }
 
+/** Component props with applied defaults. */
 withDefaults(defineProps<Props>(), {
   showBackButton: false,
   isParametersVisible: false,
@@ -60,19 +61,31 @@ withDefaults(defineProps<Props>(), {
   selectedThemes: () => [],
 })
 const emit = defineEmits<{
+  /** Emitted when the search query changes. */
   'update:modelValue': [value: string]
+  /** Emitted when selected media types change. */
   'update:selectedMediaTypes': [value: string[]]
+  /** Emitted when selected themes change. */
   'update:selectedThemes': [value: string[]]
+  /** Emitted when the search form is submitted. */
   submit: []
+  /** Emitted when the back button is clicked. */
   back: []
+  /** Emitted when the home button is clicked. */
   home: []
+  /** Emitted when the lives button is clicked. */
   lives: []
+  /** Emitted when the parameters toggle is clicked. */
   'toggle-parameters': []
+  /** Emitted when the parameters panel is closed. */
   'close-parameters': []
+  /** Emitted when the search toggle is clicked. */
   'toggle-search': []
 }>()
 
+/** Unique ID for the parameters panel. */
 const parametersPanelId = useId()
+/** Unique ID for the parameters toggle button. */
 const parametersButtonId = useId()
 
 /**

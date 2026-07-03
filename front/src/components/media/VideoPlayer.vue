@@ -10,6 +10,7 @@ defineOptions({
   inheritAttrs: false,
 })
 
+/** Component props with applied defaults. */
 const props = withDefaults(defineProps<{
   /**
    * Resolved media source describing how one standalone media surface should be rendered.
@@ -238,62 +239,117 @@ const props = withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{
+  /** Emitted when the active language key changes. */
   'update:active-language-key': [value: string | null]
+  /** Emitted to remember the current language selection. */
   'remember-current-language': []
+  /** Emitted when the active player ID changes. */
   'update:active-player-id': [value: string | null]
+  /** Emitted to remember the current player selection. */
   'remember-current-player': []
+  /** Emitted when playback progress updates. */
   'update:playback-progress': [value: number | null]
+  /** Emitted when episode autoplay enabled state changes. */
   'update:is-episode-autoplay-enabled': [value: boolean]
+  /** Emitted when media playback starts. */
   'playback-started': [sourceUrl: string | null]
+  /** Emitted when media playback ends. */
   'playback-ended': []
+  /** Emitted when video metadata is loaded. */
   'video-metadata-loaded': [value: VideoJsMediaDimensions]
 }>()
+/** Internationalization utilities. */
 const { t } = useI18n()
 
+/** Video player composable results. */
 const {
+  /** Persisted video player state. */
   persistedVideoPlayerState,
+  /** Whether the media surface should be rendered. */
   shouldRenderSurface,
+  /** Whether the loading state should be rendered. */
   shouldRenderSurfaceLoadingState,
+  /** Whether the error state should be rendered. */
   shouldRenderSurfaceErrorState,
+  /** CSS class for the surface container. */
   surfaceContainerClass,
+  /** CSS classes for the surface state. */
   surfaceStateClasses,
+  /** Key for the active surface renderer. */
   activeSurfaceRendererKey,
+  /** Active iframe source for standalone rendering. */
   activeIframeSource,
+  /** Active video source for Video.js rendering. */
   activeVideoSource,
+  /** Attributes for standalone renderer. */
   standaloneRendererAttrs,
+  /** Title for the active iframe. */
   activeIframeTitle,
+  /** Allow attribute for the active iframe. */
   activeIframeAllow,
+  /** Allow fullscreen for the active iframe. */
   activeIframeAllowFullscreen,
+  /** Loading strategy for the active iframe. */
   activeIframeLoading,
+  /** Referrer policy for the active iframe. */
   activeIframeReferrerPolicy,
+  /** Aria hidden for the active iframe. */
   activeIframeAriaHidden,
+  /** Tab index for the active iframe. */
   activeIframeTabIndex,
+  /** CSS class for the active iframe. */
   activeIframeClass,
+  /** Aria label for the active video. */
   activeVideoAriaLabel,
+  /** Poster for the active video. */
   activeVideoPoster,
+  /** Overlay logo URL for the active video. */
   activeVideoOverlayLogoUrl,
+  /** Autoplay setting for the active video. */
   activeVideoAutoplay,
+  /** Muted setting for the active video. */
   activeVideoMuted,
+  /** Loop setting for the active video. */
   activeVideoLoop,
+  /** Controls setting for the active video. */
   activeVideoControls,
+  /** Playsinline setting for the active video. */
   activeVideoPlaysinline,
+  /** Preload setting for the active video. */
   activeVideoPreload,
+  /** Aria hidden setting for the active video. */
   activeVideoAriaHidden,
+  /** Tab index for the active video. */
   activeVideoTabIndex,
+  /** Initial playback time for the active video. */
   activeVideoInitialPlaybackTime,
+  /** Whether to show episode autoplay toggle for the active video. */
   activeVideoShowEpisodeAutoplayToggle,
+  /** Whether episode autoplay is enabled for the active video. */
   activeVideoIsEpisodeAutoplayEnabled,
+  /** Whether to show big play button for the active video. */
   activeVideoShowBigPlayButton,
+  /** CSS class for the active video. */
   activeVideoClass,
+  /** Whether to show the details player picker. */
   shouldShowDetailsPlayerPicker,
+  /** Language model for the player picker. */
   languageModel,
+  /** Player model for the player picker. */
   playerModel,
+  /** Function to handle player state updates. */
   handlePlayerStateUpdate,
+  /** Function to handle language changes. */
   handleLanguageChange,
+  /** Function to handle player changes. */
   handlePlayerChange,
+  /** Function to handle active video playback progress updates. */
   handleActiveVideoPlaybackProgressUpdate,
+  /** Function to handle active video playback start. */
   handleActiveVideoPlaybackStarted,
+  /** Function to handle active video playback end. */
   handleActiveVideoPlaybackEnded,
+  /** Function to handle active video episode autoplay enabled updates. */
   handleActiveVideoEpisodeAutoplayEnabledUpdate,
 } = useVideoPlayer(props, emit)
 </script>

@@ -31,6 +31,7 @@ withDefaults(defineProps<Props>(), {
 })
 
 const emit = defineEmits<{
+  /** Emitted when the switch checked state changes. */
   'update:checked': [value: boolean]
 }>()
 

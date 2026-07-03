@@ -6,6 +6,7 @@ import {
 } from '@/services/players'
 import type { BackgroundMediaCandidate, ThumbnailImageFit } from '@/types/media'
 
+/** Union type representing a resolved background media item, either an image with a source URL or a video with a resolved media source. */
 export type ResolvedBackgroundMediaItem =
   | { type: 'image'; src: string }
   | { type: 'video'; source: ResolvedPlayerMediaSource }
@@ -48,12 +49,24 @@ interface UseBackgroundMediaOptions {
   imageFit: Ref<ThumbnailImageFit>
 }
 
+/**
+ * Normalizes a background URL string by trimming whitespace.
+ *
+ * @param value - The URL string to normalize.
+ * @returns The trimmed URL string, or null if the value is empty or not a string.
+ */
 function normalizeBackgroundUrl(value: string | null | undefined): string | null {
   return typeof value === 'string' && value.trim().length > 0
     ? value.trim()
     : null
 }
 
+/**
+ * Creates a unique key for a resolved background media item for deduplication.
+ *
+ * @param item - The resolved background media item.
+ * @returns A string key identifying the media item type and source.
+ */
 function createBackgroundMediaKey(item: ResolvedBackgroundMediaItem): string {
   if (item.type === 'video') {
     return `video:${item.source.renderer}:${item.source.src}`
@@ -62,6 +75,13 @@ function createBackgroundMediaKey(item: ResolvedBackgroundMediaItem): string {
   return `image:${item.src}`
 }
 
+/**
+ * Resolves a background media candidate into a resolved media item.
+ * Prioritizes video sources over images.
+ *
+ * @param candidate - The background media candidate to resolve.
+ * @returns The resolved background media item, or null if no valid media is found.
+ */
 function resolveBackgroundCandidate(
   candidate: BackgroundMediaCandidate,
 ): ResolvedBackgroundMediaItem | null {
@@ -95,6 +115,8 @@ export function backgroundMedia(options: UseBackgroundMediaOptions) {
    * Returns the most appropriate image URL based on viewport orientation.
    * - If width > height: landscape first, then portrait
    * - If height > width: portrait first, then landscape
+   *
+   * @returns The selected image URL based on viewport orientation.
    */
   const selectedOrientationImageUrl = computed(() => {
     const portraitUrl = options.imagePortraitUrl.value
@@ -115,6 +137,8 @@ export function backgroundMedia(options: UseBackgroundMediaOptions) {
 
   /**
    * Resolves every background media candidate in display order.
+   *
+   * @returns Array of resolved background media items with duplicates removed.
    */
   const backgroundMediaItems = computed<ResolvedBackgroundMediaItem[]>(() => {
     const primaryImageUrl =
@@ -156,6 +180,8 @@ export function backgroundMedia(options: UseBackgroundMediaOptions) {
 
   /**
    * Indicates whether the background is currently rendered without media.
+   *
+   * @returns True when there are no background media items to display.
    */
   const isFallbackBackground = computed(() =>
     backgroundMediaItems.value.length === 0,
@@ -164,6 +190,8 @@ export function backgroundMedia(options: UseBackgroundMediaOptions) {
   /**
    * Exposes the CSS modifiers applied to the optional background image.
    * When animation is active, forces cover mode for proper Ken Burns effect.
+   *
+   * @returns Object containing CSS class modifiers for the background image.
    */
   const backgroundImageClasses = computed(() => {
     const isAnimated = options.isAnimated.value

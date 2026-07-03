@@ -16,13 +16,16 @@ interface Props {
   isList?: boolean
 }
 
+/** Component props with applied defaults. */
 withDefaults(defineProps<Props>(), {
   isList: false,
 })
 
 const emit = defineEmits<{
+  /** Emitted when the action button is clicked. */
   select: []
 }>()
+/** Internationalization utilities. */
 const { t } = useI18n()
 
 /**

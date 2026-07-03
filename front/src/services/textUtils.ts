@@ -19,6 +19,9 @@ export function textToHtml(text: string): string {
 
 /**
  * Builds an HTML entity string, e.g. _entity('amp') returns '&'.
+ *
+ * @param name - The entity name (e.g., 'amp', 'lt', 'gt').
+ * @returns The HTML entity string.
  */
 function _entity(name: string): string {
   return '\x26' + name + '\x3b'
@@ -26,6 +29,9 @@ function _entity(name: string): string {
 
 /**
  * Escapes HTML special characters (&, <, >, ", ') in a string.
+ *
+ * @param text - The string to escape.
+ * @returns The escaped string safe for HTML.
  */
 function _escapeHtml(text: string): string {
   const amp = _entity('amp')

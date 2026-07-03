@@ -38,23 +38,32 @@ interface Props {
   source: string | null
 }
 
+/** Component props without defaults. */
 const props = defineProps<Props>()
 const emit = defineEmits<{
+  /** Emitted when the trailer toggle is clicked. */
   'toggle-trailer': []
 }>()
 
+/** Whether the source logo is available for display. */
 const sourceLogoAvailable = ref(true)
+/** Service metadata utilities. */
 const { getService } = useServiceMetadata()
+/** Internationalization utilities. */
 const { t } = useI18n()
 
+/** Metadata for the current source. */
 const sourceMetadata = computed(() => getService(props.source))
+/** Display title for the current source. */
 const sourceTitle = computed(() =>
   sourceMetadata.value?.title?.trim() || props.source?.trim() || null,
 )
+/** URL of the source logo to display. */
 const sourceLogo = computed(() =>
   sourceLogoAvailable.value ? sourceMetadata.value?.logo ?? null : null,
 )
 
+/** Resets source logo availability when source prop changes. */
 watch(
   () => props.source,
   () => {

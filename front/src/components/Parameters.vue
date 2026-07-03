@@ -14,30 +14,48 @@ import ParameterSwitch from './parameters/ParameterSwitch.vue'
 import ParametersPanel from './parameters/ParametersPanel.vue'
 import ParametersSection from './parameters/ParametersSection.vue'
 
+/** Application parameters from persistent storage. */
 const parameters: StorageParameters = useStorage().getParameters()
+/** Home preferences from persistent storage. */
 const homePreferences: HomePreferences = useStorage().getHomePreferences()
+/** Internationalization utilities and current language options. */
 const { languageOptions, selectedLanguage, setLanguage, t } = useI18n()
+/** Unique component identifier for generating element IDs. */
 const componentId = useId()
+/** Unique ID for the language select element. */
 const languageInputId = `${componentId}-language`
+/** Unique ID for the thumbnail orientation switch. */
 const thumbnailOrientationInputId = `${componentId}-thumbnail-orientation`
+/** Unique ID for the thumbnail image fit switch. */
 const thumbnailImageFitInputId = `${componentId}-thumbnail-image-fit`
+/** Unique name for the collection mode segmented control. */
 const collectionModeInputName = `${componentId}-collection-mode`
+/** Unique name for the favorite collection mode segmented control. */
 const favoriteCollectionModeInputName = `${componentId}-favorite-collection-mode`
+/** Unique ID for the show section editing buttons switch. */
 const showSectionEditingButtonsInputId = `${componentId}-show-section-editing-buttons`
+/** Unique ID for the background animation switch. */
 const backgroundAnimationInputId = `${componentId}-background-animation`
+/** Unique ID for the background image fit switch. */
 const backgroundImageFitInputId = `${componentId}-background-image-fit`
+/** Unique ID for the use trailer as background switch. */
 const useTrailerAsBackgroundInputId = `${componentId}-use-trailer-as-background`
+/** Unique ID for the use catalog banners as background switch. */
 const useCatalogBannersAsBackgroundInputId = `${componentId}-use-catalog-banners-as-background`
+/** Available options for card collection mode selection. */
 const cardCollectionModeOptions = computed<Array<{ value: MediaCardCollectionMode; label: string }>>(() => [
   { value: 'grid', label: t('layout.grid') },
   { value: 'single-row', label: t('layout.row') },
   { value: 'list', label: t('layout.list') },
 ])
+/** Collection mode type excluding single-row for search. */
 type SearchCollectionMode = Exclude<MediaCardCollectionMode, 'single-row'>
+/** Available options for search collection mode selection. */
 const searchCollectionModeOptions = computed<Array<{ value: SearchCollectionMode; label: string }>>(() => [
   { value: 'grid', label: t('layout.grid') },
   { value: 'list', label: t('layout.list') },
 ])
+/** Current search collection mode derived from parameters. */
 const searchCollectionMode = computed<SearchCollectionMode>(() =>
   parameters.collectionMode.value === 'list' ? 'list' : 'grid',
 )

@@ -17,20 +17,39 @@ import Background from './components/Background.vue'
 import MainBar from './components/MainBar.vue'
 import { useSearchFilterOptions } from '@/composables/useSearchFilterOptions'
 
+// Router instances
 const route = useRoute()
 const router = useRouter()
+
+/** Template reference to the MainBar component for search input focus control. */
 const mainBarRef =
   useTemplateRef<ComponentPublicInstance<{ focusSearchInput: () => void }>>('mainBar')
+
+/** Reactive search state extracted from the current route query parameters. */
 const routeSearchState = computed(() => readSearchRouteQuery(route.query))
+
+/** Current search query string entered by the user. */
 const searchQuery = shallowRef('')
+
+/** Media types currently selected in the search filter. */
 const selectedMediaTypes = shallowRef<string[]>([])
+
+/** Themes currently selected in the search filter. */
 const selectedThemes = shallowRef<string[]>([])
 
+/** Whether the parameters popover is currently visible. */
 const isParametersVisible = shallowRef(false)
+
+/** Whether the search bar is currently visible. */
 const isSearchVisible = shallowRef(false)
+
+/** Application parameters loaded from persistent storage. */
 const parameters: Parameters = useStorage().getParameters()
+
+/** Filter options for media types and themes from the search configuration. */
 const { mediaTypeFilterOptions, themeFilterOptions } = useSearchFilterOptions()
 
+/** Background media items collected from catalog screens for the background layer. */
 const catalogBackgroundMediaItems = shallowRef<BackgroundMediaCandidate[]>([])
 
 /**

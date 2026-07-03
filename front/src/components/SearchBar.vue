@@ -43,6 +43,7 @@ interface Props {
   selectedThemes?: string[]
 }
 
+/** Component props with applied defaults. */
 withDefaults(defineProps<Props>(), {
   placeholder: 'Chercher...',
   buttonLabel: 'Chercher',
@@ -53,12 +54,17 @@ withDefaults(defineProps<Props>(), {
 })
 
 const emit = defineEmits<{
+  /** Emitted when the search query changes. */
   'update:modelValue': [value: string]
+  /** Emitted when selected media types change. */
   'update:selectedMediaTypes': [value: string[]]
+  /** Emitted when selected themes change. */
   'update:selectedThemes': [value: string[]]
+  /** Emitted when the search form is submitted. */
   submit: []
 }>()
 
+/** Internationalization utilities. */
 const { t } = useI18n()
 
 /**

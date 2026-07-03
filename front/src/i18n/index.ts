@@ -8,26 +8,38 @@ import type {
   TranslationParams,
 } from './types'
 
-// Marious messages to convert to i18n
+// Legacy messages to convert to i18n
 export const MSG_LIVE_TV = 'Live TV';
 export const MSG_LIVE = 'Live'; // live.direct
 export const MSG_LIVE_PLAYING = 'Direct en cours.'
 export const MSG_EPISODES = 'Episodes';
 
+/** Default fallback language code. */
 const DEFAULT_LANGUAGE = 'en'
+/** Special language code for automatic browser language detection. */
 const AUTO_LANGUAGE = 'auto'
+/** Base path for locale JSON files. */
 const LOCALE_BASE_PATH = '/locales'
 
+/** List of languages available for selection. */
 const availableLanguages = shallowRef<LocaleIndexLanguage[]>([
   { code: DEFAULT_LANGUAGE, label: 'English' },
 ])
+/** Reactive default language setting. */
 const defaultLanguage = shallowRef(DEFAULT_LANGUAGE)
+/** Currently selected language preference, or null for auto. */
 const selectedLanguage = shallowRef<string | null>(null)
+/** Resolved active language after applying preferences and fallbacks. */
 const resolvedLanguage = shallowRef(DEFAULT_LANGUAGE)
+/** Fallback translation dictionary (English). */
 const fallbackMessages = shallowRef<TranslationDictionary>({})
+/** Active translation dictionary for the selected language. */
 const activeMessages = shallowRef<TranslationDictionary>({})
+/** Whether translations are currently being loaded. */
 const isLoading = shallowRef(false)
+/** Error message from the last translation loading attempt, or null if successful. */
 const errorMessage = shallowRef<string | null>(null)
+/** Promise for tracking i18n initialization. */
 let initPromise: Promise<void> | null = null
 
 /**
@@ -46,6 +58,8 @@ export function initializeI18n(): Promise<void> {
 
 /**
  * Provides the shared localization state and translation helpers.
+ *
+ * @returns i18n state and utility functions.
  */
 export function useI18n() {
   return {
@@ -143,6 +157,8 @@ export function getThemeTranslationKey(value: string): string {
 
 /**
  * Loads the locale index, fallback dictionary, and active dictionary.
+ *
+ * @returns Promise resolved once all locale data is loaded.
  */
 async function loadInitialI18n(): Promise<void> {
   const storage = useStorage()
@@ -183,6 +199,7 @@ async function loadInitialI18n(): Promise<void> {
  * Applies one concrete language as the active dictionary.
  *
  * @param language Concrete language code.
+ * @returns Promise resolved once the language is applied.
  */
 async function applyActiveLanguage(language: string): Promise<void> {
   resolvedLanguage.value = language

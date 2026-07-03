@@ -85,6 +85,7 @@ interface Props {
     showServiceLogo?: boolean
   }
 
+  /** Component props with applied defaults. */
   const props = withDefaults(defineProps<Props>(), {
     mode: 'grid',
     hideMissingListThumbnails: false,
@@ -96,16 +97,24 @@ interface Props {
     showServiceLogo: true,
   })
 const emit = defineEmits<{
+  /** Emitted when a media item is selected. */
   select: [item: MediaItem]
 }>()
+/** Internationalization utilities. */
 const { t } = useI18n()
 
+/** Component slots. */
 const slots = useSlots()
+/** Unique ID for the label element. */
 const labelId = useId()
+/** Template reference to the viewport element. */
 const viewportRef = useTemplateRef<HTMLDivElement>('viewport')
+/** Number of items in the collection. */
 const itemsLength = computed(() => props.items.length)
+/** Whether header actions should be displayed. */
 const hasHeaderActions = computed(() => props.showHeaderActions && Boolean(slots['header-actions']))
 
+/** Scroll management utilities. */
 const { canScrollLeft, canScrollRight, showScrollControls, updateScrollState, scrollRow } =
   mediaCardCollectionScroll({
     mode: toRef(props, 'mode'),
@@ -115,6 +124,7 @@ const { canScrollLeft, canScrollRight, showScrollControls, updateScrollState, sc
     viewportRef,
   })
 
+/** Preview management utilities. */
 const { openPreviewItemId, handlePreviewOpen, handlePreviewClose, handlePreviewRootChange } =
   mediaCardCollectionPreviewManager({
     mode: toRef(props, 'mode'),
@@ -129,8 +139,11 @@ function handleSelect(item: MediaItem) {
   emit('select', item)
 }
 
+/** Resolved label for the load more button. */
 const effectiveLoadMoreLabel = computed(() => props.loadMoreLabel ?? t('catalog.loadMore'))
+/** Resolved label for the loading state. */
 const effectiveLoadingLabel = computed(() => props.loadingLabel ?? t('catalog.loading'))
+/** Resolved message for initial loading state. */
 const effectiveInitialLoadingMessage = computed(() =>
   props.initialLoadingMessage ?? t('catalog.loadingSection'),
 )

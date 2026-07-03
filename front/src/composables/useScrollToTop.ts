@@ -8,8 +8,10 @@ import {
   type MaybeRefOrGetter,
 } from 'vue'
 
+/** The scroll target as an HTMLElement, CSS selector string, or null for the document top. */
 type ScrollTarget = HTMLElement | string | null
 
+/** Configuration options for the scroll-to-top composable. */
 interface UseScrollToTopOptions {
   /**
    * Scroll offset that toggles the button when no custom visibility rule is provided.
@@ -39,8 +41,9 @@ export function useScrollToTop(options: UseScrollToTopOptions = {}) {
 
   /**
    * Scrolls to the configured target or to the top of the document.
+   * Uses smooth scrolling behavior.
    */
-  function scrollToTop() {
+  function scrollToTop(): void {
     void nextTick(() => {
       window.scrollTo({
         top: getScrollTop(),
@@ -51,8 +54,9 @@ export function useScrollToTop(options: UseScrollToTopOptions = {}) {
 
   /**
    * Refreshes button visibility from the current scroll position.
+   * Uses custom visibility rule if provided, otherwise checks against the threshold.
    */
-  function updateScrollToTopVisibility() {
+  function updateScrollToTopVisibility(): void {
     showScrollToTop.value = options.shouldShow
       ? options.shouldShow()
       : window.scrollY > threshold.value
@@ -60,6 +64,8 @@ export function useScrollToTop(options: UseScrollToTopOptions = {}) {
 
   /**
    * Resolves the target scroll offset.
+   *
+   * @returns The vertical offset in pixels from the top of the document.
    */
   function getScrollTop(): number {
     const target = options.target ? toValue(options.target) : null

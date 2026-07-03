@@ -10,8 +10,13 @@ import type {
 } from '@/types/media'
 import { defineStore } from 'pinia'
 
+/**
+ * Configuration entry for a storable parameter.
+ */
 interface ParameterEntry {
-  key: string,
+  /** The parameter key used for storage. */
+  key: string
+  /** The default value for the parameter. */
   defaultValue: any
 }
 
@@ -63,15 +68,25 @@ export interface VideoPlayerPreferences {
   textTrackSettings: VideoJsTextTrackSettings | null
 }
 
+/** Prefix used for all storage keys. */
 const STORE_PREFIX = "arachnea."
+/** Prefix used for parameter storage keys. */
 const PARAM_PREFIX = "param."
+/** Storage key for home pinned section order. */
 const HOME_PINNED_SECTION_ORDER_KEY = 'home.pinnedSectionOrder'
+/** Storage key for home section editing buttons visibility. */
 const HOME_SHOW_SECTION_EDITING_BUTTONS_KEY = 'home.showSectionEditingButtons'
+/** Storage key for home favorite collection mode. */
 const HOME_FAVORITE_COLLECTION_MODE_KEY = 'home.favoriteCollectionMode'
+/** Storage key for home section thumbnail orientation. */
 const HOME_SECTION_THUMBNAIL_ORIENTATION_KEY = 'home.sectionThumbnailOrientation'
+/** Storage key for home section thumbnail image fit. */
 const HOME_SECTION_THUMBNAIL_IMAGE_FIT_KEY = 'home.sectionThumbnailImageFit'
+/** Storage key for entry bookmarks. */
 const ENTRY_BOOKMARKS_KEY = 'entry.bookmarks'
+/** Storage key for video player preferences. */
 const VIDEO_PLAYER_PREFERENCES_KEY = 'videoPlayer.preferences'
+/** Keys for text track settings that can be persisted. */
 const TEXT_TRACK_SETTINGS_KEYS = [
   'backgroundColor',
   'backgroundOpacity',
@@ -83,6 +98,7 @@ const TEXT_TRACK_SETTINGS_KEYS = [
   'windowColor',
   'windowOpacity',
 ] as const
+/** Default text track preference with subtitles disabled. */
 const DEFAULT_TEXT_TRACK_PREFERENCE: VideoJsTextTrackPreference = {
   id: null,
   language: null,
@@ -162,6 +178,7 @@ export interface HomePreferences {
   sectionThumbnailImageFit: Ref<Record<string, ThumbnailImageFit>>
 }
 
+/** Default parameter definitions with their keys and default values. */
 const PARAMETERS_DEF: ParameterEntry[] = [
   { key: 'thumbnailOrientation',          defaultValue: 'landscape'},
   { key: 'thumbnailImageFit',             defaultValue: 'contain'  },

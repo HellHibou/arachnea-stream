@@ -7,11 +7,15 @@ import type {
   MediaSelectionTarget,
 } from '@/types/media'
 
+/** Application parameters loaded from persistent storage. */
 const parameters = useStorage().getParameters()
 
 const emit = defineEmits<{
+  /** Emitted when a media item is selected. */
   'select-item': [target: MediaSelectionTarget]
+  /** Emitted when a category is selected. */
   'select-category': [category: HomeCategory]
+  /** Emitted when background media items are updated. */
   'update:background-media-items': [mediaItems: BackgroundMediaCandidate[]]
 }>()
 </script>

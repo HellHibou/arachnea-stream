@@ -25,14 +25,27 @@ interface UseHomeCatalogDataOptions {
  * @returns Catalog payload, loading state, and error state for the current screen.
  */
 export function homeCatalogData(options: UseHomeCatalogDataOptions) {
+  /** Reactive reference to the catalog mode. */
   const mode = toRef(options.mode)
+  /** Reactive reference to the selected category. */
   const category = toRef(options.category)
+  /** Reactive reference to the loaded catalog data. */
   const catalog = shallowRef<HomeCatalogData | null>(null)
+  /** Whether the catalog is currently being loaded. */
   const isLoading = shallowRef(false)
+  /** Whether the catalog has been loaded at least once. */
   const hasLoaded = shallowRef(false)
+  /** Error message from catalog loading, or null if successful. */
   const errorMessage = shallowRef<string | null>(null)
+  /** Request identifier counter for ignoring stale responses. */
   const latestRequestId = shallowRef(0)
 
+  /**
+   * Cache key derived from the current mode and category.
+   * Used to detect when a new request is needed.
+   *
+   * @returns A string key identifying the current catalog request.
+   */
   const requestKey = computed(() => {
     if (mode.value !== 'category') {
       return 'home'
@@ -49,8 +62,9 @@ export function homeCatalogData(options: UseHomeCatalogDataOptions) {
 
   /**
    * Fetches the payload matching the current mode and ignores stale responses.
+   * Loads either the home catalog or a category-specific catalog based on the mode.
    */
-  async function loadCatalog() {
+  async function loadCatalog(): Promise<void> {
     const requestId = latestRequestId.value + 1
     latestRequestId.value = requestId
     errorMessage.value = null

@@ -19,7 +19,9 @@ import type {
   ThumbnailOrientation,
 } from '@/types/media'
 
+/** Collection mode for home page media card displays. */
 const homeCollectionMode: MediaCardCollectionMode = 'single-row'
+/** Collection mode for category page media card displays. */
 const categoryCollectionMode: MediaCardCollectionMode = 'grid'
 
 /**
@@ -48,6 +50,7 @@ interface Props {
   thumbnailImageFit?: ThumbnailImageFit
 }
 
+/** Component props with applied defaults. */
 const props = withDefaults(defineProps<Props>(), {
   mode: 'home',
   category: null,
@@ -56,34 +59,61 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const emit = defineEmits<{
+  /** Emitted when a media item is selected. */
   'select-item': [target: MediaSelectionTarget]
+  /** Emitted when a category is selected. */
   'select-category': [category: HomeCategory]
+  /** Emitted when background media items should be updated. */
   'update:background-media-items': [mediaItems: BackgroundMediaCandidate[]]
 }>()
 
+/** Home catalog composable results. */
 const {
+  /** The catalog data. */
   catalog,
+  /** Whether the catalog is currently loading. */
   isLoading,
+  /** Whether the catalog has completed initial load. */
   hasLoaded,
+  /** Error message from catalog loading. */
   errorMessage,
+  /** The current catalog being displayed. */
   currentCatalog,
+  /** Whether there is content to display. */
   hasContent,
+  /** Whether the current mode is home. */
   isHomeMode,
+  /** Collection mode for pinned sections. */
   pinnedSectionCollectionMode,
+  /** List of pinned sections. */
   pinnedSections,
+  /** List of non-pinned sections. */
   otherSections,
+  /** Whether section editing buttons should be shown. */
   showSectionEditingButtons,
+  /** Function to get thumbnail orientation for a section. */
   getSectionThumbnailOrientation,
+  /** Function to get thumbnail image fit for a section. */
   getSectionThumbnailImageFit,
+  /** Function to set section element reference. */
   setSectionElementRef,
+  /** Function to check if a section is currently loading. */
   isSectionLoading,
+  /** Function to get load error for a section. */
   getSectionLoadError,
+  /** Function to handle loading more section items. */
   handleLoadMoreSection,
+  /** Function to check if a section is pinned. */
   isSectionPinned,
+  /** Function to check if a pinned section can be moved. */
   canMovePinnedSection,
+  /** Function to toggle section pinned state. */
   toggleSectionPinned,
+  /** Function to move a pinned section. */
   movePinnedSection,
+  /** Function to update section thumbnail orientation. */
   updateSectionThumbnailOrientation,
+  /** Function to update section thumbnail image fit. */
   updateSectionThumbnailImageFit,
 } = useHomeCatalog({
   mode: toRef(props, 'mode'),
@@ -93,7 +123,9 @@ const {
   },
 })
 
+/** Scroll-to-top button state and handler. */
 const { showScrollToTop, scrollToTop } = useScrollToTop()
+/** Internationalization utilities. */
 const { t } = useI18n()
 
 /**
