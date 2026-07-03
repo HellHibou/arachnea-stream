@@ -20,6 +20,7 @@ pub mod policy;
 pub mod proxy_inventory;
 pub mod proxy_probe;
 pub mod proxy_record;
+pub mod proxy_store;
 mod routing;
 mod stats;
 pub mod transport;
@@ -64,6 +65,7 @@ pub use proxy_record::{
     ProxyDestinationFailureReason, ProxyLoadRequest, ProxyProtocol, ProxyRecord,
     ProxyRuntimeStatus,
 };
+pub use proxy_store::{JsonProxyCodec, ProxySerdeCodec, ProxySerdeStore, ProxyStore};
 pub use routing::{RouteDecision, RoutePolicy, RouteRule};
 pub use stats::{ProxyStats, ProxyStatsSnapshot};
 pub use transport::{socks::Socks5UdpAssociation, OutboundTransport, UdpAssociation};

@@ -1180,15 +1180,25 @@ Impact : base indispensable avant de charger des listes externes.
 
 Impact : coeur du comportement dynamique.
 
-### Etape 4 - Persistance fichier
+### Etape 4 - Persistance fichier ✅
 
-- Ajouter `ProxyStore`, `ProxySerdeCodec` et `ProxySerdeStore` dans
-  `arachnea-proxy`.
-- Serialiser/deserialiser generiquement `Vec<ProxyRecord>` avec `serde`, JSON
-  comme codec par defaut.
-- Charger l'inventaire au demarrage.
-- Sauvegarder apres chargement/probe, avec ecriture atomique.
-- Ajouter TTL, cooldown global et cooldown par destination.
+- Nouveau `ProxyStore`, `ProxySerdeCodec`, `ProxySerdeStore` et
+  `JsonProxyCodec` dans `proxy_store.rs`.
+- Serialisation/deserialisation directe de `Vec<ProxyRecord>` via `serde`, avec
+  JSON comme codec par defaut.
+- `ProxySerdeStore` exige explicitement un codec et expose `path()` / `codec()`.
+- Ecriture atomique : `path.tmp`, `sync_all`, puis `rename` vers le fichier
+  final.
+- Lecture absente = liste vide, ce qui permet un premier demarrage sans fichier
+  persiste.
+- `ProxyInventory::with_store(...)`, `load_from_store(...)` et
+  `save_to_store(...)` permettent de charger au demarrage et de sauvegarder
+  l'inventaire courant.
+- L'inventaire sauvegarde automatiquement le store configure apres chargement
+  lazy/probe et apres changements d'etat runtime (KO global, auth requise,
+  retour OK, echecs destination/cooldowns).
+- TTL, cooldown global et cooldown par destination restent portes par
+  `InventoryConfig` et `ProxyRecord`, puis sont persistables via le store.
 
 Impact : permet de ne pas retester/recharger a chaque lancement.
 

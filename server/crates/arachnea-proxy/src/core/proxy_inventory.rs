@@ -4,6 +4,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use tokio::sync::RwLock;
 
+use crate::core::proxy_store::ProxyStore;
 use crate::core::{
     Destination, ProxyDataProvider, ProxyProbe, ProxyRecord, ProxyRuntimeStatus, ProxyError,
     Result,
@@ -69,6 +70,7 @@ pub struct ProxyInventory {
     inner: RwLock<InventoryInner>,
     provider: Option<Arc<dyn ProxyDataProvider>>,
     probe: Option<Arc<ProxyProbe>>,
+    store: Option<Arc<dyn ProxyStore>>,
     config: InventoryConfig,
 }
 
@@ -94,8 +96,29 @@ impl ProxyInventory {
             }),
             provider,
             probe,
+            store: None,
             config,
         }
+    }
+
+    /// Creates a new proxy inventory with a persistent store.
+    ///
+    /// # Parameters
+    ///
+    /// - `config`: Inventory configuration (TTLs, cooldowns, thresholds).
+    /// - `provider`: Optional data provider for lazy loading per country.
+    /// - `probe`: Optional probe for testing newly loaded records.
+    /// - `store`: Persistent store used for explicit loads and automatic saves
+    ///   after lazy loading.
+    pub fn with_store(
+        config: InventoryConfig,
+        provider: Option<Arc<dyn ProxyDataProvider>>,
+        probe: Option<Arc<ProxyProbe>>,
+        store: Arc<dyn ProxyStore>,
+    ) -> Self {
+        let mut inventory = Self::new(config, provider, probe);
+        inventory.store = Some(store);
+        inventory
     }
 
     /// Returns the inventory configuration.
@@ -121,6 +144,20 @@ impl ProxyInventory {
     /// Returns the probe, if one is configured.
     pub fn probe(&self) -> Option<&Arc<ProxyProbe>> {
         self.probe.as_ref()
+    }
+
+    /// Returns the persistent store, if one is configured.
+    pub fn store(&self) -> Option<&Arc<dyn ProxyStore>> {
+        self.store.as_ref()
+    }
+
+    async fn save_configured_store(&self) {
+        let Some(store) = &self.store else {
+            return;
+        };
+        if let Err(error) = self.save_to_store(store.as_ref()).await {
+            tracing::warn!(%error, "failed to persist proxy inventory");
+        }
     }
 
     // ── Record management ────────────────────────────────────────────
@@ -334,6 +371,8 @@ impl ProxyInventory {
                         Instant::now() + self.config.negative_cache_duration,
                     );
                 }
+
+                self.save_configured_store().await;
             }
             Err(error) => {
                 tracing::warn!(country = %country, %error, "failed to load proxies");
@@ -366,86 +405,100 @@ impl ProxyInventory {
         destination: &Destination,
         reason: crate::core::ProxyDestinationFailureReason,
     ) -> bool {
-        let mut inner = self.inner.write().await;
-        let record = match inner.records.get_mut(authority) {
-            Some(r) => r,
-            None => return false,
+        let marked_ko = {
+            let mut inner = self.inner.write().await;
+            let record = match inner.records.get_mut(authority) {
+                Some(r) => r,
+                None => return false,
+            };
+
+            let now = SystemTime::now();
+            let failure_host = destination.host_for_protocol();
+
+            let entry = record.destination_failures.iter_mut().find(|f| {
+                f.scheme == destination_scheme(destination)
+                    && f.host == failure_host
+                    && f.port == destination.port
+            });
+
+            match entry {
+                Some(failure) => {
+                    failure.failure_count += 1;
+                    failure.last_failed = now;
+                    failure.reason = reason;
+                    failure.cooldown_until =
+                        Some(now + self.config.destination_failure_cooldown);
+                }
+                None => {
+                    record.destination_failures.push(
+                        crate::core::ProxyDestinationFailure {
+                            scheme: destination_scheme(destination),
+                            host: failure_host,
+                            port: destination.port,
+                            reason,
+                            failure_count: 1,
+                            last_failed: now,
+                            cooldown_until: Some(now + self.config.destination_failure_cooldown),
+                        },
+                    );
+                }
+            }
+
+            if record.destination_failures.len() >= self.config.max_destination_failures_before_ko {
+                record.status = ProxyRuntimeStatus::Ko;
+                record.failure_count += 1;
+                record.cooldown_until = Some(now + self.config.ko_cooldown);
+                record.destination_failures.clear();
+                true
+            } else {
+                false
+            }
         };
 
-        let now = SystemTime::now();
-        let failure_host = destination.host_for_protocol();
-
-        let entry = record.destination_failures.iter_mut().find(|f| {
-            f.scheme == destination_scheme(destination)
-                && f.host == failure_host
-                && f.port == destination.port
-        });
-
-        match entry {
-            Some(failure) => {
-                failure.failure_count += 1;
-                failure.last_failed = now;
-                failure.reason = reason;
-                failure.cooldown_until =
-                    Some(now + self.config.destination_failure_cooldown);
-            }
-            None => {
-                record.destination_failures.push(
-                    crate::core::ProxyDestinationFailure {
-                        scheme: destination_scheme(destination),
-                        host: failure_host,
-                        port: destination.port,
-                        reason,
-                        failure_count: 1,
-                        last_failed: now,
-                        cooldown_until: Some(now + self.config.destination_failure_cooldown),
-                    },
-                );
-            }
-        }
-
-        if record.destination_failures.len() >= self.config.max_destination_failures_before_ko {
-            record.status = ProxyRuntimeStatus::Ko;
-            record.failure_count += 1;
-            record.cooldown_until = Some(now + self.config.ko_cooldown);
-            record.destination_failures.clear();
-            return true;
-        }
-
-        false
+        self.save_configured_store().await;
+        marked_ko
     }
 
     /// Marks a proxy as globally failed (KO) with cooldown.
     pub async fn record_global_failure(&self, authority: &str) {
-        let mut inner = self.inner.write().await;
-        if let Some(record) = inner.records.get_mut(authority) {
-            let now = SystemTime::now();
-            record.status = ProxyRuntimeStatus::Ko;
-            record.failure_count += 1;
-            record.cooldown_until = Some(now + self.config.ko_cooldown);
-            record.destination_failures.clear();
+        {
+            let mut inner = self.inner.write().await;
+            if let Some(record) = inner.records.get_mut(authority) {
+                let now = SystemTime::now();
+                record.status = ProxyRuntimeStatus::Ko;
+                record.failure_count += 1;
+                record.cooldown_until = Some(now + self.config.ko_cooldown);
+                record.destination_failures.clear();
+            }
         }
+        self.save_configured_store().await;
     }
 
     /// Records that a proxy requires authentication.
     pub async fn record_auth_required(&self, authority: &str) {
-        let mut inner = self.inner.write().await;
-        if let Some(record) = inner.records.get_mut(authority) {
-            record.status = ProxyRuntimeStatus::AuthenticationRequired;
-            record.authentication_required = Some(true);
-            record.failure_count += 1;
+        {
+            let mut inner = self.inner.write().await;
+            if let Some(record) = inner.records.get_mut(authority) {
+                record.status = ProxyRuntimeStatus::AuthenticationRequired;
+                record.authentication_required = Some(true);
+                record.failure_count += 1;
+            }
         }
+        self.save_configured_store().await;
     }
 
     /// Updates a record's status to `Ok` and clears failure state.
     pub async fn record_ok(&self, authority: &str) {
-        let mut inner = self.inner.write().await;
-        if let Some(record) = inner.records.get_mut(authority) {
-            record.status = ProxyRuntimeStatus::Ok;
-            record.failure_count = 0;
-            record.cooldown_until = None;
-            record.destination_failures.clear();
+        {
+            let mut inner = self.inner.write().await;
+            if let Some(record) = inner.records.get_mut(authority) {
+                record.status = ProxyRuntimeStatus::Ok;
+                record.failure_count = 0;
+                record.cooldown_until = None;
+                record.destination_failures.clear();
+            }
         }
+        self.save_configured_store().await;
     }
 }
 
