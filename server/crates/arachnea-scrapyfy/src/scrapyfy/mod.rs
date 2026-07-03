@@ -49,6 +49,12 @@ pub use scraper_query_collection::{
     ScraperQueryCollection, ScraperQueryCollectionParameter, ScraperQueryCollectionRaw,
 };
 
+/// Proxy data provider placeholder for dynamic proxy loading.
+#[cfg(feature = "arachnea-proxy")]
+pub mod proxy_provider;
+#[cfg(feature = "arachnea-proxy")]
+pub use proxy_provider::{default_scrapyfy_proxy_inventory, ScrapyfyProxyDataProvider};
+
 /// Multi-source query aggregator.
 pub mod scraper_agregator;
 pub use scraper_agregator::{ScraperAgregator, ScraperSourceParams};

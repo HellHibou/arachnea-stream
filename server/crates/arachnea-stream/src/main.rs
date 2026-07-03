@@ -216,7 +216,7 @@ async fn main() -> Result<()> {
             DEFAULT_SERVICES_CONFIG_PATH,
         ))?;
 
-    //*
+    /*
     manager.clear_proxy();
 
     let proxy_fr = ProxyNode::from_url(

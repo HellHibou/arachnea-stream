@@ -1090,6 +1090,116 @@ Le fichier `services.json` sert de registre et reference les YAML de sources
 proxy. Ces YAML ne sont pas des sources media : ils produisent des `ProxyRecord`
 normalises.
 
+### Sources retenues pour la phase 5
+
+La phase 5 demarre avec deux sources publiques simples, traitees par un provider
+Rust cote `arachnea-scrapyfy` derriere la feature `arachnea-proxy`.
+
+#### Source texte `iplocate/free-proxy-list`
+
+Source utilisateur :
+
+```text
+https://github.com/iplocate/free-proxy-list/blob/main/all-proxies.txt
+```
+
+L'URL GitHub `blob` pointe vers une page HTML. Pour le chargement automatique,
+le provider doit utiliser l'URL brute equivalente :
+
+```text
+https://raw.githubusercontent.com/iplocate/free-proxy-list/main/all-proxies.txt
+```
+
+Le format est une liste texte, un proxy par ligne :
+
+```text
+socks5://57.129.123.224:30774
+socks5://212.77.75.25:1088
+socks4://184.181.217.194:4145
+http://163.172.53.142:80
+```
+
+Mapping vers `ProxyRecord` :
+
+- `protocol` vient du schema (`http`, `https`, `socks4`, `socks5`) ;
+- `host` et `port` viennent de l'URL ;
+- `country = None`, car cette source ne fournit pas de pays fiable ;
+- `supports_https = None`, car la source ne certifie pas le tunnel HTTPS ;
+- `latency_ms = None` avant probe ;
+- `availability = Unknown` ;
+- `source = "iplocate/free-proxy-list"`.
+
+Important : le provider ne doit pas tagger artificiellement les records avec le
+pays demande dans `ProxyLoadRequest.country`. Pour cette source, le pays reste
+inconnu jusqu'a une future resolution IP -> pays. En selection stricte par pays,
+ces records ne deviennent admissibles qu'apres l'etape 6 ou une autre source de
+pays fiable.
+
+#### Source JSON `vakhov/fresh-proxy-list`
+
+Source :
+
+```text
+https://raw.githubusercontent.com/vakhov/fresh-proxy-list/refs/heads/master/proxylist.json
+```
+
+Le format est un tableau JSON d'objets :
+
+```json
+[
+  {
+    "host": "ip72-195-101-99.oc.oc.cox.net",
+    "ip": "72.195.101.99",
+    "port": "4145",
+    "country_code": "US",
+    "country_name": "United States",
+    "delay": 1080,
+    "checks_up": "3512",
+    "checks_down": "498",
+    "http": "0",
+    "ssl": "0",
+    "socks4": "1",
+    "socks5": "0"
+  }
+]
+```
+
+Mapping vers `ProxyRecord` :
+
+- `host` utilise prioritairement `host` quand il est present et non vide, sinon
+  `ip` ;
+- `port` est parse depuis la chaine `port` ;
+- `country` utilise `country_code` quand il est present et non vide, normalise
+  en majuscules ;
+- `protocol` est derive des flags : `socks5 == "1"` -> `Socks5`, sinon
+  `socks4 == "1"` -> `Socks4`, sinon `ssl == "1"` -> `Https`, sinon
+  `http == "1"` -> `Http` ;
+- si plusieurs flags protocole sont actifs, l'ordre recommande est
+  `socks5`, `socks4`, `https`, `http` ;
+- `supports_https = Some(true)` seulement si `ssl == "1"` ou si le protocole
+  retenu est un protocole de tunnel qui sera confirme par probe ; sinon
+  `None` de preference a `Some(false)` tant que le probe n'a pas mesure ;
+- `latency_ms` peut etre initialisee depuis `delay` si la valeur est numerique ;
+- `availability` peut rester `Unknown` en v1 ;
+- `source = "vakhov/fresh-proxy-list"`.
+
+Contrairement a la source texte, cette source fournit un `country_code`. Cette
+donnee peut etre consideree comme le pays declare par la source et donc stockee
+dans `ProxyRecord.country`. Elle n'est pas reverifiee en v1, conformement au
+contrat general : un pays present est considere correct.
+
+### Mode de pays pour la phase 5
+
+Le cablage initial doit fonctionner avec `strict_country = false` pour permettre
+l'utilisation de sources globales ou partiellement renseignees. Cela signifie :
+
+- une demande sans pays peut utiliser les records globaux admissibles ;
+- une demande avec pays peut utiliser les records dont `country` correspond ;
+- les records `country = None` ne doivent pas etre faussement etiquetes avec le
+  pays demande ;
+- si une politique exige un pays strict, les records sans pays restent exclus
+  tant que l'etape 6 IP -> pays n'est pas disponible.
+
 ## Securite et limites
 
 Les proxies publics sont non fiables par definition. La documentation et la
@@ -1202,13 +1312,68 @@ Impact : coeur du comportement dynamique.
 
 Impact : permet de ne pas retester/recharger a chaque lancement.
 
-### Etape 5 - Provider scrapyfy
+### Etape 5 - Provider scrapyfy et cablage dynamique
 
-- Ajouter un service `ScrapyfyProxyDataProvider`.
-- Ajouter un format YAML de sortie aligne sur `ProxyRecord`.
-- Ajouter une source YAML de reference.
-- Brancher le provider dans la configuration proxy par defaut de
-  `arachnea-scrapyfy`.
+#### Etape 5.a - Squelette du provider scrapyfy ✅
+
+- [x] Ajout de `ScrapyfyProxyDataProvider` dans `arachnea-scrapyfy`, compile
+  derriere la feature `arachnea-proxy`.
+- [x] Le provider est volontairement un squelette : `load_proxies(...)` retourne
+  actuellement une liste minimale de records, avec un `TODO: A implementer` pour
+  le chargement reel.
+- [x] Exposition de `default_scrapyfy_proxy_inventory()` pour construire un
+  `ProxyInventory` dynamique par defaut branche sur le provider scrapyfy et le
+  `ProxyProbe` par defaut. La persistance reste fournie par l'application via le
+  store choisi.
+- [x] Les observations sur les sources `iplocate/free-proxy-list` et
+  `vakhov/fresh-proxy-list` restent documentees plus haut comme base pour
+  l'implementation future du chargement.
+
+Impact : le point d'extension cote `arachnea-scrapyfy` existe, mais il n'est pas
+encore utilise automatiquement par les requetes `country=FR` du runtime.
+
+#### Etape 5.b - Cablage runtime du routage pays dynamique
+
+- [ ] Brancher un `ProxyInventory` dans `ArachneaProxyCore` ou dans la
+  composition proxy utilisee par `arachnea-stream`.
+- [ ] Ajouter un routage pays dynamique, par exemple via un handler
+  `dynamic_country_routing` ou via un marqueur de pool logique
+  `dynamic-country:FR`.
+- [ ] Faire en sorte qu'une requete avec `country=FR` appelle
+  `ProxyInventory::select("FR", require_https)` au lieu de consommer uniquement
+  les routes statiques `CountryRoutingProxyHandler`.
+- [ ] En cas d'absence de candidat OK, laisser `ProxyInventory` declencher le
+  chargement lazy via `ProxyDataProvider`, puis probe et selection.
+- [ ] Convertir le `ProxyRecord` selectionne en `ProxyNode` seulement apres
+  resolution d'un protocole concret et validation des criteres de selection.
+- [ ] Respecter la politique de coexistence `static_only`, `dynamic_only`,
+  `static_then_dynamic` ou `dynamic_then_static` pour ne pas fusionner
+  implicitement pools statiques et dynamiques.
+- [ ] Ne pas faire de fallback direct implicite si aucun proxy dynamique n'est
+  disponible pour le pays demande.
+
+Impact : ce cablage est le morceau necessaire pour que le provider scrapyfy soit
+effectivement utilise par le chemin applicatif `proxy_country("FR")` et par les
+URLs proxy portant `Arachnea-Proxy-Country`.
+
+#### Etape 5.c - Chargement/parsing des sources proxy publiques
+
+- [ ] Remplacer le `TODO: A implementer` de `ScrapyfyProxyDataProvider` par une
+  vraie logique de chargement de donnees.
+- [ ] Implementer le chargement de la source texte `iplocate/free-proxy-list`,
+  un proxy URL par ligne.
+- [ ] Implementer le chargement de la source JSON `vakhov/fresh-proxy-list`,
+  objets avec host/ip/port/protocoles et `country_code`.
+- [ ] Normaliser ces formats vers `ProxyRecord` sans format intermediaire propre
+  a `arachnea-stream`.
+- [ ] Pour la source texte sans pays, conserver `country = None` et ne jamais
+  copier artificiellement `ProxyLoadRequest.country` dans les records.
+- [ ] Pour la source JSON, renseigner `country` depuis `country_code` quand il
+  est present.
+- [ ] Deduplicer les records charges par authority normalisee.
+- [ ] Ajouter ensuite un format YAML de sortie aligne sur `ProxyRecord` si le
+  moteur texte/JSON generique est etendu pour couvrir ces sources sans logique
+  Rust specifique.
 
 Impact : remplace le proxy FR code en dur par une source de donnees modifiable,
 sans imposer a `arachnea-stream` de gerer les proxies par pays.
