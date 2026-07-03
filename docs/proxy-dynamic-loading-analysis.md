@@ -1167,21 +1167,16 @@ Impact : API publique nouvelle, mais peu de changement comportemental.
 
 Impact : base indispensable avant de charger des listes externes.
 
-### Etape 3 - Inventaire runtime
+### Etape 3 - Inventaire runtime ✅
 
-- Ajouter `ProxyInventory` dans `arachnea-proxy`.
-- Stocker candidats, etats, latences, cooldowns.
-- Selectionner un candidat par pays/protocole/capacite HTTPS.
-- Ajouter un chargement lazy via `ProxyDataProvider`.
-- Debouncer les chargements par pays.
-- Gerer explicitement la coexistence avec les pools statiques via une politique
-  `static_only`, `dynamic_only`, `static_then_dynamic` ou `dynamic_then_static`.
-- Stocker les echecs par destination avec cooldown `scheme/host/port`, sans
-  marquer globalement KO un proxy qui echoue seulement contre une origine.
-- Marquer le proxy KO globalement quand il atteint le seuil d'echecs destination
-  actifs, par defaut `10`, puis vider sa liste `destination_failures`.
-- Borner les retries runtime et ne pas rejouer les requetes non idempotentes
-  sans opt-in explicite.
+- Nouveau `ProxyInventory` + `InventoryConfig` + `CoexistencePolicy` dans `proxy_inventory.rs`.
+- Stocke les records dans `HashMap<String, ProxyRecord>` indexée par authority, avec index pays.
+- `select(country, require_https)` : filtre par status OK, pas en cooldown, pas d'auth requise, support HTTPS si demandé, puis tri par latence puis failure_count.
+- `add_or_update()` : merge les records entrants sans écraser les champs runtime (status, latence, cooldown, destination_failures).
+- Chargement lazy via `ProxyDataProvider` avec verrou par pays et cache négatif.
+- `record_destination_failure()` : ajoute/met à jour un échec `scheme/host/port` ; au seuil de 10, marque KO global et vide la liste.
+- `record_global_failure()`, `record_auth_required()`, `record_ok()` pour la mise à jour d'état.
+- Module et ré-exports publics dans `core/mod.rs`.
 
 Impact : coeur du comportement dynamique.
 
