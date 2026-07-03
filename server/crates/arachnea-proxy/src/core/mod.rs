@@ -17,6 +17,7 @@ pub mod http;
 mod observability;
 mod parameters;
 pub mod policy;
+pub mod proxy_record;
 mod routing;
 mod stats;
 pub mod transport;
@@ -53,6 +54,11 @@ pub use parameters::{
 pub use policy::{
     EgressPool, EgressPoolStrategy, EgressSelector, NoopEgressSelector, PrivacyPolicy,
     ProxyPoolMemberState, ProxyPoolMemberStatus, SecurityPolicy,
+};
+pub use proxy_record::{
+    ProxyAvailabilityHint, ProxyDataProvider, ProxyDestinationFailure,
+    ProxyDestinationFailureReason, ProxyLoadRequest, ProxyProtocol, ProxyRecord,
+    ProxyRuntimeStatus,
 };
 pub use routing::{RouteDecision, RoutePolicy, RouteRule};
 pub use stats::{ProxyStats, ProxyStatsSnapshot};

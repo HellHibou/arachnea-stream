@@ -168,3 +168,6 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ### Changed
 - **Dynamic proxy loading analysis**: Clarified the `ProxyAvailabilityHint` contract, static/dynamic pool coexistence, strict HTTP/HTTPS probe URL requirements, runtime destination validation with per-origin cooldowns, synchronous bounded IP-to-country refresh behaviour, and the recommended CLI exposure for the refresh command.
 - **Dynamic proxy loading analysis**: Refined destination-failure retention so a proxy reaches global KO after 10 active per-origin failures and clears the persisted destination-failure list.
+-
+- ### Added
+- - **Step 1 — Dynamic proxy data contracts**: Added `ProxyRecord`, `ProxyProtocol`, `ProxyRuntimeStatus`, `ProxyAvailabilityHint`, `ProxyDestinationFailureReason`, `ProxyDestinationFailure`, `ProxyLoadRequest`, and the `ProxyDataProvider` trait in `arachnea-proxy/src/core/proxy_record.rs`. `ProxyRecord` supports serde serialisation with custom `SystemTime` epoch-millis encoding. A `try_to_node()` conversion produces a `ProxyNode` when the protocol is known, with automatic IPv6 bracketing.

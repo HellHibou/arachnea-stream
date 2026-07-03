@@ -1138,18 +1138,19 @@ timings restent des sources de fuite possibles.
 
 ## Plan de mise en oeuvre propose
 
-### Etape 1 - Contrats et modele de donnees
+### Etape 1 - Contrats et modele de donnees ✅
 
 - Ajouter dans `arachnea-proxy` :
-  - `ProxyRecord` ;
-  - `ProxyProtocol` ;
-  - `ProxyRuntimeStatus` ;
-  - `ProxyAvailabilityHint` ;
-  - `ProxyLoadRequest` ;
-  - `ProxyDataProvider`.
-- Garder `ProxyNode` concret.
-- Ajouter les conversions `ProxyRecord + protocol -> ProxyNode`, avec
-  normalisation IPv4, IPv6 et hostname.
+  - `ProxyRecord` → `proxy_record.rs` ;
+  - `ProxyProtocol` → `proxy_record.rs` ;
+  - `ProxyRuntimeStatus` → `proxy_record.rs` ;
+  - `ProxyAvailabilityHint` → `proxy_record.rs` ;
+  - `ProxyDestinationFailure` et `ProxyDestinationFailureReason` → `proxy_record.rs` ;
+  - `ProxyLoadRequest` → `proxy_record.rs` ;
+  - `ProxyDataProvider` (trait async) → `proxy_record.rs`.
+- Conversion `ProxyRecord + protocol -> ProxyNode` avec normalisation IPv4, IPv6 et hostname.
+- Sérialisation Serde + `SystemTime` encodé en millisecondes epoch.
+- Module et ré-exports publics dans `core/mod.rs`.
 
 Impact : API publique nouvelle, mais peu de changement comportemental.
 
