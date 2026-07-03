@@ -1154,17 +1154,16 @@ timings restent des sources de fuite possibles.
 
 Impact : API publique nouvelle, mais peu de changement comportemental.
 
-### Etape 2 - Probe explicite
+### Etape 2 - Probe explicite ✅
 
-- Extraire une API de test de proxy depuis la logique actuelle des pools.
-- Mesurer latence et support HTTPS.
-- Gerer la resolution du champ `protocol` pour les candidats sans protocole.
-- Ajouter une configuration de probe avec URLs HTTP/HTTPS explicites, timeouts
-  et mode strict.
-- Distinguer les probes hors contexte, qui utilisent des URLs configurees, des
-  validations runtime, qui utilisent l'origine reelle de la requete.
-- Detecter les proxies qui requierent une authentification et les exclure.
-- Mettre a jour directement `ProxyRecord`, sans structure `ProxyProbeReport`.
+- Nouvelle API `ProxyProbe` + `ProbeConfig` + `ProbeMode` dans `proxy_probe.rs`.
+- Mesure latence TCP, test HTTP CONNECT, SOCKS5/SOCKS4, tunnel HTTPS.
+- Détection d'authentification (HTTP 407, SOCKS5 0xFF).
+- Détection de protocole : itère `protocol_detection_order` quand `protocol` est absent.
+- `ProbeConfig.http_probe_url` / `.https_probe_url` configurables.
+- `validate_destination()` pour validation runtime sur destination réelle.
+- Met à jour `ProxyRecord` in-place (status, protocol, latency_ms, supports_https, etc.).
+- Module et ré-exports publics dans `core/mod.rs`.
 
 Impact : base indispensable avant de charger des listes externes.
 
