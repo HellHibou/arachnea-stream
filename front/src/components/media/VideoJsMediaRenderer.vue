@@ -343,24 +343,24 @@ const mergedAttrs = computed(() => ({
   left: 55%;
   width: 1.7rem;
   height: 1.7rem;
-   background: center / contain no-repeat url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2024'%20fill='none'%20stroke='white'%20stroke-width='3'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpath%20d='M3%209v6h5l8%206V3L8%209H3z'/%3E%3C/svg%3E");  content: '';
+  background-image: url("@/assets/icons/volume-mute.svg");  content: '';
   transform: translate(-50%, -50%);
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-mute-control.vjs-vol-0::before) {
-  background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2024'%20fill='none'%20stroke='white'%20stroke-width='3'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpath%20d='M3%209v6h5l8%206V3L8%209H3z'/%3E%3Cpath%20d='M22%208l8%208M30%208l-8%208'/%3E%3C/svg%3E");
+  background-image: url("@/assets/icons/volume-mute.svg");
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-mute-control.vjs-vol-1::before) {
-  background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2024'%20fill='none'%20stroke='white'%20stroke-width='3'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpath%20d='M3%209v6h5l8%206V3L8%209H3z'/%3E%3Cpath%20d='M22%2010v4'/%3E%3C/svg%3E");
+  background-image: url("@/assets/icons/volume-low.svg");
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-mute-control.vjs-vol-2::before) {
-  background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2024'%20fill='none'%20stroke='white'%20stroke-width='3'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpath%20d='M3%209v6h5l8%206V3L8%209H3z'/%3E%3Cpath%20d='M22%2010v4M26%208v8'/%3E%3C/svg%3E");
+  background-image: url("@/assets/icons/volume-medium.svg");
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-mute-control.vjs-vol-3::before) {
-  background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2024'%20fill='none'%20stroke='white'%20stroke-width='3'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpath%20d='M3%209v6h5l8%206V3L8%209H3z'/%3E%3Cpath%20d='M22%2010v4M26%208v8M30%206v12'/%3E%3C/svg%3E");
+  background-image: url("@/assets/icons/volume-high.svg");
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-mute-control .vjs-icon-placeholder::before),
@@ -581,8 +581,15 @@ const mergedAttrs = computed(() => ({
 .videojs-media-host :deep(.vjs-episode-autoplay-icon) {
   width: 14px;
   height: 14px;
-  fill: #000;
   display: block;
+  background-image: url("@/assets/icons/episode-autoplay-pause.svg");
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+.videojs-media-host :deep(.vjs-episode-autoplay-toggle--active .vjs-episode-autoplay-icon) {
+  background-image: url("@/assets/icons/episode-autoplay-play.svg");
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-fullscreen-control) {

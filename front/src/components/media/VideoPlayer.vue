@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { useVideoPlayer } from '@/composables/video/useVideoPlayer'
 import VideoJsMediaRenderer from '@/components/media/VideoJsMediaRenderer.vue'
+import LoadingSpinner from '@/components/icons/LoadingSpinner.vue'
 import { useI18n } from '@/i18n'
+
 import type { VideoJsMediaDimensions } from '@/composables/video/useVideoJsMediaRenderer'
 
 defineOptions({
@@ -305,30 +307,7 @@ const {
       :aria-label="t('media.loading')"
       role="status"
     >
-      <svg
-        class="entry-details__player-loading-spinner"
-        viewBox="0 0 50 50"
-        xmlns="http://www.w3.org/2000/svg"
-        aria-hidden="true"
-      >
-        <circle
-          class="entry-details__player-loading-spinner-track"
-          cx="25"
-          cy="25"
-          r="20"
-          fill="none"
-          stroke-width="4"
-        />
-        <circle
-          class="entry-details__player-loading-spinner-head"
-          cx="25"
-          cy="25"
-          r="20"
-          fill="none"
-          stroke-width="4"
-          stroke-linecap="round"
-        />
-      </svg>
+      <LoadingSpinner />
     </div>
 
     <div
