@@ -5,6 +5,7 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ## Unreleased
 
 ### Added
+- **Dynamic proxy loading analysis**: Added a French design analysis for country-based dynamic proxy loading, proxy probing, persistence, and the `arachnea-proxy`/`arachnea-scrapyfy` trait boundary.
 - **YAML `sub_queries` at entry level**: New `EntrySubQueryRaw` type (tagged by `scraper_type: html|json`) allows entries to declare follow-up HTTP requests seeded by the entry value. Supported in both `HtmlScraperEntryRaw` and `JsonScraperEntryRaw`. Parsed into `Box<dyn ScraperQuery>` via `EntrySubQueryRaw::into_boxed_query()`.
 - **Unified polymorphic executor**: `scraper::query_executor::execute_query_items` dispatches on `ScraperType` (Html/Json/Static) using the common `ScraperQuery` trait. Single execution path for all query types.
 - **`ScraperRequestMethod` and `ScraperRequestHeader` made public** — now visible through the `ScraperQuery` trait return types.
@@ -161,3 +162,9 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **M6Play MPD URL rewrites**: M6Play manifest replacements now use the proxy action `{proxy}` placeholder instead of embedding the resolved proxy path in the response sent to the client.
 - **Proxy action `{proxy}` placeholder**: `{proxy}` now resolves to the public proxy path such as `/api/proxy` instead of the absolute local entry-point URL.
 - **Proxy action `{base_url}` placeholder**: `{base_url}` now resolves to the target origin such as `https://myhost.be:8080`, without the target path or query string.
+
+## Unreleased — dynamic proxy loading analysis clarifications
+
+### Changed
+- **Dynamic proxy loading analysis**: Clarified the `ProxyAvailabilityHint` contract, static/dynamic pool coexistence, strict HTTP/HTTPS probe URL requirements, runtime destination validation with per-origin cooldowns, synchronous bounded IP-to-country refresh behaviour, and the recommended CLI exposure for the refresh command.
+- **Dynamic proxy loading analysis**: Refined destination-failure retention so a proxy reaches global KO after 10 active per-origin failures and clears the persisted destination-failure list.

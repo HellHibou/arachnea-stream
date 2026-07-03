@@ -47,6 +47,7 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 
 ## Server/Proxy
 
+- Mettre en place le chargement dynamique de proxies par pays, avec trait de fournisseur de donnees, inventaire runtime, probe latence/HTTPS, persistance et implementation `arachnea-scrapyfy` ; voir `docs/proxy-dynamic-loading-analysis.md`.
 - Évaluer MASQUE CONNECT-UDP après la stabilisation du socle UDP et d'une pile Rust HTTP/3 compatible.
 - Ajouter l'orchestration `ExternalTunnel` pour les processus locaux comme obfs4proxy, WebTunnel, les plugins Shadowsocks ou un daemon Tor local.
 - Ajouter les modes d'intégration Tor :
