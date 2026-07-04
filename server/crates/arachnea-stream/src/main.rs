@@ -33,7 +33,7 @@ const DEFAULT_FILE_CREDENTIALS_STORE_PATH: &str = "data/credentials.json";
 const DEFAULT_ENCRYPTED_FILE_CREDENTIALS_STORE_PATH: &str = "data/credentials";
 
 /// Default path used by the services configuration file.
-const DEFAULT_SERVICES_CONFIG_PATH: &str = "services/services.json";
+const DEFAULT_SERVICES_CONFIG_PATH: &str = "services/arachnea-stream/services.json";
 
 /// Custom URI scheme used by the desktop frontend.
 const TAURI_WEB_SCHEME: &str = "arachnea";

@@ -247,7 +247,7 @@ pub mod tests {
         }
 
         let yaml_path = format!(
-            "{}/services/{}.yaml",
+            "{}/services/{}",
             resources::get_application_root(),
             yaml_file
         );

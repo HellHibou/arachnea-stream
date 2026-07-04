@@ -11,7 +11,7 @@ use std::fs;
 use std::path::Path;
 
 const DEFAULT_FILE_CREDENTIALS_STORE_PATH: &str = "data/credentials.json";
-const SERVICES_CONFIG_PATH: &str = "services/services.json";
+const SERVICES_CONFIG_PATH: &str = "services/arachnea-stream/services.json";
 static DEFAULT_SEARCH_TERM: &str = "inf";
 static DEFAULT_QUERY_SOURCE: &str = "anime-sama";
 
@@ -246,12 +246,7 @@ fn load_enabled_services() -> Vec<String> {
     services
         .into_iter()
         .filter(|s| s.enabled)
-        .map(|s| {
-            // Extract the service path without .yaml extension (keep subdirectory path)
-            let path = Path::new(&s.path);
-            let path_without_ext = path.with_extension("");
-            path_without_ext.to_string_lossy().to_string()
-        })
+        .map(|s| { format!("arachnea-stream/{}", s.path) })
         .collect()
 }
 
