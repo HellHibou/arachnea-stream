@@ -246,16 +246,31 @@ interface VideoPlayerProps {
    */
   preferPersistedMediaSurface?: boolean
   /**
-   * Indicates whether the episode autoplay preference toggle should be rendered.
-   * @default false
-   */
-  showEpisodeAutoplayToggle?: boolean
-  /**
-   * Indicates whether the episode autoplay preference is currently enabled.
-   * @default false
-   */
-  isEpisodeAutoplayEnabled?: boolean
-}
+    * Indicates whether the episode autoplay preference toggle should be rendered.
+    * @default false
+    */
+   showEpisodeAutoplayToggle?: boolean
+   /**
+    * Indicates whether the episode autoplay preference is currently enabled.
+    * @default false
+    */
+   isEpisodeAutoplayEnabled?: boolean
+   /**
+    * Indicates whether video navigation controls should be shown in the player control bar.
+    * @default false
+    */
+   showVideoNavigationControls?: boolean
+   /**
+    * Indicates whether there is a previous video available to navigate to.
+    * @default false
+    */
+   hasPreviousVideo?: boolean
+   /**
+    * Indicates whether there is a next video available to navigate to.
+    * @default false
+    */
+   hasNextVideo?: boolean
+ }
 
 /**
  * Emits accepted by the video player composable.
@@ -277,6 +292,8 @@ interface VideoPlayerEmits {
   (evt: 'playback-started', sourceUrl: string | null): void
   /** Emitted when playback ends. */
   (evt: 'playback-ended'): void
+  /** Emitted when video navigation is requested via control bar buttons. */
+  (evt: 'navigate-video', direction: -1 | 1): void
 }
 
 /**
@@ -781,6 +798,33 @@ const activeIframeReferrerPolicy = computed<MediaIframeReferrerPolicy | null>(()
     entryDetailsSurfaceMode.value === 'media' && props.isEpisodeAutoplayEnabled,
   )
 
+  /**
+   * Indicates whether video navigation controls should be shown in the player control bar.
+   *
+   * @returns True when the media surface is active and navigation controls are enabled.
+   */
+  const activeVideoShowVideoNavigationControls = computed(() =>
+    entryDetailsSurfaceMode.value === 'media' && props.showVideoNavigationControls,
+  )
+
+  /**
+   * Indicates whether there is a previous video available to navigate to.
+   *
+   * @returns True when there is a previous playable video.
+   */
+  const activeVideoHasPreviousVideo = computed(() =>
+    entryDetailsSurfaceMode.value === 'media' && props.hasPreviousVideo,
+  )
+
+  /**
+   * Indicates whether there is a next video available to navigate to.
+   *
+   * @returns True when there is a next playable video.
+   */
+  const activeVideoHasNextVideo = computed(() =>
+    entryDetailsSurfaceMode.value === 'media' && props.hasNextVideo,
+  )
+
    /**
    * Indicates whether the big play button should be displayed on the Video.js player.
    * Controls visibility based on the controls prop, with CSS handling loading state.
@@ -955,6 +999,19 @@ const handleActiveVideoEpisodeAutoplayEnabledUpdate = (value: boolean): void => 
   handleEpisodeAutoplayEnabledUpdate(value)
 }
 
+/**
+ * Forwards the video navigation event only when the primary media surface is active.
+ *
+ * @param direction - Navigation direction: -1 for previous, 1 for next.
+ */
+const handleActiveVideoVideoNavigation = (direction: -1 | 1): void => {
+  if (entryDetailsSurfaceMode.value !== 'media') {
+    return
+  }
+
+  emit('navigate-video', direction)
+}
+
   return {
      // State
      persistedVideoPlayerState,
@@ -1001,6 +1058,9 @@ const handleActiveVideoEpisodeAutoplayEnabledUpdate = (value: boolean): void => 
      activeVideoInitialPlaybackTime,
      activeVideoShowEpisodeAutoplayToggle,
      activeVideoIsEpisodeAutoplayEnabled,
+     activeVideoShowVideoNavigationControls,
+     activeVideoHasPreviousVideo,
+     activeVideoHasNextVideo,
      activeVideoShowBigPlayButton,
      activeVideoClass,
      shouldShowDetailsPlayerPicker,
@@ -1020,5 +1080,6 @@ const handleActiveVideoEpisodeAutoplayEnabledUpdate = (value: boolean): void => 
      handleActiveVideoPlaybackStarted,
      handleActiveVideoPlaybackEnded,
      handleActiveVideoEpisodeAutoplayEnabledUpdate,
+     handleActiveVideoVideoNavigation,
    }
 }

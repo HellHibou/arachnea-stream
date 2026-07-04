@@ -71,7 +71,7 @@ export function getLiveTimeOffset(player: VideoJsPlayer): number {
  */
 export function formatLiveTimeOffset(offsetSeconds: number): string {
   if (Math.abs(offsetSeconds) <= TIMER_OFFSET_LIVE) {
-    return 'LIVE'
+    return ''
   }
 
   const absSeconds = Math.abs(offsetSeconds)

@@ -17,6 +17,7 @@ import {
   installSeekOnClick,
   installTimerToggle,
   syncEpisodeAutoplayToggleControl,
+  syncPrevNextVideoControls,
 } from '@/composables/video/video-js-media-renderer/controls'
 import { installStableFullscreenBridge } from '@/composables/video/video-js-media-renderer/fullscreen'
 import {
@@ -53,6 +54,8 @@ export type {
   VideoJsMediaRendererEmits,
   VideoJsMediaRendererProps,
 } from '@/composables/video/video-js-media-renderer/types'
+
+export type { VideoJsSourceInput } from '@/composables/video/video-js-media-renderer/types'
 
 /**
  * Manages the lifecycle and UI integration of one Video.js renderer instance.
@@ -300,6 +303,27 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
    }
 
    /**
+    * Updates the control bar with prev/next video navigation controls.
+    *
+    * @param player Video.js player currently bound to the renderer.
+    */
+   function syncPrevNextVideoControl(player: VideoJsPlayer) {
+     syncPrevNextVideoControls(player, {
+       controls: props.controls ?? false,
+       showPrevVideoControl: props.showVideoNavigationControls ?? false,
+       showNextVideoControl: props.showVideoNavigationControls ?? false,
+       hasPreviousVideo: props.hasPreviousVideo ?? false,
+       hasNextVideo: props.hasNextVideo ?? false,
+       onPrevVideo: () => {
+         emit('navigate-video', -1)
+       },
+       onNextVideo: () => {
+         emit('navigate-video', 1)
+       },
+     })
+   }
+
+   /**
     * Applies the host attribute used to suppress the big play button without waiting for a Vue render.
     *
     * @param shouldSuppressBigPlayButton Indicates whether the big play overlay should stay hidden.
@@ -352,6 +376,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     player.controls(props.controls ?? false)
     player.loop(props.loop ?? false)
     syncEpisodeAutoplayControl(player)
+    syncPrevNextVideoControl(player)
   }
 
   /**
@@ -835,7 +860,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
   watch(
     () => props.source,
     (nextSource, previousSource) => {
-      if (!activePlayer.value || !previousSource) {
+      if (!activePlayer.value || !previousSource || previousSource.src === nextSource.src) {
         return
       }
 
@@ -896,6 +921,21 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       }
 
       syncEpisodeAutoplayControl(activePlayer.value)
+    },
+  )
+
+  watch(
+    [
+      () => props.showVideoNavigationControls,
+      () => props.hasPreviousVideo,
+      () => props.hasNextVideo,
+    ],
+    () => {
+      if (!activePlayer.value) {
+        return
+      }
+
+      syncPrevNextVideoControl(activePlayer.value)
     },
   )
 

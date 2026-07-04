@@ -106,6 +106,21 @@ export interface VideoJsMediaRendererProps {
    * When undefined, defaults to the value of the `controls` prop.
    */
   showBigPlayButton?: boolean
+  /**
+   * Indicates whether video navigation controls should be shown in the player control bar.
+   * @default false
+   */
+  showVideoNavigationControls?: boolean
+  /**
+   * Indicates whether there is a previous video available to navigate to.
+   * @default false
+   */
+  hasPreviousVideo?: boolean
+  /**
+   * Indicates whether there is a next video available to navigate to.
+   * @default false
+   */
+  hasNextVideo?: boolean
 }
 
 /**
@@ -119,6 +134,7 @@ export interface VideoJsMediaRendererEmits {
   (evt: 'update:player-state', value: VideoJsPlayerState | null): void
   (evt: 'video-initial-load-complete'): void
   (evt: 'video-metadata-loaded', value: VideoJsMediaDimensions): void
+  (evt: 'navigate-video', direction: -1 | 1): void
 }
 
 /**

@@ -3,7 +3,7 @@ import { useVideoPlayer } from '@/composables/video/useVideoPlayer'
 import VideoJsMediaRenderer from '@/components/media/VideoJsMediaRenderer.vue'
 import LoadingSpinner from '@/components/icons/LoadingSpinner.vue'
 import { useI18n } from '@/i18n'
-
+import type { ResolvedVideoMediaSource } from '@/services/players'
 import type { VideoJsMediaDimensions } from '@/composables/video/useVideoJsMediaRenderer'
 
 defineOptions({
@@ -198,6 +198,21 @@ const props = withDefaults(defineProps<{
    * @default false
    */
   isEpisodeAutoplayEnabled?: boolean
+  /**
+   * Indicates whether video navigation controls should be shown in the player control bar.
+   * @default false
+   */
+  showVideoNavigationControls?: boolean
+  /**
+   * Indicates whether there is a previous video available to navigate to.
+   * @default false
+   */
+  hasPreviousVideo?: boolean
+  /**
+   * Indicates whether there is a next video available to navigate to.
+   * @default false
+   */
+  hasNextVideo?: boolean
 }>(), {
   source: null,
   iframeTitle: null,
@@ -257,6 +272,8 @@ const emit = defineEmits<{
   'playback-ended': []
   /** Emitted when video metadata is loaded. */
   'video-metadata-loaded': [value: VideoJsMediaDimensions]
+  /** Emitted when video navigation is requested via control bar buttons. */
+  'navigate-video': [direction: -1 | 1]
 }>()
 /** Internationalization utilities. */
 const { t } = useI18n()
@@ -351,6 +368,14 @@ const {
   handleActiveVideoPlaybackEnded,
   /** Function to handle active video episode autoplay enabled updates. */
   handleActiveVideoEpisodeAutoplayEnabledUpdate,
+  /** Whether to show video navigation controls for the active video. */
+  activeVideoShowVideoNavigationControls,
+  /** Whether there is a previous video for the active video. */
+  activeVideoHasPreviousVideo,
+  /** Whether there is a next video for the active video. */
+  activeVideoHasNextVideo,
+  /** Function to handle video navigation. */
+  handleActiveVideoVideoNavigation,
 } = useVideoPlayer(props, emit)
 </script>
 
@@ -388,12 +413,11 @@ const {
       :tabindex="activeIframeTabIndex ?? undefined"
     />
 
-    <VideoJsMediaRenderer
-      v-else-if="activeVideoSource"
-      v-bind="standaloneRendererAttrs"
-      :key="activeSurfaceRendererKey"
+<VideoJsMediaRenderer
+      v-if="activeVideoSource"
+      :key="`video-${activeSurfaceRendererKey}`"
       :class="activeVideoClass"
-      :source="activeVideoSource"
+      :source="(activeVideoSource as ResolvedVideoMediaSource)"
       :poster="activeVideoPoster"
       :overlay-logo-url="activeVideoOverlayLogoUrl"
       :autoplay="activeVideoAutoplay"
@@ -411,12 +435,17 @@ const {
       :is-episode-autoplay-enabled="activeVideoIsEpisodeAutoplayEnabled"
       :is-external-loading="shouldRenderSurfaceLoadingState"
       :show-big-play-button="activeVideoShowBigPlayButton"
+      :show-video-navigation-controls="activeVideoShowVideoNavigationControls"
+      :has-previous-video="activeVideoHasPreviousVideo"
+      :has-next-video="activeVideoHasNextVideo"
+      v-bind="standaloneRendererAttrs"
       @update:playback-progress="handleActiveVideoPlaybackProgressUpdate"
       @update:player-state="handlePlayerStateUpdate"
       @update:is-episode-autoplay-enabled="handleActiveVideoEpisodeAutoplayEnabledUpdate"
       @playback-started="handleActiveVideoPlaybackStarted"
       @playback-ended="handleActiveVideoPlaybackEnded"
       @video-metadata-loaded="emit('video-metadata-loaded', $event)"
+      @navigate-video="handleActiveVideoVideoNavigation"
     />
 
     <div v-if="shouldShowDetailsPlayerPicker" class="entry-details__player-picker">

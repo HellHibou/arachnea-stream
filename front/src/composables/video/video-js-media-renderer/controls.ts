@@ -1,6 +1,8 @@
 import {
   EPISODE_AUTOPLAY_CONTROL_ACTIVE_CLASS,
   EPISODE_AUTOPLAY_CONTROL_CLASS,
+  NEXT_VIDEO_CONTROL_CLASS,
+  PREV_VIDEO_CONTROL_CLASS,
   REMAINING_TIME_CLASS,
 } from '@/composables/video/video-js-media-renderer/constants'
 import {
@@ -218,6 +220,189 @@ export function syncEpisodeAutoplayToggleControl(
   }
 
   syncEpisodeAutoplayToggleState(button, options.isEpisodeAutoplayEnabled)
+}
+
+/**
+ * Gets the previous video control button element from the player.
+ *
+ * @param player - Video.js player instance.
+ * @returns Previous video control button element or null.
+ */
+function getPrevVideoControlElement(player: VideoJsPlayer): HTMLButtonElement | null {
+  return player.el()?.querySelector<HTMLButtonElement>(`.${PREV_VIDEO_CONTROL_CLASS}`) ?? null
+}
+
+/**
+ * Gets the next video control button element from the player.
+ *
+ * @param player - Video.js player instance.
+ * @returns Next video control button element or null.
+ */
+function getNextVideoControlElement(player: VideoJsPlayer): HTMLButtonElement | null {
+  return player.el()?.querySelector<HTMLButtonElement>(`.${NEXT_VIDEO_CONTROL_CLASS}`) ?? null
+}
+
+/**
+ * Options for syncing prev/next video controls.
+ */
+interface SyncPrevNextVideoControlsOptions {
+  /** Whether player controls are enabled. */
+  controls: boolean
+  /** Whether the previous video control should be shown. */
+  showPrevVideoControl: boolean
+  /** Whether the next video control should be shown. */
+  showNextVideoControl: boolean
+  /** Whether the previous video control is disabled. */
+  hasPreviousVideo: boolean
+  /** Whether the next video control is disabled. */
+  hasNextVideo: boolean
+  /** Callback invoked when the previous video button is clicked. */
+  onPrevVideo: () => void
+  /** Callback invoked when the next video button is clicked. */
+  onNextVideo: () => void
+}
+
+/**
+ * Synchronizes the visual state of a prev/next video control button.
+ *
+ * @param button - Control button element.
+ * @param isHidden - Whether the button should be hidden.
+ * @param labelKey - Translation key for the aria-label.
+ */
+function syncPrevNextVideoControlState(
+  button: HTMLButtonElement | null,
+  isHidden: boolean,
+  labelKey: string,
+) {
+  if (!button) {
+    return
+  }
+  button.disabled = isHidden
+  button.classList.toggle('vjs-prev-video-control--hidden', isHidden && button.classList.contains('vjs-prev-video-control'))
+  button.classList.toggle('vjs-next-video-control--hidden', isHidden && button.classList.contains('vjs-next-video-control'))
+  button.setAttribute('aria-label', t(labelKey))
+}
+
+/**
+ * Mounts or updates prev/next video controls inside the Video.js control bar.
+ * These controls are used for navigating between adjacent playable entries (episodes).
+ *
+ * @param player Video.js player currently bound to the renderer.
+ * @param options Reactive configuration and callbacks used by the controls.
+ */
+export function syncPrevNextVideoControls(
+  player: VideoJsPlayer,
+  options: SyncPrevNextVideoControlsOptions,
+) {
+  if (!options.controls) {
+    return
+  }
+
+  const playerElement = player.el()
+
+  if (!(playerElement instanceof HTMLElement)) {
+    return
+  }
+
+  const controlBarElement = playerElement.querySelector<HTMLElement>('.vjs-control-bar')
+
+  if (!controlBarElement) {
+    return
+  }
+
+  const existingSpacer = controlBarElement.querySelector('.arachnea-videojs-div-control')
+
+  if (!existingSpacer) {
+    const spacer = document.createElement('div')
+    spacer.className = 'arachnea-videojs-div-control'
+    const durationElement = controlBarElement.querySelector('.vjs-duration')
+
+    if (durationElement) {
+      controlBarElement.insertBefore(spacer, durationElement.nextSibling)
+    } else {
+      controlBarElement.append(spacer)
+    }
+  }
+
+  // Handle previous video control
+  const prevButton = getPrevVideoControlElement(player)
+
+  if (!options.showPrevVideoControl) {
+    prevButton?.remove()
+  } else {
+    if (!prevButton) {
+      const prevBtn = document.createElement('button')
+      prevBtn.type = 'button'
+      prevBtn.className = 'vjs-control vjs-button vjs-prev-video-control'
+      prevBtn.setAttribute('aria-label', t('entry.previousContent'))
+      prevBtn.addEventListener('click', options.onPrevVideo)
+
+      const qualityButton = controlBarElement.querySelector(
+        '.vjs-quality-menu-wrapper, .vjs-quality-menu-button',
+      )
+
+      if (qualityButton) {
+        controlBarElement.insertBefore(prevBtn, qualityButton)
+      } else {
+        const fullscreenButton = controlBarElement.querySelector('.vjs-fullscreen-control')
+
+        if (fullscreenButton) {
+          controlBarElement.insertBefore(prevBtn, fullscreenButton)
+        } else {
+          controlBarElement.append(prevBtn)
+        }
+      }
+    } else {
+      syncPrevNextVideoControlState(
+        prevButton,
+        !options.hasPreviousVideo,
+        'entry.previousContent',
+      )
+    }
+  }
+
+  // Handle next video control
+  const nextButton = getNextVideoControlElement(player)
+
+  if (!options.showNextVideoControl) {
+    nextButton?.remove()
+  } else {
+    if (!nextButton) {
+      const nextBtn = document.createElement('button')
+      nextBtn.type = 'button'
+      nextBtn.className = 'vjs-control vjs-button vjs-next-video-control'
+      nextBtn.setAttribute('aria-label', t('entry.nextContent'))
+      nextBtn.addEventListener('click', options.onNextVideo)
+
+      const prevBtnForInsert = controlBarElement.querySelector('.vjs-prev-video-control')
+
+      if (prevBtnForInsert && prevBtnForInsert.nextElementSibling) {
+        controlBarElement.insertBefore(nextBtn, prevBtnForInsert.nextElementSibling)
+      } else {
+        const qualityButton = controlBarElement.querySelector(
+          '.vjs-quality-menu-wrapper, .vjs-quality-menu-button',
+        )
+
+        if (qualityButton) {
+          controlBarElement.insertBefore(nextBtn, qualityButton)
+        } else {
+          const fullscreenButton = controlBarElement.querySelector('.vjs-fullscreen-control')
+
+          if (fullscreenButton) {
+            controlBarElement.insertBefore(nextBtn, fullscreenButton)
+          } else {
+            controlBarElement.append(nextBtn)
+          }
+        }
+      }
+    } else {
+      syncPrevNextVideoControlState(
+        nextButton,
+        !options.hasNextVideo,
+        'entry.nextContent',
+      )
+    }
+  }
 }
 
 /**

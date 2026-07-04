@@ -708,6 +708,28 @@ async function handlePlayerEpisodeStep(offset: -1 | 1) {
 }
 
 /**
+ * Moves to the previous or next playable episode triggered by the player control bar navigation
+ * buttons, and starts playback automatically.
+ *
+ * @param offset Relative episode offset to apply.
+ */
+async function handlePlayerControlStep(offset: -1 | 1) {
+  if (offset < 0) {
+    if (!hasPreviousEpisode.value) {
+      return
+    }
+
+    cancelPendingEpisodeNavigation()
+    beginEpisodeSelectionTransition(true)
+    handleEpisodeStep(offset)
+    applyEpisodeSelectionEffects(true)
+    return
+  }
+
+  await selectNextPlayableEpisode(true)
+}
+
+/**
  * Cancels automatic navigation before toggling between trailer and media.
  */
 function handlePlayerTrailerToggle() {
@@ -867,6 +889,7 @@ async function handleMediaPlaybackEnded() {
      :score="details?.score ?? null"
     @toggle-trailer="handlePlayerTrailerToggle"
     @step-playable="handlePlayerEpisodeStep"
+    @step-playable-autoplay="handlePlayerControlStep"
     @toggle-bookmark="handleBookmarkToggle"
     @update:active-language-key="handleActiveLanguageKeyUpdate"
     @remember-current-language="rememberCurrentLanguage"

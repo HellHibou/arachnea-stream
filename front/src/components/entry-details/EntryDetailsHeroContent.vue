@@ -66,6 +66,8 @@ const props = defineProps<Props>()
 const emit = defineEmits<{
   /** Emitted when navigating to adjacent playable entries. */
   'step-playable': [offset: -1 | 1]
+  /** Emitted when navigating to adjacent playable entries from the player control bar. */
+  'step-playable-autoplay': [offset: -1 | 1]
   /** Emitted when the active language key changes. */
   'update:active-language-key': [value: string | null]
   /** Emitted to remember the current language selection. */
@@ -109,6 +111,16 @@ function handlePlayableStep(offset: -1 | 1) {
 function handleBookmarkToggle() {
   emit('toggle-bookmark')
 }
+
+/**
+ * Requests selecting the previous or next playable item with autoplay enabled,
+ * triggered by the player control bar navigation buttons.
+ *
+ * @param offset Relative episode offset to apply.
+ */
+function handleAutoplayStep(offset: -1 | 1) {
+  emit('step-playable-autoplay', offset)
+}
 </script>
 
 <template>
@@ -128,7 +140,7 @@ function handleBookmarkToggle() {
         @toggle-bookmark="handleBookmarkToggle"
       />
 
-      <VideoPlayer
+<VideoPlayer
         :display-title="displayTitle"
         :show-trailer-player="showTrailerPlayer"
         :show-media-player="showMediaPlayer"
@@ -151,6 +163,9 @@ function handleBookmarkToggle() {
         :prefer-persisted-media-surface="preferPersistedMediaSurface"
         :show-episode-autoplay-toggle="showAutoplayToggle"
         :is-episode-autoplay-enabled="isAutoplayEnabled"
+        :show-video-navigation-controls="showAdjacentNavigation"
+        :has-previous-video="hasPreviousPlayable"
+        :has-next-video="hasNextPlayable"
         @update:active-language-key="emit('update:active-language-key', $event)"
         @remember-current-language="emit('remember-current-language')"
         @update:active-player-id="emit('update:active-player-id', $event)"
@@ -159,6 +174,7 @@ function handleBookmarkToggle() {
         @update:is-episode-autoplay-enabled="emit('update:is-autoplay-enabled', $event)"
         @playback-started="emit('playback-started', $event)"
         @playback-ended="emit('playback-ended')"
+        @navigate-video="handleAutoplayStep"
       />
 
       <p

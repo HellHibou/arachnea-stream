@@ -191,6 +191,8 @@ const { showScrollToTop, scrollToTop } = useScrollToTop({
 const emit = defineEmits<{
   /** Emitted when navigating to adjacent playable entries. */
   'step-playable': [offset: -1 | 1]
+  /** Emitted when navigating to adjacent playable entries from the player control bar. */
+  'step-playable-autoplay': [offset: -1 | 1]
   /** Emitted when the bookmark toggle is clicked. */
   'toggle-bookmark': []
   /** Emitted when the trailer toggle is clicked. */
@@ -297,7 +299,8 @@ const emit = defineEmits<{
              :prefer-persisted-media-surface="props.preferPersistedMediaSurface"
               :show-autoplay-toggle="resolvedShowAutoplayToggle"
               :is-autoplay-enabled="props.isAutoplayEnabled"
-             @step-playable="emit('step-playable', $event)"
+              @step-playable="emit('step-playable', $event)"
+              @step-playable-autoplay="emit('step-playable-autoplay', $event)"
              @toggle-bookmark="emit('toggle-bookmark')"
              @update:active-language-key="emit('update:active-language-key', $event)"
              @remember-current-language="emit('remember-current-language')"

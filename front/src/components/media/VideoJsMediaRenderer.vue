@@ -262,12 +262,6 @@ const mergedAttrs = computed(() => ({
   opacity: 1;
 }
 
-.videojs-media-host :deep(
-  .arachnea-videojs-theme .vjs-control:not(.vjs-progress-control, .vjs-time-control, .vjs-time-divider)
-) {
-  width: 3rem;
-}
-
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-play-control) {
   order: 1;
   flex: 0 0 auto;
@@ -276,7 +270,7 @@ const mergedAttrs = computed(() => ({
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-volume-panel) {
-  order: 2;
+  order: 3;
   display: flex !important;
   flex: 0 0 auto;
   width: auto !important;
@@ -284,7 +278,6 @@ const mergedAttrs = computed(() => ({
   margin: 0 0.9rem 0 0;
   padding-top: 0 !important;
   overflow: visible;
-  transition: width var(--duration-fast) ease;
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-volume-control.vjs-volume-horizontal) {
@@ -297,14 +290,21 @@ const mergedAttrs = computed(() => ({
   opacity: 0;
   pointer-events: none;
   overflow: hidden;
-  transition: flex-basis var(--duration-fast) ease !important, opacity var(--duration-fast) ease !important;
+  transition:
+    opacity 0.2s ease 1s,
+    flex 0.2s ease 1s;
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-volume-panel:hover .vjs-volume-control.vjs-volume-horizontal) {
   flex: 0 0 5.15rem !important;
+  width: 5.15rem !important;
   opacity: 1;
   pointer-events: auto;
-  transition: flex-basis var(--duration-fast) ease !important, opacity var(--duration-fast) ease !important;
+  visibility: visible;
+  transition:
+    opacity 0.1s ease,
+    flex 0.1s ease,
+    width 0.1s ease;
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-volume-level::after) {
@@ -324,14 +324,12 @@ const mergedAttrs = computed(() => ({
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-volume-panel:hover .vjs-volume-level::after) {
   opacity: 1;
-  transition: opacity var(--duration-fast) ease !important;
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-volume-panel:hover .vjs-volume-control.vjs-volume-horizontal) {
   width: 5.15rem !important;
   opacity: 1;
   visibility: visible;
-  transition: width var(--duration-fast) ease 0s, opacity var(--duration-fast) ease 0s, visibility var(--duration-fast) ease 0s;
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-mute-control) {
@@ -339,11 +337,18 @@ const mergedAttrs = computed(() => ({
   z-index: 2;
   display: block !important;
   flex: 0 0 2.35rem;
-  width: 2.35rem !important;
   height: var(--videojs-time-line-height);
-  margin: 0 0.35rem 0 0;
-  padding: 0 !important;
+  margin: 0 0 0 0;
   background: transparent;
+  top: 2px;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-audio-button .vjs-icon-placeholder:before){    font-size: 2.3em;   /* encore plus gros */
+ font-size: 2.1em;   /* encore plus gros */
+}
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-subs-caps-button .vjs-icon-placeholder:before),
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-subtitles-button .vjs-icon-placeholder:before) {
+    font-size: 2.4em;   /* encore plus gros */
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-mute-control::before) {
@@ -423,35 +428,11 @@ const mergedAttrs = computed(() => ({
   content: none !important;
 }
 
-.videojs-media-host :deep(.arachnea-videojs-theme .vjs-volume-level::after) {
-  position: absolute;
-  top: 50%;
-  right: -0.55rem;
-  z-index: 1;
-  width: 1.1rem;
-  height: 1.1rem;
-  border-radius: 50%;
-  background: var(--color-primary);
-  content: '';
-  transform: translateY(-50%);
-}
+
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-volume-tooltip),
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-volume-control .vjs-mouse-display) {
   display: none !important;
-}
-
-.videojs-media-host :deep(.arachnea-videojs-theme .vjs-current-time),
-.videojs-media-host :deep(.arachnea-videojs-theme .vjs-remaining-time) {
-  order: 3;
-  flex: 0 0 auto;
-  min-width: 0;
-  padding: 0 var(--videojs-control-padding);
-  line-height: var(--videojs-time-line-height);
-  text-align: left;
-  font-size: var(--player-font-size);
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme.arachnea-live-stream .vjs-current-time) {
@@ -472,14 +453,29 @@ const mergedAttrs = computed(() => ({
   background-color: rgb(255 255 255 / 0.3);
 }
 
-.videojs-media-host :deep(.arachnea-videojs-theme .vjs-live-control) {
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-live-control),
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-seek-to-live-control) {
+  order: 4;
+  flex: 0 0 auto;
+  min-width: 0;
+  padding: 10 var(--videojs-control-padding);
+  line-height: var(--videojs-time-line-height);
+  font-size: 1.3em;
+  font-weight: 600;
+}
+
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-current-time),
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-remaining-time) {
   order: 10;
   flex: 0 0 auto;
   min-width: 0;
   padding: 0 var(--videojs-control-padding);
   line-height: var(--videojs-time-line-height);
-  font-size: 1.1em;
-  font-weight: 600;
+  text-align: left;
+  font-size: var(--player-font-size);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-time-divider) {
@@ -489,7 +485,7 @@ const mergedAttrs = computed(() => ({
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-time-divider),
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-duration) {
-  order: 4;
+  order: 11;
   flex: 0 0 auto;
   display: flex;
   align-items: center;
@@ -540,6 +536,58 @@ const mergedAttrs = computed(() => ({
   flex: 0 0 auto;
 }
 
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-prev-video-control),
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-next-video-control) {
+  order: 2;
+  flex: 0 0 auto;
+  width: var(--videojs-icon-control-width);
+  font-size: var(--player-font-size);
+  position: relative;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-prev-video-control:hover),
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-next-video-control:hover) {
+  filter: brightness(1.06);
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-prev-video-control--hidden),
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-next-video-control--hidden) {
+  display: none;
+  width: 0;
+  margin: 0;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-prev-video-control::before) {
+  content: '';
+  display: block;
+  width: 24px;
+  height: 24px;
+  background-image: url("@/assets/icons/previous-video.svg");
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-next-video-control::before) {
+  content: '';
+  display: block;
+  width: 24px;
+  height: 24px;
+  background-image: url("@/assets/icons/next-video.svg");
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-prev-video-control .vjs-icon-placeholder),
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-next-video-control .vjs-icon-placeholder),
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-prev-video-control .vjs-svg-icon),
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-next-video-control .vjs-svg-icon) {
+  display: none !important;
+}
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-episode-autoplay-toggle) {
   order: 39;
@@ -764,7 +812,8 @@ const mergedAttrs = computed(() => ({
   padding-bottom: 4px !important;
   transform: translateY(-10px) !important;
   font-weight: 700 !important;
-  border: 2px solid rgba(255, 255, 255, .9) !important;
+  border: 1px solid rgba(255, 255, 255, .9) !important;
+  background-color: rgba(0,0,0, 0.40);
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-play-progress .vjs-time-tooltip) {
