@@ -42,12 +42,38 @@ pub struct ScraperAgregator {
 }
 
 impl ScraperAgregator {
-    /// Creates an empty aggregator with no loaded query collections.
+    /// Creates an empty aggregator with default proxy setup.
+    ///
+    /// Initializes a shared proxy handle, attempts to enable the system proxy,
+    /// and tries to create a dynamic proxy core backed by the scrapyfy proxy
+    /// provider for country-based routing.
     pub fn new() -> Self {
-        Self::new_with_proxy_handle(SharedProxyConfigHandle::new())
+        let proxy_handle = SharedProxyConfigHandle::new();
+
+        #[cfg(feature = "arachnea-proxy")]
+        {
+            if let Err(error) = proxy_handle.enable_system_proxy() {
+                tracing::warn!(
+                    error = %error,
+                    "failed to enable default scraper HTTP proxy; continuing without proxy override"
+                );
+            }
+        }
+
+        let proxy_core = Self::create_default_proxy_core();
+
+        ScraperAgregator {
+            queries_collection: Vec::new(),
+            proxy_handle,
+            #[cfg(feature = "arachnea-proxy")]
+            proxy_core,
+        }
     }
 
     /// Creates an empty aggregator bound to one shared proxy handle.
+    ///
+    /// This constructor does not attempt any default proxy setup. Use it when
+    /// the caller wants full control over the proxy configuration.
     pub fn new_with_proxy_handle(proxy_handle: SharedProxyConfigHandle) -> Self {
         ScraperAgregator {
             queries_collection: Vec::new(),
@@ -57,8 +83,33 @@ impl ScraperAgregator {
         }
     }
 
+    /// Tries to create the default dynamic proxy core for country-based routing.
+    #[cfg(feature = "arachnea-proxy")]
+    fn create_default_proxy_core() -> Option<ArachneaProxyCore> {
+        match default_scrapyfy_proxy_core() {
+            Ok(core) => {
+                tracing::info!(
+                    "Dynamic proxy core created with scrapyfy provider for country routing"
+                );
+                Some(core)
+            }
+            Err(error) => {
+                tracing::warn!(
+                    error = %error,
+                    "failed to create dynamic proxy core; proxy_http will be unavailable"
+                );
+                None
+            }
+        }
+    }
+
     /// Returns the shared proxy handle used by this aggregator and its queries.
     pub fn proxy_handle(&self) -> SharedProxyConfigHandle {
+        self.proxy_handle.clone()
+    }
+
+    /// Returns the shared proxy handle used by this aggregator and its queries.
+    pub fn get_proxy_handle(&self) -> SharedProxyConfigHandle {
         self.proxy_handle.clone()
     }
 

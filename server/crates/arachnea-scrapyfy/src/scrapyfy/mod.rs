@@ -53,7 +53,9 @@ pub use scraper_query_collection::{
 #[cfg(feature = "arachnea-proxy")]
 pub mod proxy_provider;
 #[cfg(feature = "arachnea-proxy")]
-pub use proxy_provider::{default_scrapyfy_proxy_inventory, ScrapyfyProxyDataProvider};
+pub use proxy_provider::{
+    default_scrapyfy_proxy_core, default_scrapyfy_proxy_inventory, ScrapyfyProxyDataProvider,
+};
 
 /// Multi-source query aggregator.
 pub mod scraper_agregator;

@@ -11,7 +11,7 @@ use crate::core::{
 };
 
 /// Policy controlling how static and dynamic proxy pools coexist.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CoexistencePolicy {
     /// Use only statically configured pools; never load dynamic proxies.
     StaticOnly,

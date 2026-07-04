@@ -1334,22 +1334,22 @@ encore utilise automatiquement par les requetes `country=FR` du runtime.
 
 #### Etape 5.b - Cablage runtime du routage pays dynamique
 
-- [ ] Brancher un `ProxyInventory` dans `ArachneaProxyCore` ou dans la
+- [x] Brancher un `ProxyInventory` dans `ArachneaProxyCore` ou dans la
   composition proxy utilisee par `arachnea-stream`.
-- [ ] Ajouter un routage pays dynamique, par exemple via un handler
+- [x] Ajouter un routage pays dynamique, par exemple via un handler
   `dynamic_country_routing` ou via un marqueur de pool logique
   `dynamic-country:FR`.
-- [ ] Faire en sorte qu'une requete avec `country=FR` appelle
+- [x] Faire en sorte qu'une requete avec `country=FR` appelle
   `ProxyInventory::select("FR", require_https)` au lieu de consommer uniquement
   les routes statiques `CountryRoutingProxyHandler`.
-- [ ] En cas d'absence de candidat OK, laisser `ProxyInventory` declencher le
+- [x] En cas d'absence de candidat OK, laisser `ProxyInventory` declencher le
   chargement lazy via `ProxyDataProvider`, puis probe et selection.
-- [ ] Convertir le `ProxyRecord` selectionne en `ProxyNode` seulement apres
+- [x] Convertir le `ProxyRecord` selectionne en `ProxyNode` seulement apres
   resolution d'un protocole concret et validation des criteres de selection.
-- [ ] Respecter la politique de coexistence `static_only`, `dynamic_only`,
+- [x] Respecter la politique de coexistence `static_only`, `dynamic_only`,
   `static_then_dynamic` ou `dynamic_then_static` pour ne pas fusionner
   implicitement pools statiques et dynamiques.
-- [ ] Ne pas faire de fallback direct implicite si aucun proxy dynamique n'est
+- [x] Ne pas faire de fallback direct implicite si aucun proxy dynamique n'est
   disponible pour le pays demande.
 
 Impact : ce cablage est le morceau necessaire pour que le provider scrapyfy soit

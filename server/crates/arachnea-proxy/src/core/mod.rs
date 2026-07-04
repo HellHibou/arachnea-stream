@@ -49,9 +49,9 @@ pub use http::{HttpRequestStream, HttpRequestTargetForm};
 pub use observability::{LogSensitivity, ObservabilityConfig};
 pub use parameters::{
     build_parameter_handler, context_from_parameter_pairs, normalize_parameter_value,
-    CountryRoutingProxyHandler, ParameterDefinition, ParameterHandlerConfig,
-    ParameterHandlerDecision, ParameterHandlerKind, ParameterProxyRoute, ParameterRegistry,
-    ProxyParameterHandler, SmartDnsProxyHandler, PROXY_HEADER_PARAMETER_COUNTRY,
+    CountryRoutingProxyHandler, DynamicCountryRoutingProxyHandler, ParameterDefinition,
+    ParameterHandlerConfig, ParameterHandlerDecision, ParameterHandlerKind, ParameterProxyRoute,
+    ParameterRegistry, ProxyParameterHandler, SmartDnsProxyHandler, PROXY_HEADER_PARAMETER_COUNTRY,
     PROXY_PARAMETER_COUNTRY,
 };
 pub use policy::{

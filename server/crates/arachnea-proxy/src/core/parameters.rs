@@ -2,7 +2,9 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::{ClientContext, ClientParameter, ProxyError, ProxyNode, Result, TransportKind};
+use crate::core::{
+    ClientContext, ClientParameter, CoexistencePolicy, ProxyError, ProxyNode, Result, TransportKind,
+};
 
 /// Proxy country parameter header name.
 pub const PROXY_HEADER_PARAMETER_COUNTRY: &str = "Arachnea-Proxy-Country";
@@ -120,6 +122,9 @@ pub enum ParameterHandlerKind {
     SmartDns,
     /// Handler that maps a country parameter to an egress proxy.
     CountryRouting,
+    /// Handler that resolves a country parameter through the dynamic proxy
+    /// inventory, returning a proxy pool marker resolved at connect time.
+    DynamicCountryRouting,
 }
 
 /// One configured parameter value to proxy mapping.
@@ -388,7 +393,91 @@ impl ProxyParameterHandler for CountryRoutingProxyHandler {
     }
 }
 
-/// Registry that merges parameter definitions from built-in and custom handlers.
+/// Handler that resolves a country parameter through the dynamic proxy
+/// inventory at connect time.
+///
+/// This handler is synchronous: it returns a `ProxyPool` marker node named
+/// `dynamic-country:<CODE>` that is resolved asynchronously during pool
+/// resolution in [`ArachneaProxyCore`].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DynamicCountryRoutingProxyHandler {
+    definition: ParameterDefinition,
+    stop_on_match: bool,
+    coexistence_policy: CoexistencePolicy,
+}
+
+impl DynamicCountryRoutingProxyHandler {
+    /// Creates a new dynamic country routing handler.
+    ///
+    /// # Parameters
+    ///
+    /// - `coexistence_policy`: Policy controlling when dynamic routing
+    ///   activates relative to static pools.
+    ///
+    /// # Returns
+    ///
+    /// Handler using `Arachnea-Proxy-Country` and `country`.
+    pub fn new(coexistence_policy: CoexistencePolicy) -> Self {
+        Self {
+            definition: default_country_parameter_definition(),
+            stop_on_match: true,
+            coexistence_policy,
+        }
+    }
+
+    /// Builds a dynamic country routing handler from configuration.
+    ///
+    /// # Parameters
+    ///
+    /// - `config`: Serializable handler configuration.
+    ///
+    /// # Returns
+    ///
+    /// Configured dynamic country routing handler.
+    pub fn from_config(config: &ParameterHandlerConfig) -> Self {
+        let mut handler = Self::new(CoexistencePolicy::DynamicOnly);
+        if let Some(parameter_name) = &config.parameter_name {
+            handler.definition.name = parameter_name.clone();
+        }
+        if let Some(http_header) = &config.http_header {
+            handler.definition.http_header = http_header.clone();
+        }
+        handler.definition.forward_header = config.forward_header;
+        handler.stop_on_match = config.stop_on_match;
+        handler
+    }
+}
+
+impl ProxyParameterHandler for DynamicCountryRoutingProxyHandler {
+    fn parameter_definitions(&self) -> Vec<ParameterDefinition> {
+        vec![self.definition.clone()]
+    }
+
+    fn proxy_from_parameters(
+        &self,
+        parameters: &ClientContext,
+    ) -> Result<ParameterHandlerDecision> {
+        if self.coexistence_policy == CoexistencePolicy::StaticOnly {
+            return Ok(ParameterHandlerDecision::continue_without_proxy());
+        }
+        let Some(country) = parameters.get_string(&self.definition.name) else {
+            return Ok(ParameterHandlerDecision::continue_without_proxy());
+        };
+        let country = normalize_country(country);
+        let pool_name = format!("dynamic-country:{country}");
+        let proxy = ProxyNode {
+            kind: TransportKind::ProxyPool,
+            name: pool_name,
+            endpoint: None,
+            send_hostname: true,
+            dns_resolution: None,
+            username: None,
+            password_env: None,
+            verify_tls: true,
+        };
+        Ok(ParameterHandlerDecision::with_proxy(proxy, self.stop_on_match))
+    }
+}
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ParameterRegistry {
     definitions: Vec<ParameterDefinition>,
@@ -475,6 +564,9 @@ pub fn build_parameter_handler(
         ParameterHandlerKind::CountryRouting => {
             Ok(Box::new(CountryRoutingProxyHandler::from_config(config)?))
         }
+        ParameterHandlerKind::DynamicCountryRouting => Ok(Box::new(
+            DynamicCountryRoutingProxyHandler::from_config(config),
+        )),
     }
 }
 

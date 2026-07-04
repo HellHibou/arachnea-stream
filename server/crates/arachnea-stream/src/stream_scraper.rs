@@ -148,19 +148,15 @@ impl StreamScraper {
     /// # Returns
     /// A configured scraper facade.
     pub fn with_credentials_store(credentials_store: Arc<dyn CredentialsStore>) -> Self {
-        let proxy_handle = SharedProxyConfigHandle::new();
-        if let Err(error) = proxy_handle.enable_system_proxy() {
-            tracing::warn!(
-                error = %error,
-                "failed to enable default scraper HTTP proxy; continuing without proxy override"
-            );
-        }
+        let agregator = ScraperAgregator::new();
+        let proxy_handle = agregator.get_proxy_handle();
+        let proxy_http_core = agregator.proxy_core().cloned();
 
         StreamScraper {
-            scraper_agregator: ScraperAgregator::new_with_proxy_handle(proxy_handle.clone()),
+            scraper_agregator: agregator,
             credentials_store,
             proxy_handle,
-            proxy_http_core: None,
+            proxy_http_core,
             player_resolver_endpoints: PlayerResolverEndpoints::default(),
         }
     }
