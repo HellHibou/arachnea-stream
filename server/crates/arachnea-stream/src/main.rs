@@ -10,9 +10,7 @@ use arachnea_core::{
         tauri::{TauriControlerConfiguration, TauriControlerService, TauriEmbeddedWebAssets},
         ControlerService, SharedWebAssets,
     },
-    persistence::{
-        resources, CredentialsStore, EncryptedFileCredentialsStore, FileCredentialsStore,
-    },
+    persistence::{resources, EncryptedFileCredentialsStore },
 };
 use arachnea_scrapyfy::*;
 use arachnea_stream::StreamScraper;
@@ -26,14 +24,8 @@ const DEFAULT_MODE_SERVER: bool = false;
 #[cfg(debug_assertions)] // Debug mode defaults.
 const DEFAULT_MODE_SERVER: bool = true;
 
-/// Default path used by the clear JSON credentials store.
-const DEFAULT_FILE_CREDENTIALS_STORE_PATH: &str = "data/credentials.json";
-
 /// Default path used by the encrypted server credentials store.
 const DEFAULT_ENCRYPTED_FILE_CREDENTIALS_STORE_PATH: &str = "data/credentials";
-
-/// Default path used by the services configuration file.
-const DEFAULT_SERVICES_CONFIG_PATH: &str = "services/arachnea-stream/services.json";
 
 /// Custom URI scheme used by the desktop frontend.
 const TAURI_WEB_SCHEME: &str = "arachnea";
@@ -195,15 +187,7 @@ async fn main() -> Result<()> {
         DEFAULT_SERVER_CREDENTIALS_KEY,
     );
 
-    let mut manager = StreamScraper::with_credentials_store(    
-         Arc::new(FileCredentialsStore::new(resources::get_application_path(
-            DEFAULT_FILE_CREDENTIALS_STORE_PATH,
-        )))
-    );
-    manager
-        .get_scraper_agregator_mut()
-        .add_query_collection_from_config_json(resources::get_application_path(DEFAULT_SERVICES_CONFIG_PATH,))?;
-
+    let manager = StreamScraper::from_json(None)?;
     let web_assets = generated_embedded_web_assets();
 
     let mut controler: Box<dyn ControlerService> = if options.mode_server {

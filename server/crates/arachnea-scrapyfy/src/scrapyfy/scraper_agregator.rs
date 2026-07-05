@@ -35,7 +35,7 @@ fn default_enabled() -> bool {
 
 /// Aggregates the same query across several configured sources.
 pub struct ScraperAgregator {
-    queries_collection: Vec<ScraperQueryCollection>,
+    queries_collection: HashMap<String, Vec<ScraperQueryCollection>>,
     proxy_handle: SharedProxyConfigHandle,
     #[cfg(feature = "arachnea-proxy")]
     proxy_core: Option<ArachneaProxyCore>,
@@ -60,10 +60,11 @@ impl ScraperAgregator {
             }
         }
 
+        #[cfg(feature = "arachnea-proxy")]
         let proxy_core = Self::create_default_proxy_core();
 
         ScraperAgregator {
-            queries_collection: Vec::new(),
+            queries_collection: HashMap::new(),
             proxy_handle,
             #[cfg(feature = "arachnea-proxy")]
             proxy_core,
@@ -76,7 +77,7 @@ impl ScraperAgregator {
     /// the caller wants full control over the proxy configuration.
     pub fn new_with_proxy_handle(proxy_handle: SharedProxyConfigHandle) -> Self {
         ScraperAgregator {
-            queries_collection: Vec::new(),
+            queries_collection: HashMap::new(),
             proxy_handle,
             #[cfg(feature = "arachnea-proxy")]
             proxy_core: None,
@@ -149,6 +150,7 @@ impl ScraperAgregator {
     ///
     /// # Arguments
     ///
+    /// * `group_name` - Group name under which to register the loaded sources.
     /// * `config_path` - Path to the aggregator config file.
     /// * `parse` - Deserializer used to parse each source file content into a query collection raw.
     ///
@@ -158,6 +160,7 @@ impl ScraperAgregator {
     #[allow(dead_code)]
     pub fn add_query_collection_from_config<F, E>(
         &mut self,
+        group_name: &str,
         config_path: impl AsRef<Path>,
         parse: F,
     ) -> Result<&mut Self>
@@ -174,6 +177,7 @@ impl ScraperAgregator {
             })?;
 
         let config_dir = config_path.parent().unwrap_or(Path::new(""));
+        let collections = self.queries_collection.entry(group_name.to_string()).or_default();
 
         for source in sources.into_iter().filter(|s| s.enabled) {
             let source_path = config_dir.join(&source.path);
@@ -206,7 +210,7 @@ impl ScraperAgregator {
             })?;
             collection.set_proxy_handle(self.proxy_handle.clone());
 
-            self.queries_collection.push(collection);
+            collections.push(collection);
         }
 
         Ok(self)
@@ -216,6 +220,7 @@ impl ScraperAgregator {
     ///
     /// # Arguments
     ///
+    /// * `group_name` - Group name under which to register the loaded sources.
     /// * `paths` - List of configuration files to load and aggregate.
     /// * `parse` - Deserializer used to parse each file content into a query collection.
     ///
@@ -225,6 +230,7 @@ impl ScraperAgregator {
     #[allow(dead_code)]
     pub fn add_query_collection_from_files<F, E>(
         &mut self,
+        group_name: &str,
         paths: Vec<String>,
         parse: F,
     ) -> Result<&mut Self>
@@ -232,11 +238,13 @@ impl ScraperAgregator {
         F: Fn(BufReader<fs::File>) -> std::result::Result<ScraperQueryCollection, E>,
         E: std::error::Error + Send + Sync + 'static,
     {
+        let collections = self.queries_collection.entry(group_name.to_string()).or_default();
+
         for path in paths {
             let mut collection =
                 ScraperQueryCollection::from_file_with(path, |reader| parse(reader))?;
             collection.set_proxy_handle(self.proxy_handle.clone());
-            self.queries_collection.push(collection);
+            collections.push(collection);
         }
 
         Ok(self)
@@ -246,6 +254,7 @@ impl ScraperAgregator {
     ///
     /// # Arguments
     ///
+    /// * `group_name` - Group name under which to register the loaded sources.
     /// * `yaml_paths` - List of YAML configuration files to load and aggregate.
     ///
     /// # Errors
@@ -254,9 +263,10 @@ impl ScraperAgregator {
     #[allow(dead_code)]
     pub fn add_query_collection_from_files_yaml(
         &mut self,
+        group_name: &str,
         yaml_paths: Vec<String>,
     ) -> Result<&mut Self> {
-        self.add_query_collection_from_files(yaml_paths, serde_yaml::from_reader)?;
+        self.add_query_collection_from_files(group_name, yaml_paths, serde_yaml::from_reader)?;
         Ok(self)
     }
 
@@ -264,6 +274,7 @@ impl ScraperAgregator {
     ///
     /// # Arguments
     ///
+    /// * `group_name` - Group name under which to register the loaded sources.
     /// * `config_path` - Path to the JSON aggregator config file.
     ///
     /// # Errors
@@ -271,58 +282,69 @@ impl ScraperAgregator {
     /// Returns an error if the config file or one of the source files cannot be loaded or parsed.
     pub fn add_query_collection_from_config_json(
         &mut self,
+        group_name: &str,
         config_path: impl AsRef<Path>,
     ) -> Result<&mut Self> {
-        self.add_query_collection_from_config(config_path, serde_yaml::from_reader)?;
+        self.add_query_collection_from_config(group_name, config_path, serde_yaml::from_reader)?;
         Ok(self)
     }
 
-    /// Returns the configured parameters for one loaded source.
+    /// Returns the configured parameters for one loaded source within a group.
     ///
     /// # Arguments
     ///
-    /// * `name` - Source name to look up.
+    /// * `group_name` - Group name to look up.
+    /// * `name` - Source name to look up within the group.
     pub fn query_collection_parameters(
         &self,
+        group_name: &str,
         name: &str,
     ) -> Option<&[ScraperQueryCollectionParameter]> {
-        self.queries_collection
-            .iter()
-            .find(|query_collection| query_collection.name() == name)
-            .map(ScraperQueryCollection::parameters)
+        match self.queries_collection.get(group_name) {
+            Some(collections) => collections
+                .iter()
+                .find(|query_collection| query_collection.name() == name)
+                .map(ScraperQueryCollection::parameters),
+            None => {
+                tracing::warn!("query group `{group_name}` not found");
+                None
+            }
+        }
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    /// Returns the last loaded query collection.
-    pub fn get_last_query_collection(&self) -> Option<&ScraperQueryCollection> {
-        self.queries_collection.last()
+    /// Returns the last loaded query collection within a group.
+    pub fn get_last_query_collection(&self, group_name: &str) -> Option<&ScraperQueryCollection> {
+        self.queries_collection.get(group_name)?.last()
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    /// Returns one loaded query collection by source name.
+    /// Returns one loaded query collection by source name within a group.
     ///
     /// # Arguments
     ///
-    /// * `name` - Source name to look up.
-    pub fn get_query_collection(&self, name: &str) -> Option<&ScraperQueryCollection> {
-        for entry in &self.queries_collection {
+    /// * `group_name` - Group name to look up.
+    /// * `name` - Source name to look up within the group.
+    pub fn get_query_collection(&self, group_name: &str, name: &str) -> Option<&ScraperQueryCollection> {
+        for entry in self.queries_collection.get(group_name)? {
             if entry.name() == name {
-                return Some(&entry);
+                return Some(entry);
             }
         }
 
-        return None;
+        None
     }
 
-    /// Executes the same query on all sources and merges the resulting entries.
+    /// Executes the same query on all sources within a group and merges the resulting entries.
     ///
     /// # Arguments
     ///
+    /// * `group_name` - Group name whose sources should be queried.
     /// * `query_name` - Name of the query to execute on every configured source.
     /// * `params` - Runtime values passed to each source-specific query template.
     /// * `source_params` - Optional per-source parameter overrides merged into `params`.
     /// * `scrapper_list` - Optional list of source names to execute. When `None`, every
-    ///   configured source is queried.
+    ///   configured source in the group is queried.
     /// * `query_media_type_filter` - Filter on media_type query.
     /// * `fields_filters` - Root fields filter list or None.
     /// * `source_field_name` - Optional metadata key used to store the originating source name.
@@ -334,6 +356,7 @@ impl ScraperAgregator {
     /// Returns an error if one of the underlying query collections fails.
     pub async fn execute_query_async(
         &self,
+        group_name: &str,
         query_name: &str,
         params: &HashMap<String, String>,
         source_params: Option<&ScraperSourceParams>,
@@ -342,8 +365,12 @@ impl ScraperAgregator {
         fields_filters: Option<&HashMap<String, Vec<String>>>,
         source_field_name: Option<&str>,
     ) -> Result<Vec<HashMap<String, ScraperDataNode>>> {
-        let filtered_queries: Vec<&ScraperQueryCollection> = self
-            .queries_collection
+        let Some(queries_collection) = self.queries_collection.get(group_name) else {
+            tracing::warn!("query group `{group_name}` not found");
+            return Ok(Vec::new());
+        };
+
+        let filtered_queries: Vec<&ScraperQueryCollection> = queries_collection
             .iter()
             .filter(|query_collection| match scrapper_list {
                 Some(scrapper_list) => scrapper_list

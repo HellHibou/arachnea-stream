@@ -226,6 +226,7 @@ pub mod tests {
     /// Executes one configured query and validates field-level extraction coverage.
     pub fn test_query<M, F>(
         manager: &mut M,
+        groupe_name: &str,
         query: &str,
         test_params: TestParams,
         yaml_file: &str,
@@ -256,10 +257,10 @@ pub mod tests {
         let (fallback_expected_fields, query_source) = {
             let scraper_agregator = manager.get_scraper_agregator_mut();
 
-            scraper_agregator.add_query_collection_from_files_yaml(vec![yaml_path])?;
+            scraper_agregator.add_query_collection_from_files_yaml(groupe_name, vec![yaml_path])?;
 
             let query_collection = scraper_agregator
-                .get_last_query_collection()
+                .get_last_query_collection(groupe_name)
                 .ok_or_else(|| anyhow::anyhow!("No query collection loaded"))?;
 
             let query_source = query_collection.name().to_string();

@@ -1,5 +1,11 @@
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+/// The default file path for the credentials store.
+pub const DEFAULT_FILE_CREDENTIALS_STORE_PATH: &str = "data/credentials.json";
+
+use crate::persistence::resources;
 
 use super::credentials_store::{
     normalize_service_id, read_file_if_exists, remove_file_if_exists, write_file_atomically,
@@ -9,6 +15,12 @@ use super::credentials_store::{
 /// JSON-backed credentials store kept in clear text on disk.
 pub struct FileCredentialsStore {
     path: PathBuf,
+}
+
+impl Default for FileCredentialsStore {
+    fn default() -> Self {
+        Self::new(resources::get_application_path(DEFAULT_FILE_CREDENTIALS_STORE_PATH))
+    }
 }
 
 impl FileCredentialsStore {
@@ -23,6 +35,17 @@ impl FileCredentialsStore {
         Self {
             path: path.as_ref().to_path_buf(),
         }
+    }
+
+    /// Converts this `FileCredentialsStore` into a reference-counted `Arc` trait object.
+    ///
+    /// This allows the store to be shared across multiple parts of the application
+    /// where a `CredentialsStore` trait object is expected.
+    ///
+    /// # Returns
+    /// An `Arc` containing `self` as a `dyn CredentialsStore`.
+    pub fn as_arc(self) -> Arc<dyn CredentialsStore> {
+        Arc::new(self)
     }
 
     fn read_document(&self) -> Result<CredentialsDocument> {

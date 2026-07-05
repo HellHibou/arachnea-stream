@@ -3,12 +3,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::HashMap, sync::Arc};
 use urlencoding::encode;
+use const_format::concatcp;
 
 use arachnea_core::{
     controler::{
         ControlerService, ControlerServiceExt, ControlerStreamInput, ControlerStreamOutput,
-    },
-    persistence::{CredentialsStore, FileCredentialsStore},
+    }, persistence::{CredentialsStore, FileCredentialsStore},
 };
 use arachnea_proxy::core::{ArachneaProxyCore, ProxyConfig};
 use arachnea_scrapyfy::*;
@@ -21,6 +21,12 @@ use crate::services::{
     rtlplay_resolver::RtlPlayResolver,
     tf1_resolver::Tf1Resolver,
 };
+
+/// Default group name used by the stream scraper crate.
+pub const STREAM_SERVICE_GROUP_NAME: &str = "arachnea-stream";
+
+/// Default path used by the services
+pub const DEFAULT_SERVICES_CONFIG_PATH: &str = concatcp!("services/", STREAM_SERVICE_GROUP_NAME, "/services.json");
 
 const HTTP_PROXY_COMMAND: &str = "proxy";
 const STREAM_PROXY_COMMAND: &str = "get_stream";
@@ -128,26 +134,35 @@ pub struct StreamScraper {
     player_resolver_endpoints: PlayerResolverEndpoints,
 }
 
-impl StreamScraper {
-    /// Loads every configured source from its YAML file.
+impl Default for StreamScraper {
+
+    /// Creates a default instance of the scraper facade using a file-based credentials store and the default services configuration.
     ///
-    /// # Arguments
-    /// credential
+    /// # Returns
+    /// A configured scraper facade with default configuration.
+    ///
     /// # Errors
-    ///
-    /// Returns an error if one of the YAML files cannot be loaded or parsed.
-    pub fn new(credentials: &str) -> Self {
-        Self::with_credentials_store(Arc::new(FileCredentialsStore::new(credentials)))
+    /// Returns an error if the default configuration file cannot be loaded or parsed.
+    fn default() -> Self {
+         Self::new(FileCredentialsStore::default().as_arc())
     }
+}
+
+impl StreamScraper {
 
     /// Creates a scraper facade backed by the provided credentials store.
     ///
     /// # Arguments
+    /// * `path` - Path to the services configuration JSON file relative to the application data directory.
     /// * `credentials_store` - Shared credentials persistence used by service resolvers.
     ///
     /// # Returns
     /// A configured scraper facade.
-    pub fn with_credentials_store(credentials_store: Arc<dyn CredentialsStore>) -> Self {
+    ///
+    /// # Errors
+    /// Returns an error if the configuration file cannot be loaded or parsed.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(credentials_store: Arc<dyn CredentialsStore>) -> Self {
         let agregator = ScraperAgregator::new();
         let proxy_handle = agregator.get_proxy_handle();
         let proxy_http_core = agregator.proxy_core().cloned();
@@ -159,6 +174,23 @@ impl StreamScraper {
             proxy_http_core,
             player_resolver_endpoints: PlayerResolverEndpoints::default(),
         }
+    }
+
+    /// Creates a instance of the scraper facade using a file-based credentials store and the default services configuration.
+    ///
+    /// # Returns
+    /// A configured scraper facade with default configuration.
+    ///
+    /// # Errors
+    /// Returns an error if the default configuration file cannot be loaded or parsed.
+    pub fn from_json(json_path: Option<&str>) -> Result<Self> {
+        let mut instance = Self::default();
+
+        instance.scraper_agregator.add_query_collection_from_config_json(STREAM_SERVICE_GROUP_NAME,
+            json_path.unwrap_or(DEFAULT_SERVICES_CONFIG_PATH)
+        )?;
+
+        Ok(instance)
     }
 
     /// Returns the mutable proxy handle shared by this scraper instance.
@@ -248,6 +280,7 @@ impl StreamScraper {
 
         self.scraper_agregator
             .execute_query_async(
+                STREAM_SERVICE_GROUP_NAME,
                 "search",
                 &params,
                 Some(&source_params),
@@ -284,6 +317,7 @@ impl StreamScraper {
         let mut results = self
             .scraper_agregator
             .execute_query_async(
+                STREAM_SERVICE_GROUP_NAME,
                 "get_entry",
                 &params,
                 None,
@@ -325,6 +359,7 @@ impl StreamScraper {
         let mut results = self
             .scraper_agregator
             .execute_query_async(
+                STREAM_SERVICE_GROUP_NAME,
                 "get_season",
                 &params,
                 None,
@@ -350,6 +385,7 @@ impl StreamScraper {
         let lives = self
             .scraper_agregator
             .execute_query_async(
+                STREAM_SERVICE_GROUP_NAME,
                 "list_lives",
                 &params,
                 None,
@@ -388,6 +424,7 @@ impl StreamScraper {
         let mut results = self
             .scraper_agregator
             .execute_query_async(
+                STREAM_SERVICE_GROUP_NAME,
                 "get_live",
                 &params,
                 None,
@@ -411,7 +448,7 @@ impl StreamScraper {
         let mut params: HashMap<String, String> = HashMap::new();
         self.enrich_runtime_params(&mut params);
         self.scraper_agregator
-            .execute_query_async("load_home", &params, None, None, None, None, Some("source"))
+            .execute_query_async(STREAM_SERVICE_GROUP_NAME, "load_home", &params, None, None, None, None, Some("source"))
             .await
     }
 
@@ -427,6 +464,7 @@ impl StreamScraper {
 
         self.scraper_agregator
             .execute_query_async(
+                STREAM_SERVICE_GROUP_NAME,
                 "service_stream_metadata",
                 &params,
                 None,
@@ -490,6 +528,7 @@ impl StreamScraper {
 
         self.scraper_agregator
             .execute_query_async(
+                STREAM_SERVICE_GROUP_NAME,
                 "get_category",
                 &params,
                 Some(&source_params),
@@ -548,6 +587,7 @@ impl StreamScraper {
         let rows = self
             .scraper_agregator
             .execute_query_async(
+                STREAM_SERVICE_GROUP_NAME,
                 "get_section",
                 &params,
                 Some(&source_params),
@@ -582,7 +622,7 @@ impl StreamScraper {
             .ok_or_else(|| anyhow::anyhow!("Unsupported player source `{}`.", source))?;
         let service_parameters = self
             .scraper_agregator
-            .query_collection_parameters(source)
+            .query_collection_parameters(STREAM_SERVICE_GROUP_NAME, source)
             .unwrap_or(&[]);
 
         resolver
