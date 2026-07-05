@@ -1,55 +1,195 @@
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use async_trait::async_trait;
 
 use arachnea_proxy::core::{
     ArachneaProxyCore, InventoryConfig, ParameterHandlerConfig, ParameterHandlerKind, ProbeConfig,
-    ProxyChain, ProxyConfig, ProxyDataProvider, ProxyInventory, ProxyLoadRequest, ProxyProbe,
-    ProxyProfile, ProxyRecord, ProxyProtocol, ProxyRuntimeStatus, Result, RoutePolicy,
-    PROXY_HEADER_PARAMETER_COUNTRY, PROXY_PARAMETER_COUNTRY,
+    ProxyAvailabilityHint, ProxyChain, ProxyConfig, ProxyDataProvider, ProxyError, ProxyInventory,
+    ProxyLoadRequest, ProxyProbe, ProxyProfile, ProxyProtocol, ProxyRecord, ProxyRuntimeStatus,
+    Result, RoutePolicy, PROXY_HEADER_PARAMETER_COUNTRY, PROXY_PARAMETER_COUNTRY,
 };
+use tracing::{info, trace};
+
+use crate::scrapyfy::ScraperDataNode;
+use crate::ScraperAgregator;
+use crate::DEFAULT_SERVICES_DIRECTORY;
+
+/// The group name used for the scrapyfy proxy query collection.
+const PROXIES_GROUP_NAME: &str = "arachnea-proxies";
 
 /// `arachnea-scrapyfy` provider placeholder for dynamic proxy data.
 ///
 /// Data loading is intentionally left unimplemented so source-specific loading
 /// can be added separately without coupling this module to one public list
 /// format.
-pub struct ScrapyfyProxyDataProvider;
-
-impl ScrapyfyProxyDataProvider {
-    /// Creates an empty proxy data provider.
-    pub fn new() -> Self {
-        Self
-    }
+///
+/// # Safety
+///
+/// Stores a raw pointer to [`ScraperAgregator`]. The pointer must remain valid
+/// for the lifetime of this provider. This is guaranteed because the provider
+/// is always stored within the proxy core which is owned by the same
+/// [`ScraperAgregator`] instance.
+pub struct ScrapyfyProxyDataProvider {
+    scraper_agregator: *const ScraperAgregator,
 }
 
-impl Default for ScrapyfyProxyDataProvider {
-    fn default() -> Self {
-        Self::new()
+// SAFETY: the raw pointer points to the owning ScraperAgregator which lives
+// longer than this provider. The provider is used only within the proxy core
+// owned by the same aggregator, on the same executor as the aggregator.
+unsafe impl Send for ScrapyfyProxyDataProvider {}
+unsafe impl Sync for ScrapyfyProxyDataProvider {}
+
+impl ScrapyfyProxyDataProvider {
+    /// Creates a proxy data provider backed by the given aggregator.
+    pub fn new(scraper_agregator: &mut ScraperAgregator) -> Self {
+        let preferred_config_path = format!(
+            "{}/{}/{}",
+            DEFAULT_SERVICES_DIRECTORY, PROXIES_GROUP_NAME, "services.json"
+        );
+        if let Err(preferred_error) = scraper_agregator
+            .add_query_collection_from_config_json(PROXIES_GROUP_NAME, &preferred_config_path)
+        {
+            let legacy_config_path = format!(
+                "{}/{}/{}",
+                DEFAULT_SERVICES_DIRECTORY, PROXIES_GROUP_NAME, "services.json"
+            );
+            if let Err(legacy_error) = scraper_agregator
+                .add_query_collection_from_config_json(PROXIES_GROUP_NAME, &legacy_config_path)
+            {
+                tracing::warn!(
+                    preferred_error = %preferred_error,
+                    legacy_error = %legacy_error,
+                    "failed to load scrapyfy proxy source collection"
+                );
+            }
+        }
+
+        ScrapyfyProxyDataProvider {
+            scraper_agregator: scraper_agregator as *const ScraperAgregator,
+        }
     }
 }
 
 #[async_trait]
 impl ProxyDataProvider for ScrapyfyProxyDataProvider {
-    async fn load_proxies(&self, _request: ProxyLoadRequest) -> Result<Vec<ProxyRecord>> {
-        // TODO: A implementer.
-        Ok(vec![ProxyRecord {
-            protocol: Some(ProxyProtocol::Socks5),
-            host: "51.210.5.144".to_string(),
-            port: 1088,
-            country: Some("FR".to_string()),
-            supports_https: None,
-            status: ProxyRuntimeStatus::Unknown,
-            latency_ms: None,
-            failure_count: 0,
-            authentication_required: None,
-            availability: Default::default(),
-            destination_failures: Vec::new(),
-            source: Some("static-fr-socks5".to_string()),
-            last_checked: None,
-            cooldown_until: None,
-        }])
+    async fn load_proxies(&self, request: ProxyLoadRequest) -> Result<Vec<ProxyRecord>> {
+        let country = request
+            .country
+            .map(|country| normalize_proxy_country(&country));
+        let Some(ref country) = country else {
+            return Ok(Vec::new());
+        };
+
+        info!("Loading proxies for country: {}...", country);
+
+        // SAFETY: the raw pointer is valid for the lifetime of the provider
+        // because the ScraperAgregator owns the core which owns the inventory
+        // which owns this provider.
+        let agregator = unsafe { &*self.scraper_agregator };
+
+        let mut params: HashMap<String, String> = HashMap::new();
+        params.insert("country".to_string(), country.clone());
+        let results = agregator
+            .execute_query_async(
+                PROXIES_GROUP_NAME,
+                "list_proxies_for_country",
+                &params,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await
+            .map_err(|e| {
+                ProxyError::Config(format!(
+                    "proxy query `{}/list_proxies_for_country` failed: {e}", PROXIES_GROUP_NAME
+                ))
+            })?;
+
+        let records: Vec<ProxyRecord> = results
+            .into_iter()
+            .filter_map(|entry| entry_to_proxy_record(&entry))
+            .collect();
+
+        let filtered: Vec<ProxyRecord> = records
+            .into_iter()
+            .filter(|r| r.country.as_deref() == Some(country.as_str()))
+            .collect();
+
+        let mut seen = HashSet::new();
+        let deduped: Vec<ProxyRecord> = filtered
+            .into_iter()
+            .filter(|r| seen.insert(r.authority()))
+            .collect();
+
+        info!("Loaded proxies for country {}: {}",country, deduped.len());
+        Ok(deduped)
     }
+}
+
+fn entry_to_proxy_record(entry: &HashMap<String, ScraperDataNode>) -> Option<ProxyRecord> {
+    let host = entry.get("host")?.value_as_string()?.trim();
+    if host.is_empty() {
+        return None;
+    }
+
+    let port = entry.get("port")?.value_as_u16()?;
+    let protocol = entry
+        .get("protocol")
+        .and_then(|node| node.value_as_string())
+        .and_then(|s| match s.trim().to_ascii_lowercase().as_str() {
+            "http" => Some(ProxyProtocol::Http),
+            "https" => Some(ProxyProtocol::Https),
+            "socks4" => Some(ProxyProtocol::Socks4),
+            "socks4a" => Some(ProxyProtocol::Socks4a),
+            "socks5" => Some(ProxyProtocol::Socks5),
+            _ => None,
+        });
+
+    let supports_https = entry.get("supports_https").and_then(|n| n.value_as_bool());
+    let availability = entry
+        .get("availability")
+        .and_then(|node| node.value_as_string())
+        .map(|s| match s.to_lowercase().as_str() {
+            "low" => ProxyAvailabilityHint::Low,
+            "medium" => ProxyAvailabilityHint::Medium,
+            "high" => ProxyAvailabilityHint::High,
+            _ => ProxyAvailabilityHint::Unknown,
+        })
+        .unwrap_or(ProxyAvailabilityHint::Unknown);
+
+    let record = ProxyRecord {
+        protocol,
+        host: host.to_string(),
+        port,
+        country: entry
+            .get("country")
+            .and_then(|n| n.value_as_string())
+            .map(normalize_proxy_country),
+        supports_https,
+        status: ProxyRuntimeStatus::Unknown,
+        latency_ms: entry.get("latency_ms").and_then(|n| n.value_as_u64()),
+        failure_count: entry
+            .get("failure_count")
+            .and_then(|n| n.value_as_u32())
+            .unwrap_or(0),
+        authentication_required: entry
+            .get("authentication_required")
+            .and_then(|n| n.value_as_bool()),
+        availability,
+        destination_failures: Vec::new(),
+        last_checked: None,
+        cooldown_until: None,
+    };
+
+    trace!("Loaded proxy record: {:?}", record);
+    Some(record)
+}
+
+fn normalize_proxy_country(country: &str) -> String {
+    country.trim().to_ascii_uppercase()
 }
 
 /// Builds a default dynamic proxy inventory backed by scrapyfy proxy sources.
@@ -57,10 +197,12 @@ impl ProxyDataProvider for ScrapyfyProxyDataProvider {
 /// The returned inventory uses [`ScrapyfyProxyDataProvider`] and the default
 /// [`ProxyProbe`] configuration. Persistence remains a caller concern so
 /// applications can choose their store path and codec.
-pub fn default_scrapyfy_proxy_inventory() -> ProxyInventory {
+pub fn default_scrapyfy_proxy_inventory(
+    scraper_agregator: &mut ScraperAgregator,
+) -> ProxyInventory {
     ProxyInventory::new(
         InventoryConfig::default(),
-        Some(Arc::new(ScrapyfyProxyDataProvider::new())),
+        Some(Arc::new(ScrapyfyProxyDataProvider::new(scraper_agregator))),
         Some(Arc::new(ProxyProbe::new(ProbeConfig::default()))),
     )
 }
@@ -73,6 +215,10 @@ pub fn default_scrapyfy_proxy_inventory() -> ProxyInventory {
 /// a `ProxyInventory` lookup that lazily loads proxy data through
 /// [`ScrapyfyProxyDataProvider`].
 ///
+/// # Arguments
+///
+/// * `scraper_agregator` - The aggregator instance that owns or will own this core.
+///
 /// # Returns
 ///
 /// A configured `ArachneaProxyCore` ready to route proxy requests.
@@ -80,8 +226,10 @@ pub fn default_scrapyfy_proxy_inventory() -> ProxyInventory {
 /// # Errors
 ///
 /// Returns an error when proxy configuration validation fails.
-pub fn default_scrapyfy_proxy_core() -> Result<ArachneaProxyCore> {
-    let inventory = default_scrapyfy_proxy_inventory();
+pub fn default_scrapyfy_proxy_core(
+    scraper_agregator: &mut ScraperAgregator,
+) -> Result<ArachneaProxyCore> {
+    let inventory = default_scrapyfy_proxy_inventory(scraper_agregator);
     let proxy_config = ProxyConfig {
         profile: ProxyProfile::Advanced,
         chains: vec![ProxyChain::direct()],

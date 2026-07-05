@@ -26,7 +26,7 @@ use crate::services::{
 pub const STREAM_SERVICE_GROUP_NAME: &str = "arachnea-stream";
 
 /// Default path used by the services
-pub const DEFAULT_SERVICES_CONFIG_PATH: &str = concatcp!("services/", STREAM_SERVICE_GROUP_NAME, "/services.json");
+pub const DEFAULT_SERVICES_CONFIG_PATH: &str = concatcp!(DEFAULT_SERVICES_DIRECTORY, "/", STREAM_SERVICE_GROUP_NAME, "/services.json");
 
 const HTTP_PROXY_COMMAND: &str = "proxy";
 const STREAM_PROXY_COMMAND: &str = "get_stream";
@@ -127,7 +127,7 @@ struct SourceParamsRequestEntry {
 
 /// High-level facade exposing scraper operations used by controllers and tests.
 pub struct StreamScraper {
-    scraper_agregator: ScraperAgregator,
+    scraper_agregator: Box<ScraperAgregator>,
     credentials_store: Arc<dyn CredentialsStore>,
     proxy_handle: SharedProxyConfigHandle,
     proxy_http_core: Option<ArachneaProxyCore>,
@@ -163,7 +163,8 @@ impl StreamScraper {
     /// Returns an error if the configuration file cannot be loaded or parsed.
     #[allow(clippy::too_many_arguments)]
     pub fn new(credentials_store: Arc<dyn CredentialsStore>) -> Self {
-        let agregator = ScraperAgregator::new();
+        let mut agregator = Box::new(ScraperAgregator::new());
+        agregator.ensure_proxy_core();
         let proxy_handle = agregator.get_proxy_handle();
         let proxy_http_core = agregator.proxy_core().cloned();
 

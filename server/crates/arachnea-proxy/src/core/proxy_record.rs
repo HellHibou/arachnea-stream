@@ -153,9 +153,6 @@ pub struct ProxyRecord {
     /// Per-destination failures for an otherwise healthy proxy.
     #[serde(default)]
     pub destination_failures: Vec<ProxyDestinationFailure>,
-    /// Source identifier for diagnostics (e.g. YAML source name).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source: Option<String>,
     /// Timestamp of the last probe.
     #[serde(
         default,

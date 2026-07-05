@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use futures::future::try_join_all;
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -60,14 +60,34 @@ impl ScraperAgregator {
             }
         }
 
-        #[cfg(feature = "arachnea-proxy")]
-        let proxy_core = Self::create_default_proxy_core();
-
         ScraperAgregator {
             queries_collection: HashMap::new(),
             proxy_handle,
             #[cfg(feature = "arachnea-proxy")]
-            proxy_core,
+            proxy_core: None,
+        }
+    }
+
+    /// Ensures the proxy core is initialized with a correct self-pointer.
+    ///
+    /// Must be called once after the aggregator is in its final memory location
+    /// (after any move), before proxy routing is used.
+    #[cfg(feature = "arachnea-proxy")]
+    pub fn ensure_proxy_core(&mut self) {
+        let ptr: *mut ScraperAgregator = self;
+        match default_scrapyfy_proxy_core(unsafe { &mut *ptr }) {
+            Ok(core) => {
+                tracing::info!(
+                    "Dynamic proxy core created with scrapyfy provider for country routing"
+                );
+                self.proxy_core = Some(core);
+            }
+            Err(error) => {
+                tracing::warn!(
+                    error = %error,
+                    "failed to create dynamic proxy core; proxy_http will be unavailable"
+                );
+            }
         }
     }
 
@@ -81,26 +101,6 @@ impl ScraperAgregator {
             proxy_handle,
             #[cfg(feature = "arachnea-proxy")]
             proxy_core: None,
-        }
-    }
-
-    /// Tries to create the default dynamic proxy core for country-based routing.
-    #[cfg(feature = "arachnea-proxy")]
-    fn create_default_proxy_core() -> Option<ArachneaProxyCore> {
-        match default_scrapyfy_proxy_core() {
-            Ok(core) => {
-                tracing::info!(
-                    "Dynamic proxy core created with scrapyfy provider for country routing"
-                );
-                Some(core)
-            }
-            Err(error) => {
-                tracing::warn!(
-                    error = %error,
-                    "failed to create dynamic proxy core; proxy_http will be unavailable"
-                );
-                None
-            }
         }
     }
 
@@ -169,25 +169,82 @@ impl ScraperAgregator {
         E: std::error::Error + Send + Sync + 'static,
     {
         let config_path = config_path.as_ref();
-        let config_file = fs::File::open(config_path)
-            .with_context(|| format!("Failed to open config file: {}", config_path.display()))?;
+        tracing::debug!(
+            group_name,
+            config_path = %config_path.display(),
+            "loading scraper query collection config"
+        );
+        let config_file = fs::File::open(config_path).map_err(|error| {
+            anyhow::anyhow!(
+                "Failed to open config file: {}: {error}",
+                config_path.display()
+            )
+        })?;
         let sources: Vec<ScraperAggregatorSourceEntry> =
-            serde_json::from_reader(BufReader::new(config_file)).with_context(|| {
-                format!("Failed to parse config file: {}", config_path.display())
+            serde_json::from_reader(BufReader::new(config_file)).map_err(|error| {
+                anyhow::anyhow!(
+                    "Failed to parse config file: {}: {error}",
+                    config_path.display()
+                )
             })?;
 
         let config_dir = config_path.parent().unwrap_or(Path::new(""));
         let collections = self.queries_collection.entry(group_name.to_string()).or_default();
+        let source_count = sources.len();
+        let enabled_source_count = sources.iter().filter(|source| source.enabled).count();
+        tracing::debug!(
+            group_name,
+            config_path = %config_path.display(),
+            source_count,
+            enabled_source_count,
+            existing_collection_count = collections.len(),
+            "parsed scraper query collection config"
+        );
 
-        for source in sources.into_iter().filter(|s| s.enabled) {
+        for (source_index, source) in sources.into_iter().enumerate() {
+            if !source.enabled {
+                tracing::debug!(
+                    group_name,
+                    source_index,
+                    source_path = %source.path,
+                    "skipping disabled scraper query collection source"
+                );
+                continue;
+            }
+
             let source_path = config_dir.join(&source.path);
-            let file = fs::File::open(&source_path).with_context(|| {
-                format!("Failed to open source file: {}", source_path.display())
+            tracing::debug!(
+                group_name,
+                source_index,
+                source_path = %source_path.display(),
+                source_parameter_overrides = source.parameters.len(),
+                "loading scraper query collection source"
+            );
+            let file = fs::File::open(&source_path).map_err(|error| {
+                anyhow::anyhow!(
+                    "Failed to open source file: {}: {error}",
+                    source_path.display()
+                )
             })?;
             let reader = BufReader::new(file);
-            let mut raw: ScraperQueryCollectionRaw = parse(reader).with_context(|| {
-                format!("Failed to parse source file: {}", source_path.display())
+            let mut raw: ScraperQueryCollectionRaw = parse(reader).map_err(|error| {
+                anyhow::anyhow!(
+                    "Failed to parse source file: {}: {error}",
+                    source_path.display()
+                )
             })?;
+            let source_id = raw.id.clone();
+            let query_names: Vec<String> = raw.queries.iter().map(|query| query.name()).collect();
+            tracing::debug!(
+                group_name,
+                source_index,
+                source_path = %source_path.display(),
+                source_id,
+                query_count = query_names.len(),
+                query_names = ?query_names,
+                collection_parameter_count = raw.parameters.len(),
+                "parsed scraper query collection source"
+            );
 
             // Merge parameters: start with YAML's, override with source-specific if provided
             if !source.parameters.is_empty() {
@@ -200,18 +257,37 @@ impl ScraperAgregator {
                     param_map.insert(param.name.clone(), param);
                 }
                 raw.parameters = param_map.into_values().collect();
+                tracing::debug!(
+                    group_name,
+                    source_index,
+                    source_id = %raw.id,
+                    merged_parameter_count = raw.parameters.len(),
+                    "merged scraper query collection source parameter overrides"
+                );
             }
 
-            let mut collection: ScraperQueryCollection = raw.try_into().with_context(|| {
-                format!(
-                    "Failed to convert source config to collection: {}",
+            let mut collection: ScraperQueryCollection = raw.try_into().map_err(|error| {
+                anyhow::anyhow!(
+                    "Failed to convert source config to collection: {}: {error:#}",
                     source_path.display()
                 )
             })?;
             collection.set_proxy_handle(self.proxy_handle.clone());
 
             collections.push(collection);
+            tracing::debug!(
+                group_name,
+                source_index,
+                collection_count = collections.len(),
+                "registered scraper query collection source"
+            );
         }
+
+        tracing::debug!(
+            group_name,
+            total_collection_count = collections.len(),
+            "finished loading scraper query collection config"
+        );
 
         Ok(self)
     }

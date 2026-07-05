@@ -1,5 +1,8 @@
 use std::collections::HashMap;
 
+/// The default directory for scraper service configuration files.
+pub const DEFAULT_SERVICES_DIRECTORY: &str = "services";
+
 /// Tree-shaped output node model used by all scraper pipelines.
 pub mod scraper_data_node;
 
