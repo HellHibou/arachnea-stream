@@ -39,6 +39,8 @@ pub struct InventoryConfig {
     pub max_destination_failures_before_ko: usize,
     /// How long to remember that a country returned no usable proxies.
     pub negative_cache_duration: Duration,
+    /// Maximum number of concurrent probes when testing newly loaded proxies.
+    pub probe_batch_size: usize,
 }
 
 impl Default for InventoryConfig {
@@ -49,6 +51,7 @@ impl Default for InventoryConfig {
             destination_failure_cooldown: Duration::from_secs(300),
             max_destination_failures_before_ko: 10,
             negative_cache_duration: Duration::from_secs(120),
+            probe_batch_size: 8,
         }
     }
 }
@@ -387,9 +390,7 @@ impl ProxyInventory {
             Ok(mut records) => {
                 let loaded_count = records.len();
                 if let Some(probe) = &self.probe {
-                    for record in &mut records {
-                        let _ = probe.probe(record).await;
-                    }
+                    probe.probe_batch(&mut records, self.config.probe_batch_size).await;
                 }
                 let probe_stats = selection_stats(records.iter(), false, SystemTime::now());
                 tracing::info!(

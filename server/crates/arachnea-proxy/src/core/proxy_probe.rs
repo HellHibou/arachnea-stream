@@ -50,7 +50,7 @@ impl Default for ProbeConfig {
         Self {
             http_probe_url: Some("http://example.com/".to_string()),
             https_probe_url: None,
-            timeout: Duration::from_secs(5),
+            timeout: Duration::from_secs(2),
             mode: ProbeMode::Relaxed,
             protocol_detection_order: vec![
                 ProxyProtocol::Http,
@@ -67,6 +67,7 @@ impl Default for ProbeConfig {
 ///
 /// Each probe updates the supplied [`ProxyRecord`] in place so that callers
 /// never have to reconcile a separate report structure.
+#[derive(Clone)]
 pub struct ProxyProbe {
     config: ProbeConfig,
 }
@@ -105,6 +106,53 @@ impl ProxyProbe {
         }
 
         Ok(())
+    }
+
+    /// Probes a batch of proxy records in parallel, with concurrency limited
+    /// by `batch_size`.
+    ///
+    /// Each record is probed in a separate `tokio::spawn` task. The original
+    /// records are updated in place with the probe results.
+    ///
+    /// # Parameters
+    ///
+    /// - `records`: Slice of proxy records to probe.
+    /// - `batch_size`: Maximum number of concurrent probes.
+    pub async fn probe_batch(&self, records: &mut [ProxyRecord], batch_size: usize) {
+        if records.is_empty() {
+            return;
+        }
+
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(batch_size));
+        let mut handles = Vec::with_capacity(records.len());
+
+        for i in 0..records.len() {
+            let permit = semaphore
+                .clone()
+                .acquire_owned()
+                .await
+                .expect("semaphore closed");
+            let this = self.clone();
+            let mut record = records[i].clone();
+
+            handles.push(tokio::spawn(async move {
+                let _permit = permit;
+                let result = this.probe(&mut record).await;
+                (i, record, result)
+            }));
+        }
+
+        for handle in handles {
+            if let Ok((i, probed, _result)) = handle.await {
+                records[i].status = probed.status;
+                records[i].protocol = probed.protocol;
+                records[i].latency_ms = probed.latency_ms;
+                records[i].supports_https = probed.supports_https;
+                records[i].authentication_required = probed.authentication_required;
+                records[i].failure_count = probed.failure_count;
+                records[i].last_checked = probed.last_checked;
+            }
+        }
     }
 
     /// Validates whether a proxy record can reach a specific destination.
