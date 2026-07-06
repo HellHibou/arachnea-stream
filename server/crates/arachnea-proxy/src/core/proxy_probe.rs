@@ -10,7 +10,7 @@ use tokio::time::{self, Instant};
 use tokio_rustls::TlsConnector;
 
 use crate::core::{
-    Destination, DestinationAddress, ProxyProtocol, ProxyRecord, ProxyRuntimeStatus, ProxyError,
+    Destination, DestinationAddress, ProxyError, ProxyProtocol, ProxyRecord, ProxyRuntimeStatus,
     Result,
 };
 
@@ -95,7 +95,9 @@ impl ProxyProbe {
         record.last_checked = Some(SystemTime::now());
 
         if let Some(ref protocol) = record.protocol {
-            let result = self.probe_protocol(&record.host, record.port, protocol).await?;
+            let result = self
+                .probe_protocol(&record.host, record.port, protocol)
+                .await?;
             self.apply_result(record, result);
         } else {
             let result = self.detect_protocol(&record.host, record.port).await?;
@@ -121,22 +123,40 @@ impl ProxyProbe {
         record: &ProxyRecord,
         destination: &Destination,
     ) -> Result<()> {
-        let protocol = record
-            .protocol
-            .as_ref()
-            .ok_or_else(|| ProxyError::Config("cannot validate destination without a known protocol on the record".to_string()))?;
+        let protocol = record.protocol.as_ref().ok_or_else(|| {
+            ProxyError::Config(
+                "cannot validate destination without a known protocol on the record".to_string(),
+            )
+        })?;
 
         let authority = record.authority();
-        let endpoint = Destination::from_authority(&authority, crate::core::ApplicationProtocol::Tcp)?;
+        let endpoint =
+            Destination::from_authority(&authority, crate::core::ApplicationProtocol::Tcp)?;
 
         let _start = Instant::now();
-        let stream = time::timeout(self.config.timeout, TcpStream::connect((&*endpoint.host_for_protocol(), endpoint.port)))
-            .await
-            .map_err(|_| ProxyError::Timeout("destination validation tcp connect"))?
-            .map_err(|_| ProxyError::RouteUnavailable(format!("cannot connect to proxy for destination validation: {}", destination.authority())))?;
+        let stream = time::timeout(
+            self.config.timeout,
+            TcpStream::connect((&*endpoint.host_for_protocol(), endpoint.port)),
+        )
+        .await
+        .map_err(|_| ProxyError::Timeout("destination validation tcp connect"))?
+        .map_err(|_| {
+            ProxyError::RouteUnavailable(format!(
+                "cannot connect to proxy for destination validation: {}",
+                destination.authority()
+            ))
+        })?;
 
         let mut stream: Box<dyn AsyncProbeStream> = if matches!(protocol, ProxyProtocol::Https) {
-            Box::new(wrap_tls(stream, &endpoint.host_for_protocol(), self.config.timeout, true).await?)
+            Box::new(
+                wrap_tls(
+                    stream,
+                    &endpoint.host_for_protocol(),
+                    self.config.timeout,
+                    true,
+                )
+                .await?,
+            )
         } else {
             Box::new(stream)
         };
@@ -190,15 +210,13 @@ impl ProxyProbe {
             ProxyProtocol::Http => self.probe_http(host, port, false).await,
             ProxyProtocol::Https => self.probe_http(host, port, true).await,
             ProxyProtocol::Socks5 => self.probe_socks5(host, port).await,
-            ProxyProtocol::Socks4 | ProxyProtocol::Socks4a => self.probe_socks4(host, port).await,
+            ProxyProtocol::Socks4 | ProxyProtocol::Socks4a => {
+                self.probe_socks4(host, port, protocol).await
+            }
         }
     }
 
-    async fn detect_protocol(
-        &self,
-        host: &str,
-        port: u16,
-    ) -> Result<ProtocolProbeResult> {
+    async fn detect_protocol(&self, host: &str, port: u16) -> Result<ProtocolProbeResult> {
         for protocol in &self.config.protocol_detection_order {
             let result = self.probe_protocol(host, port, protocol).await?;
             if result.success {
@@ -220,12 +238,7 @@ impl ProxyProbe {
         })
     }
 
-    async fn probe_http(
-        &self,
-        host: &str,
-        port: u16,
-        tls: bool,
-    ) -> Result<ProtocolProbeResult> {
+    async fn probe_http(&self, host: &str, port: u16, tls: bool) -> Result<ProtocolProbeResult> {
         let (tcp_latency, stream) = tcp_connect(host, port, self.config.timeout).await?;
         let mut latency_ms = tcp_latency;
 
@@ -236,7 +249,7 @@ impl ProxyProbe {
         };
 
         let http_probe = match &self.config.http_probe_url {
-            Some(url) => parse_probe_url(url, 80)?,
+            Some(url) => parse_http_probe_url(url, 80)?,
             None => {
                 return Ok(ProtocolProbeResult {
                     success: true,
@@ -249,15 +262,15 @@ impl ProxyProbe {
         };
 
         let connect_start = Instant::now();
-        let result = send_http_connect(
-            &mut *stream,
-            &http_probe,
-            self.config.timeout,
-            None,
-        )
-        .await;
+        let result =
+            send_http_forward_probe(&mut *stream, &http_probe, self.config.timeout).await;
 
-        let https_supported = self.check_https_support(host, port, tls).await;
+        let protocol = if tls {
+            ProxyProtocol::Https
+        } else {
+            ProxyProtocol::Http
+        };
+        let https_supported = self.check_https_support(host, port, &protocol).await;
 
         match result {
             Ok(()) => {
@@ -302,7 +315,9 @@ impl ProxyProbe {
 
         match result {
             Ok(()) => {
-                let https_supported = self.check_https_support(host, port, false).await;
+                let https_supported = self
+                    .check_https_support(host, port, &ProxyProtocol::Socks5)
+                    .await;
                 Ok(ProtocolProbeResult {
                     success: true,
                     latency_ms,
@@ -328,7 +343,12 @@ impl ProxyProbe {
         }
     }
 
-    async fn probe_socks4(&self, host: &str, port: u16) -> Result<ProtocolProbeResult> {
+    async fn probe_socks4(
+        &self,
+        host: &str,
+        port: u16,
+        protocol: &ProxyProtocol,
+    ) -> Result<ProtocolProbeResult> {
         let (tcp_latency, mut stream) = tcp_connect(host, port, self.config.timeout).await?;
 
         let probe = match &self.config.http_probe_url {
@@ -343,7 +363,7 @@ impl ProxyProbe {
 
         match result {
             Ok(()) => {
-                let https_supported = self.check_https_support(host, port, false).await;
+                let https_supported = self.check_https_support(host, port, protocol).await;
                 Ok(ProtocolProbeResult {
                     success: true,
                     latency_ms,
@@ -362,20 +382,42 @@ impl ProxyProbe {
         }
     }
 
-    async fn check_https_support(&self, host: &str, port: u16, tls: bool) -> Option<bool> {
+    async fn check_https_support(
+        &self,
+        host: &str,
+        port: u16,
+        protocol: &ProxyProtocol,
+    ) -> Option<bool> {
         let https_url = self.config.https_probe_url.as_ref()?;
         let probe = parse_probe_url(https_url, 443).ok()?;
 
         let (_tcp_latency, stream) = tcp_connect(host, port, self.config.timeout).await.ok()?;
-        let mut stream: Box<dyn AsyncProbeStream> = if tls {
-            Box::new(wrap_tls(stream, host, self.config.timeout, true).await.ok()?)
-        } else {
-            Box::new(stream)
+        let mut stream: Box<dyn AsyncProbeStream> = match protocol {
+            ProxyProtocol::Https => Box::new(
+                wrap_tls(stream, host, self.config.timeout, true)
+                    .await
+                    .ok()?,
+            ),
+            _ => Box::new(stream),
         };
 
-        send_http_connect(&mut *stream, &probe, self.config.timeout, None)
-            .await
-            .ok()?;
+        match protocol {
+            ProxyProtocol::Http | ProxyProtocol::Https => {
+                send_http_connect(&mut *stream, &probe, self.config.timeout, None)
+                    .await
+                    .ok()?;
+            }
+            ProxyProtocol::Socks5 => {
+                send_socks5_connect(&mut *stream, &probe, self.config.timeout, None)
+                    .await
+                    .ok()?;
+            }
+            ProxyProtocol::Socks4 | ProxyProtocol::Socks4a => {
+                send_socks4_connect(&mut *stream, &probe, self.config.timeout, None)
+                    .await
+                    .ok()?;
+            }
+        }
 
         Some(true)
     }
@@ -384,11 +426,7 @@ impl ProxyProbe {
 // ── Protocol handshake helpers ───────────────────────────────────────
 
 /// Opens a TCP connection to the proxy and measures its latency.
-async fn tcp_connect(
-    host: &str,
-    port: u16,
-    timeout: Duration,
-) -> Result<(u64, TcpStream)> {
+async fn tcp_connect(host: &str, port: u16, timeout: Duration) -> Result<(u64, TcpStream)> {
     let start = Instant::now();
     let stream = time::timeout(timeout, TcpStream::connect((host, port)))
         .await
@@ -421,39 +459,7 @@ where
         stream.write_all(request.as_bytes()).await?;
         stream.flush().await?;
 
-        let mut buffer = [0u8; 1024];
-        let mut pos = 0;
-        loop {
-            let n = stream.read(&mut buffer[pos..]).await?;
-            if n == 0 {
-                return Err(ProxyError::Protocol(
-                    "http proxy closed before completing response".to_string(),
-                ));
-            }
-            pos += n;
-            if pos >= 4 && buffer[..pos].ends_with(b"\r\n\r\n") {
-                break;
-            }
-            if pos >= buffer.len() {
-                return Err(ProxyError::Protocol(
-                    "http proxy response headers exceeded 1 KiB".to_string(),
-                ));
-            }
-        }
-
-        let response = &buffer[..pos];
-        let line_end = response
-            .windows(2)
-            .position(|w| w == b"\r\n")
-            .ok_or_else(|| ProxyError::Protocol("missing http status line".to_string()))?;
-        let line = std::str::from_utf8(&response[..line_end])
-            .map_err(|_| ProxyError::Protocol("http status line is not utf-8".to_string()))?;
-        let status = line
-            .split_whitespace()
-            .nth(1)
-            .and_then(|s| s.parse::<u16>().ok())
-            .ok_or_else(|| ProxyError::Protocol("invalid http status line".to_string()))?;
-
+        let status = read_http_response_status(stream).await?;
         if (200..300).contains(&status) {
             Ok(())
         } else {
@@ -464,6 +470,83 @@ where
     })
     .await
     .map_err(|_| ProxyError::Timeout("http connect handshake"))?
+}
+
+async fn read_http_response_status<S>(stream: &mut S) -> Result<u16>
+where
+    S: AsyncRead + Unpin + ?Sized,
+{
+    let mut buffer = [0u8; 1024];
+    let mut pos = 0;
+    loop {
+        if pos >= buffer.len() {
+            return Err(ProxyError::Protocol(
+                "http proxy response headers exceeded 1 KiB".to_string(),
+            ));
+        }
+
+        let n = stream.read(&mut buffer[pos..]).await?;
+        if n == 0 {
+            return Err(ProxyError::Protocol(
+                "http proxy closed before completing response".to_string(),
+            ));
+        }
+        pos += n;
+        if pos >= 4 && buffer[..pos].ends_with(b"\r\n\r\n") {
+            break;
+        }
+    }
+
+    let response = &buffer[..pos];
+    let line_end = response
+        .windows(2)
+        .position(|w| w == b"\r\n")
+        .ok_or_else(|| ProxyError::Protocol("missing http status line".to_string()))?;
+    let line = std::str::from_utf8(&response[..line_end])
+        .map_err(|_| ProxyError::Protocol("http status line is not utf-8".to_string()))?;
+    line.split_whitespace()
+        .nth(1)
+        .and_then(|s| s.parse::<u16>().ok())
+        .ok_or_else(|| ProxyError::Protocol("invalid http status line".to_string()))
+}
+
+/// Sends an HTTP forward request through an HTTP proxy.
+///
+/// This validates classic HTTP proxy forwarding. It intentionally does not use
+/// CONNECT because many HTTP proxies only allow CONNECT to HTTPS ports.
+async fn send_http_forward_probe<S>(
+    stream: &mut S,
+    probe: &HttpProbeTarget,
+    timeout: Duration,
+) -> Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin + ?Sized,
+{
+    let request = format!(
+        "GET {} HTTP/1.1\r\nHost: {}\r\nProxy-Connection: close\r\nConnection: close\r\n\r\n",
+        probe.request_target, probe.host_header
+    );
+
+    time::timeout(timeout, async {
+        stream.write_all(request.as_bytes()).await?;
+        stream.flush().await?;
+
+        let status = read_http_response_status(stream).await?;
+        if status == 407 {
+            return Err(ProxyError::UpstreamRejected(
+                "http forward returned status 407".to_string(),
+            ));
+        }
+        if status < 500 {
+            Ok(())
+        } else {
+            Err(ProxyError::UpstreamRejected(format!(
+                "http forward returned status {status}"
+            )))
+        }
+    })
+    .await
+    .map_err(|_| ProxyError::Timeout("http forward probe"))?
 }
 
 /// Performs a SOCKS5 CONNECT handshake over an existing stream.
@@ -501,7 +584,9 @@ where
         let mut reply = [0u8; 4];
         stream.read_exact(&mut reply).await?;
         if reply[0] != 0x05 {
-            return Err(ProxyError::Protocol("socks5: invalid reply version".to_string()));
+            return Err(ProxyError::Protocol(
+                "socks5: invalid reply version".to_string(),
+            ));
         }
         if reply[1] != 0x00 {
             return Err(ProxyError::UpstreamRejected(format!(
@@ -519,7 +604,9 @@ where
             }
             0x04 => 16,
             _ => {
-                return Err(ProxyError::Protocol("socks5: unknown address type".to_string()));
+                return Err(ProxyError::Protocol(
+                    "socks5: unknown address type".to_string(),
+                ));
             }
         };
         let mut rest = vec![0u8; addr_len + 2];
@@ -710,21 +797,58 @@ impl ServerCertVerifier for NoCertificateVerification {
 
 // ── URL parsing helper ──────────────────────────────────────────────
 
-/// Parses a probe URL into a `Destination`.
-fn parse_probe_url(url: &str, default_port: u16) -> Result<Destination> {
-    let url = url.trim();
-    let (rest, port) = if let Some((host_part, port_str)) = url.rsplit_once(':') {
-        if let Ok(p) = port_str.trim_end_matches('/').parse::<u16>() {
-            (host_part.trim_start_matches("http://").trim_start_matches("https://"), p)
-        } else {
-            (url.trim_start_matches("http://").trim_start_matches("https://"), default_port)
-        }
+struct HttpProbeTarget {
+    request_target: String,
+    host_header: String,
+}
+
+fn parse_http_probe_url(url: &str, default_port: u16) -> Result<HttpProbeTarget> {
+    let parsed = parse_probe_url_value(url, default_port)?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| ProxyError::Config(format!("probe URL '{url}' has no host")))?;
+    let port = parsed.port_or_known_default().unwrap_or(default_port);
+    let scheme_default_port = match parsed.scheme() {
+        "https" => 443,
+        _ => 80,
+    };
+    let host_header = if port == scheme_default_port {
+        host.to_string()
     } else {
-        (url.trim_start_matches("http://").trim_start_matches("https://"), default_port)
+        format!("{host}:{port}")
     };
 
-    let rest = rest.trim_end_matches('/');
-    Ok(Destination::host_port(rest.to_string(), port))
+    Ok(HttpProbeTarget {
+        request_target: parsed.as_str().to_string(),
+        host_header,
+    })
+}
+
+/// Parses a probe URL into a `Destination`.
+fn parse_probe_url(url: &str, default_port: u16) -> Result<Destination> {
+    let parsed = parse_probe_url_value(url, default_port)?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| ProxyError::Config(format!("probe URL '{url}' has no host")))?;
+    let port = parsed.port_or_known_default().unwrap_or(default_port);
+    Ok(Destination::host_port(host.to_string(), port))
+}
+
+fn parse_probe_url_value(url: &str, default_port: u16) -> Result<url::Url> {
+    let trimmed = url.trim();
+    if trimmed.is_empty() {
+        return Err(ProxyError::Config("probe URL cannot be empty".to_string()));
+    }
+
+    let default_scheme = if default_port == 443 { "https" } else { "http" };
+    let candidate = if trimmed.contains("://") {
+        trimmed.to_string()
+    } else {
+        format!("{default_scheme}://{trimmed}")
+    };
+
+    url::Url::parse(&candidate)
+        .map_err(|error| ProxyError::Config(format!("invalid probe URL '{url}': {error}")))
 }
 
 // ── Auth detection helpers ──────────────────────────────────────────

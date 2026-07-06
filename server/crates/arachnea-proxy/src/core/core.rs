@@ -63,6 +63,9 @@ struct ProxyPoolSelection {
     pool_name: String,
     /// Upstream node name selected from the pool.
     upstream: String,
+    /// Endpoint authority (host:port) of the selected proxy, used to
+    /// propagate failures to the proxy inventory.
+    endpoint: Option<String>,
 }
 
 /// In-process proxy core used by libraries, servers and client connectors.
@@ -732,7 +735,18 @@ impl ArachneaProxyCore {
                     return Ok(stream);
                 }
                 Err(_) if attempt < retry_budget && !resolved_chain.pool_selections.is_empty() => {
-                    self.mark_proxy_pool_selections_ko(&resolved_chain.pool_selections);
+                    let proxy_names: Vec<&str> = resolved_chain
+                        .pool_selections
+                        .iter()
+                        .map(|s| s.upstream.as_str())
+                        .collect();
+                    tracing::debug!(
+                        attempt = %attempt,
+                        max_attempts = %retry_budget,
+                        failed_proxies = %proxy_names.join(", "),
+                        "dynamic proxy selection failed, marking failed and retrying with another candidate"
+                    );
+                    self.mark_proxy_pool_selections_ko(&resolved_chain.pool_selections).await;
                     continue;
                 }
                 Err(error) => {
@@ -827,7 +841,18 @@ impl ArachneaProxyCore {
                     });
                 }
                 Err(_) if attempt < retry_budget && !resolved_chain.pool_selections.is_empty() => {
-                    self.mark_proxy_pool_selections_ko(&resolved_chain.pool_selections);
+                    let proxy_names: Vec<&str> = resolved_chain
+                        .pool_selections
+                        .iter()
+                        .map(|s| s.upstream.as_str())
+                        .collect();
+                    tracing::debug!(
+                        attempt = %attempt,
+                        max_attempts = %retry_budget,
+                        failed_proxies = %proxy_names.join(", "),
+                        "dynamic proxy selection failed, marking failed and retrying with another candidate"
+                    );
+                    self.mark_proxy_pool_selections_ko(&resolved_chain.pool_selections).await;
                     continue;
                 }
                 Err(error) => {
@@ -915,9 +940,11 @@ impl ArachneaProxyCore {
                     let selected = self
                         .resolve_dynamic_country_pool(country, require_https)
                         .await?;
+                    let endpoint = selected.endpoint.clone();
                     pool_selections.push(ProxyPoolSelection {
                         pool_name: node.name.clone(),
                         upstream: selected.name.clone(),
+                        endpoint,
                     });
                     resolved.nodes.push(selected);
                 } else {
@@ -926,9 +953,11 @@ impl ArachneaProxyCore {
                     let selected = self
                         .select_proxy_pool_member(&node.name, &target, check_mode)
                         .await?;
+                    let endpoint = selected.endpoint.clone();
                     pool_selections.push(ProxyPoolSelection {
                         pool_name: node.name.clone(),
                         upstream: selected.name.clone(),
+                        endpoint,
                     });
                     resolved.nodes.push(selected);
                 }
@@ -1305,10 +1334,13 @@ impl ArachneaProxyCore {
 
     /// Marks selected pool members as failed after a connection setup failure.
     ///
+    /// For dynamic country pools, the failure is also propagated to the proxy
+    /// inventory so that the same proxy is not selected again on the next retry.
+    ///
     /// # Parameters
     ///
     /// - `selections`: Pool selections used by the failed connection attempt.
-    fn mark_proxy_pool_selections_ko(&self, selections: &[ProxyPoolSelection]) {
+    async fn mark_proxy_pool_selections_ko(&self, selections: &[ProxyPoolSelection]) {
         if let Ok(mut states) = self.proxy_pool_states.write() {
             for selection in selections {
                 let state = states.entry(selection.pool_name.clone()).or_default();
@@ -1320,9 +1352,39 @@ impl ArachneaProxyCore {
                 }
             }
         }
+        // Propagate failures from dynamic country pools to the proxy inventory
+        // synchronously before retry so the same proxy is not selected again.
+        for selection in selections {
+            if let Some(country) = selection.pool_name.strip_prefix(DYNAMIC_COUNTRY_POOL_PREFIX) {
+                if let Some(inventory) = &self.proxy_inventory {
+                    let authority = selection
+                        .endpoint
+                        .as_deref()
+                        .or_else(|| {
+                            selection
+                                .upstream
+                                .rsplit_once('-')
+                                .map(|(_, addr)| addr)
+                        })
+                        .unwrap_or(&selection.upstream);
+                    tracing::debug!(
+                        pool = %selection.pool_name,
+                        country = %country,
+                        proxy = %selection.upstream,
+                        authority = %authority,
+                        "recording dynamic proxy failure in inventory for retry"
+                    );
+                    inventory.record_global_failure(authority).await;
+                }
+            }
+        }
     }
 
     /// Returns the number of retry attempts allowed for pool-backed chains.
+    ///
+    /// For static pools, the budget is the number of pool members. For dynamic
+    /// country pools, a fixed budget is used since the exact eligible count
+    /// requires an async call to the inventory.
     ///
     /// # Parameters
     ///
@@ -1330,15 +1392,26 @@ impl ArachneaProxyCore {
     ///
     /// # Returns
     ///
-    /// Sum of pool member counts referenced by the chain.
+    /// Number of retry attempts allowed.
     fn proxy_pool_retry_budget(&self, chain: &ProxyChain) -> usize {
-        chain
-            .nodes
-            .iter()
-            .filter(|node| node.kind == TransportKind::ProxyPool)
-            .filter_map(|node| self.config.egress_pool(&node.name))
-            .map(|pool| pool.proxy_nodes.len())
-            .sum()
+        let mut budget = 0usize;
+        for node in &chain.nodes {
+            if node.kind != TransportKind::ProxyPool {
+                continue;
+            }
+            // Static pools declared in configuration.
+            if let Some(pool) = self.config.egress_pool(&node.name) {
+                budget += pool.proxy_nodes.len();
+                continue;
+            }
+            // Dynamic country pools: use a fixed budget. The inventory will
+            // select a different candidate on each retry because the failed
+            // proxy is marked KO in the inventory.
+            if node.name.starts_with(DYNAMIC_COUNTRY_POOL_PREFIX) {
+                budget += 10;
+            }
+        }
+        budget
     }
 
     /// Checks whether one pool member can support this chain position.

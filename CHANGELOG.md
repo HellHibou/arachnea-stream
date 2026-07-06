@@ -54,6 +54,7 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **6play front-auth login**: M6Play login token retrieval is now serialized to avoid concurrent Gigya/front-auth request storms, while still reporting HTTP status/body details when `front-auth.6cloud.fr` returns non-JSON.
 - **`francetv.yaml` `list_lives` flattening**: the FranceTV live catalog now groups `/items/*` under `entries` with `result_item_field: entries`, so typed scalar fields are serialized per live item instead of receiving values from the whole feed.
 - **`proxifly.yaml` proxy list flattening**: the dynamic proxy source now groups root array items under `proxies` with `result_item_field: proxies`, so one proxy row is returned per upstream JSON item instead of a single merged result.
+- **Dynamic proxy selection diagnostics and probing**: dynamic proxy inventory now logs loaded/probed/eligible candidate counts, HTTP proxy probes use forward `GET` instead of `CONNECT :80`, SOCKS proxies are not rejected for HTTPS destinations solely because a source reports `supports_https=false`, and proxy country headers no longer produce unknown action-header debug noise.
 
 ## Unreleased — RTBF Auvio home banner RedBee auth simplification
 

@@ -996,7 +996,7 @@ Une configuration future pourrait ressembler a ceci :
 enabled = true
 persist_path = "data/proxies.json"
 persist_format = "json"
-sources_registry = "server/services/proxies/services.json"
+sources_registry = "server/services/arachnea-proxies/services.json"
 strict_country = true
 source_ttl_seconds = 1800
 probe_ttl_seconds = 600
@@ -1082,18 +1082,61 @@ ScrapyfyProxyDataProvider
 Les sources de proxies doivent vivre dans un espace dedie :
 
 ```text
-server/services/proxies/services.json
-server/services/proxies/*.yaml
+server/services/arachnea-proxies/services.json
+server/services/arachnea-proxies/*.yaml
 ```
 
 Le fichier `services.json` sert de registre et reference les YAML de sources
 proxy. Ces YAML ne sont pas des sources media : ils produisent des `ProxyRecord`
 normalises.
 
-### Sources retenues pour la phase 5
+### Source implementee pour la phase 5
 
-La phase 5 demarre avec deux sources publiques simples, traitees par un provider
-Rust cote `arachnea-scrapyfy` derriere la feature `arachnea-proxy`.
+La phase 5 utilise maintenant une source publique declaree en YAML, traitee par
+un provider Rust cote `arachnea-scrapyfy` derriere la feature
+`arachnea-proxy`.
+
+#### Source JSON `proxifly/free-proxy-list` ✅
+
+Source :
+
+```text
+https://github.com/proxifly/free-proxy-list
+```
+
+URL brute par pays :
+
+```text
+https://raw.githubusercontent.com/proxifly/free-proxy-list/refs/heads/main/proxies/countries/{country}/data.json
+```
+
+Registre et YAML :
+
+```text
+server/services/arachnea-proxies/services.json
+server/services/arachnea-proxies/proxifly.yaml
+```
+
+Le YAML declare la query `list_proxies_for_country`, utilise
+`row_pointer: "/*"` et `result_item_field: proxies` pour convertir chaque
+element racine du tableau JSON en ligne de resultat.
+
+Mapping vers `ProxyRecord` :
+
+- `protocol` vient de `/protocol` ;
+- `host` vient de `/ip` ;
+- `port` vient de `/port` ;
+- `country` vient de `/geolocation/country`, puis est normalise en majuscules
+  cote provider ;
+- `supports_https` vient de `/https` ;
+- `latency_ms = None` avant probe ;
+- `availability = Unknown` ;
+- les champs runtime restent initialises par defaut avant probe.
+
+Le provider filtre ensuite les resultats sur le pays demande et deduplique les
+records charges par authority normalisee.
+
+### Sources candidates futures
 
 #### Source texte `iplocate/free-proxy-list`
 
@@ -1267,7 +1310,8 @@ Impact : API publique nouvelle, mais peu de changement comportemental.
 ### Etape 2 - Probe explicite ✅
 
 - Nouvelle API `ProxyProbe` + `ProbeConfig` + `ProbeMode` dans `proxy_probe.rs`.
-- Mesure latence TCP, test HTTP CONNECT, SOCKS5/SOCKS4, tunnel HTTPS.
+- Mesure latence TCP, test HTTP forward, HTTP CONNECT pour HTTPS,
+  SOCKS5/SOCKS4 et tunnel HTTPS.
 - Détection d'authentification (HTTP 407, SOCKS5 0xFF).
 - Détection de protocole : itère `protocol_detection_order` quand `protocol` est absent.
 - `ProbeConfig.http_probe_url` / `.https_probe_url` configurables.
@@ -1281,7 +1325,10 @@ Impact : base indispensable avant de charger des listes externes.
 
 - Nouveau `ProxyInventory` + `InventoryConfig` + `CoexistencePolicy` dans `proxy_inventory.rs`.
 - Stocke les records dans `HashMap<String, ProxyRecord>` indexée par authority, avec index pays.
-- `select(country, require_https)` : filtre par status OK, pas en cooldown, pas d'auth requise, support HTTPS si demandé, puis tri par latence puis failure_count.
+- `select(country, require_https)` : filtre par status OK, pas en cooldown,
+  pas d'auth requise, compatibilite HTTPS si demandee, puis tri par latence
+  puis failure_count. Les proxies SOCKS restent admissibles pour HTTPS car ils
+  tunnelisent TCP, meme si une source publique indique `supports_https = false`.
 - `add_or_update()` : merge les records entrants sans écraser les champs runtime (status, latence, cooldown, destination_failures).
 - Chargement lazy via `ProxyDataProvider` avec verrou par pays et cache négatif.
 - `record_destination_failure()` : ajoute/met à jour un échec `scheme/host/port` ; au seuil de 10, marque KO global et vide la liste.
@@ -1314,25 +1361,30 @@ Impact : permet de ne pas retester/recharger a chaque lancement.
 
 ### Etape 5 - Provider scrapyfy et cablage dynamique
 
-#### Etape 5.a - Squelette du provider scrapyfy ✅
+#### Etape 5.a - Provider scrapyfy ✅
 
 - [x] Ajout de `ScrapyfyProxyDataProvider` dans `arachnea-scrapyfy`, compile
   derriere la feature `arachnea-proxy`.
-- [x] Le provider est volontairement un squelette : `load_proxies(...)` retourne
-  actuellement une liste minimale de records, avec un `TODO: A implementer` pour
-  le chargement reel.
+- [x] Chargement de la collection de sources `arachnea-proxies` depuis
+  `server/services/arachnea-proxies/services.json`.
+- [x] `load_proxies(...)` appelle `execute_query_async(...)` sur
+  `list_proxies_for_country`, convertit les resultats vers `ProxyRecord`, filtre
+  par pays et deduplique les authorities.
 - [x] Exposition de `default_scrapyfy_proxy_inventory()` pour construire un
   `ProxyInventory` dynamique par defaut branche sur le provider scrapyfy et le
   `ProxyProbe` par defaut. La persistance reste fournie par l'application via le
   store choisi.
+- [x] Source initiale `proxifly/free-proxy-list` documentee et configuree via
+  YAML.
 - [x] Les observations sur les sources `iplocate/free-proxy-list` et
-  `vakhov/fresh-proxy-list` restent documentees plus haut comme base pour
-  l'implementation future du chargement.
+  `vakhov/fresh-proxy-list` restent documentees plus haut comme candidates
+  futures.
 
-Impact : le point d'extension cote `arachnea-scrapyfy` existe, mais il n'est pas
-encore utilise automatiquement par les requetes `country=FR` du runtime.
+Impact : le point d'extension cote `arachnea-scrapyfy` existe et charge une
+source de donnees reelle ; la qualite finale de selection depend ensuite du
+probe et de l'inventaire runtime.
 
-#### Etape 5.b - Cablage runtime du routage pays dynamique
+#### Etape 5.b - Cablage runtime du routage pays dynamique ✅
 
 - [x] Brancher un `ProxyInventory` dans `ArachneaProxyCore` ou dans la
   composition proxy utilisee par `arachnea-stream`.
@@ -1358,25 +1410,37 @@ URLs proxy portant `Arachnea-Proxy-Country`.
 
 #### Etape 5.c - Chargement/parsing des sources proxy publiques
 
-- [ ] Remplacer le `TODO: A implementer` de `ScrapyfyProxyDataProvider` par une
+- [x] Remplacer le `TODO: A implementer` de `ScrapyfyProxyDataProvider` par une
   vraie logique de chargement de donnees.
+- [x] Ajouter le registre
+  `server/services/arachnea-proxies/services.json`.
+- [x] Ajouter la source YAML
+  `server/services/arachnea-proxies/proxifly.yaml`.
+- [x] Implementer le chargement de la source JSON
+  `proxifly/free-proxy-list` par endpoint pays.
+- [x] Normaliser la source Proxifly vers `ProxyRecord` sans format
+  intermediaire propre a `arachnea-stream`.
+- [x] Utiliser `row_pointer: "/*"` et `result_item_field: proxies` pour
+  transformer le tableau JSON racine en un record par proxy.
+- [x] Normaliser le pays demande et filtrer les resultats sur ce pays.
+- [x] Deduplicer les records charges par authority normalisee.
 - [ ] Implementer le chargement de la source texte `iplocate/free-proxy-list`,
   un proxy URL par ligne.
 - [ ] Implementer le chargement de la source JSON `vakhov/fresh-proxy-list`,
   objets avec host/ip/port/protocoles et `country_code`.
-- [ ] Normaliser ces formats vers `ProxyRecord` sans format intermediaire propre
-  a `arachnea-stream`.
+- [ ] Normaliser ces deux formats vers `ProxyRecord` sans format intermediaire
+  propre a `arachnea-stream`.
 - [ ] Pour la source texte sans pays, conserver `country = None` et ne jamais
   copier artificiellement `ProxyLoadRequest.country` dans les records.
 - [ ] Pour la source JSON, renseigner `country` depuis `country_code` quand il
   est present.
-- [ ] Deduplicer les records charges par authority normalisee.
-- [ ] Ajouter ensuite un format YAML de sortie aligne sur `ProxyRecord` si le
-  moteur texte/JSON generique est etendu pour couvrir ces sources sans logique
-  Rust specifique.
+- [ ] Ajouter un champ source dans les records charges si l'on veut distinguer
+  plusieurs fournisseurs dans les diagnostics et la persistance.
 
 Impact : remplace le proxy FR code en dur par une source de donnees modifiable,
-sans imposer a `arachnea-stream` de gerer les proxies par pays.
+sans imposer a `arachnea-stream` de gerer les proxies par pays. Les sources
+`iplocate` et `vakhov` restent des extensions futures, pas des pre-requis pour
+le chemin Proxifly actuel.
 
 ### Etape 6 - Resolution pays optionnelle
 
@@ -1394,22 +1458,20 @@ Impact : ameliore les listes incompletes sans bloquer la v1.
 
 ### Etape 7 - Commandes et observabilite
 
-- Exposer une commande ou API d'inspection :
-  - liste des proxies connus ;
-  - statut par pays ;
-  - dernier test ;
-  - latence ;
-  - support HTTPS ;
-  - source et pays declare.
-- Ajouter logs structures pour chargement, probe, selection et echec.
+- [ ] Exposer une commande ou API d'inspection avec liste des proxies connus,
+  statut par pays, dernier test, latence, support HTTPS, source et pays declare.
+- [x] Ajouter des logs structures pour le chargement, le probe et la selection
+  dynamique.
+- [ ] Completer les diagnostics d'echec destination/proxy si besoin apres retour
+  d'usage.
 
 Impact : indispensable pour diagnostiquer les erreurs de routage pays.
 
 ## Decisions clarifiees
 
 - Les sources proxy sont decrites par des fichiers YAML dans
-  `server/services/proxies`, eux-memes references par
-  `server/services/proxies/services.json`.
+  `server/services/arachnea-proxies`, eux-memes references par
+  `server/services/arachnea-proxies/services.json`.
 - Le pays demande doit etre strictement respecte : pas de fallback vers un autre
   pays, et pas de fallback direct implicite. Si `country` est present, il est
   considere correct et n'est pas reverifie. Si le pays est absent, la resolution

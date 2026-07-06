@@ -6,8 +6,8 @@ use tokio::sync::RwLock;
 
 use crate::core::proxy_store::ProxyStore;
 use crate::core::{
-    Destination, ProxyDataProvider, ProxyProbe, ProxyRecord, ProxyRuntimeStatus, ProxyError,
-    Result,
+    Destination, ProxyDataProvider, ProxyError, ProxyProbe, ProxyProtocol, ProxyRecord,
+    ProxyRuntimeStatus, Result,
 };
 
 /// Policy controlling how static and dynamic proxy pools coexist.
@@ -183,8 +183,7 @@ impl ProxyInventory {
                 merged.cooldown_until = existing.cooldown_until;
                 merged.destination_failures = existing.destination_failures.clone();
 
-                let country_changed =
-                    existing.country.as_deref() != merged.country.as_deref();
+                let country_changed = existing.country.as_deref() != merged.country.as_deref();
                 if country_changed {
                     if let Some(ref old) = old_country {
                         if let Some(keys) = inner.country_records.get_mut(old) {
@@ -222,13 +221,7 @@ impl ProxyInventory {
 
     /// Returns a snapshot of all stored records.
     pub async fn all_records(&self) -> Vec<ProxyRecord> {
-        self.inner
-            .read()
-            .await
-            .records
-            .values()
-            .cloned()
-            .collect()
+        self.inner.read().await.records.values().cloned().collect()
     }
 
     /// Returns records for a specific country.
@@ -300,10 +293,36 @@ impl ProxyInventory {
         let inner = self.inner.read().await;
         let now = SystemTime::now();
 
-        let keys = inner.country_records.get(country)?;
-        let mut candidates: Vec<&ProxyRecord> = keys
+        let Some(keys) = inner.country_records.get(country) else {
+            tracing::debug!(
+                country = %country,
+                require_https,
+                "proxy inventory has no records for country"
+            );
+            return None;
+        };
+        let records: Vec<&ProxyRecord> = keys
             .iter()
             .filter_map(|k| inner.records.get(k))
+            .collect();
+        let stats = selection_stats(records.iter().copied(), require_https, now);
+        tracing::debug!(
+            country = %country,
+            require_https,
+            total = stats.total,
+            ok = stats.ok,
+            unknown = stats.unknown,
+            ko = stats.ko,
+            auth_required = stats.authentication_required,
+            auth_flag = stats.authentication_required_flag,
+            cooldown = stats.cooldown,
+            https_rejected = stats.https_rejected,
+            eligible = stats.eligible,
+            "proxy inventory selection candidates"
+        );
+
+        let mut candidates: Vec<&ProxyRecord> = records
+            .into_iter()
             .filter(|r| is_eligible(r, require_https, now))
             .collect();
 
@@ -318,7 +337,17 @@ impl ProxyInventory {
                 .then(a.failure_count.cmp(&b.failure_count))
         });
 
-        Some(candidates[0].clone())
+        let selected = candidates[0];
+        tracing::debug!(
+            country = %country,
+            require_https,
+            selected = %selected.authority(),
+            protocol = ?selected.protocol,
+            supports_https = ?selected.supports_https,
+            latency_ms = ?selected.latency_ms,
+            "selected dynamic proxy candidate"
+        );
+        Some(selected.clone())
     }
 
     /// Loads proxies from the provider for a country, unless a load is
@@ -356,12 +385,45 @@ impl ProxyInventory {
 
         match result {
             Ok(mut records) => {
+                let loaded_count = records.len();
                 if let Some(probe) = &self.probe {
                     for record in &mut records {
                         let _ = probe.probe(record).await;
                     }
                 }
+                let probe_stats = selection_stats(records.iter(), false, SystemTime::now());
+                tracing::info!(
+                    country = %country,
+                    loaded_count,
+                    ok = probe_stats.ok,
+                    unknown = probe_stats.unknown,
+                    ko = probe_stats.ko,
+                    auth_required = probe_stats.authentication_required,
+                    auth_flag = probe_stats.authentication_required_flag,
+                    "loaded dynamic proxies probed"
+                );
                 self.add_or_update(records).await;
+
+                let http_stats = self
+                    .selection_stats_for_country(country, false)
+                    .await
+                    .unwrap_or_default();
+                let https_stats = self
+                    .selection_stats_for_country(country, true)
+                    .await
+                    .unwrap_or_default();
+                tracing::info!(
+                    country = %country,
+                    total = http_stats.total,
+                    ok = http_stats.ok,
+                    eligible_http = http_stats.eligible,
+                    eligible_https = https_stats.eligible,
+                    https_rejected = https_stats.https_rejected,
+                    ko = http_stats.ko,
+                    auth_required = http_stats.authentication_required,
+                    cooldown = http_stats.cooldown,
+                    "dynamic proxy inventory updated"
+                );
 
                 let has_usable = self.select_cached(country, false).await.is_some();
                 if !has_usable {
@@ -386,6 +448,18 @@ impl ProxyInventory {
 
         let mut inner = self.inner.write().await;
         inner.loading_countries.remove(country);
+    }
+
+    async fn selection_stats_for_country(
+        &self,
+        country: &str,
+        require_https: bool,
+    ) -> Option<SelectionStats> {
+        let inner = self.inner.read().await;
+        let now = SystemTime::now();
+        let keys = inner.country_records.get(country)?;
+        let records = keys.iter().filter_map(|k| inner.records.get(k));
+        Some(selection_stats(records, require_https, now))
     }
 
     // ── Failure tracking ─────────────────────────────────────────────
@@ -426,12 +500,12 @@ impl ProxyInventory {
                     failure.failure_count += 1;
                     failure.last_failed = now;
                     failure.reason = reason;
-                    failure.cooldown_until =
-                        Some(now + self.config.destination_failure_cooldown);
+                    failure.cooldown_until = Some(now + self.config.destination_failure_cooldown);
                 }
                 None => {
-                    record.destination_failures.push(
-                        crate::core::ProxyDestinationFailure {
+                    record
+                        .destination_failures
+                        .push(crate::core::ProxyDestinationFailure {
                             scheme: destination_scheme(destination),
                             host: failure_host,
                             port: destination.port,
@@ -439,8 +513,7 @@ impl ProxyInventory {
                             failure_count: 1,
                             last_failed: now,
                             cooldown_until: Some(now + self.config.destination_failure_cooldown),
-                        },
-                    );
+                        });
                 }
             }
 
@@ -504,6 +577,55 @@ impl ProxyInventory {
 
 // ── Eligibility helpers ───────────────────────────────────────────────
 
+#[derive(Clone, Copy, Debug, Default)]
+struct SelectionStats {
+    total: usize,
+    ok: usize,
+    unknown: usize,
+    ko: usize,
+    authentication_required: usize,
+    authentication_required_flag: usize,
+    cooldown: usize,
+    https_rejected: usize,
+    eligible: usize,
+}
+
+fn selection_stats<'a>(
+    records: impl IntoIterator<Item = &'a ProxyRecord>,
+    require_https: bool,
+    now: SystemTime,
+) -> SelectionStats {
+    let mut stats = SelectionStats::default();
+
+    for record in records {
+        stats.total += 1;
+        match record.status {
+            ProxyRuntimeStatus::Ok => stats.ok += 1,
+            ProxyRuntimeStatus::Unknown => stats.unknown += 1,
+            ProxyRuntimeStatus::Ko => stats.ko += 1,
+            ProxyRuntimeStatus::AuthenticationRequired => stats.authentication_required += 1,
+        }
+
+        if record.authentication_required == Some(true) {
+            stats.authentication_required_flag += 1;
+        }
+
+        if record.cooldown_until.is_some_and(|cooldown| cooldown > now) {
+            stats.cooldown += 1;
+        }
+
+        if require_https && !can_reach_https_destination(record) {
+            stats.https_rejected += 1;
+        }
+
+        if is_eligible(record, require_https, now) {
+            stats.eligible += 1;
+        }
+    }
+
+    stats
+}
+
 fn is_eligible(record: &ProxyRecord, require_https: bool, now: SystemTime) -> bool {
     if !matches!(record.status, ProxyRuntimeStatus::Ok) {
         return false;
@@ -519,15 +641,22 @@ fn is_eligible(record: &ProxyRecord, require_https: bool, now: SystemTime) -> bo
         }
     }
 
-    if require_https {
-        match record.supports_https {
-            Some(true) => {}
-            Some(false) => return false,
-            None => {}
-        }
+    if require_https && !can_reach_https_destination(record) {
+        return false;
     }
 
     true
+}
+
+fn can_reach_https_destination(record: &ProxyRecord) -> bool {
+    if matches!(
+        record.protocol,
+        Some(ProxyProtocol::Socks4 | ProxyProtocol::Socks4a | ProxyProtocol::Socks5)
+    ) {
+        return true;
+    }
+
+    record.supports_https != Some(false)
 }
 
 fn destination_scheme(destination: &Destination) -> String {
