@@ -845,25 +845,29 @@ async fn fetch_responses(
         .cloned()
         .collect();
 
-    let jobs = non_empty_urls.iter().cloned().enumerate().map(|(index, url)| {
-        let headers = headers.clone();
-        let body = body.clone();
-        let method = method.clone();
-        let client = configured_client.clone();
-        async move {
-            let response = fetch_single(
-                &client,
-                method,
-                &url,
-                &headers,
-                body.as_deref(),
-                extract_next_data,
-                scraper_type,
-            )
-            .await?;
-            Ok::<(usize, (String, FetchedResponse)), anyhow::Error>((index, (url, response)))
-        }
-    });
+    let jobs = non_empty_urls
+        .iter()
+        .cloned()
+        .enumerate()
+        .map(|(index, url)| {
+            let headers = headers.clone();
+            let body = body.clone();
+            let method = method.clone();
+            let client = configured_client.clone();
+            async move {
+                let response = fetch_single(
+                    &client,
+                    method,
+                    &url,
+                    &headers,
+                    body.as_deref(),
+                    extract_next_data,
+                    scraper_type,
+                )
+                .await?;
+                Ok::<(usize, (String, FetchedResponse)), anyhow::Error>((index, (url, response)))
+            }
+        });
 
     let results: Vec<Result<(usize, (String, FetchedResponse))>> = stream::iter(jobs)
         .buffer_unordered(DEFAULT_FETCH_CONCURRENCY)

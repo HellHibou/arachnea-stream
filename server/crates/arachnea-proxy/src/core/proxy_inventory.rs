@@ -167,10 +167,11 @@ impl ProxyInventory {
 
     /// Adds or updates a batch of proxy records.
     ///
-    /// Existing records with the same authority are merged: runtime fields
-    /// (`status`, `latency_ms`, `failure_count`, `authentication_required`,
-    /// `last_checked`, `cooldown_until`, `destination_failures`) are preserved
-    /// from the existing record.
+    /// Existing records with the same authority are merged. Hard exclusion
+    /// state (`Ko`, authentication required, cooldowns, and destination
+    /// failures) is preserved, while a fresh probed source record may refresh
+    /// latency, HTTPS support and `last_checked` for otherwise eligible
+    /// records.
     pub async fn add_or_update(&self, records: Vec<ProxyRecord>) {
         let mut inner = self.inner.write().await;
         for record in records {
@@ -178,12 +179,15 @@ impl ProxyInventory {
             let old_country = inner.records.get(&key).and_then(|r| r.country.clone());
             if let Some(existing) = inner.records.get(&key) {
                 let mut merged = record.clone();
-                merged.status = existing.status.clone();
-                merged.latency_ms = existing.latency_ms;
-                merged.failure_count = existing.failure_count;
-                merged.authentication_required = existing.authentication_required;
-                merged.last_checked = existing.last_checked;
-                merged.cooldown_until = existing.cooldown_until;
+                if should_preserve_runtime_exclusion(existing) || !has_fresh_runtime_update(&record)
+                {
+                    merged.status = existing.status.clone();
+                    merged.latency_ms = existing.latency_ms;
+                    merged.failure_count = existing.failure_count;
+                    merged.authentication_required = existing.authentication_required;
+                    merged.last_checked = existing.last_checked;
+                    merged.cooldown_until = existing.cooldown_until;
+                }
                 merged.destination_failures = existing.destination_failures.clone();
 
                 let country_changed = existing.country.as_deref() != merged.country.as_deref();
@@ -276,13 +280,43 @@ impl ProxyInventory {
     ///
     /// Returns an error when no candidate is available after loading.
     pub async fn select(&self, country: &str, require_https: bool) -> Result<ProxyRecord> {
-        if let Some(record) = self.select_cached(country, require_https).await {
+        self.select_for_destination(country, require_https, None)
+            .await
+    }
+
+    /// Selects the best available proxy for a country and destination.
+    ///
+    /// Destination-specific cooldowns are applied when `destination` is
+    /// supplied. When no candidate is available and a provider is configured,
+    /// this triggers a lazy load and retries once.
+    ///
+    /// # Arguments
+    ///
+    /// - `country`: ISO country code.
+    /// - `require_https`: If `true`, only proxies that can reach HTTPS
+    ///   destinations are eligible.
+    /// - `destination`: Optional final destination used to exclude proxies
+    ///   temporarily cooled down for that origin.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when no candidate is available after loading.
+    pub async fn select_for_destination(
+        &self,
+        country: &str,
+        require_https: bool,
+        destination: Option<&Destination>,
+    ) -> Result<ProxyRecord> {
+        if let Some(record) = self
+            .select_cached(country, require_https, destination)
+            .await
+        {
             return Ok(record);
         }
 
         self.load_if_needed(country).await;
 
-        self.select_cached(country, require_https)
+        self.select_cached(country, require_https, destination)
             .await
             .ok_or_else(|| {
                 ProxyError::RouteUnavailable(format!(
@@ -292,7 +326,12 @@ impl ProxyInventory {
     }
 
     /// Selects from cached records only, without triggering a load.
-    async fn select_cached(&self, country: &str, require_https: bool) -> Option<ProxyRecord> {
+    async fn select_cached(
+        &self,
+        country: &str,
+        require_https: bool,
+        destination: Option<&Destination>,
+    ) -> Option<ProxyRecord> {
         let inner = self.inner.read().await;
         let now = SystemTime::now();
 
@@ -304,11 +343,15 @@ impl ProxyInventory {
             );
             return None;
         };
-        let records: Vec<&ProxyRecord> = keys
-            .iter()
-            .filter_map(|k| inner.records.get(k))
-            .collect();
-        let stats = selection_stats(records.iter().copied(), require_https, now);
+        let records: Vec<&ProxyRecord> = keys.iter().filter_map(|k| inner.records.get(k)).collect();
+        let stats = selection_stats(
+            records.iter().copied(),
+            country,
+            require_https,
+            destination,
+            now,
+            self.config.probe_ttl,
+        );
         tracing::debug!(
             country = %country,
             require_https,
@@ -319,6 +362,8 @@ impl ProxyInventory {
             auth_required = stats.authentication_required,
             auth_flag = stats.authentication_required_flag,
             cooldown = stats.cooldown,
+            probe_expired = stats.probe_expired,
+            destination_cooldown = stats.destination_cooldown,
             https_rejected = stats.https_rejected,
             eligible = stats.eligible,
             "proxy inventory selection candidates"
@@ -326,7 +371,16 @@ impl ProxyInventory {
 
         let mut candidates: Vec<&ProxyRecord> = records
             .into_iter()
-            .filter(|r| is_eligible(r, require_https, now))
+            .filter(|r| {
+                is_eligible(
+                    r,
+                    country,
+                    require_https,
+                    destination,
+                    now,
+                    self.config.probe_ttl,
+                )
+            })
             .collect();
 
         if candidates.is_empty() {
@@ -338,6 +392,7 @@ impl ProxyInventory {
                 .unwrap_or(u64::MAX)
                 .cmp(&b.latency_ms.unwrap_or(u64::MAX))
                 .then(a.failure_count.cmp(&b.failure_count))
+                .then_with(|| a.authority().cmp(&b.authority()))
         });
 
         let selected = candidates[0];
@@ -390,9 +445,18 @@ impl ProxyInventory {
             Ok(mut records) => {
                 let loaded_count = records.len();
                 if let Some(probe) = &self.probe {
-                    probe.probe_batch(&mut records, self.config.probe_batch_size).await;
+                    probe
+                        .probe_batch(&mut records, self.config.probe_batch_size)
+                        .await;
                 }
-                let probe_stats = selection_stats(records.iter(), false, SystemTime::now());
+                let probe_stats = selection_stats(
+                    records.iter(),
+                    country,
+                    false,
+                    None,
+                    SystemTime::now(),
+                    self.config.probe_ttl,
+                );
                 tracing::info!(
                     country = %country,
                     loaded_count,
@@ -426,7 +490,7 @@ impl ProxyInventory {
                     "dynamic proxy inventory updated"
                 );
 
-                let has_usable = self.select_cached(country, false).await.is_some();
+                let has_usable = self.select_cached(country, false, None).await.is_some();
                 if !has_usable {
                     let mut inner = self.inner.write().await;
                     inner.negative_cache.insert(
@@ -460,7 +524,14 @@ impl ProxyInventory {
         let now = SystemTime::now();
         let keys = inner.country_records.get(country)?;
         let records = keys.iter().filter_map(|k| inner.records.get(k));
-        Some(selection_stats(records, require_https, now))
+        Some(selection_stats(
+            records,
+            country,
+            require_https,
+            None,
+            now,
+            self.config.probe_ttl,
+        ))
     }
 
     // ── Failure tracking ─────────────────────────────────────────────
@@ -587,14 +658,19 @@ struct SelectionStats {
     authentication_required: usize,
     authentication_required_flag: usize,
     cooldown: usize,
+    probe_expired: usize,
+    destination_cooldown: usize,
     https_rejected: usize,
     eligible: usize,
 }
 
 fn selection_stats<'a>(
     records: impl IntoIterator<Item = &'a ProxyRecord>,
+    country: &str,
     require_https: bool,
+    destination: Option<&Destination>,
     now: SystemTime,
+    probe_ttl: Duration,
 ) -> SelectionStats {
     let mut stats = SelectionStats::default();
 
@@ -615,11 +691,21 @@ fn selection_stats<'a>(
             stats.cooldown += 1;
         }
 
+        if probe_is_expired(record, now, probe_ttl) {
+            stats.probe_expired += 1;
+        }
+
+        if destination
+            .is_some_and(|destination| has_active_destination_cooldown(record, destination, now))
+        {
+            stats.destination_cooldown += 1;
+        }
+
         if require_https && !can_reach_https_destination(record) {
             stats.https_rejected += 1;
         }
 
-        if is_eligible(record, require_https, now) {
+        if is_eligible(record, country, require_https, destination, now, probe_ttl) {
             stats.eligible += 1;
         }
     }
@@ -627,7 +713,18 @@ fn selection_stats<'a>(
     stats
 }
 
-fn is_eligible(record: &ProxyRecord, require_https: bool, now: SystemTime) -> bool {
+fn is_eligible(
+    record: &ProxyRecord,
+    country: &str,
+    require_https: bool,
+    destination: Option<&Destination>,
+    now: SystemTime,
+    probe_ttl: Duration,
+) -> bool {
+    if record.country.as_deref() != Some(country) {
+        return false;
+    }
+
     if !matches!(record.status, ProxyRuntimeStatus::Ok) {
         return false;
     }
@@ -642,11 +739,60 @@ fn is_eligible(record: &ProxyRecord, require_https: bool, now: SystemTime) -> bo
         }
     }
 
+    if probe_is_expired(record, now, probe_ttl) {
+        return false;
+    }
+
+    if destination
+        .is_some_and(|destination| has_active_destination_cooldown(record, destination, now))
+    {
+        return false;
+    }
+
     if require_https && !can_reach_https_destination(record) {
         return false;
     }
 
     true
+}
+
+fn should_preserve_runtime_exclusion(record: &ProxyRecord) -> bool {
+    matches!(
+        record.status,
+        ProxyRuntimeStatus::Ko | ProxyRuntimeStatus::AuthenticationRequired
+    ) || record.authentication_required == Some(true)
+        || record.cooldown_until.is_some()
+}
+
+fn has_fresh_runtime_update(record: &ProxyRecord) -> bool {
+    record.last_checked.is_some() && !matches!(record.status, ProxyRuntimeStatus::Unknown)
+}
+
+fn probe_is_expired(record: &ProxyRecord, now: SystemTime, probe_ttl: Duration) -> bool {
+    let Some(last_checked) = record.last_checked else {
+        return true;
+    };
+
+    now.duration_since(last_checked)
+        .map(|age| age > probe_ttl)
+        .unwrap_or(false)
+}
+
+fn has_active_destination_cooldown(
+    record: &ProxyRecord,
+    destination: &Destination,
+    now: SystemTime,
+) -> bool {
+    let scheme = destination_scheme(destination);
+    let host = destination.host_for_protocol();
+    record.destination_failures.iter().any(|failure| {
+        failure.scheme == scheme
+            && failure.host == host
+            && failure.port == destination.port
+            && failure
+                .cooldown_until
+                .is_some_and(|cooldown| cooldown > now)
+    })
 }
 
 fn can_reach_https_destination(record: &ProxyRecord) -> bool {

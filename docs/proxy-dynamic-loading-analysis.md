@@ -1424,16 +1424,16 @@ URLs proxy portant `Arachnea-Proxy-Country`.
   transformer le tableau JSON racine en un record par proxy.
 - [x] Normaliser le pays demande et filtrer les resultats sur ce pays.
 - [x] Deduplicer les records charges par authority normalisee.
+- [x] Normaliser ces deux formats vers `ProxyRecord` sans format intermediaire
+  propre a `arachnea-stream`.
+- [x] Pour la source texte sans pays, conserver `country = None` et ne jamais
+  copier artificiellement `ProxyLoadRequest.country` dans les records.
+- [x] Pour la source JSON, renseigner `country` depuis `country_code` quand il
+  est present.
 - [ ] Implementer le chargement de la source texte `iplocate/free-proxy-list`,
   un proxy URL par ligne.
 - [ ] Implementer le chargement de la source JSON `vakhov/fresh-proxy-list`,
   objets avec host/ip/port/protocoles et `country_code`.
-- [ ] Normaliser ces deux formats vers `ProxyRecord` sans format intermediaire
-  propre a `arachnea-stream`.
-- [ ] Pour la source texte sans pays, conserver `country = None` et ne jamais
-  copier artificiellement `ProxyLoadRequest.country` dans les records.
-- [ ] Pour la source JSON, renseigner `country` depuis `country_code` quand il
-  est present.
 - [ ] Ajouter un champ source dans les records charges si l'on veut distinguer
   plusieurs fournisseurs dans les diagnostics et la persistance.
 

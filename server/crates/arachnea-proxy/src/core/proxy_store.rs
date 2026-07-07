@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use crate::core::{ProxyRecord, Result};
+use async_trait::async_trait;
 
 /// Persistent store for proxy records.
 ///

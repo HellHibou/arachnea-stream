@@ -1,12 +1,12 @@
 use super::StreamScraper;
+use crate::stream_scraper::DEFAULT_SERVICES_CONFIG_PATH;
+use crate::stream_scraper::STREAM_SERVICE_GROUP_NAME;
 use anyhow::Result;
 use arachnea_core::persistence::resources;
 use arachnea_scrapyfy::scrapyfy::scraper_data_node::ScraperDataNode;
 use arachnea_scrapyfy::scrapyfy::scraper_manager::tests::assert_query_succeeds;
 use arachnea_scrapyfy::scrapyfy::scraper_manager::tests::test_query;
 use arachnea_scrapyfy::scrapyfy::scraper_manager::tests::TestParams;
-use crate::stream_scraper::STREAM_SERVICE_GROUP_NAME;
-use crate::stream_scraper::DEFAULT_SERVICES_CONFIG_PATH;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
@@ -242,7 +242,7 @@ fn load_enabled_services() -> Vec<String> {
     services
         .into_iter()
         .filter(|s| s.enabled)
-        .map(|s| { format!("{}/{}", STREAM_SERVICE_GROUP_NAME, s.path) })
+        .map(|s| format!("{}/{}", STREAM_SERVICE_GROUP_NAME, s.path))
         .collect()
 }
 

@@ -475,7 +475,10 @@ impl ProxyParameterHandler for DynamicCountryRoutingProxyHandler {
             password_env: None,
             verify_tls: true,
         };
-        Ok(ParameterHandlerDecision::with_proxy(proxy, self.stop_on_match))
+        Ok(ParameterHandlerDecision::with_proxy(
+            proxy,
+            self.stop_on_match,
+        ))
     }
 }
 #[derive(Clone, Debug, Default, Eq, PartialEq)]

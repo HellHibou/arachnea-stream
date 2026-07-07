@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use crate::core::http::actions::{apply_post_actions, PostActionContext, ProxyHttpPostActionConfig};
+use crate::core::http::actions::{
+    apply_post_actions, PostActionContext, ProxyHttpPostActionConfig,
+};
 use crate::core::{
     ArachneaProxyCore, ClientContext, ConnectRequest, Destination, HttpRequestTargetForm,
     ProxyError, Result,
@@ -272,7 +274,12 @@ impl SimpleHttpClient {
 
         let headers_only = request.headers_only;
         let post_actions = request.post_actions.clone();
-        parse_http_response(&response_bytes, headers_only, &post_actions, &request.context)
+        parse_http_response(
+            &response_bytes,
+            headers_only,
+            &post_actions,
+            &request.context,
+        )
     }
 }
 

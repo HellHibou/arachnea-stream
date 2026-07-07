@@ -10,7 +10,7 @@ use arachnea_core::{
         tauri::{TauriControlerConfiguration, TauriControlerService, TauriEmbeddedWebAssets},
         ControlerService, SharedWebAssets,
     },
-    persistence::{resources, EncryptedFileCredentialsStore },
+    persistence::{resources, EncryptedFileCredentialsStore},
 };
 use arachnea_scrapyfy::*;
 use arachnea_stream::StreamScraper;

@@ -104,7 +104,8 @@ impl ProxyDataProvider for ScrapyfyProxyDataProvider {
             .await
             .map_err(|e| {
                 ProxyError::Config(format!(
-                    "proxy query `{}/list_proxies_for_country` failed: {e}", PROXIES_GROUP_NAME
+                    "proxy query `{}/list_proxies_for_country` failed: {e}",
+                    PROXIES_GROUP_NAME
                 ))
             })?;
 
@@ -124,7 +125,7 @@ impl ProxyDataProvider for ScrapyfyProxyDataProvider {
             .filter(|r| seen.insert(r.authority()))
             .collect();
 
-        info!("Loaded proxies for country {}: {}",country, deduped.len());
+        info!("Loaded proxies for country {}: {}", country, deduped.len());
         Ok(deduped)
     }
 }
@@ -200,10 +201,14 @@ fn normalize_proxy_country(country: &str) -> String {
 pub fn default_scrapyfy_proxy_inventory(
     scraper_agregator: &mut ScraperAgregator,
 ) -> ProxyInventory {
+    let probe_config = ProbeConfig {
+        https_probe_url: Some("https://example.com/".to_string()),
+        ..ProbeConfig::default()
+    };
     ProxyInventory::new(
         InventoryConfig::default(),
         Some(Arc::new(ScrapyfyProxyDataProvider::new(scraper_agregator))),
-        Some(Arc::new(ProxyProbe::new(ProbeConfig::default()))),
+        Some(Arc::new(ProxyProbe::new(probe_config))),
     )
 }
 

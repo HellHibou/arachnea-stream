@@ -189,7 +189,10 @@ impl ScraperAgregator {
             })?;
 
         let config_dir = config_path.parent().unwrap_or(Path::new(""));
-        let collections = self.queries_collection.entry(group_name.to_string()).or_default();
+        let collections = self
+            .queries_collection
+            .entry(group_name.to_string())
+            .or_default();
         let source_count = sources.len();
         let enabled_source_count = sources.iter().filter(|source| source.enabled).count();
         tracing::debug!(
@@ -314,7 +317,10 @@ impl ScraperAgregator {
         F: Fn(BufReader<fs::File>) -> std::result::Result<ScraperQueryCollection, E>,
         E: std::error::Error + Send + Sync + 'static,
     {
-        let collections = self.queries_collection.entry(group_name.to_string()).or_default();
+        let collections = self
+            .queries_collection
+            .entry(group_name.to_string())
+            .or_default();
 
         for path in paths {
             let mut collection =
@@ -401,7 +407,11 @@ impl ScraperAgregator {
     ///
     /// * `group_name` - Group name to look up.
     /// * `name` - Source name to look up within the group.
-    pub fn get_query_collection(&self, group_name: &str, name: &str) -> Option<&ScraperQueryCollection> {
+    pub fn get_query_collection(
+        &self,
+        group_name: &str,
+        name: &str,
+    ) -> Option<&ScraperQueryCollection> {
         for entry in self.queries_collection.get(group_name)? {
             if entry.name() == name {
                 return Some(entry);

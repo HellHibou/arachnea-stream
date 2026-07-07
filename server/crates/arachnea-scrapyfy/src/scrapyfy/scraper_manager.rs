@@ -6,7 +6,7 @@ const LOGGERS: [&str; 5] = [
     "html5ever::tree_builder",
     "html5ever::tokenizer",
     "hyper::proto::h1::io",
-    "hyper::proto::h1::conn"
+    "hyper::proto::h1::conn",
 ];
 
 /// Contract exposing mutable access to the shared scraper aggregator.
@@ -249,7 +249,12 @@ pub mod tests {
                 .block_on(future)
         }
 
-        let yaml_path = format!("{}/{}/{}", resources::get_application_root(), DEFAULT_SERVICES_DIRECTORY, yaml_file);
+        let yaml_path = format!(
+            "{}/{}/{}",
+            resources::get_application_root(),
+            DEFAULT_SERVICES_DIRECTORY,
+            yaml_file
+        );
 
         // === SETUP BLOCK (mutable borrow ends here) ===
         let (fallback_expected_fields, query_source) = {

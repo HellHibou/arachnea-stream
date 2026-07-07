@@ -19,7 +19,9 @@ pub struct FileCredentialsStore {
 
 impl Default for FileCredentialsStore {
     fn default() -> Self {
-        Self::new(resources::get_application_path(DEFAULT_FILE_CREDENTIALS_STORE_PATH))
+        Self::new(resources::get_application_path(
+            DEFAULT_FILE_CREDENTIALS_STORE_PATH,
+        ))
     }
 }
 

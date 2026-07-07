@@ -310,8 +310,7 @@ impl ProxyProbe {
         };
 
         let connect_start = Instant::now();
-        let result =
-            send_http_forward_probe(&mut *stream, &http_probe, self.config.timeout).await;
+        let result = send_http_forward_probe(&mut *stream, &http_probe, self.config.timeout).await;
 
         let protocol = if tls {
             ProxyProtocol::Https
@@ -439,35 +438,30 @@ impl ProxyProbe {
         let https_url = self.config.https_probe_url.as_ref()?;
         let probe = parse_probe_url(https_url, 443).ok()?;
 
-        let (_tcp_latency, stream) = tcp_connect(host, port, self.config.timeout).await.ok()?;
+        let Ok((_tcp_latency, stream)) = tcp_connect(host, port, self.config.timeout).await else {
+            return Some(false);
+        };
         let mut stream: Box<dyn AsyncProbeStream> = match protocol {
-            ProxyProtocol::Https => Box::new(
-                wrap_tls(stream, host, self.config.timeout, true)
-                    .await
-                    .ok()?,
-            ),
+            ProxyProtocol::Https => match wrap_tls(stream, host, self.config.timeout, true).await {
+                Ok(stream) => Box::new(stream),
+                Err(_) => return Some(false),
+            },
             _ => Box::new(stream),
         };
 
-        match protocol {
+        let result = match protocol {
             ProxyProtocol::Http | ProxyProtocol::Https => {
-                send_http_connect(&mut *stream, &probe, self.config.timeout, None)
-                    .await
-                    .ok()?;
+                send_http_connect(&mut *stream, &probe, self.config.timeout, None).await
             }
             ProxyProtocol::Socks5 => {
-                send_socks5_connect(&mut *stream, &probe, self.config.timeout, None)
-                    .await
-                    .ok()?;
+                send_socks5_connect(&mut *stream, &probe, self.config.timeout, None).await
             }
             ProxyProtocol::Socks4 | ProxyProtocol::Socks4a => {
-                send_socks4_connect(&mut *stream, &probe, self.config.timeout, None)
-                    .await
-                    .ok()?;
+                send_socks4_connect(&mut *stream, &probe, self.config.timeout, None).await
             }
-        }
+        };
 
-        Some(true)
+        Some(result.is_ok())
     }
 }
 

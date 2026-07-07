@@ -98,7 +98,11 @@ pub struct ProxyDestinationFailure {
     #[serde(with = "system_time_serde")]
     pub last_failed: SystemTime,
     /// Optional cooldown expiry before retrying this origin.
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "option_system_time_serde")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "option_system_time_serde"
+    )]
     pub cooldown_until: Option<SystemTime>,
 }
 

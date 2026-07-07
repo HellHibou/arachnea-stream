@@ -55,6 +55,9 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **`francetv.yaml` `list_lives` flattening**: the FranceTV live catalog now groups `/items/*` under `entries` with `result_item_field: entries`, so typed scalar fields are serialized per live item instead of receiving values from the whole feed.
 - **`proxifly.yaml` proxy list flattening**: the dynamic proxy source now groups root array items under `proxies` with `result_item_field: proxies`, so one proxy row is returned per upstream JSON item instead of a single merged result.
 - **Dynamic proxy selection diagnostics and probing**: dynamic proxy inventory now logs loaded/probed/eligible candidate counts, HTTP proxy probes use forward `GET` instead of `CONNECT :80`, SOCKS proxies are not rejected for HTTPS destinations solely because a source reports `supports_https=false`, and proxy country headers no longer produce unknown action-header debug noise.
+- **Dynamic proxy candidate selection**: country proxy selection now follows the documented eligibility order more closely by rejecting stale probes and active destination cooldowns, preserving hard KO/auth exclusions during reloads, and using deterministic latency/failure/authority ordering for equivalent candidates.
+- **Scrapyfy dynamic proxy HTTPS validation**: the default scrapyfy-backed proxy inventory now verifies HTTPS tunnelling with `https://example.com/`, and failed HTTPS probes explicitly clear source-claimed HTTPS support so HTTP-only public proxies are not selected for HTTPS sites.
+- **Dynamic proxy HTTPS CONNECT routing**: HTTP `CONNECT` targets on port 443 are now treated as HTTPS destinations for country proxy selection, so public HTTP proxies without working tunnel support are excluded before TF1-style HTTPS requests.
 
 ## Unreleased — RTBF Auvio home banner RedBee auth simplification
 

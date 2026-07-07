@@ -12,10 +12,10 @@ use crate::core::ProxyProfile;
 use crate::core::{
     build_parameter_handler, ApplicationProtocol, ConnectMetadata, ConnectRequest, Destination,
     DestinationAddress, HttpRequestStream, HttpRequestTargetForm, ParameterDefinition,
-    ParameterRegistry, ProxyChain, ProxyConfig, ProxyConfigBuilder, ProxyError,
-    ProxyInventory, ProxyNameResolutionMode, ProxyNode, ProxyParameterHandler,
-    ProxyPoolMemberState, ProxyPoolMemberStatus, ProxyStats, ProxyStream,
-    ResolvedProxyConfig, Result, Socks5UdpAssociation, TransportKind,
+    ParameterRegistry, ProxyChain, ProxyConfig, ProxyConfigBuilder, ProxyError, ProxyInventory,
+    ProxyNameResolutionMode, ProxyNode, ProxyParameterHandler, ProxyPoolMemberState,
+    ProxyPoolMemberStatus, ProxyStats, ProxyStream, ResolvedProxyConfig, Result,
+    Socks5UdpAssociation, TransportKind,
 };
 
 /// Prefix used for dynamic country pool markers emitted by
@@ -263,11 +263,11 @@ impl ArachneaProxyCore {
         config: ResolvedProxyConfig,
         dns_core: arachnea_dns::core::ArachneaDnsCore,
     ) -> Result<Self> {
-        Self::from_resolved_with_arachnea_dns_and_inventory(config, dns_core, ProxyInventory::new(
-            crate::core::InventoryConfig::default(),
-            None,
-            None,
-        ))
+        Self::from_resolved_with_arachnea_dns_and_inventory(
+            config,
+            dns_core,
+            ProxyInventory::new(crate::core::InventoryConfig::default(), None, None),
+        )
     }
 
     /// Creates a proxy core from a resolved config, explicit DNS core and
@@ -746,7 +746,11 @@ impl ArachneaProxyCore {
                         failed_proxies = %proxy_names.join(", "),
                         "dynamic proxy selection failed, marking failed and retrying with another candidate"
                     );
-                    self.mark_proxy_pool_selections_ko(&resolved_chain.pool_selections).await;
+                    self.mark_proxy_pool_selections_ko(
+                        &resolved_chain.pool_selections,
+                        &request.destination,
+                    )
+                    .await;
                     continue;
                 }
                 Err(error) => {
@@ -852,7 +856,11 @@ impl ArachneaProxyCore {
                         failed_proxies = %proxy_names.join(", "),
                         "dynamic proxy selection failed, marking failed and retrying with another candidate"
                     );
-                    self.mark_proxy_pool_selections_ko(&resolved_chain.pool_selections).await;
+                    self.mark_proxy_pool_selections_ko(
+                        &resolved_chain.pool_selections,
+                        &request.destination,
+                    )
+                    .await;
                     continue;
                 }
                 Err(error) => {
@@ -938,7 +946,7 @@ impl ArachneaProxyCore {
                     let require_https =
                         self.is_dynamic_country_https_request(chain, index, &request.destination)?;
                     let selected = self
-                        .resolve_dynamic_country_pool(country, require_https)
+                        .resolve_dynamic_country_pool(country, require_https, &request.destination)
                         .await?;
                     let endpoint = selected.endpoint.clone();
                     pool_selections.push(ProxyPoolSelection {
@@ -977,6 +985,8 @@ impl ArachneaProxyCore {
     ///
     /// - `country`: ISO country code extracted from the pool marker.
     /// - `require_https`: Whether the destination requires HTTPS support.
+    /// - `destination`: Original destination used for destination-specific
+    ///   cooldown filtering.
     ///
     /// # Returns
     ///
@@ -990,13 +1000,16 @@ impl ArachneaProxyCore {
         &self,
         country: &str,
         require_https: bool,
+        destination: &Destination,
     ) -> Result<ProxyNode> {
         let inventory = self.proxy_inventory.as_ref().ok_or_else(|| {
             ProxyError::RouteUnavailable(format!(
                 "dynamic proxy inventory not configured for country '{country}'"
             ))
         })?;
-        let record = inventory.select(country, require_https).await?;
+        let record = inventory
+            .select_for_destination(country, require_https, Some(destination))
+            .await?;
         record.try_to_node().ok_or_else(|| {
             ProxyError::RouteUnavailable(format!(
                 "dynamic proxy selected for '{country}' has no resolved protocol"
@@ -1038,7 +1051,8 @@ impl ArachneaProxyCore {
             })?;
             return Ok(true);
         }
-        Ok(destination.protocol == ApplicationProtocol::Https)
+        Ok(destination.protocol == ApplicationProtocol::Https
+            || (destination.protocol == ApplicationProtocol::Tcp && destination.port == 443))
     }
 
     /// Selects and caches one working upstream from a proxy pool.
@@ -1335,12 +1349,18 @@ impl ArachneaProxyCore {
     /// Marks selected pool members as failed after a connection setup failure.
     ///
     /// For dynamic country pools, the failure is also propagated to the proxy
-    /// inventory so that the same proxy is not selected again on the next retry.
+    /// inventory so that the same proxy is not selected again for the same
+    /// destination on the next retry.
     ///
     /// # Parameters
     ///
     /// - `selections`: Pool selections used by the failed connection attempt.
-    async fn mark_proxy_pool_selections_ko(&self, selections: &[ProxyPoolSelection]) {
+    /// - `destination`: Destination associated with the failed attempt.
+    async fn mark_proxy_pool_selections_ko(
+        &self,
+        selections: &[ProxyPoolSelection],
+        destination: &Destination,
+    ) {
         if let Ok(mut states) = self.proxy_pool_states.write() {
             for selection in selections {
                 let state = states.entry(selection.pool_name.clone()).or_default();
@@ -1355,17 +1375,15 @@ impl ArachneaProxyCore {
         // Propagate failures from dynamic country pools to the proxy inventory
         // synchronously before retry so the same proxy is not selected again.
         for selection in selections {
-            if let Some(country) = selection.pool_name.strip_prefix(DYNAMIC_COUNTRY_POOL_PREFIX) {
+            if let Some(country) = selection
+                .pool_name
+                .strip_prefix(DYNAMIC_COUNTRY_POOL_PREFIX)
+            {
                 if let Some(inventory) = &self.proxy_inventory {
                     let authority = selection
                         .endpoint
                         .as_deref()
-                        .or_else(|| {
-                            selection
-                                .upstream
-                                .rsplit_once('-')
-                                .map(|(_, addr)| addr)
-                        })
+                        .or_else(|| selection.upstream.rsplit_once('-').map(|(_, addr)| addr))
                         .unwrap_or(&selection.upstream);
                     tracing::debug!(
                         pool = %selection.pool_name,
@@ -1374,7 +1392,13 @@ impl ArachneaProxyCore {
                         authority = %authority,
                         "recording dynamic proxy failure in inventory for retry"
                     );
-                    inventory.record_global_failure(authority).await;
+                    inventory
+                        .record_destination_failure(
+                            authority,
+                            destination,
+                            crate::core::ProxyDestinationFailureReason::Other,
+                        )
+                        .await;
                 }
             }
         }
