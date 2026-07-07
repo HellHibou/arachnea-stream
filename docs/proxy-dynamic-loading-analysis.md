@@ -1432,8 +1432,6 @@ URLs proxy portant `Arachnea-Proxy-Country`.
   est present.
 - [ ] Implementer le chargement de la source texte `iplocate/free-proxy-list`,
   un proxy URL par ligne.
-- [ ] Implementer le chargement de la source JSON `vakhov/fresh-proxy-list`,
-  objets avec host/ip/port/protocoles et `country_code`.
 - [ ] Ajouter un champ source dans les records charges si l'on veut distinguer
   plusieurs fournisseurs dans les diagnostics et la persistance.
 
@@ -1444,15 +1442,15 @@ le chemin Proxifly actuel.
 
 ### Etape 6 - Resolution pays optionnelle
 
-- Ajouter `IpCountryRecord`, `IpCountryDataProvider` et `IpCountryStore`.
-- Implementer le provider cote `arachnea-scrapyfy`.
-- Implementer un store fichier Serde cote `arachnea-proxy`, JSON par defaut.
-- Implementer la fonction principale de refresh cote `arachnea-scrapyfy` comme
+- [x] Ajouter `IpCountryRecord`, `IpCountryDataProvider` et `IpCountryStore`.
+- [x] Implementer le provider cote `arachnea-scrapyfy`.
+- [x] Implementer un store fichier Serde cote `arachnea-proxy`, JSON par defaut.
+- [x] Implementer la fonction principale de refresh cote `arachnea-scrapyfy` comme
   fonction Rust, puis l'exposer via une sous-commande du binaire applicatif ou
   d'administration.
-- Charger les donnees de facon synchrone et bornee si la liste est vide ou si
+- [x] Considerer correcte une donnee pays disponible.
+- [ ] Charger les donnees de facon synchrone et bornee si la liste est vide ou si
   l'IP demandee est absente pendant une selection de pays stricte.
-- Considerer correcte une donnee pays disponible.
 
 Impact : ameliore les listes incompletes sans bloquer la v1.
 

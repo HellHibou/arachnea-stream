@@ -2,6 +2,7 @@
 //! Arachnea backend executable: wires scraper sources and controller backends.
 
 use anyhow::{bail, Context, Result};
+use std::net::IpAddr;
 use std::{path::Path, sync::Arc};
 
 use arachnea_core::{
@@ -47,6 +48,7 @@ struct RuntimeOptions {
 /// Result of parsing command line arguments.
 enum CliAction {
     Run(RuntimeOptions),
+    RefreshIpCountries,
     ExitSuccess,
 }
 
@@ -73,14 +75,15 @@ fn help_message(program_name: &str) -> String {
         "Usage: {program_name} [OPTIONS]
 
 Options:
-  --help                 Show this help message and exit
-  --desktop              Run in desktop application mode (forces mode_server to false)
-  --server               Run in server mode (forces mode_server to true)
-  --server-port <PORT>   Override the server port (default: {DEFAULT_SERVER_PORT})
+  --help                   Show this help message and exit
+  --desktop                Run in desktop application mode (forces mode_server to false)
+  --server                 Run in server mode (forces mode_server to true)
+  --server-port <PORT>     Override the server port (default: {DEFAULT_SERVER_PORT})
   --entrypoint-root <PATH>
-                          Public root path used before API routes in server mode
+                           Public root path used before API routes in server mode
   --entrypoint-api <PATH>
-                          Public API path segment used in server mode"
+                           Public API path segment used in server mode
+  --refresh-ip-countries   Refresh IP-to-country geolocation data and exit"
     )
 }
 
@@ -136,6 +139,9 @@ fn parse_runtime_options(program_name: &str) -> Result<CliAction> {
                 print_help(&program_name);
                 return Ok(CliAction::ExitSuccess);
             }
+            "--refresh-ip-countries" => {
+                return Ok(CliAction::RefreshIpCountries);
+            }
             "--server-port" => {
                 let port = args.next().context("missing value for `--server-port`")?;
 
@@ -162,6 +168,48 @@ fn parse_runtime_options(program_name: &str) -> Result<CliAction> {
     Ok(CliAction::Run(options))
 }
 
+/// Runs the IP-country geolocation refresh and exits.
+///
+/// Initialises the scraper aggregator, collects proxy IPs from the dynamic
+/// proxy inventory, resolves each IP to a country via the YAML-defined
+/// ip-api.com query, and persists the results to `data/ip-countries.json`.
+async fn refresh_ip_countries_cli() -> Result<()> {
+    let mut manager = StreamScraper::from_json(None)?;
+    let agregator = manager.get_scraper_agregator_mut();
+
+    // Collect IPs from the proxy inventory if available
+    let ip_addresses: Vec<IpAddr> = {
+        if let Some(proxy_core) = agregator.proxy_core() {
+            let inventory = proxy_core.proxy_inventory();
+            let records = match inventory {
+                Some(inv) => inv.all_records().await,
+                None => {
+                    tracing::warn!("no proxy inventory available; refresh will be a no-op");
+                    Vec::new()
+                }
+            };
+            let ips: Vec<IpAddr> = records
+                .iter()
+                .filter_map(|record| record.host.parse::<IpAddr>().ok())
+                .collect();
+            if !ips.is_empty() {
+                ips
+            } else {
+                tracing::warn!("no proxy IPs found in inventory; refresh will be a no-op");
+                Vec::new()
+            }
+        } else {
+            tracing::warn!("no proxy core available; refresh will be a no-op");
+            Vec::new()
+        }
+    };
+
+    let config = IpCountryRefreshConfig::default();
+    refresh_ip_country_store(agregator, &ip_addresses, &config).await?;
+
+    Ok(())
+}
+
 /// Starts the configured backend controller using command line runtime options.
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -172,6 +220,9 @@ async fn main() -> Result<()> {
     let program_name = program_name();
     let options = match parse_runtime_options(&program_name) {
         Ok(CliAction::Run(options)) => options,
+        Ok(CliAction::RefreshIpCountries) => {
+            return refresh_ip_countries_cli().await;
+        }
         Ok(CliAction::ExitSuccess) => return Ok(()),
         Err(error) => {
             eprintln!("Error: {error}\n");

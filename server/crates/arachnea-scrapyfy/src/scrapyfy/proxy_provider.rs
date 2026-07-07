@@ -9,7 +9,7 @@ use arachnea_proxy::core::{
     ProxyLoadRequest, ProxyProbe, ProxyProfile, ProxyProtocol, ProxyRecord, ProxyRuntimeStatus,
     Result, RoutePolicy, PROXY_HEADER_PARAMETER_COUNTRY, PROXY_PARAMETER_COUNTRY,
 };
-use tracing::{info, trace};
+use tracing::{info, trace, warn};
 
 use crate::scrapyfy::ScraperDataNode;
 use crate::ScraperAgregator;
@@ -17,6 +17,9 @@ use crate::DEFAULT_SERVICES_DIRECTORY;
 
 /// The group name used for the scrapyfy proxy query collection.
 const PROXIES_GROUP_NAME: &str = "arachnea-proxies";
+
+/// The group name used for the IP-country query collection.
+const IP_COUNTRY_GROUP_NAME: &str = "arachnea-ip-countries";
 
 /// `arachnea-scrapyfy` provider placeholder for dynamic proxy data.
 ///
@@ -65,6 +68,19 @@ impl ScrapyfyProxyDataProvider {
             }
         }
 
+        let ip_country_config_path = format!(
+            "{}/{}/{}",
+            DEFAULT_SERVICES_DIRECTORY, IP_COUNTRY_GROUP_NAME, "services.json"
+        );
+        if let Err(error) = scraper_agregator
+            .add_query_collection_from_config_json(IP_COUNTRY_GROUP_NAME, &ip_country_config_path)
+        {
+            tracing::warn!(
+                error = %error,
+                "failed to load IP-country query collection; country resolution will be unavailable"
+            );
+        }
+
         ScrapyfyProxyDataProvider {
             scraper_agregator: scraper_agregator as *const ScraperAgregator,
         }
@@ -109,10 +125,68 @@ impl ProxyDataProvider for ScrapyfyProxyDataProvider {
                 ))
             })?;
 
-        let records: Vec<ProxyRecord> = results
+        let mut records: Vec<ProxyRecord> = results
             .into_iter()
             .filter_map(|entry| entry_to_proxy_record(&entry))
             .collect();
+
+        // Resolve country for records whose source did not provide one
+        let mut unresolved: Vec<(usize, String)> = Vec::new();
+        for (i, r) in records.iter().enumerate() {
+            if r.country.is_none() {
+                if let Some(ip) = r.host.parse::<std::net::IpAddr>().ok() {
+                    unresolved.push((i, ip.to_string()));
+                    if unresolved.len() >= 20 {
+                        break;
+                    }
+                }
+            }
+        }
+
+        if !unresolved.is_empty() {
+            let resolved_count = unresolved.len();
+            for (idx, ip_str) in &unresolved {
+                let mut ip_params = HashMap::new();
+                ip_params.insert("ip".to_string(), ip_str.clone());
+                match agregator
+                    .execute_query_async(
+                        IP_COUNTRY_GROUP_NAME,
+                        "resolve_ip_country",
+                        &ip_params,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                    .await
+                {
+                    Ok(rows) => {
+                        for row in &rows {  
+                            if let Some(country) = row
+                                .get("country_code")
+                                .and_then(|n| n.value_as_string())
+                            {
+             
+                                if !country.is_empty() {
+                                    records[*idx].country =
+                                        Some(country.trim().to_ascii_uppercase());
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        warn!(
+                            ip = %ip_str,
+                            error = %error,
+                            "IP-country resolution query failed"
+                        );
+                    }
+                }
+            }
+            info!(resolved_count, "resolved missing country codes via ip-api.com YAML query");
+        }
 
         let filtered: Vec<ProxyRecord> = records
             .into_iter()

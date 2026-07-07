@@ -17,6 +17,7 @@ pub mod http;
 mod observability;
 mod parameters;
 pub mod policy;
+pub mod ip_country;
 pub mod proxy_inventory;
 pub mod proxy_probe;
 pub mod proxy_record;
@@ -57,6 +58,10 @@ pub use parameters::{
 pub use policy::{
     EgressPool, EgressPoolStrategy, EgressSelector, NoopEgressSelector, PrivacyPolicy,
     ProxyPoolMemberState, ProxyPoolMemberStatus, SecurityPolicy,
+};
+pub use ip_country::{
+    IpCountryDataProvider, IpCountryRecord, IpCountrySerdeCodec, IpCountrySerdeStore,
+    IpCountryStore, JsonIpCountryCodec,
 };
 pub use proxy_inventory::{CoexistencePolicy, InventoryConfig, ProxyInventory};
 pub use proxy_probe::{ProbeConfig, ProbeMode, ProxyProbe};

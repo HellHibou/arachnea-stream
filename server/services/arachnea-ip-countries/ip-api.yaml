@@ -1,0 +1,40 @@
+id: ip-api
+title: ip-api.com IP geolocation
+description:
+  en: "Free IP geolocation API that returns country code for any public IP address."
+http:
+  mode: direct
+
+# ############################################################################
+# Parameters
+# ############################################################################
+parameters:
+  - name: base_url
+    value: http://ip-api.com/json
+    description: Base URL for the ip-api.com JSON endpoint.
+  - name: fields
+    value: query,countryCode
+    description: Response fields to request from the API.
+
+# ==========================================================
+# Queries
+# ==========================================================
+queries:
+
+  # --------------------------------------------------------------------------
+  # Resolve a single IP address to its country code
+  # --------------------------------------------------------------------------
+  - name: resolve_ip_country
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{base_url}/{ip}"
+    media_types:
+      - application/arachnea-ip-country
+    row_pointer: "/"
+    entries:
+      - name: country_code
+        type: string
+        pointer: /countryCode
+      - name: query_ip
+        type: string
+        pointer: /query

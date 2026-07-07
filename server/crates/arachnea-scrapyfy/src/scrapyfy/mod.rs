@@ -60,6 +60,14 @@ pub use proxy_provider::{
     default_scrapyfy_proxy_core, default_scrapyfy_proxy_inventory, ScrapyfyProxyDataProvider,
 };
 
+/// IP-to-country resolution provider.
+#[cfg(feature = "arachnea-proxy")]
+pub mod ip_country_provider;
+#[cfg(feature = "arachnea-proxy")]
+pub use ip_country_provider::{
+    refresh_ip_country_store, IpCountryRefreshConfig, ScrapyfyIpCountryDataProvider,
+};
+
 /// Multi-source query aggregator.
 pub mod scraper_agregator;
 pub use scraper_agregator::{ScraperAgregator, ScraperSourceParams};
