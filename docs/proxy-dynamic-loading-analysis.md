@@ -1432,15 +1432,13 @@ URLs proxy portant `Arachnea-Proxy-Country`.
   est present.
 - [ ] Implementer le chargement de la source texte `iplocate/free-proxy-list`,
   un proxy URL par ligne.
-- [ ] Ajouter un champ source dans les records charges si l'on veut distinguer
-  plusieurs fournisseurs dans les diagnostics et la persistance.
 
 Impact : remplace le proxy FR code en dur par une source de donnees modifiable,
 sans imposer a `arachnea-stream` de gerer les proxies par pays. Les sources
 `iplocate` et `vakhov` restent des extensions futures, pas des pre-requis pour
 le chemin Proxifly actuel.
 
-### Etape 6 - Resolution pays optionnelle
+### Etape 6 - Resolution pays optionnelle ✅
 
 - [x] Ajouter `IpCountryRecord`, `IpCountryDataProvider` et `IpCountryStore`.
 - [x] Implementer le provider cote `arachnea-scrapyfy`.
@@ -1449,17 +1447,17 @@ le chemin Proxifly actuel.
   fonction Rust, puis l'exposer via une sous-commande du binaire applicatif ou
   d'administration.
 - [x] Considerer correcte une donnee pays disponible.
-- [ ] Charger les donnees de facon synchrone et bornee si la liste est vide ou si
+- [x] Charger les donnees de facon synchrone et bornee si la liste est vide ou si
   l'IP demandee est absente pendant une selection de pays stricte.
 
 Impact : ameliore les listes incompletes sans bloquer la v1.
 
 ### Etape 7 - Commandes et observabilite
 
-- [ ] Exposer une commande ou API d'inspection avec liste des proxies connus,
-  statut par pays, dernier test, latence, support HTTPS, source et pays declare.
 - [x] Ajouter des logs structures pour le chargement, le probe et la selection
   dynamique.
+- [ ] Exposer une commande ou API d'inspection avec liste des proxies connus,
+  statut par pays, dernier test, latence, support HTTPS, source et pays declare.
 - [ ] Completer les diagnostics d'echec destination/proxy si besoin apres retour
   d'usage.
 

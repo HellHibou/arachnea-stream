@@ -60,8 +60,8 @@ pub use policy::{
     ProxyPoolMemberState, ProxyPoolMemberStatus, SecurityPolicy,
 };
 pub use ip_country::{
-    IpCountryDataProvider, IpCountryRecord, IpCountrySerdeCodec, IpCountrySerdeStore,
-    IpCountryStore, JsonIpCountryCodec,
+    IpCountryDataProvider, IpCountryRecord, IpCountryResolver, IpCountryResolverConfig,
+    IpCountrySerdeCodec, IpCountrySerdeStore, IpCountryStore, JsonIpCountryCodec,
 };
 pub use proxy_inventory::{CoexistencePolicy, InventoryConfig, ProxyInventory};
 pub use proxy_probe::{ProbeConfig, ProbeMode, ProxyProbe};

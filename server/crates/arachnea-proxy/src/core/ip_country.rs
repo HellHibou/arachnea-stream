@@ -1,9 +1,12 @@
+use std::collections::HashMap;
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use tokio::sync::RwLock;
 
 use crate::core::Result;
 
@@ -32,6 +35,23 @@ pub trait IpCountryDataProvider: Send + Sync {
     ///
     /// A list of IP-country records loaded from the source.
     async fn load_ip_countries(&self) -> Result<Vec<IpCountryRecord>>;
+
+    /// Resolves a single IP address to a country code.
+    ///
+    /// The default implementation returns `None` and is suitable for providers
+    /// that only support bulk refresh. Providers that can resolve individual
+    /// IPs should override this method.
+    ///
+    /// # Parameters
+    ///
+    /// - `ip`: IP address to resolve.
+    ///
+    /// # Returns
+    ///
+    /// An optional country code when the IP could be resolved.
+    async fn resolve_ip_country(&self, _ip: &std::net::IpAddr) -> Result<Option<String>> {
+        Ok(None)
+    }
 }
 
 /// Persistent store for IP-to-country records.
@@ -180,5 +200,239 @@ impl IpCountrySerdeCodec for JsonIpCountryCodec {
         serde_json::from_slice(bytes).map_err(|e| {
             crate::core::ProxyError::Config(format!("json deserialisation failed: {e}"))
         })
+    }
+}
+
+// ── IP-country resolver ──────────────────────────────────────────────
+
+/// Configuration for the IP-country resolver.
+#[derive(Clone, Debug)]
+pub struct IpCountryResolverConfig {
+    /// Maximum time to wait for a single IP resolution via the provider.
+    pub resolve_timeout: Duration,
+    /// Whether to persist newly resolved IP-country mappings to the store.
+    pub persist_on_resolve: bool,
+}
+
+impl Default for IpCountryResolverConfig {
+    fn default() -> Self {
+        Self {
+            resolve_timeout: Duration::from_secs(5),
+            persist_on_resolve: true,
+        }
+    }
+}
+
+/// Resolves IP addresses to country codes using a local store and an optional
+/// provider for on-demand resolution.
+///
+/// The resolver maintains an in-memory map loaded from the store at
+/// construction. When a requested IP is not found in the map and a provider is
+/// configured, it calls the provider's `resolve_ip_country()` with a bounded
+/// timeout. If the provider returns a country, the mapping is added to the
+/// in-memory map and optionally persisted.
+///
+/// This is the synchronous bounded resolution path required for strict country
+/// selection: the caller waits for the resolution once, with a timeout and a
+/// lock that prevents concurrent duplicate resolutions.
+pub struct IpCountryResolver {
+    inner: RwLock<IpCountryResolverInner>,
+    provider: Option<Arc<dyn IpCountryDataProvider>>,
+    store: Option<Arc<dyn IpCountryStore>>,
+    config: IpCountryResolverConfig,
+}
+
+struct IpCountryResolverInner {
+    /// IP-to-country map indexed by string representation for fast lookup.
+    map: HashMap<String, String>,
+    /// Set of IPs currently being resolved, to prevent concurrent duplicates.
+    resolving: HashMap<String, Instant>,
+    /// Whether the map was loaded from the store.
+    loaded: bool,
+}
+
+impl IpCountryResolver {
+    /// Creates a new IP-country resolver.
+    ///
+    /// # Parameters
+    ///
+    /// - `config`: Resolver configuration (timeout, persistence).
+    /// - `provider`: Optional provider for on-demand resolution.
+    /// - `store`: Optional store for loading and persisting mappings.
+    pub fn new(
+        config: IpCountryResolverConfig,
+        provider: Option<Arc<dyn IpCountryDataProvider>>,
+        store: Option<Arc<dyn IpCountryStore>>,
+    ) -> Self {
+        Self {
+            inner: RwLock::new(IpCountryResolverInner {
+                map: HashMap::new(),
+                resolving: HashMap::new(),
+                loaded: false,
+            }),
+            provider,
+            store,
+            config,
+        }
+    }
+
+    /// Loads the IP-country map from the configured store.
+    ///
+    /// This is a no-op when no store is configured or when the map has already
+    /// been loaded.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the store read or deserialisation fails.
+    pub async fn load_from_store(&self) -> Result<()> {
+        let store = match &self.store {
+            Some(s) => s,
+            None => return Ok(()),
+        };
+
+        let mut inner = self.inner.write().await;
+        if inner.loaded {
+            return Ok(());
+        }
+
+        let records = store.load_ip_countries().await?;
+        for record in &records {
+            inner.map.insert(record.ip.to_string(), record.country.clone());
+        }
+        inner.loaded = true;
+
+        tracing::info!(
+            count = records.len(),
+            "loaded IP-country mappings from store"
+        );
+
+        Ok(())
+    }
+
+    /// Resolves an IP address to a country code.
+    ///
+    /// 1. Checks the in-memory map.
+    /// 2. If not found and a provider is configured, calls the provider with a
+    ///    bounded timeout.
+    /// 3. If the provider returns a country, stores it in the map and
+    ///    optionally persists to the store.
+    ///
+    /// # Parameters
+    ///
+    /// - `ip`: IP address to resolve.
+    ///
+    /// # Returns
+    ///
+    /// An optional country code when the IP could be resolved.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the provider call or store persistence fails.
+    pub async fn resolve(&self, ip: &IpAddr) -> Result<Option<String>> {
+        // Fast path: check the in-memory map
+        {
+            let inner = self.inner.read().await;
+            if let Some(country) = inner.map.get(&ip.to_string()) {
+                return Ok(Some(country.clone()));
+            }
+        }
+
+        let provider = match &self.provider {
+            Some(p) => p,
+            None => return Ok(None),
+        };
+
+        // Check if this IP is already being resolved by another task
+        {
+            let inner = self.inner.read().await;
+            if inner.resolving.contains_key(&ip.to_string()) {
+                // Wait briefly for the other task to finish, then re-check
+                drop(inner);
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                let inner = self.inner.read().await;
+                if let Some(country) = inner.map.get(&ip.to_string()) {
+                    return Ok(Some(country.clone()));
+                }
+                return Ok(None);
+            }
+        }
+
+        // Mark as resolving
+        {
+            let mut inner = self.inner.write().await;
+            inner.resolving.insert(ip.to_string(), Instant::now());
+        }
+
+        let result = tokio::time::timeout(
+            self.config.resolve_timeout,
+            provider.resolve_ip_country(ip),
+        )
+        .await;
+
+        // Clear the resolving marker
+        {
+            let mut inner = self.inner.write().await;
+            inner.resolving.remove(&ip.to_string());
+        }
+
+        match result {
+            Ok(Ok(Some(country))) => {
+                // Store in the in-memory map
+                {
+                    let mut inner = self.inner.write().await;
+                    inner.map.insert(ip.to_string(), country.clone());
+                }
+
+                // Optionally persist to the store
+                if self.config.persist_on_resolve {
+                    if let Some(store) = &self.store {
+                        let inner = self.inner.read().await;
+                        let records: Vec<IpCountryRecord> = inner
+                            .map
+                            .iter()
+                            .map(|(ip_str, country)| {
+                                let ip: IpAddr = ip_str.parse().unwrap_or_else(|_| {
+                                    panic!("invalid IP in resolver map: {ip_str}")
+                                });
+                                IpCountryRecord {
+                                    ip,
+                                    country: country.clone(),
+                                    source: Some("resolver".to_string()),
+                                }
+                            })
+                            .collect();
+                        drop(inner);
+                        if let Err(error) = store.save_ip_countries(&records).await {
+                            tracing::warn!(%error, "failed to persist IP-country mapping after resolve");
+                        }
+                    }
+                }
+
+                tracing::debug!(ip = %ip, country = %country, "resolved IP country via provider");
+                Ok(Some(country))
+            }
+            Ok(Ok(None)) => {
+                tracing::debug!(ip = %ip, "provider returned no country for IP");
+                Ok(None)
+            }
+            Ok(Err(error)) => {
+                tracing::warn!(ip = %ip, %error, "provider failed to resolve IP country");
+                Ok(None)
+            }
+            Err(_) => {
+                tracing::warn!(ip = %ip, "IP country resolution timed out");
+                Ok(None)
+            }
+        }
+    }
+
+    /// Returns the number of cached IP-country mappings.
+    pub async fn cached_count(&self) -> usize {
+        self.inner.read().await.map.len()
+    }
+
+    /// Returns `true` when the resolver has been loaded from the store.
+    pub async fn is_loaded(&self) -> bool {
+        self.inner.read().await.loaded
     }
 }

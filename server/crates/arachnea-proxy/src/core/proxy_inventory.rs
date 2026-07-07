@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -6,8 +7,8 @@ use tokio::sync::RwLock;
 
 use crate::core::proxy_store::ProxyStore;
 use crate::core::{
-    Destination, ProxyDataProvider, ProxyError, ProxyProbe, ProxyProtocol, ProxyRecord,
-    ProxyRuntimeStatus, Result,
+    Destination, IpCountryResolver, ProxyDataProvider, ProxyError, ProxyProbe, ProxyProtocol,
+    ProxyRecord, ProxyRuntimeStatus, Result,
 };
 
 /// Policy controlling how static and dynamic proxy pools coexist.
@@ -62,6 +63,8 @@ struct InventoryInner {
     country_records: HashMap<String, Vec<String>>,
     loading_countries: HashSet<String>,
     negative_cache: HashMap<String, Instant>,
+    /// Last selected proxy authority per country, for sticky selection.
+    last_selected: HashMap<String, String>,
 }
 
 /// Runtime inventory of dynamic proxy records.
@@ -69,12 +72,18 @@ struct InventoryInner {
 /// Manages proxy storage by country, lazy loading via [`ProxyDataProvider`],
 /// candidate selection with freshness and cooldown checks, and per-destination
 /// failure tracking.
+///
+/// When a resolver is configured, records whose `country` is `None` but whose
+/// `host` is a valid IP address may be resolved during strict country selection.
+/// The resolution is bounded by the resolver's timeout and deduplicated to
+/// prevent concurrent duplicate lookups.
 pub struct ProxyInventory {
     inner: RwLock<InventoryInner>,
     provider: Option<Arc<dyn ProxyDataProvider>>,
     probe: Option<Arc<ProxyProbe>>,
     store: Option<Arc<dyn ProxyStore>>,
     config: InventoryConfig,
+    ip_country_resolver: Option<Arc<IpCountryResolver>>,
 }
 
 impl ProxyInventory {
@@ -96,11 +105,13 @@ impl ProxyInventory {
                 country_records: HashMap::new(),
                 loading_countries: HashSet::new(),
                 negative_cache: HashMap::new(),
+                last_selected: HashMap::new(),
             }),
             provider,
             probe,
             store: None,
             config,
+            ip_country_resolver: None,
         }
     }
 
@@ -122,6 +133,31 @@ impl ProxyInventory {
         let mut inventory = Self::new(config, provider, probe);
         inventory.store = Some(store);
         inventory
+    }
+
+    /// Sets an IP-country resolver for on-demand geolocation during strict
+    /// country selection.
+    ///
+    /// When a resolver is configured and the inventory encounters a proxy record
+    /// whose `country` is `None` but whose `host` parses as a valid IP address,
+    /// it attempts a synchronous bounded resolution via the resolver before
+    /// excluding the record from selection.
+    ///
+    /// # Parameters
+    ///
+    /// - `resolver`: IP-country resolver.
+    ///
+    /// # Returns
+    ///
+    /// Self for chaining.
+    pub fn with_ip_country_resolver(mut self, resolver: Arc<IpCountryResolver>) -> Self {
+        self.ip_country_resolver = Some(resolver);
+        self
+    }
+
+    /// Returns the IP-country resolver, if one is configured.
+    pub fn ip_country_resolver(&self) -> Option<&Arc<IpCountryResolver>> {
+        self.ip_country_resolver.as_ref()
     }
 
     /// Returns the inventory configuration.
@@ -172,7 +208,15 @@ impl ProxyInventory {
     /// failures) is preserved, while a fresh probed source record may refresh
     /// latency, HTTPS support and `last_checked` for otherwise eligible
     /// records.
+    ///
+    /// When an IP-country resolver is configured, records whose `country` is
+    /// `None` and whose `host` is a valid IP address are resolved through the
+    /// resolver before insertion. The resolution is bounded by the resolver's
+    /// timeout.
     pub async fn add_or_update(&self, records: Vec<ProxyRecord>) {
+        // Resolve missing countries for records whose host is an IP address
+        let records = self.resolve_ip_countries(records).await;
+
         let mut inner = self.inner.write().await;
         for record in records {
             let key = record.authority();
@@ -212,6 +256,71 @@ impl ProxyInventory {
                     .push(key);
             }
         }
+    }
+
+    /// Resolves missing country codes for records whose host is a valid IP
+    /// address, using the configured IP-country resolver.
+    ///
+    /// This is a bounded synchronous resolution: it waits for the resolver's
+    /// response with a configurable timeout and deduplicates concurrent
+    /// lookups for the same IP.
+    async fn resolve_ip_countries(&self, mut records: Vec<ProxyRecord>) -> Vec<ProxyRecord> {
+        let Some(resolver) = &self.ip_country_resolver else {
+            return records;
+        };
+
+        // Load the resolver from store if not already loaded
+        if let Err(error) = resolver.load_from_store().await {
+            tracing::warn!(%error, "failed to load IP-country resolver from store");
+        }
+
+        let mut resolved_any = false;
+        for record in records.iter_mut() {
+            if record.country.is_some() {
+                continue;
+            }
+
+            // Only attempt resolution for records whose host is a valid IP
+            let ip: IpAddr = match record.host.parse() {
+                Ok(ip) => ip,
+                Err(_) => continue,
+            };
+
+            match resolver.resolve(&ip).await {
+                Ok(Some(country)) => {
+                    tracing::debug!(
+                        host = %record.host,
+                        country = %country,
+                        authority = %record.authority(),
+                        "resolved missing country code for proxy record"
+                    );
+                    record.country = Some(country);
+                    resolved_any = true;
+                }
+                Ok(None) => {
+                    tracing::trace!(
+                        host = %record.host,
+                        "IP-country resolver returned no country for proxy record"
+                    );
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        host = %record.host,
+                        %error,
+                        "IP-country resolution failed for proxy record"
+                    );
+                }
+            }
+        }
+
+        if resolved_any {
+            tracing::info!(
+                total = records.len(),
+                "completed IP-country resolution for proxy records during add_or_update"
+            );
+        }
+
+        records
     }
 
     /// Removes a proxy record by its normalised authority.

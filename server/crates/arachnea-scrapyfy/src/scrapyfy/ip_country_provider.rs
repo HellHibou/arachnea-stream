@@ -4,8 +4,8 @@ use std::net::IpAddr;
 use async_trait::async_trait;
 
 use arachnea_proxy::core::{
-    IpCountryDataProvider, IpCountryRecord, IpCountrySerdeStore, IpCountryStore,
-    JsonIpCountryCodec, Result,
+    IpCountryDataProvider, IpCountryRecord, IpCountrySerdeStore, IpCountryStore, JsonIpCountryCodec,
+    Result,
 };
 use tracing::{info, warn};
 
@@ -124,6 +124,54 @@ impl IpCountryDataProvider for ScrapyfyIpCountryDataProvider {
         // returns empty here because this provider does not own a list of IPs to
         // resolve in isolation.
         Ok(Vec::new())
+    }
+
+    /// Resolves a single IP address to a country code via the YAML-defined
+    /// geolocation query.
+    ///
+    /// This method is called by [`IpCountryResolver`] during bounded synchronous
+    /// resolution when a proxy record's country is missing and a strict country
+    /// selection is in progress.
+    async fn resolve_ip_country(&self, ip: &IpAddr) -> Result<Option<String>> {
+        let agregator = unsafe { &*self.scraper_agregator };
+
+        let ip_str = ip.to_string();
+        let mut params = HashMap::new();
+        params.insert("ip".to_string(), ip_str.clone());
+
+        let rows = match agregator
+            .execute_query_async(
+                IP_COUNTRY_GROUP_NAME,
+                "resolve_ip_country",
+                &params,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await
+        {
+            Ok(rows) => rows,
+            Err(error) => {
+                warn!(ip = %ip_str, %error, "IP-country resolution query failed");
+                return Ok(None);
+            }
+        };
+
+        for row in &rows {
+            if let Some(country) = row
+                .get("country_code")
+                .and_then(|n| n.value_as_string())
+            {
+                if !country.is_empty() {
+                    let country = country.trim().to_ascii_uppercase();
+                    return Ok(Some(country));
+                }
+            }
+        }
+
+        Ok(None)
     }
 }
 

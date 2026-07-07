@@ -4,13 +4,15 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use arachnea_proxy::core::{
-    ArachneaProxyCore, InventoryConfig, ParameterHandlerConfig, ParameterHandlerKind, ProbeConfig,
-    ProxyAvailabilityHint, ProxyChain, ProxyConfig, ProxyDataProvider, ProxyError, ProxyInventory,
-    ProxyLoadRequest, ProxyProbe, ProxyProfile, ProxyProtocol, ProxyRecord, ProxyRuntimeStatus,
-    Result, RoutePolicy, PROXY_HEADER_PARAMETER_COUNTRY, PROXY_PARAMETER_COUNTRY,
+    ArachneaProxyCore, InventoryConfig, IpCountryResolver, IpCountryResolverConfig,
+    ParameterHandlerConfig, ParameterHandlerKind, ProbeConfig, ProxyAvailabilityHint, ProxyChain,
+    ProxyConfig, ProxyDataProvider, ProxyError, ProxyInventory, ProxyLoadRequest, ProxyProbe,
+    ProxyProfile, ProxyProtocol, ProxyRecord, ProxyRuntimeStatus, Result, RoutePolicy,
+    PROXY_HEADER_PARAMETER_COUNTRY, PROXY_PARAMETER_COUNTRY,
 };
 use tracing::{info, trace, warn};
 
+use crate::scrapyfy::ip_country_provider::ScrapyfyIpCountryDataProvider;
 use crate::scrapyfy::ScraperDataNode;
 use crate::ScraperAgregator;
 use crate::DEFAULT_SERVICES_DIRECTORY;
@@ -267,10 +269,44 @@ fn normalize_proxy_country(country: &str) -> String {
     country.trim().to_ascii_uppercase()
 }
 
+/// Builds a default [`IpCountryResolver`] backed by the scrapyfy IP-country
+/// query infrastructure.
+///
+/// The resolver loads persisted data from `data/ip-countries.json` by default
+/// and resolves unknown IPs through the YAML-defined geolocation query on
+/// demand, with a 5-second timeout and automatic persistence of newly resolved
+/// mappings.
+///
+/// # Arguments
+///
+/// * `scraper_agregator` - The aggregator instance with the IP-country query
+///   collection already loaded.
+///
+/// # Returns
+///
+/// A configured `IpCountryResolver` ready to be attached to a `ProxyInventory`.
+pub fn default_scrapyfy_ip_country_resolver(
+    scraper_agregator: &mut ScraperAgregator,
+) -> IpCountryResolver {
+    let provider = ScrapyfyIpCountryDataProvider::new(scraper_agregator);
+    let store = Arc::new(
+        arachnea_proxy::core::IpCountrySerdeStore::new(
+            "data/ip-countries.json",
+            Arc::new(arachnea_proxy::core::JsonIpCountryCodec::new()),
+        ),
+    );
+    IpCountryResolver::new(
+        IpCountryResolverConfig::default(),
+        Some(Arc::new(provider)),
+        Some(store),
+    )
+}
+
 /// Builds a default dynamic proxy inventory backed by scrapyfy proxy sources.
 ///
 /// The returned inventory uses [`ScrapyfyProxyDataProvider`] and the default
-/// [`ProxyProbe`] configuration. Persistence remains a caller concern so
+/// [`ProxyProbe`] configuration, with an IP-country resolver pre-configured
+/// for strict country selection. Persistence remains a caller concern so
 /// applications can choose their store path and codec.
 pub fn default_scrapyfy_proxy_inventory(
     scraper_agregator: &mut ScraperAgregator,
@@ -279,11 +315,13 @@ pub fn default_scrapyfy_proxy_inventory(
         https_probe_url: Some("https://example.com/".to_string()),
         ..ProbeConfig::default()
     };
+    let resolver = default_scrapyfy_ip_country_resolver(scraper_agregator);
     ProxyInventory::new(
         InventoryConfig::default(),
         Some(Arc::new(ScrapyfyProxyDataProvider::new(scraper_agregator))),
         Some(Arc::new(ProxyProbe::new(probe_config))),
     )
+    .with_ip_country_resolver(Arc::new(resolver))
 }
 
 /// Builds a default [`ArachneaProxyCore`] with dynamic country routing backed

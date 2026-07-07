@@ -57,7 +57,8 @@ pub use scraper_query_collection::{
 pub mod proxy_provider;
 #[cfg(feature = "arachnea-proxy")]
 pub use proxy_provider::{
-    default_scrapyfy_proxy_core, default_scrapyfy_proxy_inventory, ScrapyfyProxyDataProvider,
+    default_scrapyfy_ip_country_resolver, default_scrapyfy_proxy_core,
+    default_scrapyfy_proxy_inventory, ScrapyfyProxyDataProvider,
 };
 
 /// IP-to-country resolution provider.
