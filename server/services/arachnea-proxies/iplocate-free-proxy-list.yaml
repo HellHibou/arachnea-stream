@@ -1,0 +1,55 @@
+id: free-proxy-list
+title: IPLocate - Free proxy list
+description:
+  en : "This repository provides lists of working, tested, free (open), anonymizing proxies for HTTP, HTTPS, SOCKS4, SOCKS5. Updates every 30 minutes. Contains thousands of working proxies collected from various sources."
+http:
+  mode: auto
+
+# ############################################################################
+# Parameters
+# ############################################################################
+parameters:
+  - name: base_url
+    value: https://raw.githubusercontent.com/iplocate/free-proxy-list/refs/heads/main
+    description: Base URL used to resolve requests.
+
+
+# ==========================================================
+# Queries
+# ==========================================================
+queries:
+
+  # --------------------------------------------------------------------------
+  # Load proxies by country
+  # --------------------------------------------------------------------------
+  - name: list_proxies_for_country
+    scraper_type: text
+    base_url: "{base_url}"
+    query_url: "{base_url}/countries/{country}/proxies.txt"
+    media_types:
+      - application/arachnea-proxy
+    result_item_field: proxies
+    row_delimiter: "\n"
+    field_delimiter: ":" # Optionnel, si il n'y a pas de délimiteur, toute la ligne = field 1
+    entries:
+      - name: proxies
+        type: object[]
+        entries:
+          - name: protocol
+            type: string
+            field: 1
+          - name: host
+            type: string
+            field: 2
+            actions:
+              - type: replace_text
+                search: "//"
+                replace: ""
+          - name: port
+            type: number
+            field: 3
+          - name: country
+            type: string
+            actions:
+              - type: format_text
+                argument: "{country}"

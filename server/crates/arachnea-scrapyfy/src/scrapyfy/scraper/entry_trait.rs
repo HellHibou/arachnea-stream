@@ -76,4 +76,13 @@ pub trait ScraperEntrySpec: Send + Sync {
     /// Sub-queries are follow-up requests that are executed for each extracted value
     /// or for the entry context. Returns an empty vector if no sub-queries are attached.
     fn sub_queries(&self) -> Vec<&dyn super::ScraperQuery>;
+
+    /// Returns the 1-based field index for text-mode entries, if configured.
+    ///
+    /// When `Some(n)`, the entry selects the `n`-th field (1-based) after splitting
+    /// a text row by the query's `field_delimiter`. Returns `None` for entries that
+    /// are not text-mode (HTML/JSON entries).
+    fn field(&self) -> Option<usize> {
+        None
+    }
 }

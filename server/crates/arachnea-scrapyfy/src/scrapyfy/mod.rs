@@ -40,6 +40,11 @@ pub use scraper_json::query::{JsonScraperQuery, JsonScraperQueryRaw};
 pub mod scraper_static;
 pub use scraper_static::query::{StaticScraperEntryRaw, StaticScraperQuery, StaticScraperQueryRaw};
 
+/// Text scraper — parses a text payload split by row and field delimiters.
+pub mod scraper_text;
+pub use scraper_text::entry::{TextScraperEntry, TextScraperEntryRaw};
+pub use scraper_text::query::{TextScraperQuery, TextScraperQueryRaw};
+
 /// Shared traits, spec types, and execution engine for scraper queries.
 pub(crate) mod scraper;
 

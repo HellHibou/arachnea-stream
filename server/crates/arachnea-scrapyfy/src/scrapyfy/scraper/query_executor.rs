@@ -135,6 +135,12 @@ async fn fetch_single(
                 .await?;
             Ok(FetchedResponse::Html(html))
         }
+        ScraperType::Text => {
+            let text = client
+                .query_http_for_request(method, url, headers, body)
+                .await?;
+            Ok(FetchedResponse::Text(text))
+        }
         ScraperType::Static => Ok(FetchedResponse::Static),
     }
 }
@@ -152,6 +158,11 @@ pub enum FetchedResponse {
     ///
     /// Contains the parsed JSON data as a `serde_json::Value`.
     Json(Value),
+
+    /// Raw text body for text queries.
+    ///
+    /// Contains the text payload as a string, split later by row/field delimiters.
+    Text(String),
 
     /// No response (static queries).
     ///
@@ -995,6 +1006,38 @@ fn extract_items(
             }
             vec![item]
         }
+        FetchedResponse::Text(text) => {
+            // Text: split by row delimiter, then by field delimiter, and
+            // apply text entries to each parsed row.
+            let row_delimiter = query.row_delimiter().unwrap_or("\n");
+            let field_delimiter = query.field_delimiter();
+            let lines: Vec<&str> = text
+                .split(row_delimiter)
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect();
+
+            let mut items = Vec::new();
+            for line in &lines {
+                let fields: Vec<&str> = if let Some(delim) = field_delimiter {
+                    line.split(delim).collect()
+                } else {
+                    vec![*line]
+                };
+
+                let mut item = ScraperDataNode::default();
+                for entry in query.entries() {
+                    if let Some(text_entry) = entry
+                        .as_any()
+                        .downcast_ref::<crate::scrapyfy::scraper_text::entry::TextScraperEntry>()
+                    {
+                        text_entry.apply_to(&mut item, &fields, context.params, request_url);
+                    }
+                }
+                items.push(item);
+            }
+            items
+        }
     };
     Ok(result)
 }
@@ -1519,6 +1562,7 @@ async fn fetch_and_extract_for_entry_sub_query(
             }
             nested_parent_response = Some(value);
         }
+        FetchedResponse::Text(_) => {}
         FetchedResponse::Static => {}
     }
 

@@ -11,6 +11,8 @@ pub enum ScraperType {
     Json,
     /// Static, YAML-declared rows with no HTTP request.
     Static,
+    /// Text payload split by row delimiter, each segment parsed as fields.
+    Text,
 }
 
 /// Describes how rows are extracted from a scraper response.

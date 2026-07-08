@@ -10,6 +10,7 @@ use crate::scrapyfy::query_helpers::replace_template_placeholders;
 use crate::scrapyfy::scraper::query_trait::ScraperQuery;
 use crate::scrapyfy::scraper_html::query::HtmlScraperSubQuery;
 use crate::scrapyfy::scraper_json::query::JsonScraperSubQuery;
+use crate::scrapyfy::scraper_text::query::{TextScraperQuery, TextScraperQueryRaw};
 
 /// One collection-level default parameter available to every query.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,6 +85,10 @@ pub enum ScraperQueryDefinitionRaw {
         #[serde(flatten)]
         query: StaticScraperQueryRaw,
     },
+    Text {
+        #[serde(flatten)]
+        query: TextScraperQueryRaw,
+    },
 }
 
 impl ScraperQueryDefinitionRaw {
@@ -93,6 +98,7 @@ impl ScraperQueryDefinitionRaw {
             ScraperQueryDefinitionRaw::Html { query } => query.name(),
             ScraperQueryDefinitionRaw::Json { query } => query.name(),
             ScraperQueryDefinitionRaw::Static { query } => query.name(),
+            ScraperQueryDefinitionRaw::Text { query } => query.name(),
         }
     }
 
@@ -106,6 +112,7 @@ impl ScraperQueryDefinitionRaw {
             ScraperQueryDefinitionRaw::Html { query } => query.resolve_collection_params(params),
             ScraperQueryDefinitionRaw::Json { query } => query.resolve_collection_params(params),
             ScraperQueryDefinitionRaw::Static { query } => query.resolve_collection_params(params),
+            ScraperQueryDefinitionRaw::Text { query } => query.resolve_collection_params(params),
         }
     }
 
@@ -119,6 +126,7 @@ impl ScraperQueryDefinitionRaw {
             ScraperQueryDefinitionRaw::Html { query } => query.apply_collection_http(http),
             ScraperQueryDefinitionRaw::Json { query } => query.apply_collection_http(http),
             ScraperQueryDefinitionRaw::Static { .. } => {}
+            ScraperQueryDefinitionRaw::Text { query } => query.apply_collection_http(http),
         }
     }
 }
@@ -130,6 +138,7 @@ pub enum ScraperQueryDefinition {
     Html(HtmlScraperQuery),
     Json(JsonScraperQuery),
     Static(StaticScraperQuery),
+    Text(TextScraperQuery),
 }
 
 impl ScraperQueryDefinition {
@@ -139,6 +148,7 @@ impl ScraperQueryDefinition {
             ScraperQueryDefinition::Html(query) => query.name(),
             ScraperQueryDefinition::Json(query) => query.name(),
             ScraperQueryDefinition::Static(query) => query.name(),
+            ScraperQueryDefinition::Text(query) => query.name(),
         }
     }
 
@@ -148,6 +158,7 @@ impl ScraperQueryDefinition {
             ScraperQueryDefinition::Html(query) => query.is_media_type(media_types),
             ScraperQueryDefinition::Json(query) => query.is_media_type(media_types),
             ScraperQueryDefinition::Static(query) => query.is_media_type(media_types),
+            ScraperQueryDefinition::Text(query) => query.is_media_type(media_types),
         }
     }
 
@@ -158,6 +169,7 @@ impl ScraperQueryDefinition {
             ScraperQueryDefinition::Html(query) => query.get_field_names(),
             ScraperQueryDefinition::Json(query) => query.get_field_names(),
             ScraperQueryDefinition::Static(query) => query.get_field_names(),
+            ScraperQueryDefinition::Text(query) => query.get_field_names(),
         }
     }
 
@@ -209,6 +221,18 @@ impl ScraperQueryDefinition {
                     execution_params,
                 )
             }
+            ScraperQueryDefinition::Text(query) => {
+                let mappings = &query.query_param_mappings;
+                let base_url = query.base_url();
+                let execution_params = crate::scrapyfy::query_helpers::build_query_execution_params(
+                    base_url, params, mappings,
+                );
+                (
+                    &*query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery,
+                    query.result_item_field(),
+                    execution_params,
+                )
+            }
         };
 
         let context = crate::scrapyfy::scraper::query_executor::QueryContext {
@@ -240,6 +264,7 @@ impl ScraperQueryDefinition {
                 bind_json_query_proxy_handle(query, &proxy_handle)
             }
             ScraperQueryDefinition::Static(query) => query.set_proxy_handle(proxy_handle),
+            ScraperQueryDefinition::Text(query) => bind_text_query_proxy_handle(query, &proxy_handle),
         }
     }
 }
@@ -286,6 +311,7 @@ impl TryFrom<ScraperQueryDefinitionRaw> for ScraperQueryDefinition {
             ScraperQueryDefinitionRaw::Html { query } => Ok(Self::Html(query.try_into()?)),
             ScraperQueryDefinitionRaw::Json { query } => Ok(Self::Json(query.try_into()?)),
             ScraperQueryDefinitionRaw::Static { query } => Ok(Self::Static(query.try_into()?)),
+            ScraperQueryDefinitionRaw::Text { query } => Ok(Self::Text(query.try_into()?)),
         }
     }
 }
@@ -302,6 +328,9 @@ impl From<&ScraperQueryDefinition> for ScraperQueryDefinitionRaw {
             },
             ScraperQueryDefinition::Static(query) => Self::Static {
                 query: StaticScraperQueryRaw::from(query),
+            },
+            ScraperQueryDefinition::Text(query) => Self::Text {
+                query: TextScraperQueryRaw::from(query),
             },
         }
     }
@@ -640,6 +669,16 @@ impl ScraperQueryCollection {
             .entry("query_separator".to_string())
             .or_insert_with(|| separator.to_string());
     }
+}
+
+fn bind_text_query_proxy_handle(
+    query: &mut TextScraperQuery,
+    proxy_handle: &SharedProxyConfigHandle,
+) {
+    query.http_client = HttpClient::with_http_config_and_proxy_handle(
+        query.http_config.clone(),
+        proxy_handle.clone(),
+    );
 }
 
 fn bind_html_query_proxy_handle(

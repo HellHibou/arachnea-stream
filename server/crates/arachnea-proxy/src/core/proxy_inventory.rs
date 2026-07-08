@@ -64,6 +64,7 @@ struct InventoryInner {
     loading_countries: HashSet<String>,
     negative_cache: HashMap<String, Instant>,
     /// Last selected proxy authority per country, for sticky selection.
+    #[allow(dead_code)]
     last_selected: HashMap<String, String>,
 }
 
