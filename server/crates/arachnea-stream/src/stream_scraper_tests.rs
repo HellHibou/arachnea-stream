@@ -1,4 +1,6 @@
 use super::StreamScraper;
+use crate::stream_scraper::DEFAULT_SERVICES_CONFIG_PATH;
+use crate::stream_scraper::STREAM_SERVICE_GROUP_NAME;
 use anyhow::Result;
 use arachnea_core::persistence::resources;
 use arachnea_scrapyfy::scrapyfy::scraper_data_node::ScraperDataNode;
@@ -10,10 +12,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-const DEFAULT_FILE_CREDENTIALS_STORE_PATH: &str = "data/credentials.json";
-const SERVICES_CONFIG_PATH: &str = "services/services.json";
 static DEFAULT_SEARCH_TERM: &str = "inf";
-static DEFAULT_QUERY_SOURCE: &str = "anime-sama";
+static DEFAULT_QUERY_SOURCE: &str = "arachnea-stream/dark-stream/anime-sama.yaml";
 
 #[derive(Deserialize)]
 struct ServiceConfig {
@@ -112,9 +112,8 @@ pub fn test_query_service_stream_metadata() -> Result<()> {
 }
 fn service_stream_metadata(yaml_file: &str) -> Result<()> {
     test_query(
-        &mut StreamScraper::new(
-            resources::get_application_path(DEFAULT_FILE_CREDENTIALS_STORE_PATH).as_str(),
-        ),
+        &mut StreamScraper::default(),
+        STREAM_SERVICE_GROUP_NAME,
         "service_stream_metadata",
         test_params(),
         yaml_file,
@@ -128,9 +127,8 @@ pub fn test_query_load_home() -> Result<()> {
 }
 fn load_home(yaml_file: &str) -> Result<()> {
     test_query(
-        &mut StreamScraper::new(
-            resources::get_application_path(DEFAULT_FILE_CREDENTIALS_STORE_PATH).as_str(),
-        ),
+        &mut StreamScraper::default(),
+        STREAM_SERVICE_GROUP_NAME,
         "load_home",
         test_params(),
         yaml_file,
@@ -144,9 +142,8 @@ pub fn test_query_search() -> Result<()> {
 }
 fn search(search_term: String, yaml_file: &str) -> Result<()> {
     test_query(
-        &mut StreamScraper::new(
-            resources::get_application_path(DEFAULT_FILE_CREDENTIALS_STORE_PATH).as_str(),
-        ),
+        &mut StreamScraper::default(),
+        STREAM_SERVICE_GROUP_NAME,
         "search",
         test_params(),
         yaml_file,
@@ -193,9 +190,8 @@ fn get_entry(get_entry_url: Option<String>, yaml_file: &str) -> Result<()> {
     let yaml_file_owned = yaml_file.to_string();
     let yaml_file_for_test = yaml_file_owned.clone();
     test_query(
-        &mut StreamScraper::new(
-            resources::get_application_path(DEFAULT_FILE_CREDENTIALS_STORE_PATH).as_str(),
-        ),
+        &mut StreamScraper::default(),
+        STREAM_SERVICE_GROUP_NAME,
         "get_entry",
         test_params(),
         &yaml_file_for_test,
@@ -234,7 +230,7 @@ fn load_enabled_services() -> Vec<String> {
     let config_file = format!(
         "{}/{}",
         resources::get_application_root(),
-        SERVICES_CONFIG_PATH
+        DEFAULT_SERVICES_CONFIG_PATH
     );
     let services_json_path = Path::new(config_file.as_str());
     let content =
@@ -246,12 +242,7 @@ fn load_enabled_services() -> Vec<String> {
     services
         .into_iter()
         .filter(|s| s.enabled)
-        .map(|s| {
-            // Extract the service path without .yaml extension (keep subdirectory path)
-            let path = Path::new(&s.path);
-            let path_without_ext = path.with_extension("");
-            path_without_ext.to_string_lossy().to_string()
-        })
+        .map(|s| format!("{}/{}", STREAM_SERVICE_GROUP_NAME, s.path))
         .collect()
 }
 

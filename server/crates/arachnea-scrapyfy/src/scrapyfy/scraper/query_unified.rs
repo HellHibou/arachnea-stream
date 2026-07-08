@@ -228,6 +228,8 @@ pub enum ScraperTypeConfig {
     Json,
     /// Static scraper — returns YAML-declared data without an HTTP request.
     Static,
+    /// Text scraper — splits a payload by a row delimiter and fields by a field delimiter.
+    Text,
 }
 
 // ---------------------------------------------------------------------------

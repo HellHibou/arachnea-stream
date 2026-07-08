@@ -2,6 +2,7 @@
 //! Arachnea backend executable: wires scraper sources and controller backends.
 
 use anyhow::{bail, Context, Result};
+use std::net::IpAddr;
 use std::{path::Path, sync::Arc};
 
 use arachnea_core::{
@@ -10,14 +11,7 @@ use arachnea_core::{
         tauri::{TauriControlerConfiguration, TauriControlerService, TauriEmbeddedWebAssets},
         ControlerService, SharedWebAssets,
     },
-    persistence::{
-        resources, CredentialsStore, EncryptedFileCredentialsStore, FileCredentialsStore,
-    },
-};
-use arachnea_proxy::core::{
-    ArachneaProxyCore, ParameterHandlerConfig, ParameterHandlerKind, ParameterProxyRoute,
-    ProxyChain, ProxyConfig, ProxyNode, ProxyProfile, RoutePolicy, PROXY_HEADER_PARAMETER_COUNTRY,
-    PROXY_PARAMETER_COUNTRY,
+    persistence::{resources, EncryptedFileCredentialsStore},
 };
 use arachnea_scrapyfy::*;
 use arachnea_stream::StreamScraper;
@@ -31,14 +25,8 @@ const DEFAULT_MODE_SERVER: bool = false;
 #[cfg(debug_assertions)] // Debug mode defaults.
 const DEFAULT_MODE_SERVER: bool = true;
 
-/// Default path used by the clear JSON credentials store.
-const DEFAULT_FILE_CREDENTIALS_STORE_PATH: &str = "data/credentials.json";
-
 /// Default path used by the encrypted server credentials store.
 const DEFAULT_ENCRYPTED_FILE_CREDENTIALS_STORE_PATH: &str = "data/credentials";
-
-/// Default path used by the services configuration file.
-const DEFAULT_SERVICES_CONFIG_PATH: &str = "services/services.json";
 
 /// Custom URI scheme used by the desktop frontend.
 const TAURI_WEB_SCHEME: &str = "arachnea";
@@ -60,6 +48,7 @@ struct RuntimeOptions {
 /// Result of parsing command line arguments.
 enum CliAction {
     Run(RuntimeOptions),
+    RefreshIpCountries,
     ExitSuccess,
 }
 
@@ -86,14 +75,15 @@ fn help_message(program_name: &str) -> String {
         "Usage: {program_name} [OPTIONS]
 
 Options:
-  --help                 Show this help message and exit
-  --desktop              Run in desktop application mode (forces mode_server to false)
-  --server               Run in server mode (forces mode_server to true)
-  --server-port <PORT>   Override the server port (default: {DEFAULT_SERVER_PORT})
+  --help                   Show this help message and exit
+  --desktop                Run in desktop application mode (forces mode_server to false)
+  --server                 Run in server mode (forces mode_server to true)
+  --server-port <PORT>     Override the server port (default: {DEFAULT_SERVER_PORT})
   --entrypoint-root <PATH>
-                          Public root path used before API routes in server mode
+                           Public root path used before API routes in server mode
   --entrypoint-api <PATH>
-                          Public API path segment used in server mode"
+                           Public API path segment used in server mode
+  --refresh-ip-countries   Refresh IP-to-country geolocation data and exit"
     )
 }
 
@@ -149,6 +139,9 @@ fn parse_runtime_options(program_name: &str) -> Result<CliAction> {
                 print_help(&program_name);
                 return Ok(CliAction::ExitSuccess);
             }
+            "--refresh-ip-countries" => {
+                return Ok(CliAction::RefreshIpCountries);
+            }
             "--server-port" => {
                 let port = args.next().context("missing value for `--server-port`")?;
 
@@ -175,6 +168,48 @@ fn parse_runtime_options(program_name: &str) -> Result<CliAction> {
     Ok(CliAction::Run(options))
 }
 
+/// Runs the IP-country geolocation refresh and exits.
+///
+/// Initialises the scraper aggregator, collects proxy IPs from the dynamic
+/// proxy inventory, resolves each IP to a country via the YAML-defined
+/// ip-api.com query, and persists the results to `data/ip-countries.json`.
+async fn refresh_ip_countries_cli() -> Result<()> {
+    let mut manager = StreamScraper::from_json(None)?;
+    let agregator = manager.get_scraper_agregator_mut();
+
+    // Collect IPs from the proxy inventory if available
+    let ip_addresses: Vec<IpAddr> = {
+        if let Some(proxy_core) = agregator.proxy_core() {
+            let inventory = proxy_core.proxy_inventory();
+            let records = match inventory {
+                Some(inv) => inv.all_records().await,
+                None => {
+                    tracing::warn!("no proxy inventory available; refresh will be a no-op");
+                    Vec::new()
+                }
+            };
+            let ips: Vec<IpAddr> = records
+                .iter()
+                .filter_map(|record| record.host.parse::<IpAddr>().ok())
+                .collect();
+            if !ips.is_empty() {
+                ips
+            } else {
+                tracing::warn!("no proxy IPs found in inventory; refresh will be a no-op");
+                Vec::new()
+            }
+        } else {
+            tracing::warn!("no proxy core available; refresh will be a no-op");
+            Vec::new()
+        }
+    };
+
+    let config = IpCountryRefreshConfig::default();
+    refresh_ip_country_store(agregator, &ip_addresses, &config).await?;
+
+    Ok(())
+}
+
 /// Starts the configured backend controller using command line runtime options.
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -185,6 +220,9 @@ async fn main() -> Result<()> {
     let program_name = program_name();
     let options = match parse_runtime_options(&program_name) {
         Ok(CliAction::Run(options)) => options,
+        Ok(CliAction::RefreshIpCountries) => {
+            return refresh_ip_countries_cli().await;
+        }
         Ok(CliAction::ExitSuccess) => return Ok(()),
         Err(error) => {
             eprintln!("Error: {error}\n");
@@ -199,73 +237,8 @@ async fn main() -> Result<()> {
         resources::get_application_path(DEFAULT_ENCRYPTED_FILE_CREDENTIALS_STORE_PATH),
         DEFAULT_SERVER_CREDENTIALS_KEY,
     );
-    let credentials_store: Arc<dyn CredentialsStore> = if options.mode_server {
-        Arc::new(FileCredentialsStore::new(resources::get_application_path(
-            DEFAULT_FILE_CREDENTIALS_STORE_PATH,
-        )))
-    } else {
-        Arc::new(FileCredentialsStore::new(resources::get_application_path(
-            DEFAULT_FILE_CREDENTIALS_STORE_PATH,
-        )))
-    };
 
-    let mut manager = StreamScraper::with_credentials_store(credentials_store);
-    manager
-        .get_scraper_agregator_mut()
-        .add_query_collection_from_config_json(resources::get_application_path(
-            DEFAULT_SERVICES_CONFIG_PATH,
-        ))?;
-
-    //*
-    manager.clear_proxy();
-
-    let proxy_fr = ProxyNode::from_url(
-        "proxy-fr",
-       //  "socks5://158.178.198.31:1080", 
-        // "socks5://62.133.62.3:1081"
-        //"socks5://45.95.233.237:1081",
-       "socks5://51.210.5.144:1088"
-    )
-    .context("Failed to configure the FR proxy node")?;
-    let proxy_config = ProxyConfig {
-        profile: ProxyProfile::Advanced,
-        chains: vec![ProxyChain::direct()],
-        routing: RoutePolicy {
-            default_chain: Some("direct".to_string()),
-            ..RoutePolicy::default()
-        },
-        parameter_handlers: vec![ParameterHandlerConfig {
-            kind: ParameterHandlerKind::CountryRouting,
-            parameter_name: Some(PROXY_PARAMETER_COUNTRY.to_string()),
-            http_header: Some(PROXY_HEADER_PARAMETER_COUNTRY.to_string()),
-            forward_header: false,
-            stop_on_match: true,
-            routes: vec![ParameterProxyRoute {
-                value: "FR".to_string(),
-                proxy: proxy_fr,
-            }],
-        }],
-        ..ProxyConfig::default()
-    };
-
-    let proxy_core_for_http = match ArachneaProxyCore::new(proxy_config) {
-        Ok(proxy_core) => {
-            manager
-                .get_scraper_agregator_mut()
-                .set_proxy_core(proxy_core.clone());
-            tracing::info!("Proxy core created with FR country routing");
-            Some(proxy_core)
-        }
-        Err(e) => {
-            tracing::warn!(
-                "Failed to create proxy core: {}; proxy_http will be unavailable",
-                e
-            );
-            None
-        }
-    };
-    manager.set_proxy_http_core(proxy_core_for_http);
-    // */
+    let manager = StreamScraper::from_json(None)?;
     let web_assets = generated_embedded_web_assets();
 
     let mut controler: Box<dyn ControlerService> = if options.mode_server {

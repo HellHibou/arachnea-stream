@@ -138,6 +138,31 @@ impl ScraperDataNode {
         }
     }
 
+    /// Returns the first scalar value as a `&str`, or `None` if the node is empty.
+    pub fn value_as_string(&self) -> Option<&str> {
+        self.values.first().map(String::as_str)
+    }
+
+    /// Returns the first scalar value parsed as `u16`, or `None`.
+    pub fn value_as_u16(&self) -> Option<u16> {
+        self.values.first().and_then(|v| v.parse().ok())
+    }
+
+    /// Returns the first scalar value parsed as `u32`, or `None`.
+    pub fn value_as_u32(&self) -> Option<u32> {
+        self.values.first().and_then(|v| v.parse().ok())
+    }
+
+    /// Returns the first scalar value parsed as `u64`, or `None`.
+    pub fn value_as_u64(&self) -> Option<u64> {
+        self.values.first().and_then(|v| v.parse().ok())
+    }
+
+    /// Returns the first scalar value parsed as `bool`, or `None`.
+    pub fn value_as_bool(&self) -> Option<bool> {
+        self.values.first().and_then(|v| v.parse().ok())
+    }
+
     /// Stores a YAML-declared output type under the provided `>`-split path.
     ///
     /// Missing intermediate nodes are created on demand. Existing compatible

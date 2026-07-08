@@ -20,6 +20,7 @@ mod max;
 mod normalize_duration;
 mod ratio;
 mod regex_find_all;
+mod replace_text;
 mod resolve_url;
 mod split;
 mod suffix;
@@ -168,6 +169,19 @@ pub enum ScraperAction {
     /// * `argument`: the multiplier as a string.
     Ratio { argument: f64 },
 
+    /// Replaces all occurrences of `search` with `replace` in every current value.
+    ///
+    /// # Fields
+    ///
+    /// * `search` - Substring to replace.
+    /// * `replace` - Replacement string.
+    ReplaceText {
+        /// Substring to search for in each value.
+        search: String,
+        /// Replacement string.
+        replace: String,
+    },
+
     /// Formats each current value using a string template.
     ///
     /// The template replaces:
@@ -273,6 +287,9 @@ impl ScraperAction {
                 page_path_prefix_to_strip.as_deref(),
             ),
             ScraperAction::Ratio { argument } => ratio::apply(texts, argument),
+            ScraperAction::ReplaceText { search, replace } => {
+                replace_text::apply(texts, search, replace)
+            }
             ScraperAction::ExtractField { path } => extract_field::apply(path, response_json),
             ScraperAction::BuildUrl { base, fields } => {
                 build_url::apply(response_json, base, fields, params)

@@ -17,6 +17,11 @@ pub mod http;
 mod observability;
 mod parameters;
 pub mod policy;
+pub mod ip_country;
+pub mod proxy_inventory;
+pub mod proxy_probe;
+pub mod proxy_record;
+pub mod proxy_store;
 mod routing;
 mod stats;
 pub mod transport;
@@ -45,15 +50,27 @@ pub use http::{HttpRequestStream, HttpRequestTargetForm};
 pub use observability::{LogSensitivity, ObservabilityConfig};
 pub use parameters::{
     build_parameter_handler, context_from_parameter_pairs, normalize_parameter_value,
-    CountryRoutingProxyHandler, ParameterDefinition, ParameterHandlerConfig,
-    ParameterHandlerDecision, ParameterHandlerKind, ParameterProxyRoute, ParameterRegistry,
-    ProxyParameterHandler, SmartDnsProxyHandler, PROXY_HEADER_PARAMETER_COUNTRY,
+    CountryRoutingProxyHandler, DynamicCountryRoutingProxyHandler, ParameterDefinition,
+    ParameterHandlerConfig, ParameterHandlerDecision, ParameterHandlerKind, ParameterProxyRoute,
+    ParameterRegistry, ProxyParameterHandler, SmartDnsProxyHandler, PROXY_HEADER_PARAMETER_COUNTRY,
     PROXY_PARAMETER_COUNTRY,
 };
 pub use policy::{
     EgressPool, EgressPoolStrategy, EgressSelector, NoopEgressSelector, PrivacyPolicy,
     ProxyPoolMemberState, ProxyPoolMemberStatus, SecurityPolicy,
 };
+pub use ip_country::{
+    IpCountryDataProvider, IpCountryRecord, IpCountryResolver, IpCountryResolverConfig,
+    IpCountrySerdeCodec, IpCountrySerdeStore, IpCountryStore, JsonIpCountryCodec,
+};
+pub use proxy_inventory::{CoexistencePolicy, InventoryConfig, ProxyInventory};
+pub use proxy_probe::{ProbeConfig, ProbeMode, ProxyProbe};
+pub use proxy_record::{
+    ProxyAvailabilityHint, ProxyDataProvider, ProxyDestinationFailure,
+    ProxyDestinationFailureReason, ProxyLoadRequest, ProxyProtocol, ProxyRecord,
+    ProxyRuntimeStatus,
+};
+pub use proxy_store::{JsonProxyCodec, ProxySerdeCodec, ProxySerdeStore, ProxyStore};
 pub use routing::{RouteDecision, RoutePolicy, RouteRule};
 pub use stats::{ProxyStats, ProxyStatsSnapshot};
 pub use transport::{socks::Socks5UdpAssociation, OutboundTransport, UdpAssociation};

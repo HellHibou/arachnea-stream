@@ -150,6 +150,24 @@ pub trait ScraperQuery: Send + Sync {
     /// Defines how rows are extracted from the scraper response.
     fn row_locator(&self) -> RowLocator;
 
+    // --- Text mode ---
+
+    /// Returns the row delimiter for text-mode scraping, if configured.
+    ///
+    /// When `Some`, the response body is split into rows on this delimiter
+    /// instead of being parsed as HTML/JSON.
+    fn row_delimiter(&self) -> Option<&str> {
+        None
+    }
+
+    /// Returns the field delimiter for text-mode scraping, if configured.
+    ///
+    /// When `Some` and `row_delimiter` is set, each row is split into fields
+    /// on this delimiter. Entries then select fields by 1-based index.
+    fn field_delimiter(&self) -> Option<&str> {
+        None
+    }
+
     // --- Post-processing ---
 
     /// Returns the post-processing steps applied to each extracted row.

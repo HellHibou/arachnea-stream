@@ -1,5 +1,8 @@
 use std::collections::HashMap;
 
+/// The default directory for scraper service configuration files.
+pub const DEFAULT_SERVICES_DIRECTORY: &str = "services";
+
 /// Tree-shaped output node model used by all scraper pipelines.
 pub mod scraper_data_node;
 
@@ -37,6 +40,11 @@ pub use scraper_json::query::{JsonScraperQuery, JsonScraperQueryRaw};
 pub mod scraper_static;
 pub use scraper_static::query::{StaticScraperEntryRaw, StaticScraperQuery, StaticScraperQueryRaw};
 
+/// Text scraper — parses a text payload split by row and field delimiters.
+pub mod scraper_text;
+pub use scraper_text::entry::{TextScraperEntry, TextScraperEntryRaw};
+pub use scraper_text::query::{TextScraperQuery, TextScraperQueryRaw};
+
 /// Shared traits, spec types, and execution engine for scraper queries.
 pub(crate) mod scraper;
 
@@ -47,6 +55,23 @@ pub mod query_helpers;
 pub mod scraper_query_collection;
 pub use scraper_query_collection::{
     ScraperQueryCollection, ScraperQueryCollectionParameter, ScraperQueryCollectionRaw,
+};
+
+/// Proxy data provider placeholder for dynamic proxy loading.
+#[cfg(feature = "arachnea-proxy")]
+pub mod proxy_provider;
+#[cfg(feature = "arachnea-proxy")]
+pub use proxy_provider::{
+    default_scrapyfy_ip_country_resolver, default_scrapyfy_proxy_core,
+    default_scrapyfy_proxy_inventory, ScrapyfyProxyDataProvider,
+};
+
+/// IP-to-country resolution provider.
+#[cfg(feature = "arachnea-proxy")]
+pub mod ip_country_provider;
+#[cfg(feature = "arachnea-proxy")]
+pub use ip_country_provider::{
+    refresh_ip_country_store, IpCountryRefreshConfig, ScrapyfyIpCountryDataProvider,
 };
 
 /// Multi-source query aggregator.

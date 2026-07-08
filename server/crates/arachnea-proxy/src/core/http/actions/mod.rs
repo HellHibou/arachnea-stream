@@ -141,13 +141,13 @@ pub(crate) fn parse_proxy_action_header_value(
     name: &str,
     value: &str,
 ) -> std::result::Result<Option<ParsedProxyActionHeader>, (u16, String)> {
-    const ACTION_HEADER_PREFIX: &str = "arachnea-proxy-";
-
-    let name_lower = name.to_ascii_lowercase();
-    if !name_lower.starts_with(ACTION_HEADER_PREFIX) {
+    if !name.eq_ignore_ascii_case(replace_all::REPLACE_ALL_ACTION_HEADER)
+        && !name.eq_ignore_ascii_case(remove_header::REMOVE_HEADER_ACTION_HEADER)
+    {
         return Ok(None);
     }
 
+    let name_lower = name.to_ascii_lowercase();
     if let Some(action) = replace_all::parse_proxy_action_header_value(&name_lower, name, value)? {
         return Ok(Some(action));
     }
@@ -156,7 +156,6 @@ pub(crate) fn parse_proxy_action_header_value(
         return Ok(Some(action));
     }
 
-    tracing::debug!("Unknown proxy action header '{}', skipping", name_lower);
     Ok(None)
 }
 

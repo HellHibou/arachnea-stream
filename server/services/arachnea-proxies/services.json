@@ -1,0 +1,10 @@
+[
+  {
+    "path": "proxifly.yaml",
+    "enabled": true
+  },
+  {
+    "path": "iplocate-free-proxy-list.yaml",
+    "enabled": true
+  }
+]

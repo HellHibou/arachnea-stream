@@ -24,6 +24,7 @@ chaser-cf = "0.2.1"
 chaser-oxide = "0.2.4"
 chrono = "0.4"
 clap = { version = "4.5", features = ["derive"] }
+const_format = "0.2"
 cookie = "0.18"
 encoding_rs = "0.8"
 futures = "0.3"

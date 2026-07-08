@@ -1,0 +1,53 @@
+id: free-proxy-list
+title: Proxifly's free proxy list
+description:
+  en : "Every 5 minutes, Proxifly fetches fresh proxies—including HTTP, HTTPS, SOCKS4, and SOCKS5 proxies—from around the web."
+http:
+  mode: auto
+
+# ############################################################################
+# Parameters
+# ############################################################################
+parameters:
+  - name: base_url
+    value: https://raw.githubusercontent.com/proxifly/free-proxy-list/refs/heads/main/proxies
+    description: Base URL used to resolve requests.
+
+
+# ==========================================================
+# Queries
+# ==========================================================
+queries:
+
+  # --------------------------------------------------------------------------
+  # Load proxies by country
+  # --------------------------------------------------------------------------
+  - name: list_proxies_for_country
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{base_url}/countries/{country}/data.json"
+    media_types:
+      - application/arachnea-proxy
+    row_pointer: "/*"
+    result_item_field: proxies
+    entries:
+      - name: proxies
+        type: object[]
+        pointer: /
+        select: all
+        entries:
+          - name: protocol
+            type: string
+            pointer: /protocol
+          - name: host
+            type: string
+            pointer: /ip
+          - name: port
+            type: number
+            pointer: /port
+          - name: supports_https
+            type: boolean
+            pointer: /https
+          - name: country
+            type: string
+            pointer: /geolocation/country
