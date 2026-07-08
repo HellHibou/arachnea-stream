@@ -3,7 +3,6 @@ import { computed, nextTick, ref, shallowRef, watch } from 'vue'
 
 import EntryDetails from './EntryDetails.vue'
 import EntryDetailsCatalogSection from './entry-details/EntryDetailsCatalogSection.vue'
-import { entryVideoPlayer } from '@/composables/entry-details/entryVideoPlayer'
 import {
   getLivePlayers,
   listLiveMediaItems,
@@ -103,6 +102,8 @@ const resolvedLiveMediaOpenUrl = shallowRef<string | null>(null)
 const isResolvedLiveMediaLoading = shallowRef(false)
 /** Error message from live media resolution. */
 const resolvedLiveMediaErrorMessage = shallowRef<string | null>(null)
+/** Selected player ID for the current live. */
+const activePlayerId = shallowRef<string | null>(null)
 
 /** Counter to track the latest live list request ID. */
 let latestListRequestId = 0
@@ -197,53 +198,17 @@ const details = computed<EntryDetailsModel | null>(() => {
   }
 })
 
-/** Video player composable results. */
-const {
-  /** Currently active language key in the player. */
-  activeLanguageKey,
-  /** Available language options for the player. */
-  availableLanguages,
-  /** Filtered list of available players. */
-  filteredPlayers,
-  /** Currently active player ID. */
-  activePlayerId,
-  /** URL of the trailer media. */
-  trailerUrl,
-  /** Trailer media source for the player. */
-  trailerMediaSource,
-  /** Whether to show the trailer player. */
-  showTrailerPlayer,
-  /** Currently selected playable title. */
-  selectedPlayableTitle,
-  /** Whether to show the trailer action button. */
-  showTrailerAction,
-  /** Label for the trailer action button. */
-  trailerActionLabel,
-  /** Whether to show the language selector. */
-  showLanguageSelector,
-  /** Whether to show the player selector. */
-  showPlayerSelector,
-  /** Whether to show player controls. */
-  showPlayerControls,
-  /** Function to handle trailer toggle. */
-  handleTrailerToggle,
-  /** Function to remember current language selection. */
-  rememberCurrentLanguage,
-  /** Function to remember current player selection. */
-  rememberCurrentPlayer,
-} = entryVideoPlayer({
-  details,
-  selectedPlayableItem,
-})
-
 /**
- * Exposes the live player currently selected in the shared player controls.
+ * Exposes the currently selected player from the available players.
  */
-const selectedLivePlayer = computed<EntryPlayer | null>(() =>
-  filteredPlayers.value.find((player) => player.id === activePlayerId.value) ??
-  filteredPlayers.value[0] ??
-  null,
-)
+const selectedLivePlayer = computed<EntryPlayer | null>(() => {
+  const players = selectedLivePlayers.value
+  if (!players.length) {
+    return null
+  }
+
+  return players.find((player) => player.id === activePlayerId.value) ?? players[0] ?? null
+})
 
 /**
  * Exposes the media loading state including the live player lookup.
@@ -295,40 +260,23 @@ const heroBackgroundLandscapeUrl = computed(() =>
 )
 
 /**
- * Stores the selected language in the shared player state.
- *
- * @param value Language key selected in the player controls.
+ * Whether a player selector should be shown.
  */
-function handleActiveLanguageKeyUpdate(value: string | null) {
-  activeLanguageKey.value = value
-}
-
-/**
- * Stores the selected player in the shared player state.
- *
- * @param value Player identifier selected in the player controls.
- */
-function handleActivePlayerIdUpdate(value: string | null) {
-  activePlayerId.value = value
-}
+const showPlayerSelector = computed(() => selectedLivePlayers.value.length > 1)
 
 /**
  * Resolves the currently selected live player into one media source consumable by the shared shell.
  *
- * @param liveItem Live entry currently selected in the details page.
  * @param player Embedded player selected for the current live.
  */
-async function resolveSelectedLiveMedia(
-  liveItem: MediaItem | null,
-  player: EntryPlayer | null,
-) {
+async function resolveSelectedLiveMedia(player: EntryPlayer | null) {
   const requestId = ++latestMediaResolutionRequestId
 
   resolvedLiveMediaSource.value = null
   resolvedLiveMediaOpenUrl.value = player?.embedLink ?? null
   resolvedLiveMediaErrorMessage.value = null
 
-  if (!liveItem?.source || !player) {
+  if (!selectedLiveItem.value?.source || !player) {
     return
   }
 
@@ -336,7 +284,7 @@ async function resolveSelectedLiveMedia(
 
   try {
     const nextMediaSource = player.resolver
-      ? await resolvePlayerStream(liveItem.source, player).then((resolvedStream) =>
+      ? await resolvePlayerStream(selectedLiveItem.value.source, player).then((resolvedStream) =>
           resolvedStream
             ? resolveBackendStreamMediaSource(
                 resolvedStream.streamUrl,
@@ -397,6 +345,18 @@ async function loadLiveItems() {
     }
 
     selectedLiveId.value = null
+
+    // Restore initial live selection from route after list is loaded
+    const source = props.initialSource?.trim()
+    const channel = props.initialChannel?.trim()
+    if (source && channel) {
+      const matchingLiveItem = nextLiveItems.find(
+        (item) => item.source === source && item.entryUrl === channel,
+      )
+      if (matchingLiveItem) {
+        void selectLiveItem(matchingLiveItem, { shouldEmit: false })
+      }
+    }
   } catch (error) {
     if (requestId !== latestListRequestId) {
       return
@@ -427,20 +387,16 @@ async function selectLiveItem(liveItem: MediaItem, options: { shouldEmit?: boole
      emit('select-live', liveItem)
    }
 
-   selectedLiveId.value = liveItem.id
    liveSelectionErrorMessage.value = null
-   resolvedLiveMediaSource.value = null
-   resolvedLiveMediaOpenUrl.value = null
-   resolvedLiveMediaErrorMessage.value = null
 
    const cachedPlayers = livePlayersByItemId.value[liveItem.id]
    if (cachedPlayers && cachedPlayers.length > 0) {
+     selectedLiveId.value = liveItem.id
      const cachedPlayer = cachedPlayers.find((player) => player.id === activePlayerId.value) ?? cachedPlayers[0] ?? null
-     if (cachedPlayer && cachedPlayer.id !== activePlayerId.value) {
+     if (cachedPlayer) {
        activePlayerId.value = cachedPlayer.id
+       await resolveSelectedLiveMedia(cachedPlayer)
      }
-
-     await resolveSelectedLiveMedia(liveItem, cachedPlayer)
      scrollToTitleSection()
      return
    }
@@ -465,12 +421,14 @@ async function selectLiveItem(liveItem: MediaItem, options: { shouldEmit?: boole
        [liveItem.id]: players,
      }
 
+     selectedLiveId.value = liveItem.id
+
      const initialPlayer = players.find((player) => player.id === activePlayerId.value) ?? players[0] ?? null
-     if (initialPlayer && initialPlayer.id !== activePlayerId.value) {
+     if (initialPlayer) {
        activePlayerId.value = initialPlayer.id
+       await resolveSelectedLiveMedia(initialPlayer)
      }
 
-     await resolveSelectedLiveMedia(liveItem, initialPlayer)
      scrollToTitleSection()
    } catch (error) {
      if (requestId !== latestSelectionRequestId) {
@@ -486,63 +444,28 @@ async function selectLiveItem(liveItem: MediaItem, options: { shouldEmit?: boole
    }
   }
 
-watch(
-   [
-     () => props.initialSource,
-     () => props.initialChannel,
-     () => JSON.stringify(liveItems.value.map((item) => [item.source, item.entryUrl])),
-   ],
-   ([initialSource, initialChannel]) => {
-     const source = initialSource?.trim()
-     const channel = initialChannel?.trim()
+/**
+ * Handles the selected player update from the UI.
+ */
+function handleActivePlayerIdUpdate(value: string | null) {
+  if (value === null || value === activePlayerId.value) {
+    return
+  }
 
-     if (!source || !channel) {
-       selectedLiveId.value = null
-       liveSelectionErrorMessage.value = null
-       resolvedLiveMediaSource.value = null
-       resolvedLiveMediaOpenUrl.value = null
-       resolvedLiveMediaErrorMessage.value = null
-       return
-     }
+  activePlayerId.value = value
 
-     const matchingLiveItem = liveItems.value.find(
-       (item) => item.source === source && item.entryUrl === channel,
-     )
+  // Resolve the newly selected player immediately
+  const player = selectedLivePlayers.value.find((p) => p.id === value) ?? null
+  if (player) {
+    void resolveSelectedLiveMedia(player)
+  }
+}
 
-     if (!matchingLiveItem) {
-       selectedLiveId.value = null
-       liveSelectionErrorMessage.value = null
-       resolvedLiveMediaSource.value = null
-       resolvedLiveMediaOpenUrl.value = null
-       resolvedLiveMediaErrorMessage.value = null
-       return
-     }
-
-     if (selectedLiveId.value === matchingLiveItem.id) {
-       return
-     }
-
-     void selectLiveItem(matchingLiveItem, { shouldEmit: false })
-   },
-   { immediate: true },
-  )
-
-watch(
-   [() => selectedLiveItem.value?.id ?? null, () => selectedLivePlayer.value?.id ?? null],
-   ([liveItemId, playerId], [previousLiveItemId, previousPlayerId]) => {
-     if (!liveItemId || !playerId) {
-       return
-     }
-
-     if (liveItemId === previousLiveItemId && playerId === previousPlayerId) {
-       return
-     }
-
-     void resolveSelectedLiveMedia(selectedLiveItem.value, selectedLivePlayer.value)
-     scrollToTitleSection()
-   },
-  )
-
+// Le watch d'initialisation a été supprimé volontairement. La restauration
+// du live depuis la route est gérée directement dans loadLiveItems() après
+// le chargement de la liste. Un watch séparé sur initialSource/initialChannel
+// créerait un appel supplémentaire à getLivePlayers quand liveItems change
+// (via JSON.stringify dans le watch), ce qui déclencherait un doublon.
 void loadLiveItems()
 </script>
 
@@ -562,26 +485,26 @@ void loadLiveItems()
      :display-title="details?.title ?? t('live.title')"
     :poster-frame-image-url="mediaPosterUrl"
     :poster-frame-uses-contain="false"
-    :show-trailer-action="showTrailerAction"
-    :trailer-action-label="trailerActionLabel"
+    :show-trailer-action="false"
+    :trailer-action-label="''"
     :entry-url="details?.entryUrl ?? null"
     :source="selectedLiveItem?.source ?? null"
     :alternative-title-label="details?.alternativeTitleLabel ?? null"
-    :selected-playable-title="selectedPlayableTitle"
+    :selected-playable-title="selectedPlayableItem?.title?.trim() ?? null"
     :show-bookmark-action="false"
-    :show-trailer-player="showTrailerPlayer"
+    :show-trailer-player="false"
     :show-media-player="shouldShowMediaPlayer"
-    :trailer-media-source="trailerMediaSource"
+    :trailer-media-source="null"
     :media-source="resolvedLiveMediaSource"
     :media-open-url="resolvedLiveMediaOpenUrl"
     :is-media-player-loading="combinedMediaPlayerLoading"
     :media-player-error-message="combinedMediaPlayerErrorMessage"
-    :show-player-controls="showPlayerControls"
-    :show-language-selector="showLanguageSelector"
+    :show-player-controls="showPlayerSelector"
+    :show-language-selector="false"
     :show-player-selector="showPlayerSelector"
-    :available-languages="availableLanguages"
-    :active-language-key="activeLanguageKey"
-    :filtered-players="filteredPlayers"
+    :available-languages="[]"
+    :active-language-key="null"
+    :filtered-players="selectedLivePlayers"
     :active-player-id="activePlayerId"
     :media-poster-url="mediaPosterUrl"
     :trailer-poster-url="null"
@@ -606,11 +529,7 @@ void loadLiveItems()
      :casting-text="null"
      :director-text="null"
      :score="null"
-    @toggle-trailer="handleTrailerToggle"
-    @update:active-language-key="handleActiveLanguageKeyUpdate"
-    @remember-current-language="rememberCurrentLanguage"
     @update:active-player-id="handleActivePlayerIdUpdate"
-    @remember-current-player="rememberCurrentPlayer"
   >
     <EntryDetailsCatalogSection
       :group-items="[]"
