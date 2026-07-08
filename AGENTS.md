@@ -14,7 +14,8 @@
 - Keep existing comments and documentation accurate when behavior changes.
 - Keep inline comments rare and only use them for non-obvious logic.
 - Update or remove stale comments as part of the same change.
-- Keep `TODO.md` current when work adds, completes, renames, or invalidates tracked follow-up items.
+- Create analysis files under `docs/dev-tracking/` by default when requested.
+- Keep `docs/TODO.md` current when work adds, completes, renames, or invalidates tracked follow-up items.
 - Append relevant user-visible or structural changes to `CHANGELOG.md` instead of rewriting older entries.
 
 ## When to Stop and Ask

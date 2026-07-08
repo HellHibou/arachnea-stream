@@ -9,7 +9,7 @@
 - The Tauri controller implementation lives in `arachnea-core`, but application-specific Tauri context, embedded assets, URI scheme, API prefix, icons, capabilities, and `tauri.conf.json` are owned and supplied by `crates/arachnea-stream`.
 - Runtime behavior is driven by files under `services/*`.
 - Scraper logic and YAML configuration are tightly coupled and must stay consistent.
-- `TODO.md` tracks DNS, HTTP, and proxy follow-up work imported into this workspace.
+- `docs/TODO.md` tracks DNS, HTTP, and proxy follow-up work imported into this workspace.
 - `CHANGELOG.md` records meaningful server workspace changes.
 - Prefer small, local changes over broad rewrites.
 
@@ -24,14 +24,16 @@
 
 ## Documentation Rules
 - Add or maintain Rust doc comments with `///` on modified public or non-trivial items when behavior, inputs, outputs, or invariants are not obvious.
+- Document public constants, enum types, enum variants, and struct fields with `///` doc comments to describe their purpose and invariants.
 - For function and method documentation, use idiomatic Rust `rustdoc` format rather than JavaDoc style.
 - When a documented function or method has parameters, describe them in a `# Arguments` section.
 - Add `# Errors`, `# Panics`, `# Returns`, or other standard `rustdoc` sections when they provide useful behavior contracts.
 - When modifying a documented item, keep its existing `rustdoc` accurate and update parameter, error, and panic descriptions if behavior changes.
 - Use YAML comments only when a field or structure is not self-explanatory.
 - Keep crate README files aligned with public behavior, commands, configuration, and known gaps.
-- Keep `TODO.md` current when DNS, HTTP, or proxy planned work is added, completed, renamed, moved, or made obsolete.
+- Keep `docs/TODO.md` current when DNS, HTTP, or proxy planned work is added, completed, renamed, moved, or made obsolete.
 - Append to `CHANGELOG.md` when server workspace behavior, public APIs, configuration, documentation, or operational workflows change.
+- The file `docs/specifications/arachnea-scrapyfy-*.md` documents the complete YAML schema for arachnea-scrapyfy. Any modification to scraper types, actions, or post-processors in the crate must be reported in that file to keep it in sync.
 
 ## Engineering Defaults
 - Avoid making the scraper more aggressive or brittle without an explicit reason.

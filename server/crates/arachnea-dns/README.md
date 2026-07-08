@@ -2,7 +2,7 @@
 
 `arachnea-dns` provides the DNS layer for Arachnea. It exposes a reusable resolver core and, with the `server` feature, UDP/TCP server entry points that adapt standard DNS traffic to the same core behavior.
 
-This README is the design and usage home for the DNS crate. Remaining work is tracked in the root `TODO.md`.
+This README is the design and usage home for the DNS crate. Remaining work is tracked in the root `docs/TODO.md`.
 
 ## Design Contract
 
@@ -66,7 +66,7 @@ Profiles must fail with a clear configuration error when a required feature is m
 
 ## Known Gaps
 
-The durable remaining work from the retired specification is tracked in the root `TODO.md`. Important DNS gaps include ODoH transport, finer DNSSEC modes, Smart DNS route/TOML support, external blocklist reload, NSEC3 aggressive-cache synthesis, DNS Cookies, alternative roots, optional proxy-backed DNS egress, and censorship metadata through API and EDNS Extended DNS Error.
+The durable remaining work from the retired specification is tracked in the root `docs/TODO.md`. Important DNS gaps include ODoH transport, finer DNSSEC modes, Smart DNS route/TOML support, external blocklist reload, NSEC3 aggressive-cache synthesis, DNS Cookies, alternative roots, optional proxy-backed DNS egress, and censorship metadata through API and EDNS Extended DNS Error.
 
 ## Common Commands
 

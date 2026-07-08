@@ -3,5 +3,5 @@ Cargo.lock
 ._*
 .DS_Store
 .idea/
-docs/*/
+docs/private/
 credentials.json

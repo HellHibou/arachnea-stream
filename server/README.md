@@ -133,7 +133,7 @@ The proxy binds to loopback by default. Public binds without ACLs are rejected u
 ## Documentation Map
 
 - `README.md` gives the server workspace overview, shared commands, and quick starts.
-- `TODO.md` tracks remaining DNS, HTTP, and proxy work imported into this workspace.
+- `docs/TODO.md` tracks remaining DNS, HTTP, and proxy work imported into this workspace.
 - `CHANGELOG.md` records meaningful server workspace changes.
 - Crate `README.md` files hold crate-specific design context, capabilities, commands, and known gaps.
 - Crate `AGENTS.md` files are AI-agent-only implementation instructions.

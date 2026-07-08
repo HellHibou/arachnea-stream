@@ -2,7 +2,7 @@
 
 `arachnea-proxy` provides the proxy layer for Arachnea. It exposes a reusable routing core, optional client connectors, and optional local proxy server listeners.
 
-This README is the design and usage home for the proxy crate. Remaining work is tracked in the root `TODO.md`.
+This README is the design and usage home for the proxy crate. Remaining work is tracked in the root `docs/TODO.md`.
 
 ## Design Contract
 
@@ -40,7 +40,7 @@ This README is the design and usage home for the proxy crate. Remaining work is 
 | `privacy` | Minimize logs, isolate by destination, preserve hostnames, and avoid unauthorized direct fallback. |
 | `advanced` | Apply only explicitly configured behavior. |
 
-The retired design notes also reserved `censorship_resistance`; it remains tracked in the root `TODO.md` unless the public API intentionally drops it.
+The retired design notes also reserved `censorship_resistance`; it remains tracked in the root `docs/TODO.md` unless the public API intentionally drops it.
 
 ## Features
 
@@ -74,7 +74,7 @@ The retired design notes also reserved `censorship_resistance`; it remains track
 
 ## Known Gaps
 
-The durable remaining work from the retired specification is tracked in the root `TODO.md`. Important proxy gaps include MASQUE CONNECT-UDP, ExternalTunnel orchestration, richer Tor integration, concrete `hyper-util` support, stronger auth tests and secret handling, true per-IP rate limiting, benchmarks, a possible `rquest` in-process connector, and the reserved `censorship_resistance` profile.
+The durable remaining work from the retired specification is tracked in the root `docs/TODO.md`. Important proxy gaps include MASQUE CONNECT-UDP, ExternalTunnel orchestration, richer Tor integration, concrete `hyper-util` support, stronger auth tests and secret handling, true per-IP rate limiting, benchmarks, a possible `rquest` in-process connector, and the reserved `censorship_resistance` profile.
 
 ## Common Commands
 

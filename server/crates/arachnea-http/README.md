@@ -2,7 +2,7 @@
 
 `arachnea-http` provides outbound HTTP client utilities for Arachnea. It exposes a single client facade over `rquest` and optional Cloudflare-oriented engines.
 
-This README is the design and usage home for the HTTP crate. Remaining work is tracked in the root `TODO.md`.
+This README is the design and usage home for the HTTP crate. Remaining work is tracked in the root `docs/TODO.md`.
 
 ## Design Contract
 
@@ -124,7 +124,7 @@ Use `--no-default-features` to build the `rquest`-only client.
 
 ## Known Gaps
 
-The durable remaining work from the retired specification is tracked in the root `TODO.md`. Important HTTP gaps include deeper no-loopback engine integrations where upstream APIs allow it, Wry/Tauri and web-server challenge flows, dependency API verification, a possible `tower::Service` API, deeper browser-driven captcha flows, and expanded cookie/Cloudflare tests.
+The durable remaining work from the retired specification is tracked in the root `docs/TODO.md`. Important HTTP gaps include deeper no-loopback engine integrations where upstream APIs allow it, Wry/Tauri and web-server challenge flows, dependency API verification, a possible `tower::Service` API, deeper browser-driven captcha flows, and expanded cookie/Cloudflare tests.
 
 ## Common Commands
 
