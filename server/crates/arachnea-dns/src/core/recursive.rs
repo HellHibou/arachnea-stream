@@ -20,6 +20,9 @@ use tokio::{
 };
 
 /// Result of one recursive DNS resolution attempt.
+///
+/// This enum represents the possible outcomes of a recursive DNS resolution,
+/// including both successful answers and negative responses with DNSSEC proofs.
 pub(crate) enum RecursiveResult {
     Answer(Answer),
     Negative {
@@ -57,14 +60,16 @@ pub(crate) async fn resolve_recursive(
 ///
 /// # Parameters
 ///
-/// - `query`: DNS query to resolve.
-/// - `servers`: Candidate authoritative server IP addresses.
+/// - `query`: DNS query to resolve recursively.
+/// - `roots`: Original root server IP addresses for the recursion.
+/// - `servers`: Candidate authoritative server IP addresses to query.
 /// - `timeout_ms`: Per-network-operation timeout in milliseconds.
-/// - `depth`: Current recursion depth.
+/// - `depth`: Current recursion depth to prevent infinite loops.
 ///
 /// # Returns
 ///
-/// Boxed future that resolves to the recursive result.
+/// Boxed future that resolves to the recursive result, including any
+/// DNSSEC negative proofs that were collected during resolution.
 fn recursive_lookup<'a>(
     query: &'a QueryRequest,
     roots: Vec<IpAddr>,
@@ -167,15 +172,16 @@ fn recursive_lookup<'a>(
 ///
 /// # Parameters
 ///
-/// - `root_hints`: Raw root hint entries.
+/// - `root_hints`: Raw root hint entries as strings (IP addresses).
 ///
 /// # Returns
 ///
-/// Root server IP addresses.
+/// Vector of root server IP addresses parsed from the input strings.
 ///
 /// # Errors
 ///
-/// Returns an error when no root IP address can be parsed.
+/// Returns an error when no root IP address can be parsed or when
+/// any of the input strings are not valid IP addresses.
 fn parse_root_hints(root_hints: &[String]) -> Result<Vec<IpAddr>> {
     root_hints
         .iter()
@@ -191,17 +197,18 @@ fn parse_root_hints(root_hints: &[String]) -> Result<Vec<IpAddr>> {
 ///
 /// # Parameters
 ///
-/// - `query`: DNS query to send.
+/// - `query`: DNS query to send to the server.
 /// - `server`: Server IP address to contact.
-/// - `timeout_ms`: Network timeout in milliseconds.
+/// - `timeout_ms`: Network timeout in milliseconds for the operation.
 ///
 /// # Returns
 ///
-/// Parsed DNS response message.
+/// Parsed DNS response message from the server.
 ///
 /// # Errors
 ///
-/// Returns an error when UDP and any required TCP fallback fail.
+/// Returns an error when UDP communication fails, TCP fallback fails,
+/// the query times out, or the response cannot be parsed.
 async fn query_server(query: &QueryRequest, server: IpAddr, timeout_ms: u64) -> Result<Message> {
     let socket_addr = SocketAddr::new(server, 53);
     let bind_addr = if server.is_ipv4() {
@@ -235,17 +242,18 @@ async fn query_server(query: &QueryRequest, server: IpAddr, timeout_ms: u64) -> 
 ///
 /// # Parameters
 ///
-/// - `query`: DNS query to send.
-/// - `server`: Server IP address to contact.
-/// - `timeout_ms`: Network timeout in milliseconds.
+/// - `query`: DNS query to send to the server.
+/// - `socket_addr`: Server socket address to connect to.
+/// - `timeout_ms`: Network timeout in milliseconds for the operation.
 ///
 /// # Returns
 ///
-/// Parsed DNS response message.
+/// Parsed DNS response message from the server.
 ///
 /// # Errors
 ///
-/// Returns an error when the TCP exchange fails or returns malformed data.
+/// Returns an error when TCP connection fails, the query times out,
+/// I/O operations fail, or the response cannot be parsed.
 async fn query_server_tcp(
     query: &QueryRequest,
     socket_addr: SocketAddr,
@@ -283,15 +291,16 @@ async fn query_server_tcp(
 ///
 /// # Parameters
 ///
-/// - `query`: DNS query to encode.
+/// - `query`: DNS query to encode for recursive resolution.
 ///
 /// # Returns
 ///
-/// Wire-format DNS query bytes.
+/// Wire-format DNS query bytes suitable for sending to authoritative servers.
 ///
 /// # Errors
 ///
-/// Returns an error when the query name cannot be encoded.
+/// Returns an error when the query name cannot be encoded or when
+/// the DNS message cannot be serialized.
 fn encode_iterative_query(query: &QueryRequest) -> Result<Vec<u8>> {
     let mut message = Message::new();
     message.set_id(0);
@@ -313,16 +322,18 @@ fn encode_iterative_query(query: &QueryRequest) -> Result<Vec<u8>> {
 ///
 /// # Parameters
 ///
-/// - `query`: Original query request.
-/// - `response`: DNS response message.
+/// - `query`: Original query request that this response should answer.
+/// - `response`: DNS response message from an authoritative server.
 ///
 /// # Returns
 ///
-/// Final answer when the message contains matching records.
+/// Optional answer containing the matching records, or None if no
+/// matching records are found.
 ///
 /// # Errors
 ///
-/// Returns an error when matching records cannot be converted.
+/// Returns an error when matching records cannot be converted from
+/// Hickory format or when record processing fails.
 fn answer_from_message(query: &QueryRequest, response: &Message) -> Result<Option<Answer>> {
     let mut records = Vec::new();
     let mut cname_chain = Vec::new();
@@ -361,11 +372,12 @@ fn answer_from_message(query: &QueryRequest, response: &Message) -> Result<Optio
 ///
 /// # Parameters
 ///
-/// - `response`: DNS response message.
+/// - `response`: DNS response message containing authority and additional records.
 ///
 /// # Returns
 ///
-/// Referral server IP addresses found in additional records.
+/// Vector of IP addresses from glue records in the additional section
+/// that correspond to nameservers in the authority section.
 fn referral_servers(response: &Message) -> Vec<IpAddr> {
     let names = referral_names(response);
     response
@@ -388,11 +400,12 @@ fn referral_servers(response: &Message) -> Vec<IpAddr> {
 ///
 /// # Parameters
 ///
-/// - `response`: DNS response message.
+/// - `response`: DNS response message containing authority records.
 ///
 /// # Returns
 ///
-/// Nameserver domain names found in NS records.
+/// Vector of nameserver domain names extracted from NS records in
+/// the authority section of the response.
 fn referral_names(response: &Message) -> Vec<String> {
     response
         .name_servers()
@@ -408,11 +421,12 @@ fn referral_names(response: &Message) -> Vec<String> {
 ///
 /// # Parameters
 ///
-/// - `response`: DNS response message.
+/// - `response`: DNS response message containing authority records.
 ///
 /// # Returns
 ///
-/// NSEC proofs present in authority records.
+/// Vector of NSEC proofs extracted from DNSSEC records in the authority
+/// section, used for aggressive negative caching.
 fn nsec_proofs(response: &Message) -> Vec<NsecProof> {
     #[cfg(feature = "dnssec")]
     {

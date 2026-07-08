@@ -9,24 +9,40 @@ use super::credentials_store::{
     CredentialsDocument, CredentialsStore, StoredCredentials,
 };
 
+/// The current version of the encrypted credentials document format.
 const CURRENT_ENCRYPTED_DOCUMENT_VERSION: u32 = 1;
+
+/// The size of the AES-GCM nonce in bytes.
 const AES_GCM_NONCE_SIZE: usize = 12;
 
+/// Internal representation of an encrypted credentials document.
 #[derive(Serialize, Deserialize)]
 struct EncryptedCredentialsDocument {
+    /// Document format version.
     #[serde(default = "current_encrypted_document_version")]
     version: u32,
+    /// Base64-encoded AES-GCM nonce.
     nonce: String,
+    /// Base64-encoded encrypted credentials payload.
     ciphertext: String,
 }
 
+/// Returns the current encrypted document version.
+///
+/// # Returns
+/// The current encrypted credentials document format version.
 fn current_encrypted_document_version() -> u32 {
     CURRENT_ENCRYPTED_DOCUMENT_VERSION
 }
 
 /// AES-GCM backed credentials store encrypted as one JSON file.
+///
+/// This struct implements a credentials store that encrypts all data using
+/// AES-256-GCM before writing to disk.
 pub struct EncryptedFileCredentialsStore {
+    /// The path to the encrypted credentials file.
     path: PathBuf,
+    /// The AES-256 encryption key.
     encryption_key: [u8; 32],
 }
 
@@ -46,11 +62,21 @@ impl EncryptedFileCredentialsStore {
         }
     }
 
+    /// Creates an AES-256-GCM cipher instance from the encryption key.
+    ///
+    /// # Returns
+    /// `Ok(Aes256Gcm)` cipher instance.
+    /// `Err(anyhow::Error)` if the key length is invalid.
     fn cipher(&self) -> Result<Aes256Gcm> {
         Aes256Gcm::new_from_slice(&self.encryption_key)
             .map_err(|_| anyhow!("Invalid AES-GCM credentials store key length."))
     }
 
+    /// Reads and decrypts the credentials document from disk.
+    ///
+    /// # Returns
+    /// `Ok(CredentialsDocument)` containing the decrypted credentials.
+    /// `Err(anyhow::Error)` if the file cannot be read or decrypted.
     fn read_document(&self) -> Result<CredentialsDocument> {
         let Some(bytes) = read_file_if_exists(&self.path)? else {
             return Ok(CredentialsDocument::new());
@@ -119,6 +145,14 @@ impl EncryptedFileCredentialsStore {
         Ok(document)
     }
 
+    /// Encrypts and writes the credentials document to disk.
+    ///
+    /// # Arguments
+    /// * `document` - The credentials document to encrypt and write.
+    ///
+    /// # Returns
+    /// `Ok(())` on successful write.
+    /// `Err(anyhow::Error)` if the document cannot be serialized or written.
     fn write_document(&self, document: &CredentialsDocument) -> Result<()> {
         let plaintext = serde_json::to_vec_pretty(document).with_context(|| {
             format!(

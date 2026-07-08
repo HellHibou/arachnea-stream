@@ -61,6 +61,21 @@ pub async fn handle_packet(core: &ArachneaDnsCore, packet: &[u8]) -> Result<Vec<
 /// # Errors
 ///
 /// Returns an error when the response cannot be encoded.
+/// Encodes a DNS answer for a wire-format response.
+///
+/// # Parameters
+///
+/// - `request`: Original DNS request message.
+/// - `answer`: Resolver answer to encode.
+///
+/// # Returns
+///
+/// Wire-format DNS response bytes containing the answer.
+///
+/// # Errors
+///
+/// Returns an error when the answer records cannot be converted to Hickory format
+/// or when the response message cannot be serialized.
 fn encode_answer(request: &Message, answer: &Answer) -> Result<Vec<u8>> {
     let mut response = response_base(request, ResponseCode::NoError);
     for record in &answer.records {
@@ -78,11 +93,11 @@ fn encode_answer(request: &Message, answer: &Answer) -> Result<Vec<u8>> {
 ///
 /// # Returns
 ///
-/// Wire-format DNS response bytes.
+/// Wire-format DNS response bytes containing the error code.
 ///
 /// # Errors
 ///
-/// Returns an error when the response cannot be encoded.
+/// Returns an error when the response message cannot be serialized.
 fn encode_error(request: &Message, code: ResponseCode) -> Result<Vec<u8>> {
     encode_message(response_base(request, code))
 }
@@ -115,11 +130,11 @@ fn response_base(request: &Message, code: ResponseCode) -> Message {
 ///
 /// # Parameters
 ///
-/// - `message`: DNS message to serialize.
+/// - `message`: DNS message to serialize into wire format.
 ///
 /// # Returns
 ///
-/// Encoded DNS message bytes.
+/// Encoded DNS message bytes suitable for network transmission.
 ///
 /// # Errors
 ///

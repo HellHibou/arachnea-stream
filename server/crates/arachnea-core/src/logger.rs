@@ -20,19 +20,39 @@ pub static mut DEFAULT_LEVEL: Level = Level::DEBUG; // Cargo run / development m
 #[cfg(not(debug_assertions))]
 pub static mut DEFAULT_LEVEL: Level = Level::INFO; // Cargo build --release mode.
 
-/// Logger configuration with multiple level thresholds
+/// Logger configuration with multiple level thresholds.
+///
+/// This struct allows configuring different log levels for different targets
+/// based on the global log level setting.
 #[derive(Clone)]
 pub struct LoggerConfig {
+    /// The target module or crate name for this logger configuration.
     target: String,
+    /// The log level to use when the global level is ERROR.
     error_level: Level,
+    /// The log level to use when the global level is WARN.
     warn_level: Level,
+    /// The log level to use when the global level is INFO.
     info_level: Level,
+    /// The log level to use when the global level is DEBUG.
     debug_level: Level,
+    /// The log level to use when the global level is TRACE.
     trace_level: Level,
 }
 
 impl LoggerConfig {
-    /// Creates a new LoggerConfig with the specified target and levels
+    /// Creates a new LoggerConfig with the specified target and levels.
+    ///
+    /// # Arguments
+    /// * `target` - The target module or crate name.
+    /// * `error_level` - The log level to use when global level is ERROR.
+    /// * `warn_level` - The log level to use when global level is WARN.
+    /// * `info_level` - The log level to use when global level is INFO.
+    /// * `debug_level` - The log level to use when global level is DEBUG.
+    /// * `trace_level` - The log level to use when global level is TRACE.
+    ///
+    /// # Returns
+    /// A new LoggerConfig instance.
     pub fn new(
         target: impl Into<String>,
         error_level: Level,
@@ -51,7 +71,13 @@ impl LoggerConfig {
         }
     }
 
-    /// Returns the appropriate log level based on the global level
+    /// Returns the appropriate log level based on the global level.
+    ///
+    /// # Arguments
+    /// * `global_level` - The current global log level.
+    ///
+    /// # Returns
+    /// The corresponding configured log level for the given global level.
     fn get_level_for_global(&self, global_level: Level) -> Level {
         match global_level {
             Level::ERROR => self.error_level,
@@ -63,7 +89,10 @@ impl LoggerConfig {
     }
 }
 
-/// All managed loggers
+/// All managed loggers.
+///
+/// This static variable holds a thread-safe collection of LoggerConfig instances
+/// that have been registered before logger initialization.
 static LOGGERS: LazyLock<Mutex<Vec<LoggerConfig>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 
 /// Sets the default log level in debug builds before logger initialization.
@@ -235,7 +264,14 @@ pub fn set_logger_levels(
 }
 
 /// Checks if RUST_LOG already mentions the target.
+///
 /// Splits RUST_LOG on ',' and spaces and compares the tokens.
+///
+/// # Arguments
+/// * `target` - The target name to search for in RUST_LOG.
+///
+/// # Returns
+/// `true` if the target is mentioned in RUST_LOG, `false` otherwise.
 fn rust_log_mentions_target(target: &str) -> bool {
     if let Ok(rust_log) = env::var("RUST_LOG") {
         let t = target.trim().to_lowercase();

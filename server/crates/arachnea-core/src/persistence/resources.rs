@@ -15,6 +15,13 @@ static APP_ROOT: OnceLock<PathBuf> = OnceLock::new();
 /// # Panics
 ///
 /// Panics if the cached application root cannot be represented as valid UTF-8.
+///
+/// # Examples
+///
+/// ```
+/// let root = arachnea_core::persistence::resources::get_application_root();
+/// println!("Application root: {}", root);
+/// ```
 pub fn get_application_root() -> &'static str {
     APP_ROOT.get_or_init(init_app_root).to_str().unwrap()
 }
@@ -28,6 +35,13 @@ pub fn get_application_root() -> &'static str {
 /// # Returns
 ///
 /// The joined path as an owned string, using lossy UTF-8 conversion if needed.
+///
+/// # Examples
+///
+/// ```
+/// let data_path = arachnea_core::persistence::resources::get_application_path("data/config.json");
+/// println!("Config path: {}", data_path);
+/// ```
 pub fn get_application_path(path: &str) -> String {
     APP_ROOT
         .get_or_init(init_app_root)
@@ -46,6 +60,7 @@ pub fn get_application_path(path: &str) -> String {
 /// # Panics
 ///
 /// Panics in release builds if the current executable path cannot be read.
+/// Panics in debug builds if the server application root cannot be resolved.
 fn init_app_root() -> PathBuf {
     if cfg!(debug_assertions) {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))

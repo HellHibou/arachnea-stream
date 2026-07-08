@@ -5,40 +5,86 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 /// Binary frontend asset and its response metadata.
+///
+/// This struct represents a loaded frontend asset with its binary content
+/// and the appropriate MIME type for HTTP responses.
 #[derive(Clone)]
 pub(crate) struct WebAsset {
+    /// The binary content of the asset.
     pub bytes: Vec<u8>,
+    /// The MIME type for the asset.
     pub mime_type: &'static str,
 }
 
 /// Embedded frontend assets provided by an application crate.
+///
+/// This trait defines the interface for accessing frontend assets that are
+/// embedded in the application binary.
 pub trait EmbeddedWebAssets: Send + Sync {
     /// Loads an embedded asset by normalized relative path.
+    ///
+    /// # Arguments
+    /// * `path` - The normalized relative path to the asset.
+    ///
+    /// # Returns
+    /// `Some(Vec<u8>)` containing the asset bytes if found.
+    /// `None` if the asset does not exist.
     fn get(&self, path: &str) -> Option<Vec<u8>>;
 }
 
 /// Shared embedded frontend asset provider.
+///
+/// This type alias represents a reference-counted trait object for embedded
+/// web assets, allowing the asset provider to be shared across multiple
+/// parts of the application.
 pub type SharedWebAssets = Arc<dyn EmbeddedWebAssets>;
 
 /// Frontend asset source shared by the REST and Tauri controllers.
+///
+/// This enum represents the different sources from which frontend assets
+/// can be loaded.
 #[derive(Clone)]
 pub(crate) enum WebAssetSource {
+    /// Assets loaded from a directory on disk.
     Directory(PathBuf),
+    /// Assets loaded from embedded resources.
     Embedded(SharedWebAssets),
 }
 
 impl WebAssetSource {
     /// Creates a frontend asset source backed by a directory on disk.
+    ///
+    /// # Arguments
+    /// * `directory_path` - The path to the directory containing the assets.
+    ///
+    /// # Returns
+    /// A WebAssetSource that loads assets from the specified directory.
     pub(crate) fn directory(directory_path: &str) -> Self {
         Self::Directory(PathBuf::from(directory_path))
     }
 
     /// Creates a frontend asset source backed by embedded application assets.
+    ///
+    /// # Arguments
+    /// * `assets` - The embedded asset provider.
+    ///
+    /// # Returns
+    /// A WebAssetSource that loads assets from embedded resources.
     pub(crate) fn embedded(assets: SharedWebAssets) -> Self {
         Self::Embedded(assets)
     }
 
     /// Loads a frontend asset from the source, applying SPA-style fallbacks.
+    ///
+    /// This method tries multiple candidate paths for Single Page Application
+    /// routing (e.g., trying `index.html` when a specific path isn't found).
+    ///
+    /// # Arguments
+    /// * `request_path` - The requested asset path.
+    ///
+    /// # Returns
+    /// `Ok(WebAsset)` if the asset is found.
+    /// `Err(String)` if the asset cannot be found.
     pub(crate) fn load(&self, request_path: &str) -> Result<WebAsset, String> {
         let request_path = decode_request_path(request_path)?;
         let request_path = request_path.trim_start_matches('/');
@@ -55,6 +101,15 @@ impl WebAssetSource {
         Err(format!("Web asset not found: {}", request_path))
     }
 
+    /// Loads a specific asset candidate from the source.
+    ///
+    /// # Arguments
+    /// * `candidate` - The candidate path to try loading.
+    ///
+    /// # Returns
+    /// `Ok(Some(bytes))` if the asset exists.
+    /// `Ok(None)` if the asset doesn't exist.
+    /// `Err(String)` if there was an error loading the asset.
     fn load_candidate(&self, candidate: &str) -> Result<Option<Vec<u8>>, String> {
         match self {
             Self::Directory(directory_path) => load_directory_asset(directory_path, candidate),
@@ -64,11 +119,39 @@ impl WebAssetSource {
 }
 
 /// Normalizes a mount path by trimming leading and trailing slashes.
+///
+/// # Arguments
+/// * `path` - The mount path to normalize.
+///
+/// # Returns
+/// The normalized path without leading or trailing slashes.
+///
+/// # Examples
+///
+/// ```
+/// assert_eq!(normalize_mount_path("/api/"), "api");
+/// assert_eq!(normalize_mount_path("static"), "static");
+/// ```
 pub(crate) fn normalize_mount_path(path: &str) -> String {
     path.trim_matches('/').to_string()
 }
 
 /// Strips a controller mount path from a requested asset path.
+///
+/// # Arguments
+/// * `request_path` - The full requested path.
+/// * `mount_path` - The mount path to strip.
+///
+/// # Returns
+/// `Some(String)` containing the path after the mount path, or `None` if
+/// the request path doesn't start with the mount path.
+///
+/// # Examples
+///
+/// ```
+/// assert_eq!(strip_mount_path("/api/assets/style.css", "api"), Some("assets/style.css".to_string()));
+/// assert_eq!(strip_mount_path("/assets/style.css", "api"), None);
+/// ```
 pub(crate) fn strip_mount_path(request_path: &str, mount_path: &str) -> Option<String> {
     let request_path = request_path.trim_start_matches('/');
     let mount_path = normalize_mount_path(mount_path);
@@ -84,6 +167,14 @@ pub(crate) fn strip_mount_path(request_path: &str, mount_path: &str) -> Option<S
     }
 }
 
+/// Decodes a URL-encoded request path.
+///
+/// # Arguments
+/// * `request_path` - The URL-encoded request path.
+///
+/// # Returns
+/// `Ok(String)` containing the decoded path.
+/// `Err(String)` if the path cannot be decoded.
 fn decode_request_path(request_path: &str) -> Result<String, String> {
     let encoded_path = request_path
         .split(&['?', '#'][..])
@@ -95,6 +186,23 @@ fn decode_request_path(request_path: &str) -> Result<String, String> {
         .map_err(|error| format!("Failed to decode web asset path `{encoded_path}`: {error}"))
 }
 
+/// Generates candidate paths for SPA-style asset loading.
+///
+/// This function generates multiple candidate paths to try when loading an asset,
+/// following Single Page Application conventions.
+///
+/// # Arguments
+/// * `request_path` - The original request path.
+///
+/// # Returns
+/// A vector of candidate paths to try in order.
+///
+/// # Examples
+///
+/// ```
+/// let candidates = asset_candidates("about");
+/// assert_eq!(candidates, vec!["about", "about.html", "about/index.html", "index.html"]);
+/// ```
 fn asset_candidates(request_path: &str) -> Vec<String> {
     let request_path = request_path.trim_matches('/');
 
@@ -111,6 +219,16 @@ fn asset_candidates(request_path: &str) -> Vec<String> {
     candidates
 }
 
+/// Loads an asset from a directory on disk.
+///
+/// # Arguments
+/// * `directory_path` - The base directory to load from.
+/// * `candidate` - The candidate path to try.
+///
+/// # Returns
+/// `Ok(Some(bytes))` if the asset exists and was read successfully.
+/// `Ok(None)` if the asset doesn't exist.
+/// `Err(String)` if there was an error reading the asset.
 fn load_directory_asset(directory_path: &Path, candidate: &str) -> Result<Option<Vec<u8>>, String> {
     let candidate_path = sanitize_relative_path(candidate)?;
     let full_path = directory_path.join(candidate_path);
@@ -126,6 +244,21 @@ fn load_directory_asset(directory_path: &Path, candidate: &str) -> Result<Option
     }
 }
 
+/// Sanitizes a relative path to prevent directory traversal attacks.
+///
+/// # Arguments
+/// * `path` - The path to sanitize.
+///
+/// # Returns
+/// `Ok(PathBuf)` containing the sanitized path.
+/// `Err(String)` if the path contains invalid components.
+///
+/// # Examples
+///
+/// ```
+/// let sanitized = sanitize_relative_path("assets/../config");
+/// assert!(sanitized.is_err()); // Contains ParentDir
+/// ```
 fn sanitize_relative_path(path: &str) -> Result<PathBuf, String> {
     let mut sanitized = PathBuf::new();
 
@@ -142,6 +275,21 @@ fn sanitize_relative_path(path: &str) -> Result<PathBuf, String> {
     Ok(sanitized)
 }
 
+/// Determines the MIME type for a file based on its extension.
+///
+/// # Arguments
+/// * `path` - The file path to determine the MIME type for.
+///
+/// # Returns
+/// The appropriate MIME type string for the file extension.
+///
+/// # Examples
+///
+/// ```
+/// assert_eq!(mime_type_for_path("style.css"), "text/css; charset=utf-8");
+/// assert_eq!(mime_type_for_path("image.png"), "image/png");
+/// assert_eq!(mime_type_for_path("unknown.xyz"), "application/octet-stream");
+/// ```
 fn mime_type_for_path(path: &str) -> &'static str {
     match Path::new(path)
         .extension()

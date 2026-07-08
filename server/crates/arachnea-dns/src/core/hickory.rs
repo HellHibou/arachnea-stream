@@ -17,6 +17,22 @@ use std::net::ToSocketAddrs;
 use std::time::Duration;
 
 /// Resolves through Hickory Resolver, optionally enabling DNSSEC validation.
+///
+/// # Parameters
+///
+/// - `query`: DNS query to resolve.
+/// - `upstream`: Upstream DNS server configuration.
+/// - `validate_dnssec`: Whether to perform DNSSEC validation on the response.
+/// - `default_timeout_ms`: Default timeout in milliseconds for the query.
+///
+/// # Returns
+///
+/// DNS answer containing the resolved records with DNSSEC validation status.
+///
+/// # Errors
+///
+/// Returns an error when the Hickory resolver fails to resolve the query,
+/// DNSSEC validation fails (if enabled), or the upstream is unsupported.
 pub(crate) async fn resolve_with_hickory(
     query: &QueryRequest,
     upstream: &Upstream,
@@ -89,16 +105,17 @@ pub(crate) async fn resolve_with_hickory(
 ///
 /// # Parameters
 ///
-/// - `upstream`: DNS upstream declaration.
+/// - `upstream`: DNS upstream declaration containing transport and endpoint information.
 ///
 /// # Returns
 ///
-/// Hickory resolver name server configuration group.
+/// Hickory resolver name server configuration group ready for use with
+/// the Hickory resolver.
 ///
 /// # Errors
 ///
 /// Returns an error when the upstream endpoint cannot be represented by the
-/// selected Hickory transport.
+/// selected Hickory transport, or when hostname resolution fails for DoT/DoQ.
 fn name_server_config_group(upstream: &Upstream) -> Result<NameServerConfigGroup> {
     match (&upstream.transport, &upstream.endpoint) {
         (Transport::Udp, UpstreamEndpoint::Socket(addr)) => Ok(single_name_server(
@@ -134,11 +151,12 @@ fn name_server_config_group(upstream: &Upstream) -> Result<NameServerConfigGroup
 ///
 /// # Parameters
 ///
-/// - `config`: Name server configuration to wrap.
+/// - `config`: Name server configuration to wrap in a configuration group.
 ///
 /// # Returns
 ///
-/// Name server configuration group containing `config`.
+/// Name server configuration group containing the single `config` parameter,
+/// suitable for use with Hickory resolver.
 fn single_name_server(config: NameServerConfig) -> NameServerConfigGroup {
     NameServerConfigGroup::from(vec![config])
 }
@@ -147,16 +165,16 @@ fn single_name_server(config: NameServerConfig) -> NameServerConfigGroup {
 ///
 /// # Parameters
 ///
-/// - `host`: Hostname or IP address to resolve.
-/// - `port`: Port to attach to the resolved address.
+/// - `host`: Hostname or IP address to resolve into a socket address.
+/// - `port`: Port number to combine with the resolved IP address.
 ///
 /// # Returns
 ///
-/// First socket address produced by the system resolver.
+/// First socket address (IP:port) produced by the system resolver.
 ///
 /// # Errors
 ///
-/// Returns an error when no address can be resolved.
+/// Returns an error when hostname resolution fails or no addresses are available.
 #[cfg(feature = "dot")]
 fn resolve_host_port(host: &str, port: u16) -> Result<SocketAddr> {
     (host, port)
@@ -170,15 +188,15 @@ fn resolve_host_port(host: &str, port: u16) -> Result<SocketAddr> {
 ///
 /// # Parameters
 ///
-/// - `host`: Hostname or IP address to resolve.
+/// - `host`: Hostname or IP address to resolve into IP addresses for DoQ.
 ///
 /// # Returns
 ///
-/// IP addresses returned by the system resolver.
+/// Vector of IP addresses that can be used for QUIC connections.
 ///
 /// # Errors
 ///
-/// Returns an error when no address can be resolved.
+/// Returns an error when hostname resolution fails or no IP addresses are available.
 #[cfg(feature = "doq")]
 fn resolve_host_ips(host: &str) -> Result<Vec<IpAddr>> {
     let ips = (host, 0)
@@ -198,12 +216,12 @@ fn resolve_host_ips(host: &str) -> Result<Vec<IpAddr>> {
 ///
 /// # Parameters
 ///
-/// - `error`: Hickory resolver error.
-/// - `query`: Query associated with the error.
+/// - `error`: Hickory resolver error to convert.
+/// - `query`: Original DNS query associated with the error.
 ///
 /// # Returns
 ///
-/// DNS error used by this crate.
+/// Corresponding DNS error from this crate's error type.
 fn map_hickory_error(error: ResolveError, query: &QueryRequest) -> DnsError {
     let message = error.to_string();
     if message.contains("no record found") || message.contains("No records found") {

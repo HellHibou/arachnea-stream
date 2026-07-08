@@ -21,6 +21,22 @@ use tokio::{
 use tokio::{net::UdpSocket, time::timeout};
 
 /// Resolves a query through a classic UDP upstream.
+///
+/// # Parameters
+///
+/// - `query`: DNS query to resolve.
+/// - `upstream`: Upstream DNS server configuration.
+/// - `addr`: Socket address of the upstream server.
+/// - `default_timeout_ms`: Default timeout in milliseconds for the query.
+///
+/// # Returns
+///
+/// DNS answer containing the resolved records.
+///
+/// # Errors
+///
+/// Returns an error when UDP communication fails, the query times out, or the
+/// DNS response cannot be parsed.
 pub(crate) async fn resolve_udp(
     query: &QueryRequest,
     upstream: &Upstream,
@@ -57,6 +73,22 @@ pub(crate) async fn resolve_udp(
 }
 
 /// Resolves a query through classic DNS-over-TCP.
+///
+/// # Parameters
+///
+/// - `query`: DNS query to resolve.
+/// - `upstream`: Upstream DNS server configuration.
+/// - `addr`: Socket address of the upstream server.
+/// - `default_timeout_ms`: Default timeout in milliseconds for the query.
+///
+/// # Returns
+///
+/// DNS answer containing the resolved records.
+///
+/// # Errors
+///
+/// Returns an error when TCP connection fails, the query times out, I/O operations
+/// fail, or the DNS response cannot be parsed.
 pub(crate) async fn resolve_tcp(
     query: &QueryRequest,
     upstream: &Upstream,
@@ -89,6 +121,23 @@ pub(crate) async fn resolve_tcp(
 }
 
 /// Resolves a query through DNS-over-TLS.
+///
+/// # Parameters
+///
+/// - `query`: DNS query to resolve.
+/// - `upstream`: Upstream DNS server configuration.
+/// - `host`: Hostname of the DoT server.
+/// - `port`: Port number of the DoT server.
+/// - `default_timeout_ms`: Default timeout in milliseconds for the query.
+///
+/// # Returns
+///
+/// DNS answer containing the resolved records.
+///
+/// # Errors
+///
+/// Returns an error when hostname resolution fails, TLS connection cannot be
+/// established, TLS certificate validation fails, or the DNS response cannot be parsed.
 #[cfg(feature = "dot")]
 pub(crate) async fn resolve_dot(
     query: &QueryRequest,
@@ -149,6 +198,22 @@ pub(crate) async fn resolve_dot(
 }
 
 /// Resolves a query through DNS-over-HTTPS using RFC 8484 wire-format POST.
+///
+/// # Parameters
+///
+/// - `query`: DNS query to resolve.
+/// - `upstream`: Upstream DNS server configuration.
+/// - `url`: HTTPS URL of the DoH endpoint.
+/// - `default_timeout_ms`: Default timeout in milliseconds for the query.
+///
+/// # Returns
+///
+/// DNS answer containing the resolved records.
+///
+/// # Errors
+///
+/// Returns an error when HTTP request fails, the request times out, the HTTP
+/// response indicates an error status, or the DNS response cannot be parsed.
 #[cfg(feature = "doh")]
 pub(crate) async fn resolve_doh(
     query: &QueryRequest,

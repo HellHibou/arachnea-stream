@@ -3,6 +3,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// The default file path for the credentials store.
+///
+/// This constant defines the default location where credentials are stored
+/// in clear-text JSON format.
 pub const DEFAULT_FILE_CREDENTIALS_STORE_PATH: &str = "data/credentials.json";
 
 use crate::persistence::resources;
@@ -13,11 +16,19 @@ use super::credentials_store::{
 };
 
 /// JSON-backed credentials store kept in clear text on disk.
+///
+/// This struct implements a credentials store that persists data as
+/// unencrypted JSON files.
 pub struct FileCredentialsStore {
+    /// The path to the JSON credentials file.
     path: PathBuf,
 }
 
 impl Default for FileCredentialsStore {
+    /// Creates a default FileCredentialsStore using the default path.
+    ///
+    /// # Returns
+    /// A FileCredentialsStore instance using the default credentials path.
     fn default() -> Self {
         Self::new(resources::get_application_path(
             DEFAULT_FILE_CREDENTIALS_STORE_PATH,
@@ -50,6 +61,11 @@ impl FileCredentialsStore {
         Arc::new(self)
     }
 
+    /// Reads the credentials document from disk.
+    ///
+    /// # Returns
+    /// `Ok(CredentialsDocument)` containing the parsed credentials.
+    /// `Err(anyhow::Error)` if the file cannot be read or parsed.
     fn read_document(&self) -> Result<CredentialsDocument> {
         let Some(bytes) = read_file_if_exists(&self.path)? else {
             return Ok(CredentialsDocument::new());
@@ -69,6 +85,14 @@ impl FileCredentialsStore {
         Ok(document)
     }
 
+    /// Writes the credentials document to disk.
+    ///
+    /// # Arguments
+    /// * `document` - The credentials document to write.
+    ///
+    /// # Returns
+    /// `Ok(())` on successful write.
+    /// `Err(anyhow::Error)` if the document cannot be serialized or written.
     fn write_document(&self, document: &CredentialsDocument) -> Result<()> {
         let bytes = serde_json::to_vec_pretty(document).with_context(|| {
             format!(

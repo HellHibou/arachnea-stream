@@ -22,13 +22,22 @@ use super::{
     StreamControlerFunction,
 };
 
+/// The default custom URI scheme used for Tauri web assets.
 const DEFAULT_TAURI_WEB_SCHEME: &str = "arachnea";
+
+/// The default API path prefix used by Tauri binary stream routes.
 const DEFAULT_TAURI_API_PREFIX: &str = "/api/";
 
 /// Configuration required to build a Tauri controller service.
+///
+/// This struct holds all the configuration needed to create a Tauri controller,
+/// including the Tauri context and customization options.
 pub struct TauriControlerConfiguration {
+    /// The Tauri context owned by the application crate.
     context: ::tauri::Context<::tauri::Wry>,
+    /// The custom URI scheme used to serve the frontend.
     web_scheme: String,
+    /// The API path prefix used by binary stream routes.
     api_prefix: String,
 }
 
@@ -37,6 +46,9 @@ impl TauriControlerConfiguration {
     ///
     /// # Arguments
     /// * `context` - Generated Tauri context owned by the application crate.
+    ///
+    /// # Returns
+    /// A new TauriControlerConfiguration with default settings.
     pub fn new(context: ::tauri::Context<::tauri::Wry>) -> Self {
         Self {
             context,
@@ -49,6 +61,9 @@ impl TauriControlerConfiguration {
     ///
     /// # Arguments
     /// * `web_scheme` - Custom protocol scheme registered with Tauri.
+    ///
+    /// # Returns
+    /// The modified configuration for method chaining.
     pub fn web_scheme(mut self, web_scheme: impl Into<String>) -> Self {
         self.web_scheme = normalize_web_scheme(&web_scheme.into());
         self
@@ -58,6 +73,9 @@ impl TauriControlerConfiguration {
     ///
     /// # Arguments
     /// * `api_prefix` - Path prefix used before registered binary stream commands.
+    ///
+    /// # Returns
+    /// The modified configuration for method chaining.
     pub fn api_prefix(mut self, api_prefix: impl Into<String>) -> Self {
         self.api_prefix = normalize_api_prefix(&api_prefix.into());
         self
@@ -65,7 +83,11 @@ impl TauriControlerConfiguration {
 }
 
 /// Embedded web assets backed by a Tauri asset bundle.
+///
+/// This struct implements the EmbeddedWebAssets trait for Tauri's built-in
+/// asset system.
 pub struct TauriEmbeddedWebAssets {
+    /// The Tauri asset bundle owned by the application crate.
     assets: Arc<dyn Assets<::tauri::Wry>>,
 }
 
@@ -74,25 +96,47 @@ impl TauriEmbeddedWebAssets {
     ///
     /// # Arguments
     /// * `assets` - Generated Tauri asset bundle owned by the application crate.
+    ///
+    /// # Returns
+    /// A new TauriEmbeddedWebAssets instance.
     pub fn new(assets: Arc<dyn Assets<::tauri::Wry>>) -> Self {
         Self { assets }
     }
 }
 
 impl EmbeddedWebAssets for TauriEmbeddedWebAssets {
+    /// Loads an embedded asset by normalized relative path.
+    ///
+    /// # Arguments
+    /// * `path` - The normalized relative path to the asset.
+    ///
+    /// # Returns
+    /// `Some(Vec<u8>)` containing the asset bytes if found.
+    /// `None` if the asset does not exist.
     fn get(&self, path: &str) -> Option<Vec<u8>> {
         let key: AssetKey = path.into();
         self.assets.get(&key).map(Cow::into_owned)
     }
 }
 
+/// Internal representation of Tauri web assets configuration.
 #[derive(Clone)]
 struct TauriWebAssets {
+    /// The normalized mount path for these assets.
     mount_path: String,
+    /// The source from which to load the assets.
     source: WebAssetSource,
 }
 
 impl TauriWebAssets {
+    /// Creates Tauri web assets from a directory on disk.
+    ///
+    /// # Arguments
+    /// * `directory_path` - Directory containing the frontend assets.
+    /// * `path` - Relative path under the Tauri root where assets should be mounted.
+    ///
+    /// # Returns
+    /// A new TauriWebAssets instance configured for directory loading.
     fn from_directory(directory_path: &str, path: &str) -> Self {
         Self {
             mount_path: normalize_mount_path(path),
@@ -100,6 +144,14 @@ impl TauriWebAssets {
         }
     }
 
+    /// Creates Tauri web assets from embedded resources.
+    ///
+    /// # Arguments
+    /// * `assets` - Embedded frontend asset provider.
+    /// * `path` - Relative path under the Tauri root where assets should be mounted.
+    ///
+    /// # Returns
+    /// A new TauriWebAssets instance configured for embedded loading.
     fn from_embedded(assets: SharedWebAssets, path: &str) -> Self {
         Self {
             mount_path: normalize_mount_path(path),
@@ -107,6 +159,13 @@ impl TauriWebAssets {
         }
     }
 
+    /// Generates the window URL for these web assets.
+    ///
+    /// # Arguments
+    /// * `web_scheme` - The custom URI scheme to use.
+    ///
+    /// # Returns
+    /// The URL string for the Tauri window configuration.
     fn window_url(&self, web_scheme: &str) -> String {
         if self.mount_path.is_empty() {
             format!("{web_scheme}://localhost/")
@@ -115,6 +174,14 @@ impl TauriWebAssets {
         }
     }
 
+    /// Loads a web asset from a request path.
+    ///
+    /// # Arguments
+    /// * `request_path` - The requested asset path.
+    ///
+    /// # Returns
+    /// `Ok(WebAsset)` if the asset is found.
+    /// `Err(String)` if the asset cannot be found.
     fn load_request(&self, request_path: &str) -> Result<super::web_assets::WebAsset, String> {
         let relative_path = strip_mount_path(request_path, &self.mount_path).ok_or_else(|| {
             format!(
@@ -126,14 +193,23 @@ impl TauriWebAssets {
     }
 }
 
+/// Main thread dispatcher implementation for Tauri applications.
 struct TauriMainThreadDispatcher {
+    /// The Tauri application handle (set during setup).
     app_handle: Mutex<Option<::tauri::AppHandle<::tauri::Wry>>>,
+    /// Tasks queued before the app handle is available.
     pending_tasks: Mutex<Vec<MainThreadTask>>,
+    /// Registered event handlers.
     handlers: Arc<MainThreadHandlerStore>,
+    /// Shared main thread context.
     context: Arc<Mutex<MainThreadContext>>,
 }
 
 impl TauriMainThreadDispatcher {
+    /// Creates a new Tauri main thread dispatcher.
+    ///
+    /// # Returns
+    /// A new Arc-wrapped TauriMainThreadDispatcher instance.
     fn new() -> Arc<Self> {
         Arc::new(Self {
             app_handle: Mutex::new(None),
@@ -143,6 +219,18 @@ impl TauriMainThreadDispatcher {
         })
     }
 
+    /// Attaches the Tauri app handle to this dispatcher.
+    ///
+    /// This method must be called during Tauri setup to enable main thread
+    /// dispatching. It also processes any tasks that were queued before
+    /// the app handle was available.
+    ///
+    /// # Arguments
+    /// * `app_handle` - The Tauri application handle.
+    ///
+    /// # Returns
+    /// `Ok(())` if the app handle was successfully attached.
+    /// `Err(MainThreadDispatchError)` if there was an error.
     fn attach_app_handle(
         &self,
         app_handle: ::tauri::AppHandle<::tauri::Wry>,
@@ -244,13 +332,24 @@ impl MainThreadDispatcher for TauriMainThreadDispatcher {
 }
 
 /// Controller backend for a Tauri application.
+///
+/// This struct implements the ControlerService trait for Tauri applications,
+/// providing a bridge between the Arachnea controller system and Tauri's
+/// IPC and webview systems.
 pub struct TauriControlerService {
+    /// The Tauri context (consumed during launch).
     context: Option<::tauri::Context<::tauri::Wry>>,
+    /// The custom URI scheme for web assets.
     web_scheme: String,
+    /// The API path prefix for stream routes.
     api_prefix: String,
+    /// Registered serialized function handlers.
     handlers: Vec<(String, SerializedControlerFunction)>,
+    /// Registered stream function handlers with their entry points.
     stream_handlers: Vec<(String, StreamControlerFunction, String)>,
+    /// Configured web assets (if any).
     web_assets: Option<TauriWebAssets>,
+    /// The main thread dispatcher for this service.
     main_thread_dispatcher: Arc<TauriMainThreadDispatcher>,
 }
 
@@ -259,6 +358,9 @@ impl TauriControlerService {
     ///
     /// # Arguments
     /// * `context` - Generated Tauri context owned by the application crate.
+    ///
+    /// # Returns
+    /// A new TauriControlerService with default configuration.
     pub fn new(context: ::tauri::Context<::tauri::Wry>) -> Self {
         Self::with_configuration(TauriControlerConfiguration::new(context))
     }
@@ -267,6 +369,9 @@ impl TauriControlerService {
     ///
     /// # Arguments
     /// * `configuration` - Tauri controller configuration supplied by the application crate.
+    ///
+    /// # Returns
+    /// A new TauriControlerService with the specified configuration.
     pub fn with_configuration(configuration: TauriControlerConfiguration) -> Self {
         Self {
             context: Some(configuration.context),
@@ -299,6 +404,12 @@ impl TauriControlerService {
         self.web_assets = Some(TauriWebAssets::from_embedded(assets, path));
     }
 
+    /// Builds the final Tauri context with configured web assets.
+    ///
+    /// This method is called during launch and consumes the internal context.
+    ///
+    /// # Returns
+    /// The configured Tauri context ready for application launch.
     fn build_context(&mut self) -> ::tauri::Context<::tauri::Wry> {
         let mut context = self
             .context
@@ -503,6 +614,17 @@ impl ControlerService for TauriControlerService {
     }
 }
 
+/// Extracts the request path from a Tauri URI.
+///
+/// This function strips the custom scheme and host from Tauri URIs to extract
+/// the actual request path.
+///
+/// # Arguments
+/// * `uri` - The Tauri HTTP URI.
+/// * `web_scheme` - The custom URI scheme to strip.
+///
+/// # Returns
+/// The request path with the scheme and host removed.
 fn request_path_from_tauri_uri(uri: &::tauri::http::Uri, web_scheme: &str) -> String {
     let uri = uri.to_string();
     let uri = uri.split(&['?', '#'][..]).next().unwrap_or_default();
@@ -520,6 +642,18 @@ fn request_path_from_tauri_uri(uri: &::tauri::http::Uri, web_scheme: &str) -> St
     uri.to_string()
 }
 
+/// Splits a stream route path into its components.
+///
+/// This function parses stream route paths to extract the command name,
+/// remaining path, and query parameters.
+///
+/// # Arguments
+/// * `request_path` - The full request path.
+/// * `api_prefix` - The API prefix to strip from the path.
+///
+/// # Returns
+/// `Some((command, remaining_path, query))` if the path matches a stream route.
+/// `None` if the path doesn't start with the API prefix.
 fn split_stream_route<'a>(
     request_path: &'a str,
     api_prefix: &str,
@@ -538,6 +672,13 @@ fn split_stream_route<'a>(
     Some((command, remaining_path, query))
 }
 
+/// Normalizes a Tauri web scheme by removing protocol suffixes and slashes.
+///
+/// # Arguments
+/// * `web_scheme` - The web scheme to normalize.
+///
+/// # Returns
+/// The normalized scheme, or the default scheme if the input is empty.
 fn normalize_web_scheme(web_scheme: &str) -> String {
     let normalized = web_scheme
         .trim()
@@ -552,6 +693,13 @@ fn normalize_web_scheme(web_scheme: &str) -> String {
     }
 }
 
+/// Normalizes a Tauri API prefix by trimming slashes and adding surrounding slashes.
+///
+/// # Arguments
+/// * `api_prefix` - The API prefix to normalize.
+///
+/// # Returns
+/// The normalized prefix with surrounding slashes, or the default prefix if empty.
 fn normalize_api_prefix(api_prefix: &str) -> String {
     let normalized = api_prefix.trim().trim_matches('/');
 
