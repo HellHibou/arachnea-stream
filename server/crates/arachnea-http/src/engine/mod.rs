@@ -12,11 +12,15 @@ use crate::{
 };
 
 #[cfg(feature = "chaser-cf")]
+/// chaser-cf browser-based Cloudflare solver engine.
 pub mod chaser_cf;
 #[cfg(feature = "ghostwire")]
+/// Ghostwire smart Cloudflare challenge solver engine.
 pub mod ghostwire;
+/// Fast `rquest` engine adapter.
 pub mod rquest;
 #[cfg(feature = "tauri-cloudflare-solver")]
+/// Interactive Tauri/Wry browser-based Cloudflare solver engine.
 pub mod tauri_cloudflare;
 
 /// Shared dynamic HTTP engine handle.

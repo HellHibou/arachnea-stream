@@ -1,3 +1,5 @@
+//! Application resource path resolution helpers.
+
 use std::path::PathBuf;
 use std::sync::OnceLock;
 

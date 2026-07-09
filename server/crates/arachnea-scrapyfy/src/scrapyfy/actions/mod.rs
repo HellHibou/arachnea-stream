@@ -167,7 +167,10 @@ pub enum ScraperAction {
     ///
     /// # Fields
     /// * `argument`: the multiplier as a string.
-    Ratio { argument: f64 },
+    Ratio { 
+        /// The multiplier to apply to the numeric value.
+        argument: f64 
+    },
 
     /// Replaces all occurrences of `search` with `replace` in every current value.
     ///
@@ -188,7 +191,10 @@ pub enum ScraperAction {
     /// - `{}` with the current value when one exists,
     /// - `{request_url}` with the fetched request URL,
     /// - named placeholders such as `{base_url}` or `{locale}` using runtime params.
-    FormatText { argument: String },
+    FormatText { 
+        /// The format template string.
+        argument: String 
+    },
 
     /// Builds a URL from multiple JSON fields extracted from the response.
     ///

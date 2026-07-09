@@ -1,3 +1,5 @@
+//! Clear-text JSON credentials store backed by a file on disk.
+
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

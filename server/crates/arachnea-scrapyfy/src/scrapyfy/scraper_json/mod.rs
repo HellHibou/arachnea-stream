@@ -17,6 +17,7 @@
 //! * [`row_extractor`] — entry application and row extraction (placeholder).
 
 pub mod config;
+/// JSON scraper entry configuration and runtime types.
 pub mod entry;
 pub mod query;
 

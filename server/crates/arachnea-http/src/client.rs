@@ -31,6 +31,14 @@ use crate::{
 ///
 /// For example, `text/html; charset=iso-8859-1` returns `iso-8859-1`.
 /// Returns `None` when no charset is declared.
+///
+/// # Parameters
+///
+/// - `content_type`: The Content-Type header value to parse
+///
+/// # Returns
+///
+/// The charset label if found, or `None` if no charset is declared
 fn charset_from_content_type(content_type: &str) -> Option<&str> {
     for part in content_type.split(';') {
         let part = part.trim();
@@ -49,6 +57,8 @@ fn charset_from_content_type(content_type: &str) -> Option<&str> {
 
 /// Global process-wide Cloudflare solver user-agent cache.
 static CLOUDFLARE_USER_AGENTS: OnceLock<Arc<RwLock<HashMap<String, String>>>> = OnceLock::new();
+/// Default maximum number of HTTP redirects followed by the client facade
+/// when ArachneaHttpConfig.max_redirects is None.
 const DEFAULT_MAX_REDIRECTS: usize = 3;
 
 /// Returns the shared Cloudflare solver user-agent cache.
@@ -63,6 +73,9 @@ fn global_cloudflare_user_agents() -> Arc<RwLock<HashMap<String, String>>> {
 }
 
 /// Prepared proxy runtime shared by engines that need live helper state.
+///
+/// This struct holds runtime state for proxy transports that need to be initialized
+/// asynchronously, such as the `arachnea-proxy` loopback helper.
 #[derive(Clone)]
 struct PreparedProxyRuntime {
     #[cfg(feature = "arachnea-proxy")]
@@ -71,6 +84,19 @@ struct PreparedProxyRuntime {
 
 impl PreparedProxyRuntime {
     /// Prepares runtime state required by the configured proxy transport.
+    ///
+    /// # Parameters
+    ///
+    /// - `config`: Client configuration containing proxy settings
+    ///
+    /// # Returns
+    ///
+    /// A prepared proxy runtime with any necessary helper state
+    ///
+    /// # Errors
+    ///
+    /// Returns proxy initialization errors when the `arachnea-proxy` feature is enabled
+    /// and the loopback helper cannot be started
     async fn new(config: &ArachneaHttpConfig) -> Result<Self, ArachneaHttpError> {
         #[cfg(feature = "arachnea-proxy")]
         {
@@ -97,6 +123,15 @@ impl PreparedProxyRuntime {
     }
 
     /// Returns the proxy URL that built-in engines should use, when one is available.
+    ///
+    /// # Parameters
+    ///
+    /// - `config`: Client configuration to inspect
+    ///
+    /// # Returns
+    ///
+    /// The proxy URL string when a network proxy is configured, or the loopback
+    /// proxy URL when `arachnea-proxy` is enabled and initialized
     fn proxy_url<'a>(&'a self, config: &'a ArachneaHttpConfig) -> Option<&'a str> {
         match &config.proxy {
             HttpProxyConfig::Network(url) => Some(url.as_str()),
@@ -110,6 +145,19 @@ impl PreparedProxyRuntime {
     }
 
     /// Builds a rquest client configured with proxy transport and parameters.
+    ///
+    /// # Parameters
+    ///
+    /// - `config`: Client configuration containing proxy settings
+    ///
+    /// # Returns
+    ///
+    /// An optional rquest client configured with the arachnea-proxy loopback
+    /// transport when available, or `None` when no loopback proxy is initialized
+    ///
+    /// # Errors
+    ///
+    /// Returns proxy errors when the loopback client cannot be created
     #[cfg(feature = "arachnea-proxy")]
     fn rquest_client(
         &self,
@@ -167,6 +215,9 @@ pub struct ArachneaHttpClient {
 }
 
 /// Cloudflare refresh path used after a mode selects a solver class.
+///
+/// This enum represents the two classes of Cloudflare solvers available:
+/// smart solvers (like Ghostwire) and browser-backed solvers (like chaser-cf).
 #[derive(Debug, Clone, Copy)]
 enum CloudflareRefreshStrategy {
     /// Lightweight smart solver path, normally Ghostwire when compiled.
@@ -1529,17 +1580,32 @@ impl ArachneaResponse {
 
 /// Normalizes a URL or origin string to an origin URL.
 ///
+/// This function takes a URL or origin string and normalizes it to a consistent
+/// origin format (scheme://host:port/). It's used throughout the client to ensure
+/// consistent cookie and Cloudflare state management.
+///
 /// # Parameters
 ///
-/// - `value`: Absolute URL or origin string.
+/// - `value`: Absolute URL or origin string to normalize
 ///
 /// # Returns
 ///
-/// A normalized origin URL string.
+/// A normalized origin URL string in the format `scheme://host:port/`
 ///
 /// # Errors
 ///
-/// Returns `InvalidUrl` when parsing fails or the URL has no host.
+/// Returns `InvalidUrl` when parsing fails or the URL has no host
+///
+/// # Examples
+///
+/// ```
+/// # use arachnea_http::error::ArachneaHttpError;
+/// # fn example() -> Result<(), ArachneaHttpError> {
+/// let origin = origin_url("https://example.com/path?query=value")?;
+/// assert_eq!(origin, "https://example.com/");
+/// # Ok(())
+/// # }
+/// ```
 fn origin_url(value: &str) -> Result<String, ArachneaHttpError> {
     let url = Url::parse(value).map_err(|err| ArachneaHttpError::InvalidUrl(err.to_string()))?;
     let scheme = url.scheme();
@@ -1555,17 +1621,36 @@ fn origin_url(value: &str) -> Result<String, ArachneaHttpError> {
 
 /// Builds a header map from textual header names and values.
 ///
+/// This helper function converts string-based header name/value pairs into a
+/// validated `HeaderMap`. It's useful for callers that have headers in string
+/// format (e.g., from configuration files) and need to convert them for use
+/// with the HTTP client.
+///
 /// # Parameters
 ///
-/// - `headers`: Header name/value pairs.
+/// - `headers`: Iterable of header name/value pairs as strings
 ///
 /// # Returns
 ///
-/// A validated header map.
+/// A validated `HeaderMap` containing the parsed headers
 ///
 /// # Errors
 ///
-/// Returns `InvalidHeader` if a name or value cannot be represented as an HTTP header.
+/// Returns `InvalidHeader` if a name or value cannot be represented as an HTTP header
+///
+/// # Examples
+///
+/// ```
+/// # use arachnea_http::{header_map_from_strings, ArachneaHttpError};
+/// # fn example() -> Result<(), ArachneaHttpError> {
+/// let headers = vec![
+///     ("User-Agent", "MyClient/1.0"),
+///     ("Accept", "application/json"),
+/// ];
+/// let header_map = header_map_from_strings(headers)?;
+/// # Ok(())
+/// # }
+/// ```
 pub fn header_map_from_strings<I, K, V>(headers: I) -> Result<HeaderMap, ArachneaHttpError>
 where
     I: IntoIterator<Item = (K, V)>,
@@ -1585,6 +1670,22 @@ where
     Ok(header_map)
 }
 
+/// Extracts the next redirect target URL from a response, if one exists.
+///
+/// Returns None when the response is not a redirection or has no Location`n/// header. Resolves relative locations against the response URL.
+///
+/// # Parameters
+///
+/// - Response: Materialized response to inspect.
+///
+/// # Returns
+///
+/// An absolute redirect target URL, or None.
+///
+/// # Errors
+///
+/// Returns InvalidHeader or InvalidUrl when the Location header or its
+/// resolution fails.
 fn redirect_target(response: &ArachneaResponse) -> Result<Option<String>, ArachneaHttpError> {
     if !response.status.is_redirection() {
         return Ok(None);
@@ -1604,6 +1705,20 @@ fn redirect_target(response: &ArachneaResponse) -> Result<Option<String>, Arachn
     Ok(Some(next.to_string()))
 }
 
+/// Determines whether a redirect status code should rewrite the method to GET.
+///
+/// POST, PUT, and PATCH are rewritten to GET for 303 See Other. 302 Found and
+/// 301 Moved Permanently are also rewritten except when the original method is
+/// GET or HEAD.
+///
+/// # Parameters
+///
+/// - status: HTTP redirect status code.
+/// - method: Original request method.
+///
+/// # Returns
+///
+/// 	rue when the method should be rewritten to GET for the next redirect hop.
 fn should_rewrite_redirect_to_get(status: StatusCode, method: &Method) -> bool {
     if *method == Method::GET || *method == Method::HEAD {
         return false;
@@ -1614,6 +1729,17 @@ fn should_rewrite_redirect_to_get(status: StatusCode, method: &Method) -> bool {
         || status == StatusCode::MOVED_PERMANENTLY
 }
 
+/// Builds a redacted header map suitable for logging or diagnostics.
+///
+/// Sensitive headers such as uthorization and cookie are replaced with
+/// <redacted>. Non-UTF-8 values are replaced with <non-utf8>.`n///
+/// # Parameters
+///
+/// - headers: Original header map to redact.
+///
+/// # Returns
+///
+/// A diagnostic-safe string map of header names to values.
 fn redacted_headers(headers: &HeaderMap) -> HashMap<String, String> {
     headers
         .iter()

@@ -144,12 +144,15 @@ pub mod tests {
         optional: Vec<String>,
     }
 
+    /// Test configuration parameters for scraper query tests.
     pub struct TestParams {
-        // When enabled, tests do not fail on expected fields absent in extracted output.
+        /// When enabled, uses mock HTML files instead of making real HTTP requests.
         pub use_mock_file: bool,
 
+        /// When enabled, missing expected fields are treated as warnings instead of errors.
         pub ignore_entry_not_mapped: bool,
 
+        /// When enabled, logs the full response data in JSON format.
         pub log_response: bool,
     }
 
@@ -415,6 +418,19 @@ pub mod tests {
         }
     }
 
+    /// Executes a query test and records failures.
+    ///
+    /// # Arguments
+    ///
+    /// * `failures` - Vector to accumulate failure messages
+    /// * `query_source` - The source name for the query
+    /// * `query_name` - The name of the query being tested
+    /// * `yaml_file` - Optional YAML configuration file path
+    /// * `run_query` - Function that executes the query test
+    ///
+    /// # Errors
+    ///
+    /// Any errors from the `run_query` function are caught and added to the failures vector.
     pub fn assert_query_succeeds<F>(
         failures: &mut Vec<String>,
         query_source: &str,

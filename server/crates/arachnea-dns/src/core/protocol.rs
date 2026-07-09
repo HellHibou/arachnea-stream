@@ -192,35 +192,56 @@ impl FromStr for RecordType {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RecordData {
     /// IPv4 address payload.
-    /// 
+    ///
     /// Contains a single IPv4 address that the domain name resolves to.
-    A { address: Ipv4Addr },
+    A {
+        /// IPv4 address.
+        address: Ipv4Addr,
+    },
     /// IPv6 address payload.
-    /// 
+    ///
     /// Contains a single IPv6 address that the domain name resolves to.
-    AAAA { address: Ipv6Addr },
+    AAAA {
+        /// IPv6 address.
+        address: Ipv6Addr,
+    },
     /// Canonical name target.
-    /// 
+    ///
     /// Contains the canonical domain name that this domain is an alias for.
-    CNAME { name: String },
+    CNAME {
+        /// Canonical domain name.
+        name: String,
+    },
     /// Mail exchanger payload.
-    /// 
+    ///
     /// Contains the preference value (lower is better) and the domain name
     /// of the mail exchange server.
-    MX { preference: u16, exchange: String },
+    MX {
+        /// Preference value (lower values are preferred).
+        preference: u16,
+        /// Mail exchange server domain name.
+        exchange: String,
+    },
     /// Text payload.
-    /// 
+    ///
     /// Contains arbitrary text data associated with the domain name.
-    TXT { value: String },
+    TXT {
+        /// Text content.
+        value: String,
+    },
     /// Service locator payload.
-    /// 
+    ///
     /// Contains priority, weight, port, and target domain for service
     /// discovery. Lower priority values are preferred. Weight is used
     /// for load balancing among services with the same priority.
     SRV {
+        /// Priority value (lower values are preferred).
         priority: u16,
+        /// Load-balancing weight for same-priority targets.
         weight: u16,
+        /// Service port.
         port: u16,
+        /// Target domain providing the service.
         target: String,
     },
 }

@@ -1,10 +1,16 @@
 //! Outbound proxy transports.
 
+/// Direct TCP transport.
 pub mod direct;
+/// External outbound transport integration.
 pub mod external;
+/// HTTP CONNECT / forward proxy transport.
 pub mod http;
+/// MASQUE (HTTP/3 CONNECT) transport.
 pub mod masque;
+/// SOCKS4/4a/5 transport.
 pub mod socks;
+/// TLS-over-TCP transport.
 pub mod tls;
 
 use async_trait::async_trait;

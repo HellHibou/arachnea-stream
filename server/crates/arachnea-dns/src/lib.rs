@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 //! Unified Arachnea DNS crate.
 //!
 //! The `core` and `server` features expose the former DNS crates as module

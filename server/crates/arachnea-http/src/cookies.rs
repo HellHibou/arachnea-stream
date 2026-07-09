@@ -11,6 +11,9 @@ use url::Url;
 use crate::{cloudflare::CloudflareCookieState, error::ArachneaHttpError};
 
 /// Global process-wide cookie cache.
+/// Global process-wide cookie cache shared by all Arachnea HTTP clients.
+///
+/// Initialized lazily on first access through global_cookie_cache().
 static COOKIE_CACHE: OnceLock<Arc<RwLock<SharedCookieCache>>> = OnceLock::new();
 
 /// Returns the shared process-wide cookie cache.

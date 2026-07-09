@@ -73,20 +73,28 @@ pub struct ScraperQueryCollectionRaw {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "scraper_type", rename_all = "snake_case")]
 pub enum ScraperQueryDefinitionRaw {
+    /// HTML scraper query definition.
     Html {
         #[serde(flatten)]
+        /// HTML scraper query configuration.
         query: HtmlScraperQueryRaw,
     },
+    /// JSON scraper query definition.
     Json {
         #[serde(flatten)]
+        /// JSON scraper query configuration.
         query: JsonScraperQueryRaw,
     },
+    /// Static scraper query definition.
     Static {
         #[serde(flatten)]
+        /// Static scraper query configuration.
         query: StaticScraperQueryRaw,
     },
+    /// Text scraper query definition.
     Text {
         #[serde(flatten)]
+        /// Text scraper query configuration.
         query: TextScraperQueryRaw,
     },
 }
@@ -135,9 +143,13 @@ impl ScraperQueryDefinitionRaw {
 #[derive(Deserialize)]
 #[serde(try_from = "ScraperQueryDefinitionRaw")]
 pub enum ScraperQueryDefinition {
+    /// HTML scraper query.
     Html(HtmlScraperQuery),
+    /// JSON scraper query.
     Json(JsonScraperQuery),
+    /// Static scraper query.
     Static(StaticScraperQuery),
+    /// Text scraper query.
     Text(TextScraperQuery),
 }
 

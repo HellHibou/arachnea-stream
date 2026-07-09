@@ -398,7 +398,7 @@ impl ProxyParameterHandler for CountryRoutingProxyHandler {
 ///
 /// This handler is synchronous: it returns a `ProxyPool` marker node named
 /// `dynamic-country:<CODE>` that is resolved asynchronously during pool
-/// resolution in [`ArachneaProxyCore`].
+/// resolution in [`crate::core::ArachneaProxyCore`].
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DynamicCountryRoutingProxyHandler {
     definition: ParameterDefinition,
@@ -481,6 +481,8 @@ impl ProxyParameterHandler for DynamicCountryRoutingProxyHandler {
         ))
     }
 }
+
+/// Registry of named proxy parameter definitions evaluated during route selection.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ParameterRegistry {
     definitions: Vec<ParameterDefinition>,

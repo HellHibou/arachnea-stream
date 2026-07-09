@@ -21,19 +21,19 @@ type RestRouter = BoxedFilter<(RestReply,)>;
 /// Configuration options for the REST controller backend.
 #[derive(Default)]
 pub struct RestControlerConfiguration {
-    /// Server socket.
+    /// Server socket address to bind to. Takes precedence over `server_ip` and `server_port` if set.
     server_socket: Option<std::net::SocketAddr>,
 
-    /// Server port.
+    /// Server port. Used when `server_socket` is not set.
     server_port: Option<u16>,
 
-    /// Server IP.
+    /// Server IP address. Used when `server_socket` is not set.
     server_ip: Option<std::net::IpAddr>,
 
-    /// Entry point root or None
+    /// Entry point root path prefix mounted by the HTTP server.
     entrypoint_root: Option<String>,
 
-    /// Entry point for API
+    /// Entry point API path segment mounted under the root prefix.
     entrypoint_api: Option<String>,
 }
 
@@ -108,11 +108,17 @@ impl RestControlerConfiguration {
 ///
 /// This backend exposes registered commands over HTTP using JSON payloads.
 pub struct RestControlerService {
+    /// Socket address the HTTP server is bound to.
     socket_addr: std::net::SocketAddr,
+    /// Warp router containing all registered routes.
     router: Option<RestRouter>,
+    /// Parsed entry point root path segments.
     entrypoint_root: Vec<String>,
+    /// API path segment mounted under the root prefix.
     entrypoint_api: Option<String>,
+    /// Dispatcher for executing commands on the main thread.
     main_thread_dispatcher: Arc<QueuedMainThreadDispatcher>,
+    /// Main thread dispatch loop handle.
     main_thread_loop: Option<MainThreadDispatchLoop>,
 }
 

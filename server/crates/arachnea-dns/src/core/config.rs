@@ -498,24 +498,42 @@ pub enum Transport {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "kind", content = "value")]
 pub enum UpstreamEndpoint {
+    /// Use the operating system resolver.
     System,
+    /// A specific IP:port socket address.
     Socket(SocketAddr),
+    /// A URL endpoint, used for DoH.
     Url(String),
-    HostPort { host: String, port: u16 },
+    /// A hostname-and-port pair, used for DoT / DoQ / ODoH.
+    HostPort {
+        /// Server hostname.
+        host: String,
+        /// Server port.
+        port: u16,
+    },
 }
 
 /// In-memory DNS cache settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheConfig {
+    /// Whether caching is enabled.
     pub enabled: bool,
+    /// Maximum number of entries in the cache.
     pub max_entries: usize,
+    /// Minimum TTL in seconds for cached entries.
     pub min_ttl_seconds: u32,
+    /// Maximum TTL in seconds for cached entries.
     pub max_ttl_seconds: u32,
+    /// Whether negative responses (NXDOMAIN, NODATA) may be cached.
     pub negative_cache: bool,
+    /// Whether DNSSEC NSEC proofs may synthesize negative answers.
     #[serde(default)]
     pub aggressive_dnssec_negative_cache: bool,
+    /// Whether stale entries may be served when fresh data is unavailable.
     pub serve_stale: bool,
+    /// Maximum time in seconds a stale entry is kept before eviction.
     pub max_stale_seconds: u32,
+    /// TTL in seconds assigned to stale entries when served to clients.
     pub stale_response_ttl_seconds: u32,
 }
 
@@ -539,10 +557,15 @@ impl Default for CacheConfig {
 /// Privacy controls applied to resolution and metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrivacyConfig {
+    /// Whether QNAME minimisation is enabled.
     pub qname_minimisation: bool,
+    /// EDNS Client Subnet policy.
     pub ecs: EcsPolicy,
+    /// Whether Oblivious DNS over HTTPS is enabled.
     pub odoh: bool,
+    /// Whether DNS query padding is enabled.
     pub query_padding: bool,
+    /// Whether query names may be written to logs.
     pub log_qnames: bool,
 }
 
@@ -563,17 +586,24 @@ impl Default for PrivacyConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EcsPolicy {
+    /// ECS is disabled; no subnet information is sent.
     Disabled,
+    /// Subnet prefix is anonymised before forwarding.
     AnonymizedPrefix,
+    /// Subnet information is forwarded as received.
     Passthrough,
+    /// A custom subnet prefix is used for all queries.
     CustomPrefix(String),
 }
 
 /// Security controls for DNSSEC, cookies and rate limits.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecurityConfig {
+    /// DNSSEC validation state.
     pub dnssec: DnssecState,
+    /// Whether DNS cookies are enabled.
     pub dns_cookies: bool,
+    /// Optional per-client rate limit per second.
     pub rate_limit_per_client_per_second: Option<u32>,
 }
 

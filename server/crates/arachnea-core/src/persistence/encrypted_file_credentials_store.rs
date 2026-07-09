@@ -1,3 +1,5 @@
+//! AES-GCM encrypted credentials store backed by a JSON file on disk.
+
 use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit, Nonce};
 use anyhow::{anyhow, bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};

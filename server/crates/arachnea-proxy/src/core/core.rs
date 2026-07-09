@@ -471,7 +471,7 @@ impl ArachneaProxyCore {
     /// Installs a dynamic proxy inventory on this core handle.
     ///
     /// Existing clones keep their current inventory. Use this when the core
-    /// was created without [`from_resolved_with_proxy_inventory`].
+    /// was created without [`ArachneaProxyCore::from_resolved_with_proxy_inventory`].
     ///
     /// # Parameters
     ///

@@ -61,6 +61,7 @@ const DEFAULT_REFRESH_CACHE_TTL: Duration = Duration::from_secs(30);
 /// Maximum time to keep pumping the solver loop after dropping the window.
 const DEFAULT_WINDOW_DESTROY_GRACE: Duration = Duration::from_secs(1);
 
+/// Monotonic window counter used to generate unique Tauri WebviewWindow labels.
 static TAURI_SOLVER_WINDOW_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Recently extracted WebView cookies for one origin.
@@ -80,27 +81,48 @@ struct WrySolveResult {
     body: Bytes,
 }
 
+/// Tauri desktop app solve session for interactive Cloudflare verification.
+///
+/// Holds a reference to an existing Tauri WebviewWindow and the state needed
+/// to poll cookies, detect page loads, and collect the final page state.
 struct TauriAppSolveSession {
+    /// Tauri application handle used to dispatch main-thread operations.
     app_handle: tauri::AppHandle<tauri::Wry>,
+    /// The Tauri WebviewWindow showing the Cloudflare-protected page.
     window: tauri::WebviewWindow<tauri::Wry>,
+    /// Current URL tracked via navigation events.
     current_url: Arc<Mutex<String>>,
+    /// Count of completed page loads since the session started.
     page_load_finished_count: Arc<AtomicU64>,
+    /// Event name used to receive page state from JavaScript.
     page_state_event: String,
+    /// Listener ID used to unregister when the session ends.
     page_state_event_id: tauri::EventId,
+    /// Latest page state received via the Tauri event system.
     page_state_result: Arc<Mutex<Option<Result<TauriAppPageState, String>>>>,
+    /// Whether the window has been closed by the user.
     closed: Arc<AtomicBool>,
 }
 
+/// Page state snapshot collected from the Tauri WebView via JavaScript.
 #[derive(Deserialize)]
 struct TauriAppPageState {
+    /// HTML source when page source collection is enabled.
     #[serde(default)]
     html: String,
+    /// Browser user-agent string reported by navigator.userAgent.
     #[serde(default, rename = "userAgent")]
     user_agent: String,
 }
 
+/// Result of starting a Cloudflare solve on the main thread.
+///
+/// The solve either completes synchronously (standalone Wry event loop) or
+/// returns a session handle for an existing Tauri application window.
 enum MainThreadSolveStart {
+    /// Solve completed synchronously via the standalone Wry event loop.
     Completed(WrySolveResult),
+    /// Solve started as a Tauri desktop app session that needs async polling.
     TauriApp(TauriAppSolveSession),
 }
 

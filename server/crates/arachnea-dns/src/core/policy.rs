@@ -86,7 +86,7 @@ pub enum BlockAction {
 /// Smart DNS rules independent from high-level profiles.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SmartDnsConfig {
-    /// Ordered Smart DNS rules.
+    /// Ordered Smart DNS rules evaluated at runtime.
     pub rules: Vec<SmartDnsRule>,
 }
 
@@ -105,9 +105,21 @@ pub struct SmartDnsRule {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SmartDnsAction {
-    Answer { records: Vec<Record> },
-    Route { upstream: String },
-    ProxyTarget { proxy_target: String },
+    /// Return the specified records as the answer.
+    Answer {
+        /// Records to return in the response.
+        records: Vec<Record>,
+    },
+    /// Route the query to a named upstream.
+    Route {
+        /// Name of the upstream target.
+        upstream: String,
+    },
+    /// Route the query to a named proxy target.
+    ProxyTarget {
+        /// Name of the proxy target.
+        proxy_target: String,
+    },
 }
 
 /// Proxy target referenced by Smart DNS rules.
@@ -125,7 +137,9 @@ pub struct ProxyTarget {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProxyTargetMode {
+    /// Dynamic internal proxy selection is used.
     InternalDynamic,
+    /// Static fallback records are always returned.
     Static,
 }
 
@@ -146,12 +160,19 @@ pub struct Rule {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RuleAction {
+    /// Allow the query to proceed normally.
     Allow,
+    /// Block the query with the given action.
     Block(BlockAction),
+    /// Return the specified records as the answer.
     Answer(Vec<Record>),
+    /// Rewrite the queried domain name.
     Rewrite(String),
+    /// Route the query to a named upstream.
     Route(String),
+    /// Route the query to a named proxy target.
     ProxyTarget(String),
+    /// Log the query without taking action.
     LogOnly,
 }
 

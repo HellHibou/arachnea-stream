@@ -1,6 +1,7 @@
 //! Optional HTTP convenience helpers for the proxy core.
 
 pub mod actions;
+/// Simple HTTP client for proxied requests.
 pub mod client;
 #[cfg(feature = "controller-service")]
 pub mod proxy_service;

@@ -118,9 +118,13 @@ fn log_invalid_json_payload(
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ScraperHttpMode {
+    /// Automatically select the best request mode based on the target.
     Auto,
+    /// Use direct HTTP requests without any special handling.
     Direct,
+    /// Use Cloudflare smart mode for handling Cloudflare-protected sites.
     CloudflareSmart,
+    /// Use browser-like requests for Cloudflare-protected sites.
     CloudflareBrowser,
 }
 
@@ -140,9 +144,13 @@ impl From<ScraperHttpMode> for HttpRequestMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ScraperHttpUserAgentProfile {
+    /// Use Chrome browser profile.
     Chrome,
+    /// Use stable Chrome browser profile.
     ChromeStable,
+    /// Use Firefox browser profile.
     Firefox,
+    /// Use stable Firefox browser profile.
     FirefoxStable,
 }
 
@@ -164,14 +172,19 @@ impl From<ScraperHttpUserAgentProfile> for BrowserProfile {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ScraperHttpConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// HTTP request mode override for this scraper call.
     pub mode: Option<ScraperHttpMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Browser profile used to generate the User-Agent header.
     pub user_agent_profile: Option<ScraperHttpUserAgentProfile>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Custom User-Agent string override.
     pub user_agent: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Proxy country hint (ISO country code) for geo-targeted requests.
     pub proxy_country: Option<String>,
     #[serde(skip)]
+    /// Maximum number of redirects to follow before returning an error.
     pub max_redirects: Option<usize>,
 }
 

@@ -17,10 +17,15 @@ pub mod http;
 mod observability;
 mod parameters;
 pub mod policy;
+/// Country-level IP geolocation provider.
 pub mod ip_country;
+/// Dynamic proxy inventory with health tracking.
 pub mod proxy_inventory;
+/// Proxy liveness probing engine.
 pub mod proxy_probe;
+/// Proxy record types used by inventory and stores.
 pub mod proxy_record;
+/// Serialization and storage for proxy records.
 pub mod proxy_store;
 mod routing;
 mod stats;

@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 //! Generic scraping engine used by the Arachnea stream backend.
 
 /// Scraper query models, executors, and post-processors.

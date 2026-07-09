@@ -1,3 +1,5 @@
+//! Credentials storage contracts and shared helpers.
+
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

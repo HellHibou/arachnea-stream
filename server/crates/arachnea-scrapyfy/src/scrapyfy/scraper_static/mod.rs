@@ -6,6 +6,7 @@
 //!
 //! See [`query`] for the runtime and raw configuration types.
 
+/// Static scraper query configuration and runtime types.
 pub mod query;
 
 pub use query::{StaticScraperEntryRaw, StaticScraperQuery, StaticScraperQueryRaw};
