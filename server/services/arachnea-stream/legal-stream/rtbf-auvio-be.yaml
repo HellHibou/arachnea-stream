@@ -3,10 +3,13 @@ title: RTBF Auvio
 logo: https://auvio.rtbf.be/images/icons/auvio_192x192.png
 description:
   fr: "RTBF Auvio est la plateforme de streaming du groupe audiovisuel belge RTBF, offrant un large catalogue de programmes télévisés, films, séries, documentaires et contenus exclusifs en ligne. Les utilisateurs peuvent accéder à leurs émissions préférées en direct ou à la demande, avec des fonctionnalités de recherche avancées et une interface conviviale pour une expérience de visionnage optimale."
-
 http:
   mode: direct
 
+
+# ############################################################################
+# Parameters
+# ############################################################################
 parameters:
   - name: page_size
     value: 20
@@ -15,6 +18,10 @@ parameters:
     value: true
     description: Whether search supports reliable page-based pagination.
 
+
+# ############################################################################
+# Shared structs
+# ############################################################################
 shared:
   # ================== TYPES DE MÉDIAS & ACTIONS COMMUNES ==================
   media_types_rtbf: &media_types_rtbf
@@ -25,9 +32,6 @@ shared:
     - video/show/other
     - video/movie
     - video/live
-
-  actions_resolve_url: &actions_resolve_url
-    - type: resolve_url
 
   actions_format_rtbf_pages: &actions_format_rtbf_pages
     - type: format_text
@@ -443,17 +447,23 @@ shared:
               type: string
               select: first
               pointer: /deepLink
-              actions: *actions_resolve_url
+              actions:
+                - type: resolve_url
             - name: web-link
               type: string
               select: first
               pointer: /path
-              actions: *actions_resolve_url
+              actions:
+                - type: resolve_url
 
-# ==========================================================
+# ############################################################################
 # Queries
-# ==========================================================
+# ############################################################################
 queries:
+
+  # --------------------------------------------------------------------------
+  # Service stream metadata
+  # --------------------------------------------------------------------------
   - name: service_stream_metadata
     scraper_type: static
     entries:
@@ -470,6 +480,177 @@ queries:
         type: object
         value: "{service_description}"
 
+
+  # ---------------------------------------------------------------
+  # Home page
+  # ---------------------------------------------------------------
+  - name: load_home
+    scraper_type: json
+    base_url: https://auvio.rtbf.be
+    query_url: "https://bff-service.rtbf.be/auvio/v1.23/pages/home"
+    sibling_sub_query_concurrency: 6
+    sub_query_context_concurrency: 6
+    sub_query_fetch_concurrency: 8
+    media_types: *media_types_rtbf
+    row_pointer: /data
+    entries:
+      - name: sections
+        type: object[]
+        pointer: /widgets/*[type=MEDIA_LIST]
+        select: all
+        entries:
+          - name: label
+            type: string
+            select: first
+            pointer: /title
+          - name: link
+            type: string
+            select: first
+            pointer: /contentPath
+      - name: sections
+        type: object[]
+        pointer: /widgets/*[type=PROGRAM_LIST]
+        select: all
+        entries:
+          - name: label
+            type: string
+            select: first
+            pointer: /title
+          - name: link
+            type: string
+            select: first
+            pointer: /contentPath
+    sub_queries: *home_sub_queries
+
+
+  # ---------------------------------------------------------------
+  # Category listing
+  # ---------------------------------------------------------------
+  - name: get_category
+    scraper_type: json
+    base_url: https://auvio.rtbf.be
+    query_url: "{query_url}"
+    sibling_sub_query_concurrency: 6
+    sub_query_context_concurrency: 6
+    sub_query_fetch_concurrency: 8
+    media_types: *media_types_rtbf
+    row_pointer: /data
+    entries:
+      - name: sections
+        type: object[]
+        pointer: /widgets/*[type=MEDIA_LIST]
+        select: all
+        entries:
+          - name: label
+            type: string
+            select: first
+            pointer: /title
+          - name: link
+            type: string
+            select: first
+            pointer: /contentPath
+      - name: sections
+        type: object[]
+        pointer: /widgets/*[type=PROGRAM_LIST]
+        select: all
+        entries:
+          - name: label
+            type: string
+            select: first
+            pointer: /title
+          - name: link
+            type: string
+            select: first
+            pointer: /contentPath
+    sub_queries: *home_sub_queries
+
+
+  # ---------------------------------------------------------------
+  # Section listing
+  # ---------------------------------------------------------------
+  - name: get_section
+    scraper_type: json
+    base_url: https://auvio.rtbf.be
+    query_url: "{query_url}{query_separator}_page={page}&_limit={page_size}"
+    media_types: *media_types_rtbf
+    row_pointer: /
+    entries:
+      - name: current_page
+        type: number
+        select: first
+        pointer: /meta/page/current
+      - name: have_more
+        type: boolean
+        select: first
+        pointer: /links/next
+        actions: *map_null_false_default_true
+      - name: entries
+        type: object[]
+        pointer: /data/content/*
+        select: all
+        entries:
+          - name: source
+            type: string
+            actions:
+              - type: format_text
+                argument: "{source}"
+          - name: title
+            type: string
+            select: first
+            pointer: /title
+          - name: title/alt
+            type: string
+            select: first
+            pointer: /subtitle
+          - name: description
+            type: string
+            select: first
+            pointer: /description
+          - name: link
+            type: string
+            select: first
+            pointer: /path
+            actions: *actions_format_rtbf_pages
+          - name: web-link
+            type: string
+            select: first
+            pointer: /path
+            actions:
+              - type: resolve_url
+          - name: media-type
+            type: string[]
+            pointer: /type
+            actions: *actions_media_type
+          - name: release-date
+            type: string
+            select: first
+            pointer: /releaseDate
+            actions: *actions_get_date_dd_mm_yy
+          - name: expire
+            type: string
+            select: first
+            pointer: /publishedTo
+            actions: *actions_get_date_yyyy_mm_dd
+          - name: duration
+            type: string
+            select: first
+            pointer: /duration
+          - name: channel
+            type: string
+            select: first
+            pointer: /channelLabel
+          - name: theme
+            type: string[]
+            pointer: /categoryLabel
+          - name: img/poster > link
+            type: string
+            select: first
+            pointer: /illustration/m
+
+
+  # ---------------------------------------------------------------
+  # Search
+  # ---------------------------------------------------------------
   - name: search
     scraper_type: json
     base_url: https://auvio.rtbf.be
@@ -528,12 +709,14 @@ queries:
             type: string
             select: first
             pointer: /path
-            actions: *actions_resolve_url
+            actions:
+              - type: resolve_url
           - name: embed-link
             type: string
             select: first
             pointer: /embedPath
-            actions: *actions_resolve_url
+            actions: 
+              - type: resolve_url
           - name: media-type
             type: string[]
             pointer: /type
@@ -569,6 +752,10 @@ queries:
         remove_fields:
           - total_pages
 
+
+  # ---------------------------------------------------------------
+  # Entry / detail page
+  # ---------------------------------------------------------------
   - name: get_entry
     scraper_type: json
     base_url: https://auvio.rtbf.be
@@ -616,7 +803,6 @@ queries:
         type: string
         select: first
         pointer: /data/content/logo/m
-
       - name: players
         type: object[]
         entries:
@@ -811,160 +997,10 @@ queries:
           - *rtbf_program_episode_sub_query
       - *rtbf_program_episode_sub_query
 
-  - name: load_home
-    scraper_type: json
-    base_url: https://auvio.rtbf.be
-    query_url: "https://bff-service.rtbf.be/auvio/v1.23/pages/home"
-    sibling_sub_query_concurrency: 6
-    sub_query_context_concurrency: 6
-    sub_query_fetch_concurrency: 8
-    media_types: *media_types_rtbf
-    row_pointer: /data
-    entries:
-      - name: sections
-        type: object[]
-        pointer: /widgets/*[type=MEDIA_LIST]
-        select: all
-        entries:
-          - name: label
-            type: string
-            select: first
-            pointer: /title
-          - name: link
-            type: string
-            select: first
-            pointer: /contentPath
-      - name: sections
-        type: object[]
-        pointer: /widgets/*[type=PROGRAM_LIST]
-        select: all
-        entries:
-          - name: label
-            type: string
-            select: first
-            pointer: /title
-          - name: link
-            type: string
-            select: first
-            pointer: /contentPath
-    sub_queries: *home_sub_queries
 
-  - name: get_category
-    scraper_type: json
-    base_url: https://auvio.rtbf.be
-    query_url: "{query_url}"
-    sibling_sub_query_concurrency: 6
-    sub_query_context_concurrency: 6
-    sub_query_fetch_concurrency: 8
-    media_types: *media_types_rtbf
-    row_pointer: /data
-    entries:
-      - name: sections
-        type: object[]
-        pointer: /widgets/*[type=MEDIA_LIST]
-        select: all
-        entries:
-          - name: label
-            type: string
-            select: first
-            pointer: /title
-          - name: link
-            type: string
-            select: first
-            pointer: /contentPath
-      - name: sections
-        type: object[]
-        pointer: /widgets/*[type=PROGRAM_LIST]
-        select: all
-        entries:
-          - name: label
-            type: string
-            select: first
-            pointer: /title
-          - name: link
-            type: string
-            select: first
-            pointer: /contentPath
-    sub_queries: *home_sub_queries
-
-  - name: get_section
-    scraper_type: json
-    base_url: https://auvio.rtbf.be
-    query_url: "{query_url}{query_separator}_page={page}&_limit={page_size}"
-    media_types: *media_types_rtbf
-    row_pointer: /
-    entries:
-      - name: current_page
-        type: number
-        select: first
-        pointer: /meta/page/current
-      - name: have_more
-        type: boolean
-        select: first
-        pointer: /links/next
-        actions: *map_null_false_default_true
-      - name: entries
-        type: object[]
-        pointer: /data/content/*
-        select: all
-        entries:
-          - name: source
-            type: string
-            actions:
-              - type: format_text
-                argument: "{source}"
-          - name: title
-            type: string
-            select: first
-            pointer: /title
-          - name: title/alt
-            type: string
-            select: first
-            pointer: /subtitle
-          - name: description
-            type: string
-            select: first
-            pointer: /description
-          - name: link
-            type: string
-            select: first
-            pointer: /path
-            actions: *actions_format_rtbf_pages
-          - name: web-link
-            type: string
-            select: first
-            pointer: /path
-            actions: *actions_resolve_url
-          - name: media-type
-            type: string[]
-            pointer: /type
-            actions: *actions_media_type
-          - name: release-date
-            type: string
-            select: first
-            pointer: /releaseDate
-            actions: *actions_get_date_dd_mm_yy
-          - name: expire
-            type: string
-            select: first
-            pointer: /publishedTo
-            actions: *actions_get_date_yyyy_mm_dd
-          - name: duration
-            type: string
-            select: first
-            pointer: /duration
-          - name: channel
-            type: string
-            select: first
-            pointer: /channelLabel
-          - name: theme
-            type: string[]
-            pointer: /categoryLabel
-          - name: img/poster > link
-            type: string
-            select: first
-            pointer: /illustration/m
-
+  # ---------------------------------------------------------------
+  # Season
+  # ---------------------------------------------------------------
   - name: get_season
     scraper_type: json
     base_url: https://auvio.rtbf.be
@@ -1050,6 +1086,10 @@ queries:
             select: first
             pointer: /illustration/m
 
+
+  # ---------------------------------------------------------------
+  # List lives
+  # ---------------------------------------------------------------
   - name: list_lives
     scraper_type: json
     base_url: https://auvio.rtbf.be
@@ -1120,6 +1160,10 @@ queries:
             select: first
             pointer: /illustration/xl
 
+
+  # ---------------------------------------------------------------
+  # Get live
+  # ---------------------------------------------------------------
   - name: get_live
     scraper_type: json
     base_url: https://auvio.rtbf.be

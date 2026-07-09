@@ -3,11 +3,13 @@ title: France TV
 logo: https://www.france.tv/favicons/favicon-192.png
 description:
   fr: "France TV est le groupe audiovisuel public français, offrant une large gamme de contenus télévisés, de films, de séries, de documentaires et d'émissions en ligne. La plateforme de streaming de France TV permet aux utilisateurs d'accéder à leurs programmes préférés en direct ou à la demande, avec une interface conviviale et des fonctionnalités de recherche avancées pour une expérience de visionnage optimale."
-
 http:
   mode: direct
   user_agent_profile: firefox
 
+# ############################################################################
+# Parameters
+# ############################################################################
 parameters:
   - name: base_url
     value: https://www.france.tv
@@ -22,6 +24,10 @@ parameters:
     value: FR
     description: Country code passed to the FranceTV playback API.
 
+
+# ############################################################################
+# Shared structs
+# ############################################################################
 shared:
   media_types_francetv: &media_types_francetv
     - video/movie
@@ -72,30 +78,6 @@ shared:
     - type: format_text
       argument: "{base_url}/{}"
 
-  actions_api_program_link: &actions_api_program_link
-    - type: format_text
-      argument: "{api_mobile}/apps/program/{}?platform=apps&page=0"
-
-  actions_api_collection_link: &actions_api_collection_link
-    - type: format_text
-      argument: "{api_mobile}/apps/collections/{}?platform=apps&page=0"
-
-  actions_api_category_link: &actions_api_category_link
-    - type: format_text
-      argument: "{api_mobile}/apps/categories/{}?platform=apps&page=0"
-
-  actions_api_sub_category_link: &actions_api_sub_category_link
-    - type: format_text
-      argument: "{api_mobile}/apps/sub-categories/{}?platform=apps&page=0"
-
-  actions_api_event_link: &actions_api_event_link
-    - type: format_text
-      argument: "{api_mobile}/apps/events/{}?platform=apps&page=0"
-
-  actions_api_front_content_link: &actions_api_front_content_link
-    - type: format_text
-      argument: "{api_front}/standard/publish/contents/{}"
-
   source_entry: &source_entry
     name: source
     type: string
@@ -139,42 +121,6 @@ shared:
     pointer: /images/*[type=logo]/urls/w:450
     select: first
 
-  item_image_poster_3x4: &item_image_poster_3x4
-    name: img/poster > link
-    type: string
-    pointer: /item/images/*[type=vignette_3x4]/urls/w:1024
-    select: first
-
-  item_image_poster_2x3: &item_image_poster_2x3
-    name: img/poster > link
-    type: string
-    pointer: /item/images/*[type=vignette_2x3]/urls/w:2000
-    select: first
-
-  item_image_poster_square: &item_image_poster_square
-    name: img/poster > link
-    type: string
-    pointer: /item/images/*[type=carre]/urls/w:800
-    select: first
-
-  item_image_landscape_background: &item_image_landscape_background
-    name: img/landscape > link
-    type: string
-    pointer: /item/images/*[type=background_16x9]/urls/w:2500
-    select: first
-
-  item_image_landscape_thumbnail: &item_image_landscape_thumbnail
-    name: img/landscape > link
-    type: string
-    pointer: /item/images/*[type=vignette_16x9]/urls/w:1024
-    select: first
-
-  item_image_logo: &item_image_logo
-    name: img/logo > link
-    type: string
-    pointer: /item/images/*[type=logo]/urls/w:450
-    select: first
-
   program_card_entries: &program_card_entries
     - *source_entry
     - name: title
@@ -201,7 +147,9 @@ shared:
       type: string
       select: first
       pointer: /program_path
-      actions: *actions_api_program_link
+      actions:
+        - type: format_text
+          argument: "{api_mobile}/apps/program/{}?platform=apps&page=0"
     - name: web-link
       type: string
       select: first
@@ -256,7 +204,9 @@ shared:
       type: string
       select: first
       pointer: /collection_path
-      actions: *actions_api_collection_link
+      actions:
+        - type: format_text
+          argument: "{api_mobile}/apps/collections/{}?platform=apps&page=0"
     - name: theme
       type: string[]
       pointer: /category/label
@@ -289,7 +239,9 @@ shared:
       type: string
       select: first
       pointer: /url_complete
-      actions: *actions_api_sub_category_link
+      actions:
+        - type: format_text
+          argument: "{api_mobile}/apps/sub-categories/{}?platform=apps&page=0"
     - name: web-link
       type: string
       select: first
@@ -326,7 +278,9 @@ shared:
       type: string
       select: first
       pointer: /url_complete
-      actions: *actions_api_event_link
+      actions: 
+         - type: format_text
+           argument: "{api_mobile}/apps/events/{}?platform=apps&page=0"
     - name: theme
       type: string[]
       pointer: /sub_categories/*/label
@@ -372,7 +326,9 @@ shared:
       type: string
       select: first
       pointer: /id
-      actions: *actions_api_front_content_link
+      actions: 
+        - type: format_text
+          argument: "{api_front}/standard/publish/contents/{}"
     - name: duration
       type: string
       select: first
@@ -457,7 +413,9 @@ shared:
       type: string
       select: first
       pointer: /id
-      actions: *actions_api_front_content_link
+      actions:
+        - type: format_text
+          argument: "{api_front}/standard/publish/contents/{}"
     - name: players
       type: object[]
       pointer: /si_id
@@ -487,133 +445,6 @@ shared:
       type: string
       pointer: /images/*[type=vignette_3x4]/urls/w:1024
       select: first
-
-  live_item_entries: &live_item_entries
-    - name: title
-      type: string
-      select: first
-      pointer: /channel/label
-    - name: title
-      type: string
-      select: first
-      pointer: /partner/label
-    - name: title/alt
-      type: string
-      select: first
-      pointer: /program/label
-    - name: title/alt
-      type: string
-      select: first
-      pointer: /title
-    - name: description
-      type: string
-      select: first
-      pointer: /program/description
-      actions:
-        - type: html_to_text
-    - name: description
-      type: string
-      select: first
-      pointer: /description
-      actions:
-        - type: html_to_text
-    - name: key
-      type: string
-      select: first
-      pointer: /channel/channel_path
-    - name: key
-      type: string
-      select: first
-      pointer: /partner/partner_path
-    - name: key
-      type: string
-      select: first
-      pointer: /channel/si_id
-    - name: key
-      type: string
-      select: first
-      pointer: /partner/si_id
-    - name: media-type
-      type: string[]
-      actions:
-        - type: format_text
-          argument: "video/live"
-    - name: link
-      type: string
-      select: first
-      pointer: /channel/si_id
-    - name: link
-      type: string
-      select: first
-      pointer: /partner/si_id
-    - name: web-link
-      type: string
-      select: first
-      pointer: /channel/channel_path
-      actions:
-        - type: format_text
-          argument: "{base_url}/{}/direct.html"
-    - name: web-link
-      type: string
-      select: first
-      pointer: /partner/partner_path
-      actions:
-        - type: format_text
-          argument: "{base_url}/{}/direct"
-    - name: channel
-      type: string
-      select: first
-      pointer: /channel/label
-    - name: channel
-      type: string
-      select: first
-      pointer: /partner/label
-    - name: img/poster > link
-      type: string
-      pointer: /images/*[type=vignette_16x9]/urls/w:1024
-      select: first
-    - name: img/poster > link
-      type: string
-      pointer: /program/images/*[type=vignette_16x9]/urls/w:1024
-      select: first
-    - name: img/landscape > link
-      type: string
-      pointer: /images/*[type=background_16x9]/urls/w:2500
-      select: first
-    - name: img/landscape > link
-      type: string
-      pointer: /program/images/*[type=background_16x9]/urls/w:2500
-      select: first
-
-  live_player_entries: &live_player_entries
-    - name: name
-      type: string
-      actions:
-        - type: format_text
-          argument: "FranceTV"
-    - name: resolver
-      type: object
-      select: first
-      entries:
-        - name: kind
-          type: string
-          actions:
-            - type: format_text
-              argument: "francetv-live"
-        - name: stream
-          type: object
-          select: first
-          entries:
-            - name: kind
-              type: string
-              actions:
-                - type: format_text
-                  argument: "francetv-license-proxy"
-        - name: target_id
-          type: string
-          actions:
-            - type: format_text
-              argument: "{channel}"
 
   section_entries: &section_entries
     - name: label
@@ -682,7 +513,15 @@ shared:
       select: all
       entries: *video_card_entries
 
+
+# ############################################################################
+# Queries
+# ############################################################################
 queries:
+
+  # --------------------------------------------------------------------------
+  # Service stream metadata
+  # --------------------------------------------------------------------------
   - name: service_stream_metadata
     scraper_type: static
     entries:
@@ -699,6 +538,101 @@ queries:
         type: object
         value: "{service_description}"
 
+  # ---------------------------------------------------------------
+  # Home page
+  # ---------------------------------------------------------------
+  - name: load_home
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{api_mobile}/generic/homepage?platform=apps_tv"
+    request_headers: *generic_request_headers
+    media_types: *media_types_francetv
+    row_pointer: /
+    entries:
+      - *source_entry
+      - name: categories
+        type: object[]
+        pointer: /collections/*[type=playlist_categories]/items/*
+        select: all
+        entries:
+          - name: key
+            type: string
+            select: first
+            pointer: /url_complete
+          - name: label
+            type: string
+            select: first
+            pointer: /label
+          - name: image
+            type: string
+            pointer: /images/*[type=background_16x9]/urls/w:1024
+            select: first
+          - name: request > name
+            type: string
+            actions:
+              - type: format_text
+                argument: "{source}"
+          - name: request > source
+            type: string
+            actions:
+              - type: format_text
+                argument: "{source}"
+          - name: request > query_url
+            type: string
+            select: first
+            pointer: /url_complete
+            actions: 
+              - type: format_text
+                argument: "{api_mobile}/apps/categories/{}?platform=apps&page=0"
+      - name: sections
+        type: object[]
+        pointer: /collections/*[type=mise_en_avant]
+        select: all
+        entries: *section_entries
+      - name: sections
+        type: object[]
+        pointer: /collections/*[type=playlist_mixed]
+        select: all
+        entries: *section_entries
+      - name: sections
+        type: object[]
+        pointer: /collections/*[type=playlist_top_10]
+        select: all
+        entries: *section_entries
+      - name: sections
+        type: object[]
+        pointer: /collections/*[type=playlist_program]
+        select: all
+        entries: *section_entries
+      - name: sections
+        type: object[]
+        pointer: /collections/*[type=playlist_video]
+        select: all
+        entries: *section_entries
+
+
+  # ---------------------------------------------------------------
+  # Category listing
+  # ---------------------------------------------------------------
+  - name: get_category
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{query_url}{query_separator}"
+    request_headers: *generic_request_headers
+    media_types: *media_types_francetv
+    row_pointer: /
+    entries:
+      - *source_entry
+      - name: sections
+        type: object[]
+        pointer: /collections/*
+        select: all
+        entries: *section_entries
+
+
+  # --------------------------------------------------------------------------
+  # Search
+  # --------------------------------------------------------------------------
   - name: search
     scraper_type: json
     base_url: "{base_url}"
@@ -769,117 +703,10 @@ queries:
         select: all
         entries: *video_card_entries
 
-  - name: load_home
-    scraper_type: json
-    base_url: "{base_url}"
-    query_url: "{api_mobile}/generic/homepage?platform=apps_tv"
-    request_headers: *generic_request_headers
-    media_types: *media_types_francetv
-    row_pointer: /
-    entries:
-      - *source_entry
-      - name: categories
-        type: object[]
-        pointer: /collections/*[type=playlist_categories]/items/*
-        select: all
-        entries:
-          - name: key
-            type: string
-            select: first
-            pointer: /url_complete
-          - name: label
-            type: string
-            select: first
-            pointer: /label
-          - name: image
-            type: string
-            pointer: /images/*[type=background_16x9]/urls/w:1024
-            select: first
-          - name: request > name
-            type: string
-            actions:
-              - type: format_text
-                argument: "{source}"
-          - name: request > source
-            type: string
-            actions:
-              - type: format_text
-                argument: "{source}"
-          - name: request > query_url
-            type: string
-            select: first
-            pointer: /url_complete
-            actions: *actions_api_category_link
-      - name: sections
-        type: object[]
-        pointer: /collections/*[type=mise_en_avant]
-        select: all
-        entries: *section_entries
-      - name: sections
-        type: object[]
-        pointer: /collections/*[type=playlist_mixed]
-        select: all
-        entries: *section_entries
-      - name: sections
-        type: object[]
-        pointer: /collections/*[type=playlist_top_10]
-        select: all
-        entries: *section_entries
-      - name: sections
-        type: object[]
-        pointer: /collections/*[type=playlist_program]
-        select: all
-        entries: *section_entries
-      - name: sections
-        type: object[]
-        pointer: /collections/*[type=playlist_video]
-        select: all
-        entries: *section_entries
 
-  - name: get_category
-    scraper_type: json
-    base_url: "{base_url}"
-    query_url: "{query_url}{query_separator}"
-    request_headers: *generic_request_headers
-    media_types: *media_types_francetv
-    row_pointer: /
-    entries:
-      - *source_entry
-      - name: sections
-        type: object[]
-        pointer: /collections/*
-        select: all
-        entries: *section_entries
-
-  - name: list_lives
-    scraper_type: json
-    base_url: "{base_url}"
-    query_url: "{api_mobile}/generic/directs?platform=apps"
-    request_headers: *generic_request_headers
-    media_types:
-      - video/live
-    row_pointer: /
-    result_item_field: entries
-    entries:
-      - name: entries
-        type: object[]
-        pointer: /items/*
-        select: all
-        entries: *live_item_entries
-
-  - name: get_live
-    scraper_type: json
-    base_url: "{base_url}"
-    query_url: "{api_mobile}/generic/directs?platform=apps"
-    request_headers: *generic_request_headers
-    media_types:
-      - video/live
-    row_pointer: /
-    entries:
-      - name: players
-        type: object[]
-        entries: *live_player_entries
-
+  # ---------------------------------------------------------------
+  # Entry detail page
+  # ---------------------------------------------------------------
   - name: get_entry
     scraper_type: json
     base_url: "{base_url}"
@@ -1025,12 +852,30 @@ queries:
                 argument: "francetv-license-proxy"
           - name: resolver > target_id
             type: string
-      - *item_image_poster_3x4
-      - *item_image_poster_2x3
-      - *item_image_poster_square
-      - *item_image_landscape_background
-      - *item_image_landscape_thumbnail
-      - *item_image_logo
+      - name: img/poster > link
+        type: string
+        pointer: /item/images/*[type=vignette_3x4]/urls/w:1024
+        select: first
+      - name: img/poster > link
+        type: string
+        pointer: /item/images/*[type=vignette_2x3]/urls/w:2000
+        select: first
+      - name: img/poster > link
+        type: string
+        pointer: /item/images/*[type=carre]/urls/w:800
+        select: first
+      - name: img/landscape > link
+        type: string
+        pointer: /item/images/*[type=background_16x9]/urls/w:2500
+        select: first
+      - name: img/landscape > link
+        type: string
+        pointer: /item/images/*[type=vignette_16x9]/urls/w:1024
+        select: first
+      - name: img/logo > link
+        type: string
+        pointer: /item/images/*[type=logo]/urls/w:450
+        select: first
       - name: seasons
         type: object[]
         pointer: /collections/*[type=playlist_video]
@@ -1070,3 +915,164 @@ queries:
             pointer: /items/*[type=bande-annonce]
             select: all
             entries: *episode_entries
+
+
+  # ---------------------------------------------------------------
+  # List lives
+  # ---------------------------------------------------------------
+  - name: list_lives
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{api_mobile}/generic/directs?platform=apps"
+    request_headers: *generic_request_headers
+    media_types:
+      - video/live
+    row_pointer: /
+    result_item_field: entries
+    entries:
+      - name: entries
+        type: object[]
+        pointer: /items/*
+        select: all
+        entries:
+          - name: title
+            type: string
+            select: first
+            pointer: /channel/label
+          - name: title
+            type: string
+            select: first
+            pointer: /partner/label
+          - name: title/alt
+            type: string
+            select: first
+            pointer: /program/label
+          - name: title/alt
+            type: string
+            select: first
+            pointer: /title
+          - name: description
+            type: string
+            select: first
+            pointer: /program/description
+            actions:
+              - type: html_to_text
+          - name: description
+            type: string
+            select: first
+            pointer: /description
+            actions:
+              - type: html_to_text
+          - name: key
+            type: string
+            select: first
+            pointer: /channel/channel_path
+          - name: key
+            type: string
+            select: first
+            pointer: /partner/partner_path
+          - name: key
+            type: string
+            select: first
+            pointer: /channel/si_id
+          - name: key
+            type: string
+            select: first
+            pointer: /partner/si_id
+          - name: media-type
+            type: string[]
+            actions:
+              - type: format_text
+                argument: "video/live"
+          - name: link
+            type: string
+            select: first
+            pointer: /channel/si_id
+          - name: link
+            type: string
+            select: first
+            pointer: /partner/si_id
+          - name: web-link
+            type: string
+            select: first
+            pointer: /channel/channel_path
+            actions:
+              - type: format_text
+                argument: "{base_url}/{}/direct.html"
+          - name: web-link
+            type: string
+            select: first
+            pointer: /partner/partner_path
+            actions:
+              - type: format_text
+                argument: "{base_url}/{}/direct"
+          - name: channel
+            type: string
+            select: first
+            pointer: /channel/label
+          - name: channel
+            type: string
+            select: first
+            pointer: /partner/label
+          - name: img/poster > link
+            type: string
+            pointer: /images/*[type=vignette_16x9]/urls/w:1024
+            select: first
+          - name: img/poster > link
+            type: string
+            pointer: /program/images/*[type=vignette_16x9]/urls/w:1024
+            select: first
+          - name: img/landscape > link
+            type: string
+            pointer: /images/*[type=background_16x9]/urls/w:2500
+            select: first
+          - name: img/landscape > link
+            type: string
+            pointer: /program/images/*[type=background_16x9]/urls/w:2500
+            select: first
+
+
+  # ---------------------------------------------------------------
+  # Get live
+  # ---------------------------------------------------------------
+  - name: get_live
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{api_mobile}/generic/directs?platform=apps"
+    request_headers: *generic_request_headers
+    media_types:
+      - video/live
+    row_pointer: /
+    entries:
+      - name: players
+        type: object[]
+        entries:
+          - name: name
+            type: string
+            actions:
+              - type: format_text
+                argument: "FranceTV"
+          - name: resolver
+            type: object
+            select: first
+            entries:
+              - name: kind
+                type: string
+                actions:
+                  - type: format_text
+                    argument: "francetv-live"
+              - name: stream
+                type: object
+                select: first
+                entries:
+                  - name: kind
+                    type: string
+                    actions:
+                      - type: format_text
+                        argument: "francetv-license-proxy"
+              - name: target_id
+                type: string
+                actions:
+                  - type: format_text
+                    argument: "{channel}"
+
