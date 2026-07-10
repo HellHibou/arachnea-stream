@@ -32,14 +32,19 @@ export interface EntryPlayableItem {
 export type EntryEpisode = EntryPlayableItem
 
 /**
- * Normalized embedded player entry consumed by the featured media detail component.
+ * Descriptor for a player that requires backend resolution to obtain a playable stream.
+ *
+ * `resolver` is a globally unique identifier for the resolution strategy (e.g. `stream-resolver`,
+ * `m6play-video`, `tf1-video`). `target` is the value expected by that resolver (a URL, a media
+ * identifier, etc.). `streamKind` is an optional internal variant for DRM proxy selection and
+ * is only used by legal resolvers during migration.
  */
 export interface EntryPlayerResolver {
   /** The kind of resolver to use. */
   kind: string
   /** The target identifier to resolve. */
   targetId: string
-  /** The kind of stream to resolve. */
+  /** The kind of stream to resolve (internal, used by legal resolvers during migration). */
   streamKind: string | null
 }
 
@@ -60,18 +65,47 @@ export interface EntryPlayerStoryboard {
 }
 
 /**
- * Resolved protected or direct stream returned by the backend player resolver.
+ * Resolved media stream returned by the backend `get_stream` command.
+ *
+ * This is one branch of the exclusive union `GetStreamResponse`:
+ * either a direct media payload with `streamUrl[]` or an iframe fallback with `embedLink`.
  */
 export interface EntryResolvedPlayerStream {
-  /** The URL to the stream manifest or media file. */
-  streamUrl: string
+  /** Ordered list of alternative stream URLs (primary first). */
+  streamUrl: string[]
   /** The type of the manifest (e.g., 'dash', 'hls'). */
   manifestType: string
+  /** Headers to include when requesting stream URLs. */
+  streamHeaders: Record<string, string>
   /** The URL to the DRM license server, or null for unprotected streams. */
   licenseUrl: string | null
   /** Headers to include when requesting the license. */
   licenseHeaders: Record<string, string>
+  /** Optional WebVTT sprite metadata. */
+  vttUrl: string | null
+  /** Optional sprite storyboard metadata. */
+  storyboard: EntryPlayerStoryboard | null
 }
+
+/**
+ * Fallback iframe response returned by `get_stream` when no YAML resolver matched the URL.
+ *
+ * The frontend renders this as an embed player, not as a video element.
+ */
+export interface EntryEmbedFallback {
+  /** The iframe embed URL to render. */
+  embedLink: string
+}
+
+/**
+ * Union type returned by the `get_stream` backend command.
+ *
+ * - When `streamUrl[]` is present, the frontend uses the native video player with the first
+ *   URL as primary and subsequent URLs as fallbacks on playback failure.
+ * - When `embedLink` is present (exclusive), the frontend renders an iframe.
+ * - The two branches are mutually exclusive.
+ */
+export type GetStreamResponse = EntryResolvedPlayerStream | EntryEmbedFallback
 
 /**
  * Normalized embedded player entry consumed by the featured media detail component.
@@ -81,7 +115,7 @@ export interface EntryPlayer {
   id: string
   /** The display label for the player. */
   label: string
-  /** The URL to embed this player. */
+  /** The URL to embed this player, or null when the player requires resolver resolution. */
   embedLink: string | null
   /** The direct URL to the media. */
   directLink: string | null

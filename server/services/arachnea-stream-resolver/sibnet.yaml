@@ -1,0 +1,76 @@
+id: sibnet
+title: Sibnet
+description:
+  fr: "Résolveur pour video.sibnet.ru"
+http:
+  mode: auto
+
+# ############################################################################
+# Parameters
+# ############################################################################
+parameters:
+  - name: url
+    value: ""
+    description: "URL de la page du lecteur à résoudre"
+
+
+# ############################################################################
+# Queries
+# ############################################################################
+queries:
+
+  # --------------------------------------------------------------------------
+  # can_resolve_url — détermine si cette règle peut résoudre l'URL
+  # --------------------------------------------------------------------------
+  - name: can_resolve_url
+    scraper_type: static
+    entries:
+      - name: resolver
+        type: string
+        value: "{url}"
+        actions:
+          - type: regex_find_all
+            pattern: '^https?://video\.sibnet\.ru/'
+            format: "{service_id}"
+
+  # --------------------------------------------------------------------------
+  # resolve_stream — extrait l'URL du flux vidéo depuis la page du lecteur
+  # --------------------------------------------------------------------------
+  - name: resolve_stream
+    scraper_type: html
+    base_url: "{url}"
+    query_url: "{url}"
+    row_selector: "html"
+    request_headers:
+      - name: "User-Agent"
+        actions:
+          - type: format_text
+            argument: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:148.0) Gecko/20100101 Firefox/148.0"
+      - name: "Referer"
+        actions:
+          - type: format_text
+            argument: "{url}"
+    entries:
+      - name: stream_url
+        type: string[]
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: 'sources:\s*\[([^\]]+)\]'
+            format: "{1}"
+          - type: regex_find_all
+            pattern: '["\']([^"\']+\.(?:mp4|m3u8)[^"\']*)["\']'
+            format: "{1}"
+      - name: stream_headers
+        type: object
+        entries:
+          - name: Referer
+            type: string
+            actions:
+              - type: format_text
+                argument: "{url}"
+      - name: manifest_type
+        type: string
+        actions:
+          - type: format_text
+            argument: "hls"

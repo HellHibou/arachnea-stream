@@ -1,6 +1,7 @@
 import type { MediaItem } from '@/types/media'
 import type {
   EntryDetails,
+  EntryEmbedFallback,
   EntryEpisode,
   EntryEpisodePage,
   EntryPlayer,
@@ -8,6 +9,7 @@ import type {
   EntryPlayerResolver,
   EntryResolvedPlayerStream,
   EntrySeason,
+  GetStreamResponse,
 } from '@/types/entry'
 import type {
   HomeBanner,
@@ -1264,12 +1266,32 @@ function normalizeEntryPlayer(
 }
 
 /**
- * Converts one backend player resolver payload into the frontend player resolver model.
+ * Converts one backend player descriptor into a frontend resolver model.
+ *
+ * Supports two formats:
+ * 1. YAML flat format (Phase 5): `resolver` and `target` as top-level player fields.
+ *    - `resolver`: string value such as `"stream-resolver"` (YAML key `resolver > value`)
+ *    - `target`: string URL extracted from the page (YAML key `target > value`)
+ * 2. Legacy object format: `resolver` as an array of objects with `kind`, `target_id`/`targetId`,
+ *    and optional `streamKind`.
  *
  * @param entry Raw backend player entry.
  * @returns Normalized resolver descriptor, or `null` when the player is self-contained.
  */
 function normalizeEntryPlayerResolver(entry: JsonRecord): EntryPlayerResolver | null {
+  // Try flat format first: resolver is a direct string value, target is a direct string value.
+  const flatKind = firstNonEmptyString([entry.resolver])
+  const flatTarget = firstNonEmptyString([entry.target, entry['target']])
+
+  if (flatKind && flatTarget) {
+    return {
+      kind: flatKind,
+      targetId: flatTarget,
+      streamKind: null,
+    }
+  }
+
+  // Fall back to the legacy object format (resolver as an array of objects).
   const resolver = readRecordList(entry.resolver)[0] ?? null
   const resolverStream = resolver ? readRecordList(readPath(resolver, 'stream'))[0] ?? null : null
 
@@ -1281,6 +1303,8 @@ function normalizeEntryPlayerResolver(entry: JsonRecord): EntryPlayerResolver | 
     readPath(resolver, 'target_id'),
     readPath(resolver, 'targetId'),
     readPath(entry, 'resolverTarget'),
+    // Also check flat target from legacy top-level key
+    flatTarget,
   ])
 
   if (!kind || !targetId) {
@@ -1348,6 +1372,8 @@ function normalizeEntryPlayerStoryboard(
 /**
  * Normalizes one backend player resolution payload into the frontend stream model.
  *
+ * `stream_url` is now a string array; a plain string is wrapped into a single‑element array.
+ *
  * @param payload Raw backend payload returned by `resolve_player_stream`.
  * @returns Normalized stream payload, or `null` when the backend returned nothing usable.
  */
@@ -1356,19 +1382,82 @@ function normalizeResolvedPlayerStream(payload: unknown): EntryResolvedPlayerStr
     return null
   }
 
-  const streamUrl = firstNonEmptyString([payload.stream_url, payload.streamUrl])
+  const streamUrlRaw = payload.stream_url ?? payload.streamUrl
+  const streamUrl: string[] = Array.isArray(streamUrlRaw)
+    ? streamUrlRaw.filter((url: unknown): url is string => typeof url === 'string' && url.trim().length > 0)
+    : (typeof streamUrlRaw === 'string' && streamUrlRaw.trim().length > 0
+        ? [streamUrlRaw.trim()]
+        : [])
+
   const manifestType = firstNonEmptyString([payload.manifest_type, payload.manifestType])
 
-  if (!streamUrl || !manifestType) {
+  if (streamUrl.length === 0 || !manifestType) {
     return null
   }
 
   return {
     streamUrl,
     manifestType,
+    streamHeaders: readStringMap(payload.stream_headers ?? payload.streamHeaders),
     licenseUrl: firstNonEmptyString([payload.license_url, payload.licenseUrl]),
     licenseHeaders: readStringMap(payload.license_headers ?? payload.licenseHeaders),
+    vttUrl: firstNonEmptyString([payload.vtt_url, payload.vttUrl]),
+    storyboard: normalizeRustifyStoryboard(payload.storyboard),
   }
+}
+
+/**
+ * Normalizes the optional storyboard node returned by the backend.
+ *
+ * @param value Backend storyboard node.
+ * @returns Normalized storyboard, or `null` when incomplete.
+ */
+function normalizeRustifyStoryboard(value: unknown): EntryPlayerStoryboard | null {
+  if (!isJsonRecord(value)) {
+    return null
+  }
+
+  const url = firstNonEmptyString([value.url, value.link])
+  const width = toPositiveInteger(firstNumber(value.width))
+  const height = toPositiveInteger(firstNumber(value.height))
+  const columns = toPositiveInteger(firstNumber(value.columns))
+  const interval = firstNumber(value.interval)
+
+  if (!url || !width || !height || !columns || interval === null || !Number.isFinite(interval) || interval <= 0) {
+    return null
+  }
+
+  return { url, width, height, columns, interval }
+}
+
+/**
+ * Normalizes one `get_stream` backend response into the frontend union type.
+ *
+ * The response can be either a resolved stream payload (`stream_url[]`, manifest type, etc.)
+ * or an iframe fallback (`embed-link`). The two branches are mutually exclusive.
+ *
+ * @param payload Raw backend payload returned by `get_stream`.
+ * @returns Normalized union response, or `null` when the payload is unusable.
+ */
+function normalizeGetStreamResponse(payload: unknown): GetStreamResponse | null {
+  if (!isJsonRecord(payload)) {
+    return null
+  }
+
+  // Prefer embed-link fallback when stream_url is absent
+  const embedLink = firstNonEmptyString([payload['embed-link'], payload.embedLink])
+  const streamUrl = payload.stream_url ?? payload.streamUrl
+
+  if (embedLink && !streamUrl) {
+    return { embedLink }
+  }
+
+  const resolvedStream = normalizeResolvedPlayerStream(payload)
+  if (resolvedStream) {
+    return resolvedStream
+  }
+
+  return null
 }
 
 /**

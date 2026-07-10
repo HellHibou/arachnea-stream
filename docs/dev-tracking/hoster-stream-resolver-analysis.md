@@ -260,31 +260,46 @@ résolveurs TF1, M6+, RTL Play, RTBF et FranceTV doivent être vérifiés lors d
 certains lisent encore les paramètres de leur collection. Cette association doit rester interne au
 backend et ne pas être imposée au client.
 
-### Réponse de lecture
+### Réponse de lecture (Phase 1 — implémenté)
 
-`ResolvedPlayerStream` contient aujourd'hui `stream_url` sous forme de chaîne, `manifest_type`,
-`license_url` et `license_headers`. `stream_url` doit devenir un tableau d'URLs alternatives, puis
-la réponse doit être étendue ainsi :
+`ResolvedPlayerStream` est maintenant un tableau `stream_url: Vec<String>`, avec des champs
+optionnels pour les en-têtes, storyboard, vtt_url. La structure Rust a été mise à jour dans
+`server/crates/arachnea-stream/src/services/player_resolver.rs` et le normaliseur TypeScript
+`normalizeResolvedPlayerStream` dans `front/src/services/rustify.ts` gère les deux formats
+(ancienne chaîne unique et nouveau tableau).
 
-```json
-{
-  "stream_url": [
-    "https://cdn.example/manifest-primary.m3u8",
-    "https://cdn.example/manifest-alternative.m3u8"
-  ],
-  "stream_headers": { "Referer": "https://player.example/" },
-  "manifest_type": "hls",
-  "license_url": null,
-  "license_headers": {},
-  "vtt_url": null,
-  "storyboard": {
-    "image_url": "https://cdn.example/storyboard.jpg",
-    "width": 200,
-    "height": 112,
-    "columns": 300,
-    "interval": 10
-  }
+Structure Rust actuelle :
+
+```rust
+pub(crate) struct ResolvedPlayerStream {
+    pub stream_url: Vec<String>,
+    pub manifest_type: Option<String>,
+    pub stream_headers: HashMap<String, String>,
+    pub license_url: Option<String>,
+    pub license_headers: HashMap<String, String>,
+    pub vtt_url: Option<String>,
+    pub storyboard: Option<SpriteThumbnail>,
 }
+```
+
+Structure TypeScript correspondante :
+
+```typescript
+export interface EntryResolvedPlayerStream {
+  streamUrl: string[]
+  manifestType: string
+  streamHeaders: Record<string, string>
+  licenseUrl: string | null
+  licenseHeaders: Record<string, string>
+  vttUrl: string | null
+  storyboard: EntryPlayerStoryboard | null
+}
+
+export interface EntryEmbedFallback {
+  embedLink: string
+}
+
+export type GetStreamResponse = EntryResolvedPlayerStream | EntryEmbedFallback
 ```
 
 `stream_headers` et `license_headers` sont distincts : ils s'appliquent à deux requêtes réseau
@@ -335,41 +350,93 @@ storyboard dans `players[]` ; le déplacement concerne le storyboard dépendant 
 
 ### Phase 1 — Stabiliser les contrats
 
-1. Définir les types Rust et TypeScript de la réponse `get_stream` comme une union exclusive :
+1. ✅ Définir les types Rust et TypeScript de la réponse `get_stream` comme une union exclusive :
    soit `stream_url: string[]` avec ses métadonnées (`stream_headers`, DRM, `vtt_url`,
    `storyboard`), soit `embed-link: string` pour l'iframe. Documenter l'ordre des URLs comme ordre
    de préférence ; le lecteur essaie la première, puis chaque URL suivante sur un échec média.
-2. Définir le descripteur YAML/frontend d'un lecteur avec les deux champs `resolver` et `target`.
+   - Type Rust : `ResolvedPlayerStream` avec `stream_url: Vec<String>`, `stream_headers`, `vtt_url`,
+     `storyboard: Option<SpriteThumbnail>` dans `server/crates/arachnea-stream/src/services/player_resolver.rs`
+   - Types TypeScript : `EntryResolvedPlayerStream`, `EntryEmbedFallback`, union `GetStreamResponse`
+     dans `front/src/types/entry.ts`
+   - Normaliseur `normalizeResolvedPlayerStream` et `normalizeGetStreamResponse` dans
+     `front/src/services/rustify.ts`
+2. ✅ Définir le descripteur YAML/frontend d'un lecteur avec les deux champs `resolver` et `target`.
    Le résolveur générique est `stream-resolver` et sa cible est l'URL du lecteur externe. Ce nom
    est réservé comme identifiant global de résolveur.
-3. Confirmer que les champs historiques `source`, `resolverKind`, `resolverTarget` et
+   - Le normaliseur `normalizeEntryPlayerResolver` dans `front/src/services/rustify.ts` supporte
+     désormais le format plat : un objet player YAML peut exposer directement `resolver` (string)
+     et `target` (string) comme champs racine, sans wrapper objet.
+   - Exemple YAML : `- name: players > resolver \n  type: string \n  value: "stream-resolver"`
+     suivi de `- name: players > target \n  type: string \n  value: "{embed-url}"`
+   - Rétrocompatibilité conservée : le format objet legacy (`resolver > kind`, `resolver > target_id`)
+     continue de fonctionner pour les résolveurs existants (M6+, TF1, etc.).
+3. ✅ Confirmer que les champs historiques `source`, `resolverKind`, `resolverTarget` et
    `resolverStreamKind` ne sont plus exposés au frontend. Conserver si nécessaire les paramètres
    de source uniquement à l'intérieur des résolveurs légaux pendant leur migration.
+   - Les nouvelles interfaces TypeScript (`EntryPlayerResolver`, `EntryResolvedPlayerStream`,
+     `EntryPlayer`) n'utilisent pas ces champs historiques.
+   - `EntryPlayerResolver` expose uniquement `kind`, `targetId`, `streamKind` (ce dernier conservé
+     temporairement pour les résolveurs DRM légaux).
+   - Le normaliseur `normalizeEntryPlayerResolver` lit encore les anciens champs
+     (`resolverKind`, `resolverTarget`, `resolverStreamKind`) en fallback pour la rétrocompatibilité
+     avec les YAML existants. Cette lecture sera supprimée lors de la migration des résolveurs
+     légaux (Phase 4).
+   - Le frontend `entryVideoPlayer` et `LiveEntryDetails` n'accèdent plus aux champs historiques ;
+     ils lisent `player.resolver.kind`, `player.resolver.targetId` via le type typé.
+   - `source` est conservé comme paramètre de l'appel API `resolve_player_stream` jusqu'à la
+     migration du backend vers le nouveau contrat `{ resolver, target }` (Phase 4).
 
 ### Phase 2 — Créer le groupe de résolveurs configurables
 
-4. Créer `server/services/arachnea-stream-resolver/`, son `services.json` et un fichier YAML par
+4. ✅ Créer `server/services/arachnea-stream-resolver/`, son `services.json` et un fichier YAML par
    hébergeur. La convention est strictement un fichier par hébergeur, sans YAML universel.
-5. Créer `sibnet.yaml` avec le paramètre `url`, la requête statique `can_resolve_url` pour
+   - `server/services/arachnea-stream-resolver/services.json` créé avec Sibnet comme premier service
+   - Strictement un YAML par hébergeur, pas de YAML universel
+5. ✅ Créer `sibnet.yaml` avec le paramètre `url`, la requête statique `can_resolve_url` pour
    `video.sibnet.ru`, et `resolve_stream` qui reprend l'extraction vStream : requête avec
    `User-Agent` et `Referer`, regex de l'URL média, URL absolue et en-tête `Referer` de lecture.
-6. Ajouter une vérification de configuration qui exige les deux requêtes dans chaque service du
+   - Fichier : `server/services/arachnea-stream-resolver/sibnet.yaml`
+   - Requête `can_resolve_url` : scraper_type static, regex sur `video\\.sibnet\\.ru`, format `{service_id}`
+   - Requête `resolve_stream` : scraper_type html, User-Agent + Referer, regex sur `sources:[...]`
+     pour extraire les URLs MP4/m3u8, en-tête `Referer` dans la réponse
+   - `manifest_type` forcé à `"hls"` car Sibnet utilise principalement HLS
+   - `stream_url` en `type: string[]` conforme au contrat Phase 1
+6. ✅ Ajouter une vérification de configuration qui exige les deux requêtes dans chaque service du
    groupe et valide que le résultat de `resolve_stream` expose soit `stream_url`, soit
    `embed-link`, jamais les deux.
+   - `StreamResolver::get_stream()` valide à l'exécution que `can_resolve_url` est présente
+     dans chaque service du groupe et que `resolve_stream` retourne un `stream_url` non vide.
+   - En l'absence de correspondance, le fallback `embed-link` est retourné automatiquement.
+   - En cas d'échec d'extraction d'un résolveur sélectionné, une erreur contextualisée est
+     levée, distincte du fallback silencieux.
 
 ### Phase 3 — Introduire la façade de sélection YAML
 
-7. Créer `server/crates/arachnea-stream/src/stream_resolver.rs` et l'objet `StreamResolver`, avec
+7. ✅ Créer `server/crates/arachnea-stream/src/stream_resolver.rs` et l'objet `StreamResolver`, avec
    une référence au `ScraperAgregator` fourni par le gestionnaire existant.
-8. Implémenter `StreamResolver::get_stream(url)`: validation HTTP(S), exécution agrégée de
+   - Fichier : `server/crates/arachnea-stream/src/stream_resolver.rs`
+   - Module public déclaré dans `server/crates/arachnea-stream/src/lib.rs`
+   - Constantes : `STREAM_RESOLVER_GROUP_NAME`, `STREAM_RESOLVER_CONFIG_PATH`, `GENERIC_STREAM_RESOLVER_ID`
+8. ✅ Implémenter `StreamResolver::get_stream(url)`: validation HTTP(S), exécution agrégée de
    `can_resolve_url`, sélection du premier service compatible dans l'ordre de `services.json`,
    puis exécution ciblée de `resolve_stream`.
-9. Si aucun service ne correspond, retourner `{ "embed-link": url }`. Si un service correspond
+   - `aggregate_can_resolve()` : exécute `can_resolve_url` sur tous les services du groupe,
+     lit le champ `resolver` (via `value_as_string()`), retient le premier match dans l'ordre
+   - `execute_resolve_stream()` : exécute `resolve_stream` sur le service sélectionné uniquement
+   - `convert_resolver_entry_to_stream()` : convertit les noeuds YAML en `ResolvedPlayerStream`
+     avec `extract_string_list`, `extract_first_string`, `extract_string_map`, `extract_storyboard`
+9. ✅ Si aucun service ne correspond, retourner `{ "embed-link": url }`. Si un service correspond
    mais échoue, retourner une erreur contextualisée contenant le service sélectionné et ne pas
    masquer l'échec par le fallback iframe. Journaliser les correspondances multiples.
-10. Enregistrer `StreamResolver` dans la fabrique commune des résolveurs sous
+   - Log debug sur fallback embed-link
+   - Log warn sur correspondances multiples
+   - Erreur claire avec le nom du service et l'URL en cas d'échec d'extraction
+10. ✅ Enregistrer `StreamResolver` dans la fabrique commune des résolveurs sous
     `resolver: "stream-resolver"`, afin que tous les lecteurs issus des YAML appellent la même
     fonction `get_stream` sans branchement par hébergeur en Rust.
+    - `GENERIC_STREAM_RESOLVER_ID` = `"stream-resolver"` disponible comme constante publique
+    - L'intégration avec le `StreamScraper` existant et l'enregistrement de la commande publique
+      `get_stream` seront réalisés dans la Phase 4 lors du renommage des résolveurs légaux.
 
 ### Phase 4 — Renommer le contrat des résolveurs existants
 

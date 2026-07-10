@@ -19,19 +19,45 @@ const DRM_TODAY_TOKEN_TTL: Duration = Duration::from_secs(15 * 60);
 static DRM_TODAY_TOKEN_CACHE: OnceLock<Mutex<HashMap<String, CachedDrmTodayLicenseToken>>> =
     OnceLock::new();
 
+/// Sprite thumbnail metadata for video storyboards.
+#[derive(Serialize)]
+pub(crate) struct SpriteThumbnail {
+    /// The URL to the sprite thumbnail image.
+    pub url: String,
+    /// The width of each thumbnail in the sprite.
+    pub width: u32,
+    /// The height of each thumbnail in the sprite.
+    pub height: u32,
+    /// The number of columns in the sprite image.
+    pub columns: u32,
+    /// The time interval between thumbnails in seconds.
+    pub interval: f64,
+}
+
 /// Playback stream resolved by a source-specific player resolver.
 #[derive(Serialize)]
 pub(crate) struct ResolvedPlayerStream {
-    /// Direct media manifest URL.
-    pub stream_url: String,
+    /// Ordered list of alternative stream manifest URLs (primary first).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stream_url: Vec<String>,
     /// Manifest type consumed by the frontend player, such as `mpd` or `m3u8`.
-    pub manifest_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manifest_type: Option<String>,
+    /// Extra headers sent by the frontend player when requesting stream URLs.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub stream_headers: HashMap<String, String>,
     /// Same-origin license proxy URL for protected streams.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub license_url: Option<String>,
     /// Extra headers sent by the frontend player when requesting the license.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub license_headers: HashMap<String, String>,
+    /// Optional WebVTT sprite metadata URL.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vtt_url: Option<String>,
+    /// Optional sprite storyboard metadata.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub storyboard: Option<SpriteThumbnail>,
 }
 
 /// Binary response returned by a resolver-owned stream proxy.
