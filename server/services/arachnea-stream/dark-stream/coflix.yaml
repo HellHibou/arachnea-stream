@@ -12,7 +12,7 @@ http:
 # ############################################################################
 parameters:
   - name: base_url
-    value: https://coflix.trade
+    value: https://coflix.wiki
     description: "Base URL — update on domain change"
 
 
@@ -498,7 +498,7 @@ queries:
   - name: search
     scraper_type: json
     base_url: "{base_url}"
-    query_url: "{base_url}/suggest.php?query={search_terms}"
+    query_url: "{base_url}/filter?keyword={search_terms}"
     media_types: *media_types_coflix
     row_pointer: "/"
     entries:
