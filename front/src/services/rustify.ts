@@ -993,23 +993,19 @@ export async function getSeasonEpisodes(
  * Resolves one backend player into a directly playable stream when the source needs a custom
  * playback handshake such as DRM token retrieval.
  *
- * @param source Backend source name that owns the selected player.
  * @param player Normalized player descriptor selected in the UI.
  * @returns Resolved stream payload, or `null` when the player does not need extra resolution.
  */
-export async function resolvePlayerStream(
-  source: string,
+export async function getStream(
   player: EntryPlayer,
 ): Promise<EntryResolvedPlayerStream | null> {
   if (!player.resolver) {
     return null
   }
 
-  const response = await call_api<unknown>('resolve_player_stream', {
-    source,
-    resolverKind: player.resolver.kind,
-    resolverTarget: player.resolver.targetId,
-    resolverStreamKind: player.resolver.streamKind,
+  const response = await call_api<unknown>('get_stream', {
+    resolver: player.resolver.kind,
+    target: player.resolver.targetId,
   })
 
   return normalizeResolvedPlayerStream(response)
@@ -1273,7 +1269,7 @@ function normalizeEntryPlayer(
  *    - `resolver`: string value such as `"stream-resolver"` (YAML key `resolver > value`)
  *    - `target`: string URL extracted from the page (YAML key `target > value`)
  * 2. Legacy object format: `resolver` as an array of objects with `kind`, `target_id`/`targetId`,
- *    and optional `streamKind`.
+ *    and no longer exposes a stream-kind override.
  *
  * @param entry Raw backend player entry.
  * @returns Normalized resolver descriptor, or `null` when the player is self-contained.
@@ -1284,16 +1280,11 @@ function normalizeEntryPlayerResolver(entry: JsonRecord): EntryPlayerResolver | 
   const flatTarget = firstNonEmptyString([entry.target, entry['target']])
 
   if (flatKind && flatTarget) {
-    return {
-      kind: flatKind,
-      targetId: flatTarget,
-      streamKind: null,
-    }
+    return { kind: flatKind, targetId: flatTarget }
   }
 
   // Fall back to the legacy object format (resolver as an array of objects).
   const resolver = readRecordList(entry.resolver)[0] ?? null
-  const resolverStream = resolver ? readRecordList(readPath(resolver, 'stream'))[0] ?? null : null
 
   const kind = firstNonEmptyString([
     readPath(resolver, 'kind'),
@@ -1311,17 +1302,7 @@ function normalizeEntryPlayerResolver(entry: JsonRecord): EntryPlayerResolver | 
     return null
   }
 
-  const streamKind = firstNonEmptyString([
-    readPath(resolverStream, 'kind'),
-    readPath(resolver, 'streamKind'),
-    readPath(entry, 'resolverStreamKind'),
-  ])
-
-  return {
-    kind,
-    targetId,
-    streamKind,
-  }
+  return { kind, targetId }
 }
 
 /**
@@ -1374,7 +1355,7 @@ function normalizeEntryPlayerStoryboard(
  *
  * `stream_url` is now a string array; a plain string is wrapped into a single‑element array.
  *
- * @param payload Raw backend payload returned by `resolve_player_stream`.
+ * @param payload Raw backend payload returned by `get_stream`.
  * @returns Normalized stream payload, or `null` when the backend returned nothing usable.
  */
 function normalizeResolvedPlayerStream(payload: unknown): EntryResolvedPlayerStream | null {

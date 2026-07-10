@@ -36,16 +36,13 @@ export type EntryEpisode = EntryPlayableItem
  *
  * `resolver` is a globally unique identifier for the resolution strategy (e.g. `stream-resolver`,
  * `m6play-video`, `tf1-video`). `target` is the value expected by that resolver (a URL, a media
- * identifier, etc.). `streamKind` is an optional internal variant for DRM proxy selection and
- * is only used by legal resolvers during migration.
+ * identifier, etc.).
  */
 export interface EntryPlayerResolver {
   /** The kind of resolver to use. */
   kind: string
   /** The target identifier to resolve. */
   targetId: string
-  /** The kind of stream to resolve (internal, used by legal resolvers during migration). */
-  streamKind: string | null
 }
 
 /**

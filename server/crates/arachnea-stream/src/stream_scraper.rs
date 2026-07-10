@@ -17,10 +17,14 @@ use arachnea_scrapyfy::*;
 use crate::services::{
     francetv_resolver::FrancetvResolver,
     m6play_resolver::M6PlayResolver,
-    player_resolver::{PlayerResolverEndpoints, PlayerStreamResolver, ResolvedPlayerStream},
+    player_resolver::{PlayerResolverEndpoints, PlayerStreamResolver},
     rtbf_auvio_resolver::RtbfAuvioResolver,
     rtlplay_resolver::RtlPlayResolver,
     tf1_resolver::Tf1Resolver,
+};
+use crate::stream_resolver::{
+    ResolvedStream, StreamResolver, GENERIC_STREAM_RESOLVER_ID, STREAM_RESOLVER_CONFIG_PATH,
+    STREAM_RESOLVER_GROUP_NAME,
 };
 
 /// Default group name used by the stream scraper crate.
@@ -35,7 +39,7 @@ pub const DEFAULT_SERVICES_CONFIG_PATH: &str = concatcp!(
 );
 
 const HTTP_PROXY_COMMAND: &str = "proxy";
-const STREAM_PROXY_COMMAND: &str = "get_stream";
+const DRM_LICENSE_PROXY_COMMAND: &str = "get_drm_license";
 
 static M6PLAY_RESOLVER: M6PlayResolver = M6PlayResolver;
 static RTBF_AUVIO_RESOLVER: RtbfAuvioResolver = RtbfAuvioResolver;
@@ -84,14 +88,9 @@ struct GetLiveRequest {
 }
 
 #[derive(Serialize, Deserialize)]
-struct ResolvePlayerStreamRequest {
-    source: String,
-    #[serde(alias = "resolverKind")]
-    resolver_kind: String,
-    #[serde(alias = "resolverTarget")]
-    resolver_target: String,
-    #[serde(default, alias = "resolverStreamKind")]
-    resolver_stream_kind: Option<String>,
+struct GetStreamRequest {
+    resolver: String,
+    target: String,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -196,6 +195,12 @@ impl StreamScraper {
             .add_query_collection_from_config_json(
                 STREAM_SERVICE_GROUP_NAME,
                 json_path.unwrap_or(DEFAULT_SERVICES_CONFIG_PATH),
+            )?;
+        instance
+            .scraper_agregator
+            .add_query_collection_from_config_json(
+                STREAM_RESOLVER_GROUP_NAME,
+                STREAM_RESOLVER_CONFIG_PATH,
             )?;
 
         Ok(instance)
@@ -627,35 +632,35 @@ impl StreamScraper {
         Ok(root.children)
     }
 
-    async fn resolve_player_stream(
-        &self,
-        query_source: String,
-        resolver_kind: String,
-        resolver_target: String,
-        resolver_stream_kind: Option<String>,
-    ) -> Result<ResolvedPlayerStream> {
-        let source = query_source.trim();
-        let resolver = player_resolver_for_source(source)
-            .ok_or_else(|| anyhow::anyhow!("Unsupported player source `{}`.", source))?;
+    async fn get_stream(&self, resolver_id: String, target: String) -> Result<ResolvedStream> {
+        if resolver_id.trim() == GENERIC_STREAM_RESOLVER_ID {
+            return StreamResolver::new(&self.scraper_agregator)
+                .get_stream(&target)
+                .await;
+        }
+
+        let resolver = player_resolver_for_id(&resolver_id)
+            .ok_or_else(|| anyhow::anyhow!("Unsupported player resolver `{}`.", resolver_id))?;
         let service_parameters = self
             .scraper_agregator
-            .query_collection_parameters(STREAM_SERVICE_GROUP_NAME, source)
+            .query_collection_parameters(STREAM_SERVICE_GROUP_NAME, resolver.source_id())
             .unwrap_or(&[]);
 
-        resolver
-            .resolve_player_stream(
-                &self.scraper_agregator,
-                self.credentials_store.as_ref(),
-                &resolver_kind,
-                &resolver_target,
-                resolver_stream_kind,
-                service_parameters,
-                &self.player_resolver_endpoints,
-            )
-            .await
+        Ok(ResolvedStream::Stream(
+            resolver
+                .get_stream(
+                    &self.scraper_agregator,
+                    self.credentials_store.as_ref(),
+                    &resolver_id,
+                    &target,
+                    service_parameters,
+                    &self.player_resolver_endpoints,
+                )
+                .await?,
+        ))
     }
 
-    async fn get_stream(&self, input: ControlerStreamInput) -> Result<ControlerStreamOutput> {
+    async fn get_drm_license(&self, input: ControlerStreamInput) -> Result<ControlerStreamOutput> {
         let stream_token = input.path.trim_matches('/').trim();
         if stream_token.is_empty() {
             bail!("Missing stream token.");
@@ -667,7 +672,7 @@ impl StreamScraper {
         let resolver = player_resolver_for_source(source)
             .ok_or_else(|| anyhow::anyhow!("Unsupported stream source `{}`.", source))?;
         let response = resolver
-            .get_stream(&self.scraper_agregator, token, &input.body)
+            .get_drm_license(&self.scraper_agregator, token, &input.body)
             .await?;
 
         Ok(ControlerStreamOutput {
@@ -705,6 +710,19 @@ fn player_resolver_for_source(source: &str) -> Option<&'static dyn PlayerStreamR
     }
 }
 
+fn player_resolver_for_id(resolver_id: &str) -> Option<&'static dyn PlayerStreamResolver> {
+    let resolver_id = resolver_id.trim();
+    [
+        &M6PLAY_RESOLVER as &dyn PlayerStreamResolver,
+        &RTBF_AUVIO_RESOLVER,
+        &RTLPLAY_RESOLVER,
+        &TF1_RESOLVER,
+        &FRANCETV_RESOLVER,
+    ]
+    .into_iter()
+    .find(|resolver| resolver.resolver_ids().contains(&resolver_id))
+}
+
 impl ScraperManager for StreamScraper {
     fn get_scraper_agregator_mut(&mut self) -> &mut ScraperAgregator {
         &mut self.scraper_agregator
@@ -715,6 +733,9 @@ impl ScraperManager for StreamScraper {
     }
 
     fn register_service(mut self, controler: &mut dyn ControlerService) {
+        self.player_resolver_endpoints.drm_license_public_path =
+            controler.stream_public_path(DRM_LICENSE_PROXY_COMMAND);
+
         let proxy_core = match self.proxy_http_core.clone() {
             Some(proxy_core) => Some(proxy_core),
             None => match ArachneaProxyCore::new(ProxyConfig::default()) {
@@ -829,24 +850,17 @@ impl ScraperManager for StreamScraper {
         );
 
         controler.register_result_function_with_state(
-            "resolve_player_stream",
+            "get_stream",
             Arc::clone(&connector),
-            |scraper, input: ResolvePlayerStreamRequest| async move {
-                scraper
-                    .resolve_player_stream(
-                        input.source,
-                        input.resolver_kind,
-                        input.resolver_target,
-                        input.resolver_stream_kind,
-                    )
-                    .await
+            |scraper, input: GetStreamRequest| async move {
+                scraper.get_stream(input.resolver, input.target).await
             },
         );
 
         controler.register_stream_function_with_state(
-            STREAM_PROXY_COMMAND,
+            DRM_LICENSE_PROXY_COMMAND,
             Arc::clone(&connector),
-            |scraper, input| async move { scraper.get_stream(input).await },
+            |scraper, input| async move { scraper.get_drm_license(input).await },
         );
     }
 }

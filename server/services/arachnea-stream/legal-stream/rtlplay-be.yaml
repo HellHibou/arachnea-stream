@@ -401,13 +401,6 @@ shared:
       actions:
         - type: format_text
           argument: "rtlplay-video"
-    - name: players > resolver > stream > kind
-      type: string
-      select: first
-      pointer: /id
-      actions:
-        - type: format_text
-          argument: "widevine-license-proxy"
     - name: players > resolver > target_id
       type: string
       select: first
@@ -1064,13 +1057,6 @@ queries:
         actions:
           - type: format_text
             argument: "rtlplay-video"
-      - name: players > resolver > stream > kind
-        type: string
-        select: first
-        pointer: /primaryButton/playableId
-        actions:
-          - type: format_text
-            argument: "widevine-license-proxy"
       - name: players > resolver > target_id
         type: string
         select: first
@@ -1195,15 +1181,6 @@ queries:
                 actions:
                   - type: format_text
                     argument: "rtlplay-live"
-              - name: stream
-                type: object
-                select: first
-                entries:
-                  - name: kind
-                    type: string
-                    actions:
-                      - type: format_text
-                        argument: "widevine-license-proxy"
               - name: target_id
                 type: string
                 actions:

@@ -64,15 +64,6 @@ shared:
           actions:
             - type: format_text
               argument: "rtbf-auvio-live"
-        - name: stream
-          type: object
-          select: first
-          entries:
-            - name: kind
-              type: string
-              actions:
-                - type: format_text
-                  argument: "redbee-license-proxy"
         - name: target_id
           type: string
 
@@ -144,15 +135,6 @@ shared:
               actions:
                 - type: format_text
                   argument: "rtbf-auvio-video"
-            - name: stream
-              type: object
-              select: first
-              entries:
-                - name: kind
-                  type: string
-                  actions:
-                    - type: format_text
-                      argument: "redbee-license-proxy"
             - name: target_id
               type: string
               select: first
@@ -815,15 +797,6 @@ queries:
                 actions:
                   - type: format_text
                     argument: "rtbf-auvio-video"
-              - name: stream
-                type: object
-                select: first
-                entries:
-                  - name: kind
-                    type: string
-                    actions:
-                      - type: format_text
-                        argument: "redbee-license-proxy"
               - name: target_id
                 type: string
                 select: first
@@ -1060,15 +1033,6 @@ queries:
                     actions:
                       - type: format_text
                         argument: "rtbf-auvio-video"
-                  - name: stream
-                    type: object
-                    select: first
-                    entries:
-                      - name: kind
-                        type: string
-                        actions:
-                          - type: format_text
-                            argument: "redbee-license-proxy"
                   - name: target_id
                     type: string
                     select: first

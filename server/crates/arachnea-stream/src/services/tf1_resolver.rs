@@ -27,7 +27,6 @@ const TF1_LOGIN_URL: &str = "https://compte.tf1.fr/accounts.login";
 const TF1_TOKEN_URL: &str = "https://www.tf1.fr/token/gigya/web";
 const TF1_MEDIA_INFO_URL_TEMPLATE: &str = "https://mediainfo.tf1.fr/mediainfocombo/{}";
 const TF1_FALLBACK_LICENSE_URL_TEMPLATE: &str = "https://drm-wide.tf1.fr/proxy?id={}";
-const STREAM_PROXY_PATH_PREFIX: &str = "/api/get_stream/";
 const TF1_PROXY_STREAM_KIND: &str = "tf1-license-proxy";
 const TF1_PROXY_COUNTRY: &str = "FR";
 const TF1_SESSION_TTL: Duration = Duration::from_secs(15 * 60);
@@ -64,23 +63,26 @@ impl PlayerStreamResolver for Tf1Resolver {
         TF1_SERVICE_ID
     }
 
-    async fn resolve_player_stream(
+    fn resolver_ids(&self) -> &'static [&'static str] {
+        &["tf1-video", "tf1-live"]
+    }
+
+    async fn get_stream(
         &self,
         scraper_agregator: &ScraperAgregator,
         credentials_store: &dyn CredentialsStore,
-        resolver_kind: &str,
-        resolver_target: &str,
-        resolver_stream_kind: Option<String>,
+        resolver: &str,
+        target: &str,
         _service_parameters: &[ScraperQueryCollectionParameter],
         endpoints: &PlayerResolverEndpoints,
     ) -> Result<ResolvedPlayerStream> {
-        match resolver_kind.trim() {
+        match resolver.trim() {
             "tf1-video" => {
                 resolve_replay_stream(
                     scraper_agregator,
                     credentials_store,
-                    resolver_target,
-                    resolver_stream_kind,
+                    target,
+                    None,
                     endpoints,
                 )
                 .await
@@ -89,8 +91,8 @@ impl PlayerStreamResolver for Tf1Resolver {
                 resolve_live_stream(
                     scraper_agregator,
                     credentials_store,
-                    resolver_target,
-                    resolver_stream_kind,
+                    target,
+                    None,
                     endpoints,
                 )
                 .await
@@ -103,7 +105,7 @@ impl PlayerStreamResolver for Tf1Resolver {
         }
     }
 
-    async fn get_stream(
+    async fn get_drm_license(
         &self,
         scraper_agregator: &ScraperAgregator,
         stream_token: &str,
@@ -326,18 +328,20 @@ async fn build_resolved_player_stream(
         .to_string();
     let license_headers = extract_license_headers(delivery);
     let stream_kind = normalize_stream_kind(stream_kind);
-    let proxy_url = save_tf1_license_proxy_url(&license_url, &license_headers, &stream_kind);
+    let proxy_url =
+        save_tf1_license_proxy_url(endpoints, &license_url, &license_headers, &stream_kind);
 
     Ok(ResolvedPlayerStream {
-        stream_url: proxied_url(
+        stream_url: vec![proxied_url(
             &manifest_url,
             endpoints.http_proxy_public_path.as_deref(),
             None,
             &[],
-        ),
-        manifest_type,
+        )],
+        manifest_type: Some(manifest_type),
         license_url: Some(proxy_url),
         license_headers: HashMap::new(),
+        ..Default::default()
     })
 }
 
@@ -723,17 +727,13 @@ fn save_cached_session(login: &str, session: &Tf1Session) {
 }
 
 fn save_tf1_license_proxy_url(
+    endpoints: &PlayerResolverEndpoints,
     license_url: &str,
     headers: &HashMap<String, String>,
     stream_kind: &str,
 ) -> String {
     let token = save_cached_license(license_url, headers, stream_kind);
-    format!(
-        "{}{}/{}",
-        STREAM_PROXY_PATH_PREFIX,
-        TF1_SERVICE_ID.trim_matches('/'),
-        token
-    )
+    endpoints.drm_license_url(TF1_SERVICE_ID, &token)
 }
 
 fn save_cached_license(

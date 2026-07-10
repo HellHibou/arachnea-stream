@@ -440,14 +440,17 @@ storyboard dans `players[]` ; le déplacement concerne le storyboard dépendant 
 
 ### Phase 4 — Renommer le contrat des résolveurs existants
 
-11. Renommer la commande JSON `resolve_player_stream` en `get_stream`; elle reçoit `{ resolver,
+11. ✅ Renommer la commande JSON `resolve_player_stream` en `get_stream`; elle reçoit `{ resolver,
     target }` et retourne l'union de résolution ci-dessus.
-12. Renommer la commande binaire DRM actuelle `get_stream` en `get_drm_license`, le trait associé
+12. ✅ Renommer la commande binaire DRM actuelle `get_stream` en `get_drm_license`, le trait associé
     de la même manière, et les chemins générés en `/api/get_drm_license/...`. La migration est
     directe : l'ancienne route `/api/get_stream/...` est supprimée.
-13. Adapter tous les résolveurs légaux (M6+, RTL Play, RTBF, TF1, FranceTV) au nouveau trait,
+13. ✅ Adapter tous les résolveurs légaux (M6+, RTL Play, RTBF, TF1, FranceTV) au nouveau trait,
     supprimer `resolverStreamKind` des YAML lorsqu'il ne fait que répéter une valeur par défaut et
     vérifier l'unicité globale de chaque valeur `resolver`.
+    - Le registre interne associe chaque identifiant global (`m6play-video`, `tf1-live`, etc.) à
+      son résolveur et conserve son identifiant de service uniquement pour charger les paramètres
+      YAML nécessaires.
 
 ### Phase 5 — Migrer les YAML de lecteurs
 

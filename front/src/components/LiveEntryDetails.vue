@@ -6,7 +6,7 @@ import EntryDetailsCatalogSection from './entry-details/EntryDetailsCatalogSecti
 import {
   getLivePlayers,
   listLiveMediaItems,
-  resolvePlayerStream,
+  getStream,
 } from '@/services/rustify'
 import {
   resolveBackendStreamMediaSource,
@@ -284,10 +284,10 @@ async function resolveSelectedLiveMedia(player: EntryPlayer | null) {
 
   try {
     const nextMediaSource = player.resolver
-      ? await resolvePlayerStream(selectedLiveItem.value.source, player).then((resolvedStream) =>
+      ? await getStream(player).then((resolvedStream) =>
           resolvedStream
             ? resolveBackendStreamMediaSource(
-                resolvedStream.streamUrl,
+                resolvedStream.streamUrl[0] ?? null,
                 resolvedStream.manifestType,
                 resolvedStream.licenseUrl,
                 resolvedStream.licenseHeaders,

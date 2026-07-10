@@ -813,15 +813,6 @@ shared:
           actions:
             - type: format_text
               argument: "tf1-live"
-        - name: stream
-          type: object
-          select: first
-          entries:
-            - name: kind
-              type: string
-              actions:
-                - type: format_text
-                  argument: "tf1-license-proxy"
         - name: target_id
           type: string
           actions:
@@ -1399,15 +1390,6 @@ queries:
                     actions:
                       - type: format_text
                         argument: tf1-video
-                  - name: stream
-                    type: object
-                    select: first
-                    entries:
-                      - name: kind
-                        type: string
-                        actions:
-                          - type: format_text
-                            argument: tf1-license-proxy
                   - name: target_id
                     type: string
                     select: first
@@ -1448,15 +1430,6 @@ queries:
                     actions:
                       - type: format_text
                         argument: tf1-video
-                  - name: stream
-                    type: object
-                    select: first
-                    entries:
-                      - name: kind
-                        type: string
-                        actions:
-                          - type: format_text
-                            argument: tf1-license-proxy
                   - name: target_id
                     type: string
                     select: first
@@ -1560,15 +1533,6 @@ queries:
                     actions:
                       - type: format_text
                         argument: tf1-video
-                  - name: stream
-                    type: object
-                    select: first
-                    entries:
-                      - name: kind
-                        type: string
-                        actions:
-                          - type: format_text
-                            argument: tf1-license-proxy
                   - name: target_id
                     type: string
                     select: first

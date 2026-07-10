@@ -96,25 +96,29 @@ impl PlayerStreamResolver for RtlPlayResolver {
         RTLPLAY_SERVICE_ID
     }
 
-    async fn resolve_player_stream(
+    fn resolver_ids(&self) -> &'static [&'static str] {
+        &["rtlplay-video", "rtlplay-live"]
+    }
+
+    async fn get_stream(
         &self,
         scraper_agregator: &ScraperAgregator,
         credentials_store: &dyn CredentialsStore,
-        resolver_kind: &str,
-        resolver_target: &str,
-        resolver_stream_kind: Option<String>,
+        resolver: &str,
+        target: &str,
         service_parameters: &[ScraperQueryCollectionParameter],
-        _endpoints: &PlayerResolverEndpoints,
+        endpoints: &PlayerResolverEndpoints,
     ) -> Result<ResolvedPlayerStream> {
-        match resolver_kind.trim() {
+        match resolver.trim() {
             "rtlplay-video" => {
                 let api_version = RtlPlayApiVersion::from_parameters(service_parameters)?;
                 resolve_replay_stream(
                     scraper_agregator,
                     credentials_store,
-                    resolver_target,
-                    resolver_stream_kind,
+                    target,
+                    None,
                     &api_version,
+                    endpoints,
                 )
                 .await
             }
@@ -123,9 +127,10 @@ impl PlayerStreamResolver for RtlPlayResolver {
                 resolve_live_stream(
                     scraper_agregator,
                     credentials_store,
-                    resolver_target,
-                    resolver_stream_kind,
+                    target,
+                    None,
                     &api_version,
+                    endpoints,
                 )
                 .await
             }
@@ -137,7 +142,7 @@ impl PlayerStreamResolver for RtlPlayResolver {
         }
     }
 
-    async fn get_stream(
+    async fn get_drm_license(
         &self,
         _scraper_agregator: &ScraperAgregator,
         stream_token: &str,
@@ -153,6 +158,7 @@ async fn resolve_replay_stream(
     video_id: &str,
     stream_kind: Option<String>,
     api_version: &RtlPlayApiVersion,
+    endpoints: &PlayerResolverEndpoints,
 ) -> Result<ResolvedPlayerStream> {
     let normalized_video_id = video_id.trim();
     if normalized_video_id.is_empty() {
@@ -167,7 +173,7 @@ async fn resolve_replay_stream(
     let resolved =
         resolve_final_video_url(&http_client, &session, &video_url, false, api_version).await?;
 
-    build_resolved_player_stream(resolved, stream_kind)
+    build_resolved_player_stream(resolved, stream_kind, endpoints)
 }
 
 async fn resolve_live_stream(
@@ -176,6 +182,7 @@ async fn resolve_live_stream(
     channel_id: &str,
     stream_kind: Option<String>,
     api_version: &RtlPlayApiVersion,
+    endpoints: &PlayerResolverEndpoints,
 ) -> Result<ResolvedPlayerStream> {
     let normalized_channel = normalize_live_channel(channel_id)?;
 
@@ -186,16 +193,18 @@ async fn resolve_live_stream(
     let video_url = format!("{}/direct/{}", BASE_URL, normalized_channel.as_str());
     let resolved =
         resolve_final_video_url(&http_client, &session, &video_url, true, api_version).await?;
-    build_resolved_player_stream(resolved, stream_kind)
+    build_resolved_player_stream(resolved, stream_kind, endpoints)
 }
 
 fn build_resolved_player_stream(
     resolved: ResolvedRtlPlayVideo,
     stream_kind: Option<String>,
+    endpoints: &PlayerResolverEndpoints,
 ) -> Result<ResolvedPlayerStream> {
     let license_url = resolved.license_token.as_deref().map(|license_token| {
         let stream_kind = normalize_stream_kind(stream_kind);
         save_drm_today_license_proxy_url(
+            endpoints,
             RTLPLAY_SERVICE_ID,
             license_token,
             &stream_kind,
@@ -208,10 +217,11 @@ fn build_resolved_player_stream(
     });
 
     Ok(ResolvedPlayerStream {
-        stream_url: resolved.manifest_url,
-        manifest_type: "mpd".to_string(),
+        stream_url: vec![resolved.manifest_url],
+        manifest_type: Some("mpd".to_string()),
         license_url,
         license_headers: HashMap::new(),
+        ..Default::default()
     })
 }
 

@@ -20,7 +20,6 @@ const RTBF_GIGYA_LOGIN_URL: &str = "https://login.auvio.rtbf.be/accounts.login";
 const RTBF_GIGYA_JWT_URL: &str = "https://login.auvio.rtbf.be/accounts.getJWT";
 const REDBEE_API_ROOT: &str =
     "https://exposure.api.redbee.live:443/v2/customer/RTBF/businessunit/Auvio";
-const STREAM_PROXY_PATH_PREFIX: &str = "/api/get_stream/";
 const DEFAULT_STREAM_KIND: &str = "redbee-license-proxy";
 const REDBEE_TOKEN_TTL: Duration = Duration::from_secs(55 * 60);
 
@@ -48,23 +47,26 @@ impl PlayerStreamResolver for RtbfAuvioResolver {
         RTBF_AUVIO_SERVICE_ID
     }
 
-    async fn resolve_player_stream(
+    fn resolver_ids(&self) -> &'static [&'static str] {
+        &["rtbf-auvio-live", "rtbf-auvio-video"]
+    }
+
+    async fn get_stream(
         &self,
         scraper_agregator: &ScraperAgregator,
         credentials_store: &dyn CredentialsStore,
-        resolver_kind: &str,
-        resolver_target: &str,
-        resolver_stream_kind: Option<String>,
+        resolver: &str,
+        target: &str,
         _service_parameters: &[ScraperQueryCollectionParameter],
         endpoints: &PlayerResolverEndpoints,
     ) -> Result<ResolvedPlayerStream> {
-        match resolver_kind.trim() {
+        match resolver.trim() {
             "rtbf-auvio-live" | "rtbf-auvio-video" => {
                 resolve_redbee_stream(
                     scraper_agregator,
                     credentials_store,
-                    resolver_target,
-                    resolver_stream_kind,
+                    target,
+                    None,
                     endpoints,
                 )
                 .await
@@ -77,7 +79,7 @@ impl PlayerStreamResolver for RtbfAuvioResolver {
         }
     }
 
-    async fn get_stream(
+    async fn get_drm_license(
         &self,
         _scraper_agregator: &ScraperAgregator,
         stream_token: &str,
@@ -108,16 +110,17 @@ async fn resolve_redbee_stream(
     let stream_kind = normalize_redbee_stream_kind(stream_kind);
     let license_url = selected_format
         .license_url
-        .map(|license_url| save_redbee_license_proxy_url(&license_url, &stream_kind));
+        .map(|license_url| save_redbee_license_proxy_url(endpoints, &license_url, &stream_kind));
 
     Ok(ResolvedPlayerStream {
-        stream_url: proxied_redbee_media_url(
+        stream_url: vec![proxied_redbee_media_url(
             &selected_format.media_locator,
             endpoints.http_proxy_public_path.as_deref(),
-        ),
-        manifest_type: selected_format.manifest_type,
+        )],
+        manifest_type: Some(selected_format.manifest_type),
         license_url,
         license_headers: HashMap::new(),
+        ..Default::default()
     })
 }
 
@@ -447,14 +450,13 @@ fn normalize_redbee_stream_kind(stream_kind: Option<String>) -> String {
         .unwrap_or_else(|| DEFAULT_STREAM_KIND.to_string())
 }
 
-fn save_redbee_license_proxy_url(license_url: &str, stream_kind: &str) -> String {
+fn save_redbee_license_proxy_url(
+    endpoints: &PlayerResolverEndpoints,
+    license_url: &str,
+    stream_kind: &str,
+) -> String {
     let token_id = save_redbee_license_token(license_url, stream_kind);
-    format!(
-        "{}{}/{}",
-        STREAM_PROXY_PATH_PREFIX,
-        RTBF_AUVIO_SERVICE_ID,
-        token_id.trim()
-    )
+    endpoints.drm_license_url(RTBF_AUVIO_SERVICE_ID, &token_id)
 }
 
 fn save_redbee_license_token(license_url: &str, stream_kind: &str) -> String {

@@ -67,23 +67,26 @@ impl PlayerStreamResolver for M6PlayResolver {
         M6PLAY_SERVICE_ID
     }
 
-    async fn resolve_player_stream(
+    fn resolver_ids(&self) -> &'static [&'static str] {
+        &["m6play-video", "m6play-live"]
+    }
+
+    async fn get_stream(
         &self,
         scraper_agregator: &ScraperAgregator,
         credentials_store: &dyn CredentialsStore,
-        resolver_kind: &str,
-        resolver_target: &str,
-        resolver_stream_kind: Option<String>,
+        resolver: &str,
+        target: &str,
         _service_parameters: &[ScraperQueryCollectionParameter],
         endpoints: &PlayerResolverEndpoints,
     ) -> Result<ResolvedPlayerStream> {
-        match resolver_kind.trim() {
+        match resolver.trim() {
             "m6play-video" => {
                 resolve_replay_stream(
                     scraper_agregator,
                     credentials_store,
-                    resolver_target,
-                    resolver_stream_kind,
+                    target,
+                    None,
                     endpoints,
                 )
                 .await
@@ -92,8 +95,8 @@ impl PlayerStreamResolver for M6PlayResolver {
                 resolve_live_stream(
                     scraper_agregator,
                     credentials_store,
-                    resolver_target,
-                    resolver_stream_kind,
+                    target,
+                    None,
                     endpoints,
                 )
                 .await
@@ -106,7 +109,7 @@ impl PlayerStreamResolver for M6PlayResolver {
         }
     }
 
-    async fn get_stream(
+    async fn get_drm_license(
         &self,
         _scraper_agregator: &ScraperAgregator,
         stream_token: &str,
@@ -134,6 +137,7 @@ async fn resolve_replay_stream(
     let manifest_url = fetch_best_manifest_url(&http_client, normalized_video_id).await?;
     let stream_kind = normalize_stream_kind(stream_kind);
     let license_url = save_drm_today_license_proxy_url(
+        endpoints,
         M6PLAY_SERVICE_ID,
         &upfront_token,
         &stream_kind,
@@ -143,15 +147,16 @@ async fn resolve_replay_stream(
     let stream_actions = stream_headers();
 
     Ok(ResolvedPlayerStream {
-        stream_url: proxied_url(
+        stream_url: vec![proxied_url(
             &manifest_url,
             endpoints.http_proxy_public_path.as_deref(),
             Some(M6PLAY_PROXY_COUNTRY),
             &stream_actions,
-        ),
-        manifest_type: "mpd".to_string(),
+        )],
+        manifest_type: Some("mpd".to_string()),
         license_url: Some(license_url),
         license_headers: HashMap::new(),
+        ..Default::default()
     })
 }
 
@@ -244,6 +249,7 @@ async fn resolve_live_stream(
 
     let stream_kind = normalize_stream_kind(stream_kind);
     let license_url = save_drm_today_license_proxy_url(
+        endpoints,
         M6PLAY_SERVICE_ID,
         &token,
         &stream_kind,
@@ -253,15 +259,16 @@ async fn resolve_live_stream(
     let stream_actions = stream_headers();
 
     Ok(ResolvedPlayerStream {
-        stream_url: proxied_url(
+        stream_url: vec![proxied_url(
             &manifest_url,
             endpoints.http_proxy_public_path.as_deref(),
             Some(M6PLAY_PROXY_COUNTRY),
             &stream_actions,
-        ),
-        manifest_type: "mpd".to_string(),
+        )],
+        manifest_type: Some("mpd".to_string()),
         license_url: Some(license_url),
         license_headers: HashMap::new(),
+        ..Default::default()
     })
 }
 

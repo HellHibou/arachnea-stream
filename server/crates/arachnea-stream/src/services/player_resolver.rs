@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use arachnea_core::persistence::CredentialsStore;
 use arachnea_scrapyfy::{ScraperAgregator, ScraperQueryCollectionParameter};
 
-const STREAM_PROXY_PATH_PREFIX: &str = "/api/get_stream/";
+const DEFAULT_DRM_LICENSE_PUBLIC_PATH: &str = "/api/get_drm_license";
 const DEFAULT_STREAM_KIND: &str = "widevine-license-proxy";
 const DRM_TODAY_TOKEN_TTL: Duration = Duration::from_secs(15 * 60);
 
@@ -35,7 +35,7 @@ pub(crate) struct SpriteThumbnail {
 }
 
 /// Playback stream resolved by a source-specific player resolver.
-#[derive(Serialize)]
+#[derive(Default, Serialize)]
 pub(crate) struct ResolvedPlayerStream {
     /// Ordered list of alternative stream manifest URLs (primary first).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -71,10 +71,33 @@ pub(crate) struct ProxiedStreamResponse {
 }
 
 /// Browser-facing stream endpoints available to source-specific resolvers.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub(crate) struct PlayerResolverEndpoints {
     /// Public path for the generic HTTP proxy stream command.
     pub http_proxy_public_path: Option<String>,
+    /// Public path for DRM license proxy requests.
+    pub drm_license_public_path: String,
+}
+
+impl Default for PlayerResolverEndpoints {
+    fn default() -> Self {
+        Self {
+            http_proxy_public_path: None,
+            drm_license_public_path: DEFAULT_DRM_LICENSE_PUBLIC_PATH.to_string(),
+        }
+    }
+}
+
+impl PlayerResolverEndpoints {
+    /// Builds the public URL for one source-owned DRM license token.
+    pub fn drm_license_url(&self, service_id: &str, token_id: &str) -> String {
+        format!(
+            "{}/{}/{}",
+            self.drm_license_public_path.trim_end_matches('/'),
+            service_id.trim_matches('/'),
+            token_id.trim_matches('/')
+        )
+    }
 }
 
 /// Common contract implemented by source-specific protected playback resolvers.
@@ -83,20 +106,22 @@ pub(crate) trait PlayerStreamResolver: Send + Sync {
     /// Stable service/source identifier used by YAML and stream routing.
     fn source_id(&self) -> &'static str;
 
+    /// Globally unique resolver identifiers handled by this implementation.
+    fn resolver_ids(&self) -> &'static [&'static str];
+
     /// Resolves one YAML player descriptor into a playable stream.
-    async fn resolve_player_stream(
+    async fn get_stream(
         &self,
         scraper_agregator: &ScraperAgregator,
         credentials_store: &dyn CredentialsStore,
-        resolver_kind: &str,
-        resolver_target: &str,
-        resolver_stream_kind: Option<String>,
+        resolver: &str,
+        target: &str,
         service_parameters: &[ScraperQueryCollectionParameter],
         endpoints: &PlayerResolverEndpoints,
     ) -> Result<ResolvedPlayerStream>;
 
     /// Handles a follow-up binary stream request owned by this resolver.
-    async fn get_stream(
+    async fn get_drm_license(
         &self,
         scraper_agregator: &ScraperAgregator,
         stream_token: &str,
@@ -128,6 +153,7 @@ pub(crate) fn normalize_stream_kind(stream_kind: Option<String>) -> String {
 
 /// Stores a DRM Today token and returns the same-origin proxy URL exposed to the frontend.
 pub(crate) fn save_drm_today_license_proxy_url(
+    endpoints: &PlayerResolverEndpoints,
     service_id: &str,
     auth_token: &str,
     stream_kind: &str,
@@ -141,12 +167,7 @@ pub(crate) fn save_drm_today_license_proxy_url(
         customer_name.map(str::to_string),
     );
 
-    format!(
-        "{}{}/{}",
-        STREAM_PROXY_PATH_PREFIX,
-        service_id.trim_matches('/'),
-        token_id.trim()
-    )
+    endpoints.drm_license_url(service_id, &token_id)
 }
 
 /// Proxies one Widevine challenge to DRM Today using the cached source token.

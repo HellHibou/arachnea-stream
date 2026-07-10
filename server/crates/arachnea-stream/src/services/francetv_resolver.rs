@@ -28,7 +28,6 @@ const FRANCETV_DEFAULT_TOKEN_URL: &str = "https://hdfauth.ftven.fr/esi/TA";
 const FRANCETV_WIDEVINE_LICENSE_URL: &str =
     "https://api-drm.ftven.fr/v1/wvls/contentlicenseservice/v1/licenses/";
 const FRANCETV_PROXY_STREAM_KIND: &str = "francetv-license-proxy";
-const STREAM_PROXY_PATH_PREFIX: &str = "/api/get_stream/";
 const FRANCETV_LICENSE_TTL: Duration = Duration::from_secs(15 * 60);
 const USER_AGENT: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:148.0) Gecko/20100101 Firefox/148.0";
@@ -53,22 +52,25 @@ impl PlayerStreamResolver for FrancetvResolver {
         FRANCETV_SERVICE_ID
     }
 
-    async fn resolve_player_stream(
+    fn resolver_ids(&self) -> &'static [&'static str] {
+        &["francetv-video", "francetv-live"]
+    }
+
+    async fn get_stream(
         &self,
         scraper_agregator: &ScraperAgregator,
         _credentials_store: &dyn CredentialsStore,
-        resolver_kind: &str,
-        resolver_target: &str,
-        resolver_stream_kind: Option<String>,
+        resolver: &str,
+        target: &str,
         service_parameters: &[ScraperQueryCollectionParameter],
         endpoints: &PlayerResolverEndpoints,
     ) -> Result<ResolvedPlayerStream> {
-        match resolver_kind.trim() {
+        match resolver.trim() {
             "francetv-video" => {
                 resolve_francetv_stream(
                     scraper_agregator,
-                    resolver_target,
-                    resolver_stream_kind,
+                    target,
+                    None,
                     service_parameters,
                     endpoints,
                     false,
@@ -78,8 +80,8 @@ impl PlayerStreamResolver for FrancetvResolver {
             "francetv-live" => {
                 resolve_francetv_stream(
                     scraper_agregator,
-                    resolver_target,
-                    resolver_stream_kind,
+                    target,
+                    None,
                     service_parameters,
                     endpoints,
                     true,
@@ -94,7 +96,7 @@ impl PlayerStreamResolver for FrancetvResolver {
         }
     }
 
-    async fn get_stream(
+    async fn get_drm_license(
         &self,
         _scraper_agregator: &ScraperAgregator,
         stream_token: &str,
@@ -156,10 +158,11 @@ async fn resolve_francetv_stream(
 
     if !drm_enabled {
         return Ok(ResolvedPlayerStream {
-            stream_url: stream_url_proxy,
-            manifest_type,
+            stream_url: vec![stream_url_proxy],
+            manifest_type: Some(manifest_type),
             license_url: None,
             license_headers: HashMap::new(),
+            ..Default::default()
         });
     }
 
@@ -169,16 +172,18 @@ async fn resolve_francetv_stream(
             .await?;
     let stream_kind = normalize_francetv_stream_kind(stream_kind);
     let license_url = save_francetv_license_proxy_url(
+        endpoints,
         &authorization_token,
         &stream_kind,
         FRANCETV_WIDEVINE_LICENSE_URL,
     );
 
     Ok(ResolvedPlayerStream {
-        stream_url: stream_url_proxy,
-        manifest_type,
+        stream_url: vec![stream_url_proxy],
+        manifest_type: Some(manifest_type),
         license_url: Some(license_url),
         license_headers: HashMap::new(),
+        ..Default::default()
     })
 }
 
@@ -375,17 +380,13 @@ fn read_json_string(payload: &Value, path: &[&str], error_message: &str) -> Resu
 }
 
 fn save_francetv_license_proxy_url(
+    endpoints: &PlayerResolverEndpoints,
     authorization_token: &str,
     stream_kind: &str,
     license_url: &str,
 ) -> String {
     let token = save_cached_license(authorization_token, stream_kind, license_url);
-    format!(
-        "{}{}/{}",
-        STREAM_PROXY_PATH_PREFIX,
-        FRANCETV_SERVICE_ID.trim_matches('/'),
-        token
-    )
+    endpoints.drm_license_url(FRANCETV_SERVICE_ID, &token)
 }
 
 fn save_cached_license(authorization_token: &str, stream_kind: &str, license_url: &str) -> String {

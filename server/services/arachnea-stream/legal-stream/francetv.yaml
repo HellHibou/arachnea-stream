@@ -430,11 +430,6 @@ shared:
           actions:
             - type: format_text
               argument: "francetv-video"
-        - name: resolver > stream > kind
-          type: string
-          actions:
-            - type: format_text
-              argument: "francetv-license-proxy"
         - name: resolver > target_id
           type: string
     - name: img/preview > link
@@ -845,11 +840,6 @@ queries:
             actions:
               - type: format_text
                 argument: "francetv-video"
-          - name: resolver > stream > kind
-            type: string
-            actions:
-              - type: format_text
-                argument: "francetv-license-proxy"
           - name: resolver > target_id
             type: string
       - name: img/poster > link
@@ -1061,15 +1051,6 @@ queries:
                 actions:
                   - type: format_text
                     argument: "francetv-live"
-              - name: stream
-                type: object
-                select: first
-                entries:
-                  - name: kind
-                    type: string
-                    actions:
-                      - type: format_text
-                        argument: "francetv-license-proxy"
               - name: target_id
                 type: string
                 actions:

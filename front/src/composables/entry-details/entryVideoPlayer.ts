@@ -8,7 +8,7 @@ import {
   type ResolvedPlayerMediaSource,
   type ResolvedVideoSpriteThumbnails,
 } from '@/services/players'
-import { resolvePlayerStream } from '@/services/rustify'
+import { getStream } from '@/services/rustify'
 import type { EntryDetails, EntryPlayableItem, EntryPlayer } from '@/types/entry'
 
 /** Sentinel value used for players without a language code. */
@@ -637,7 +637,7 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
       isMediaPlayerLoading.value = true
 
       try {
-        const resolvedStream = await resolvePlayerStream(source, currentPlayer)
+        const resolvedStream = await getStream(currentPlayer)
 
         if (resolutionId !== activeResolutionId) {
           return
@@ -645,7 +645,7 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
 
         const nextMediaSource = resolvedStream
           ? resolveBackendStreamMediaSource(
-              resolvedStream.streamUrl,
+              resolvedStream.streamUrl[0] ?? null,
               resolvedStream.manifestType,
               resolvedStream.licenseUrl,
               resolvedStream.licenseHeaders,
