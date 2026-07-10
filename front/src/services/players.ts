@@ -42,6 +42,8 @@ export interface ResolvedVideoMediaSource {
   licenseHeaders: Record<string, string>
   /** The sprite storyboard metadata for this source. */
   storyboard: ResolvedVideoSpriteThumbnails | null
+  /** Optional WebVTT metadata URL, preferred over sprite thumbnail metadata. */
+  vttUrl?: string | null
 }
 
 /** Union type for all resolved player media sources. */
@@ -384,6 +386,7 @@ export function resolveBackendStreamMediaSource(
   manifestType: string | null,
   licenseUrl: string | null = null,
   licenseHeaders: Record<string, string> = {},
+  vttUrl: string | null = null,
 ): ResolvedPlayerMediaSource | null {
   const normalizedManifestType = manifestType?.trim().toLocaleLowerCase() ?? null
   const normalizedStreamUrl = resolveAbsoluteUrl(streamUrl)
@@ -401,6 +404,7 @@ export function resolveBackendStreamMediaSource(
       licenseUrl: resolveAbsoluteUrl(licenseUrl),
       licenseHeaders,
       storyboard: null,
+      vttUrl: resolveAbsoluteUrl(vttUrl),
     }
   }
 
@@ -413,6 +417,7 @@ export function resolveBackendStreamMediaSource(
       licenseUrl: null,
       licenseHeaders: {},
       storyboard: null,
+      vttUrl: resolveAbsoluteUrl(vttUrl),
     }
   }
 

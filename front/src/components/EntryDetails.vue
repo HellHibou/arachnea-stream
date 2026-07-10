@@ -213,6 +213,8 @@ const emit = defineEmits<{
   'playback-started': [sourceUrl: string | null]
   /** Emitted when media playback ends. */
   'playback-ended': []
+  /** Emitted when the active Video.js source fails. */
+  'source-error': []
 }>()
 </script>
 
@@ -310,6 +312,7 @@ const emit = defineEmits<{
              @update:is-autoplay-enabled="emit('update:is-autoplay-enabled', $event)"
              @playback-started="emit('playback-started', $event)"
              @playback-ended="emit('playback-ended')"
+             @source-error="emit('source-error')"
            />
 
            <EntryDetailsMetadata

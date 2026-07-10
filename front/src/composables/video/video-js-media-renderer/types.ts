@@ -135,6 +135,7 @@ export interface VideoJsMediaRendererEmits {
   (evt: 'video-initial-load-complete'): void
   (evt: 'video-metadata-loaded', value: VideoJsMediaDimensions): void
   (evt: 'navigate-video', direction: -1 | 1): void
+  (evt: 'source-error'): void
 }
 
 /**

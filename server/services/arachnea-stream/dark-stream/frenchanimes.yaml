@@ -641,7 +641,10 @@ queries:
             actions:
               - type: format_text
                 argument: "Episode {}"
-          - name: players > embed-link
+          - name: players > resolver
+            type: string
+            value: "stream-resolver"
+          - name: players > target
             type: string
             capture_group: 2
             actions:

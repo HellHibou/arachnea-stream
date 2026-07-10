@@ -454,7 +454,7 @@ storyboard dans `players[]` ; le déplacement concerne le storyboard dépendant 
 
 ### Phase 5 — Migrer les YAML de lecteurs
 
-14. Remplacer chaque `players > embed-link` DarkStream par le descripteur :
+14. ✅ Remplacer chaque `players > embed-link` DarkStream par le descripteur :
 
     ```yaml
     - name: players > resolver
@@ -465,11 +465,11 @@ storyboard dans `players[]` ; le déplacement concerne le storyboard dépendant 
       # extraction de l'ancienne URL embed-link
     ```
 
-15. Appliquer cette conversion aux occurrences de `anime-sama.yaml`, `coflix.yaml` et
+15. ✅ Appliquer cette conversion aux occurrences de `anime-sama.yaml`, `coflix.yaml` et
     `frenchanimes.yaml`, y compris les post-traitements qui construisent actuellement des listes de
     joueurs via `nested_value_field: embed-link`. Ils doivent cibler `target` et ajouter le
     résolveur constant au joueur généré.
-16. Vérifier qu'aucun autre YAML DarkStream ne produit encore `embed-link`, et ne pas modifier les
+16. ✅ Vérifier qu'aucun autre YAML DarkStream ne produit encore `embed-link`, et ne pas modifier les
     `direct-link`, qui restent des médias immédiatement lisibles.
 
 ### Phase 6 — Migrer le frontend Vue sans nouveau composant
@@ -479,28 +479,28 @@ Répartition des responsabilités : `rustify.ts` normalise exclusivement la rép
 la même résolution pour le direct ; `VideoPlayer` conserve son rôle de rendu et reçoit une source
 déjà normalisée. Aucun de ces composants ne connaît le nom d'un hébergeur.
 
-17. Retirer `embedLink` de `EntryPlayer` et du normaliseur des joueurs dans `rustify.ts`. Un joueur
+17. ✅ Retirer `embedLink` de `EntryPlayer` et du normaliseur des joueurs dans `rustify.ts`. Un joueur
     est désormais soit un `directLink`, soit un descripteur `{ resolver, target }`.
-18. Faire de `normalizeResolvedPlayerStream` un normaliseur d'union : `stream_url` devient une
+18. ✅ Faire de `normalizeResolvedPlayerStream` un normaliseur d'union : `stream_url` devient une
     liste et `embed-link` produit une source de média iframe, en réutilisant
     `resolveIframeMediaSource`. Le champ `embed-link` n'est donc jamais réintroduit dans
     `EntryPlayer`.
-19. Adapter `entryVideoPlayer` et `LiveEntryDetails` pour appeler `get_stream` sur tout joueur
+19. ✅ Adapter `entryVideoPlayer` et `LiveEntryDetails` pour appeler `get_stream` sur tout joueur
     ayant un résolveur. Ils affectent la source résolue existante à partir de l'union retournée :
     lecteur vidéo pour `stream_url`, iframe pour `embed-link`. Les branches qui lisent
     `player.embedLink` sont supprimées.
-20. Conserver l'état local de résolution actuel (`shallowRef` et identifiant de requête) afin
+20. ✅ Conserver l'état local de résolution actuel (`shallowRef` et identifiant de requête) afin
     d'ignorer une réponse asynchrone devenue obsolète. Aucune nouvelle couche d'état globale ni
     aucun nouveau composant ne sont nécessaires : `rustify.ts` adapte le contrat et les deux
     composables/pages consomment une source média déjà normalisée.
-21. Conserver les URLs alternatives de `stream_url` dans l'état de résolution local, avec un index
+21. ✅ Conserver les URLs alternatives de `stream_url` dans l'état de résolution local, avec un index
     actif. Au premier échec média, remplacer la source par l'URL suivante sans rappeler le backend ;
     après épuisement, afficher l'erreur existante. Réinitialiser cet index quand le joueur, l'entrée
     ou la réponse de résolution change.
-22. Ajouter un événement typé d'échec de source depuis le rendu Video.js et le propager par les
+22. ✅ Ajouter un événement typé d'échec de source depuis le rendu Video.js et le propager par les
     composants existants vers `entryVideoPlayer` et `LiveEntryDetails`. Cette remontée suit le flux
     props/événements existant ; aucune logique de bascule n'est placée dans un composant de rendu.
-23. Attacher `vtt_url` en priorité, puis `storyboard`, uniquement à une source vidéo résolue. Une
+23. ✅ Attacher `vtt_url` en priorité, puis `storyboard`, uniquement à une source vidéo résolue. Une
     réponse `embed-link` reste une iframe et n'essaie pas de charger ces métadonnées dans Video.js.
 
 ### Phase 7 — Déplacer le storyboard M6+ et documenter

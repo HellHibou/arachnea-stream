@@ -215,6 +215,7 @@ const {
   rememberCurrentLanguage,
   /** Function to remember current player selection. */
   rememberCurrentPlayer,
+  handleMediaSourceError,
 } = entryVideoPlayer({
   details,
   selectedPlayableItem: selectedEpisode,
@@ -899,6 +900,7 @@ async function handleMediaPlaybackEnded() {
     @update:is-autoplay-enabled="handleEpisodeAutoplayPreferenceUpdate"
     @playback-started="handleMediaPlaybackStarted"
     @playback-ended="handleMediaPlaybackEnded"
+    @source-error="handleMediaSourceError"
   >
     <EntryDetailsCatalogSection
       :group-items="seasonItems"

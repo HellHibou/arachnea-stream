@@ -998,7 +998,7 @@ export async function getSeasonEpisodes(
  */
 export async function getStream(
   player: EntryPlayer,
-): Promise<EntryResolvedPlayerStream | null> {
+): Promise<GetStreamResponse | null> {
   if (!player.resolver) {
     return null
   }
@@ -1008,7 +1008,7 @@ export async function getStream(
     target: player.resolver.targetId,
   })
 
-  return normalizeResolvedPlayerStream(response)
+  return normalizeGetStreamResponse(response)
 }
 
 /**
@@ -1226,7 +1226,9 @@ function normalizeEntryPlayer(
     firstNonEmptyString([entry['direct-link'], entry.directLink]),
     source,
   )
-  const resolver = normalizeEntryPlayerResolver(entry)
+  const resolver = normalizeEntryPlayerResolver(entry) ?? (embedLink
+    ? { kind: 'stream-resolver', targetId: embedLink }
+    : null)
   const name = firstNonEmptyString([entry.name])
   const lang = firstNonEmptyString([entry.lang])
   const label = buildPlayerLabel(name, lang, index)
@@ -1240,7 +1242,6 @@ function normalizeEntryPlayer(
     return {
       id: buildMediaId(index, resolver?.targetId ?? null, label, source),
       label,
-      embedLink: null,
       directLink: null,
       name,
       lang,
@@ -1252,7 +1253,6 @@ function normalizeEntryPlayer(
   return {
     id: buildMediaId(index, directLink ?? embedLink, label, source),
     label,
-    embedLink,
     directLink,
     name,
     lang,

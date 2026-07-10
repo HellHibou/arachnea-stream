@@ -112,8 +112,6 @@ export interface EntryPlayer {
   id: string
   /** The display label for the player. */
   label: string
-  /** The URL to embed this player, or null when the player requires resolver resolution. */
-  embedLink: string | null
   /** The direct URL to the media. */
   directLink: string | null
   /** The name of the player. */

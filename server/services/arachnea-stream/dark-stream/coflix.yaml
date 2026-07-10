@@ -654,7 +654,10 @@ queries:
                   - type: format_text
                     argument: "{base_url}"
             entries:
-              - name: embed-link
+              - name: resolver
+                type: string
+                value: "stream-resolver"
+              - name: target
                 type: string
                 actions:
                   - type: get_response_body
@@ -769,7 +772,10 @@ queries:
                       - type: format_text
                         argument: "{base_url}"
                 entries:
-                  - name: embed-link
+                  - name: resolver
+                    type: string
+                    value: "stream-resolver"
+                  - name: target
                     type: string
                     actions:
                       - type: get_response_body

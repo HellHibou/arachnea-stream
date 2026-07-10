@@ -1014,7 +1014,7 @@ queries:
         target: episodes
         values_field: links
         nested_field: players
-        nested_value_field: embed-link
+        nested_value_field: target
         sort_by: server-index
         copy_item_fields:
           - source: name
@@ -1028,6 +1028,9 @@ queries:
           - name: episode-number
             type: number
             format: "{}"
+          - name: players > resolver
+            type: string
+            value: "stream-resolver"
           - name: title
             format: "Episode {}"
       - type: derive_pagination

@@ -9,7 +9,7 @@ import {
   type ResolvedVideoSpriteThumbnails,
 } from '@/services/players'
 import { getStream } from '@/services/rustify'
-import type { EntryDetails, EntryPlayableItem, EntryPlayer } from '@/types/entry'
+import type { EntryDetails, EntryPlayableItem, EntryPlayer, EntryResolvedPlayerStream } from '@/types/entry'
 
 /** Sentinel value used for players without a language code. */
 const unknownLanguageKey = '__unknown__'
@@ -168,6 +168,10 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
   const activeVideoMode = shallowRef<'media' | 'trailer'>('media')
   /** The resolved media source for the current player, after backend resolution. */
   const resolvedMediaSource = shallowRef<ResolvedPlayerMediaSource | null>(null)
+  /** Resolved video response retained to try its alternative URLs after a media error. */
+  const resolvedStreamResponse = shallowRef<EntryResolvedPlayerStream | null>(null)
+  /** Active URL index within the current resolved stream response. */
+  const activeResolvedStreamIndex = shallowRef(0)
   /** Whether the media player is currently resolving a stream. */
   const isMediaPlayerLoading = shallowRef(false)
   /** Error message from media player resolution, or null if successful. */
@@ -373,14 +377,6 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
    *
    * @returns True when the player has an embed link and should use iframe mode.
    */
-  const shouldForceIframePlayer = computed(() =>
-    Boolean(selectedPlayer.value?.embedLink) &&
-    (
-      activePlayers.value.length > 1 ||
-      (Boolean(options.selectedPlayableItem.value) && !hasTrailer.value)
-    ),
-  )
-
   /**
    * Exposes the direct media source that can be rendered without an extra backend request.
    * Handles direct links, iframe embeds, and storyboard attachment.
@@ -393,12 +389,10 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
           resolvePlayerMediaSource(selectedPlayer.value.directLink),
           resolvePlayerStoryboard(selectedPlayer.value),
         )
-      : shouldForceIframePlayer.value
-        ? resolveIframeMediaSource(selectedPlayer.value?.embedLink ?? null)
-        : shouldResolvePlayer.value
+      : shouldResolvePlayer.value
           ? null
           : attachStoryboardToVideoSource(
-              resolvePlayerMediaSource(selectedPlayer.value?.embedLink ?? null),
+              resolvePlayerMediaSource(null),
               resolvePlayerStoryboard(selectedPlayer.value),
             ),
   )
@@ -421,7 +415,7 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
    * @returns The direct or embed link URL, or null.
    */
   const mediaOpenUrl = computed(() =>
-    selectedPlayer.value?.directLink ?? selectedPlayer.value?.embedLink ?? null
+    selectedPlayer.value?.directLink ?? selectedPlayer.value?.resolver?.targetId ?? null
   )
 
   /**
@@ -432,9 +426,7 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
   const hasMediaCandidate = computed(() =>
     selectedPlayer.value?.directLink
       ? true
-      : shouldForceIframePlayer.value
-        ? Boolean(selectedPlayer.value?.embedLink)
-        : shouldResolvePlayer.value
+      : shouldResolvePlayer.value
           ? Boolean(selectedPlayer.value?.resolver)
           : Boolean(directMediaSource.value || selectedPlayer.value?.resolver),
   )
@@ -622,6 +614,8 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
       const resolutionId = activeResolutionId
 
       resolvedMediaSource.value = null
+      resolvedStreamResponse.value = null
+      activeResolvedStreamIndex.value = 0
       mediaPlayerErrorMessage.value = null
       isMediaPlayerLoading.value = false
 
@@ -643,14 +637,20 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
           return
         }
 
-        const nextMediaSource = resolvedStream
-          ? resolveBackendStreamMediaSource(
-              resolvedStream.streamUrl[0] ?? null,
-              resolvedStream.manifestType,
-              resolvedStream.licenseUrl,
-              resolvedStream.licenseHeaders,
-            )
-          : null
+        const nextMediaSource = !resolvedStream
+          ? null
+          : 'embedLink' in resolvedStream
+            ? resolveIframeMediaSource(resolvedStream.embedLink)
+            : (() => {
+                resolvedStreamResponse.value = resolvedStream
+                return resolveBackendStreamMediaSource(
+                  resolvedStream.streamUrl[0] ?? null,
+                  resolvedStream.manifestType,
+                  resolvedStream.licenseUrl,
+                  resolvedStream.licenseHeaders,
+                  resolvedStream.vttUrl,
+                )
+              })()
 
         if (!nextMediaSource) {
           mediaPlayerErrorMessage.value = t('entry.videoUnavailable')
@@ -678,6 +678,34 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
     },
     { immediate: true },
   )
+
+  /** Tries the next URL returned by the current resolver after a Video.js source failure. */
+  function handleMediaSourceError(): void {
+    const stream = resolvedStreamResponse.value
+    if (!stream) {
+      mediaPlayerErrorMessage.value = t('entry.videoUnavailable')
+      return
+    }
+
+    const nextIndex = activeResolvedStreamIndex.value + 1
+    const nextUrl = stream.streamUrl[nextIndex]
+    if (!nextUrl) {
+      mediaPlayerErrorMessage.value = t('entry.videoUnavailable')
+      return
+    }
+
+    activeResolvedStreamIndex.value = nextIndex
+    resolvedMediaSource.value = attachStoryboardToVideoSource(
+      resolveBackendStreamMediaSource(
+        nextUrl,
+        stream.manifestType,
+        stream.licenseUrl,
+        stream.licenseHeaders,
+        stream.vttUrl,
+      ),
+      resolvePlayerStoryboard(selectedPlayer.value),
+    )
+  }
 
   watch(
     () => options.selectedPlayableItem.value?.id ?? null,
@@ -766,5 +794,6 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
     handleTrailerToggle,
     rememberCurrentLanguage,
     rememberCurrentPlayer,
+    handleMediaSourceError,
   }
 }

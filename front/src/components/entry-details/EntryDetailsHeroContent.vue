@@ -86,6 +86,8 @@ const emit = defineEmits<{
   'playback-started': [sourceUrl: string | null]
   /** Emitted when media playback ends. */
   'playback-ended': []
+  /** Emitted when the active Video.js source fails. */
+  'source-error': []
 }>()
 
 /**
@@ -174,6 +176,7 @@ function handleAutoplayStep(offset: -1 | 1) {
         @update:is-episode-autoplay-enabled="emit('update:is-autoplay-enabled', $event)"
         @playback-started="emit('playback-started', $event)"
         @playback-ended="emit('playback-ended')"
+        @source-error="emit('source-error')"
         @navigate-video="handleAutoplayStep"
       />
 

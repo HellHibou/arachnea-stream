@@ -261,7 +261,9 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
    * @returns Video.js source configuration.
    */
   function buildPlayerSource(source: ResolvedVideoMediaSource): VideoJsSourceInput {
-    const spriteThumbnails = source.storyboard
+    const spriteThumbnails = source.vttUrl
+      ? { url: source.vttUrl }
+      : source.storyboard
       ? { ...source.storyboard }
       : {}
 
@@ -627,6 +629,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
 
      player.on('error', () => {
        console.error('[Video.js] Playback error:', player.error())
+       emit('source-error')
        markVideoInitialLoadComplete()
        emitVideoInitialLoadComplete()
      })
@@ -660,7 +663,9 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
        }
 
         if (props.controls && typeof player.spriteThumbnails === 'function') {
-          player.spriteThumbnails(source.storyboard ? { ...source.storyboard } : {})
+          player.spriteThumbnails(source.vttUrl
+            ? { url: source.vttUrl }
+            : (source.storyboard ? { ...source.storyboard } : {}))
         }
 
        /** Last playback step that was saved to persist progress. */

@@ -274,6 +274,8 @@ const emit = defineEmits<{
   'video-metadata-loaded': [value: VideoJsMediaDimensions]
   /** Emitted when video navigation is requested via control bar buttons. */
   'navigate-video': [direction: -1 | 1]
+  /** Emitted when Video.js cannot play the active media source. */
+  'source-error': []
 }>()
 /** Internationalization utilities. */
 const { t } = useI18n()
@@ -446,6 +448,7 @@ const {
       @playback-ended="handleActiveVideoPlaybackEnded"
       @video-metadata-loaded="emit('video-metadata-loaded', $event)"
       @navigate-video="handleActiveVideoVideoNavigation"
+      @source-error="emit('source-error')"
     />
 
     <div v-if="shouldShowDetailsPlayerPicker" class="entry-details__player-picker">
