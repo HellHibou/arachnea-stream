@@ -738,7 +738,6 @@ function normalizeHomeCategory(
       `category-${index + 1}`,
     label,
     imageUrl: firstNonEmptyString([record.image_url, record.imageUrl, record.image]),
-    description: firstNonEmptyString([record.description]),
     mergeKey,
     sources: source ? [source] : [],
   }
@@ -769,7 +768,6 @@ function mergeHomeCategories(categories: HomeCategory[]): HomeCategory[] {
 
     existingCategory.label ||= category.label
     existingCategory.imageUrl ??= category.imageUrl
-    existingCategory.description ??= category.description
     existingCategory.sources = dedupeHomeCategorySources([
       ...existingCategory.sources,
       ...category.sources,

@@ -306,7 +306,7 @@ queries:
                     pattern: 'src="(?:https?:)?(//[^"]+)'
                     format: "https:{1}"
               - name: media-type
-                type: string
+                type: string[]
                 pointer: "/ts"
                 select: first
                 actions:
@@ -440,7 +440,7 @@ queries:
                 pattern: 'src="(?:https?:)?(//[^"]+)'
                 format: "https:{1}"
           - name: media-type
-            type: string
+            type: string[]
             select: first
             pointer: "/ts"
             actions:
@@ -744,7 +744,7 @@ queries:
             select: first
             pointer: "/title"
           - name: episode-number
-            type: string
+            type: number
             select: first
             pointer: "/number"
           - name: img/preview > link

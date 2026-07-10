@@ -394,7 +394,7 @@ shared:
         - type: format_text
           argument: "Season {}"
     - name: episode-number
-      type: string
+      type: number
       select: first
       pointer: /episode
     - name: content-advisor
@@ -1075,4 +1075,3 @@ queries:
                 actions:
                   - type: format_text
                     argument: "{channel}"
-

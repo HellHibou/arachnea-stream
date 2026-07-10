@@ -191,9 +191,6 @@ function handleSelectCollectionItem(item: MediaItem) {
           <header v-if="props.mode === 'category' && props.category" class="home-catalog__heading">
             <p class="home-catalog__eyebrow">{{ t('category.label') }}</p>
             <h1 class="home-catalog__title">{{ props.category.label }}</h1>
-            <p v-if="props.category.description" class="home-catalog__description">
-              {{ props.category.description }}
-            </p>
           </header>
 
           <section
@@ -361,11 +358,6 @@ function handleSelectCollectionItem(item: MediaItem) {
   font-size: clamp(1.7rem, 1.36rem + 1.1vw, 2.5rem);
   font-weight: 800;
   line-height: 1.04;
-}
-
-.home-catalog__description {
-  max-width: 62ch;
-  color: var(--text-secondary);
 }
 
 .home-catalog__category-strip {

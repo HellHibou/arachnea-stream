@@ -73,7 +73,7 @@ shared:
       selector: "img"
       actions: *actions_get_src_resolve
     - name: media-type
-      type: string
+      type: string[]
       actions:
         - type: format_text
           argument: "video/show/anime"
@@ -114,7 +114,7 @@ shared:
           argument: href
         - type: resolve_url
     - name: media-type
-      type: string
+      type: string[]
       actions:
         - type: format_text
           argument: "video/show/anime"
@@ -249,7 +249,7 @@ queries:
               - type: regex_find_all
                 pattern: "^([^:]+)"
                 format: "{1}"
-          - name: items
+          - name: entries
             type: object[]
             selector: ".owl-carousel.caroustyle > .item"
             select: all
@@ -288,7 +288,7 @@ queries:
                 selector: "img"
                 actions: *actions_get_src_resolve
               - name: media-type
-                type: string
+                type: string[]
                 actions:
                   - type: format_text
                     argument: "video/show/anime"
@@ -309,7 +309,7 @@ queries:
               - type: regex_find_all
                 pattern: "^([^:]+)"
                 format: "{1}"
-          - name: items
+          - name: entries
             type: object[]
             selector: ".lastserieadd li"
             select: all
@@ -328,7 +328,7 @@ queries:
             actions:
               - type: format_text
                 argument: "Derniers Animes VF ajoutées"
-          - name: items
+          - name: entries
             type: object[]
             selector: ".lastfilmadd li"
             select: all
@@ -348,7 +348,7 @@ queries:
             select: first
             actions:
               - type: get_text
-          - name: items
+          - name: entries
             type: object[]
             selector: "div.block-main div.mov.clearfix"
             select: all
@@ -393,7 +393,7 @@ queries:
                 selector: "div.mov-i img"
                 actions: *actions_get_src_resolve
               - name: media-type
-                type: string
+                type: string[]
                 actions:
                   - type: format_text
                     argument: "video/show/anime"
@@ -633,7 +633,7 @@ queries:
         pattern: '(\d+)!((?:https?://[^,\s]+(?:,\s*https?://[^,\s]+)*))'
         entries:
           - name: episode-number
-            type: string
+            type: number
             capture_group: 1
           - name: title
             type: string

@@ -84,7 +84,7 @@ shared:
       actions:
         - type: get_text
     - name: media-type
-      type: string
+      type: string[]
       select: first
       selector: div.catalog-info > div > div.type-row > p
       actions: *actions_media_type_search
@@ -149,7 +149,7 @@ shared:
       actions:
         - type: get_text
     - name: media-type
-      type: string
+      type: string[]
       selector: "div.catalog-info > div.info-row:nth-child(2) > p.info-value"
       select: first
       actions: *actions_media_type_search
@@ -419,7 +419,7 @@ queries:
               actions:
                 - type: get_text
             - name: media-type
-              type: string
+              type: string[]
               select: first
               actions:
                 - type: format_text
@@ -479,7 +479,7 @@ queries:
               actions:
                 - type: get_text
             - name: media-type
-              type: string
+              type: string[]
               select: first
               selector: ".scan-badge .badge-text"
               actions: *actions_media_type_search
@@ -769,7 +769,7 @@ queries:
             actions:
               - type: get_text
           - name: media-type
-            type: string
+            type: string[]
             select: first
             selector: "div.catalog-info > div.info-row:nth-child(2) > p.info-value"
             actions: *actions_media_type_search
@@ -857,7 +857,7 @@ queries:
         actions:
           - type: get_text
       - name: year
-        type: string
+        type: number
         selector: .info-grid
         actions:
           - type: get_text
@@ -1026,6 +1026,7 @@ queries:
             target: link
         generated_fields:
           - name: episode-number
+            type: number
             format: "{}"
           - name: title
             format: "Episode {}"

@@ -15,8 +15,6 @@ export interface HomeCategory {
   label: string
   /** The URL for the category image. */
   imageUrl: string | null
-  /** The description of the category. */
-  description: string | null
   /** The key used to merge categories with the same identifier. */
   mergeKey: string
   /** The list of source descriptors for this category. */

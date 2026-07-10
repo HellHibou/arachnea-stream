@@ -121,12 +121,6 @@ queries:
             actions:
               - type: format_text
                 argument: "M6"
-          - name: description
-            type: string
-            select: first
-            actions:
-              - type: format_text
-                argument: "Replay catalogue for M6."
           - name: request > query_url
             type: string
             select: first
@@ -149,12 +143,6 @@ queries:
             actions:
               - type: format_text
                 argument: "W9"
-          - name: description
-            type: string
-            select: first
-            actions:
-              - type: format_text
-                argument: "Replay catalogue for W9."
           - name: request > query_url
             type: string
             select: first
@@ -177,12 +165,6 @@ queries:
             actions:
               - type: format_text
                 argument: "6ter"
-          - name: description
-            type: string
-            select: first
-            actions:
-              - type: format_text
-                argument: "Replay catalogue for 6ter."
           - name: request > query_url
             type: string
             select: first
@@ -205,12 +187,6 @@ queries:
             actions:
               - type: format_text
                 argument: "Gulli"
-          - name: description
-            type: string
-            select: first
-            actions:
-              - type: format_text
-                argument: "Replay catalogue for Gulli."
           - name: request > query_url
             type: string
             select: first

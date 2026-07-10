@@ -77,7 +77,7 @@ shared:
         - type: format_text
           argument: "animeultime"
     - name: media-type
-      type: string
+      type: string[]
       actions:
         - type: format_text
           argument: "video/show/serie"
@@ -198,7 +198,7 @@ queries:
             actions:
               - type: format_text
                 argument: "latest-additions"
-          - name: items
+          - name: entries
             type: object[]
             selector: "table.jtable tr:nth-child(n+2)"
             select: all
@@ -233,7 +233,7 @@ queries:
                 selector: "td + td a"
                 actions: *actions_poster_from_onmouseover
               - name: media-type
-                type: string
+                type: string[]
                 selector: "td[align=center]:nth-of-type(5)"
                 actions: *media_type_map_action
               - name: source
@@ -260,7 +260,7 @@ queries:
             actions:
               - type: format_text
                 argument: "top-animes"
-          - name: items
+          - name: entries
             type: object[]
             selector: "div.contain_stats > :nth-child(5) > a"
             select: all
@@ -284,7 +284,7 @@ queries:
             actions:
               - type: format_text
                 argument: "top-dramas"
-          - name: items
+          - name: entries
             type: object[]
             selector: "div.contain_stats > :nth-child(7) > a"
             select: all
@@ -308,7 +308,7 @@ queries:
             actions:
               - type: format_text
                 argument: "top-tokusatsu"
-          - name: items
+          - name: entries
             type: object[]
             selector: "div.contain_stats > :nth-child(9) > a"
             select: all
@@ -381,7 +381,7 @@ queries:
                 - type: format_text
                   argument: "{base_url}/img_resize.php?img={}"
             - name: media-type
-              type: string
+              type: string[]
               selector: "td:nth-child(3)"
               actions:  *media_type_map_action
             - name: rating
@@ -458,7 +458,7 @@ queries:
               - type: format_text
                 argument: "{base_url}/img_resize.php?img={}"
           - name: media-type
-            type: string
+            type: string[]
             selector: "td[align=center]"
             actions: *media_type_map_action
           - name: source

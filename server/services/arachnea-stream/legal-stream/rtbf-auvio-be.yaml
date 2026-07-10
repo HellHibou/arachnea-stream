@@ -1074,7 +1074,7 @@ queries:
                     select: first
                     pointer: /assetId
           - name: episode-number
-            type: string
+            type: number
             select: first
             pointer: /subtitle
             actions:

@@ -4,9 +4,10 @@
 
 Analyse des structures JSON produites par les 9 sources YAML de `server/services/arachnea-stream/`, basée sur les fichiers d'exemples générés dans `docs/dev-tracking/yaml-standardization/`.
 
-Deux chantiers de standardisation identifiés :
+Trois chantiers de standardisation identifiés :
 1. **`request > query_url` → `link`** dans les catégories
 2. **`items` → `entries`** dans les sections
+3. **Suppression des champs catégories non standards** : `description` dans m6play-fr et `request > channel_label` dans tf1-fr
 
 ---
 
@@ -50,6 +51,13 @@ Remplacer `name: request > query_url` par `name: link` dans les entries catégor
 
 Remplacer `name: items` par `name: entries` dans les groupes d'éléments des sections.
 
+### 1.3 Champs catégories non standards à supprimer
+
+Deux champs sont produits par un seul service et dupliquent une information déjà disponible ailleurs :
+
+- `categories[] > description` dans m6play-fr : à supprimer des catégories. Le libellé suffit pour la navigation.
+- `categories[] > request > channel_label` dans tf1-fr : à supprimer. La valeur du label est déjà portée par `categories[] > label`.
+
 ---
 
 ## 2. État des lieux par service
@@ -84,6 +92,13 @@ Remplacer `name: items` par `name: entries` dans les groupes d'éléments des se
 | rtlplay-be | **OK** | Utilise déjà `entries` (sauf `append_static_items` post-processeur) |
 | tf1-fr | **OK** | Utilise déjà `entries` |
 
+### 2.3 Champs catégories non standards à supprimer
+
+| Service | Champ | Statut | Contexte |
+|---------|-------|--------|----------|
+| m6play-fr | `categories[] > description` | **À faire** | Présent uniquement dans les catégories `load_home` |
+| tf1-fr | `categories[] > request > channel_label` | **À faire** | Présent uniquement dans les paramètres de requête des catégories |
+
 ---
 
 ## 3. Incohérences structurelles identifiées
@@ -96,8 +111,12 @@ Remplacer `name: items` par `name: entries` dans les groupes d'éléments des se
 | `key` + `label` + `request > query_url` (hiérarchique) | francetv, m6play-fr, rtbf-auvio-be, tf1-fr |
 | `key` + `label` + `link` + `image` | rtbf-auvio-be, rtlplay-be |
 | `key` + `label` + `request > name/source/channel/...` | francetv, tf1-fr |
+| `key` + `label` + `description` | m6play-fr uniquement |
+| `request > channel_label` | tf1-fr uniquement |
 
 **Incohérence** : Mélange entre format plat (`link`) et format hiérarchique (`request > query_url`). Certains services ajoutent `image`, d'autres non.
+
+**À supprimer** : `description` dans les catégories m6play-fr et `request > channel_label` dans les catégories tf1-fr, car ces champs sont spécifiques à un seul service et n'apportent pas de contrat frontend distinct.
 
 ### 3.2 Structure des `sections`
 
@@ -194,8 +213,10 @@ Tous les autres services utilisent déjà `number`.
 | animeultime | get_entry | `number` | **OK** |
 | coflix | get_season sub_queries | `string` | **Oui** |
 | frenchanimes | get_entry | `string` | **Oui** |
+| francetv | get_entry episode fields | `string` | **Oui** |
 | rtbf-auvio-be | get_season | `string` | **Oui** |
 | rtlplay-be | get_season | `string` | **Oui** |
+| tf1-fr | get_season | `string` | **Oui** |
 
 **Impact frontend** : `episode-number` n'est pas utilisé directement par le frontend (il normalise via `normalizeEntryEpisode` qui lit `entry.title`). Aucun changement nécessaire.
 
@@ -277,14 +298,23 @@ Sauf pour `service_stream_metadata` où c'est un `object` multilingue.
 | `normalizeHomeSectionSources` | 877 | `firstNonEmptyString([record.link])` | **Déjà migré** |
 | `normalizeHomeCategorySource` | 805 | `readStringParamMap(record.request)` | **Conservé** — nécessaire pour 4 services |
 
-### 5.3 Modifications déjà effectuées
+### 5.3 Impact des champs catégories supprimés sur le frontend
+
+| Champ supprimé | Lecture frontend | Impact |
+|----------------|------------------|--------|
+| `categories[] > description` (m6play-fr) | Supprimé de `HomeCategory`, de `normalizeHomeCategory`, du `HomeCategoryStrip` et de l'en-tête de catégorie | **Aligné** : les catégories frontend ne modélisent plus ce champ non standard |
+| `categories[] > request > channel_label` (tf1-fr) | Aucune lecture directe. `normalizeHomeCategorySource` copie `record.request` dans `HomeCategorySource` (`Record<string, string>`) | **Aucun impact frontend direct** : la clé n'est pas typée ni affichée. Vérifier seulement côté backend si une action YAML ou un service l'utilisait implicitement |
+
+**Conclusion** : `HomeCategory.description` est supprimé du contrat frontend. `HomeCategorySource` reste un dictionnaire générique pour transporter les paramètres de requête nécessaires au backend.
+
+### 5.4 Modifications déjà effectuées
 
 | Fichier | Ligne | Avant | Après |
 |---------|-------|-------|-------|
 | `rustify.ts` | 839 | `readRecordList(record.items)` avec fallback `record.entries` | `readRecordList(record.entries)` uniquement |
 | `rustify.ts` | 877 | `firstNonEmptyString([record.link, record.query_url, record.queryUrl])` | `firstNonEmptyString([record.link])` uniquement |
 
-### 5.4 Impact des corrections de type sur le frontend
+### 5.5 Impact des corrections de type sur le frontend
 
 | Correction YAML | Impact frontend |
 |----------------|-----------------|
@@ -296,7 +326,7 @@ Sauf pour `service_stream_metadata` où c'est un `object` multilingue.
 | `current_page` : `string` → `number` | La pagination utilisera la bonne valeur au lieu du fallback `1` |
 | `total_pages` : aucun changement nécessaire | — |
 
-### 5.5 Types (`front/src/types/home.ts`)
+### 5.6 Types (`front/src/types/home.ts`)
 
 **Aucun changement nécessaire.**
 
@@ -306,34 +336,41 @@ Sauf pour `service_stream_metadata` où c'est un `object` multilingue.
 
 ### YAML — `request > query_url` → `link`
 
-- [ ] `server/services/darkstream/anime-sama.yaml` : 6 occurrences
-- [ ] `server/services/darkstream/animeultime.yaml` : 3 occurrences
-- [ ] `server/services/darkstream/coflix.yaml` : 3 occurrences
-- [ ] `server/services/darkstream/frenchanimes.yaml` : 3 occurrences
-- [ ] `server/services/rtlplay-be.yaml` : 4 occurrences
+- [x] `server/services/arachnea-stream/dark-stream/anime-sama.yaml` : déjà aligné dans l'état courant
+- [x] `server/services/arachnea-stream/dark-stream/animeultime.yaml` : déjà aligné dans l'état courant
+- [x] `server/services/arachnea-stream/dark-stream/coflix.yaml` : déjà aligné dans l'état courant
+- [x] `server/services/arachnea-stream/dark-stream/frenchanimes.yaml` : déjà aligné dans l'état courant
+- [x] `server/services/arachnea-stream/legal-stream/rtlplay-be.yaml` : déjà aligné dans l'état courant
 
 ### YAML — `items` → `entries`
 
-- [ ] `server/services/darkstream/animeultime.yaml` : sections > items → entries
-- [ ] `server/services/darkstream/frenchanimes.yaml` : sections > items → entries
+- [x] `server/services/arachnea-stream/dark-stream/animeultime.yaml` : sections > items → entries
+- [x] `server/services/arachnea-stream/dark-stream/frenchanimes.yaml` : sections > items → entries
+
+### YAML — Suppression des champs catégories non standards
+
+- [x] `server/services/arachnea-stream/legal-stream/m6play-fr.yaml` : supprimer `categories[] > description`
+- [x] `server/services/arachnea-stream/legal-stream/tf1-fr.yaml` : supprimer `categories[] > request > channel_label`
 
 ### YAML — Correction des types
 
-- [ ] `anime-sama.yaml` : `media-type` (`string` → `string[]`) — 4 blocs
-- [ ] `animeultime.yaml` : `media-type` (`string` → `string[]`) — 2 blocs
-- [ ] `frenchanimes.yaml` : `media-type` (`string` → `string[]`) — 1 bloc
-- [ ] `coflix.yaml` : get_category entries `media-type` (`string` → `string[]`) — 1 bloc
-- [ ] `anime-sama.yaml` : get_entry `year` (`string` → `number`)
-- [ ] `anime-sama.yaml` : get_season `episode-number` (`string` → `number`)
-- [ ] `coflix.yaml` : get_season `episode-number` (`string` → `number`)
-- [ ] `frenchanimes.yaml` : get_entry `episode-number` (`string` → `number`)
-- [ ] `rtbf-auvio-be.yaml` : get_season `episode-number` (`string` → `number`)
-- [ ] `rtlplay-be.yaml` : get_season `episode-number` (`string` → `number`)
-- [ ] `rtlplay-be.yaml` : get_entry `title` (`object` → `string`)
-- [ ] `anime-sama.yaml` : get_category `current_page` (`string` → `number`)
-- [ ] `coflix.yaml` : get_section `current_page` (`string` → `number`)
-- [ ] `frenchanimes.yaml` : get_section `current_page` (`string` → `number`)
-- [ ] `m6play-fr.yaml` : get_section `current_page` (`string` → `number`)
+- [x] `anime-sama.yaml` : `media-type` (`string` → `string[]`)
+- [x] `animeultime.yaml` : `media-type` (`string` → `string[]`)
+- [x] `frenchanimes.yaml` : `media-type` (`string` → `string[]`)
+- [x] `coflix.yaml` : get_category entries `media-type` (`string` → `string[]`)
+- [x] `anime-sama.yaml` : get_entry `year` (`string` → `number`)
+- [x] `anime-sama.yaml` : get_season `episode-number` (`string` → `number`)
+- [x] `coflix.yaml` : get_season `episode-number` (`string` → `number`)
+- [x] `frenchanimes.yaml` : get_entry `episode-number` (`string` → `number`)
+- [x] `francetv.yaml` : get_entry `episode-number` (`string` → `number`)
+- [x] `rtbf-auvio-be.yaml` : get_season `episode-number` (`string` → `number`)
+- [x] `rtlplay-be.yaml` : get_season `episode-number` (`string` → `number`)
+- [x] `tf1-fr.yaml` : get_season `episode-number` (`string` → `number`)
+- [x] `rtlplay-be.yaml` : get_entry `title` (`object` → `string`) — déjà aligné dans l'état courant
+- [x] `anime-sama.yaml` : get_category `current_page` (`string` → `number`) — déjà aligné dans l'état courant
+- [x] `coflix.yaml` : get_section `current_page` (`string` → `number`) — déjà aligné dans l'état courant
+- [x] `frenchanimes.yaml` : get_section `current_page` (`string` → `number`) — déjà aligné dans l'état courant
+- [x] `m6play-fr.yaml` : get_section `current_page` (`string` → `number`) — déjà aligné dans l'état courant
 
 ### Frontend — `rustify.ts`
 
@@ -348,9 +385,11 @@ Sauf pour `service_stream_metadata` où c'est un `object` multilingue.
 |-------|-------|---------|
 | `name: request > query_url` | `name: link` | 19 occurrences dans 5 fichiers YAML |
 | `items:` (section) | `entries:` | 2 fichiers YAML (animeultime, frenchanimes) |
+| `categories[].description` | — supprimé — | m6play-fr uniquement |
+| `categories[].request.channel_label` | — supprimé — | tf1-fr uniquement |
 | `media-type: string` | `media-type: string[]` | 4 fichiers YAML (anime-sama, animeultime, frenchanimes, coflix) |
 | `year: string` (anime-sama) | `year: number` | 1 fichier YAML |
-| `episode-number: string` | `episode-number: number` | 5 fichiers YAML (anime-sama, coflix, frenchanimes, rtbf-auvio-be, rtlplay-be) |
+| `episode-number: string` | `episode-number: number` | 7 fichiers YAML (anime-sama, coflix, frenchanimes, francetv, rtbf-auvio-be, rtlplay-be, tf1-fr) |
 | `title: object` (rtlplay-be) | `title: string` | 1 fichier YAML |
 | `current_page: string` (format_text) | `current_page: number` | 4 fichiers YAML (anime-sama, coflix, frenchanimes, m6play-fr) |
 | `record.items` (fallback) | — supprimé — | `normalizeHomeSection` (frontend) — **fait** |
@@ -359,4 +398,4 @@ Sauf pour `service_stream_metadata` où c'est un `object` multilingue.
 
 ---
 
-*Document mis à jour le 09/07/2026 — Types standards définis, corrections listées avec impact frontend.*
+*Document mis à jour le 10/07/2026 — Types standards définis, corrections listées avec impact frontend.*

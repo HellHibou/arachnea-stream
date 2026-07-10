@@ -367,7 +367,7 @@ shared:
       select: first
       pointer: /durationSeconds
     - name: episode-number
-      type: string
+      type: number
       select: first
       pointer: /index
     - name: release-date

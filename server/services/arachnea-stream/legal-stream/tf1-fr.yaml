@@ -184,11 +184,6 @@ shared:
           actions:
             - type: format_text
               argument: tf1
-        - name: request > channel_label
-          type: string
-          actions:
-            - type: format_text
-              argument: TF1
         - name: request > page_size
           type: number
           actions:
@@ -226,11 +221,6 @@ shared:
           actions:
             - type: format_text
               argument: tmc
-        - name: request > channel_label
-          type: string
-          actions:
-            - type: format_text
-              argument: TMC
         - name: request > page_size
           type: number
           actions:
@@ -268,11 +258,6 @@ shared:
           actions:
             - type: format_text
               argument: tfx
-        - name: request > channel_label
-          type: string
-          actions:
-            - type: format_text
-              argument: TFX
         - name: request > page_size
           type: number
           actions:
@@ -310,11 +295,6 @@ shared:
           actions:
             - type: format_text
               argument: tf1-series-films
-        - name: request > channel_label
-          type: string
-          actions:
-            - type: format_text
-              argument: TF1 Séries Films
         - name: request > page_size
           type: number
           actions:
@@ -352,11 +332,6 @@ shared:
           actions:
             - type: format_text
               argument: lci
-        - name: request > channel_label
-          type: string
-          actions:
-            - type: format_text
-              argument: LCI
         - name: request > page_size
           type: number
           actions:
@@ -394,11 +369,6 @@ shared:
           actions:
             - type: format_text
               argument: ""
-        - name: request > channel_label
-          type: string
-          actions:
-            - type: format_text
-              argument: ALL
         - name: request > page_size
           type: number
           actions:
@@ -1169,7 +1139,7 @@ queries:
             type: string
             actions:
               - type: format_text
-                argument: "{channel_label}"
+                argument: "Programmes"
           - name: current_page
             type: number
             actions:
@@ -1194,11 +1164,6 @@ queries:
             actions:
               - type: format_text
                 argument: "{channel}"
-          - name: request > channel_label
-            type: string
-            actions:
-              - type: format_text
-                argument: "{channel_label}"
           - name: request > page_size
             type: number
             actions:
@@ -1530,7 +1495,7 @@ queries:
             select: first
             pointer: /video/decoration/label
           - name: episode-number
-            type: string
+            type: number
             select: first
             pointer: /video/episode
           - name: description

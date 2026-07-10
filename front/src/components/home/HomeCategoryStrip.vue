@@ -69,9 +69,6 @@ function handleCategorySelect(category: HomeCategory) {
 
          <span class="home-category-strip__content">
            <span class="home-category-strip__label">{{ category.label }}</span>
-           <span v-if="category.description" class="home-category-strip__description">
-             {{ category.description }}
-           </span>
          </span>
        </button>
      </div>
@@ -202,16 +199,6 @@ function handleCategorySelect(category: HomeCategory) {
    font-weight: 700;
    letter-spacing: 0.01em;
    text-shadow: var(--text-shadow-primary);
- }
-
-.home-category-strip__description {
-   display: -webkit-box;
-   overflow: hidden;
-   color: var(--text-secondary);
-   font-size: 0.9rem;
-   line-height: 1.35;
-   -webkit-line-clamp: 2;
-   -webkit-box-orient: vertical;
  }
 
 @media (max-width: 640px) {
