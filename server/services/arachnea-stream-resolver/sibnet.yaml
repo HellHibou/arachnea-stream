@@ -59,7 +59,7 @@ queries:
             pattern: 'sources:\s*\[([^\]]+)\]'
             format: "{1}"
           - type: regex_find_all
-            pattern: '["\']([^"\']+\.(?:mp4|m3u8)[^"\']*)["\']'
+            pattern: '["'']([^"''\s]+?\.(?:mp4|m3u8)(?:\?[^\s"''<>]*)?)["'']'
             format: "{1}"
       - name: stream_headers
         type: object

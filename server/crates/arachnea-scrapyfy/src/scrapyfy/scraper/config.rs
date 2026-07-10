@@ -383,7 +383,7 @@ pub struct ScraperQueryCommon {
     /// Content types this query produces.
     ///
     /// Used for filtering queries based on requested media types.
-    pub media_types: Vec<String>,
+    pub media_types: Option<Vec<String>>,
 
     /// URL template used to build the request.
     ///

@@ -1030,7 +1030,7 @@ queries:
             format: "{}"
           - name: players > resolver
             type: string
-            value: "stream-resolver"
+            format: "stream-resolver"
           - name: title
             format: "Episode {}"
       - type: derive_pagination

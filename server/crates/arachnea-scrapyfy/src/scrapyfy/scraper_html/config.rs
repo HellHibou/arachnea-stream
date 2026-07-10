@@ -132,6 +132,8 @@ impl TryFrom<HtmlScraperQueryRaw> for HtmlScraperQuery {
             ..
         } = common;
 
+        let media_types = media_types.unwrap_or_default();
+
         let entries = entries
             .into_iter()
             .map(TryInto::try_into)
@@ -196,7 +198,7 @@ impl From<&HtmlScraperQuery> for HtmlScraperQueryRaw {
                 name: query.name.clone(),
                 base_url: query.base_url_template.clone(),
                 resolved_base_url: None,
-                media_types: query.media_types.clone(),
+                media_types: Some(query.media_types.clone()),
                 query_url: query.query_url.clone(),
                 request_method: query.request_method,
                 request_body_pointer: query.request_body_pointer.clone(),

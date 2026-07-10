@@ -303,6 +303,8 @@ impl TryFrom<TextScraperQueryRaw> for TextScraperQuery {
             ..
         } = common;
 
+        let media_types = media_types.unwrap_or_default();
+
         let resolved_base_url = crate::scrapyfy::query_helpers::resolved_or_template(
             &base_url,
             resolved_base_url,
@@ -336,7 +338,7 @@ impl From<&TextScraperQuery> for TextScraperQueryRaw {
                 name: query.name.clone(),
                 base_url: query.base_url.clone(),
                 resolved_base_url: None,
-                media_types: query.media_types.clone(),
+                media_types: Some(query.media_types.clone()),
                 query_url: query.query_url.clone(),
                 request_method: query.request_method,
                 request_body_pointer: None,

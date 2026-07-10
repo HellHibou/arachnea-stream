@@ -679,6 +679,8 @@ impl TryFrom<JsonScraperQueryRaw> for JsonScraperQuery {
             ..
         } = common;
 
+        let media_types = media_types.unwrap_or_default();
+
         let resolved_base_url = query_helpers::resolved_or_template(&base_url, resolved_base_url);
 
         let entries = entries
@@ -744,7 +746,7 @@ impl From<&JsonScraperQuery> for JsonScraperQueryRaw {
                 name: query.name.clone(),
                 base_url: query.base_url_template.clone(),
                 resolved_base_url: None,
-                media_types: query.media_types.clone(),
+                media_types: Some(query.media_types.clone()),
                 query_url: query.query_url.clone(),
                 request_method: query.request_method,
                 request_body_pointer: query.request_body_pointer.clone(),
