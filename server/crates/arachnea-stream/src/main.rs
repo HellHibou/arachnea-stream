@@ -213,7 +213,7 @@ async fn refresh_ip_countries_cli() -> Result<()> {
 /// Starts the configured backend controller using command line runtime options.
 #[tokio::main]
 async fn main() -> Result<()> {
-    arachnea_core::logger::set_default_log_level_debug!(INFO);
+    arachnea_core::logger::set_default_log_level_debug!(DEBUG);
     StreamScraper::init_sub_logger_levels();
     arachnea_core::logger::init_logger();
 

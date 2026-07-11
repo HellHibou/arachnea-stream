@@ -3,9 +3,10 @@ use const_format::concatcp;
 use serde::Serialize;
 use std::collections::HashMap;
 
+use arachnea_proxy::core::http::proxy_service::proxied_url;
 use arachnea_scrapyfy::*;
 
-use crate::services::player_resolver::{ResolvedPlayerStream, SpriteThumbnail};
+use crate::services::player_resolver::{PlayerResolverEndpoints, ResolvedPlayerStream, SpriteThumbnail};
 
 /// Group name used by the stream resolver configuration.
 pub const STREAM_RESOLVER_GROUP_NAME: &str = "arachnea-stream-resolver";
@@ -63,6 +64,7 @@ pub(crate) enum ResolvedStream {
 /// This facade does not contain any source-specific domain logic.
 pub(crate) struct StreamResolver<'a> {
     scraper_agregator: &'a ScraperAgregator,
+    endpoints: &'a PlayerResolverEndpoints,
 }
 
 impl<'a> StreamResolver<'a> {
@@ -71,8 +73,15 @@ impl<'a> StreamResolver<'a> {
     /// # Arguments
     ///
     /// * `scraper_agregator` - Aggregator that has loaded the `arachnea-stream-resolver` group.
-    pub fn new(scraper_agregator: &'a ScraperAgregator) -> Self {
-        Self { scraper_agregator }
+    /// * `endpoints` - Player resolver endpoints for proxy URL generation.
+    pub fn new(
+        scraper_agregator: &'a ScraperAgregator,
+        endpoints: &'a PlayerResolverEndpoints,
+    ) -> Self {
+        Self {
+            scraper_agregator,
+            endpoints,
+        }
     }
 
     /// Resolves one external player URL into a playable stream or iframe fallback.
@@ -203,7 +212,42 @@ impl<'a> StreamResolver<'a> {
             .next()
             .context("Empty stream resolution response from YAML resolver")?;
 
-        convert_resolver_entry_to_stream(&entry, url)
+        tracing::debug!(
+            service = %service_name,
+            keys = ?entry.keys().collect::<Vec<_>>(),
+            "resolve_stream raw entry"
+        );
+        for (key, node) in &entry {
+            tracing::debug!(
+                service = %service_name,
+                key = %key,
+                values = ?node.values,
+                children = ?node.children.keys().collect::<Vec<_>>(),
+                "resolve_stream entry field"
+            );
+        }
+
+        let mut stream = convert_resolver_entry_to_stream(&entry, url)?;
+
+        // Proxy each stream URL through the HTTP proxy with embedded headers
+        if let Some(proxy_path) = self.endpoints.http_proxy_public_path.as_deref() {
+            let headers: Vec<(&str, &str)> = stream
+                .stream_headers
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_str()))
+                .collect();
+            stream.stream_url = stream
+                .stream_url
+                .into_iter()
+                .map(|u| {
+                    proxied_url(&u, Some(proxy_path), None, &[], &headers)
+                })
+                .collect();
+            // Remove stream_headers since they are now embedded in the proxy URL
+            stream.stream_headers.clear();
+        }
+
+        Ok(stream)
     }
 }
 
@@ -217,8 +261,26 @@ fn convert_resolver_entry_to_stream(
 ) -> Result<ResolvedPlayerStream> {
     let stream_url = extract_string_list(entry, "stream_url")
         .or_else(|| extract_string_list(entry, "stream-url"))
-        .filter(|list| !list.is_empty())
-        .context("Missing or empty `stream_url` in resolver response")?;
+        .filter(|list| !list.is_empty());
+
+    if stream_url.is_none() {
+        tracing::debug!(
+            source_url = %source_url,
+            keys = ?entry.keys().collect::<Vec<_>>(),
+            "Failed to extract stream_url from resolver response"
+        );
+        for (key, node) in entry {
+            tracing::debug!(
+                key = %key,
+                value_count = node.values.len(),
+                first_value = ?node.values.first(),
+                children_keys = ?node.children.keys().collect::<Vec<_>>(),
+                "Available resolver entry field"
+            );
+        }
+    }
+
+    let stream_url = stream_url.context("Missing or empty `stream_url` in resolver response")?;
 
     let manifest_type = extract_first_string(entry, "manifest_type")
         .or_else(|| extract_first_string(entry, "manifest-type"));

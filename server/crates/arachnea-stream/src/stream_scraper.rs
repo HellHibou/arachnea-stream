@@ -634,7 +634,7 @@ impl StreamScraper {
 
     async fn get_stream(&self, resolver_id: String, target: String) -> Result<ResolvedStream> {
         if resolver_id.trim() == GENERIC_STREAM_RESOLVER_ID {
-            return StreamResolver::new(&self.scraper_agregator)
+            return StreamResolver::new(&self.scraper_agregator, &self.player_resolver_endpoints)
                 .get_stream(&target)
                 .await;
         }

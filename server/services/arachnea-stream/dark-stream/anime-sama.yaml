@@ -931,6 +931,11 @@ queries:
         type: string
         actions:
           - type: get_request_url
+      - name: resolver
+        type: string
+        actions:
+          - type: format_text
+            argument: "stream-resolver"
       - name: languages
         type: object
         entries:
@@ -1002,11 +1007,11 @@ queries:
                 pattern: "['\\\"]([^'\\\"]+)['\\\"]"
                 format: "{1}"
           - name: name
-            type: string
+            type: string[]
             capture_group: 2
             actions:
               - type: regex_find_all
-                pattern: "(?s).*?['\\\"]([^'\\\"]+)['\\\"].*"
+                pattern: "['\\\"]([^'\\\"]+)['\\\"]"
                 format: "{1}"
               - type: get_url_host
       - type: pivot_items_by_index
@@ -1017,20 +1022,18 @@ queries:
         nested_value_field: target
         sort_by: server-index
         copy_item_fields:
-          - source: name
-            target: name
           - source: lang
             target: lang
         copy_target_fields:
-          - source: link
-            target: link
+          - source: name
+            target: name
+        copy_root_fields:
+          - source: resolver
+            target: resolver
         generated_fields:
           - name: episode-number
             type: number
             format: "{}"
-          - name: players > resolver
-            type: string
-            format: "stream-resolver"
           - name: title
             format: "Episode {}"
       - type: derive_pagination

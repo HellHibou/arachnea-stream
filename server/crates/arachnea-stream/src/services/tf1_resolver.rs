@@ -337,6 +337,7 @@ async fn build_resolved_player_stream(
             endpoints.http_proxy_public_path.as_deref(),
             None,
             &[],
+            &[],
         )],
         manifest_type: Some(manifest_type),
         license_url: Some(proxy_url),

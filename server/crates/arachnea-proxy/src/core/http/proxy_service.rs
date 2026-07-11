@@ -168,7 +168,6 @@ fn filter_non_transferable(headers: &mut HashMap<String, String>) {
         "host",
         "proxy-authorization",
         "proxy-connection",
-        "referer",
     ];
     headers.retain(|key, _| {
         let lower = key.to_ascii_lowercase();
@@ -862,7 +861,7 @@ pub fn register_service(
 ///
 /// # Examples
 /// ```
-/// let url = proxied_url("http://example.com/media", Some("/proxy"), None, &[]);
+/// let url = proxied_url("http://example.com/media", Some("/proxy"), None, &[], &[]);
 /// assert_eq!(url, "/proxy/http://example.com/media");
 /// ```
 pub fn proxied_url(
@@ -870,6 +869,7 @@ pub fn proxied_url(
     http_proxy_public_path: Option<&str>,
     country: Option<&str>,
     actions: &[ProxyHttpActionConfig],
+    headers: &[(&str, &str)],
 ) -> String {
     let normalized_media_locator = media_locator.trim();
     if normalized_media_locator.starts_with("http://")
@@ -884,8 +884,9 @@ pub fn proxied_url(
                 .filter(|value| !value.is_empty())
                 .is_some();
             let has_actions = !actions.is_empty();
+            let has_extra_headers = !headers.is_empty();
 
-            if has_country || has_actions {
+            if has_country || has_actions || has_extra_headers {
                 // Build proxy headers
                 let mut proxy_headers: Vec<Vec<String>> = Vec::new();
 
@@ -901,6 +902,15 @@ pub fn proxied_url(
                 for action in actions {
                     if let Some((action_header, action_value)) = proxy_action_header(action) {
                         proxy_headers.push(vec![action_header.to_string(), action_value]);
+                    }
+                }
+
+                // Extra headers embedded as literal HTTP headers
+                for (name, value) in headers {
+                    let trimmed_name = name.trim();
+                    let trimmed_value = value.trim();
+                    if !trimmed_name.is_empty() && !trimmed_value.is_empty() {
+                        proxy_headers.push(vec![trimmed_name.to_string(), trimmed_value.to_string()]);
                     }
                 }
 
@@ -968,6 +978,7 @@ mod tests {
                 PROXY_HEADER_PARAMETER_COUNTRY,
                 REMOVE_HEADER_ACTION_HEADER,
             ])],
+            &[],
         );
 
         let opts_encoded = url

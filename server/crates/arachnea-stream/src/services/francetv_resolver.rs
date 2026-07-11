@@ -154,6 +154,7 @@ async fn resolve_francetv_stream(
         endpoints.http_proxy_public_path.as_deref(),
         Some("fr"),
         &stream_actions,
+        &[],
     );
 
     if !drm_enabled {

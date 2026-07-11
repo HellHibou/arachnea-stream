@@ -56,11 +56,12 @@ queries:
         actions:
           - type: get_response_body
           - type: regex_find_all
-            pattern: 'sources:\s*\[([^\]]+)\]'
+            pattern: "player\\.src\\(\\s*\\[(.*?)\\]"
             format: "{1}"
           - type: regex_find_all
-            pattern: '["'']([^"''\s]+?\.(?:mp4|m3u8)(?:\?[^\s"''<>]*)?)["'']'
+            pattern: 'src:\s*["'']([^"''\s]+)["'']'
             format: "{1}"
+          - type: resolve_url
       - name: stream_headers
         type: object
         entries:
@@ -73,4 +74,4 @@ queries:
         type: string
         actions:
           - type: format_text
-            argument: "hls"
+            argument: "mp4"
