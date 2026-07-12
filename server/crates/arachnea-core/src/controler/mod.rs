@@ -11,6 +11,7 @@ mod web_assets;
 use std::sync::Arc;
 use std::{future::Future, pin::Pin};
 
+use bytes::Bytes;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -87,6 +88,14 @@ pub struct ControlerStreamInput {
     pub entry_point: String,
 }
 
+/// Polymorphic response body that can be either fully buffered or streamed.
+pub enum ResponseBody {
+    /// Entire body loaded in memory (used when post-actions need body modification).
+    Buffered(Vec<u8>),
+    /// Streaming body transferred as continuous chunks.
+    Streamed(Pin<Box<dyn futures::Stream<Item = Result<Bytes, std::io::Error>> + Send>>),
+}
+
 /// Raw stream payload returned by controller backends.
 ///
 /// This struct represents the complete HTTP response for stream endpoints.
@@ -98,7 +107,7 @@ pub struct ControlerStreamOutput {
     /// Stream response body.
     ///
     /// This field contains the binary response data to send to the client.
-    pub body: Vec<u8>,
+    pub body: ResponseBody,
     /// MIME type returned to the caller.
     ///
     /// This field specifies the content type of the response.

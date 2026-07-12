@@ -29,6 +29,7 @@ use crate::core::{
 };
 use arachnea_core::controler::{
     ControlerService, ControlerServiceExt, ControlerStreamInput, ControlerStreamOutput,
+    ResponseBody,
 };
 
 const MAX_LOCAL_URL_BYTES: usize = 8192;
@@ -189,7 +190,7 @@ fn remove_header_variants(headers: &mut HashMap<String, String>, wanted: &str) {
 fn stream_error(status: u16, message: impl Into<String>) -> ControlerStreamOutput {
     ControlerStreamOutput {
         status,
-        body: message.into().into_bytes(),
+        body: ResponseBody::Buffered(message.into().into_bytes()),
         content_type: "text/plain; charset=utf-8".to_string(),
         headers: HashMap::new(),
     }
@@ -797,9 +798,9 @@ pub async fn handle_proxy_http(
 
     // Handle HEAD: return no body
     let body = if method == "HEAD" {
-        Vec::new()
+        ResponseBody::Buffered(Vec::new())
     } else {
-        proxy_response.body
+        ResponseBody::Buffered(proxy_response.body)
     };
 
     Ok(ControlerStreamOutput {

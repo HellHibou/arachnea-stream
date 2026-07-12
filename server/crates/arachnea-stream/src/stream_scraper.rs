@@ -8,6 +8,7 @@ use urlencoding::encode;
 use arachnea_core::{
     controler::{
         ControlerService, ControlerServiceExt, ControlerStreamInput, ControlerStreamOutput,
+        ResponseBody,
     },
     persistence::{CredentialsStore, FileCredentialsStore},
 };
@@ -677,7 +678,7 @@ impl StreamScraper {
 
         Ok(ControlerStreamOutput {
             status: 200,
-            body: response.body,
+            body: ResponseBody::Buffered(response.body),
             content_type: response.content_type,
             headers: response.headers,
         })

@@ -18,8 +18,8 @@ use super::{
     install_global_main_thread_dispatcher, main_thread::MainThreadHandlerStore,
     ControlerFunctionInput, ControlerService, ControlerStreamInput, ControlerStreamOutput,
     MainThreadContext, MainThreadDispatchError, MainThreadDispatcher, MainThreadEvent,
-    MainThreadHandler, MainThreadHandlerId, MainThreadTask, SerializedControlerFunction,
-    StreamControlerFunction,
+    MainThreadHandler, MainThreadHandlerId, MainThreadTask, ResponseBody,
+    SerializedControlerFunction, StreamControlerFunction,
 };
 
 /// The default custom URI scheme used for Tauri web assets.
@@ -532,13 +532,24 @@ impl ControlerService for TauriControlerService {
                         return match response {
                             Ok(ControlerStreamOutput {
                                 status,
-                                mut body,
+                                body,
                                 content_type,
                                 headers,
                             }) => {
-                                if request.method() == ::tauri::http::Method::HEAD {
-                                    body.clear();
-                                }
+                                let body = match body {
+                                    ResponseBody::Buffered(mut bytes) => {
+                                        if request.method() == ::tauri::http::Method::HEAD {
+                                            bytes.clear();
+                                        }
+                                        bytes
+                                    }
+                                    ResponseBody::Streamed(_) => {
+                                        tracing::warn!(
+                                            "unexpected streamed body in buffered-only backend"
+                                        );
+                                        Vec::new()
+                                    }
+                                };
                                 let mut builder = ::tauri::http::Response::builder()
                                     .status(
                                         ::tauri::http::StatusCode::from_u16(status)

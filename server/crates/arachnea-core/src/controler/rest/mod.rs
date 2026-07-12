@@ -11,8 +11,8 @@ use super::web_assets::{normalize_mount_path, WebAssetSource};
 use super::{
     install_global_main_thread_dispatcher, main_thread::MainThreadDispatchLoop,
     main_thread::QueuedMainThreadDispatcher, ControlerFunctionInput, ControlerService,
-    ControlerStreamInput, ControlerStreamOutput, MainThreadDispatcher, SerializedControlerFunction,
-    SharedWebAssets, StreamControlerFunction,
+    ControlerStreamInput, ControlerStreamOutput, MainThreadDispatcher, ResponseBody,
+    SerializedControlerFunction, SharedWebAssets, StreamControlerFunction,
 };
 
 type RestReply = (Box<dyn Reply + Send>,);
@@ -278,13 +278,22 @@ impl RestControlerService {
         match call(input).await {
             Ok(ControlerStreamOutput {
                 status,
-                mut body,
+                body,
                 content_type,
                 headers,
             }) => {
-                if is_head {
-                    body.clear();
-                }
+                let body = match body {
+                    ResponseBody::Buffered(mut bytes) => {
+                        if is_head {
+                            bytes.clear();
+                        }
+                        bytes
+                    }
+                    ResponseBody::Streamed(_) => {
+                        tracing::warn!("unexpected streamed body in buffered-only backend");
+                        Vec::new()
+                    }
+                };
                 let mut builder = warp::http::Response::builder()
                     .status(StatusCode::from_u16(status).unwrap_or(StatusCode::OK));
                 builder = builder.header("content-type", &content_type);

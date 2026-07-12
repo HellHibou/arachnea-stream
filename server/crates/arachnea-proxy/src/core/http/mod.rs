@@ -3,6 +3,8 @@
 pub mod actions;
 /// Simple HTTP client for proxied requests.
 pub mod client;
+/// Streaming body decoders for HTTP/1.1 transfer modes.
+pub mod body_readers;
 #[cfg(feature = "controller-service")]
 pub mod proxy_service;
 
