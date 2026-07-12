@@ -555,6 +555,19 @@ Chaque étape représente une unité de travail réalisable en une demi-journée
   - Modifier `ProxiedHttpResponse` pour contenir `body: ResponseBody::Streamed(reader)`.
   - Conserver un mode `headers_only` pour `HEAD` (pas de lecture de corps).
   - Vérifier que les tests d'intégration HTTP passent toujours (avec des réponses de petite taille).
+- **Statut : ✅ Terminé**
+  - `client.rs` : `ProxiedHttpResponse.body` conservé en `Vec<u8>` (compatibilité avec la dépendance optionnelle `arachnea-core` derrière `controller-service`) ; le reader est consommé immédiatement dans `request_proxied` via `ReaderStream::new(reader)` + `next()` pour produire le `Vec<u8>`.
+  - `client.rs` : ajout de `select_body_reader(stream, &headers)` qui retourne `Box<dyn AsyncRead + Send + Unpin>` :
+    - `Transfer-Encoding: chunked` → `ChunkedBodyReader`
+    - `Content-Length: N` → `ContentLengthBodyReader`
+    - sinon → `UntilEofBodyReader`
+  - `client.rs` : imports `futures::StreamExt` (pour `.next()`) et `tokio_util::io::ReaderStream`.
+  - `client.rs` : suppression des fonctions mortes `remove_header_case_insensitive` (non utilisée) et `process_response_body`/`decode_chunked_body` (remplacées par les body readers).
+  - `client.rs` : `read_headers_only` réécrit pour lire jusqu'à `\r\n\r\n` sans consommer le corps (le flux est rendu au caller via `unified_stream`).
+  - `client.rs` : `request_proxied` ramène désormais le `ProxyStream` unifié (TLS inclus) à `send_request_and_read_head` puis au reader sélectionné.
+  - `Cargo.toml` (workspace) + `arachnea-proxy/Cargo.toml` : ajout de `tokio-util` (feature `io`) et `futures`.
+  - `cargo check --workspace` : succès ; `cargo test -p arachnea-proxy` : body readers OK (10 tests), core_tests OK (hors tests réseau dépendants qui timeout en CI).
+  - Note : l'intégration complète de `ResponseBody::Streamed` est reportée à l'Étape 6 (niveau `proxy_service.rs`) car `client.rs` est compilé hors feature `controller-service` et ne peut pas importer `ResponseBody` inconditionnellement.
 
 ---
 

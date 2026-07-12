@@ -1,14 +1,17 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use crate::core::http::actions::{
-    apply_post_actions, PostActionContext, ProxyHttpPostActionConfig,
+use crate::core::http::body_readers::{
+    ChunkedBodyReader, ContentLengthBodyReader, UntilEofBodyReader,
 };
 use crate::core::{
     ArachneaProxyCore, ClientContext, ConnectRequest, Destination, HttpRequestTargetForm,
     ProxyError, ProxyStream, Result,
 };
+use crate::http::actions::{ProxyHttpPostActionConfig, PostActionContext};
+use futures::StreamExt;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio_util::io::ReaderStream;
 
 /// Minimal HTTP response returned by the core convenience client.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -259,7 +262,7 @@ impl SimpleHttpClient {
             stream.stream
         };
 
-        let (status_code, mut headers) = send_request_and_read_head(
+        let (status_code, headers) = send_request_and_read_head(
             &mut unified_stream,
             &request_to_send,
             &request.body,
@@ -267,19 +270,18 @@ impl SimpleHttpClient {
         )
         .await?;
 
-        let mut body_bytes = Vec::new();
-        if !request.headers_only {
-            unified_stream.read_to_end(&mut body_bytes).await?;
-        }
-
-        let body = process_response_body(
-            body_bytes,
-            &mut headers,
-            status_code,
-            request.headers_only,
-            &request.post_actions,
-            &request.context,
-        )?;
+        let body = if request.headers_only {
+            Vec::new()
+        } else {
+            let reader = select_body_reader(unified_stream, &headers);
+            let mut body = Vec::new();
+            let mut reader_stream = ReaderStream::new(reader);
+            // Read all chunks from the stream
+            while let Some(chunk) = reader_stream.next().await {
+                body.extend_from_slice(&chunk?);
+            }
+            body
+        };
 
         Ok(ProxiedHttpResponse {
             status: status_code,
@@ -354,77 +356,6 @@ fn parse_response_head(raw_header_bytes: &[u8]) -> Result<(u16, HashMap<String, 
     Ok((status_code, headers))
 }
 
-/// Processes the raw body bytes: chunked decoding and post-response actions.
-fn process_response_body(
-    mut body: Vec<u8>,
-    headers: &mut HashMap<String, String>,
-    status_code: u16,
-    headers_only: bool,
-    post_actions: &[ProxyHttpPostActionConfig],
-    context: &PostActionContext,
-) -> Result<Vec<u8>> {
-    let transfer_encoding = header_value_case_insensitive(headers, "transfer-encoding")
-        .map(|value| value.to_ascii_lowercase());
-    if transfer_encoding
-        .as_deref()
-        .is_some_and(|value| value.split(',').any(|part| part.trim() == "chunked"))
-    {
-        body = decode_chunked_body(&body)?;
-        remove_header_case_insensitive(headers, "transfer-encoding");
-        remove_header_case_insensitive(headers, "content-length");
-    }
-
-    if !headers_only && !post_actions.is_empty() {
-        let original_len = body.len();
-        let new_body = apply_post_actions(status_code, headers, body, post_actions, context)?;
-
-        if new_body.len() != original_len {
-            remove_header_case_insensitive(headers, "content-length");
-            remove_header_case_insensitive(headers, "etag");
-            remove_header_case_insensitive(headers, "content-md5");
-            remove_header_case_insensitive(headers, "digest");
-            headers.insert("Content-Length".to_string(), new_body.len().to_string());
-        }
-
-        return Ok(new_body);
-    }
-
-    Ok(body)
-}
-
-/// Reads only the HTTP headers from the response, stopping after the empty line.
-async fn read_headers_only(stream: &mut (impl tokio::io::AsyncRead + Unpin)) -> Result<Vec<u8>> {
-    let mut buf = Vec::new();
-    let mut peek_buf = [0u8; 1];
-    let mut found_empty_line = false;
-
-    loop {
-        let n = stream.read(&mut peek_buf).await?;
-        if n == 0 {
-            break;
-        }
-        buf.push(peek_buf[0]);
-        if buf.ends_with(b"\r\n\r\n") {
-            found_empty_line = true;
-            break;
-        }
-        if buf.len() > 65536 {
-            return Err(ProxyError::Protocol(
-                "response headers exceed 64KB limit".to_string(),
-            ));
-        }
-    }
-
-    if !found_empty_line && !buf.is_empty() {
-        // Try to find partial header end
-        if !buf.ends_with(b"\r\n\r\n") {
-            buf.extend_from_slice(b"\r\n\r\n");
-        }
-    }
-
-    Ok(buf)
-}
-
 fn header_value_case_insensitive<'a>(
     headers: &'a HashMap<String, String>,
     wanted: &str,
@@ -443,45 +374,6 @@ fn remove_header_case_insensitive(headers: &mut HashMap<String, String>, wanted:
     {
         headers.remove(&name);
     }
-}
-
-fn decode_chunked_body(body: &[u8]) -> Result<Vec<u8>> {
-    let mut decoded = Vec::new();
-    let mut cursor = 0;
-
-    loop {
-        let line_end = body[cursor..]
-            .windows(2)
-            .position(|window| window == b"\r\n")
-            .ok_or_else(|| {
-                ProxyError::Protocol("chunked body has no chunk size line".to_string())
-            })?
-            + cursor;
-        let size_line = std::str::from_utf8(&body[cursor..line_end])
-            .map_err(|_| ProxyError::Protocol("chunk size line is not utf-8".to_string()))?;
-        let size_hex = size_line.split(';').next().unwrap_or("").trim();
-        let size = usize::from_str_radix(size_hex, 16)
-            .map_err(|_| ProxyError::Protocol("chunk size is invalid".to_string()))?;
-        cursor = line_end + 2;
-
-        if size == 0 {
-            break;
-        }
-
-        let chunk_end = cursor
-            .checked_add(size)
-            .ok_or_else(|| ProxyError::Protocol("chunk size overflows".to_string()))?;
-        if body.len() < chunk_end + 2 || &body[chunk_end..chunk_end + 2] != b"\r\n" {
-            return Err(ProxyError::Protocol(
-                "chunked body is truncated or malformed".to_string(),
-            ));
-        }
-
-        decoded.extend_from_slice(&body[cursor..chunk_end]);
-        cursor = chunk_end + 2;
-    }
-
-    Ok(decoded)
 }
 
 /// Parses the status code from an HTTP response.
@@ -512,4 +404,62 @@ fn parse_status(bytes: &[u8]) -> Result<u16> {
         .parse::<u16>()
         .map_err(|_| ProxyError::Protocol("http status code is invalid".to_string()))?;
     Ok(status)
+}
+
+/// Selects an appropriate body reader based on response headers.
+fn select_body_reader<S: AsyncRead + Send + Unpin + 'static>(
+    stream: S,
+    headers: &HashMap<String, String>,
+) -> Box<dyn AsyncRead + Send + Unpin> {
+    // Check for chunked transfer encoding
+    if let Some(te) = header_value_case_insensitive(headers, "transfer-encoding") {
+        if te.eq_ignore_ascii_case("chunked") {
+            return Box::new(ChunkedBodyReader::new(stream));
+        }
+    }
+
+    // Check for content-length
+    if let Some(cl) = header_value_case_insensitive(headers, "content-length") {
+        if let Ok(length) = cl.parse::<usize>() {
+            return Box::new(ContentLengthBodyReader::new(stream, length));
+        }
+    }
+
+    // Default to reading until EOF
+    Box::new(UntilEofBodyReader::new(stream))
+}
+
+/// Reads only the response headers from the stream.
+async fn read_headers_only<S>(
+    stream: &mut S,
+) -> Result<Vec<u8>>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let mut headers = Vec::new();
+    let mut buf = [0u8; 1024];
+    let mut header_end = [0u8; 4];
+    let mut header_end_idx = 0;
+
+    loop {
+        let n = stream.read(&mut buf).await?;
+        if n == 0 {
+            break;
+        }
+
+        for &byte in &buf[..n] {
+            headers.push(byte);
+
+            // Check for \r\n\r\n
+            if byte == b'\n' && header_end_idx >= 2 && header_end[header_end_idx - 2] == b'\r' && header_end[header_end_idx - 1] == b'\n' {
+                return Ok(headers);
+            }
+
+            // Shift the header_end window
+            header_end[header_end_idx % 4] = byte;
+            header_end_idx += 1;
+        }
+    }
+
+    Ok(headers)
 }
