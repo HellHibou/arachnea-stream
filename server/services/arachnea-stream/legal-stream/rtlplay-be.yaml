@@ -3,11 +3,14 @@ title: RTL Play
 logo: https://www.rtlplay.be/rtlplay/img/rtlplay/logo-large.svg
 description:
   fr: "RTL Play est la plateforme de streaming du groupe audiovisuel belge RTL Belgium, offrant un large catalogue de programmes télévisés, films, séries, documentaires et contenus exclusifs en ligne. Les utilisateurs peuvent accéder à leurs émissions préférées en direct ou à la demande, avec des fonctionnalités de recherche avancées et une interface conviviale pour une expérience de visionnage optimale."
-
 http:
   mode: direct
   user_agent: "RTL_PLAY/{api_version_major}.{api_version_minor} (com.tapptic.rtl.tvi; build:{api_version_build}; Android 30)"
 
+
+# ############################################################################
+# Parameters
+# ############################################################################
 parameters:
   - name: base_url
     value: https://www.rtlplay.be
@@ -25,6 +28,10 @@ parameters:
     value: 50
     description: Maximum exact search results requested from the non-paginated search endpoint.
 
+
+# ############################################################################
+# Shared structs
+# ############################################################################
 shared:
   media_types_rtlplay: &media_types_rtlplay
     - video/movie
@@ -130,12 +137,6 @@ shared:
         minuit: '0'
     - type: get_date
       format: days_from_today
-
-  actions_language_label: &actions_language_label
-    - type: map
-      default: '{}'
-      argument:
-        "français": "VF"
 
   actions_normalize_live_channel: &actions_normalize_live_channel
     - type: map
@@ -353,414 +354,15 @@ shared:
       select: first
       pointer: /titleArtImageUrl
 
-  detail_episode_entries: &detail_episode_entries
-    - name: title
-      type: string
-      select: first
-      pointer: /title
-    - name: description
-      type: string
-      select: first
-      pointer: /description
-    - name: duration
-      type: string
-      select: first
-      pointer: /durationSeconds
-    - name: episode-number
-      type: number
-      select: first
-      pointer: /index
-    - name: release-date
-      type: string
-      pointer: /labels/*[accessibilityLabel=Date de diffusion]/label
-      select: all
-      actions: *actions_release_date_label
-    - name: expire
-      type: string
-      pointer: /labels/*/label
-      select: all
-      actions: *actions_expire_label
-    - name: link
-      type: string
-      select: first
-      pointer: /id
-      actions:
-        - type: format_text
-          argument: "{base_url}/rtlplay/player/{}"
-    - name: players > name
-      type: string
-      select: first
-      pointer: /id
-      actions:
-        - type: format_text
-          argument: "RTL Play"
-    - name: players > resolver > kind
-      type: string
-      select: first
-      pointer: /id
-      actions:
-        - type: format_text
-          argument: "rtlplay-video"
-    - name: players > resolver > target_id
-      type: string
-      select: first
-      pointer: /id
-    - name: img/preview > link
-      type: string
-      select: first
-      pointer: /imageUrl
-    - name: img/preview > link
-      type: string
-      select: first
-      pointer: /overlayImageUrl
 
-  section_entries: &section_entries
-    - name: banners
-      type: object[]
-      pointer: /rows/*[rowType=TOP_BANNER]/teaser
-      select: all
-      entries:
-        - name: key
-          type: string
-          select: first
-          pointer: /target/id
-        - name: title
-          type: string
-          select: first
-          pointer: /title
-        - name: title/alt
-          type: string
-          select: first
-          pointer: /target/name
-        - name: subtitle
-          type: string
-          select: first
-          pointer: /byline
-        - name: description
-          type: string
-          select: first
-          pointer: /editorialByline
-        - name: image
-          type: string
-          select: first
-          pointer: /largeImageUrl
-        - name: image
-          type: string
-          select: first
-          pointer: /mediumImageUrl
-        - name: image
-          type: string
-          select: first
-          pointer: /mobileImageUrl
-        - name: image
-          type: string
-          select: first
-          pointer: /mobileCompressedImageUrl
-        - name: image
-          type: string
-          select: first
-          pointer: /smartTvImageUrl
-        - name: logo
-          type: string
-          select: first
-          pointer: /titleArtImageUrl
-        - name: link
-          type: string
-          select: first
-          pointer: /target/id
-          actions: *actions_program_link
-        - name: web-link
-          type: string
-          select: first
-          pointer: /target/id
-          actions: *actions_program_web_link
-
-    - name: categories
-      type: object[]
-      pointer: /rows/*[rowType=SPRINGBOARD]/tiles/*
-      select: all
-      entries:
-        - name: key
-          type: string
-          select: first
-          pointer: /target/storefront
-        - name: key
-          type: string
-          select: first
-          pointer: /target/rowId
-        - name: label
-          type: string
-          select: first
-          pointer: /title
-        - name: image
-          type: string
-          select: first
-          pointer: /imageUrl
-        - name: image
-          type: string
-          select: first
-          pointer: /hoverImageUrl
-        - name: link
-          type: string
-          select: first
-          pointer: /target/rowId
-          actions: *actions_row_detail_link
-        - name: link
-          type: string
-          select: first
-          pointer: /target/storefront
-          actions: *actions_storefront_link
-
-    - name: sections
-      type: object[]
-      pointer: /row
-      select: all
-      entries:
-        - name: key
-          type: string
-          select: first
-          pointer: /id
-        - name: label
-          type: string
-          select: first
-          pointer: /title
-        - name: entries
-          type: object[]
-          pointer: /teasers/*
-          select: all
-          entries: *teaser_entries
-
-    - name: sections
-      type: object[]
-      pointer: /rows/*[rowType=SWIMLANE_LANDSCAPE]
-      select: all
-      entries:
-        - name: key
-          type: string
-          select: first
-          pointer: /id
-        - name: label
-          type: string
-          select: first
-          pointer: /title
-        - name: entries
-          type: object[]
-          pointer: /teasers/*
-          select: all
-          entries: *teaser_entries
-
-    - name: sections
-      type: object[]
-      pointer: /rows/*[rowType=SWIMLANE_PORTRAIT]
-      select: all
-      entries:
-        - name: key
-          type: string
-          select: first
-          pointer: /id
-        - name: label
-          type: string
-          select: first
-          pointer: /title
-        - name: entries
-          type: object[]
-          pointer: /teasers/*
-          select: all
-          entries: *teaser_entries
-
-    - name: sections
-      type: object[]
-      pointer: /rows/*[rowType=SWIMLANE_TOP10]
-      select: all
-      entries:
-        - name: key
-          type: string
-          select: first
-          pointer: /id
-        - name: label
-          type: string
-          select: first
-          pointer: /title
-        - name: entries
-          type: object[]
-          pointer: /teasers/*
-          select: all
-          entries: *teaser_entries
-
-    - name: sections
-      type: object[]
-      pointer: /rows/*[rowType=LIVE_CHANNELS]
-      select: all
-      entries:
-        - name: key
-          type: string
-          select: first
-          pointer: /id
-        - name: label
-          type: string
-          select: first
-          pointer: /title
-        - name: entries
-          type: object[]
-          pointer: /teasers/*
-          select: all
-          entries: *live_entries
-
-  storefront_entries: &storefront_entries
-    - name: banners
-      type: object[]
-      pointer: /rows/*[rowType=TOP_BANNER]/teaser
-      select: all
-      entries:
-        - name: key
-          type: string
-          select: first
-          pointer: /target/id
-        - name: title
-          type: string
-          select: first
-          pointer: /title
-        - name: title/alt
-          type: string
-          select: first
-          pointer: /target/name
-        - name: subtitle
-          type: string
-          select: first
-          pointer: /byline
-        - name: description
-          type: string
-          select: first
-          pointer: /editorialByline
-        - name: image
-          type: string
-          select: first
-          pointer: /largeImageUrl
-        - name: image
-          type: string
-          select: first
-          pointer: /mediumImageUrl
-        - name: image
-          type: string
-          select: first
-          pointer: /mobileImageUrl
-        - name: image
-          type: string
-          select: first
-          pointer: /mobileCompressedImageUrl
-        - name: image
-          type: string
-          select: first
-          pointer: /smartTvImageUrl
-        - name: logo
-          type: string
-          select: first
-          pointer: /titleArtImageUrl
-        - name: link
-          type: string
-          select: first
-          pointer: /target/id
-          actions: *actions_program_link
-        - name: web-link
-          type: string
-          select: first
-          pointer: /target/id
-          actions: *actions_program_web_link
-
-    - name: categories
-      type: object[]
-      pointer: /rows/*[rowType=SPRINGBOARD]/tiles/*
-      select: all
-      entries:
-        - name: key
-          type: string
-          select: first
-          pointer: /target/storefront
-        - name: key
-          type: string
-          select: first
-          pointer: /target/rowId
-        - name: label
-          type: string
-          select: first
-          pointer: /title
-        - name: image
-          type: string
-          select: first
-          pointer: /imageUrl
-        - name: image
-          type: string
-          select: first
-          pointer: /hoverImageUrl
-        - name: link
-          type: string
-          select: first
-          pointer: /target/rowId
-          actions: *actions_row_detail_link
-        - name: link
-          type: string
-          select: first
-          pointer: /target/storefront
-          actions: *actions_storefront_link
-
-    - name: sections
-      type: object[]
-      pointer: /rows/*[rowType=SWIMLANE_LANDSCAPE]
-      select: all
-      entries:
-        - name: key
-          type: string
-          select: first
-          pointer: /id
-        - name: label
-          type: string
-          select: first
-          pointer: /title
-        - name: entries
-          type: object[]
-          pointer: /teasers/*
-          select: all
-          entries: *teaser_entries
-
-    - name: sections
-      type: object[]
-      pointer: /rows/*[rowType=SWIMLANE_PORTRAIT]
-      select: all
-      entries:
-        - name: key
-          type: string
-          select: first
-          pointer: /id
-        - name: label
-          type: string
-          select: first
-          pointer: /title
-        - name: entries
-          type: object[]
-          pointer: /teasers/*
-          select: all
-          entries: *teaser_entries
-
-    - name: sections
-      type: object[]
-      pointer: /rows/*[rowType=SWIMLANE_TOP10]
-      select: all
-      entries:
-        - name: key
-          type: string
-          select: first
-          pointer: /id
-        - name: label
-          type: string
-          select: first
-          pointer: /title
-        - name: entries
-          type: object[]
-          pointer: /teasers/*
-          select: all
-          entries: *teaser_entries
-
+# ############################################################################
+# Queries
+# ############################################################################
 queries:
+
+  # --------------------------------------------------------------------------
+  # Service stream metadata
+  # --------------------------------------------------------------------------
   - name: service_stream_metadata
     scraper_type: static
     entries:
@@ -777,6 +379,378 @@ queries:
         type: object
         value: "{service_description}"
 
+
+  # ---------------------------------------------------------------
+  # Home page
+  # ---------------------------------------------------------------
+  - name: load_home
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{api_root}/storefronts/accueil?temsPerSwimlane=20"
+    request_headers: *rtlplay_request_headers
+    media_types: *media_types_rtlplay
+    row_pointer: /
+    entries:
+      - name: banners
+        type: object[]
+        pointer: /rows/*[rowType=TOP_BANNER]/teaser
+        select: all
+        entries:
+          - name: key
+            type: string
+            select: first
+            pointer: /target/id
+          - name: title
+            type: string
+            select: first
+            pointer: /title
+          - name: title/alt
+            type: string
+            select: first
+            pointer: /target/name
+          - name: subtitle
+            type: string
+            select: first
+            pointer: /byline
+          - name: description
+            type: string
+            select: first
+            pointer: /editorialByline
+          - name: image
+            type: string
+            select: first
+            pointer: /largeImageUrl
+          - name: image
+            type: string
+            select: first
+            pointer: /mediumImageUrl
+          - name: image
+            type: string
+            select: first
+            pointer: /mobileImageUrl
+          - name: image
+            type: string
+            select: first
+            pointer: /mobileCompressedImageUrl
+          - name: image
+            type: string
+            select: first
+            pointer: /smartTvImageUrl
+          - name: logo
+            type: string
+            select: first
+            pointer: /titleArtImageUrl
+          - name: link
+            type: string
+            select: first
+            pointer: /target/id
+            actions: *actions_program_link
+          - name: web-link
+            type: string
+            select: first
+            pointer: /target/id
+            actions: *actions_program_web_link
+
+      - name: categories
+        type: object[]
+        pointer: /rows/*[rowType=SPRINGBOARD]/tiles/*
+        select: all
+        entries:
+          - name: key
+            type: string
+            select: first
+            pointer: /target/storefront
+          - name: key
+            type: string
+            select: first
+            pointer: /target/rowId
+          - name: label
+            type: string
+            select: first
+            pointer: /title
+          - name: image
+            type: string
+            select: first
+            pointer: /imageUrl
+          - name: image
+            type: string
+            select: first
+            pointer: /hoverImageUrl
+          - name: link
+            type: string
+            select: first
+            pointer: /target/rowId
+            actions: *actions_row_detail_link
+          - name: link
+            type: string
+            select: first
+            pointer: /target/storefront
+            actions: *actions_storefront_link
+
+      - name: sections
+        type: object[]
+        pointer: /rows/*[rowType=SWIMLANE_LANDSCAPE]
+        select: all
+        entries:
+          - name: key
+            type: string
+            select: first
+            pointer: /id
+          - name: label
+            type: string
+            select: first
+            pointer: /title
+          - name: entries
+            type: object[]
+            pointer: /teasers/*
+            select: all
+            entries: *teaser_entries
+
+      - name: sections
+        type: object[]
+        pointer: /rows/*[rowType=SWIMLANE_PORTRAIT]
+        select: all
+        entries:
+          - name: key
+            type: string
+            select: first
+            pointer: /id
+          - name: label
+            type: string
+            select: first
+            pointer: /title
+          - name: entries
+            type: object[]
+            pointer: /teasers/*
+            select: all
+            entries: *teaser_entries
+
+      - name: sections
+        type: object[]
+        pointer: /rows/*[rowType=SWIMLANE_TOP10]
+        select: all
+        entries:
+          - name: key
+            type: string
+            select: first
+            pointer: /id
+          - name: label
+            type: string
+            select: first
+            pointer: /title
+          - name: entries
+            type: object[]
+            pointer: /teasers/*
+            select: all
+            entries: *teaser_entries
+
+
+  # ---------------------------------------------------------------
+  # Category listing
+  # ---------------------------------------------------------------
+  - name: get_category
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    request_headers: *rtlplay_request_headers
+    media_types: *media_types_rtlplay
+    row_pointer: /
+    entries:
+      - name: banners
+        type: object[]
+        pointer: /rows/*[rowType=TOP_BANNER]/teaser
+        select: all
+        entries:
+          - name: key
+            type: string
+            select: first
+            pointer: /target/id
+          - name: title
+            type: string
+            select: first
+            pointer: /title
+          - name: title/alt
+            type: string
+            select: first
+            pointer: /target/name
+          - name: subtitle
+            type: string
+            select: first
+            pointer: /byline
+          - name: description
+            type: string
+            select: first
+            pointer: /editorialByline
+          - name: image
+            type: string
+            select: first
+            pointer: /largeImageUrl
+          - name: image
+            type: string
+            select: first
+            pointer: /mediumImageUrl
+          - name: image
+            type: string
+            select: first
+            pointer: /mobileImageUrl
+          - name: image
+            type: string
+            select: first
+            pointer: /mobileCompressedImageUrl
+          - name: image
+            type: string
+            select: first
+            pointer: /smartTvImageUrl
+          - name: logo
+            type: string
+            select: first
+            pointer: /titleArtImageUrl
+          - name: link
+            type: string
+            select: first
+            pointer: /target/id
+            actions: *actions_program_link
+          - name: web-link
+            type: string
+            select: first
+            pointer: /target/id
+            actions: *actions_program_web_link
+
+      - name: categories
+        type: object[]
+        pointer: /rows/*[rowType=SPRINGBOARD]/tiles/*
+        select: all
+        entries:
+          - name: key
+            type: string
+            select: first
+            pointer: /target/storefront
+          - name: key
+            type: string
+            select: first
+            pointer: /target/rowId
+          - name: label
+            type: string
+            select: first
+            pointer: /title
+          - name: image
+            type: string
+            select: first
+            pointer: /imageUrl
+          - name: image
+            type: string
+            select: first
+            pointer: /hoverImageUrl
+          - name: link
+            type: string
+            select: first
+            pointer: /target/rowId
+            actions: *actions_row_detail_link
+          - name: link
+            type: string
+            select: first
+            pointer: /target/storefront
+            actions: *actions_storefront_link
+
+      - name: sections
+        type: object[]
+        pointer: /row
+        select: all
+        entries:
+          - name: key
+            type: string
+            select: first
+            pointer: /id
+          - name: label
+            type: string
+            select: first
+            pointer: /title
+          - name: entries
+            type: object[]
+            pointer: /teasers/*
+            select: all
+            entries: *teaser_entries
+
+      - name: sections
+        type: object[]
+        pointer: /rows/*[rowType=SWIMLANE_LANDSCAPE]
+        select: all
+        entries:
+          - name: key
+            type: string
+            select: first
+            pointer: /id
+          - name: label
+            type: string
+            select: first
+            pointer: /title
+          - name: entries
+            type: object[]
+            pointer: /teasers/*
+            select: all
+            entries: *teaser_entries
+
+      - name: sections
+        type: object[]
+        pointer: /rows/*[rowType=SWIMLANE_PORTRAIT]
+        select: all
+        entries:
+          - name: key
+            type: string
+            select: first
+            pointer: /id
+          - name: label
+            type: string
+            select: first
+            pointer: /title
+          - name: entries
+            type: object[]
+            pointer: /teasers/*
+            select: all
+            entries: *teaser_entries
+
+      - name: sections
+        type: object[]
+        pointer: /rows/*[rowType=SWIMLANE_TOP10]
+        select: all
+        entries:
+          - name: key
+            type: string
+            select: first
+            pointer: /id
+          - name: label
+            type: string
+            select: first
+            pointer: /title
+          - name: entries
+            type: object[]
+            pointer: /teasers/*
+            select: all
+            entries: *teaser_entries
+
+      - name: sections
+        type: object[]
+        pointer: /rows/*[rowType=LIVE_CHANNELS]
+        select: all
+        entries:
+          - name: key
+            type: string
+            select: first
+            pointer: /id
+          - name: label
+            type: string
+            select: first
+            pointer: /title
+          - name: entries
+            type: object[]
+            pointer: /teasers/*
+            select: all
+            entries: *live_entries
+
+
+  # ---------------------------------------------------------------
+  # Search
+  # ---------------------------------------------------------------
   - name: search
     scraper_type: json
     base_url: "{base_url}"
@@ -901,24 +875,10 @@ queries:
             select: first
             pointer: /titleArtImageUrl
 
-  - name: load_home
-    scraper_type: json
-    base_url: "{base_url}"
-    query_url: "{api_root}/storefronts/accueil?temsPerSwimlane=20"
-    request_headers: *rtlplay_request_headers
-    media_types: *media_types_rtlplay
-    row_pointer: /
-    entries: *storefront_entries
 
-  - name: get_category
-    scraper_type: json
-    base_url: "{base_url}"
-    query_url: "{query_url}"
-    request_headers: *rtlplay_request_headers
-    media_types: *media_types_rtlplay
-    row_pointer: /
-    entries: *section_entries
-
+  # ---------------------------------------------------------------
+  # Entry / detail page
+  # ---------------------------------------------------------------
   - name: get_entry
     scraper_type: json
     base_url: "{base_url}"
@@ -1037,7 +997,11 @@ queries:
         type: string[]
         pointer: /moreInfo/meta/*[label=Langue]/items/*/label
         select: all
-        actions: *actions_language_label
+        actions:
+          - type: map
+            default: '{}'
+            argument:
+              "français": "VF"
       - name: content-advisor
         type: string
         pointer: /ratingIcons/*
@@ -1078,6 +1042,10 @@ queries:
               - type: format_text
                 argument: "{request_url}?selectedSeasonIndex={}"
 
+
+  # ---------------------------------------------------------------
+  # Season
+  # ---------------------------------------------------------------
   - name: get_season
     scraper_type: json
     base_url: "{base_url}"
@@ -1102,8 +1070,71 @@ queries:
         type: object[]
         pointer: /seasonPicker/selected/episodes/*
         select: all
-        entries: *detail_episode_entries
+        entries:
+          - name: title
+            type: string
+            select: first
+            pointer: /title
+          - name: description
+            type: string
+            select: first
+            pointer: /description
+          - name: duration
+            type: string
+            select: first
+            pointer: /durationSeconds
+          - name: episode-number
+            type: number
+            select: first
+            pointer: /index
+          - name: release-date
+            type: string
+            pointer: /labels/*[accessibilityLabel=Date de diffusion]/label
+            select: all
+            actions: *actions_release_date_label
+          - name: expire
+            type: string
+            pointer: /labels/*/label
+            select: all
+            actions: *actions_expire_label
+          - name: link
+            type: string
+            select: first
+            pointer: /id
+            actions:
+              - type: format_text
+                argument: "{base_url}/rtlplay/player/{}"
+          - name: players > name
+            type: string
+            select: first
+            pointer: /id
+            actions:
+              - type: format_text
+                argument: "RTL Play"
+          - name: players > resolver > kind
+            type: string
+            select: first
+            pointer: /id
+            actions:
+              - type: format_text
+                argument: "rtlplay-video"
+          - name: players > resolver > target_id
+            type: string
+            select: first
+            pointer: /id
+          - name: img/preview > link
+            type: string
+            select: first
+            pointer: /imageUrl
+          - name: img/preview > link
+            type: string
+            select: first
+            pointer: /overlayImageUrl
 
+
+  # ---------------------------------------------------------------
+  # List lives
+  # ---------------------------------------------------------------
   - name: list_lives
     scraper_type: json
     base_url: "{base_url}"
@@ -1155,6 +1186,10 @@ queries:
             web-link: "{base_url}/rtlplay/direct/RTLdistrict"
             media-type: video/live
 
+
+  # ---------------------------------------------------------------
+  # Get live
+  # ---------------------------------------------------------------
   - name: get_live
     scraper_type: json
     base_url: "{base_url}"

@@ -3,11 +3,14 @@ title: TF1+
 logo: "https://www.tf1.fr/_next/static/media/tf1-plus-logo-white.107m~.6am38d6.svg"
 description:
   fr: "TF1+ est la plateforme de streaming du groupe audiovisuel français TF1, offrant un large catalogue de programmes télévisés, films, séries, documentaires et contenus exclusifs en ligne. Les utilisateurs peuvent accéder à leurs émissions préférées en direct ou à la demande, avec des fonctionnalités de recherche avancées et une interface conviviale pour une expérience de visionnage optimale."
-
 http:
   mode: direct
   user_agent_profile: firefox
 
+
+# ############################################################################
+# Parameters
+# ############################################################################
 parameters:
   - name: country
     value: fr
@@ -62,6 +65,10 @@ parameters:
     value: 100
     description: Limit for the number of videos to search for.
 
+
+# ############################################################################
+# Shared structs
+# ############################################################################
 shared:
   media_types_tf1: &media_types_tf1
     - video/movie
@@ -92,35 +99,19 @@ shared:
     - type: format_text
       argument: "https://photos.tf1.fr{}"
 
-  action_program_media_type: &action_program_media_type
-    type: map
-    default: "video/show/other"
-    argument:
-      series-et-fictions: video/show/serie
-      cinema: video/movie
-      divertissements: video/show/other
-      infos-mag-et-sport: video/news
-      jeunesse: video/show/kids
-
-  actions_program_media_type: &actions_program_media_type
-    - *action_program_media_type
-
-  action_typology_media_type: &action_typology_media_type
-    type: map
-    default: "video/show/other/{}"
-    argument:
-      "Serie": video/show/serie
-      "Série": video/show/serie
-      "Emission": video/show/other
-      "Émission": video/show/other
-      Film: video/movie
-      Telefilm: video/movie
-      "Téléfilm": video/movie
-      Documentaire: video/show/documentary
-      Information: video/news
-
   actions_typology_media_type: &actions_typology_media_type
-    - *action_typology_media_type
+    - type: map
+      default: "video/show/other/{}"
+      argument:
+        "Serie": video/show/serie
+        "Série": video/show/serie
+        "Emission": video/show/other
+        "Émission": video/show/other
+        Film: video/movie
+        Telefilm: video/movie
+        "Téléfilm": video/movie
+        Documentaire: video/show/documentary
+        Information: video/news
 
   actions_live_channel_id: &actions_live_channel_id
     - type: regex_find_all
@@ -130,27 +121,6 @@ shared:
   actions_live_date: &actions_live_date
     - type: get_date
       format: yyyy_mm_dd_hh_mm_ss
-
-  action_program_link: &action_program_link
-    type: build_url
-    base: "{smarttv_api_root}?id=379fec96081ab1a2&variables=%7B%22programId%22%3A%22{id}%22%7D&programSlug={slug}&channel={channel}"
-    fields:
-      id: /id
-      slug: /slug
-      channel: /mainChannel/slug
-
-  action_program_web_link: &action_program_web_link
-    type: build_url
-    base: "{base_url}/{channel}/{slug}"
-    fields:
-      slug: /slug
-      channel: /mainChannel/slug
-
-  actions_program_link: &actions_program_link
-    - *action_program_link
-
-  actions_program_web_link: &actions_program_web_link
-    - *action_program_web_link
 
   action_static_request_source: &action_static_request_source
     type: format_text
@@ -497,166 +467,6 @@ shared:
       pointer: /image/sourcesWithScales/0/src
       actions: *actions_android_photo_url
 
-  android_slider_banner_program_entries: &android_slider_banner_program_entries
-    - name: key
-      type: string
-      select: first
-      pointer: /id
-    - name: title
-      type: string
-      select: first
-      pointer: /decoration/label
-    - name: description
-      type: string
-      select: first
-      pointer: /bannerDecoration/catchPhrase
-    - name: image
-      type: string
-      select: first
-      pointer: /bannerDecoration/tabletBannerImg/sourcesWithScales/0/src
-      actions: *actions_android_photo_url
-    - name: logo
-      type: string
-      select: first
-      pointer: /bannerDecoration/logoImg/sourcesWithScales/0/src
-      actions: *actions_android_photo_url
-    - name: link
-      type: string
-      actions:
-        - type: build_url
-          base: "{smarttv_api_root}?id=379fec96081ab1a2&variables=%7B%22programId%22%3A%22{id}%22%7D&programSlug={slug}&channel={channel}"
-          fields:
-            id: /program/id
-            slug: /program/slug
-            channel: /program/mainChannel/slug
-    - name: web-link
-      type: string
-      actions:
-        - type: build_url
-          base: "{base_url}/{channel}/{slug}"
-          fields:
-            slug: /program/slug
-            channel: /program/mainChannel/slug
-
-  android_slider_banner_category_entries: &android_slider_banner_category_entries
-    - name: key
-      type: string
-      select: first
-      pointer: /id
-    - name: title
-      type: string
-      select: first
-      pointer: /decoration/label
-    - name: description
-      type: string
-      select: first
-      pointer: /bannerDecoration/catchPhrase
-    - name: image
-      type: string
-      select: first
-      pointer: /bannerDecoration/tabletBannerImg/sourcesWithScales/0/src
-      actions: *actions_android_photo_url
-    - name: logo
-      type: string
-      select: first
-      pointer: /bannerDecoration/logoImg/sourcesWithScales/0/src
-      actions: *actions_android_photo_url
-
-  android_cover_program_banner_entries: &android_cover_program_banner_entries
-    - name: key
-      type: string
-      select: first
-      pointer: /id
-    - name: title
-      type: string
-      select: first
-      pointer: /program/name
-    - name: description
-      type: string
-      select: first
-      pointer: /decoration/catchPhrase
-    - name: logo
-      type: string
-      select: first
-      pointer: /decoration/logo/sourcesWithScales/0/url
-    - name: image
-      type: string
-      select: first
-      pointer: /decoration/phoneCoverImage/sourcesWithScales/0/url
-    - name: image
-      type: string
-      select: first
-      pointer: /decoration/tabletCoverImage/sourcesWithScales/0/url
-    - name: video
-      type: string
-      select: first
-      pointer: /decoration/coverVideo/sourcesWithScales/0/url
-    - name: link
-      type: string
-      actions:
-        - type: build_url
-          base: "{smarttv_api_root}?id=379fec96081ab1a2&variables=%7B%22programId%22%3A%22{id}%22%7D&programSlug={slug}&channel={channel}"
-          fields:
-            id: /program/id
-            slug: /program/slug
-            channel: /program/mainChannel/slug
-    - name: web-link
-      type: string
-      actions:
-        - type: build_url
-          base: "{base_url}/{channel}/{slug}"
-          fields:
-            slug: /program/slug
-            channel: /program/mainChannel/slug
-
-  android_cover_video_banner_entries: &android_cover_video_banner_entries
-    - name: key
-      type: string
-      select: first
-      pointer: /id
-    - name: title
-      type: string
-      select: first
-      pointer: /video/title
-    - name: description
-      type: string
-      select: first
-      pointer: /decoration/catchPhrase
-    - name: logo
-      type: string
-      select: first
-      pointer: /decoration/logo/sourcesWithScales/0/url
-    - name: image
-      type: string
-      select: first
-      pointer: /decoration/phoneCoverImage/sourcesWithScales/0/url
-    - name: image
-      type: string
-      select: first
-      pointer: /decoration/tabletCoverImage/sourcesWithScales/0/url
-    - name: video
-      type: string
-      select: first
-      pointer: /decoration/coverVideo/sourcesWithScales/0/url
-    - name: link
-      type: string
-      actions:
-        - type: build_url
-          base: "{smarttv_api_root}?id=379fec96081ab1a2&variables=%7B%22programId%22%3A%22{id}%22%7D&programSlug={slug}&channel={channel}"
-          fields:
-            id: /video/program/id
-            slug: /video/program/slug
-            channel: /video/program/mainChannel/slug
-    - name: web-link
-      type: string
-      actions:
-        - type: build_url
-          base: "{base_url}/{channel}/{program_slug}/videos/{slug}.html"
-          fields:
-            channel: /video/program/mainChannel/slug
-            program_slug: /video/program/slug
-            slug: /video/slug
-
   category_program_entries: &category_program_entries
     - name: source
       type: string
@@ -678,17 +488,36 @@ shared:
     - name: media-type
       type: string[]
       pointer: /categories/0/slug
-      actions: *actions_program_media_type
+      actions:
+        - type: map
+          default: "video/show/other"
+          argument:
+            series-et-fictions: video/show/serie
+            cinema: video/movie
+            divertissements: video/show/other
+            infos-mag-et-sport: video/news
+            jeunesse: video/show/kids
     - name: media-type
       type: string[]
       pointer: /typology
       actions: *actions_typology_media_type
     - name: link
       type: string
-      actions: *actions_program_link
+      actions: 
+        - type: build_url
+          base: "{smarttv_api_root}?id=379fec96081ab1a2&variables=%7B%22programId%22%3A%22{id}%22%7D&programSlug={slug}&channel={channel}"
+          fields:
+            id: /id
+            slug: /slug
+            channel: /mainChannel/slug
     - name: web-link
       type: string
-      actions: *actions_program_web_link
+      actions:
+        - type: build_url
+          base: "{base_url}/{channel}/{slug}"
+          fields:
+            slug: /slug
+            channel: /mainChannel/slug
     - name: img/poster > link
       type: string
       select: first
@@ -730,96 +559,15 @@ shared:
       select: first
       pointer: /thumbnail/source/0/url
 
-  live_item_entries: &live_item_entries
-    - name: title
-      type: string
-      select: first
-      pointer: /live/liveChannel/label
-    - name: title/alt
-      type: string
-      select: first
-      pointer: /live/title
-    - name: key
-      type: string
-      select: first
-      pointer: /live/streamId
-      actions: *actions_live_channel_id
-    - name: media-type
-      type: string[]
-      actions:
-        - type: format_text
-          argument: "video/live"
-    - name: link
-      type: string
-      select: first
-      pointer: /live/streamId
-      actions: *actions_live_channel_id
-    - name: web-link
-      type: string
-      select: first
-      pointer: /live/liveChannel/slug
-      actions:
-        - type: format_text
-          argument: "{base_url}/{}/direct"
-    - name: description
-      type: string
-      select: first
-      pointer: /live/liveDecoration/description
-    - name: release-date
-      type: string
-      select: first
-      pointer: /live/startAt
-      actions: *actions_live_date
-    - name: expire
-      type: string
-      select: first
-      pointer: /live/endAt
-      actions: *actions_live_date
-    - name: channel
-      type: string
-      select: first
-      pointer: /live/liveChannel/label
-    - name: img/poster > link
-      type: string
-      select: first
-      pointer: /live/liveDecoration/image/sourcesWithScales/0/src
-      actions: *actions_android_photo_url
-    - name: img/poster > link
-      type: string
-      select: first
-      pointer: /live/playerDecoration/image/sourcesWithScales/0/url
-    - name: img/landscape > link
-      type: string
-      select: first
-      pointer: /image/sourcesWithScales/0/src
-      actions: *actions_android_photo_url
-    - name: img/landscape > link
-      type: string
-      select: first
-      pointer: /live/playerDecoration/image/sourcesWithScales/0/url
 
-  live_player_entries: &live_player_entries
-    - name: name
-      type: string
-      actions:
-        - type: format_text
-          argument: "TF1+"
-    - name: resolver
-      type: object
-      select: first
-      entries:
-        - name: kind
-          type: string
-          actions:
-            - type: format_text
-              argument: "tf1-live"
-        - name: target_id
-          type: string
-          actions:
-            - type: format_text
-              argument: "{channel}"
-
+# ############################################################################
+# Queries
+# ############################################################################
 queries:
+
+  # --------------------------------------------------------------------------
+  # Service stream metadata
+  # --------------------------------------------------------------------------
   - name: service_stream_metadata
     scraper_type: static
     entries:
@@ -835,7 +583,417 @@ queries:
       - name: description
         type: object
         value: "{service_description}"
+        
 
+  # ---------------------------------------------------------------
+  # Home page
+  # ---------------------------------------------------------------
+  - name: load_home
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{android_home_sliders_url}"
+    request_headers: *android_request_headers
+    http:
+      user_agent: "Mozilla/5.0 (Linux; Android 13) Arachnea/1.0"
+    media_types: *media_types_tf1
+    row_pointer: /
+    entries:
+      - name: source
+        type: string
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - *load_home_category_tf1
+      - *load_home_category_tmc
+      - *load_home_category_tfx
+      - *load_home_category_tf1_series_films
+      - *load_home_category_lci
+      - *load_home_category_all
+      - name: sections
+        type: object[]
+        pointer: /data/homeSliders/*[__typename=SliderOfTopProgram]
+        select: all
+        entries:
+          - name: label
+            type: string
+            select: first
+            pointer: /decoration/label
+          - name: entries
+            type: object[]
+            pointer: /items/*[__typename=TopProgramItem]
+            select: all
+            entries: *android_home_item_entries
+          - name: entries
+            type: object[]
+            pointer: /items/*[__typename=ProgramItem]
+            select: all
+            entries: *android_home_item_entries
+          - name: entries
+            type: object[]
+            pointer: /items/*[__typename=VideoItem]
+            select: all
+            entries: *android_home_video_item_entries
+      - name: sections
+        type: object[]
+        pointer: /data/homeSliders/*[__typename=SliderOfProgram]
+        select: all
+        entries:
+          - name: label
+            type: string
+            select: first
+            pointer: /decoration/label
+          - name: entries
+            type: object[]
+            pointer: /items/*[__typename=TopProgramItem]
+            select: all
+            entries: *android_home_item_entries
+          - name: entries
+            type: object[]
+            pointer: /items/*[__typename=ProgramItem]
+            select: all
+            entries: *android_home_item_entries
+          - name: entries
+            type: object[]
+            pointer: /items/*[__typename=VideoItem]
+            select: all
+            entries: *android_home_video_item_entries
+      - name: sections
+        type: object[]
+        pointer: /data/homeSliders/*[__typename=SliderOfVideo]
+        select: all
+        entries:
+          - name: label
+            type: string
+            select: first
+            pointer: /decoration/label
+          - name: entries
+            type: object[]
+            pointer: /items/*[__typename=TopProgramItem]
+            select: all
+            entries: *android_home_item_entries
+          - name: entries
+            type: object[]
+            pointer: /items/*[__typename=ProgramItem]
+            select: all
+            entries: *android_home_item_entries
+          - name: entries
+            type: object[]
+            pointer: /items/*[__typename=VideoItem]
+            select: all
+            entries: *android_home_video_item_entries
+      - name: banners
+        type: object[]
+        pointer: /data/homeSliders/*[__typename=BannerOfProgram]
+        select: all
+        entries:
+          - name: key
+            type: string
+            select: first
+            pointer: /id
+          - name: title
+            type: string
+            select: first
+            pointer: /decoration/label
+          - name: description
+            type: string
+            select: first
+            pointer: /bannerDecoration/catchPhrase
+          - name: image
+            type: string
+            select: first
+            pointer: /bannerDecoration/tabletBannerImg/sourcesWithScales/0/src
+            actions: *actions_android_photo_url
+          - name: logo
+            type: string
+            select: first
+            pointer: /bannerDecoration/logoImg/sourcesWithScales/0/src
+            actions: *actions_android_photo_url
+          - name: link
+            type: string
+            actions:
+              - type: build_url
+                base: "{smarttv_api_root}?id=379fec96081ab1a2&variables=%7B%22programId%22%3A%22{id}%22%7D&programSlug={slug}&channel={channel}"
+                fields:
+                  id: /program/id
+                  slug: /program/slug
+                  channel: /program/mainChannel/slug
+          - name: web-link
+            type: string
+            actions:
+              - type: build_url
+                base: "{base_url}/{channel}/{slug}"
+                fields:
+                  slug: /program/slug
+                  channel: /program/mainChannel/slug
+      - name: banners
+        type: object[]
+        pointer: /data/homeSliders/*[__typename=BannerOfCategory]
+        select: all
+        entries:
+          - name: key
+            type: string
+            select: first
+            pointer: /id
+          - name: title
+            type: string
+            select: first
+            pointer: /decoration/label
+          - name: description
+            type: string
+            select: first
+            pointer: /bannerDecoration/catchPhrase
+          - name: image
+            type: string
+            select: first
+            pointer: /bannerDecoration/tabletBannerImg/sourcesWithScales/0/src
+            actions: *actions_android_photo_url
+          - name: logo
+            type: string
+            select: first
+            pointer: /bannerDecoration/logoImg/sourcesWithScales/0/src
+            actions: *actions_android_photo_url
+    sub_queries:
+      - scraper_type: json
+        request_actions:
+          - type: format_text
+            argument: "{android_home_covers_url}"
+        request_headers: *android_request_headers
+        http:
+          user_agent: "Mozilla/5.0 (Linux; Android 13) Arachnea/1.0"
+        row_pointer: /data/homeCoversByRight/*[__typename=CoverOfProgram]
+        target: banners
+        entries:
+          - name: key
+            type: string
+            select: first
+            pointer: /id
+          - name: title
+            type: string
+            select: first
+            pointer: /program/name
+          - name: description
+            type: string
+            select: first
+            pointer: /decoration/catchPhrase
+          - name: logo
+            type: string
+            select: first
+            pointer: /decoration/logo/sourcesWithScales/0/url
+          - name: image
+            type: string
+            select: first
+            pointer: /decoration/phoneCoverImage/sourcesWithScales/0/url
+          - name: image
+            type: string
+            select: first
+            pointer: /decoration/tabletCoverImage/sourcesWithScales/0/url
+          - name: video
+            type: string
+            select: first
+            pointer: /decoration/coverVideo/sourcesWithScales/0/url
+          - name: link
+            type: string
+            actions:
+              - type: build_url
+                base: "{smarttv_api_root}?id=379fec96081ab1a2&variables=%7B%22programId%22%3A%22{id}%22%7D&programSlug={slug}&channel={channel}"
+                fields:
+                  id: /program/id
+                  slug: /program/slug
+                  channel: /program/mainChannel/slug
+          - name: web-link
+            type: string
+            actions:
+              - type: build_url
+                base: "{base_url}/{channel}/{slug}"
+                fields:
+                  slug: /program/slug
+                  channel: /program/mainChannel/slug
+      - scraper_type: json
+        request_actions:
+          - type: format_text
+            argument: "{android_home_covers_url}"
+        request_headers: *android_request_headers
+        http:
+          user_agent: "Mozilla/5.0 (Linux; Android 13) Arachnea/1.0"
+        row_pointer: /data/homeCoversByRight/*[__typename=CoverOfVideo]
+        target: banners
+        entries:
+          - name: key
+            type: string
+            select: first
+            pointer: /id
+          - name: title
+            type: string
+            select: first
+            pointer: /video/title
+          - name: description
+            type: string
+            select: first
+            pointer: /decoration/catchPhrase
+          - name: logo
+            type: string
+            select: first
+            pointer: /decoration/logo/sourcesWithScales/0/url
+          - name: image
+            type: string
+            select: first
+            pointer: /decoration/phoneCoverImage/sourcesWithScales/0/url
+          - name: image
+            type: string
+            select: first
+            pointer: /decoration/tabletCoverImage/sourcesWithScales/0/url
+          - name: video
+            type: string
+            select: first
+            pointer: /decoration/coverVideo/sourcesWithScales/0/url
+          - name: link
+            type: string
+            actions:
+              - type: build_url
+                base: "{smarttv_api_root}?id=379fec96081ab1a2&variables=%7B%22programId%22%3A%22{id}%22%7D&programSlug={slug}&channel={channel}"
+                fields:
+                  id: /video/program/id
+                  slug: /video/program/slug
+                  channel: /video/program/mainChannel/slug
+          - name: web-link
+            type: string
+            actions:
+              - type: build_url
+                base: "{base_url}/{channel}/{program_slug}/videos/{slug}.html"
+                fields:
+                  channel: /video/program/mainChannel/slug
+                  program_slug: /video/program/slug
+                  slug: /video/slug
+
+
+  # ---------------------------------------------------------------
+  # Category listing
+  # ---------------------------------------------------------------
+  - name: get_category
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22{channel}%22%7D%2C%22offset%22%3A{offset}%2C%22limit%22%3A{page_size}%7D"
+    request_headers: *generic_request_headers
+    media_types: *media_types_tf1
+    row_pointer: /data/programs
+    entries:
+      - name: source
+        type: string
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: sections
+        type: object[]
+        entries:
+          - name: label
+            type: string
+            actions:
+              - type: format_text
+                argument: "Programmes"
+          - name: current_page
+            type: number
+            actions:
+              - type: format_text
+                argument: "{page}"
+          - name: page_size
+            type: number
+            actions:
+              - type: format_text
+                argument: "{page_size}"
+          - name: total
+            type: number
+            select: first
+            pointer: /total
+          - name: link
+            type: string
+            actions:
+              - type: format_text
+                argument: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22{channel}%22%7D%2C%22offset%22%3A{offset}%2C%22limit%22%3A{page_size}%7D"
+          - name: request > channel
+            type: string
+            actions:
+              - type: format_text
+                argument: "{channel}"
+          - name: request > page_size
+            type: number
+            actions:
+              - type: format_text
+                argument: "{page_size}"
+          - name: entries
+            type: object[]
+            pointer: /items/*
+            select: all
+            entries: *category_program_entries
+    post_process:
+      - type: compute_items_field
+        source: sections
+        target: total_pages
+        expression: "ceil({total} / {page_size})"
+      - type: derive_pagination
+        source: sections
+        entries_field: entries
+        current_page_field: current_page
+        total_pages_field: total_pages
+        have_more_field: have_more
+        remove_fields:
+          - total
+          - total_pages
+          - page_size
+
+
+  # ---------------------------------------------------------------
+  # Section listing
+  # ---------------------------------------------------------------
+  - name: get_section
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22{channel}%22%7D%2C%22offset%22%3A{offset}%2C%22limit%22%3A{page_size}%7D"
+    request_headers: *generic_request_headers
+    media_types: *media_types_tf1
+    row_pointer: /data/programs
+    entries:
+      - name: sections
+        type: object[]
+        entries:
+          - name: current_page
+            type: number
+            actions:
+              - type: format_text
+                argument: "{page}"
+          - name: page_size
+            type: number
+            actions:
+              - type: format_text
+                argument: "{page_size}"
+          - name: total
+            type: number
+            select: first
+            pointer: /total
+          - name: entries
+            type: object[]
+            pointer: /items/*
+            select: all
+            entries: *category_program_entries
+    post_process:
+      - type: compute_items_field
+        source: sections
+        target: total_pages
+        expression: "ceil({total} / {page_size})"
+      - type: derive_pagination
+        source: sections
+        entries_field: entries
+        current_page_field: current_page
+        total_pages_field: total_pages
+        have_more_field: have_more
+        remove_fields:
+          - total
+          - total_pages
+          - page_size
+
+
+  # ---------------------------------------------------------------
+  # Search
+  # ---------------------------------------------------------------
   - name: search
     scraper_type: json
     base_url: "{base_url}"
@@ -952,281 +1110,10 @@ queries:
             select: first
             pointer: /video/decoration/image/sourcesWithScales/0/url
 
-  - name: load_home
-    scraper_type: json
-    base_url: "{base_url}"
-    query_url: "{android_home_sliders_url}"
-    request_headers: *android_request_headers
-    http:
-      user_agent: "Mozilla/5.0 (Linux; Android 13) Arachnea/1.0"
-    media_types: *media_types_tf1
-    row_pointer: /
-    entries:
-      - name: source
-        type: string
-        actions:
-          - type: format_text
-            argument: "{source}"
-      - *load_home_category_tf1
-      - *load_home_category_tmc
-      - *load_home_category_tfx
-      - *load_home_category_tf1_series_films
-      - *load_home_category_lci
-      - *load_home_category_all
-      - name: sections
-        type: object[]
-        pointer: /data/homeSliders/*[__typename=SliderOfTopProgram]
-        select: all
-        entries:
-          - name: label
-            type: string
-            select: first
-            pointer: /decoration/label
-          - name: entries
-            type: object[]
-            pointer: /items/*[__typename=TopProgramItem]
-            select: all
-            entries: *android_home_item_entries
-          - name: entries
-            type: object[]
-            pointer: /items/*[__typename=ProgramItem]
-            select: all
-            entries: *android_home_item_entries
-          - name: entries
-            type: object[]
-            pointer: /items/*[__typename=VideoItem]
-            select: all
-            entries: *android_home_video_item_entries
-      - name: sections
-        type: object[]
-        pointer: /data/homeSliders/*[__typename=SliderOfProgram]
-        select: all
-        entries:
-          - name: label
-            type: string
-            select: first
-            pointer: /decoration/label
-          - name: entries
-            type: object[]
-            pointer: /items/*[__typename=TopProgramItem]
-            select: all
-            entries: *android_home_item_entries
-          - name: entries
-            type: object[]
-            pointer: /items/*[__typename=ProgramItem]
-            select: all
-            entries: *android_home_item_entries
-          - name: entries
-            type: object[]
-            pointer: /items/*[__typename=VideoItem]
-            select: all
-            entries: *android_home_video_item_entries
-      - name: sections
-        type: object[]
-        pointer: /data/homeSliders/*[__typename=SliderOfVideo]
-        select: all
-        entries:
-          - name: label
-            type: string
-            select: first
-            pointer: /decoration/label
-          - name: entries
-            type: object[]
-            pointer: /items/*[__typename=TopProgramItem]
-            select: all
-            entries: *android_home_item_entries
-          - name: entries
-            type: object[]
-            pointer: /items/*[__typename=ProgramItem]
-            select: all
-            entries: *android_home_item_entries
-          - name: entries
-            type: object[]
-            pointer: /items/*[__typename=VideoItem]
-            select: all
-            entries: *android_home_video_item_entries
-      - name: banners
-        type: object[]
-        pointer: /data/homeSliders/*[__typename=BannerOfProgram]
-        select: all
-        entries: *android_slider_banner_program_entries
-      - name: banners
-        type: object[]
-        pointer: /data/homeSliders/*[__typename=BannerOfCategory]
-        select: all
-        entries: *android_slider_banner_category_entries
-    sub_queries:
-      - scraper_type: json
-        request_actions:
-          - type: format_text
-            argument: "{android_home_covers_url}"
-        request_headers: *android_request_headers
-        http:
-          user_agent: "Mozilla/5.0 (Linux; Android 13) Arachnea/1.0"
-        row_pointer: /data/homeCoversByRight/*[__typename=CoverOfProgram]
-        target: banners
-        entries: *android_cover_program_banner_entries
-      - scraper_type: json
-        request_actions:
-          - type: format_text
-            argument: "{android_home_covers_url}"
-        request_headers: *android_request_headers
-        http:
-          user_agent: "Mozilla/5.0 (Linux; Android 13) Arachnea/1.0"
-        row_pointer: /data/homeCoversByRight/*[__typename=CoverOfVideo]
-        target: banners
-        entries: *android_cover_video_banner_entries
 
-  - name: list_lives
-    scraper_type: json
-    base_url: "{base_url}"
-    query_url: "{android_home_sliders_url}"
-    request_headers: *android_request_headers
-    http:
-      user_agent: "Mozilla/5.0 (Linux; Android 13) Arachnea/1.0"
-    media_types:
-      - video/live
-    row_pointer: /
-    result_item_field: entries
-    entries:
-      - name: entries
-        type: object[]
-        pointer: /data/homeSliders/*[__typename=SliderOfLive]/items/*
-        select: all
-        entries: *live_item_entries
-
-  - name: get_live
-    scraper_type: json
-    base_url: "{base_url}"
-    query_url: "{android_home_sliders_url}"
-    request_headers: *android_request_headers
-    http:
-      user_agent: "Mozilla/5.0 (Linux; Android 13) Arachnea/1.0"
-    media_types:
-      - video/live
-    row_pointer: /
-    entries:
-      - name: players
-        type: object[]
-        entries: *live_player_entries
-
-  - name: get_category
-    scraper_type: json
-    base_url: "{base_url}"
-    query_url: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22{channel}%22%7D%2C%22offset%22%3A{offset}%2C%22limit%22%3A{page_size}%7D"
-    request_headers: *generic_request_headers
-    media_types: *media_types_tf1
-    row_pointer: /data/programs
-    entries:
-      - name: source
-        type: string
-        actions:
-          - type: format_text
-            argument: "{source}"
-      - name: sections
-        type: object[]
-        entries:
-          - name: label
-            type: string
-            actions:
-              - type: format_text
-                argument: "Programmes"
-          - name: current_page
-            type: number
-            actions:
-              - type: format_text
-                argument: "{page}"
-          - name: page_size
-            type: number
-            actions:
-              - type: format_text
-                argument: "{page_size}"
-          - name: total
-            type: number
-            select: first
-            pointer: /total
-          - name: link
-            type: string
-            actions:
-              - type: format_text
-                argument: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22{channel}%22%7D%2C%22offset%22%3A{offset}%2C%22limit%22%3A{page_size}%7D"
-          - name: request > channel
-            type: string
-            actions:
-              - type: format_text
-                argument: "{channel}"
-          - name: request > page_size
-            type: number
-            actions:
-              - type: format_text
-                argument: "{page_size}"
-          - name: entries
-            type: object[]
-            pointer: /items/*
-            select: all
-            entries: *category_program_entries
-    post_process:
-      - type: compute_items_field
-        source: sections
-        target: total_pages
-        expression: "ceil({total} / {page_size})"
-      - type: derive_pagination
-        source: sections
-        entries_field: entries
-        current_page_field: current_page
-        total_pages_field: total_pages
-        have_more_field: have_more
-        remove_fields:
-          - total
-          - total_pages
-          - page_size
-
-  - name: get_section
-    scraper_type: json
-    base_url: "{base_url}"
-    query_url: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22{channel}%22%7D%2C%22offset%22%3A{offset}%2C%22limit%22%3A{page_size}%7D"
-    request_headers: *generic_request_headers
-    media_types: *media_types_tf1
-    row_pointer: /data/programs
-    entries:
-      - name: sections
-        type: object[]
-        entries:
-          - name: current_page
-            type: number
-            actions:
-              - type: format_text
-                argument: "{page}"
-          - name: page_size
-            type: number
-            actions:
-              - type: format_text
-                argument: "{page_size}"
-          - name: total
-            type: number
-            select: first
-            pointer: /total
-          - name: entries
-            type: object[]
-            pointer: /items/*
-            select: all
-            entries: *category_program_entries
-    post_process:
-      - type: compute_items_field
-        source: sections
-        target: total_pages
-        expression: "ceil({total} / {page_size})"
-      - type: derive_pagination
-        source: sections
-        entries_field: entries
-        current_page_field: current_page
-        total_pages_field: total_pages
-        have_more_field: have_more
-        remove_fields:
-          - total
-          - total_pages
-          - page_size
-
+  # ---------------------------------------------------------------
+  # Entry / detail page
+  # ---------------------------------------------------------------
   - name: get_entry
     scraper_type: json
     base_url: "{base_url}"
@@ -1435,6 +1322,10 @@ queries:
                     select: first
                     pointer: /id
 
+
+  # ---------------------------------------------------------------
+  # Season
+  # ---------------------------------------------------------------
   - name: get_season
     scraper_type: json
     base_url: "{base_url}"
@@ -1537,3 +1428,129 @@ queries:
                     type: string
                     select: first
                     pointer: /video/id
+
+
+  # ---------------------------------------------------------------
+  # List lives
+  # ---------------------------------------------------------------
+  - name: list_lives
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{android_home_sliders_url}"
+    request_headers: *android_request_headers
+    http:
+      user_agent: "Mozilla/5.0 (Linux; Android 13) Arachnea/1.0"
+    media_types:
+      - video/live
+    row_pointer: /
+    result_item_field: entries
+    entries:
+      - name: entries
+        type: object[]
+        pointer: /data/homeSliders/*[__typename=SliderOfLive]/items/*
+        select: all
+        entries:
+          - name: title
+            type: string
+            select: first
+            pointer: /live/liveChannel/label
+          - name: title/alt
+            type: string
+            select: first
+            pointer: /live/title
+          - name: key
+            type: string
+            select: first
+            pointer: /live/streamId
+            actions: *actions_live_channel_id
+          - name: media-type
+            type: string[]
+            actions:
+              - type: format_text
+                argument: "video/live"
+          - name: link
+            type: string
+            select: first
+            pointer: /live/streamId
+            actions: *actions_live_channel_id
+          - name: web-link
+            type: string
+            select: first
+            pointer: /live/liveChannel/slug
+            actions:
+              - type: format_text
+                argument: "{base_url}/{}/direct"
+          - name: description
+            type: string
+            select: first
+            pointer: /live/liveDecoration/description
+          - name: release-date
+            type: string
+            select: first
+            pointer: /live/startAt
+            actions: *actions_live_date
+          - name: expire
+            type: string
+            select: first
+            pointer: /live/endAt
+            actions: *actions_live_date
+          - name: channel
+            type: string
+            select: first
+            pointer: /live/liveChannel/label
+          - name: img/poster > link
+            type: string
+            select: first
+            pointer: /live/liveDecoration/image/sourcesWithScales/0/src
+            actions: *actions_android_photo_url
+          - name: img/poster > link
+            type: string
+            select: first
+            pointer: /live/playerDecoration/image/sourcesWithScales/0/url
+          - name: img/landscape > link
+            type: string
+            select: first
+            pointer: /image/sourcesWithScales/0/src
+            actions: *actions_android_photo_url
+          - name: img/landscape > link
+            type: string
+            select: first
+            pointer: /live/playerDecoration/image/sourcesWithScales/0/url
+
+
+  # ---------------------------------------------------------------
+  # Get live
+  # ---------------------------------------------------------------
+  - name: get_live
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{android_home_sliders_url}"
+    request_headers: *android_request_headers
+    http:
+      user_agent: "Mozilla/5.0 (Linux; Android 13) Arachnea/1.0"
+    media_types:
+      - video/live
+    row_pointer: /
+    entries:
+      - name: players
+        type: object[]
+        entries:
+          - name: name
+            type: string
+            actions:
+              - type: format_text
+                argument: "TF1+"
+          - name: resolver
+            type: object
+            select: first
+            entries:
+              - name: kind
+                type: string
+                actions:
+                  - type: format_text
+                    argument: "tf1-live"
+              - name: target_id
+                type: string
+                actions:
+                  - type: format_text
+                    argument: "{channel}"      

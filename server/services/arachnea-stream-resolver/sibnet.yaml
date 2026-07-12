@@ -75,3 +75,45 @@ queries:
         actions:
           - type: format_text
             argument: "mp4"
+      - name: title
+        type: string
+        selector: "meta[property='og:title']"
+        actions:
+          - type: get_attribut
+            argument: content
+      - name: image/title > link
+        type: string
+        selector: "meta[property='og:image']"
+        actions:
+          - type: get_attribut
+            argument: content
+          - type: resolve_url
+            proxy: true
+      - name: storyboard
+        type: object
+        entries:
+          - name: url
+            type: string
+            select: first         
+            actions:
+              - type: get_response_body  
+              - type: regex_find_all
+                pattern: 'preview"\s*:\s*"([^"]+)"'
+                format: "{1}"          
+              - type: resolve_url
+                proxy: true    
+          - name: width
+            type: number
+            actions:
+              - type: format_text
+                argument: "192"
+          - name: columns
+            type: number
+            actions:
+              - type: format_text
+                argument: "12"
+          - name: height
+            type: number
+            actions:
+              - type: format_text
+                argument: "107"

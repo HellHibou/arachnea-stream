@@ -23,7 +23,7 @@ parameters:
 # Shared structs
 # ############################################################################
 shared:
-  # ================== TYPES DE MÉDIAS & ACTIONS COMMUNES ==================
+
   media_types_rtbf: &media_types_rtbf
     - audio/show
     - audio/show/serie
@@ -196,7 +196,6 @@ shared:
             type: object[]
             entries: *rtbf_episode_entries
 
-  # ================== SUB-QUERIES COMMUNES (load_home + get_category) ==================
   home_sub_queries: &home_sub_queries
     - scraper_type: json
       context_pointer: /widgets/*
