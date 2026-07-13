@@ -39,6 +39,12 @@ impl<S: AsyncRead + Unpin> AsyncRead for ContentLengthBodyReader<S> {
         let mut local_buf = ReadBuf::new(&mut local);
         ready!(Pin::new(&mut self.stream).poll_read(cx, &mut local_buf))?;
         let read = local_buf.filled().len();
+        if read == 0 {
+            return Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "response body ended before Content-Length was reached",
+            )));
+        }
         buf.put_slice(&local[..read]);
         self.remaining -= read;
         Poll::Ready(Ok(()))
@@ -89,7 +95,9 @@ enum ChunkedState {
     ChunkData(usize),
     /// Reading the trailing \r\n after chunk data.
     ChunkCrLf,
-    /// Final chunk (size 0) consumed, no more data.
+    /// Reading optional trailer fields after the final chunk.
+    Trailers,
+    /// Final chunk and trailers consumed, no more data.
     Done,
 }
 
@@ -143,6 +151,11 @@ impl<R: AsyncRead + Unpin> AsyncRead for ChunkedBodyReader<R> {
                         return Poll::Pending;
                     }
                 }
+                ChunkedState::Trailers => {
+                    if !self.try_read_trailers(cx)? {
+                        return Poll::Pending;
+                    }
+                }
             }
         }
     }
@@ -156,27 +169,31 @@ impl<R: AsyncRead + Unpin> ChunkedBodyReader<R> {
         ready!(Pin::new(&mut self.reader).poll_read(cx, &mut sub))?;
         let read = sub.filled().len();
         self.read_buf.truncate(start + read);
+        if read == 0 {
+            return Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "chunked response body ended prematurely",
+            )));
+        }
         Poll::Ready(Ok(()))
     }
 
     fn try_read_chunk_size(&mut self, cx: &mut Context<'_>) -> Result<bool, io::Error> {
         loop {
-            if let Some(end) = self
-                .read_buf
-                .windows(2)
-                .position(|w| w == b"\r\n")
-            {
+            if let Some(end) = self.read_buf.windows(2).position(|w| w == b"\r\n") {
                 let size_line = &self.read_buf[..end];
-                let size_str = std::str::from_utf8(size_line)
-                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "chunk size is not utf-8"))?;
+                let size_str = std::str::from_utf8(size_line).map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidData, "chunk size is not utf-8")
+                })?;
                 let size_hex = size_str.split(';').next().unwrap_or("").trim();
-                let chunk_size = usize::from_str_radix(size_hex, 16)
-                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid chunk size"))?;
+                let chunk_size = usize::from_str_radix(size_hex, 16).map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidData, "invalid chunk size")
+                })?;
 
                 self.read_buf.drain(..end + 2);
 
                 if chunk_size == 0 {
-                    self.state = ChunkedState::Done;
+                    self.state = ChunkedState::Trailers;
                     return Ok(true);
                 }
 
@@ -198,7 +215,8 @@ impl<R: AsyncRead + Unpin> ChunkedBodyReader<R> {
         loop {
             let avail = self.read_buf.len().min(remaining);
             if avail > 0 {
-                self.decoded.extend_from_slice(&self.read_buf.drain(..avail).as_slice());
+                self.decoded
+                    .extend_from_slice(&self.read_buf.drain(..avail).as_slice());
                 let new_remaining = remaining - avail;
                 if new_remaining == 0 {
                     self.state = ChunkedState::ChunkCrLf;
@@ -225,6 +243,26 @@ impl<R: AsyncRead + Unpin> ChunkedBodyReader<R> {
                 }
                 self.read_buf.drain(..2);
                 self.state = ChunkedState::ChunkSize;
+                return Ok(true);
+            }
+
+            if self.read_more(cx)?.is_pending() {
+                return Ok(false);
+            }
+        }
+    }
+
+    fn try_read_trailers(&mut self, cx: &mut Context<'_>) -> Result<bool, io::Error> {
+        loop {
+            if let Some(end) = self
+                .read_buf
+                .windows(2)
+                .position(|window| window == b"\r\n")
+            {
+                self.read_buf.drain(..end + 2);
+                if end == 0 {
+                    self.state = ChunkedState::Done;
+                }
                 return Ok(true);
             }
 
@@ -268,6 +306,15 @@ mod tests {
         tokio::pin!(reader);
         reader.read_to_end(&mut buf).await.unwrap();
         assert_eq!(buf, b"abcdefghij");
+    }
+
+    #[tokio::test]
+    async fn content_length_rejects_truncated_body() {
+        let reader = ContentLengthBodyReader::new(&b"short"[..], 10);
+        let mut buf = Vec::new();
+        tokio::pin!(reader);
+        let error = reader.read_to_end(&mut buf).await.unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof);
     }
 
     #[tokio::test]
@@ -342,5 +389,23 @@ mod tests {
         tokio::pin!(reader);
         reader.read_to_end(&mut buf).await.unwrap();
         assert_eq!(buf, chunk_data);
+    }
+
+    #[tokio::test]
+    async fn chunked_rejects_truncated_body() {
+        let reader = ChunkedBodyReader::new(&b"5\\r\\nhel"[..]);
+        let mut buf = Vec::new();
+        tokio::pin!(reader);
+        let error = reader.read_to_end(&mut buf).await.unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof);
+    }
+
+    #[tokio::test]
+    async fn chunked_rejects_truncated_trailers() {
+        let reader = ChunkedBodyReader::new(&b"0\r\n"[..]);
+        let mut buf = Vec::new();
+        tokio::pin!(reader);
+        let error = reader.read_to_end(&mut buf).await.unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof);
     }
 }

@@ -287,11 +287,14 @@ impl RestControlerService {
                         if is_head {
                             bytes.clear();
                         }
-                        bytes
+                        warp::hyper::Body::from(bytes)
                     }
-                    ResponseBody::Streamed(_) => {
-                        tracing::warn!("unexpected streamed body in buffered-only backend");
-                        Vec::new()
+                    ResponseBody::Streamed(stream) => {
+                        if is_head {
+                            warp::hyper::Body::empty()
+                        } else {
+                            warp::hyper::Body::wrap_stream(stream)
+                        }
                     }
                 };
                 let mut builder = warp::http::Response::builder()

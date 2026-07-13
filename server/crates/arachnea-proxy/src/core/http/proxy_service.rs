@@ -22,7 +22,7 @@ use crate::core::http::actions::{
     should_remove_opts_header_on_redirect, ParsedProxyActionHeaders, PostActionContext,
     ProxyHttpActionConfig, ProxyHttpPostActionConfig, ProxyHttpRedirectActionConfig,
 };
-use crate::core::http::{ProxiedHttpRequest, SimpleHttpClient};
+use crate::core::http::{ProxiedHttpRequest, ProxiedResponseBody, SimpleHttpClient};
 use crate::core::{
     normalize_parameter_value, ArachneaProxyCore, ClientContext, ClientParameter,
     ParameterDefinition, PROXY_HEADER_PARAMETER_COUNTRY,
@@ -173,6 +173,22 @@ fn filter_non_transferable(headers: &mut HashMap<String, String>) {
     headers.retain(|key, _| {
         let lower = key.to_ascii_lowercase();
         !NON_TRANSFERABLE.contains(&lower.as_str())
+    });
+}
+
+/// Filters hop-by-hop headers from an upstream response while preserving its
+/// valid content length for streamed responses.
+fn filter_response_non_transferable(headers: &mut HashMap<String, String>) {
+    const HOP_BY_HOP: &[&str] = &[
+        "connection",
+        "transfer-encoding",
+        "host",
+        "proxy-authorization",
+        "proxy-connection",
+    ];
+    headers.retain(|key, _| {
+        let lower = key.to_ascii_lowercase();
+        !HOP_BY_HOP.contains(&lower.as_str())
     });
 }
 
@@ -771,12 +787,13 @@ pub async fn handle_proxy_http(
         Err(error) => return Ok(stream_error(502, format!("Proxy error: {error}"))),
     };
 
+    let status = proxy_response.status;
     let mut response_headers = proxy_response.headers;
 
     // Rewrite Location header for redirects
-    if (300..400).contains(&proxy_response.status) {
+    if (300..400).contains(&status) {
         let redirect_opts_encoded = redirect_opts_encoded(
-            proxy_response.status,
+            status,
             &parsed.opts_encoded,
             redirect_opts.as_ref(),
             &redirect_actions,
@@ -790,7 +807,7 @@ pub async fn handle_proxy_http(
             return Ok(stream_error(502, error));
         }
     }
-    filter_non_transferable(&mut response_headers);
+    filter_response_non_transferable(&mut response_headers);
 
     // Derive content-type
     let content_type = remove_header_case_insensitive(&mut response_headers, "content-type")
@@ -800,11 +817,14 @@ pub async fn handle_proxy_http(
     let body = if method == "HEAD" {
         ResponseBody::Buffered(Vec::new())
     } else {
-        ResponseBody::Buffered(proxy_response.body)
+        match proxy_response.body {
+            ProxiedResponseBody::Buffered(bytes) => ResponseBody::Buffered(bytes),
+            ProxiedResponseBody::Streamed(stream) => ResponseBody::Streamed(stream),
+        }
     };
 
     Ok(ControlerStreamOutput {
-        status: proxy_response.status,
+        status,
         body,
         content_type,
         headers: response_headers,

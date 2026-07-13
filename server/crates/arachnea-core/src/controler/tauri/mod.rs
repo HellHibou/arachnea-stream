@@ -545,9 +545,16 @@ impl ControlerService for TauriControlerService {
                                     }
                                     ResponseBody::Streamed(_) => {
                                         tracing::warn!(
-                                            "unexpected streamed body in buffered-only backend"
+                                            "streamed response body is unsupported by the Tauri backend"
                                         );
-                                        Vec::new()
+                                        return ::tauri::http::Response::builder()
+                                            .status(::tauri::http::StatusCode::NOT_IMPLEMENTED)
+                                            .header("Content-Type", "text/plain; charset=utf-8")
+                                            .body(
+                                                b"Streamed responses are not supported by the Tauri backend"
+                                                    .to_vec(),
+                                            )
+                                            .expect("Failed to build the Tauri stream error response.");
                                     }
                                 };
                                 let mut builder = ::tauri::http::Response::builder()

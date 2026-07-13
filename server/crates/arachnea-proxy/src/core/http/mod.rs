@@ -1,14 +1,17 @@
 //! Optional HTTP convenience helpers for the proxy core.
 
 pub mod actions;
-/// Simple HTTP client for proxied requests.
-pub mod client;
 /// Streaming body decoders for HTTP/1.1 transfer modes.
 pub mod body_readers;
+/// Simple HTTP client for proxied requests.
+pub mod client;
 #[cfg(feature = "controller-service")]
 pub mod proxy_service;
 
-pub use client::{ProxiedHttpRequest, ProxiedHttpResponse, SimpleHttpClient, SimpleHttpResponse};
+pub use client::{
+    ProxiedHttpRequest, ProxiedHttpResponse, ProxiedResponseBody, SimpleHttpClient,
+    SimpleHttpResponse,
+};
 #[cfg(feature = "controller-service")]
 pub use proxy_service::{handle_proxy_http, register_service};
 

@@ -195,3 +195,12 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **Legal player resolvers**: M6+, RTL Play, RTBF Auvio, TF1+ and FranceTV are selected through globally unique resolver identifiers; redundant YAML `resolverStreamKind` values were removed and each resolver uses its internal default.
 - **DRM license public path**: `PlayerResolverEndpoints` now receives the controller-generated `get_drm_license` public path, so generated license URLs honor a configurable API mount instead of hardcoding `/api/`.
 - **DarkStream player resolution**: Anime-Sama, Coflix and FrenchAnimes now describe external players with `stream-resolver` and `target`; the frontend resolves the `get_stream` video/iframe union, prefers VTT thumbnail metadata over a storyboard, and tries returned media URL alternatives after Video.js emits a source error.
+
+## Unreleased — proxy streaming hardening
+
+### Fixed
+
+- **Proxy response streaming**: HTTP proxy responses without post-actions now remain streamed through the REST controller instead of being fully buffered or silently replaced with an empty body.
+- **Truncated upstream responses**: Incomplete HTTP headers and truncated `Content-Length` or chunked response bodies now fail with protocol or I/O errors instead of being accepted or spinning indefinitely.
+- **HTTP transfer encoding**: Composite `Transfer-Encoding` values containing `chunked` now select the chunk decoder correctly.
+- **Tauri streamed responses**: The buffered-only Tauri backend now returns an explicit `501 Not Implemented` response when given a streamed body.

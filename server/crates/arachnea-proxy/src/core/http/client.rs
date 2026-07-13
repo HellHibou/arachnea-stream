@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::pin::Pin;
 use std::time::Duration;
 
 use crate::core::http::body_readers::{
@@ -8,7 +9,8 @@ use crate::core::{
     ArachneaProxyCore, ClientContext, ConnectRequest, Destination, HttpRequestTargetForm,
     ProxyError, ProxyStream, Result,
 };
-use crate::http::actions::{ProxyHttpPostActionConfig, PostActionContext};
+use crate::http::actions::{apply_post_actions, PostActionContext, ProxyHttpPostActionConfig};
+use bytes::Bytes;
 use futures::StreamExt;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio_util::io::ReaderStream;
@@ -22,15 +24,22 @@ pub struct SimpleHttpResponse {
     pub bytes: Vec<u8>,
 }
 
+/// Response body returned by the proxied HTTP client.
+pub enum ProxiedResponseBody {
+    /// Entire body loaded in memory, required for body-transforming post-actions.
+    Buffered(Vec<u8>),
+    /// Body decoded incrementally from the upstream connection.
+    Streamed(Pin<Box<dyn futures::Stream<Item = std::io::Result<Bytes>> + Send>>),
+}
+
 /// Full proxied HTTP response with parsed headers and body.
-#[derive(Clone, Debug)]
 pub struct ProxiedHttpResponse {
     /// Numeric HTTP status code.
     pub status: u16,
     /// Response headers.
     pub headers: HashMap<String, String>,
-    /// Response body bytes.
-    pub body: Vec<u8>,
+    /// Response body, buffered only when transformations require it.
+    pub body: ProxiedResponseBody,
 }
 
 /// Input for a proxied HTTP request through the Arachnea proxy core.
@@ -248,21 +257,21 @@ impl SimpleHttpClient {
 
         let metadata = stream.stream.metadata().clone();
 
-        let mut unified_stream = if is_https && stream.target_form == HttpRequestTargetForm::OriginForm
-        {
-            let tls_stream = crate::core::transport::tls::client_tls(
-                stream.stream,
-                host,
-                Duration::from_secs(10),
-                true,
-            )
-            .await?;
-            ProxyStream::new(tls_stream, metadata)
-        } else {
-            stream.stream
-        };
+        let mut unified_stream =
+            if is_https && stream.target_form == HttpRequestTargetForm::OriginForm {
+                let tls_stream = crate::core::transport::tls::client_tls(
+                    stream.stream,
+                    host,
+                    Duration::from_secs(10),
+                    true,
+                )
+                .await?;
+                ProxyStream::new(tls_stream, metadata)
+            } else {
+                stream.stream
+            };
 
-        let (status_code, headers) = send_request_and_read_head(
+        let (status_code, mut headers) = send_request_and_read_head(
             &mut unified_stream,
             &request_to_send,
             &request.body,
@@ -271,16 +280,33 @@ impl SimpleHttpClient {
         .await?;
 
         let body = if request.headers_only {
-            Vec::new()
+            ProxiedResponseBody::Buffered(Vec::new())
         } else {
+            let is_chunked = transfer_encoding_is_chunked(&headers);
             let reader = select_body_reader(unified_stream, &headers);
-            let mut body = Vec::new();
-            let mut reader_stream = ReaderStream::new(reader);
-            // Read all chunks from the stream
-            while let Some(chunk) = reader_stream.next().await {
-                body.extend_from_slice(&chunk?);
+
+            if is_chunked {
+                remove_header_case_insensitive(&mut headers, "transfer-encoding");
+                remove_header_case_insensitive(&mut headers, "content-length");
             }
-            body
+
+            let reader_stream = ReaderStream::new(reader);
+            if request.post_actions.is_empty() {
+                ProxiedResponseBody::Streamed(Box::pin(reader_stream))
+            } else {
+                let mut body = Vec::new();
+                futures::pin_mut!(reader_stream);
+                while let Some(chunk) = reader_stream.next().await {
+                    body.extend_from_slice(&chunk?);
+                }
+                ProxiedResponseBody::Buffered(process_response_body(
+                    body,
+                    &mut headers,
+                    status_code,
+                    &request.post_actions,
+                    &request.context,
+                )?)
+            }
         };
 
         Ok(ProxiedHttpResponse {
@@ -356,6 +382,28 @@ fn parse_response_head(raw_header_bytes: &[u8]) -> Result<(u16, HashMap<String, 
     Ok((status_code, headers))
 }
 
+/// Applies post-response actions to a buffered body and updates invalidated headers.
+fn process_response_body(
+    body: Vec<u8>,
+    headers: &mut HashMap<String, String>,
+    status_code: u16,
+    post_actions: &[ProxyHttpPostActionConfig],
+    context: &PostActionContext,
+) -> Result<Vec<u8>> {
+    let original_len = body.len();
+    let new_body = apply_post_actions(status_code, headers, body, post_actions, context)?;
+
+    if new_body.len() != original_len {
+        remove_header_case_insensitive(headers, "content-length");
+        remove_header_case_insensitive(headers, "etag");
+        remove_header_case_insensitive(headers, "content-md5");
+        remove_header_case_insensitive(headers, "digest");
+        headers.insert("Content-Length".to_string(), new_body.len().to_string());
+    }
+
+    Ok(new_body)
+}
+
 fn header_value_case_insensitive<'a>(
     headers: &'a HashMap<String, String>,
     wanted: &str,
@@ -412,10 +460,8 @@ fn select_body_reader<S: AsyncRead + Send + Unpin + 'static>(
     headers: &HashMap<String, String>,
 ) -> Box<dyn AsyncRead + Send + Unpin> {
     // Check for chunked transfer encoding
-    if let Some(te) = header_value_case_insensitive(headers, "transfer-encoding") {
-        if te.eq_ignore_ascii_case("chunked") {
-            return Box::new(ChunkedBodyReader::new(stream));
-        }
+    if transfer_encoding_is_chunked(headers) {
+        return Box::new(ChunkedBodyReader::new(stream));
     }
 
     // Check for content-length
@@ -429,37 +475,73 @@ fn select_body_reader<S: AsyncRead + Send + Unpin + 'static>(
     Box::new(UntilEofBodyReader::new(stream))
 }
 
+/// Returns whether transfer encoding includes chunked coding.
+fn transfer_encoding_is_chunked(headers: &HashMap<String, String>) -> bool {
+    header_value_case_insensitive(headers, "transfer-encoding").is_some_and(|value| {
+        value
+            .split(',')
+            .any(|part| part.trim().eq_ignore_ascii_case("chunked"))
+    })
+}
+
 /// Reads only the response headers from the stream.
-async fn read_headers_only<S>(
-    stream: &mut S,
-) -> Result<Vec<u8>>
+async fn read_headers_only<S>(stream: &mut S) -> Result<Vec<u8>>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     let mut headers = Vec::new();
-    let mut buf = [0u8; 1024];
-    let mut header_end = [0u8; 4];
-    let mut header_end_idx = 0;
+    let mut byte = [0u8; 1];
 
     loop {
-        let n = stream.read(&mut buf).await?;
+        let n = stream.read(&mut byte).await?;
         if n == 0 {
-            break;
+            return Err(ProxyError::Protocol(
+                "http response ended before the header terminator".to_string(),
+            ));
         }
 
-        for &byte in &buf[..n] {
-            headers.push(byte);
-
-            // Check for \r\n\r\n
-            if byte == b'\n' && header_end_idx >= 2 && header_end[header_end_idx - 2] == b'\r' && header_end[header_end_idx - 1] == b'\n' {
-                return Ok(headers);
-            }
-
-            // Shift the header_end window
-            header_end[header_end_idx % 4] = byte;
-            header_end_idx += 1;
+        headers.push(byte[0]);
+        if headers.ends_with(b"\r\n\r\n") {
+            return Ok(headers);
+        }
+        if headers.len() > 65_536 {
+            return Err(ProxyError::Protocol(
+                "response headers exceed 64KB limit".to_string(),
+            ));
         }
     }
+}
 
-    Ok(headers)
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncWriteExt, DuplexStream};
+
+    async fn response_stream(response: &[u8]) -> DuplexStream {
+        let (mut writer, reader) = tokio::io::duplex(response.len().max(1));
+        let response = response.to_vec();
+        tokio::spawn(async move {
+            writer.write_all(&response).await.unwrap();
+            writer.shutdown().await.unwrap();
+        });
+        reader
+    }
+
+    #[tokio::test]
+    async fn reads_complete_headers_without_consuming_body() {
+        let mut stream = response_stream(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\ntest").await;
+        let headers = read_headers_only(&mut stream).await.unwrap();
+        assert_eq!(headers, b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\n");
+
+        let mut body = Vec::new();
+        stream.read_to_end(&mut body).await.unwrap();
+        assert_eq!(body, b"test");
+    }
+
+    #[tokio::test]
+    async fn rejects_truncated_headers() {
+        let mut stream = response_stream(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n").await;
+        let error = read_headers_only(&mut stream).await.unwrap_err();
+        assert!(matches!(error, ProxyError::Protocol(_)));
+    }
 }
