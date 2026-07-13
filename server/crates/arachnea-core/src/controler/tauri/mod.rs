@@ -543,18 +543,46 @@ impl ControlerService for TauriControlerService {
                                         }
                                         bytes
                                     }
-                                    ResponseBody::Streamed(_) => {
-                                        tracing::warn!(
-                                            "streamed response body is unsupported by the Tauri backend"
-                                        );
-                                        return ::tauri::http::Response::builder()
-                                            .status(::tauri::http::StatusCode::NOT_IMPLEMENTED)
-                                            .header("Content-Type", "text/plain; charset=utf-8")
-                                            .body(
-                                                b"Streamed responses are not supported by the Tauri backend"
-                                                    .to_vec(),
-                                            )
-                                            .expect("Failed to build the Tauri stream error response.");
+                                    ResponseBody::Streamed(stream) => {
+                                        // Collecte le stream en mémoire pour le backend Tauri
+                                        // qui ne supporte pas encore le streaming natif.
+                                        // TODO: utiliser tauri-plugin-http pour le streaming natif
+                                        // quand le besoin de streaming Tauri se présentera.
+                                        use futures::StreamExt;
+                                        let mut body = Vec::new();
+                                        let result: Result<(), String> = tokio::task::block_in_place(|| {
+                                            tauri::async_runtime::block_on(async {
+                                                let mut stream = std::pin::pin!(stream);
+                                                while let Some(chunk) = stream.next().await {
+                                                    match chunk {
+                                                        Ok(bytes) => body.extend_from_slice(&bytes),
+                                                        Err(e) => {
+                                                            tracing::warn!(
+                                                                error = %e,
+                                                                "stream error while collecting body for Tauri response"
+                                                            );
+                                                            return Err(format!("Stream error: {}", e));
+                                                        }
+                                                    }
+                                                }
+                                                Ok(())
+                                            })
+                                        });
+                                        match result {
+                                            Ok(()) => {
+                                                if request.method() == ::tauri::http::Method::HEAD {
+                                                    body.clear();
+                                                }
+                                                body
+                                            }
+                                            Err(e) => {
+                                                return ::tauri::http::Response::builder()
+                                                    .status(::tauri::http::StatusCode::BAD_GATEWAY)
+                                                    .header("Content-Type", "text/plain; charset=utf-8")
+                                                    .body(e.into_bytes())
+                                                    .expect("Failed to build the Tauri stream error response.");
+                                            }
+                                        }
                                     }
                                 };
                                 let mut builder = ::tauri::http::Response::builder()

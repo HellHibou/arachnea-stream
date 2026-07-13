@@ -18,7 +18,7 @@ use url::Url;
 
 use crate::core::http::actions::{
     parse_proxy_action_header_into, parse_proxy_action_headers,
-    post_actions_require_identity_encoding, proxy_action_header,
+    post_actions_require_body_buffering, proxy_action_header,
     should_remove_opts_header_on_redirect, ParsedProxyActionHeaders, PostActionContext,
     ProxyHttpActionConfig, ProxyHttpPostActionConfig, ProxyHttpRedirectActionConfig,
 };
@@ -167,8 +167,9 @@ fn filter_non_transferable(headers: &mut HashMap<String, String>) {
         "content-length",
         "transfer-encoding",
         "host",
+        "referer",
         "proxy-authorization",
-        "proxy-connection",
+        "proxy-connection"
     ];
     headers.retain(|key, _| {
         let lower = key.to_ascii_lowercase();
@@ -745,9 +746,11 @@ pub async fn handle_proxy_http(
     };
     headers.insert("Host".to_string(), host_header);
 
-    // When post-actions are present, force Accept-Encoding: identity to avoid
-    // dealing with compressed bodies.
-    if post_actions_require_identity_encoding(&post_actions) {
+    // When post-actions require body buffering, force Accept-Encoding: identity
+    // to avoid dealing with compressed bodies. In streaming mode (no buffering),
+    // leave Accept-Encoding untouched so the upstream can send compressed data.
+    let buffer_response_body = post_actions_require_body_buffering(&post_actions);
+    if buffer_response_body {
         remove_header_variants(&mut headers, "accept-encoding");
         headers.insert("Accept-Encoding".to_string(), "identity".to_string());
     }
@@ -775,6 +778,7 @@ pub async fn handle_proxy_http(
         body: input.body,
         client_context,
         post_actions,
+        buffer_response_body,
         headers_only,
         context: PostActionContext {
             entry_point: input.entry_point.clone(),

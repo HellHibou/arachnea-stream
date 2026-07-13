@@ -30,6 +30,9 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - `JsonScraperSubQuery::execute` / `execute_siblings` / `execute_context` / `execute_indexed_context` / `execute_indexed_sibling` / `build_row_node` — re-used through the new `JsonScraperSubQuery::execute_query_level` unified entry point (see regression fix below).
 
 ### Fixed
+- **TF1 DRM license proxy**: TF1 now accepts the shared default
+  `widevine-license-proxy` stream kind when forwarding Widevine challenges,
+  preventing valid generated license URLs from failing with HTTP 400.
 - **Scrapyfy dynamic proxy provider loading**: the provider now passes the requested country into the proxy source query, normalizes returned country codes before filtering, deduplicates by normalized authority, reports source collection load failures, and falls back to the existing `archanea-proxies` service directory when the preferred `arachnea-proxies` directory is absent.
 - **HTTP proxy `ReplaceAll` post-action responses**: proxy action headers are now parsed before lossy `HashMap` merging so repeated `opts.headers` actions are preserved, invalid action JSON returns an explicit proxy error, and `Accept-Encoding: identity` is enforced case-insensitively to avoid corrupting compressed upstream bodies during text replacement.
 - **`francetv.yaml` `load_home` section pagination**: Added a default `page` parameter so shared section metadata serializes `current_page` as a number instead of leaking the unresolved `{page}` placeholder on non-paginated home responses.
@@ -203,4 +206,11 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **Proxy response streaming**: HTTP proxy responses without post-actions now remain streamed through the REST controller instead of being fully buffered or silently replaced with an empty body.
 - **Truncated upstream responses**: Incomplete HTTP headers and truncated `Content-Length` or chunked response bodies now fail with protocol or I/O errors instead of being accepted or spinning indefinitely.
 - **HTTP transfer encoding**: Composite `Transfer-Encoding` values containing `chunked` now select the chunk decoder correctly.
-- **Tauri streamed responses**: The buffered-only Tauri backend now returns an explicit `501 Not Implemented` response when given a streamed body.
+- **Tauri streamed responses**: The Tauri backend now collects streamed response bodies in memory via `block_on` + `StreamExt::next()`, and returns a `502 Bad Gateway` if the stream errors, instead of returning `501 Not Implemented`.
+- **Streaming selector function**: `post_actions_require_identity_encoding` renamed to `post_actions_require_body_buffering` with clarified semantics — body buffering is required only when post-actions need to modify the body, and forces `Accept-Encoding: identity`; streaming mode preserves upstream compression.
+
+## Unreleased — proxy buffering decision ownership
+
+### Fixed
+
+- **Proxy buffering decision**: `proxy_service` now decides whether post-actions require buffering and passes that explicit decision to the HTTP client. Any post-action conservatively selects buffered, identity-encoded handling until it explicitly supports streaming.

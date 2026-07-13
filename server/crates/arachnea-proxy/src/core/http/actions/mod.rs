@@ -67,14 +67,14 @@ pub struct ProxyHttpPostActionConfig {
     pub params: HashMap<String, String>,
 }
 
-/// Returns true when post actions require identity response encoding.
+/// Returns true when post actions require buffering the entire response body.
+///
+/// Post-actions are conservatively treated as body transformations until a
+/// future action explicitly supports streaming. This also implies identity
+/// response encoding so an action never receives a compressed body.
 #[cfg(feature = "controller-service")]
-pub(crate) fn post_actions_require_identity_encoding(
-    actions: &[ProxyHttpPostActionConfig],
-) -> bool {
-    actions
-        .iter()
-        .any(replace_all::requires_identity_response_encoding)
+pub(crate) fn post_actions_require_body_buffering(actions: &[ProxyHttpPostActionConfig]) -> bool {
+    !actions.is_empty()
 }
 
 /// Returns true when redirect actions should remove an encoded opts header.

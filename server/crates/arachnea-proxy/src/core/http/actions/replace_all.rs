@@ -97,12 +97,6 @@ impl ReplaceAllHeaderValue {
     }
 }
 
-/// Returns true when the post action needs identity response encoding.
-#[cfg(feature = "controller-service")]
-pub(crate) fn requires_identity_response_encoding(action: &ProxyHttpPostActionConfig) -> bool {
-    action.action == "ReplaceAll"
-}
-
 /// Serializes a ReplaceAll action to its proxy action header.
 #[cfg(feature = "controller-service")]
 pub(crate) fn proxy_action_header(

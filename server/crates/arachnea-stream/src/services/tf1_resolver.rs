@@ -27,7 +27,7 @@ const TF1_LOGIN_URL: &str = "https://compte.tf1.fr/accounts.login";
 const TF1_TOKEN_URL: &str = "https://www.tf1.fr/token/gigya/web";
 const TF1_MEDIA_INFO_URL_TEMPLATE: &str = "https://mediainfo.tf1.fr/mediainfocombo/{}";
 const TF1_FALLBACK_LICENSE_URL_TEMPLATE: &str = "https://drm-wide.tf1.fr/proxy?id={}";
-const TF1_PROXY_STREAM_KIND: &str = "tf1-license-proxy";
+const TF1_PROXY_STREAM_KIND: &str = "widevine-license-proxy";
 const TF1_PROXY_COUNTRY: &str = "FR";
 const TF1_SESSION_TTL: Duration = Duration::from_secs(15 * 60);
 const TF1_LICENSE_TTL: Duration = Duration::from_secs(15 * 60);

@@ -59,6 +59,10 @@ pub struct ProxiedHttpRequest {
     pub client_context: ClientContext,
     /// Post-response actions to apply to the response.
     pub post_actions: Vec<ProxyHttpPostActionConfig>,
+    /// Whether the caller requires a fully buffered response body.
+    ///
+    /// This must be enabled when `post_actions` is non-empty.
+    pub buffer_response_body: bool,
     /// Whether only response headers should be read (e.g. HEAD requests).
     pub headers_only: bool,
     /// Request context for action variable substitution.
@@ -140,6 +144,12 @@ impl SimpleHttpClient {
         &self,
         request: ProxiedHttpRequest,
     ) -> Result<ProxiedHttpResponse> {
+        if !request.buffer_response_body && !request.post_actions.is_empty() {
+            return Err(ProxyError::Protocol(
+                "post-response actions require a buffered response body".to_string(),
+            ));
+        }
+
         let url = url::Url::parse(&request.url).map_err(|e| {
             ProxyError::Protocol(format!("invalid target URL '{}': {}", request.url, e))
         })?;
@@ -291,9 +301,7 @@ impl SimpleHttpClient {
             }
 
             let reader_stream = ReaderStream::new(reader);
-            if request.post_actions.is_empty() {
-                ProxiedResponseBody::Streamed(Box::pin(reader_stream))
-            } else {
+            if request.buffer_response_body {
                 let mut body = Vec::new();
                 futures::pin_mut!(reader_stream);
                 while let Some(chunk) = reader_stream.next().await {
@@ -306,6 +314,8 @@ impl SimpleHttpClient {
                     &request.post_actions,
                     &request.context,
                 )?)
+            } else {
+                ProxiedResponseBody::Streamed(Box::pin(reader_stream))
             }
         };
 
