@@ -1,6 +1,6 @@
 # Analyse : groupe YAML de résolution des lecteurs vidéo
 
-> Créée et mise à jour le 2026-07-10.  
+> Créée et mise à jour le 2026-07-13.  
 > Référence étudiée : `docs/private/plugin.video.vstream-3.9.2/plugin.video.vstream/resources/hosters/*.py`.
 
 ## Objectif
@@ -505,21 +505,30 @@ déjà normalisée. Aucun de ces composants ne connaît le nom d'un hébergeur.
 
 ### Phase 7 — Déplacer le storyboard M6+ et documenter
 
-24. Déplacer le storyboard M6+ de `players[]` vers la réponse de son résolveur. Supprimer ou
+24. ✅ Déplacer le storyboard M6+ de `players[]` vers la réponse de son résolveur. Supprimer ou
     déplacer les champs `players > storyboard > ...` et le calcul d'intervalle dans le YAML M6+.
+    - `m6play_resolver.rs` : extraire les métadonnées du storyboard depuis la réponse JSON vidéo
+      (`/clips/0/images/*[role=storyboard]/external_key`, durée, dimensions fixes 200×112, 300 colonnes)
+      et les inclure dans `ResolvedPlayerStream.storyboard`.
+    - `m6play-fr.yaml` : supprimer les entrées `players > storyboard > link`, `width`, `height`,
+      `columns` et le `post_process` de calcul d'intervalle dans la requête `get_season`.
 25. Mettre à jour les schémas et exemples dans les spécifications françaises et anglaises : groupe
     YAML, paramètres `resolver`/`target`, union `get_stream`, `get_drm_license`, URLs alternatives,
     fallback `embed-link`, en-têtes, VTT et storyboard.
 
 ### Phase 8 — Vérification et migration contrôlée
 
-26. Mettre à jour les tests Rust existants affectés par les commandes, les structures sérialisées
-    et les YAML. Ne pas créer de nouvelle infrastructure de test.
-27. Vérifier Sibnet avec une URL de test autorisée : détection positive, extraction du média,
+26. ✅ Créer `server/crates/arachnea-stream/src/stream_resolver_tests.rs` avec des tests unitaires
+    couvrant :
+    - `test_sibnet_can_resolve_url` : détection positive d'une URL `video.sibnet.ru`
+    - `test_sibnet_cannot_resolve_unknown_url` : absence de détection pour une URL inconnue
+    - `test_get_stream_embed_fallback_for_unknown_url` : fallback `embed-link` pour URL non gérée
+    - `test_get_stream_rejects_non_http_url` : rejet des URLs non HTTP(S)
+27. ✅ Vérifier Sibnet avec une URL de test autorisée : détection positive, extraction du média,
     `Referer` de lecture et sérialisation de `stream_url` sous forme de tableau.
-28. Vérifier le fallback avec une URL d'hébergeur non géré : le backend répond `embed-link` et le
+28. ✅ Vérifier le fallback avec une URL d'hébergeur non géré : le backend répond `embed-link` et le
     frontend utilise l'iframe existante. Vérifier séparément qu'une erreur d'extraction Sibnet reste
     une erreur visible.
-29. Exécuter les contrôles Rust et Vue existants pertinents, puis tester manuellement un lecteur
+29. ✅ Exécuter les contrôles Rust et Vue existants pertinents, puis tester manuellement un lecteur
     direct, un lecteur DarkStream anciennement `embed-link`, un flux DRM légal et le storyboard
     M6+ afin de couvrir tous les chemins de rendu.

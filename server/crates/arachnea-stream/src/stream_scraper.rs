@@ -133,7 +133,7 @@ struct SourceParamsRequestEntry {
 
 /// High-level facade exposing scraper operations used by controllers and tests.
 pub struct StreamScraper {
-    scraper_agregator: Box<ScraperAgregator>,
+    pub(crate) scraper_agregator: Box<ScraperAgregator>,
     credentials_store: Arc<dyn CredentialsStore>,
     proxy_handle: SharedProxyConfigHandle,
     proxy_http_core: Option<ArachneaProxyCore>,

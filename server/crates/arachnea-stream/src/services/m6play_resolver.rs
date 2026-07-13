@@ -18,6 +18,7 @@ use arachnea_scrapyfy::{HttpClient, ScraperAgregator, ScraperQueryCollectionPara
 use crate::services::player_resolver::{
     normalize_stream_kind, proxy_drm_today_license_request, save_drm_today_license_proxy_url,
     PlayerResolverEndpoints, PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream,
+    SpriteThumbnail,
 };
 
 const SIXPLAY_LOGIN_URL: &str = "https://login-gigya.m6.fr/accounts.login";
@@ -134,7 +135,17 @@ async fn resolve_replay_stream(
     let http_client = scraper_agregator.create_http_client(Default::default());
     let session = get_or_login_session(&http_client, credentials_store).await?;
     let upfront_token = fetch_upfront_token(&http_client, &session, normalized_video_id).await?;
-    let manifest_url = fetch_best_manifest_url(&http_client, normalized_video_id).await?;
+
+    let video_payload = fetch_video_payload_json(&http_client, normalized_video_id).await?;
+    let manifest_url = extract_manifest_url(&video_payload)?;
+
+    let manifest_url = http_client
+        .resolve_final_url_for_request(http::Method::GET, &manifest_url, &HashMap::new(), None)
+        .await
+        .unwrap_or(manifest_url);
+
+    let storyboard = extract_storyboard_from_video_payload(&video_payload);
+
     let stream_kind = normalize_stream_kind(stream_kind);
     let license_url = save_drm_today_license_proxy_url(
         endpoints,
@@ -157,6 +168,7 @@ async fn resolve_replay_stream(
         manifest_type: Some("mpd".to_string()),
         license_url: Some(license_url),
         license_headers: HashMap::new(),
+        storyboard,
         ..Default::default()
     })
 }
@@ -488,7 +500,7 @@ async fn fetch_upfront_token(
     )
 }
 
-async fn fetch_best_manifest_url(http_client: &HttpClient, video_id: &str) -> Result<String> {
+async fn fetch_video_payload_json(http_client: &HttpClient, video_id: &str) -> Result<Value> {
     let video_url = SIXPLAY_VIDEO_JSON_URL_TEMPLATE.replace("{}", video_id);
     let mut headers = HashMap::new();
     headers.insert(
@@ -496,21 +508,78 @@ async fn fetch_best_manifest_url(http_client: &HttpClient, video_id: &str) -> Re
         SIXPLAY_CUSTOMER_NAME.to_string(),
     );
 
-    let video_payload = http_client
+    http_client
         .get_json_for_request(http::Method::GET, &video_url, &headers, None)
-        .await?;
+        .await
+}
+
+fn extract_manifest_url(video_payload: &Value) -> Result<String> {
     let assets = video_payload
         .pointer("/clips/0/assets")
         .and_then(Value::as_array)
         .context("Missing 6play replay assets in video payload.")?;
 
-    let manifest_url = select_best_asset_url(assets, "usp_dashcenc_h264")
-        .context("Missing 6play DASH DRM manifest for this replay asset.")?;
+    select_best_asset_url(assets, "usp_dashcenc_h264")
+        .context("Missing 6play DASH DRM manifest for this replay asset.")
+}
 
-    http_client
-        .resolve_final_url_for_request(http::Method::GET, &manifest_url, &HashMap::new(), None)
-        .await
-        .or(Ok(manifest_url))
+/// Extracts storyboard metadata from the 6play video JSON payload.
+///
+/// The storyboard is built from the `images[*role=storyboard]` entries in the
+/// video payload. Dimensions are fixed at 200×112 with 300 columns, matching
+/// the values previously declared in the M6+ YAML configuration.
+///
+/// The interval is computed as `duration_seconds / columns`, where the duration
+/// is read from the first clip's `duration` field (in seconds).
+///
+/// Returns `None` when no storyboard image key is found in the payload.
+fn extract_storyboard_from_video_payload(video_payload: &Value) -> Option<SpriteThumbnail> {
+    let storyboard_keys: Vec<String> = video_payload
+        .pointer("/clips/0/images")
+        .and_then(Value::as_array)?
+        .iter()
+        .filter(|image| {
+            image
+                .get("role")
+                .and_then(Value::as_str)
+                .is_some_and(|role| role == "storyboard")
+        })
+        .filter_map(|image| {
+            image
+                .get("external_key")
+                .and_then(Value::as_str)
+                .map(|key| key.to_string())
+        })
+        .collect();
+
+    let first_key = storyboard_keys.first()?;
+    let url = format!(
+        "https://images.6play.fr/v1/images/{}/raw",
+        first_key
+    );
+
+    let duration_seconds: f64 = video_payload
+        .pointer("/clips/0/duration")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0);
+
+    const STORYBOARD_WIDTH: u32 = 200;
+    const STORYBOARD_HEIGHT: u32 = 112;
+    const STORYBOARD_COLUMNS: u32 = 300;
+
+    let interval = if duration_seconds > 0.0 && STORYBOARD_COLUMNS > 0 {
+        duration_seconds / STORYBOARD_COLUMNS as f64
+    } else {
+        0.0
+    };
+
+    Some(SpriteThumbnail {
+        url,
+        width: STORYBOARD_WIDTH,
+        height: STORYBOARD_HEIGHT,
+        columns: STORYBOARD_COLUMNS,
+        interval,
+    })
 }
 
 fn select_best_asset_url(assets: &[Value], asset_type: &str) -> Option<String> {

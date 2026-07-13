@@ -687,34 +687,6 @@ queries:
               - type: format_text
                 argument: "M6+"
 
-          - name: players > storyboard > link
-            type: string
-            pointer: /images/*[role=storyboard]/external_key
-            select: all
-            actions: *actions_image_key_to_url
-
-          - name: players > storyboard > width
-            type: number
-            pointer: /images/*[role=storyboard]/external_key
-            select: all
-            actions:
-              - type: format_text
-                argument: "200"
-          - name: players > storyboard > height
-            type: number
-            pointer: /images/*[role=storyboard]/external_key
-            select: all
-            actions:
-              - type: format_text
-                argument: "112"
-          - name: players > storyboard > columns
-            type: number
-            pointer: /images/*[role=storyboard]/external_key
-            select: all
-            actions:
-              - type: format_text
-                argument: "300"
-
           - name: players > resolver > kind
             type: string
             actions:
@@ -758,21 +730,6 @@ queries:
             pointer: /images/*[role=vignette]/external_key
             select: first
             actions: *actions_image_key_to_url
-    post_process:
-      - type: compute_items_field
-        source: episodes
-        nested_source: players
-        target: storyboard > interval
-        expression: "{durationSeconds} / {columns}"
-        variables:
-          durationSeconds:
-            path: duration
-            scope: parent
-          columns:
-            path: storyboard > columns
-            scope: current
-
-
   # ---------------------------------------------------------------
   # List lives
   # ---------------------------------------------------------------

@@ -657,9 +657,15 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
           return
         }
 
+        // Prefer storyboard from the resolved stream (returned by resolver),
+        // fall back to the player-carried storyboard for backward compatibility.
+        const resolvedStoryboard = !resolvedStream || 'embedLink' in resolvedStream
+          ? null
+          : (resolvedStream.storyboard ?? resolvePlayerStoryboard(currentPlayer))
+
         resolvedMediaSource.value = attachStoryboardToVideoSource(
           nextMediaSource,
-          resolvePlayerStoryboard(currentPlayer),
+          resolvedStoryboard,
         )
       } catch (error) {
         if (resolutionId !== activeResolutionId) {
@@ -703,7 +709,7 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
         stream.licenseHeaders,
         stream.vttUrl,
       ),
-      resolvePlayerStoryboard(selectedPlayer.value),
+      stream.storyboard ?? resolvePlayerStoryboard(selectedPlayer.value),
     )
   }
 
