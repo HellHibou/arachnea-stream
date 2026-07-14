@@ -29,6 +29,20 @@ export interface ResolvedVideoSpriteThumbnails {
 }
 
 /**
+ * A single chapter entry within a resolved player stream.
+ */
+export interface ResolvedVideoChapter {
+  /** Start time of the chapter in seconds. */
+  start: number
+  /** End time of the chapter in seconds. */
+  end: number
+  /** Display title of the chapter. */
+  title: string
+  /** Type discriminator for the chapter (e.g. "chapter"). */
+  type: string
+}
+
+/**
  * Resolved media source for native video player rendering.
  */
 export interface ResolvedVideoMediaSource {
@@ -48,6 +62,8 @@ export interface ResolvedVideoMediaSource {
   storyboard: ResolvedVideoSpriteThumbnails | null
   /** Optional WebVTT metadata URL, preferred over sprite thumbnail metadata. */
   vttUrl?: string | null
+  /** Optional ordered list of chapters extracted from the player metadata. */
+  chapters: ResolvedVideoChapter[] | null
 }
 
 /** Union type for all resolved player media sources. */
@@ -362,6 +378,7 @@ export function resolvePlayerMediaSource(value: string | null): ResolvedPlayerMe
       licenseUrl: null,
       licenseHeaders: {},
       storyboard: null,
+      chapters: null,
     }
   }
 
@@ -383,6 +400,7 @@ export function resolvePlayerMediaSource(value: string | null): ResolvedPlayerMe
  * @param manifestType Stream manifest type returned by the backend.
  * @param licenseUrl Optional DRM license URL returned by the backend.
  * @param licenseHeaders Optional DRM license headers returned by the backend.
+ * @param vttUrl Optional WebVTT URL returned by the backend.
  * @returns Resolved player source describing whether to render DASH or a native video asset.
  */
 export function resolveBackendStreamMediaSource(
@@ -391,6 +409,7 @@ export function resolveBackendStreamMediaSource(
   licenseUrl: string | null = null,
   licenseHeaders: Record<string, string> = {},
   vttUrl: string | null = null,
+  chapters: ResolvedVideoChapter[] | null = null,
 ): ResolvedPlayerMediaSource | null {
   const normalizedManifestType = manifestType?.trim().toLocaleLowerCase() ?? null
   const normalizedStreamUrl = resolveAbsoluteUrl(streamUrl)
@@ -408,6 +427,7 @@ export function resolveBackendStreamMediaSource(
       licenseUrl: resolveAbsoluteUrl(licenseUrl),
       licenseHeaders,
       storyboard: null,
+      chapters,
       vttUrl: resolveAbsoluteUrl(vttUrl),
     }
   }
@@ -421,6 +441,7 @@ export function resolveBackendStreamMediaSource(
       licenseUrl: null,
       licenseHeaders: {},
       storyboard: null,
+      chapters,
       vttUrl: resolveAbsoluteUrl(vttUrl),
     }
   }
@@ -499,6 +520,7 @@ export function resolveBackgroundMediaSource(
       licenseUrl: null,
       licenseHeaders: {},
       storyboard: null,
+      chapters: null,
     }
   }
 

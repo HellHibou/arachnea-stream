@@ -20,6 +20,7 @@ import {
   syncPrevNextVideoControls,
 } from '@/composables/video/video-js-media-renderer/controls'
 import { installStableFullscreenBridge } from '@/composables/video/video-js-media-renderer/fullscreen'
+import { installChapterOverlay, installChapterSegments } from '@/composables/video/video-js-media-renderer/chapters'
 import {
   isDurationAvailable,
   isLiveStream,
@@ -675,6 +676,11 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
 
         if (props.controls && typeof player.spriteThumbnails === 'function') {
           player.spriteThumbnails(buildSpriteThumbnailOptions(source))
+        }
+
+        if (props.controls && source.chapters && source.chapters.length > 0) {
+          installChapterOverlay(player, source.chapters)
+          installChapterSegments(player, source.chapters)
         }
 
        /** Last playback step that was saved to persist progress. */

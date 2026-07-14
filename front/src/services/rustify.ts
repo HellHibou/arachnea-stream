@@ -5,6 +5,7 @@ import type {
   EntryEpisode,
   EntryEpisodePage,
   EntryPlayer,
+  EntryPlayerChapter,
   EntryPlayerStoryboard,
   EntryPlayerResolver,
   EntryResolvedPlayerStream,
@@ -1388,15 +1389,53 @@ function normalizeResolvedPlayerStream(payload: unknown): EntryResolvedPlayerStr
     licenseHeaders: readStringMap(payload.license_headers ?? payload.licenseHeaders),
     vttUrl: firstNonEmptyString([payload.vtt_url, payload.vttUrl]),
     storyboard: normalizeRustifyStoryboard(payload.storyboard),
+    chapters: normalizeRustifyChapters(payload.chapters),
   }
 }
 
 /**
- * Normalizes the optional storyboard node returned by the backend.
+ * Normalizes the optional chapters array returned by the backend.
  *
- * @param value Backend storyboard node.
- * @returns Normalized storyboard, or `null` when incomplete.
+ * @param value Backend chapters array.
+ * @returns Normalized chapters array, or `null` when absent or empty.
  */
+function normalizeRustifyChapters(value: unknown): EntryPlayerChapter[] | null {
+  if (!Array.isArray(value)) {
+    return null
+  }
+
+  const chapters: EntryPlayerChapter[] = []
+
+  for (const item of value) {
+    if (!isJsonRecord(item)) {
+      continue
+    }
+
+    const start = item.start ?? item.tc_in
+    const end = item.end ?? item.tc_out
+    const title = item.title
+    const chapterType = item.type ?? item.chapter_type
+
+    if (
+      typeof start !== 'number' ||
+      typeof end !== 'number' ||
+      typeof title !== 'string' ||
+      !title.trim() ||
+      typeof chapterType !== 'string'
+    ) {
+      continue
+    }
+
+    chapters.push({
+      start,
+      end,
+      title: title.trim(),
+      type: chapterType,
+    })
+  }
+
+  return chapters.length > 0 ? chapters : null
+}
 function normalizeRustifyStoryboard(value: unknown): EntryPlayerStoryboard | null {
   if (!isJsonRecord(value)) {
     return null

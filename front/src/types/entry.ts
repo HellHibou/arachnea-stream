@@ -66,6 +66,20 @@ export interface EntryPlayerStoryboard {
 }
 
 /**
+ * A single chapter entry within a resolved player stream.
+ */
+export interface EntryPlayerChapter {
+  /** Start time of the chapter in seconds. */
+  start: number
+  /** End time of the chapter in seconds. */
+  end: number
+  /** Display title of the chapter. */
+  title: string
+  /** Type discriminator for the chapter (e.g. "chapter"). */
+  type: string
+}
+
+/**
  * Resolved media stream returned by the backend `get_stream` command.
  *
  * This is one branch of the exclusive union `GetStreamResponse`:
@@ -86,6 +100,8 @@ export interface EntryResolvedPlayerStream {
   vttUrl: string | null
   /** Optional sprite storyboard metadata. */
   storyboard: EntryPlayerStoryboard | null
+  /** Optional ordered list of chapters extracted from the player metadata. */
+  chapters: EntryPlayerChapter[] | null
 }
 
 /**

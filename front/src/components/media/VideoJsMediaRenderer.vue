@@ -727,6 +727,7 @@ const mergedAttrs = computed(() => ({
   background: var(--bg-surface);
   box-shadow: var(--shadow-card);
   backdrop-filter: var(--backdrop-filter-strong);
+  bottom: 25px;
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-quality-menu-wrapper.vjs-menu-button-popup .vjs-menu),
@@ -836,5 +837,46 @@ const mergedAttrs = computed(() => ({
 .videojs-media-host :deep(.vjs-thumbnail),
 .videojs-media-host :deep(.vjs-thumbnail *) {
   border-radius: 5px !important;
+}
+
+.videojs-media-host :deep(.vjs-chapter-overlay) {
+  position: absolute;
+  z-index: 2;
+  display: none;
+  padding: 3px 8px;
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  transform: translateX(-50%);
+  box-sizing: border-box;
+  text-shadow: 1px 1px #000;
+}
+
+.videojs-media-host :deep(.vjs-chapter-overlay--visible) {
+  display: block;
+}
+
+.videojs-media-host :deep(.vjs-chapter-segments) {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.videojs-media-host :deep(.vjs-chapter-segment-divider) {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  background: rgb(255 255 255 / 0.5);
+  transform: translateX(-1px);
 }
 </style>

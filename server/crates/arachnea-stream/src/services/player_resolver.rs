@@ -19,6 +19,20 @@ const DRM_TODAY_TOKEN_TTL: Duration = Duration::from_secs(15 * 60);
 static DRM_TODAY_TOKEN_CACHE: OnceLock<Mutex<HashMap<String, CachedDrmTodayLicenseToken>>> =
     OnceLock::new();
 
+/// A single chapter entry within a resolved player stream.
+#[derive(Serialize)]
+pub(crate) struct Chapter {
+    /// Start time of the chapter in seconds.
+    pub start: f64,
+    /// End time of the chapter in seconds.
+    pub end: f64,
+    /// Display title of the chapter.
+    pub title: String,
+    /// Type discriminator for the chapter (e.g. "chapter").
+    #[serde(rename = "type")]
+    pub chapter_type: String,
+}
+
 /// Sprite thumbnail metadata for video storyboards.
 #[derive(Serialize)]
 pub(crate) struct SpriteThumbnail {
@@ -76,6 +90,9 @@ pub(crate) struct ResolvedPlayerStream {
     /// Optional sprite storyboard metadata.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub storyboard: Option<SpriteThumbnail>,
+    /// Optional ordered list of chapters extracted from the player metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chapters: Option<Vec<Chapter>>,
 }
 
 /// Binary response returned by a resolver-owned stream proxy.

@@ -6,6 +6,7 @@ import {
   resolveIframeMediaSource,
   resolvePlayerMediaSource,
   type ResolvedPlayerMediaSource,
+  type ResolvedVideoChapter,
   type ResolvedVideoSpriteThumbnails,
 } from '@/services/players'
 import { getStream } from '@/services/rustify'
@@ -134,6 +135,7 @@ function resolvePlayerStoryboard(player: EntryPlayer | null): ResolvedVideoSprit
 function attachStoryboardToVideoSource(
   mediaSource: ResolvedPlayerMediaSource | null,
   storyboard: ResolvedVideoSpriteThumbnails | null,
+  chapters: ResolvedVideoChapter[] | null = null,
 ): ResolvedPlayerMediaSource | null {
   if (!mediaSource || mediaSource.renderer !== 'video') {
     return mediaSource
@@ -142,6 +144,7 @@ function attachStoryboardToVideoSource(
   return {
     ...mediaSource,
     storyboard,
+    chapters: chapters ?? mediaSource.chapters,
   }
 }
 
@@ -656,6 +659,7 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
                   resolvedStream.licenseUrl,
                   resolvedStream.licenseHeaders,
                   resolvedStream.vttUrl,
+                  resolvedStream.chapters ?? undefined,
                 )
               })()
 
@@ -715,8 +719,10 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
         stream.licenseUrl,
         stream.licenseHeaders,
         stream.vttUrl,
+        stream.chapters ?? undefined,
       ),
       stream.storyboard ?? resolvePlayerStoryboard(selectedPlayer.value),
+      stream.chapters ?? null,
     )
   }
 

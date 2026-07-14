@@ -17,8 +17,8 @@ use arachnea_scrapyfy::{HttpClient, ScraperAgregator, ScraperQueryCollectionPara
 
 use crate::services::player_resolver::{
     normalize_stream_kind, proxy_drm_today_license_request, save_drm_today_license_proxy_url,
-    PlayerResolverEndpoints, PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream,
-    SpriteThumbnail,
+    Chapter, PlayerResolverEndpoints, PlayerStreamResolver, ProxiedStreamResponse,
+    ResolvedPlayerStream, SpriteThumbnail,
 };
 
 const SIXPLAY_LOGIN_URL: &str = "https://login-gigya.m6.fr/accounts.login";
@@ -145,6 +145,7 @@ async fn resolve_replay_stream(
         .unwrap_or(manifest_url);
 
     let storyboard = extract_storyboard_from_video_payload(&video_payload);
+    let chapters = extract_chapters_from_video_payload(&video_payload);
 
     let stream_kind = normalize_stream_kind(stream_kind);
     let license_url = save_drm_today_license_proxy_url(
@@ -169,6 +170,7 @@ async fn resolve_replay_stream(
         license_url: Some(license_url),
         license_headers: HashMap::new(),
         storyboard,
+        chapters,
         ..Default::default()
     })
 }
@@ -583,6 +585,46 @@ fn extract_storyboard_from_video_payload(video_payload: &Value) -> Option<Sprite
         first_index: None,
         interval,
     })
+}
+
+/// Extracts chapter metadata from the 6play video JSON payload.
+///
+/// Chapters are read from the `clips[0].chapters` array. Each entry provides
+/// `tc_in` (start), `tc_out` (end), `title`, and `chapter_type` fields.
+/// Returns `None` when no chapters are present in the payload.
+fn extract_chapters_from_video_payload(video_payload: &Value) -> Option<Vec<Chapter>> {
+    let chapters = video_payload
+        .pointer("/clips/0/chapters")
+        .and_then(Value::as_array)?;
+
+    if chapters.is_empty() {
+        return None;
+    }
+
+    let entries: Vec<Chapter> = chapters
+        .iter()
+        .filter_map(|chapter| {
+            let start = chapter.get("tc_in").and_then(Value::as_f64)?;
+            let end = chapter.get("tc_out").and_then(Value::as_f64)?;
+            let title = chapter.get("title").and_then(Value::as_str)?.to_string();
+            let chapter_type = chapter
+                .get("chapter_type")
+                .and_then(Value::as_str)?
+                .to_string();
+            Some(Chapter {
+                start,
+                end,
+                title,
+                chapter_type,
+            })
+        })
+        .collect();
+
+    if entries.is_empty() {
+        None
+    } else {
+        Some(entries)
+    }
 }
 
 fn select_best_asset_url(assets: &[Value], asset_type: &str) -> Option<String> {

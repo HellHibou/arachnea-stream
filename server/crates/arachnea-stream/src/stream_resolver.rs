@@ -294,6 +294,7 @@ fn convert_resolver_entry_to_stream(
         license_headers: extract_string_map(entry, "license_headers"),
         vtt_url: extract_first_string(entry, "vtt_url"),
         storyboard: extract_storyboard(entry),
+        chapters: None,
     };
 
     // Ensure stream_headers includes at least Referer = source_url when not specified
