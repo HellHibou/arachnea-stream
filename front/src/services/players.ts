@@ -20,6 +20,10 @@ export interface ResolvedVideoSpriteThumbnails {
   height: number
   /** The number of columns in the sprite image. */
   columns: number
+  /** The number of thumbnail rows in each sprite image. */
+  rows: number
+  /** Index used for the first sprite image in a sequential URL template. */
+  firstIndex: number
   /** The time interval between thumbnails in seconds. */
   interval: number
 }

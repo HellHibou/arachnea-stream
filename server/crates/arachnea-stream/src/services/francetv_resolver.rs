@@ -499,7 +499,7 @@ fn stream_headers(http_proxy_public_path: Option<&str>) -> Vec<ProxyHttpActionCo
     let hls_content_types = hls_manifest_content_types();
 
     vec![ReplaceAll::new(
-        r#"#EXT-X-(SESSION-)?KEY:([^\r\n]*?)URI="(https://cloudreplay\.ftven\.fr/keys/[^"]+\.key)""#,
+        r#"#EXT-X-(SESSION-)?KEY:([^\r\n]*?)URI="(https://[^/"]+/keys/[^"]+\.key)""#,
         format!(r#"#EXT-X-${{1}}KEY:${{2}}URI="{}/${{3}}""#, proxy_path),
         Some(hls_content_types.clone()),
     )]

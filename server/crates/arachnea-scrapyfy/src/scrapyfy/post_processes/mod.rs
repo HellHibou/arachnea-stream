@@ -15,6 +15,7 @@ mod math_helpers;
 mod node_helpers;
 mod pivot_items_by_index;
 mod regex_helpers;
+mod set_nested_fields;
 mod types;
 
 // Re-export the shared building blocks so the rest of the crate keeps
@@ -22,7 +23,8 @@ mod types;
 // know about the inner module split.
 pub use types::{
     ScraperComputedFieldVariable, ScraperComputedFieldVariableScope, ScraperFieldMapping,
-    ScraperGeneratedField, ScraperPostProcessContext, ScraperRegexItemEntry,
+    ScraperGeneratedField, ScraperNestedFieldDefinition, ScraperPostProcessContext,
+    ScraperRegexItemEntry,
 };
 
 /// Structured transformations applied after one query extracted its raw fields.
@@ -170,6 +172,17 @@ pub enum ScraperPostProcess {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         unique_field: Option<String>,
     },
+
+    /// Sets one or more fields on every nested item inside every source item.
+    /// Each field can be either a static value or a copy from a sibling field.
+    SetNestedFields {
+        /// Source field containing the items to process.
+        source: String,
+        /// Sub-array field within each source item to process.
+        nested_source: String,
+        /// Field definitions to apply on each nested item.
+        fields: Vec<ScraperNestedFieldDefinition>,
+    },
 }
 
 impl ScraperPostProcess {
@@ -247,6 +260,11 @@ impl ScraperPostProcess {
                 items,
                 unique_field,
             } => append_static_items::validate(owner, target, items, unique_field.as_deref()),
+            ScraperPostProcess::SetNestedFields {
+                source,
+                nested_source,
+                fields,
+            } => set_nested_fields::validate(owner, source, nested_source, fields),
         }
     }
 
@@ -386,6 +404,14 @@ impl ScraperPostProcess {
                 unique_field,
             } => {
                 append_static_items::apply(root, context, target, items, unique_field.as_deref());
+                Ok(())
+            }
+            ScraperPostProcess::SetNestedFields {
+                source,
+                nested_source,
+                fields,
+            } => {
+                set_nested_fields::apply(root, source, nested_source, fields);
                 Ok(())
             }
         }

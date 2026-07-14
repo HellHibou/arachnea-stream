@@ -167,7 +167,6 @@ fn filter_non_transferable(headers: &mut HashMap<String, String>) {
         "content-length",
         "transfer-encoding",
         "host",
-        "referer",
         "proxy-authorization",
         "proxy-connection"
     ];
@@ -527,6 +526,16 @@ fn merge_opts(
         // Merge headers: opts override incoming
         for (key, value) in &opts.headers {
             if !parse_proxy_action_header_into(&mut proxy_actions, key, value)? {
+                // Remove existing variants with the same case-insensitive name
+                // to prevent duplicates when the casing differs
+                let variants: Vec<String> = headers
+                    .keys()
+                    .filter(|k| k.eq_ignore_ascii_case(key))
+                    .cloned()
+                    .collect();
+                for variant in variants {
+                    headers.remove(&variant);
+                }
                 headers.insert(key.clone(), value.clone());
             }
         }
@@ -724,13 +733,27 @@ pub async fn handle_proxy_http(
 
     let redirect_opts = opts.clone();
 
+    // Strip incoming Referer that points back to the proxy itself —
+    // the proxy's own URL is meaningless to the upstream server.
+    // Explicit Referer via opts headers will still be applied below.
+    let mut incoming_headers = input.headers.clone();
+    if let Some(referer_val) = incoming_headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("referer"))
+        .map(|(_, v)| v.clone())
+    {
+        if referer_val.starts_with(&input.entry_point) {
+            remove_header_variants(&mut incoming_headers, "referer");
+        }
+    }
+
     // Merge headers and cookies
     let MergedProxyHttpInput {
         mut headers,
         cookies,
         post_actions,
         redirect_actions,
-    } = match merge_opts(&input.headers, opts) {
+    } = match merge_opts(&incoming_headers, opts) {
         Ok(value) => value,
         Err((status, error)) => return Ok(stream_error(status, error)),
     };

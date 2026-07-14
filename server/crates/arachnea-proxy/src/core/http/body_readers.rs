@@ -9,6 +9,61 @@ use std::task::{ready, Context, Poll};
 
 use tokio::io::{AsyncRead, ReadBuf};
 
+/// Decodes a complete HTTP/1.1 chunked body.
+///
+/// This is used when a buffered response needs to distinguish a valid chunked
+/// body from a non-compliant proxy that has already removed the chunk framing.
+pub(crate) fn decode_chunked_body(body: &[u8]) -> io::Result<Vec<u8>> {
+    let mut offset = 0;
+    let mut decoded = Vec::new();
+
+    loop {
+        let line_end = body[offset..]
+            .windows(2)
+            .position(|window| window == b"\r\n")
+            .map(|index| offset + index)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid chunk size"))?;
+        let size = std::str::from_utf8(&body[offset..line_end])
+            .ok()
+            .and_then(|line| line.split(';').next())
+            .map(str::trim)
+            .and_then(|value| usize::from_str_radix(value, 16).ok())
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid chunk size"))?;
+        offset = line_end + 2;
+
+        if size == 0 {
+            loop {
+                let trailer_end = body[offset..]
+                    .windows(2)
+                    .position(|window| window == b"\r\n")
+                    .map(|index| offset + index)
+                    .ok_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "chunked response trailers ended prematurely",
+                        )
+                    })?;
+                if trailer_end == offset {
+                    return Ok(decoded);
+                }
+                offset = trailer_end + 2;
+            }
+        }
+
+        let chunk_end = offset
+            .checked_add(size)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid chunk size"))?;
+        if chunk_end + 2 > body.len() || &body[chunk_end..chunk_end + 2] != b"\r\n" {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid chunk data",
+            ));
+        }
+        decoded.extend_from_slice(&body[offset..chunk_end]);
+        offset = chunk_end + 2;
+    }
+}
+
 /// Reads a fixed number of bytes from the inner stream, then returns EOF.
 pub struct ContentLengthBodyReader<S> {
     stream: S,

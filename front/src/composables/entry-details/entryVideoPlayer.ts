@@ -204,6 +204,13 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
   )
 
   /**
+   * Exposes the optional title image supplied by the currently resolved player.
+   *
+   * @returns Resolved player poster URL, or null when none is available.
+   */
+  const resolvedPlayerPosterUrl = computed(() => resolvedStreamResponse.value?.imageTitleLink ?? null)
+
+  /**
    * Indicates whether the current entry exposes a trailer.
    *
    * @returns True if a trailer media source is available.
@@ -786,6 +793,7 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
     mediaOpenUrl,
     isMediaPlayerLoading,
     mediaPlayerErrorMessage,
+    resolvedPlayerPosterUrl,
     trailerUrl,
     trailerMediaSource,
     showTrailerPlayer,

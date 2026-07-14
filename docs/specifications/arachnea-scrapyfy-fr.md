@@ -1040,6 +1040,38 @@ Ajoute des items statiques à un groupe, avec déduplication optionnelle.
   unique_field: "url"
 ```
 
+### `set_nested_fields`
+Définit un ou plusieurs champs sur chaque item d'un sous-tableau, avec une
+valeur statique ou une copie depuis un champ voisin.
+
+| Champ | Type | Description |
+|-------|------|-------------|
+| `source` | string | Champ groupe source contenant les items |
+| `nested_source` | string | Sous-champ tableau à l'intérieur de chaque item source |
+| `fields` | array | Définitions de champs à appliquer |
+
+Structure `ScraperNestedFieldDefinition` :
+
+| Champ | Type | Description |
+|-------|------|-------------|
+| `target` | string | Chemin de destination (supporte `>` pour les chemins hiérarchiques) |
+| `value` | string (opt.) | Valeur statique à écrire (mutuellement exclusif avec `copy_from` et `host_from`) |
+| `copy_from` | string (opt.) | Champ source à copier depuis le même item (mutuellement exclusif avec `value` et `host_from`) |
+| `host_from` | string (opt.) | Extrait le nom d'hôte de l'URL contenue dans ce champ voisin (mutuellement exclusif avec `value` et `copy_from`) |
+
+```yaml
+- type: set_nested_fields
+  source: "episodes"
+  nested_source: "players"
+  fields:
+    - target: resolver > kind
+      value: "stream-resolver"
+    - target: resolver > target_id
+      copy_from: web-link
+    - target: name
+      host_from: web-link
+```
+
 ---
 
 ## 13. Types de sortie (`type` / `ScraperOutputType`)

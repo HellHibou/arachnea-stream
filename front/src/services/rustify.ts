@@ -1326,6 +1326,8 @@ function normalizeEntryPlayerStoryboard(
   const width = toPositiveInteger(firstNumber(readPath(entry, 'storyboard', 'width')))
   const height = toPositiveInteger(firstNumber(readPath(entry, 'storyboard', 'height')))
   const columns = toPositiveInteger(firstNumber(readPath(entry, 'storyboard', 'columns')))
+  const rows = toPositiveInteger(firstNumber(readPath(entry, 'storyboard', 'rows'))) ?? 1
+  const firstIndex = toNonNegativeInteger(firstNumber(readPath(entry, 'storyboard', 'first_index'))) ?? 0
   const configuredInterval = firstNumber(readPath(entry, 'storyboard', 'interval'))
 
   if (!url || !width || !height || !columns) {
@@ -1346,6 +1348,8 @@ function normalizeEntryPlayerStoryboard(
     width,
     height,
     columns,
+    rows,
+    firstIndex,
     interval,
   }
 }
@@ -1379,7 +1383,7 @@ function normalizeResolvedPlayerStream(payload: unknown): EntryResolvedPlayerStr
   return {
     streamUrl,
     manifestType,
-    streamHeaders: readStringMap(payload.stream_headers ?? payload.streamHeaders),
+    imageTitleLink: firstNonEmptyString([readPath(payload, 'image/title', 'link')]),
     licenseUrl: firstNonEmptyString([payload.license_url, payload.licenseUrl]),
     licenseHeaders: readStringMap(payload.license_headers ?? payload.licenseHeaders),
     vttUrl: firstNonEmptyString([payload.vtt_url, payload.vttUrl]),
@@ -1402,13 +1406,15 @@ function normalizeRustifyStoryboard(value: unknown): EntryPlayerStoryboard | nul
   const width = toPositiveInteger(firstNumber(value.width))
   const height = toPositiveInteger(firstNumber(value.height))
   const columns = toPositiveInteger(firstNumber(value.columns))
+  const rows = toPositiveInteger(firstNumber(value.rows)) ?? 1
+  const firstIndex = toNonNegativeInteger(firstNumber(value.first_index ?? value.firstIndex)) ?? 0
   const interval = firstNumber(value.interval)
 
   if (!url || !width || !height || !columns || interval === null || !Number.isFinite(interval) || interval <= 0) {
     return null
   }
 
-  return { url, width, height, columns, interval }
+  return { url, width, height, columns, rows, firstIndex, interval }
 }
 
 /**
@@ -1898,6 +1904,21 @@ function toPositiveInteger(value: number | null): number | null {
 
   const normalizedValue = Math.trunc(value)
   return Number.isFinite(normalizedValue) && normalizedValue > 0 ? normalizedValue : null
+}
+
+/**
+ * Normalizes one numeric backend value into a non-negative integer.
+ *
+ * @param value Parsed numeric backend value.
+ * @returns Non-negative integer when available.
+ */
+function toNonNegativeInteger(value: number | null): number | null {
+  if (value === null) {
+    return null
+  }
+
+  const normalizedValue = Math.trunc(value)
+  return Number.isFinite(normalizedValue) && normalizedValue >= 0 ? normalizedValue : null
 }
 
 /**

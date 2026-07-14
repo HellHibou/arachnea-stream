@@ -83,6 +83,26 @@ pub(crate) fn default_source_params_target() -> String {
     "source_params".to_string()
 }
 
+/// One field definition for `set_nested_fields`, with one of:
+/// - `value` — a static string,
+/// - `copy_from` — copy from a sibling field,
+/// - `host_from` — extract the hostname from a URL in a sibling field.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScraperNestedFieldDefinition {
+    /// Target path (supports `>` nesting) where the value will be set.
+    pub target: String,
+    /// Static value to set. Mutually exclusive with `copy_from` and `host_from`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    /// Copy the value from this sibling field path. Mutually exclusive with `value` and `host_from`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copy_from: Option<String>,
+    /// Extract the hostname from the URL stored in this sibling field. Mutually
+    /// exclusive with `value` and `copy_from`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_from: Option<String>,
+}
+
 /// Scope used to resolve one math expression variable.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

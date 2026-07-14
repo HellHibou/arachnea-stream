@@ -6,7 +6,9 @@ use std::collections::HashMap;
 use arachnea_proxy::core::http::proxy_service::proxied_url;
 use arachnea_scrapyfy::*;
 
-use crate::services::player_resolver::{PlayerResolverEndpoints, ResolvedPlayerStream, SpriteThumbnail};
+use crate::services::player_resolver::{
+    PlayerResolverEndpoints, ResolvedPlayerImageTitle, ResolvedPlayerStream, SpriteThumbnail,
+};
 
 /// Group name used by the stream resolver configuration.
 pub const STREAM_RESOLVER_GROUP_NAME: &str = "arachnea-stream-resolver";
@@ -239,12 +241,8 @@ impl<'a> StreamResolver<'a> {
             stream.stream_url = stream
                 .stream_url
                 .into_iter()
-                .map(|u| {
-                    proxied_url(&u, Some(proxy_path), None, &[], &headers)
-                })
+                .map(|u| proxied_url(&u, Some(proxy_path), None, &[], &headers))
                 .collect();
-            // Remove stream_headers since they are now embedded in the proxy URL
-            stream.stream_headers.clear();
         }
 
         Ok(stream)
@@ -253,8 +251,7 @@ impl<'a> StreamResolver<'a> {
 
 /// Converts one YAML resolver response entry into a `ResolvedPlayerStream`.
 ///
-/// Reads `stream_url`, `stream_headers`, `manifest_type`, `vtt_url`, `storyboard`
-/// and optional `license_url`/`license_headers` from the scraper data nodes.
+/// Reads stream URLs, headers, player metadata, and optional playback extras from scraper data nodes.
 fn convert_resolver_entry_to_stream(
     entry: &HashMap<String, ScraperDataNode>,
     source_url: &str,
@@ -288,6 +285,8 @@ fn convert_resolver_entry_to_stream(
     let stream_headers = extract_string_map(entry, "stream_headers");
 
     let mut result = ResolvedPlayerStream {
+        title: extract_first_string(entry, "title"),
+        image_title: extract_image_title(entry),
         stream_url,
         manifest_type,
         stream_headers,
@@ -307,6 +306,35 @@ fn convert_resolver_entry_to_stream(
     Ok(result)
 }
 
+/// Extracts optional `image/title > link` metadata from a resolver entry.
+fn extract_image_title(
+    entry: &HashMap<String, ScraperDataNode>,
+) -> Option<ResolvedPlayerImageTitle> {
+    let image_title = entry
+        .get("image/title")
+        .or_else(|| {
+            entry
+                .get("image")?
+                .children
+                .get("title")
+        })?;
+    let link = first_child_value(image_title, "link")?.trim().to_string();
+
+    if link.is_empty() {
+        return None;
+    }
+
+    Some(ResolvedPlayerImageTitle { link })
+}
+
+/// Returns one named child value, including a group represented by one internal item.
+fn first_child_value<'a>(node: &'a ScraperDataNode, name: &str) -> Option<&'a str> {
+    node.children
+        .get(name)
+        .or_else(|| node.items.first()?.children.get(name))?
+        .value_as_string()
+}
+
 /// Extracts an ordered list of strings from a scraper data entry field.
 /// Uses the `values` vector which contains all scalar values for a node.
 fn extract_string_list(entry: &HashMap<String, ScraperDataNode>, key: &str) -> Option<Vec<String>> {
@@ -317,7 +345,11 @@ fn extract_string_list(entry: &HashMap<String, ScraperDataNode>, key: &str) -> O
             .map(|v| v.trim().to_string())
             .filter(|v| !v.is_empty())
             .collect();
-        if values.is_empty() { None } else { Some(values) }
+        if values.is_empty() {
+            None
+        } else {
+            Some(values)
+        }
     })
 }
 
@@ -352,38 +384,25 @@ fn extract_string_map(
 }
 
 /// Extracts an optional `SpriteThumbnail` from a scraper data entry field.
-/// Reads `url`/`link`, `width`, `height`, `columns`, `interval` from child nodes.
+/// Reads `url`/`link`, dimensions, and interval from child nodes.
 fn extract_storyboard(entry: &HashMap<String, ScraperDataNode>) -> Option<SpriteThumbnail> {
     let storyboard = entry.get("storyboard")?;
-    let url = storyboard
-        .children
-        .get("url")
-        .and_then(|n| n.value_as_string())
-        .or_else(|| storyboard.children.get("link").and_then(|n| n.value_as_string()))?;
+    let url = first_child_value(storyboard, "url")
+        .or_else(|| first_child_value(storyboard, "link"))?;
     let url = url.trim().to_string();
     if url.is_empty() {
         return None;
     }
 
-    let width = storyboard
-        .children
-        .get("width")
-        .and_then(|n| n.value_as_u32())?;
-    let height = storyboard
-        .children
-        .get("height")
-        .and_then(|n| n.value_as_u32())?;
-    let columns = storyboard
-        .children
-        .get("columns")
-        .and_then(|n| n.value_as_u32())?;
-    let interval = storyboard
-        .children
-        .get("interval")
-        .and_then(|n| n.value_as_string())
-        .and_then(|v| v.parse::<f64>().ok())?;
+    let width = first_child_value(storyboard, "width")?.parse::<u32>().ok()?;
+    let height = first_child_value(storyboard, "height")?.parse::<u32>().ok()?;
+    let columns = first_child_value(storyboard, "columns")?.parse::<u32>().ok()?;
+    let rows = first_child_value(storyboard, "rows")?.parse::<u32>().ok()?;
+    let first_index = first_child_value(storyboard, "first_index")
+        .and_then(|value| value.parse::<u32>().ok());
+    let interval = first_child_value(storyboard, "interval")?.parse::<f64>().ok()?;
 
-    if width == 0 || height == 0 || columns == 0 || interval <= 0.0 {
+    if width == 0 || height == 0 || columns == 0 || rows == 0 || interval <= 0.0 {
         return None;
     }
 
@@ -392,6 +411,8 @@ fn extract_storyboard(entry: &HashMap<String, ScraperDataNode>) -> Option<Sprite
         width,
         height,
         columns,
+        rows,
+        first_index,
         interval,
     })
 }

@@ -456,18 +456,44 @@ décrire les options de lecture.
 |---|---|---|
 | `name` | `string` | Nom du lecteur |
 | `lang` | `string` | Langue de la piste |
-| `embed-link` | `string` | URL d'intégration |
-| `direct-link` | `string` | Lien direct |
-| `resolver > kind` | `string` | Type de résolveur (ex: `tf1-video`, `m6play-video`) |
-| `resolver > target_id` | `string` | Identifiant cible pour le résolveur |
-| `resolver > stream > kind` | `string` | Type de flux (ex: `tf1-license-proxy`, `widevine-license-proxy`) |
-| `storyboard > link` | `string` | URL du storyboard |
-| `storyboard > width` | `number` | Largeur d'une vignette |
-| `storyboard > height` | `number` | Hauteur d'une vignette |
-| `storyboard > columns` | `number` | Nombre de colonnes |
-| `storyboard > interval` | `number` | Intervalle entre vignettes (calculé via `compute_items_field`) |
+| `direct-link` | `string` | Lien direct (média immédiatement lisible) |
+| `resolver` | `string` | Identifiant global du résolveur (format plat, ex: `stream-resolver`, `m6play-video`) |
+| `target` | `string` | Cible pour le résolveur (URL ou identifiant) |
+| `resolver > kind` | `string` | Type de résolveur (format objet legacy, ex: `tf1-video`, `m6play-video`) |
+| `resolver > target_id` | `string` | Identifiant cible pour le résolveur (format objet legacy) |
+| `resolver > stream > kind` | `string` | Type de flux (legacy, ex: `tf1-license-proxy`, `widevine-license-proxy`) |
 
-Exemple :
+Un joueur est soit un `direct-link` (média direct), soit un descripteur
+`{ resolver, target }` (résolution par le backend). Les deux champs `resolver`
+et `target` peuvent être déclarés en format plat (champs racine) ou en format
+objet legacy (`resolver > kind`, `resolver > target_id`).
+
+Exemple avec résolveur générique (format plat) :
+
+```yaml
+- name: players
+  type: object[]
+  entries:
+    - name: name
+      type: string
+      actions:
+        - type: format_text
+          argument: "Hébergeur externe"
+    - name: resolver
+      type: string
+      actions:
+        - type: format_text
+          argument: "stream-resolver"
+    - name: target
+      type: string
+      actions:
+        - type: build_url
+          base: "https://player.example/embed/{id}"
+          fields:
+            id: /video_id
+```
+
+Exemple avec résolveur légal (format objet legacy) :
 
 ```yaml
 - name: players
@@ -478,15 +504,6 @@ Exemple :
       actions:
         - type: format_text
           argument: "TF1+"
-    - name: embed-link
-      type: string
-      actions:
-        - type: build_url
-          base: "{base_url}/{channel}/{program_slug}/videos/{slug}.html"
-          fields:
-            channel: /program/mainChannel/slug
-            program_slug: /program/slug
-            slug: /slug
     - name: resolver
       type: object
       entries:
@@ -495,18 +512,72 @@ Exemple :
           actions:
             - type: format_text
               argument: "tf1-video"
-        - name: stream
-          type: object
-          entries:
-            - name: kind
-              type: string
-              actions:
-                - type: format_text
-                  argument: "tf1-license-proxy"
         - name: target_id
           type: string
           pointer: /id
 ```
+
+### 5.9.1 Résolution de flux — `get_stream`
+
+La commande backend `get_stream` reçoit `{ resolver, target }` et retourne
+une réponse de type union exclusive :
+
+| Champ | Type | Description |
+|---|---|---|
+| `stream_url` | `string[]` | URLs de flux média (première = préférée) |
+| `manifest_type` | `string` | Type de manifeste (`mpd`, `m3u8`, etc.) |
+| `title` | `string` | Titre optionnel extrait par le résolveur |
+| `image/title > link` | `string` | Image de titre optionnelle, sérialisée en JSON sous `{ "image/title": { "link": "…" } }` |
+| `license_url` | `string` | URL du proxy de licence DRM (optionnel) |
+| `license_headers` | `object` | En-têtes HTTP pour la requête de licence |
+| `vtt_url` | `string` | URL du WebVTT de miniatures (optionnel, préféré à `storyboard`) |
+| `storyboard` | `object` | Métadonnées du sprite storyboard (optionnel) |
+| `embed-link` | `string` | URL de repli iframe (exclusif de `stream_url`) |
+
+Les champs `stream_url` et `embed-link` sont mutuellement exclusifs :
+- `stream_url` produit un lecteur vidéo natif
+- `embed-link` produit une iframe
+
+Les `stream_headers` du résolveur ne font pas partie de la réponse publique : ils sont intégrés
+aux URLs de flux proxy générées.
+
+Le champ `storyboard` contient :
+
+| Champ | Type | Description |
+|---|---|---|
+| `url` | `string` | URL de l'image sprite ; peut contenir le placeholder littéral `{index}` |
+| `width` | `number` | Largeur d'une vignette |
+| `height` | `number` | Hauteur d'une vignette |
+| `columns` | `number` | Nombre de colonnes dans le sprite |
+| `rows` | `number` | Nombre de lignes de vignettes par image sprite |
+| `first_index` | `number` | Index optionnel de la première image d'un modèle URL `{index}` ; vaut `0` par défaut |
+| `interval` | `number` | Intervalle entre vignettes (secondes) |
+
+Par exemple, un storyboard à douze colonnes, six lignes et `first_index: 1` remplace `{index}`
+par `1` pour charger sa première image. Un sprite unique déclare tout de même `rows: 1`.
+
+### 5.9.2 Proxy de licence DRM — `get_drm_license`
+
+La commande binaire `get_drm_license` remplace l'ancienne commande
+`get_stream` pour le proxy de licence DRM. Son chemin public est
+`/api/get_drm_license/{source}/{token}`.
+
+### 5.9.3 Groupe de résolveurs YAML — `arachnea-stream-resolver`
+
+Le groupe `arachnea-stream-resolver` contient des résolveurs configurables
+par YAML pour les hébergeurs externes. Chaque fichier YAML déclare deux
+requêtes :
+
+| Requête | Type | Description |
+|---|---|---|
+| `can_resolve_url` | `static` | Détermine si une URL est couverte par ce résolveur (regex sur le domaine) |
+| `resolve_stream` | `html` / `json` / `text` | Extrait le flux média et les métadonnées optionnelles `title`, `image/title > link`, `stream_headers`, `vtt_url` et `storyboard` |
+
+La façade `StreamResolver` agrège les résultats de tous les YAML du groupe
+et sélectionne le premier service compatible dans l'ordre de `services.json`.
+
+`stream_headers` est une métadonnée interne du résolveur : elle sert à construire les URLs proxy
+et n'est donc volontairement pas sérialisée dans la réponse JSON de `get_stream`.
 
 ---
 

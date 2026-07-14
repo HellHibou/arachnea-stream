@@ -42,10 +42,6 @@ queries:
     query_url: "{url}"
     row_selector: "html"
     request_headers:
-      - name: "User-Agent"
-        actions:
-          - type: format_text
-            argument: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:148.0) Gecko/20100101 Firefox/148.0"
       - name: "Referer"
         actions:
           - type: format_text
@@ -64,6 +60,7 @@ queries:
           - type: resolve_url
       - name: stream_headers
         type: object
+        select: first
         entries:
           - name: Referer
             type: string
@@ -91,6 +88,7 @@ queries:
             proxy: true
       - name: storyboard
         type: object
+        select: first
         entries:
           - name: url
             type: string
@@ -102,6 +100,8 @@ queries:
                 format: "{1}"          
               - type: resolve_url
                 proxy: true    
+              - type: suffix
+                argument: "{index}.jpg"
           - name: width
             type: number
             actions:
@@ -112,8 +112,23 @@ queries:
             actions:
               - type: format_text
                 argument: "12"
+          - name: rows
+            type: number
+            actions:
+              - type: format_text
+                argument: "6"
+          - name: first_index
+            type: number
+            actions:
+              - type: format_text
+                argument: "1"
           - name: height
             type: number
             actions:
               - type: format_text
-                argument: "107"
+                argument: "108"
+          - name: interval
+            type: number
+            actions:
+              - type: format_text
+                argument: "5"

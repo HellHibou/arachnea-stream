@@ -3,7 +3,7 @@ use std::pin::Pin;
 use std::time::Duration;
 
 use crate::core::http::body_readers::{
-    ChunkedBodyReader, ContentLengthBodyReader, UntilEofBodyReader,
+    decode_chunked_body, ChunkedBodyReader, ContentLengthBodyReader, UntilEofBodyReader,
 };
 use crate::core::{
     ArachneaProxyCore, ClientContext, ConnectRequest, Destination, HttpRequestTargetForm,
@@ -73,6 +73,7 @@ pub struct ProxiedHttpRequest {
 #[derive(Clone)]
 pub struct SimpleHttpClient {
     core: ArachneaProxyCore,
+    tolerate_dechunked_bodies: bool,
 }
 
 impl SimpleHttpClient {
@@ -86,7 +87,20 @@ impl SimpleHttpClient {
     ///
     /// Simple HTTP client.
     pub fn new(core: ArachneaProxyCore) -> Self {
-        Self { core }
+        Self {
+            core,
+            tolerate_dechunked_bodies: true,
+        }
+    }
+
+    /// Configures tolerance for proxies that remove chunk framing while leaving
+    /// the `Transfer-Encoding: chunked` response header in place.
+    ///
+    /// When enabled (the default), buffered responses fall back to their raw
+    /// body when chunk decoding fails. Streaming responses remain strict.
+    pub fn with_dechunked_body_tolerance(mut self, enabled: bool) -> Self {
+        self.tolerate_dechunked_bodies = enabled;
+        self
     }
 
     /// Performs a simple HTTP/1.1 GET request.
@@ -293,19 +307,17 @@ impl SimpleHttpClient {
             ProxiedResponseBody::Buffered(Vec::new())
         } else {
             let is_chunked = transfer_encoding_is_chunked(&headers);
-            let reader = select_body_reader(unified_stream, &headers);
-
-            if is_chunked {
-                remove_header_case_insensitive(&mut headers, "transfer-encoding");
-                remove_header_case_insensitive(&mut headers, "content-length");
-            }
-
-            let reader_stream = ReaderStream::new(reader);
             if request.buffer_response_body {
-                let mut body = Vec::new();
-                futures::pin_mut!(reader_stream);
-                while let Some(chunk) = reader_stream.next().await {
-                    body.extend_from_slice(&chunk?);
+                let body = read_buffered_response_body(
+                    unified_stream,
+                    &headers,
+                    is_chunked,
+                    self.tolerate_dechunked_bodies,
+                )
+                .await?;
+                if is_chunked {
+                    remove_header_case_insensitive(&mut headers, "transfer-encoding");
+                    remove_header_case_insensitive(&mut headers, "content-length");
                 }
                 ProxiedResponseBody::Buffered(process_response_body(
                     body,
@@ -315,6 +327,12 @@ impl SimpleHttpClient {
                     &request.context,
                 )?)
             } else {
+                let reader = select_body_reader(unified_stream, &headers);
+                if is_chunked {
+                    remove_header_case_insensitive(&mut headers, "transfer-encoding");
+                    remove_header_case_insensitive(&mut headers, "content-length");
+                }
+                let reader_stream = ReaderStream::new(reader);
                 ProxiedResponseBody::Streamed(Box::pin(reader_stream))
             }
         };
@@ -325,6 +343,42 @@ impl SimpleHttpClient {
             body,
         })
     }
+}
+
+/// Reads a response body that must be buffered for post-response processing.
+async fn read_buffered_response_body<S>(
+    mut stream: S,
+    headers: &HashMap<String, String>,
+    is_chunked: bool,
+    tolerate_dechunked_bodies: bool,
+) -> Result<Vec<u8>>
+where
+    S: AsyncRead + Send + Unpin + 'static,
+{
+    if is_chunked && tolerate_dechunked_bodies {
+        let mut raw_body = Vec::new();
+        stream.read_to_end(&mut raw_body).await?;
+        return match decode_chunked_body(&raw_body) {
+            Ok(body) => Ok(body),
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    body_len = raw_body.len(),
+                    "upstream retained Transfer-Encoding: chunked after dechunking the response; using raw body"
+                );
+                Ok(raw_body)
+            }
+        };
+    }
+
+    let reader = select_body_reader(stream, headers);
+    let reader_stream = ReaderStream::new(reader);
+    let mut body = Vec::new();
+    futures::pin_mut!(reader_stream);
+    while let Some(chunk) = reader_stream.next().await {
+        body.extend_from_slice(&chunk?);
+    }
+    Ok(body)
 }
 
 /// Writes the HTTP request and reads only the response headers.

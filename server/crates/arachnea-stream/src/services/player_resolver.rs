@@ -30,21 +30,39 @@ pub(crate) struct SpriteThumbnail {
     pub height: u32,
     /// The number of columns in the sprite image.
     pub columns: u32,
+    /// The number of thumbnail rows in each sprite image.
+    pub rows: u32,
+    /// Optional index used for the first sprite image in a sequential URL template.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_index: Option<u32>,
     /// The time interval between thumbnails in seconds.
     pub interval: f64,
+}
+
+/// Link metadata for one resolved player image.
+#[derive(Serialize)]
+pub(crate) struct ResolvedPlayerImageTitle {
+    /// URL of the image resource.
+    pub link: String,
 }
 
 /// Playback stream resolved by a source-specific player resolver.
 #[derive(Default, Serialize)]
 pub(crate) struct ResolvedPlayerStream {
+    /// Display title extracted from the player page.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// Optional title image metadata extracted from the player page.
+    #[serde(rename = "image/title", skip_serializing_if = "Option::is_none")]
+    pub image_title: Option<ResolvedPlayerImageTitle>,
     /// Ordered list of alternative stream manifest URLs (primary first).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stream_url: Vec<String>,
     /// Manifest type consumed by the frontend player, such as `mpd` or `m3u8`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub manifest_type: Option<String>,
-    /// Extra headers sent by the frontend player when requesting stream URLs.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    /// Headers embedded in generated proxy stream URLs.
+    #[serde(skip_serializing)]
     pub stream_headers: HashMap<String, String>,
     /// Same-origin license proxy URL for protected streams.
     #[serde(skip_serializing_if = "Option::is_none")]

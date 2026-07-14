@@ -57,6 +57,10 @@ export interface EntryPlayerStoryboard {
   height: number
   /** The number of columns in the sprite image. */
   columns: number
+  /** The number of thumbnail rows in each sprite image. */
+  rows: number
+  /** Index used for the first sprite image in a sequential URL template. */
+  firstIndex: number
   /** The time interval between thumbnails in seconds. */
   interval: number
 }
@@ -72,8 +76,8 @@ export interface EntryResolvedPlayerStream {
   streamUrl: string[]
   /** The type of the manifest (e.g., 'dash', 'hls'). */
   manifestType: string
-  /** Headers to include when requesting stream URLs. */
-  streamHeaders: Record<string, string>
+  /** Optional title image URL returned by the selected player resolver. */
+  imageTitleLink: string | null
   /** The URL to the DRM license server, or null for unprotected streams. */
   licenseUrl: string | null
   /** Headers to include when requesting the license. */

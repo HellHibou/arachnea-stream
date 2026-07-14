@@ -409,7 +409,9 @@ impl ScraperDataNode {
     /// flat array of objects, or `None` otherwise.
     ///
     /// A node qualifies when it has no explicit items, at least two children
-    /// without nested children, and the maximum child value count exceeds one.
+    /// without explicit items, and the maximum child value count exceeds one.
+    /// Nested child fields are rendered at the same index, allowing aligned
+    /// arrays to contain structured values such as player resolvers.
     fn array_len(&self) -> Option<usize> {
         if !self.items.is_empty() {
             return None;
@@ -419,11 +421,7 @@ impl ScraperDataNode {
             return None;
         }
 
-        if self
-            .children
-            .values()
-            .any(|child| !child.children.is_empty())
-        {
+        if self.children.values().any(|child| !child.items.is_empty()) {
             return None;
         }
 
@@ -644,6 +642,18 @@ impl ScraperDataNode {
 
     fn render_indexed_value(&self, index: usize, path: &str) -> std::result::Result<Value, String> {
         if self.values.is_empty() {
+            if !self.children.is_empty() && self.items.is_empty() {
+                let mut object = Map::new();
+                for (name, child) in &self.children {
+                    let child_path = join_path(path, name);
+                    object.insert(
+                        name.clone(),
+                        child.render_indexed_value(index, &child_path)?,
+                    );
+                }
+                return Ok(Value::Object(object));
+            }
+
             return self.to_json_value_at(path);
         }
 

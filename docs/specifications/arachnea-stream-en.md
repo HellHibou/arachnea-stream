@@ -454,18 +454,43 @@ playback options.
 |---|---|---|
 | `name` | `string` | Player name |
 | `lang` | `string` | Audio language |
-| `embed-link` | `string` | Embed URL |
-| `direct-link` | `string` | Direct link |
-| `resolver > kind` | `string` | Resolver type (e.g. `tf1-video`, `m6play-video`) |
-| `resolver > target_id` | `string` | Target identifier for the resolver |
-| `resolver > stream > kind` | `string` | Stream type (e.g. `tf1-license-proxy`, `widevine-license-proxy`) |
-| `storyboard > link` | `string` | Storyboard URL |
-| `storyboard > width` | `number` | Thumbnail width |
-| `storyboard > height` | `number` | Thumbnail height |
-| `storyboard > columns` | `number` | Number of columns |
-| `storyboard > interval` | `number` | Interval between thumbnails (computed via `compute_items_field`) |
+| `direct-link` | `string` | Direct, immediately playable media link |
+| `resolver` | `string` | Globally unique resolver identifier (flat form, e.g. `stream-resolver`, `m6play-video`) |
+| `target` | `string` | Resolver target (URL or identifier, flat form) |
+| `resolver > kind` | `string` | Resolver type (legacy object form, e.g. `tf1-video`, `m6play-video`) |
+| `resolver > target_id` | `string` | Resolver target identifier (legacy object form) |
+| `resolver > stream > kind` | `string` | Stream type (legacy, e.g. `tf1-license-proxy`, `widevine-license-proxy`) |
 
-Example:
+A player is either a `direct-link` or a `{ resolver, target }` descriptor resolved by the backend.
+The `resolver` and `target` fields can use the flat form above or the legacy object form
+(`resolver > kind`, `resolver > target_id`).
+
+Example with the generic resolver (flat form):
+
+```yaml
+- name: players
+  type: object[]
+  entries:
+    - name: name
+      type: string
+      actions:
+        - type: format_text
+          argument: "External host"
+    - name: resolver
+      type: string
+      actions:
+        - type: format_text
+          argument: "stream-resolver"
+    - name: target
+      type: string
+      actions:
+        - type: build_url
+          base: "https://player.example/embed/{id}"
+          fields:
+            id: /video_id
+```
+
+Example with a legal resolver (legacy object form):
 
 ```yaml
 - name: players
@@ -505,6 +530,59 @@ Example:
           type: string
           pointer: /id
 ```
+
+### 5.9.1 Stream resolution — `get_stream`
+
+The `get_stream` backend command receives `{ resolver, target }` and returns an exclusive union:
+
+| Field | Type | Description |
+|---|---|---|
+| `stream_url` | `string[]` | Media stream URLs (first is preferred) |
+| `manifest_type` | `string` | Manifest type (`mpd`, `m3u8`, `mp4`, etc.) |
+| `title` | `string` | Optional title extracted by the resolver |
+| `image/title > link` | `string` | Optional title image; serialized as JSON `{ "image/title": { "link": "…" } }` |
+| `license_url` | `string` | Optional DRM license proxy URL |
+| `license_headers` | `object` | HTTP headers for the DRM license request |
+| `vtt_url` | `string` | Optional thumbnail WebVTT URL; preferred over `storyboard` |
+| `storyboard` | `object` | Optional sprite storyboard metadata |
+| `embed-link` | `string` | Iframe fallback URL, exclusive with `stream_url` |
+
+`stream_url` and `embed-link` are mutually exclusive: the former creates a native video player,
+while the latter creates an iframe. Resolver `stream_headers` are not part of the public response:
+they are embedded in the generated proxy stream URLs.
+
+`storyboard` contains:
+
+| Field | Type | Description |
+|---|---|---|
+| `url` | `string` | Sprite image URL, optionally containing the literal `{index}` placeholder |
+| `width` | `number` | Width of one thumbnail |
+| `height` | `number` | Height of one thumbnail |
+| `columns` | `number` | Thumbnail columns per sprite image |
+| `rows` | `number` | Thumbnail rows per sprite image |
+| `first_index` | `number` | Optional first image index for an `{index}` URL template; defaults to `0` |
+| `interval` | `number` | Seconds between thumbnails |
+
+For example, a resolver with twelve columns, six rows and `first_index: 1` produces the first
+sprite URL by replacing `{index}` with `1`. A single-image sprite still declares `rows: 1`.
+
+### 5.9.2 DRM license proxy — `get_drm_license`
+
+The `get_drm_license` binary command handles DRM license proxying. Its public path is
+`/api/get_drm_license/{source}/{token}`.
+
+### 5.9.3 YAML resolver group — `arachnea-stream-resolver`
+
+The `arachnea-stream-resolver` group contains YAML-configurable resolvers for external hosts.
+Each YAML file declares two queries:
+
+| Query | Type | Description |
+|---|---|---|
+| `can_resolve_url` | `static` | Determines whether the resolver handles the URL (typically a domain regex) |
+| `resolve_stream` | `html` / `json` / `text` | Extracts the media stream and optional `title`, `image/title > link`, `stream_headers`, `vtt_url`, and `storyboard` metadata |
+
+`stream_headers` are resolver-internal request metadata. They are used when constructing proxy
+URLs and are therefore deliberately omitted from the `get_stream` JSON response.
 
 ---
 

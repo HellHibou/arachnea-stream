@@ -187,6 +187,8 @@ const {
   isMediaPlayerLoading,
   /** Error message from the media player. */
   mediaPlayerErrorMessage,
+  /** Poster image returned by the selected player resolver. */
+  resolvedPlayerPosterUrl,
   /** URL of the trailer media. */
   trailerUrl,
   /** Trailer media source for the player. */
@@ -359,9 +361,10 @@ const initialPlaybackTime = computed(() => {
 })
 
 /**
- * Exposes the selected episode preview or entry imagery used as the initial poster.
+ * Exposes the selected player title image, falling back to episode or entry imagery.
  */
 const mediaPosterUrl = computed(() =>
+  resolvedPlayerPosterUrl.value ??
   selectedEpisode.value?.previewUrl ??
   details.value?.imageLandscapeUrl ??
   details.value?.imagePosterUrl ??

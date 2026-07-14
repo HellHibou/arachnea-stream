@@ -260,12 +260,23 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
    * @param source Resolved source selected for playback.
    * @returns Video.js source configuration.
    */
+  function buildSpriteThumbnailOptions(source: ResolvedVideoMediaSource): Record<string, unknown> {
+    if (source.vttUrl) {
+      return { url: source.vttUrl }
+    }
+
+    if (!source.storyboard) {
+      return {}
+    }
+
+    const { firstIndex, ...spriteThumbnails } = source.storyboard
+    return firstIndex > 0
+      ? { ...spriteThumbnails, idxTag: (index: number) => index + firstIndex }
+      : spriteThumbnails
+  }
+
   function buildPlayerSource(source: ResolvedVideoMediaSource): VideoJsSourceInput {
-    const spriteThumbnails = source.vttUrl
-      ? { url: source.vttUrl }
-      : source.storyboard
-      ? { ...source.storyboard }
-      : {}
+    const spriteThumbnails = buildSpriteThumbnailOptions(source)
 
     const sourceInput: VideoJsSourceInput = {
       src: source.src,
@@ -663,9 +674,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
        }
 
         if (props.controls && typeof player.spriteThumbnails === 'function') {
-          player.spriteThumbnails(source.vttUrl
-            ? { url: source.vttUrl }
-            : (source.storyboard ? { ...source.storyboard } : {}))
+          player.spriteThumbnails(buildSpriteThumbnailOptions(source))
         }
 
        /** Last playback step that was saved to persist progress. */

@@ -566,6 +566,7 @@ fn extract_storyboard_from_video_payload(video_payload: &Value) -> Option<Sprite
     const STORYBOARD_WIDTH: u32 = 200;
     const STORYBOARD_HEIGHT: u32 = 112;
     const STORYBOARD_COLUMNS: u32 = 300;
+    const STORYBOARD_ROWS: u32 = 1;
 
     let interval = if duration_seconds > 0.0 && STORYBOARD_COLUMNS > 0 {
         duration_seconds / STORYBOARD_COLUMNS as f64
@@ -578,6 +579,8 @@ fn extract_storyboard_from_video_payload(video_payload: &Value) -> Option<Sprite
         width: STORYBOARD_WIDTH,
         height: STORYBOARD_HEIGHT,
         columns: STORYBOARD_COLUMNS,
+        rows: STORYBOARD_ROWS,
+        first_index: None,
         interval,
     })
 }

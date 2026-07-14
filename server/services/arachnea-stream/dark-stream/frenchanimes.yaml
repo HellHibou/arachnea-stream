@@ -641,10 +641,19 @@ queries:
             actions:
               - type: format_text
                 argument: "Episode {}"
-          - name: players > resolver
+          - name: players > resolver > kind
             type: string
-            value: "stream-resolver"
-          - name: players > target
+            capture_group: 1
+            actions:
+              - type: format_text
+                argument: "stream-resolver"
+          - name: players > resolver > target_id
+            type: string
+            capture_group: 2
+            actions:
+              - type: split
+                argument: ","
+          - name: players > web-link
             type: string
             capture_group: 2
             actions:

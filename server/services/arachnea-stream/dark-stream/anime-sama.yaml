@@ -1019,7 +1019,7 @@ queries:
         target: episodes
         values_field: links
         nested_field: players
-        nested_value_field: target
+        nested_value_field: web-link
         sort_by: server-index
         copy_item_fields:
           - source: lang
@@ -1027,15 +1027,22 @@ queries:
         copy_target_fields:
           - source: name
             target: name
-        copy_root_fields:
-          - source: resolver
-            target: resolver
         generated_fields:
           - name: episode-number
             type: number
             format: "{}"
           - name: title
             format: "Episode {}"
+      - type: set_nested_fields
+        source: episodes
+        nested_source: players
+        fields:
+          - target: resolver > kind
+            value: "stream-resolver"
+          - target: resolver > target_id
+            copy_from: web-link
+          - target: name
+            host_from: web-link
       - type: derive_pagination
         remove_fields:
           - languages

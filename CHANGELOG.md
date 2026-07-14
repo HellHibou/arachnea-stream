@@ -30,6 +30,12 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - `JsonScraperSubQuery::execute` / `execute_siblings` / `execute_context` / `execute_indexed_context` / `execute_indexed_sibling` / `build_row_node` — re-used through the new `JsonScraperSubQuery::execute_query_level` unified entry point (see regression fix below).
 
 ### Fixed
+- **HTTP proxy dechunking tolerance**: buffered proxy responses now accept
+  non-compliant upstream proxies that remove chunk framing but retain
+  `Transfer-Encoding: chunked`. This behavior is enabled by default on
+  `SimpleHttpClient` and can be disabled per client instance.
+- **FranceTV HLS key proxying**: HTTPS key URLs under `/keys/*.key` are now
+  rewritten through the generic HTTP proxy regardless of their host.
 - **TF1 DRM license proxy**: TF1 now accepts the shared default
   `widevine-license-proxy` stream kind when forwarding Widevine challenges,
   preventing valid generated license URLs from failing with HTTP 400.
@@ -214,3 +220,21 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ### Fixed
 
 - **Proxy buffering decision**: `proxy_service` now decides whether post-actions require buffering and passes that explicit decision to the HTTP client. Any post-action conservatively selects buffered, identity-encoded handling until it explicitly supports streaming.
+
+## Unreleased — FrenchAnimes player resolver shape
+
+### Fixed
+
+- **`frenchanimes.yaml` `get_entry` players**: Emit `web-link` and the structured `resolver.kind`/`resolver.target_id` fields expected by the stream resolver.
+- **Nested aligned scraper fields**: Serialize nested values such as `players[].resolver` at the matching player index, preventing multi-value string serialization errors.
+
+## Unreleased — generic stream resolver metadata
+
+### Fixed
+
+- **YAML stream resolver metadata**: Emit Sibnet storyboard metadata with a five-second interval, and expose its page title and title-image link.
+- **Multi-image storyboards**: Resolved storyboard metadata now declares rows per sprite image. Sibnet uses its `{index}` JPEG template and six rows; M6Play explicitly declares one row.
+- **Sibnet storyboard indexing**: Sibnet now declares `first_index: 1`; the frontend converts it to the Video.js `idxTag` callback so the first requested sprite is `…_1.jpg`.
+- **Resolved stream response**: `stream_headers` is no longer serialized by `get_stream`; headers remain embedded in generated proxy stream URLs.
+- **Resolved stream image metadata**: `get_stream` now returns the YAML-compatible `image/title > link` shape as the JSON key `image/title` with its `link` child.
+- **Resolved player posters**: The frontend now uses `image/title.link` returned by `get_stream` as the selected player's poster, before falling back to episode or entry artwork.
