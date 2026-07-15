@@ -255,7 +255,7 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
       return
     }
 
-    void loadSectionPage(section, section.currentPage + 1)
+    void loadSectionPage(section, section.sources.filter((source) => source.haveMore))
   }
 
   /**
@@ -390,20 +390,20 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
    * Returns whether one section still needs its first deferred backend page.
    *
    * @param section - Section displayed in the current catalog.
-   * @returns True if the section has sources but no items loaded.
+   * @returns True if at least one source has not supplied its initial page.
    */
   function shouldLoadInitialSection(section: HomeSection): boolean {
-    return section.sources.length > 0 && section.items.length === 0
+    return section.sources.some((source) => !source.hasInitialItems)
   }
 
   /**
    * Loads the requested deferred page and replaces the section in the current catalog.
    *
    * @param section - Section displayed in the current catalog.
-   * @param page - 1-based page requested from the backend.
+   * @param sources - Section sources to request from the backend.
    */
-  async function loadSectionPage(section: HomeSection, page: number): Promise<void> {
-    if (section.sources.length === 0 || isSectionLoading(section)) {
+  async function loadSectionPage(section: HomeSection, sources: HomeSection['sources']): Promise<void> {
+    if (sources.length === 0 || isSectionLoading(section)) {
       return
     }
 
@@ -412,7 +412,7 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
     sectionLoadErrors.value = { ...sectionLoadErrors.value, [key]: '' }
 
     try {
-      const nextSection = await loadHomeSectionPage(section, page)
+      const nextSection = await loadHomeSectionPage(section, sources)
       replaceCatalogSection(nextSection)
     } catch (error) {
       sectionLoadErrors.value = {
@@ -493,7 +493,7 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
           }
 
           sectionObserver?.unobserve(entry.target)
-          void loadSectionPage(section, 1)
+          void loadSectionPage(section, section.sources.filter((source) => !source.hasInitialItems))
         })
       },
       { rootMargin: '320px 0px' },

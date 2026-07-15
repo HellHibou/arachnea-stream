@@ -30,6 +30,12 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - `JsonScraperSubQuery::execute` / `execute_siblings` / `execute_context` / `execute_indexed_context` / `execute_indexed_sibling` / `build_row_node` — re-used through the new `JsonScraperSubQuery::execute_query_level` unified entry point (see regression fix below).
 
 ### Fixed
+- **Frontend merged home sections**: sections that combine direct `load_home`
+  entries with deferred `get_section` sources now load every deferred first
+  page before rendering, alternate items from each source, and preserve
+  per-source pagination. The `load_home` rails themselves are also ordered
+  round-robin by source before equivalent rails are merged. Aggregated search
+  results now use the same per-source round-robin order.
 - **HTTP proxy dechunking tolerance**: buffered proxy responses now accept
   non-compliant upstream proxies that remove chunk framing but retain
   `Transfer-Encoding: chunked`. This behavior is enabled by default on

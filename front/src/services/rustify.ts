@@ -174,18 +174,16 @@ export async function searchMediaItemsPage(
   }
 
   const nextSourceParams = buildSearchNextSourceParams(groups, page)
-  const items: MediaItem[] = []
-
-  groups.forEach((group) => {
+  const itemsBySource = groups.map((group) => {
     const source = firstNonEmptyString([group.source, readPath(group, 'source', 'name')])
 
-    readRecordList(group.entries).forEach((entry) => {
-      items.push(normalizeMediaItem(entry, items.length, source))
-    })
+    return readRecordList(group.entries).map((entry, entryIndex) =>
+      normalizeMediaItem(entry, entryIndex, source),
+    )
   })
 
   return {
-    items,
+    items: interleaveLists(itemsBySource),
     currentPage: Math.max(1, Math.trunc(page)),
     haveMore: nextSourceParams.length > 0,
     sourceParams: nextSourceParams,
@@ -428,49 +426,102 @@ export async function getCategoryCatalog(category: HomeCategory, page = 1): Prom
  * Loads one additional page for a lazily loaded home section.
  *
  * @param section Section descriptor previously returned by `loadHomeCatalog`.
- * @param page 1-based visual page requested by the frontend.
+ * @param sources Source descriptors to load for the section.
  * @returns Normalized section payload returned by all section sources.
  */
-export async function loadHomeSectionPage(section: HomeSection, page = 1): Promise<HomeSection> {
-  if (section.sources.length === 0) {
+export async function loadHomeSectionPage(
+  section: HomeSection,
+  sources: HomeSectionSource[],
+): Promise<HomeSection> {
+  if (sources.length === 0) {
     return section
   }
 
-  const response = await call_api<unknown>('get_section', {
-    page,
-    sourceParams: section.sources.map((source) => ({
+  const isInitialLoad = sources.some((source) => !source.hasInitialItems)
+  const loadedSources = await Promise.all(sources.map(async (source) => {
+    const page = source.hasInitialItems ? source.currentPage + 1 : 1
+    const response = await call_api<unknown>('get_section', {
       source: source.name,
       link: source.link,
-      ...source.params,
-      page: String(page),
-    })),
-  })
+      page,
+      sourceParams: [{
+        source: source.name,
+        link: source.link,
+        ...source.params,
+        page: String(page),
+      }],
+    })
+    const responseRecord: JsonRecord = isJsonRecord(response) ? response : {}
+    const responseSection = readRecordList(responseRecord.sections)[0] ?? responseRecord
+    const normalizedSection = normalizeHomeSection(
+      {
+        label: section.label,
+        entries: readRecordList(responseSection.entries),
+        current_page: responseSection.current_page ?? page,
+        have_more: responseSection.have_more ?? false,
+      },
+      0,
+      source.name,
+    )
 
-  const responseRecord: JsonRecord = isJsonRecord(response) ? response : {}
-  const responseSection = readRecordList(responseRecord.sections)[0] ?? responseRecord
-
-  const normalizedSection = normalizeHomeSection(
-    {
-      label: section.label,
-      entries: readRecordList(responseSection.entries),
-      current_page: responseSection.current_page ?? page,
-      have_more: responseSection.have_more ?? false,
-    },
-    0,
-    null,
+    return { source, normalizedSection }
+  }))
+  const loadedSourcesByKey = new Map(
+    loadedSources.map(({ source, normalizedSection }) => [
+      buildHomeSectionSourceKey(source),
+      normalizedSection,
+    ]),
   )
 
   return {
     ...section,
-    items: dedupeMediaItems([...section.items, ...normalizedSection.items]),
-    currentPage: normalizedSection.currentPage,
-    haveMore: normalizedSection.haveMore,
-    sources: section.sources.map((source) => ({
-      ...source,
-      currentPage: normalizedSection.currentPage,
-      haveMore: normalizedSection.haveMore,
-    })),
+    items: isInitialLoad
+      ? interleaveInitialSectionItems(section, loadedSources)
+      : dedupeMediaItems([
+          ...section.items,
+          ...interleaveLists(
+            loadedSources.map(({ normalizedSection }) => normalizedSection.items),
+          ),
+        ]),
+    currentPage: Math.max(
+      section.currentPage,
+      ...loadedSources.map(({ normalizedSection }) => normalizedSection.currentPage),
+    ),
+    haveMore: loadedSources.some(({ normalizedSection }) => normalizedSection.haveMore) ||
+      section.sources.some((source) =>
+        !loadedSourcesByKey.has(buildHomeSectionSourceKey(source)) && source.haveMore,
+      ),
+    sources: section.sources.map((source) => {
+      const normalizedSection = loadedSourcesByKey.get(buildHomeSectionSourceKey(source))
+      if (!normalizedSection) {
+        return source
+      }
+
+      return {
+        ...source,
+        currentPage: normalizedSection.currentPage,
+        haveMore: normalizedSection.haveMore,
+        hasInitialItems: true,
+      }
+    }),
   }
+}
+
+/**
+ * Loads every deferred first page before sections are rendered and interleaved.
+ *
+ * @param catalog Normalized catalog returned by the home or category endpoint.
+ * @returns Catalog whose sections include every available initial source page.
+ */
+export async function loadInitialHomeSectionPages(
+  catalog: HomeCatalogData,
+): Promise<HomeCatalogData> {
+  const sections = await Promise.all(catalog.sections.map((section) => {
+    const initialSources = section.sources.filter((source) => !source.hasInitialItems)
+    return loadHomeSectionPage(section, initialSources)
+  }))
+
+  return { ...catalog, sections }
 }
 
 /**
@@ -841,7 +892,13 @@ function normalizeHomeSection(
   const label = firstNonEmptyString([record.label])
   const currentPage = Math.max(1, Math.trunc(firstNumber(record.current_page) ?? 1))
   const haveMore = readBoolean(record.have_more)
-  const sources = normalizeHomeSectionSources(record, inheritedSource, currentPage, haveMore)
+  const sources = normalizeHomeSectionSources(
+    record,
+    inheritedSource,
+    currentPage,
+    haveMore,
+    rawItems.length > 0,
+  )
   const id =
     buildScopedId(
       firstNonEmptyString([record.id, record.key]) ?? (slugify(label ?? '') || `section-${index + 1}`),
@@ -854,6 +911,7 @@ function normalizeHomeSection(
     label,
     preferenceKey: buildHomeSectionPreferenceKey(label, id),
     items: rawItems.map((item, itemIndex) => normalizeMediaItem(item, itemIndex, inheritedSource)),
+    sourceOrder: [inheritedSource ?? id],
     sources,
     currentPage,
     haveMore,
@@ -867,6 +925,7 @@ function normalizeHomeSection(
  * @param inheritedSource Source inherited from the parent scraper row.
  * @param currentPage Current loaded page exposed by the backend.
  * @param haveMore Whether the backend reports more items for this section.
+ * @param hasInitialItems Whether the initial page contains items from this source.
  * @returns Section source descriptors usable by `get_section`.
  */
 function normalizeHomeSectionSources(
@@ -874,6 +933,7 @@ function normalizeHomeSectionSources(
   inheritedSource: string | null,
   currentPage: number,
   haveMore: boolean,
+  hasInitialItems: boolean,
 ): HomeSectionSource[] {
   const link = firstNonEmptyString([record.link])
 
@@ -887,6 +947,7 @@ function normalizeHomeSectionSources(
       link,
       currentPage,
       haveMore,
+      hasInitialItems,
       params: readStringParamMap(record.request),
     },
   ]
@@ -900,25 +961,40 @@ function normalizeHomeSectionSources(
  */
 function mergeHomeSections(sections: HomeSection[]): HomeSection[] {
   const sectionsByPreferenceKey = new Map<string, HomeSection>()
+  const itemListsByPreferenceKey = new Map<string, MediaItem[][]>()
   const mergedSections: HomeSection[] = []
 
+  const sectionsBySource = new Map<string, HomeSection[]>()
   sections.forEach((section) => {
+    const sourceKey = section.sourceOrder[0] ?? section.id
+    const sourceSections = sectionsBySource.get(sourceKey) ?? []
+    sourceSections.push(section)
+    sectionsBySource.set(sourceKey, sourceSections)
+  })
+
+  interleaveLists([...sectionsBySource.values()]).forEach((section) => {
     const existingSection = sectionsByPreferenceKey.get(section.preferenceKey)
 
     if (!existingSection) {
       const mergedSection: HomeSection = {
         ...section,
         items: dedupeMediaItems(section.items),
+        sourceOrder: [...section.sourceOrder],
         sources: dedupeHomeSectionSources(section.sources),
       }
 
       sectionsByPreferenceKey.set(section.preferenceKey, mergedSection)
+      itemListsByPreferenceKey.set(section.preferenceKey, [section.items])
       mergedSections.push(mergedSection)
       return
     }
 
     existingSection.label ??= section.label
-    existingSection.items = dedupeMediaItems([...existingSection.items, ...section.items])
+    itemListsByPreferenceKey.get(section.preferenceKey)?.push(section.items)
+    existingSection.sourceOrder = dedupeDisplayStrings([
+      ...existingSection.sourceOrder,
+      ...section.sourceOrder,
+    ])
     existingSection.sources = dedupeHomeSectionSources([
       ...existingSection.sources,
       ...section.sources,
@@ -927,7 +1003,73 @@ function mergeHomeSections(sections: HomeSection[]): HomeSection[] {
     existingSection.haveMore = existingSection.haveMore || section.haveMore
   })
 
+  mergedSections.forEach((section) => {
+    section.items = dedupeMediaItems(
+      interleaveLists(itemListsByPreferenceKey.get(section.preferenceKey) ?? []),
+    )
+  })
+
   return mergedSections
+}
+
+/**
+ * Alternates values from each source list while preserving each list's order.
+ *
+ * @param lists Ordered value lists, one for each source.
+ * @returns Values interleaved by their position in each source list.
+ */
+function interleaveLists<T>(lists: T[][]): T[] {
+  const longestListLength = Math.max(0, ...lists.map((items) => items.length))
+  const interleavedItems: T[] = []
+
+  for (let itemIndex = 0; itemIndex < longestListLength; itemIndex += 1) {
+    lists.forEach((items) => {
+      const item = items[itemIndex]
+      if (item !== undefined) {
+        interleavedItems.push(item)
+      }
+    })
+  }
+
+  return interleavedItems
+}
+
+/**
+ * Interleaves all initial source items, including deferred pages loaded before rendering.
+ *
+ * @param section Merged section before its deferred initial sources are loaded.
+ * @param loadedSources Results returned by the deferred sources.
+ * @returns Deduplicated initial section items in source round-robin order.
+ */
+function interleaveInitialSectionItems(
+  section: HomeSection,
+  loadedSources: Array<{ source: HomeSectionSource, normalizedSection: HomeSection }>,
+): MediaItem[] {
+  const itemsBySource = new Map<string, MediaItem[]>()
+  const sourceOrder = [...section.sourceOrder]
+
+  section.items.forEach((item) => {
+    const sourceKey = item.source ?? item.id
+    if (!itemsBySource.has(sourceKey)) {
+      itemsBySource.set(sourceKey, [])
+      sourceOrder.push(sourceKey)
+    }
+
+    itemsBySource.get(sourceKey)?.push(item)
+  })
+
+  loadedSources.forEach(({ source, normalizedSection }) => {
+    if (!itemsBySource.has(source.name)) {
+      itemsBySource.set(source.name, [])
+      sourceOrder.push(source.name)
+    }
+
+    itemsBySource.get(source.name)?.push(...normalizedSection.items)
+  })
+
+  return dedupeMediaItems(
+    interleaveLists(sourceOrder.map((source) => itemsBySource.get(source) ?? [])),
+  )
 }
 
 /**
@@ -941,11 +1083,7 @@ function dedupeHomeSectionSources(sources: HomeSectionSource[]): HomeSectionSour
   const dedupedSources: HomeSectionSource[] = []
 
   sources.forEach((source) => {
-    const serializedSource = JSON.stringify([
-      source.name,
-      source.link,
-      Object.entries(source.params).sort(([left], [right]) => left.localeCompare(right)),
-    ])
+    const serializedSource = buildHomeSectionSourceKey(source)
 
     if (seen.has(serializedSource)) {
       return
@@ -1304,6 +1442,20 @@ function normalizeEntryPlayerResolver(entry: JsonRecord): EntryPlayerResolver | 
   }
 
   return { kind, targetId }
+}
+
+/**
+ * Builds a stable identity key for a section source descriptor.
+ *
+ * @param source Source descriptor attached to a home section.
+ * @returns Source identity key excluding mutable pagination state.
+ */
+function buildHomeSectionSourceKey(source: HomeSectionSource): string {
+  return JSON.stringify([
+    source.name,
+    source.link,
+    Object.entries(source.params).sort(([left], [right]) => left.localeCompare(right)),
+  ])
 }
 
 /**

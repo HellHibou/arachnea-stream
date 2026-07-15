@@ -1,6 +1,10 @@
 import { computed, shallowRef, toRef, watch, type MaybeRefOrGetter } from 'vue'
 
-import { getCategoryCatalog, loadHomeCatalog } from '@/services/rustify'
+import {
+  getCategoryCatalog,
+  loadHomeCatalog,
+  loadInitialHomeSectionPages,
+} from '@/services/rustify'
 import { t } from '@/i18n'
 import type { HomeCatalogData, HomeCategory } from '@/types/home'
 
@@ -72,10 +76,11 @@ export function homeCatalogData(options: UseHomeCatalogDataOptions) {
     isLoading.value = true
 
     try {
-      const nextCatalog =
+      const loadedCatalog =
         mode.value === 'category' && category.value
           ? await getCategoryCatalog(category.value)
           : await loadHomeCatalog()
+      const nextCatalog = await loadInitialHomeSectionPages(loadedCatalog)
 
       if (requestId !== latestRequestId.value) {
         return

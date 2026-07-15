@@ -59,6 +59,8 @@ export interface HomeSectionSource {
   currentPage: number
   /** Whether there are more pages available. */
   haveMore: boolean
+  /** Whether the first page for this source was included in `load_home`. */
+  hasInitialItems: boolean
   /** Additional parameters for the source request. */
   params: Record<string, string>
 }
@@ -77,6 +79,8 @@ export interface HomeSection {
   preferenceKey: string
   /** The list of media items in this section. */
   items: MediaItem[]
+  /** Source order used to interleave media items in this section. */
+  sourceOrder: string[]
   /** The list of source descriptors for this section. */
   sources: HomeSectionSource[]
   /** The current page number for pagination. */
