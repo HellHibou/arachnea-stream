@@ -1,10 +1,9 @@
-id: vidhide
-title: VidHide
+id: vidara
+title: Vidara
 description:
-  en: "Resolver VidHide for minochinos.com"
+  en: "Resolver for vidara.to"
 http:
   mode: auto
-
 
 # ############################################################################
 # Parameters
@@ -31,27 +30,41 @@ queries:
         value: "{url}"
         actions:
           - type: regex_find_all
-            pattern: '^https?://(?:www\.)?minochinos\.com/embed/'
+            pattern: '^https?://(?:www\.)?vidara\.to/e/'
             format: "{service_id}"
 
 
   # --------------------------------------------------------------------------
   # resolve_stream — extracts the video stream URL from the player page
+  #   Uses the internal JSON API at POST /api/stream
   # --------------------------------------------------------------------------
   - name: resolve_stream
-    scraper_type: html
-    base_url: "{url}"
-    query_url: "{url}"
-    row_selector: "html"
+    scraper_type: json
+    base_url: "https://vidara.to"
+    query_url: "{base_url}/api/stream"
+    request_method: post
+    request_body_pointer: "/url"
+    request_body_actions:
+      - type: regex_find_all
+        pattern: '^https?://(?:www\.)?vidara\.to/e/([^/?#]+)'
+        format: "{1}"
+      - type: format_text
+        argument: '{"filecode":"{}","device":"web"}'
+    request_headers:
+      - name: "Referer"
+        actions:
+          - type: format_text
+            argument: "{url}"
+      - name: "Content-Type"
+        actions:
+          - type: format_text
+            argument: "application/json"
+    row_pointer: "/"
     entries:
       - name: stream_url
         type: string[]
+        pointer: "/streaming_url"
         actions:
-          - type: get_response_body
-          - type: unpack_packer
-          - type: regex_find_all
-            pattern: '["'']hls[234]["'']\s*:\s*["'']([^"'']+)'
-            format: "{1}"
           - type: resolve_url
             proxy: true
       - name: stream_headers
@@ -70,30 +83,10 @@ queries:
             argument: "hls"
       - name: title
         type: string
-        selector: "meta[name='description']"
-        actions:
-          - type: get_attribut
-            argument: content
+        pointer: "/title"
       - name: image/title > link
         type: string
-        selector: "#vplayer img"
+        pointer: "/thumbnail"
         actions:
-          - type: get_attribut
-            argument: src
           - type: resolve_url
             proxy: true
-      - name: storyboard_vtt_url
-        type: string
-        actions:
-          - type: get_response_body
-          - type: unpack_packer
-          - type: regex_find_all
-            pattern: '(/dl\?op=get_slides[^"''\s]+)'
-            format: "{1}"
-          - type: resolve_url
-            proxy: true
-            proxy_replace_all:
-              - pattern: '(?m)^(https?://[^\r\n]+)'
-                replacement: '{proxy}/$1'
-                content_types:
-                  - text/vtt

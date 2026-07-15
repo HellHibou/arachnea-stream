@@ -106,15 +106,27 @@ Chaque YAML commence par le même contrat ; seuls les domaines, requêtes et ext
 id: example-hoster
 title: Example hoster
 description:
-  fr: "Résolveur pour example.invalid"
+  en: "Resolver for example.invalid"
 http:
   mode: auto
 
+# ############################################################################
+# Parameters
+# ############################################################################ 
 parameters:
   - name: url
     value: ""
+    description: "URL of the embed page to be resolved"
 
+
+# ############################################################################
+# Queries
+# ############################################################################
 queries:
+
+  # --------------------------------------------------------------------------
+  # can_resolve_url — determines whether this rule can resolve the URL
+  # --------------------------------------------------------------------------
   - name: can_resolve_url
     scraper_type: static
     entries:
@@ -126,6 +138,10 @@ queries:
             pattern: '^https?://(?:www\\.)?example\\.invalid/'
             format: "{service_id}"
 
+
+  # --------------------------------------------------------------------------
+  # resolve_stream — extracts the video stream URL from the player page
+  # --------------------------------------------------------------------------
   - name: resolve_stream
     scraper_type: html
     base_url: "{url}"
@@ -253,6 +269,7 @@ d’examen, pas une preuve que le YAML est impossible.
 | `dood.py` | Iframe éventuel, requêtes multiples, suffixe aléatoire et horodatage | Hors YAML direct ; ne traiter qu’après une primitive commune ou un résolveur spécialisé |
 | `filemoon.py`, `iframe_secure.py`, `iframe_secured.py` | Dépaquetage/évaluation JavaScript dans le code vStream | Ne pas traduire le JavaScript en regex YAML ; qualifier un mécanisme partagé ou écarter |
 | Débrideurs (`alldebrid.py`, `realdebrid.py`, `debrid_link.py`) | API et/ou identifiants utilisateur | Hors périmètre du résolveur YAML anonyme |
+| `embed4me.com` (hors vStream) | Vite SPA avec Vidstack HLS, API AES-CBC (clé/IV dérivés de `window.location`), Cloudflare, IMA ads | Hors YAML direct sans primitive Scrapyfy AES-CBC ou résolveur Rust spécialisé ; deux endpoints `/api/v1/info` et `/api/v1/download` chiffrés |
 
 ## Tableau de suivi
 
@@ -318,7 +335,7 @@ est donc documenté ici plutôt que rattaché artificiellement à `allow_redirec
 | `letsupload.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
 | `letwatch.py` | ⚠️ À qualifier — mécanisme impératif détecté | ⬜ À auditer | ⬜ À auditer | — |
 | `lien_direct.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
-| `lulustream.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
+| `lulustream.py` | ✅ Migré par `lulustream.yaml` ; page JWPlayer avec Packer, extraction HLS via `unpack_packer`, poster `meta[name='og:image']` proxy, titre `<title>` | ⬜ Aucun storyboard observé sur le hoster courant | ✅ `meta[name='og:image']` → `image/title > link` avec proxy | — |
 | `mailru.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
 | `megadrive.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
 | `megaup.py` | ⚠️ À qualifier — mécanisme impératif détecté | ⬜ À auditer | ⬜ À auditer | — |
@@ -387,7 +404,7 @@ est donc documenté ici plutôt que rattaché artificiellement à `allow_redirec
 | `vidia.py` | ⚠️ À qualifier — mécanisme impératif détecté | ⬜ À auditer | ⬜ À auditer | — |
 | `vidload.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
 | `vidlox.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
-| `vidmoly.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
+| `vidmoly.py` | ✅ Migré par `vidmoly.yaml` ; extraction `sources: [{ file: ... }]`, poster `image:`, storyboard VTT `slides`, titre `<title>` | ✅ `storyboard_vtt_url` via `/api/v1/slides` | ✅ `image:` JWPlayer → `image/title > link` avec proxy | — |
 | `vido.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
 | `vidoza.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
 | `vidplayer.py` | ⚠️ À qualifier — mécanisme impératif détecté | ⬜ À auditer | ⬜ À auditer | — |
@@ -415,6 +432,7 @@ est donc documenté ici plutôt que rattaché artificiellement à `allow_redirec
 | `xtremestream.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
 | `yourvid.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
 | `youtube.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
+| `embed4me.com` (hors vStream) | ⚠️ Nouvel hoster — AES-CBC client-side, SPA Vite/Vidstack, Cloudflare, IMA ads. Poster et titre extraits du JSON déchiffré. Hors YAML direct. | ✅ Poster PNG confirmé | ✅ Titre extrait du JSON | — |
 
 
 

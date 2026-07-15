@@ -36,6 +36,8 @@ shared:
       argument: src
     - type: resolve_url
       proxy: true
+      proxy_headers:
+        Referer: "{base_url}/"      
 
   entries_catalog_row: &entries_catalog_row
     - name: source
@@ -153,6 +155,8 @@ queries:
         actions:
           - type: resolve_url
             proxy: true
+            proxy_headers:
+              Referer: "{base_url}/"
       - name: description
         type: object
         value: "{service_description}"
@@ -575,6 +579,9 @@ queries:
             argument: src
           - type: resolve_url
             proxy: true
+            proxy_headers:
+              Referer: "{request_origin}/"
+              Origin: "{request_origin}"
       - name: year
         type: number
         actions:

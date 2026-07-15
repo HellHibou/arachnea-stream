@@ -1,17 +1,18 @@
 id: sendvid
 title: Sendvid
 description:
-  fr: "Résolveur pour sendvid.com"
+  en: "Resolver for sendvid.com"
 http:
   mode: auto
 
+
 # ############################################################################
 # Parameters
-# ############################################################################
+# ############################################################################ 
 parameters:
   - name: url
     value: ""
-    description: "URL de la page embed à résoudre"
+    description: "URL of the embed page to be resolved"
 
 
 # ############################################################################
@@ -20,7 +21,7 @@ parameters:
 queries:
 
   # --------------------------------------------------------------------------
-  # can_resolve_url
+  # can_resolve_url — determines whether this rule can resolve the URL
   # --------------------------------------------------------------------------
   - name: can_resolve_url
     scraper_type: static
@@ -33,8 +34,9 @@ queries:
             pattern: '^https?://(?:www\.)?sendvid\.com/'
             format: "{service_id}"
 
+
   # --------------------------------------------------------------------------
-  # resolve_stream
+  # resolve_stream — extracts the video stream URL from the player page
   # --------------------------------------------------------------------------
   - name: resolve_stream
     scraper_type: html

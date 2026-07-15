@@ -141,6 +141,9 @@ pub enum ScraperAction {
         /// Whether resolved HTTP(S) URLs should be wrapped through the public proxy route.
         #[serde(default)]
         proxy: bool,
+        /// Headers embedded in generated proxy URLs and sent to the upstream request.
+        #[serde(default)]
+        proxy_headers: HashMap<String, String>,
         /// Ordered text replacement rules attached to the generated proxy URL.
         #[serde(default)]
         proxy_replace_all: Vec<ProxyReplaceAllConfig>,
@@ -153,6 +156,9 @@ pub enum ScraperAction {
         /// Whether resolved HTTP(S) URLs should be wrapped through the public proxy route.
         #[serde(default)]
         proxy: bool,
+        /// Headers embedded in generated proxy URLs and sent to the upstream request.
+        #[serde(default)]
+        proxy_headers: HashMap<String, String>,
         /// Ordered text replacement rules attached to the generated proxy URL.
         #[serde(default)]
         proxy_replace_all: Vec<ProxyReplaceAllConfig>,
@@ -297,13 +303,22 @@ impl ScraperAction {
             ScraperAction::Max => max::apply(texts),
             ScraperAction::ResolveUrl {
                 proxy,
+                proxy_headers,
                 proxy_replace_all,
             } => {
-                resolve_url::apply(texts, request_url, params, *proxy, proxy_replace_all)
+                resolve_url::apply(
+                    texts,
+                    request_url,
+                    params,
+                    *proxy,
+                    proxy_headers,
+                    proxy_replace_all,
+                )
             }
             ScraperAction::ResolveUrlFromParent {
                 levels,
                 proxy,
+                proxy_headers,
                 proxy_replace_all,
             } => {
                 resolve_url::apply_from_parent(
@@ -312,6 +327,7 @@ impl ScraperAction {
                     params,
                     *levels,
                     *proxy,
+                    proxy_headers,
                     proxy_replace_all,
                 )
             }
@@ -372,14 +388,16 @@ impl ScraperAction {
             }
             ScraperAction::ResolveUrl {
                 proxy,
+                proxy_headers,
                 proxy_replace_all,
             }
             | ScraperAction::ResolveUrlFromParent {
                 proxy,
+                proxy_headers,
                 proxy_replace_all,
                 ..
-            } if !proxy_replace_all.is_empty() && !*proxy => Err(anyhow::anyhow!(
-                "{} {} configures `proxy_replace_all` without `proxy: true`",
+            } if (!proxy_replace_all.is_empty() || !proxy_headers.is_empty()) && !*proxy => Err(anyhow::anyhow!(
+                "{} {} configures proxy options without `proxy: true`",
                 owner,
                 name
             )),

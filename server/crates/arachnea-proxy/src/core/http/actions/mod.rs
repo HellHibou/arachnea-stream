@@ -166,6 +166,9 @@ pub struct PostActionContext {
     pub entry_point: String,
     /// Full target URL string, e.g. "https://host.com:8080/mon/chemin.jpg".
     pub target_url: String,
+    /// Base64URL-encoded proxy options inherited from the current request URL,
+    /// e.g. "opts_ABCD". Empty when no options are present.
+    pub opts_encoded: String,
 }
 
 /// Trait implemented by post-response HTTP actions.

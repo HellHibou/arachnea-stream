@@ -654,20 +654,27 @@ Resolves each value as a relative URL against the page URL.
 | Field | Type | Description |
 |-------|------|-------------|
 | `proxy` | bool | If true, wraps HTTP(S) URLs through the public proxy |
+| `proxy_headers` | object | HTTP headers embedded in the proxy URL and sent upstream; requires `proxy: true`; values support query placeholders, `{request_url}`, and `{request_origin}` |
 | `proxy_replace_all` | object[] | Ordered `ReplaceAll` rules attached to the proxy URL; requires `proxy: true` |
 
 ```yaml
 - type: resolve_url
   proxy: true
+  proxy_headers:
+    Referer: "{request_origin}/"
   proxy_replace_all:
     - pattern: '(?m)^(https?://[^\r\n]+)'
       replacement: '{proxy}/$1'
       content_types: [text/vtt]
 ```
 
-Each rule has a required regex `pattern`, a required `replacement` template supporting `$1`, `$2`,
-and other captures plus proxy variables such as `{proxy}`, and an optional `content_types` MIME type
+`proxy_headers` values support named query placeholders, `{request_url}`, and `{request_origin}`. Each replacement rule has a required regex `pattern`, a required `replacement` template supporting `$1`, `$2`,
+and other captures plus proxy variables such as `{proxy}` and `{proxy_inherited}`, and an optional `content_types` MIME type
 list. The proxy applies the rules to textual response bodies in declaration order.
+
+`{proxy}` resolves to the public proxy path (e.g. `/api/proxy`). `{proxy_inherited}` resolves to the same proxy path but
+includes the `opts_…` segment from the current request URL when present (e.g. `/api/proxy/opts_ABCD`), allowing
+ReplaceAll rules to preserve inherited proxy options in rewritten URLs.
 
 ### `resolve_url_from_parent`
 Resolves relative URLs against an ancestor of the page URL.
@@ -676,6 +683,7 @@ Resolves relative URLs against an ancestor of the page URL.
 |-------|------|-------------|
 | `levels` | usize | Number of path segments to go up |
 | `proxy` | bool | Wrap through the public proxy |
+| `proxy_headers` | object | HTTP headers embedded in the proxy URL and sent upstream; requires `proxy: true`; values support query placeholders, `{request_url}`, and `{request_origin}` |
 | `proxy_replace_all` | object[] | Ordered `ReplaceAll` rules attached to the proxy URL; requires `proxy: true` |
 
 ```yaml

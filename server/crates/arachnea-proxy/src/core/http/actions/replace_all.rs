@@ -338,8 +338,15 @@ fn resolve_variables(template: &str, context: &PostActionContext) -> String {
         None => String::new(),
     };
 
+    let proxy_inherited = if context.opts_encoded.is_empty() {
+        proxy_path.clone()
+    } else {
+        format!("{}/opts_{}", proxy_path.trim_end_matches('/'), context.opts_encoded)
+    };
+
     template
         .replace("{proxy}", &proxy_path)
+        .replace("{proxy_inherited}", &proxy_inherited)
         .replace("{base_url}", &base_url)
         .replace("{path}", &path)
         .replace("{path_base}", &path_base)
@@ -485,6 +492,7 @@ mod tests {
         let context = PostActionContext {
             entry_point: "http://127.0.0.1:8080/api/proxy".to_string(),
             target_url: "https://example.test/manifest.mpd".to_string(),
+            opts_encoded: String::new(),
         };
         assert_eq!(
             resolve_variables("{proxy}/https://cdn.test/a", &context),
@@ -494,6 +502,7 @@ mod tests {
         let context = PostActionContext {
             entry_point: "arachnea://api/proxy".to_string(),
             target_url: "https://example.test/manifest.mpd".to_string(),
+            opts_encoded: String::new(),
         };
         assert_eq!(
             resolve_variables("{proxy}/https://cdn.test/a", &context),
@@ -506,11 +515,38 @@ mod tests {
         let context = PostActionContext {
             entry_point: "http://127.0.0.1:8080/api/proxy".to_string(),
             target_url: "https://myhost.be:8080/path/to/manifest.mpd?token=abc".to_string(),
+            opts_encoded: String::new(),
         };
 
         assert_eq!(
             resolve_variables("{proxy}/{base_url}/m6web/", &context),
             "/api/proxy/https://myhost.be:8080/m6web/"
+        );
+    }
+
+    #[test]
+    fn test_proxy_inherited_with_opts() {
+        let context = PostActionContext {
+            entry_point: "http://127.0.0.1:8080/api/proxy".to_string(),
+            target_url: "https://example.test/manifest.mpd".to_string(),
+            opts_encoded: "ABCD".to_string(),
+        };
+        assert_eq!(
+            resolve_variables("{proxy_inherited}", &context),
+            "/api/proxy/opts_ABCD"
+        );
+    }
+
+    #[test]
+    fn test_proxy_inherited_without_opts() {
+        let context = PostActionContext {
+            entry_point: "http://127.0.0.1:8080/api/proxy".to_string(),
+            target_url: "https://example.test/manifest.mpd".to_string(),
+            opts_encoded: String::new(),
+        };
+        assert_eq!(
+            resolve_variables("{proxy_inherited}", &context),
+            "/api/proxy"
         );
     }
 

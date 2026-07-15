@@ -806,6 +806,7 @@ pub async fn handle_proxy_http(
         context: PostActionContext {
             entry_point: input.entry_point.clone(),
             target_url: target_url_str.clone(),
+            opts_encoded: parsed.opts_encoded.clone(),
         },
     };
 

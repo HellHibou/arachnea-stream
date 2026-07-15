@@ -1,17 +1,18 @@
 id: sibnet
 title: Sibnet
 description:
-  fr: "Résolveur pour video.sibnet.ru"
+  en: "Resolver for video.sibnet.ru"
 http:
   mode: auto
 
+
 # ############################################################################
 # Parameters
-# ############################################################################
+# ############################################################################ 
 parameters:
   - name: url
     value: ""
-    description: "URL de la page du lecteur à résoudre"
+    description: "URL of the embed page to be resolved"
 
 
 # ############################################################################
@@ -20,7 +21,7 @@ parameters:
 queries:
 
   # --------------------------------------------------------------------------
-  # can_resolve_url — détermine si cette règle peut résoudre l'URL
+  # can_resolve_url — determines whether this rule can resolve the URL
   # --------------------------------------------------------------------------
   - name: can_resolve_url
     scraper_type: static
@@ -33,8 +34,9 @@ queries:
             pattern: '^https?://video\.sibnet\.ru/'
             format: "{service_id}"
 
+
   # --------------------------------------------------------------------------
-  # resolve_stream — extrait l'URL du flux vidéo depuis la page du lecteur
+  # resolve_stream — extracts the video stream URL from the player page
   # --------------------------------------------------------------------------
   - name: resolve_stream
     scraper_type: html

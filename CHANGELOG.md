@@ -257,3 +257,5 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **Storyboard VTT contract**: Renamed the public `get_stream` thumbnail field from `vtt_url` to `storyboard_vtt_url`; the frontend continues to prefer it over sprite storyboard metadata.
 - **Storyboard WebVTT previews**: The frontend now converts `#xywh` VTT cues into Video.js sprite thumbnail options instead of passing the VTT document as an image URL.
 - **Storyboard WebVTT proxying**: `resolve_url` now supports declarative `proxy_replace_all` actions that rewrite proxied textual responses through the controller HTTP proxy, used by the VidHide storyboard VTT resolver.
+- **LuluStream resolver**: Added the enabled YAML HLS resolver for `luluvdo.com` and `lulustream.com` (`.com`, `.to`). Handles Dean Edwards Packer-encoded JWPlayer setup via `unpack_packer`, stream Referer, proxied HLS source, title from `<title>`, and poster from `meta[name='og:image']`.
+- **Proxy URL headers**: `resolve_url` and `resolve_url_from_parent` now accept declarative `proxy_headers`, embedding upstream HTTP headers in generated proxy URLs without exposing resolver-only stream metadata.

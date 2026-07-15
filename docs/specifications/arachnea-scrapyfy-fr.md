@@ -654,20 +654,27 @@ Résout chaque valeur comme une URL relative par rapport à l'URL de la page.
 | Champ | Type | Description |
 |-------|------|-------------|
 | `proxy` | bool | Si true, enveloppe les URLs HTTP(S) via le proxy public |
+| `proxy_headers` | object | En-têtes HTTP intégrés à l'URL proxy et envoyés en amont ; exige `proxy: true` ; les valeurs supportent les placeholders de requête, `{request_url}` et `{request_origin}` |
 | `proxy_replace_all` | object[] | Règles `ReplaceAll` ordonnées jointes à l'URL proxy ; exige `proxy: true` |
 
 ```yaml
 - type: resolve_url
   proxy: true
+  proxy_headers:
+    Referer: "{request_origin}/"
   proxy_replace_all:
     - pattern: '(?m)^(https?://[^\r\n]+)'
       replacement: '{proxy}/$1'
       content_types: [text/vtt]
 ```
 
-Chaque règle contient `pattern` (regex obligatoire), `replacement` (template obligatoire avec
-captures `$1`, `$2`, etc. et variables proxy comme `{proxy}`) et `content_types` (liste optionnelle
+Les valeurs de `proxy_headers` supportent les placeholders nommés de requête, `{request_url}` et `{request_origin}`. Chaque règle contient `pattern` (regex obligatoire), `replacement` (template obligatoire avec
+captures `$1`, `$2`, etc. et variables proxy comme `{proxy}` et `{proxy_inherited}`) et `content_types` (liste optionnelle
 de MIME types). Le proxy applique les règles au corps textuel dans l'ordre déclaré.
+
+`{proxy}` se résout en chemin proxy public (ex. `/api/proxy`). `{proxy_inherited}` se résout en ce même chemin mais
+inclut le segment `opts_…` de l'URL de requête courante lorsqu'il est présent (ex. `/api/proxy/opts_ABCD`), ce qui
+permet aux règles ReplaceAll de préserver les options proxy héritées dans les URLs réécrites.
 
 ### `resolve_url_from_parent`
 Résout les URLs relatives par rapport à un ancêtre de l'URL de la page.
@@ -676,6 +683,7 @@ Résout les URLs relatives par rapport à un ancêtre de l'URL de la page.
 |-------|------|-------------|
 | `levels` | usize | Nombre de segments de chemin à remonter |
 | `proxy` | bool | Envelopper via le proxy public |
+| `proxy_headers` | object | En-têtes HTTP intégrés à l'URL proxy et envoyés en amont ; exige `proxy: true` ; les valeurs supportent les placeholders de requête, `{request_url}` et `{request_origin}` |
 | `proxy_replace_all` | object[] | Règles `ReplaceAll` ordonnées jointes à l'URL proxy ; exige `proxy: true` |
 
 ```yaml

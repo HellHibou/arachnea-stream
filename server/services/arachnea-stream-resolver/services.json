@@ -10,5 +10,17 @@
   {
     "path": "vidhide.yaml",
     "enabled": true
+  },
+  {
+    "path": "vidmoly.yaml",
+    "enabled": true
+  },
+  {
+    "path": "lulustream.yaml",
+    "enabled": true
+  },
+  {
+    "path": "vidara.yaml",
+    "enabled": true
   }
 ]
