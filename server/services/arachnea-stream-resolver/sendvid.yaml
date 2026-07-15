@@ -1,7 +1,7 @@
-id: sibnet
-title: Sibnet
+id: sendvid
+title: Sendvid
 description:
-  fr: "Résolveur pour video.sibnet.ru"
+  fr: "Résolveur pour sendvid.com"
 http:
   mode: auto
 
@@ -11,7 +11,7 @@ http:
 parameters:
   - name: url
     value: ""
-    description: "URL de la page du lecteur à résoudre"
+    description: "URL de la page embed à résoudre"
 
 
 # ############################################################################
@@ -20,7 +20,7 @@ parameters:
 queries:
 
   # --------------------------------------------------------------------------
-  # can_resolve_url — détermine si cette règle peut résoudre l'URL
+  # can_resolve_url
   # --------------------------------------------------------------------------
   - name: can_resolve_url
     scraper_type: static
@@ -30,11 +30,11 @@ queries:
         value: "{url}"
         actions:
           - type: regex_find_all
-            pattern: '^https?://video\.sibnet\.ru/'
+            pattern: '^https?://(?:www\.)?sendvid\.com/'
             format: "{service_id}"
 
   # --------------------------------------------------------------------------
-  # resolve_stream — extrait l'URL du flux vidéo depuis la page du lecteur
+  # resolve_stream
   # --------------------------------------------------------------------------
   - name: resolve_stream
     scraper_type: html
@@ -49,15 +49,10 @@ queries:
     entries:
       - name: stream_url
         type: string[]
+        selector: "meta[property='og:video']"
         actions:
-          - type: get_response_body
-          - type: regex_find_all
-            pattern: "player\\.src\\(\\s*\\[(.*?)\\]"
-            format: "{1}"
-          - type: regex_find_all
-            pattern: 'src:\s*["'']([^"''\s]+)["'']'
-            format: "{1}"
-          - type: resolve_url
+          - type: get_attribut
+            argument: content
       - name: stream_headers
         type: object
         select: first
@@ -84,51 +79,37 @@ queries:
         actions:
           - type: get_attribut
             argument: content
-          - type: resolve_url
-            proxy: true
       - name: storyboard
         type: object
         select: first
         entries:
           - name: url
             type: string
-            select: first         
+            select: first
             actions:
-              - type: get_response_body  
+              - type: get_response_body
               - type: regex_find_all
-                pattern: 'preview"\s*:\s*"([^"]+)"'
-                format: "{1}"          
+                pattern: '"image":\s*"([^"]+-storyboard\.jpg)"'
+                format: "{1}"
               - type: resolve_url
-                proxy: true    
-              - type: suffix
-                argument: "{index}.jpg"
+                proxy: true
           - name: width
             type: number
             actions:
               - type: format_text
-                argument: "192"
-          - name: columns
-            type: number
-            actions:
-              - type: format_text
-                argument: "12"
-          - name: rows
-            type: number
-            actions:
-              - type: format_text
-                argument: "6"
-          - name: first_page_index
-            type: number
-            actions:
-              - type: format_text
-                argument: "1"
+                argument: "200"
           - name: height
             type: number
             actions:
               - type: format_text
-                argument: "108"
-          - name: interval
+                argument: "100"
+          - name: columns
             type: number
             actions:
               - type: format_text
-                argument: "5"
+                argument: "21"
+          - name: rows
+            type: number
+            actions:
+              - type: format_text
+                argument: "1"

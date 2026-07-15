@@ -399,11 +399,17 @@ fn extract_storyboard(entry: &HashMap<String, ScraperDataNode>) -> Option<Sprite
     let height = first_child_value(storyboard, "height")?.parse::<u32>().ok()?;
     let columns = first_child_value(storyboard, "columns")?.parse::<u32>().ok()?;
     let rows = first_child_value(storyboard, "rows")?.parse::<u32>().ok()?;
-    let first_index = first_child_value(storyboard, "first_index")
+    let first_page_index = first_child_value(storyboard, "first_page_index")
         .and_then(|value| value.parse::<u32>().ok());
-    let interval = first_child_value(storyboard, "interval")?.parse::<f64>().ok()?;
+    let interval = first_child_value(storyboard, "interval")
+        .and_then(|value| value.parse::<f64>().ok());
 
-    if width == 0 || height == 0 || columns == 0 || rows == 0 || interval <= 0.0 {
+    if width == 0
+        || height == 0
+        || columns == 0
+        || rows == 0
+        || interval.is_some_and(|value| value <= 0.0)
+    {
         return None;
     }
 
@@ -413,7 +419,7 @@ fn extract_storyboard(entry: &HashMap<String, ScraperDataNode>) -> Option<Sprite
         height,
         columns,
         rows,
-        first_index,
+        first_page_index,
         interval,
     })
 }

@@ -582,8 +582,8 @@ fn extract_storyboard_from_video_payload(video_payload: &Value) -> Option<Sprite
         height: STORYBOARD_HEIGHT,
         columns: STORYBOARD_COLUMNS,
         rows: STORYBOARD_ROWS,
-        first_index: None,
-        interval,
+        first_page_index: None,
+        interval: (interval > 0.0).then_some(interval),
     })
 }
 

@@ -1480,7 +1480,7 @@ function normalizeEntryPlayerStoryboard(
   const height = toPositiveInteger(firstNumber(readPath(entry, 'storyboard', 'height')))
   const columns = toPositiveInteger(firstNumber(readPath(entry, 'storyboard', 'columns')))
   const rows = toPositiveInteger(firstNumber(readPath(entry, 'storyboard', 'rows'))) ?? 1
-  const firstIndex = toNonNegativeInteger(firstNumber(readPath(entry, 'storyboard', 'first_index'))) ?? 0
+  const firstPageIndex = toNonNegativeInteger(firstNumber(readPath(entry, 'storyboard', 'first_page_index'))) ?? 0
   const configuredInterval = firstNumber(readPath(entry, 'storyboard', 'interval'))
 
   if (!url || !width || !height || !columns) {
@@ -1492,18 +1492,14 @@ function normalizeEntryPlayerStoryboard(
       ? configuredInterval
       : null
 
-  if (interval === null || !Number.isFinite(interval) || interval <= 0) {
-    return null
-  }
-
   return {
     url,
     width,
     height,
     columns,
     rows,
-    firstIndex,
-    interval,
+    firstPageIndex,
+    interval: interval !== null && Number.isFinite(interval) && interval > 0 ? interval : null,
   }
 }
 
@@ -1598,14 +1594,22 @@ function normalizeRustifyStoryboard(value: unknown): EntryPlayerStoryboard | nul
   const height = toPositiveInteger(firstNumber(value.height))
   const columns = toPositiveInteger(firstNumber(value.columns))
   const rows = toPositiveInteger(firstNumber(value.rows)) ?? 1
-  const firstIndex = toNonNegativeInteger(firstNumber(value.first_index ?? value.firstIndex)) ?? 0
+  const firstPageIndex = toNonNegativeInteger(firstNumber(value.first_page_index ?? value.firstPageIndex)) ?? 0
   const interval = firstNumber(value.interval)
 
-  if (!url || !width || !height || !columns || interval === null || !Number.isFinite(interval) || interval <= 0) {
+  if (!url || !width || !height || !columns) {
     return null
   }
 
-  return { url, width, height, columns, rows, firstIndex, interval }
+  return {
+    url,
+    width,
+    height,
+    columns,
+    rows,
+    firstPageIndex,
+    interval: interval !== null && Number.isFinite(interval) && interval > 0 ? interval : null,
+  }
 }
 
 /**

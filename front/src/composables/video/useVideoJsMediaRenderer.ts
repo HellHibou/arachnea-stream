@@ -45,6 +45,7 @@ import type {
   VideoJsMediaRendererEmits,
   VideoJsMediaRendererProps,
   VideoJsPlayer,
+  VideoJsSpriteThumbnailsPlugin,
   VideoJsSourceInput,
   VideoJsTechHandle,
 } from '@/composables/video/video-js-media-renderer/types'
@@ -77,6 +78,8 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
    let pendingSourceRestoreCleanup: (() => void) | null = null
    /** Cleanup function for pending quality selector override. */
    let pendingQualitySelectorCleanup: (() => void) | null = null
+   /** Sprite thumbnail plugin instance attached to the active player. */
+   let spriteThumbnailsPlugin: VideoJsSpriteThumbnailsPlugin | null = null
    /** Preferred quality label selected by the user. */
    let preferredQualityLabel: string | null = null
    /** Whether the video initial load complete event has been emitted. */
@@ -211,6 +214,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
 
      activePlayer.value?.dispose()
      activePlayer.value = null
+     spriteThumbnailsPlugin = null
      isPosterOverlayVisible.value = false
      hasEmittedInitialLoadComplete = false
    }
@@ -270,10 +274,43 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       return {}
     }
 
-    const { firstIndex, ...spriteThumbnails } = source.storyboard
-    return firstIndex > 0
-      ? { ...spriteThumbnails, idxTag: (index: number) => index + firstIndex }
-      : spriteThumbnails
+    const { firstPageIndex, interval, ...spriteThumbnails } = source.storyboard
+    const options = interval === null
+      ? spriteThumbnails
+      : { ...spriteThumbnails, interval }
+
+    return firstPageIndex > 0
+      ? { ...options, idxTag: (index: number) => index + firstPageIndex }
+      : options
+  }
+
+  /**
+   * Sets the storyboard interval derived from the loaded video duration when the backend omits it.
+   *
+   * @param player Video.js player with available media metadata.
+   * @param source Source whose storyboard may require an inferred interval.
+   */
+  function syncDerivedStoryboardInterval(
+    player: VideoJsPlayer,
+    source: ResolvedVideoMediaSource,
+  ) {
+    const storyboard = source.storyboard
+
+    if (!storyboard || storyboard.interval !== null || !spriteThumbnailsPlugin) {
+      return
+    }
+
+    const duration = player.duration()
+    const thumbnailCount = storyboard.rows * storyboard.columns
+    const interval = typeof duration === 'number' && Number.isFinite(duration) && duration > 0
+      ? duration / thumbnailCount
+      : null
+
+    if (interval === null || !Number.isFinite(interval) || interval <= 0) {
+      return
+    }
+
+    spriteThumbnailsPlugin.options.interval = interval
   }
 
   function buildPlayerSource(source: ResolvedVideoMediaSource): VideoJsSourceInput {
@@ -565,6 +602,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
 
      const handleLoadedMetadata = () => {
        emitVideoMetadataLoaded()
+       syncDerivedStoryboardInterval(player, source)
        disableControlBarMenuHoverBehavior(player)
        installSeekOnClick(player, {
          controls: props.controls ?? false,
@@ -582,6 +620,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
 
      const handleCanPlay = () => {
        emitVideoMetadataLoaded()
+       syncDerivedStoryboardInterval(player, source)
        restorePlaybackTime()
        restorePlayerUiState()
        syncRetainedQualityPreference(true)
@@ -675,7 +714,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
        }
 
         if (props.controls && typeof player.spriteThumbnails === 'function') {
-          player.spriteThumbnails(buildSpriteThumbnailOptions(source))
+          spriteThumbnailsPlugin = player.spriteThumbnails(buildSpriteThumbnailOptions(source)) ?? null
         }
 
         if (props.controls && source.chapters && source.chapters.length > 0) {

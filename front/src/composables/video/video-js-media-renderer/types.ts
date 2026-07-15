@@ -222,7 +222,7 @@ export type VideoJsPlayer = ReturnType<typeof videojs> & {
    * Initializes sprite thumbnails.
    * @param options - Sprite thumbnail configuration.
    */
-  spriteThumbnails?: (options?: Record<string, unknown>) => void
+  spriteThumbnails?: (options?: Record<string, unknown>) => VideoJsSpriteThumbnailsPlugin | undefined
   /**
    * Gets the text track list handle.
    * @returns The text track list handle.
@@ -459,6 +459,12 @@ export type VhsHandlerHandle = {
 export type VideoJsTechHandle = {
   /** VHS handler for HTTP streaming. */
   vhs?: VhsHandlerHandle
+}
+
+/** Runtime state exposed by the sprite thumbnail plugin. */
+export type VideoJsSpriteThumbnailsPlugin = {
+  /** Mutable plugin options used while rendering storyboard previews. */
+  options: Record<string, unknown>
 }
 
 /**

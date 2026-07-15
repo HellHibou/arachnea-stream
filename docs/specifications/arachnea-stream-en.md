@@ -560,11 +560,11 @@ they are embedded in the generated proxy stream URLs.
 | `height` | `number` | Height of one thumbnail |
 | `columns` | `number` | Thumbnail columns per sprite image |
 | `rows` | `number` | Thumbnail rows per sprite image |
-| `first_index` | `number` | Optional first image index for an `{index}` URL template; defaults to `0` |
-| `interval` | `number` | Seconds between thumbnails |
+| `first_page_index` | `number` | Optional first image index for an `{index}` URL template; defaults to `0` |
+| `interval` | `number` | Optional seconds between thumbnails; the frontend uses video duration divided by `rows × columns` when omitted |
 
-For example, a resolver with twelve columns, six rows and `first_index: 1` produces the first
-sprite URL by replacing `{index}` with `1`. A single-image sprite still declares `rows: 1`.
+For example, a resolver with twelve columns, six rows and `first_page_index: 1` produces the
+first sprite URL by replacing `{index}` with `1`. A single-image sprite still declares `rows: 1`.
 
 ### 5.9.2 DRM license proxy — `get_drm_license`
 

@@ -550,10 +550,10 @@ Le champ `storyboard` contient :
 | `height` | `number` | Hauteur d'une vignette |
 | `columns` | `number` | Nombre de colonnes dans le sprite |
 | `rows` | `number` | Nombre de lignes de vignettes par image sprite |
-| `first_index` | `number` | Index optionnel de la première image d'un modèle URL `{index}` ; vaut `0` par défaut |
-| `interval` | `number` | Intervalle entre vignettes (secondes) |
+| `first_page_index` | `number` | Index optionnel de la première image d'un modèle URL `{index}` ; vaut `0` par défaut |
+| `interval` | `number` | Intervalle optionnel entre vignettes (secondes) ; le frontend utilise la durée vidéo divisée par `rows × columns` lorsqu'il est absent |
 
-Par exemple, un storyboard à douze colonnes, six lignes et `first_index: 1` remplace `{index}`
+Par exemple, un storyboard à douze colonnes, six lignes et `first_page_index: 1` remplace `{index}`
 par `1` pour charger sa première image. Un sprite unique déclare tout de même `rows: 1`.
 
 ### 5.9.2 Proxy de licence DRM — `get_drm_license`

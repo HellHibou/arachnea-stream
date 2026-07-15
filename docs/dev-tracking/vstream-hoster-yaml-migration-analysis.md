@@ -49,7 +49,8 @@ nouvelle migration de hoster doit les utiliser sans introduire de sélection par
 - Le frontend normalise cette réponse dans `front/src/services/rustify.ts`. Le poster
   `image/title.link` est prioritaire sur l’aperçu de l’épisode ; `vtt_url` est prioritaire sur le
   storyboard ; un storyboard séquentiel utilise `rows`, le placeholder `{index}` et, au besoin,
-  `first_index`.
+  `first_page_index`. Lorsque `interval` est absent, le frontend le calcule à partir de la durée
+  vidéo, des lignes et des colonnes.
 - Un lecteur YAML utilise le format plat `{ resolver, target }`. Le format legacy
   `resolver > kind` / `resolver > target_id` demeure pris en charge pour les résolveurs légaux,
   mais aucune nouvelle migration de hoster ne doit le produire.
@@ -144,7 +145,7 @@ queries:
 | Image du titre | `image/title > link`, d’abord `og:image` ; `resolve_url` et `proxy: true` si nécessaire | JSON exact : `"image/title": { "link": "…" }` ; utilisée comme poster front |
 | Vignettes VTT | `vtt_url` | Prioritaire sur le storyboard |
 | Sprite unique | `storyboard.url`, `width`, `height`, `columns`, `rows: 1`, `interval` | Dimensions et intervalle observés |
-| Suite de sprites | Même structure avec placeholder littéral `{index}`, `rows` et `first_index` éventuel | Vérifier au minimum les deux premières images |
+| Suite de sprites | Même structure avec placeholder littéral `{index}`, `rows` et `first_page_index` éventuel | Vérifier au minimum les deux premières images |
 | JS packé, token temps/aléa, CAPTCHA | Ne pas porter directement ; proposer une primitive commune ou un résolveur dédié | Tests et au moins deux consommateurs envisagés |
 | Débrideur/API authentifiée | Hors périmètre du groupe anonyme | Aucun secret/cookie utilisateur dans YAML ou JSON |
 
@@ -280,8 +281,8 @@ est donc documenté ici plutôt que rattaché artificiellement à `allow_redirec
 | `realdebrid.py` | ⚠️ À qualifier — mécanisme impératif détecté | ⬜ À auditer | ⬜ À auditer | — |
 | `resolver.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
 | `rutube.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
-| `sendvid.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
-| `sibnet.py` | ✅ Migré par `sibnet.yaml` ; maintenir avec une URL réelle | ✅ `rows: 6`, `first_index: 1` | ✅ OG image → `image/title > link` | — |
+| `sendvid.py` | ✅ Migré par `sendvid.yaml` ; extraction `og:video`, poster `og:image`, storyboard `thumbnailsSprite` | ✅ `rows: 1`, `columns: 20`, `interval: 71` | ✅ OG image → `image/title > link` | — |
+| `sibnet.py` | ✅ Migré par `sibnet.yaml` ; maintenir avec une URL réelle | ✅ `rows: 6`, `first_page_index: 1` | ✅ OG image → `image/title > link` | — |
 | `smoothpre.py` | ⚠️ À qualifier — mécanisme impératif détecté | ⬜ À auditer | ⬜ À auditer | — |
 | `soundcloud.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
 | `speedvid.py` | ⚠️ À qualifier — mécanisme impératif détecté | ⬜ À auditer | ⬜ À auditer | — |

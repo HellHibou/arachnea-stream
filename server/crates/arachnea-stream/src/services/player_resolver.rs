@@ -48,9 +48,10 @@ pub(crate) struct SpriteThumbnail {
     pub rows: u32,
     /// Optional index used for the first sprite image in a sequential URL template.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub first_index: Option<u32>,
-    /// The time interval between thumbnails in seconds.
-    pub interval: f64,
+    pub first_page_index: Option<u32>,
+    /// Optional time interval between thumbnails in seconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interval: Option<f64>,
 }
 
 /// Link metadata for one resolved player image.

@@ -7,6 +7,13 @@ import {
   type VideoJsMediaRendererProps,
 } from '@/composables/video/useVideoJsMediaRenderer'
 
+/** Display size of a storyboard preview frame. */
+const STORYBOARD_PREVIEW_SIZE = 15
+/** Display width, in pixels, of a storyboard preview frame. */
+const STORYBOARD_PREVIEW_WIDTH = 16 * STORYBOARD_PREVIEW_SIZE
+/** Display height, in pixels, of a storyboard preview frame. */
+const STORYBOARD_PREVIEW_HEIGHT = 9 * STORYBOARD_PREVIEW_SIZE
+
 defineOptions({
   inheritAttrs: false,
 })
@@ -86,6 +93,30 @@ const mergedAttrs = computed(() => ({
   ...attrs,
   ...hostDataAttr.value,
 }))
+
+/**
+ * Keeps the storyboard preview size independent from the source sprite cell dimensions.
+ *
+ * The sprite thumbnail plugin uses `width` and `height` both to crop a cell from the
+ * source image and to size its tooltip. Scaling the tooltip here preserves the source
+ * dimensions for cropping while rendering a fixed-size preview.
+ */
+const storyboardPreviewStyle = computed(() => {
+  const storyboard = props.source.storyboard
+
+  if (!storyboard || props.source.vttUrl) {
+    return undefined
+  }
+
+  return {
+    '--storyboard-preview-scale-x': String(
+      (STORYBOARD_PREVIEW_WIDTH + 2) / (storyboard.width + 2),
+    ),
+    '--storyboard-preview-scale-y': String(
+      (STORYBOARD_PREVIEW_HEIGHT + 2) / (storyboard.height + 2),
+    ),
+  }
+})
 </script>
 
 <template>
@@ -93,6 +124,7 @@ const mergedAttrs = computed(() => ({
     ref="hostElement"
     v-bind="mergedAttrs"
     class="videojs-media-host"
+    :style="storyboardPreviewStyle"
   >
     <video
       ref="videoElement"
@@ -811,7 +843,10 @@ const mergedAttrs = computed(() => ({
   align-items: flex-end !important;
   justify-content: center !important;
   padding-bottom: 4px !important;
-  transform: translateY(-10px) !important;
+  transform: translateY(-10px) scale(
+    var(--storyboard-preview-scale-x, 1),
+    var(--storyboard-preview-scale-y, 1)
+  ) !important;
   font-weight: 700 !important;
   border: 1px solid rgba(255, 255, 255, .9) !important;
   background-color: rgba(0,0,0, 0.40);
@@ -819,6 +854,10 @@ const mergedAttrs = computed(() => ({
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-play-progress .vjs-time-tooltip) {
   display: none;
+}
+
+.videojs-media-host :deep(.vjs-sprite-thumbnails .vjs-mouse-display .vjs-time-tooltip) {
+  transform-origin: center bottom;
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-button:focus-visible),

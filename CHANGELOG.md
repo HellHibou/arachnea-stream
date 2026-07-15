@@ -30,6 +30,9 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - `JsonScraperSubQuery::execute` / `execute_siblings` / `execute_context` / `execute_indexed_context` / `execute_indexed_sibling` / `build_row_node` — re-used through the new `JsonScraperSubQuery::execute_query_level` unified entry point (see regression fix below).
 
 ### Fixed
+- **Optional storyboard interval**: `get_stream` now allows an omitted storyboard interval; the frontend derives it from video duration divided by the sprite cell count.
+- **Storyboard page indexing**: `first_index` is replaced with `first_page_index` for numbered sprite files.
+- **Storyboard preview sizing**: Video.js now keeps hover previews at a fixed 160×90 px while using the `get_stream` storyboard `width` and `height` values solely to crop each source sprite cell.
 - **Frontend merged home sections**: sections that combine direct `load_home`
   entries with deferred `get_section` sources now load every deferred first
   page before rendering, alternate items from each source, and preserve
