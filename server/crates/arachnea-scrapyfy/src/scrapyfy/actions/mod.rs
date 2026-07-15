@@ -24,6 +24,7 @@ mod replace_text;
 mod resolve_url;
 mod split;
 mod suffix;
+mod unpack_packer;
 
 /// Runtime parameter containing the public path of the generic HTTP proxy.
 pub const HTTP_PROXY_PUBLIC_PATH_PARAM: &str = "__arachnea_http_proxy_public_path";
@@ -33,6 +34,18 @@ pub const HTTP_PROXY_PUBLIC_PATH_PARAM: &str = "__arachnea_http_proxy_public_pat
 // Re-export them so the surrounding `ScraperAction` enum can keep naming
 // `GetDateSources` directly.
 pub use get_date::{GetDateSource, GetDateSources};
+
+/// One `ReplaceAll` post-response action attached to a URL generated through the public proxy.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProxyReplaceAllConfig {
+    /// Regular expression applied to the proxied textual response.
+    pub pattern: String,
+    /// Replacement template supporting regex captures and proxy variables such as `{proxy}`.
+    pub replacement: String,
+    /// Optional response content types on which the replacement may run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_types: Option<Vec<String>>,
+}
 
 /// Ordered extraction steps applied during a scraper extraction pipeline.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -128,6 +141,9 @@ pub enum ScraperAction {
         /// Whether resolved HTTP(S) URLs should be wrapped through the public proxy route.
         #[serde(default)]
         proxy: bool,
+        /// Ordered text replacement rules attached to the generated proxy URL.
+        #[serde(default)]
+        proxy_replace_all: Vec<ProxyReplaceAllConfig>,
     },
 
     /// Resolves every current value relative to an ancestor of the fetched page URL.
@@ -137,6 +153,9 @@ pub enum ScraperAction {
         /// Whether resolved HTTP(S) URLs should be wrapped through the public proxy route.
         #[serde(default)]
         proxy: bool,
+        /// Ordered text replacement rules attached to the generated proxy URL.
+        #[serde(default)]
+        proxy_replace_all: Vec<ProxyReplaceAllConfig>,
     },
 
     /// Replaces every current value with its parsed URL host when possible.
@@ -236,6 +255,9 @@ pub enum ScraperAction {
     /// Uses the standard base64 alphabet. Non-decodable values are kept as-is.
     #[serde(rename = "base64_decode")]
     Base64Decode,
+
+    /// Unpacks literal Dean Edwards Packer blocks without executing JavaScript.
+    UnpackPacker,
 }
 
 impl ScraperAction {
@@ -273,11 +295,25 @@ impl ScraperAction {
             ScraperAction::GetResponseBody => get_response_body::apply(texts, response_body),
             ScraperAction::Suffix { argument } => suffix::apply(texts, argument),
             ScraperAction::Max => max::apply(texts),
-            ScraperAction::ResolveUrl { proxy } => {
-                resolve_url::apply(texts, request_url, params, *proxy)
+            ScraperAction::ResolveUrl {
+                proxy,
+                proxy_replace_all,
+            } => {
+                resolve_url::apply(texts, request_url, params, *proxy, proxy_replace_all)
             }
-            ScraperAction::ResolveUrlFromParent { levels, proxy } => {
-                resolve_url::apply_from_parent(texts, request_url, params, *levels, *proxy)
+            ScraperAction::ResolveUrlFromParent {
+                levels,
+                proxy,
+                proxy_replace_all,
+            } => {
+                resolve_url::apply_from_parent(
+                    texts,
+                    request_url,
+                    params,
+                    *levels,
+                    *proxy,
+                    proxy_replace_all,
+                )
             }
             ScraperAction::GetUrlHost => get_url_host::apply(texts),
             ScraperAction::BuildNextjsDataUrl {
@@ -306,6 +342,7 @@ impl ScraperAction {
             ScraperAction::GetDate { format, months } => get_date::apply(texts, format, months),
             ScraperAction::NormalizeDuration => normalize_duration::apply(texts),
             ScraperAction::Base64Decode => base64_decode::apply(texts),
+            ScraperAction::UnpackPacker => unpack_packer::apply(texts),
         }
     }
 
@@ -332,6 +369,46 @@ impl ScraperAction {
             }
             ScraperAction::GetDate { format, months } => {
                 get_date::validate(name, owner, format, months)
+            }
+            ScraperAction::ResolveUrl {
+                proxy,
+                proxy_replace_all,
+            }
+            | ScraperAction::ResolveUrlFromParent {
+                proxy,
+                proxy_replace_all,
+                ..
+            } if !proxy_replace_all.is_empty() && !*proxy => Err(anyhow::anyhow!(
+                "{} {} configures `proxy_replace_all` without `proxy: true`",
+                owner,
+                name
+            )),
+            ScraperAction::ResolveUrl {
+                proxy_replace_all, ..
+            }
+            | ScraperAction::ResolveUrlFromParent {
+                proxy_replace_all, ..
+            } => {
+                for (index, replacement) in proxy_replace_all.iter().enumerate() {
+                    regex::Regex::new(&replacement.pattern).map_err(|error| {
+                        anyhow::anyhow!(
+                            "{} {} has invalid proxy_replace_all[{}] regex: {}",
+                            owner,
+                            name,
+                            index,
+                            error
+                        )
+                    })?;
+                    if replacement.replacement.is_empty() {
+                        return Err(anyhow::anyhow!(
+                            "{} {} has empty proxy_replace_all[{}] replacement",
+                            owner,
+                            name,
+                            index
+                        ));
+                    }
+                }
+                Ok(())
             }
             _ => Ok(()),
         }

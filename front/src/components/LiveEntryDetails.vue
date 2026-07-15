@@ -303,7 +303,7 @@ async function resolveSelectedLiveMedia(player: EntryPlayer | null) {
                     resolvedStream.manifestType,
                     resolvedStream.licenseUrl,
                     resolvedStream.licenseHeaders,
-                    resolvedStream.vttUrl,
+                    resolvedStream.storyboardVttUrl,
                   )
                 })(),
         )
@@ -349,7 +349,7 @@ function handleLiveMediaSourceError() {
     stream.manifestType,
     stream.licenseUrl,
     stream.licenseHeaders,
-    stream.vttUrl,
+    stream.storyboardVttUrl,
   )
 }
 

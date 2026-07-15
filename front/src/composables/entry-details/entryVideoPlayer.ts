@@ -658,7 +658,7 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
                   resolvedStream.manifestType,
                   resolvedStream.licenseUrl,
                   resolvedStream.licenseHeaders,
-                  resolvedStream.vttUrl,
+                  resolvedStream.storyboardVttUrl,
                   resolvedStream.chapters ?? undefined,
                 )
               })()
@@ -718,7 +718,7 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
         stream.manifestType,
         stream.licenseUrl,
         stream.licenseHeaders,
-        stream.vttUrl,
+        stream.storyboardVttUrl,
         stream.chapters ?? undefined,
       ),
       stream.storyboard ?? resolvePlayerStoryboard(selectedPlayer.value),

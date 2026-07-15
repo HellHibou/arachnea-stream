@@ -96,8 +96,8 @@ export interface EntryResolvedPlayerStream {
   licenseUrl: string | null
   /** Headers to include when requesting the license. */
   licenseHeaders: Record<string, string>
-  /** Optional WebVTT sprite metadata. */
-  vttUrl: string | null
+  /** Optional WebVTT URL used for storyboard preview thumbnails. */
+  storyboardVttUrl: string | null
   /** Optional sprite storyboard metadata. */
   storyboard: EntryPlayerStoryboard | null
   /** Optional ordered list of chapters extracted from the player metadata. */

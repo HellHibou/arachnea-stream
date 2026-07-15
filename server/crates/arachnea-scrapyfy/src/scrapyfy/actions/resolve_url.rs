@@ -1,7 +1,12 @@
 use std::collections::HashMap;
 use url::Url;
 
-use super::HTTP_PROXY_PUBLIC_PATH_PARAM;
+use super::{ProxyReplaceAllConfig, HTTP_PROXY_PUBLIC_PATH_PARAM};
+
+#[cfg(feature = "arachnea-proxy")]
+use arachnea_proxy::http::actions::ReplaceAll;
+#[cfg(feature = "arachnea-proxy")]
+use arachnea_proxy::http::proxy_service::proxied_url;
 
 /// Applies the `resolve_url` scraper action by resolving every value as a URL
 /// relative to `request_url`.
@@ -22,6 +27,7 @@ pub(super) fn apply(
     request_url: &str,
     params: &HashMap<String, String>,
     proxy: bool,
+    proxy_replace_all: &[ProxyReplaceAllConfig],
 ) -> Vec<String> {
     let base_url = Url::parse(request_url).ok();
     let proxy_path = proxy.then(|| proxy_path(params)).flatten();
@@ -30,12 +36,12 @@ pub(super) fn apply(
         .into_iter()
         .map(|value| {
             if let Ok(url) = Url::parse(&value) {
-                return resolved_url_string(url, proxy_path);
+                return resolved_url_string(url, proxy_path, proxy_replace_all);
             }
 
             match &base_url {
                 Some(base_url) => resolve_relative_url(base_url, &value)
-                    .map(|url| resolved_url_string(url, proxy_path))
+                    .map(|url| resolved_url_string(url, proxy_path, proxy_replace_all))
                     .unwrap_or(value),
                 _none => value,
             }
@@ -64,6 +70,7 @@ pub(super) fn apply_from_parent(
     params: &HashMap<String, String>,
     levels: usize,
     proxy: bool,
+    proxy_replace_all: &[ProxyReplaceAllConfig],
 ) -> Vec<String> {
     let base_url = Url::parse(request_url)
         .ok()
@@ -74,13 +81,13 @@ pub(super) fn apply_from_parent(
         .into_iter()
         .map(|value| {
             if let Ok(url) = Url::parse(&value) {
-                return resolved_url_string(url, proxy_path);
+                return resolved_url_string(url, proxy_path, proxy_replace_all);
             }
 
             match &base_url {
                 Some(base_url) => base_url
                     .join(&value)
-                    .map(|url| resolved_url_string(url, proxy_path))
+                    .map(|url| resolved_url_string(url, proxy_path, proxy_replace_all))
                     .unwrap_or(value),
                 None => value,
             }
@@ -96,9 +103,30 @@ fn proxy_path(params: &HashMap<String, String>) -> Option<&str> {
         .filter(|value| !value.is_empty())
 }
 
-fn resolved_url_string(url: Url, proxy_path: Option<&str>) -> String {
+fn resolved_url_string(
+    url: Url,
+    proxy_path: Option<&str>,
+    proxy_replace_all: &[ProxyReplaceAllConfig],
+) -> String {
     if matches!(url.scheme(), "http" | "https") {
         if let Some(proxy_path) = proxy_path {
+            #[cfg(feature = "arachnea-proxy")]
+            if !proxy_replace_all.is_empty() {
+                let actions = proxy_replace_all
+                    .iter()
+                    .map(|replacement| {
+                        ReplaceAll::new(
+                            &replacement.pattern,
+                            &replacement.replacement,
+                            replacement.content_types.clone(),
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                return proxied_url(url.as_str(), Some(proxy_path), None, &actions, &[]);
+            }
+
+            #[cfg(not(feature = "arachnea-proxy"))]
+            let _ = proxy_replace_all;
             return format!("{}/{}", proxy_path.trim_end_matches('/'), url);
         }
     }
@@ -216,6 +244,7 @@ mod tests {
             "https://french-anime.com/animes/",
             &params,
             true,
+            &[],
         );
 
         assert_eq!(
@@ -236,6 +265,7 @@ mod tests {
             "https://french-anime.com/animes/",
             &params,
             false,
+            &[],
         );
 
         assert_eq!(values, vec!["https://french-anime.com/images/poster.jpg"]);

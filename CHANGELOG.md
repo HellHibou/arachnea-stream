@@ -247,3 +247,13 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **Resolved stream response**: `stream_headers` is no longer serialized by `get_stream`; headers remain embedded in generated proxy stream URLs.
 - **Resolved stream image metadata**: `get_stream` now returns the YAML-compatible `image/title > link` shape as the JSON key `image/title` with its `link` child.
 - **Resolved player posters**: The frontend now uses `image/title.link` returned by `get_stream` as the selected player's poster, before falling back to episode or entry artwork.
+
+## Unreleased — VidHide stream resolver
+
+### Added
+
+- **`unpack_packer` Scrapyfy action**: Safely unpacks literal Dean Edwards Packer blocks without executing JavaScript, supporting radices 2 through 62.
+- **VidHide resolver**: Added the enabled YAML HLS resolver for `minochinos.com/embed/*`, including stream Referer, page title, proxied poster extraction, and `get_slides` VTT thumbnails.
+- **Storyboard VTT contract**: Renamed the public `get_stream` thumbnail field from `vtt_url` to `storyboard_vtt_url`; the frontend continues to prefer it over sprite storyboard metadata.
+- **Storyboard WebVTT previews**: The frontend now converts `#xywh` VTT cues into Video.js sprite thumbnail options instead of passing the VTT document as an image URL.
+- **Storyboard WebVTT proxying**: `resolve_url` now supports declarative `proxy_replace_all` actions that rewrite proxied textual responses through the controller HTTP proxy, used by the VidHide storyboard VTT resolver.

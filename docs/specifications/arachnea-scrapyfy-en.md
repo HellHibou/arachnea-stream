@@ -654,11 +654,20 @@ Resolves each value as a relative URL against the page URL.
 | Field | Type | Description |
 |-------|------|-------------|
 | `proxy` | bool | If true, wraps HTTP(S) URLs through the public proxy |
+| `proxy_replace_all` | object[] | Ordered `ReplaceAll` rules attached to the proxy URL; requires `proxy: true` |
 
 ```yaml
 - type: resolve_url
   proxy: true
+  proxy_replace_all:
+    - pattern: '(?m)^(https?://[^\r\n]+)'
+      replacement: '{proxy}/$1'
+      content_types: [text/vtt]
 ```
+
+Each rule has a required regex `pattern`, a required `replacement` template supporting `$1`, `$2`,
+and other captures plus proxy variables such as `{proxy}`, and an optional `content_types` MIME type
+list. The proxy applies the rules to textual response bodies in declaration order.
 
 ### `resolve_url_from_parent`
 Resolves relative URLs against an ancestor of the page URL.
@@ -667,6 +676,7 @@ Resolves relative URLs against an ancestor of the page URL.
 |-------|------|-------------|
 | `levels` | usize | Number of path segments to go up |
 | `proxy` | bool | Wrap through the public proxy |
+| `proxy_replace_all` | object[] | Ordered `ReplaceAll` rules attached to the proxy URL; requires `proxy: true` |
 
 ```yaml
 - type: resolve_url_from_parent
@@ -808,6 +818,17 @@ Decodes each value from Base64 (standard alphabet). Non-decodable values are kep
 
 ```yaml
 - type: base64_decode
+```
+
+### `unpack_packer`
+Unpacks the deterministic Dean Edwards Packer format without executing JavaScript. The action
+accepts only calls whose payload, radix, symbol count, dictionary, and `split` separator are
+literals. A non-conforming or malformed value is discarded.
+
+Radices from 2 through 62 are supported.
+
+```yaml
+- type: unpack_packer
 ```
 
 ---

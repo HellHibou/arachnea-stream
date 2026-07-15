@@ -1,0 +1,83 @@
+id: vidhide
+title: VidHide
+description:
+  fr: "Résolveur VidHide pour minochinos.com"
+http:
+  mode: auto
+
+parameters:
+  - name: url
+    value: ""
+    description: "URL de la page embed à résoudre"
+
+queries:
+  - name: can_resolve_url
+    scraper_type: static
+    entries:
+      - name: resolver
+        type: string
+        value: "{url}"
+        actions:
+          - type: regex_find_all
+            pattern: '^https?://(?:www\.)?minochinos\.com/embed/'
+            format: "{service_id}"
+
+  - name: resolve_stream
+    scraper_type: html
+    base_url: "{url}"
+    query_url: "{url}"
+    row_selector: "html"
+    entries:
+      - name: stream_url
+        type: string[]
+        actions:
+          - type: get_response_body
+          - type: unpack_packer
+          - type: regex_find_all
+            pattern: '["'']hls[234]["'']\s*:\s*["'']([^"'']+)'
+            format: "{1}"
+          - type: resolve_url
+            proxy: true
+      - name: stream_headers
+        type: object
+        select: first
+        entries:
+          - name: Referer
+            type: string
+            actions:
+              - type: format_text
+                argument: "{url}"
+      - name: manifest_type
+        type: string
+        actions:
+          - type: format_text
+            argument: "hls"
+      - name: title
+        type: string
+        selector: "meta[name='description']"
+        actions:
+          - type: get_attribut
+            argument: content
+      - name: image/title > link
+        type: string
+        selector: "#vplayer img"
+        actions:
+          - type: get_attribut
+            argument: src
+          - type: resolve_url
+            proxy: true
+      - name: storyboard_vtt_url
+        type: string
+        actions:
+          - type: get_response_body
+          - type: unpack_packer
+          - type: regex_find_all
+            pattern: '(/dl\?op=get_slides[^"''\s]+)'
+            format: "{1}"
+          - type: resolve_url
+            proxy: true
+            proxy_replace_all:
+              - pattern: '(?m)^(https?://[^\r\n]+)'
+                replacement: '{proxy}/$1'
+                content_types:
+                  - text/vtt

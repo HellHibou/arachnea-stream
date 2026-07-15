@@ -85,9 +85,9 @@ pub(crate) struct ResolvedPlayerStream {
     /// Extra headers sent by the frontend player when requesting the license.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub license_headers: HashMap<String, String>,
-    /// Optional WebVTT sprite metadata URL.
+    /// Optional WebVTT URL used for storyboard preview thumbnails.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub vtt_url: Option<String>,
+    pub storyboard_vtt_url: Option<String>,
     /// Optional sprite storyboard metadata.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub storyboard: Option<SpriteThumbnail>,

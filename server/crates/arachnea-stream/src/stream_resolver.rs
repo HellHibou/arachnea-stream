@@ -3,7 +3,7 @@ use const_format::concatcp;
 use serde::Serialize;
 use std::collections::HashMap;
 
-use arachnea_proxy::core::http::proxy_service::proxied_url;
+use arachnea_proxy::http::proxy_service::proxied_url;
 use arachnea_scrapyfy::*;
 
 use crate::services::player_resolver::{
@@ -194,6 +194,18 @@ impl<'a> StreamResolver<'a> {
     ) -> Result<ResolvedPlayerStream> {
         let mut params = HashMap::new();
         params.insert("url".to_string(), url.to_string());
+        if let Some(proxy_path) = self
+            .endpoints
+            .http_proxy_public_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            params.insert(
+                HTTP_PROXY_PUBLIC_PATH_PARAM.to_string(),
+                proxy_path.to_string(),
+            );
+        }
 
         let results = self
             .scraper_agregator
@@ -231,7 +243,7 @@ impl<'a> StreamResolver<'a> {
 
         let mut stream = convert_resolver_entry_to_stream(&entry, url)?;
 
-        // Proxy each stream URL through the HTTP proxy with embedded headers
+        // Proxy stream URLs through the HTTP proxy with embedded headers.
         if let Some(proxy_path) = self.endpoints.http_proxy_public_path.as_deref() {
             let headers: Vec<(&str, &str)> = stream
                 .stream_headers
@@ -243,6 +255,7 @@ impl<'a> StreamResolver<'a> {
                 .into_iter()
                 .map(|u| proxied_url(&u, Some(proxy_path), None, &[], &headers))
                 .collect();
+
         }
 
         Ok(stream)
@@ -292,7 +305,7 @@ fn convert_resolver_entry_to_stream(
         stream_headers,
         license_url: extract_first_string(entry, "license_url"),
         license_headers: extract_string_map(entry, "license_headers"),
-        vtt_url: extract_first_string(entry, "vtt_url"),
+        storyboard_vtt_url: extract_first_string(entry, "storyboard_vtt_url"),
         storyboard: extract_storyboard(entry),
         chapters: None,
     };

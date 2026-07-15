@@ -51,6 +51,18 @@ import type {
 } from '@/composables/video/video-js-media-renderer/types'
 import { t } from '@/i18n'
 
+const STORYBOARD_VTT_REQUEST_TIMEOUT_MS = 5_000
+
+type StoryboardVttCue = {
+  imageUrl: string
+  start: number
+  end: number
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 export type {
   VideoJsMediaDimensions,
   VideoJsMediaRendererEmits,
@@ -84,8 +96,10 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
    let preferredQualityLabel: string | null = null
    /** Whether the video initial load complete event has been emitted. */
    let hasEmittedInitialLoadComplete = false
-   /** Whether the video metadata loaded event has been emitted. */
-   let hasEmittedCurrentSourceMetadata = false
+    /** Whether the video metadata loaded event has been emitted. */
+    let hasEmittedCurrentSourceMetadata = false
+    /** Monotonic identifier used to discard stale asynchronous storyboard loads. */
+    let storyboardLoadId = 0
 
    /**
     * Emits the video initial load complete event once per player instance.
@@ -266,10 +280,6 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
    * @returns Video.js source configuration.
    */
   function buildSpriteThumbnailOptions(source: ResolvedVideoMediaSource): Record<string, unknown> {
-    if (source.vttUrl) {
-      return { url: source.vttUrl }
-    }
-
     if (!source.storyboard) {
       return {}
     }
@@ -285,6 +295,151 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
   }
 
   /**
+   * Converts a timestamp from a WebVTT cue into seconds.
+   *
+   * @param value WebVTT timestamp in `HH:MM:SS.mmm` form.
+   * @returns Timestamp in seconds, or null when invalid.
+   */
+  function parseStoryboardVttTimestamp(value: string): number | null {
+    const match = /^(?:(\d+):)?(\d{2}):(\d{2}(?:\.\d+)?)$/.exec(value.trim())
+    if (!match) {
+      return null
+    }
+
+    const hours = Number(match[1] ?? 0)
+    const minutes = Number(match[2])
+    const seconds = Number(match[3])
+    const total = hours * 3_600 + minutes * 60 + seconds
+
+    return Number.isFinite(total) && total >= 0 ? total : null
+  }
+
+  /**
+   * Parses image cue geometry from a storyboard WebVTT document.
+   *
+   * @param documentText Raw WebVTT document.
+   * @returns Parsed cue metadata for one sprite image, or an empty list.
+   */
+  function parseStoryboardVttCues(documentText: string): StoryboardVttCue[] {
+    const cuePattern = /(?:^|\n)\s*(\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+-->\s+(\d{2}:\d{2}:\d{2}(?:\.\d+)?)[^\n]*\n\s*([^\s#]+)#xywh=(\d+),(\d+),(\d+),(\d+)/g
+    const cues: StoryboardVttCue[] = []
+
+    for (const match of documentText.matchAll(cuePattern)) {
+      const [, startText, endText, imageUrl, xText, yText, widthText, heightText] = match
+      if (!startText || !endText || !imageUrl || !xText || !yText || !widthText || !heightText) {
+        continue
+      }
+
+      const start = parseStoryboardVttTimestamp(startText)
+      const end = parseStoryboardVttTimestamp(endText)
+      const x = Number(xText)
+      const y = Number(yText)
+      const width = Number(widthText)
+      const height = Number(heightText)
+
+      if (
+        start === null ||
+        end === null ||
+        end <= start ||
+        !Number.isInteger(x) ||
+        !Number.isInteger(y) ||
+        !Number.isInteger(width) ||
+        !Number.isInteger(height) ||
+        width <= 0 ||
+        height <= 0
+      ) {
+        continue
+      }
+
+      cues.push({
+        imageUrl,
+        start,
+        end,
+        x,
+        y,
+        width,
+        height,
+      })
+    }
+
+    return cues
+  }
+
+  /**
+   * Derives sprite thumbnail plugin options from a single-image storyboard WebVTT document.
+   *
+   * @param documentText Raw WebVTT document.
+   * @returns Plugin configuration, or null for unsupported cue layouts.
+   */
+  function parseStoryboardVttOptions(documentText: string): Record<string, unknown> | null {
+    const cues = parseStoryboardVttCues(documentText)
+    const firstCue = cues[0]
+
+    if (!firstCue || cues.some((cue) =>
+      cue.imageUrl !== firstCue.imageUrl ||
+      cue.width !== firstCue.width ||
+      cue.height !== firstCue.height,
+    )) {
+      return null
+    }
+
+    const columns = Math.max(...cues.map((cue) => cue.x / cue.width + 1))
+    const rows = Math.max(...cues.map((cue) => cue.y / cue.height + 1))
+    const interval = cues[1] ? cues[1].start - firstCue.start : firstCue.end - firstCue.start
+
+    if (
+      !Number.isInteger(columns) ||
+      !Number.isInteger(rows) ||
+      columns < 1 ||
+      rows < 1 ||
+      !Number.isFinite(interval) ||
+      interval <= 0
+    ) {
+      return null
+    }
+
+    return {
+      url: firstCue.imageUrl,
+      width: firstCue.width,
+      height: firstCue.height,
+      columns,
+      rows,
+      interval,
+    }
+  }
+
+  /**
+   * Resolves VTT storyboard metadata to the sprite plugin configuration, retaining the declared
+   * sprite storyboard as a fallback when the VTT cannot be fetched or parsed.
+   *
+   * @param source Resolved source selected for playback.
+   * @returns Sprite thumbnail plugin configuration.
+   */
+  async function resolveSpriteThumbnailOptions(
+    source: ResolvedVideoMediaSource,
+  ): Promise<Record<string, unknown>> {
+    if (!source.storyboardVttUrl) {
+      return buildSpriteThumbnailOptions(source)
+    }
+
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), STORYBOARD_VTT_REQUEST_TIMEOUT_MS)
+
+    try {
+      const response = await fetch(source.storyboardVttUrl, { signal: controller.signal })
+      if (!response.ok) {
+        return buildSpriteThumbnailOptions(source)
+      }
+
+      return parseStoryboardVttOptions(await response.text()) ?? buildSpriteThumbnailOptions(source)
+    } catch {
+      return buildSpriteThumbnailOptions(source)
+    } finally {
+      window.clearTimeout(timeout)
+    }
+  }
+
+  /**
    * Sets the storyboard interval derived from the loaded video duration when the backend omits it.
    *
    * @param player Video.js player with available media metadata.
@@ -296,7 +451,12 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
   ) {
     const storyboard = source.storyboard
 
-    if (!storyboard || storyboard.interval !== null || !spriteThumbnailsPlugin) {
+    if (
+      source.storyboardVttUrl ||
+      !storyboard ||
+      storyboard.interval !== null ||
+      !spriteThumbnailsPlugin
+    ) {
       return
     }
 
@@ -314,11 +474,13 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
   }
 
   function buildPlayerSource(source: ResolvedVideoMediaSource): VideoJsSourceInput {
-    const spriteThumbnails = buildSpriteThumbnailOptions(source)
 
     const sourceInput: VideoJsSourceInput = {
       src: source.src,
-      spriteThumbnails,
+    }
+
+    if (!source.storyboardVttUrl) {
+      sourceInput.spriteThumbnails = buildSpriteThumbnailOptions(source)
     }
 
     if (source.mimeType) {
@@ -533,16 +695,30 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     * @param source Resolved source selected for playback.
     * @param playerState State snapshot that should survive the source switch.
     */
-   function applySourceToPlayer(
-     player: VideoJsPlayer,
-     source: ResolvedVideoMediaSource,
-     playerState: VideoJsPlayerState | null,
-   ) {
-     clearPendingSourceRestoreCleanup()
+    async function applySourceToPlayer(
+      player: VideoJsPlayer,
+      source: ResolvedVideoMediaSource,
+      playerState: VideoJsPlayerState | null,
+    ) {
+      const loadId = ++storyboardLoadId
+      clearPendingSourceRestoreCleanup()
      clearPendingQualitySelectorCleanup()
      markVideoInitialLoadStart()
-     isPosterOverlayVisible.value = shouldRenderPosterOverlay.value && !props.autoplay
-     let retainedQualityLabel = resolveRetainedQualityLabel(preferredQualityLabel, playerState)
+      isPosterOverlayVisible.value = shouldRenderPosterOverlay.value && !props.autoplay
+      let retainedQualityLabel = resolveRetainedQualityLabel(preferredQualityLabel, playerState)
+
+      const spriteThumbnailOptions = await resolveSpriteThumbnailOptions(source)
+      if (loadId !== storyboardLoadId || activePlayer.value !== player) {
+        return
+      }
+
+      if (spriteThumbnailsPlugin) {
+        Object.assign(spriteThumbnailsPlugin.options, {
+          url: '',
+          urlArray: [],
+          ...spriteThumbnailOptions,
+        })
+      }
 
     let playbackRestored = false
     let playerStateRestored = false
@@ -714,7 +890,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
        }
 
         if (props.controls && typeof player.spriteThumbnails === 'function') {
-          spriteThumbnailsPlugin = player.spriteThumbnails(buildSpriteThumbnailOptions(source)) ?? null
+           spriteThumbnailsPlugin = player.spriteThumbnails({}) ?? null
         }
 
         if (props.controls && source.chapters && source.chapters.length > 0) {
@@ -898,7 +1074,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
         playerElement?.removeEventListener('click', handleTextTrackSettingsClick, true)
       })
 
-      applySourceToPlayer(player, source, props.initialPlayerState ?? null)
+      void applySourceToPlayer(player, source, props.initialPlayerState ?? null)
     })
   }
 
@@ -925,7 +1101,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
 
       const playerState = capturePlayerState(activePlayer.value, preferredQualityLabel)
       emitPlayerState(playerState)
-      applySourceToPlayer(activePlayer.value, nextSource, playerState)
+      void applySourceToPlayer(activePlayer.value, nextSource, playerState)
     },
   )
 

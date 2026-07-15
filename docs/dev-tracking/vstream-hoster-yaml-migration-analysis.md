@@ -43,11 +43,11 @@ nouvelle migration de hoster doit les utiliser sans introduire de sélection par
   lecture, soit `embed-link`. Les URLs sont classées par préférence et le front essaie la suivante
   après une erreur média, sans rappeler le backend.
 - La réponse de flux peut inclure `manifest_type`, `title`,
-  `"image/title": { "link": "…" }`, `license_url`, `license_headers`, `vtt_url` et
+  `"image/title": { "link": "…" }`, `license_url`, `license_headers`, `storyboard_vtt_url` et
   `storyboard`. `stream_headers` est volontairement omis du JSON public après avoir été encodé
   dans l’URL proxy. `license_headers` reste public, car il est utilisé pour une licence DRM.
 - Le frontend normalise cette réponse dans `front/src/services/rustify.ts`. Le poster
-  `image/title.link` est prioritaire sur l’aperçu de l’épisode ; `vtt_url` est prioritaire sur le
+  `image/title.link` est prioritaire sur l’aperçu de l’épisode ; `storyboard_vtt_url` est prioritaire sur le
   storyboard ; un storyboard séquentiel utilise `rows`, le placeholder `{index}` et, au besoin,
   `first_page_index`. Lorsque `interval` est absent, le frontend le calcule à partir de la durée
   vidéo, des lignes et des colonnes.
@@ -65,6 +65,23 @@ nouvelle migration de hoster doit les utiliser sans introduire de sélection par
 - Le storyboard M6+ est désormais produit par son résolveur spécialisé, et non par les
   `players[]` du YAML de catalogue. Les lecteurs directs ou intégrés qui ne passent pas par
   `get_stream` peuvent conserver leur storyboard de catalogue.
+
+### Contrat structurel des storyboards
+
+Le nœud YAML `storyboard` décrit le découpage de l’image sprite, et non la taille d’affichage du
+tooltip du lecteur. Ses champs sont :
+
+| Champ | Rôle | Valeur par défaut / règle |
+|---|---|---|
+| `url` | URL de l’image sprite, éventuellement avec `{index}` | Obligatoire |
+| `width`, `height` | Largeur et hauteur d’une seule imagette dans le sprite | Obligatoires ; utilisés pour le cadrage source |
+| `columns`, `rows` | Nombre d’imagettes par ligne et par image sprite | `rows` doit être déclaré, y compris `1` pour une image unique |
+| `first_page_index` | Numéro du premier fichier lorsque `url` contient `{index}` | Optionnel, `0` par défaut |
+| `interval` | Nombre de secondes entre deux imagettes | Optionnel ; le frontend calcule `durée_vidéo / (rows × columns)` lorsqu’il est absent |
+
+`first_index` est obsolète et ne doit plus être déclaré. Il n’existe pas d’index d’imagette interne :
+la première case du premier sprite correspond toujours au début de la vidéo. Le frontend conserve
+une taille de tooltip fixe, indépendamment de `width` et `height`.
 
 ## Portée et décisions
 
@@ -143,9 +160,9 @@ queries:
 | Sous-requête déterministe | Sous-requête YAML, paramètres et en-têtes explicites | URL, Referer et cookies vérifiés de bout en bout |
 | Titre | `title`, d’abord `meta[property='og:title']` | Facultatif, mais valeur réelle si déclarée |
 | Image du titre | `image/title > link`, d’abord `og:image` ; `resolve_url` et `proxy: true` si nécessaire | JSON exact : `"image/title": { "link": "…" }` ; utilisée comme poster front |
-| Vignettes VTT | `vtt_url` | Prioritaire sur le storyboard |
-| Sprite unique | `storyboard.url`, `width`, `height`, `columns`, `rows: 1`, `interval` | Dimensions et intervalle observés |
-| Suite de sprites | Même structure avec placeholder littéral `{index}`, `rows` et `first_page_index` éventuel | Vérifier au minimum les deux premières images |
+| Vignettes VTT | `storyboard_vtt_url` | Prioritaire sur le storyboard |
+| Sprite unique | `storyboard.url`, `width`, `height`, `columns`, `rows: 1`, `interval` optionnel | Dimensions observées ; intervalle fourni ou calculé depuis la durée vidéo |
+| Suite de sprites | Même structure avec placeholder littéral `{index}`, `rows` et `first_page_index` éventuel | Vérifier au minimum les deux premières images et leur numérotation |
 | JS packé, token temps/aléa, CAPTCHA | Ne pas porter directement ; proposer une primitive commune ou un résolveur dédié | Tests et au moins deux consommateurs envisagés |
 | Débrideur/API authentifiée | Hors périmètre du groupe anonyme | Aucun secret/cookie utilisateur dans YAML ou JSON |
 
@@ -157,7 +174,7 @@ queries:
 3. Classer : YAML direct, YAML avec sous-requête, primitive Scrapyfy à proposer, résolveur Rust
    spécialisé, ou hors périmètre.
 4. Créer le YAML à partir de `sibnet.yaml` sans introduire de branchement par domaine en Rust.
-5. Ajouter `title`, `image/title > link`, `vtt_url` et `storyboard` seulement lorsqu’ils sont
+5. Ajouter `title`, `image/title > link`, `storyboard_vtt_url` et `storyboard` seulement lorsqu’ils sont
    réellement présents et testés.
 6. Ajouter le YAML dans `services.json`. Les règles les plus spécifiques doivent précéder les
    règles générales afin de maîtriser les collisions.
@@ -175,6 +192,52 @@ mutualiser avant extension sont :
 - transformation JavaScript déterministe et documentée ;
 - génération de token basée sur temps/aléa, seulement si plusieurs hosters la partagent ;
 - protection anti-bot/CAPTCHA, généralement hors du résolveur YAML.
+
+### Action déterministe `unpack_packer`
+
+Le lecteur `https://minochinos.com/embed/trz6gf7j38ej` est une variante VidHide / Earnvids.
+Son script contient un unique paquet Dean Edwards Packer :
+`eval(function(p,a,c,k,e,d){...}('payload', 36, 486, 'symbols'.split('|')))`. Il ne
+nécessite pas l'exécution du lecteur JWPlayer : `filelions.py` dans vStream dépile ce format
+avec `cPacker`, puis extrait `sources[0].file` ou `hls2` / `hls4`.
+
+La primitive ajoutée dans `arachnea-scrapyfy` est une action sans argument
+`unpack_packer`, et non une action générique `eval` :
+
+- elle accepte seulement les appels Packer dont le payload, le dictionnaire, le radix, le nombre
+  de symboles et le séparateur de `split` sont littéraux ; elle ne doit jamais exécuter du
+  JavaScript arbitraire ;
+- elle décode le dictionnaire par remplacement de mots entiers, avec les bases 2 à 62 nécessaires
+  au format Packer ;
+- elle retourne une valeur vide lorsque le texte n'est pas un paquet Packer valide, afin que
+  l'extraction YAML échoue explicitement par absence de `stream_url` ;
+- son implémentation reste dans `scrapyfy/actions/`, est ajoutée à `ScraperAction` et à son
+  dispatch, puis est documentée dans les spécifications Scrapyfy française et anglaise.
+
+Le YAML `vidhide.yaml` reste déclaratif :
+
+```yaml
+- name: stream_url
+  type: string[]
+  actions:
+    - type: get_response_body
+    - type: unpack_packer
+    - type: regex_find_all
+      pattern: '(?:sources:\\s*:\\s*\\[\\s*\\{\\s*file\\s*:\\s*["'']|["'']hls[234]["'']\\s*:\\s*["''])([^"'']+)'
+      format: "{1}"
+    - type: resolve_url
+```
+
+`manifest_type` sera `hls`. Le YAML ajoutera `Referer: {url}` dans `stream_headers`, le titre
+depuis `meta[name='description']`, le poster depuis l'image initiale de `#vplayer`, et `storyboard_vtt_url`
+si l'URL de thumbnails VTT est confirmée dans la sortie dépilée. Il ne doit pas déclarer les
+cookies `file_id` et `aff` : ils sont écrits pour le navigateur par le script de publicité et ne
+sont pas utilisés par le chemin vStream de résolution.
+
+La validation à exécuter après accord est : résolution de l'URL fournie, lecture du manifeste et
+d'un segment avec le Referer proxy, contrôle de l'absence de cookies dans le JSON public, puis
+mise à jour de la ligne de suivi avec la date et les métadonnées réellement observées. Les tests
+automatisés ne sont pas ajoutés sans demande explicite.
 
 Le statut « ⚠️ mécanisme impératif détecté » vient d’un pré-audit statique
 (`cPacker`, `eval`, temps/aléa, API/débrideur ou protection analogue). C’est une priorité
@@ -261,6 +324,7 @@ est donc documenté ici plutôt que rattaché artificiellement à `allow_redirec
 | `megaup.py` | ⚠️ À qualifier — mécanisme impératif détecté | ⬜ À auditer | ⬜ À auditer | — |
 | `megawatch.py` | ⚠️ À qualifier — mécanisme impératif détecté | ⬜ À auditer | ⬜ À auditer | — |
 | `mixcloud.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
+| `minochinos.py` (VidHide) | ⬜ YAML `vidhide.yaml` activé ; validation réelle du Packer et du flux HLS en attente | ✅ `get_slides` VTT extrait depuis le script dépilé | ✅ image `#vplayer img` → `image/title > link` | ✅ Signature VidHide / Earnvids |
 | `mixdrop.py` | ⚠️ À qualifier — mécanisme impératif détecté | ⬜ À auditer | ⬜ À auditer | — |
 | `mixloads.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
 | `mystream.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
@@ -281,7 +345,7 @@ est donc documenté ici plutôt que rattaché artificiellement à `allow_redirec
 | `realdebrid.py` | ⚠️ À qualifier — mécanisme impératif détecté | ⬜ À auditer | ⬜ À auditer | — |
 | `resolver.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
 | `rutube.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
-| `sendvid.py` | ✅ Migré par `sendvid.yaml` ; extraction `og:video`, poster `og:image`, storyboard `thumbnailsSprite` | ✅ `rows: 1`, `columns: 20`, `interval: 71` | ✅ OG image → `image/title > link` | — |
+| `sendvid.py` | ✅ Migré par `sendvid.yaml` ; extraction `og:video`, poster `og:image`, storyboard `thumbnailsSprite` | ✅ `rows: 1`, `columns: 21`, `interval: 71` | ✅ OG image → `image/title > link` | — |
 | `sibnet.py` | ✅ Migré par `sibnet.yaml` ; maintenir avec une URL réelle | ✅ `rows: 6`, `first_page_index: 1` | ✅ OG image → `image/title > link` | — |
 | `smoothpre.py` | ⚠️ À qualifier — mécanisme impératif détecté | ⬜ À auditer | ⬜ À auditer | — |
 | `soundcloud.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
@@ -369,4 +433,4 @@ est donc documenté ici plutôt que rattaché artificiellement à `allow_redirec
 Une ligne passe à « ✅ » seulement si le YAML, `services.json`, les tests pertinents et les
 spécifications sont alignés. La mise à jour de la ligne doit alors conserver le YAML créé, les
 domaines couverts, la date de validation, les en-têtes proxy, et la présence ou absence vérifiée de
-`title`, `image/title`, `vtt_url` et `storyboard`.
+`title`, `image/title`, `storyboard_vtt_url` et `storyboard`.

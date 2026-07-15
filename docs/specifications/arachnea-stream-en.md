@@ -543,13 +543,20 @@ The `get_stream` backend command receives `{ resolver, target }` and returns an 
 | `image/title > link` | `string` | Optional title image; serialized as JSON `{ "image/title": { "link": "…" } }` |
 | `license_url` | `string` | Optional DRM license proxy URL |
 | `license_headers` | `object` | HTTP headers for the DRM license request |
-| `vtt_url` | `string` | Optional thumbnail WebVTT URL; preferred over `storyboard` |
+| `storyboard_vtt_url` | `string` | Optional storyboard thumbnail WebVTT URL; preferred over `storyboard` |
 | `storyboard` | `object` | Optional sprite storyboard metadata |
 | `embed-link` | `string` | Iframe fallback URL, exclusive with `stream_url` |
 
 `stream_url` and `embed-link` are mutually exclusive: the former creates a native video player,
 while the latter creates an iframe. Resolver `stream_headers` are not part of the public response:
 they are embedded in the generated proxy stream URLs.
+
+When a resolver declares `storyboard_vtt_url` with the `resolve_url` action, `proxy: true`, and a
+`proxy_replace_all` rule, `get_stream` returns a proxy URL. The proxy then rewrites each WebVTT cue
+line that starts with `http://` or `https://` to a proxy URL, then the frontend converts
+the `#xywh` coordinates into Video.js sprite configuration. WebVTT files using one sprite image
+with uniform cells are supported. If loading or parsing fails, the frontend uses `storyboard` when
+available.
 
 `storyboard` contains:
 
@@ -579,7 +586,7 @@ Each YAML file declares two queries:
 | Query | Type | Description |
 |---|---|---|
 | `can_resolve_url` | `static` | Determines whether the resolver handles the URL (typically a domain regex) |
-| `resolve_stream` | `html` / `json` / `text` | Extracts the media stream and optional `title`, `image/title > link`, `stream_headers`, `vtt_url`, and `storyboard` metadata |
+| `resolve_stream` | `html` / `json` / `text` | Extracts the media stream and optional `title`, `image/title > link`, `stream_headers`, `storyboard_vtt_url`, and `storyboard` metadata |
 
 `stream_headers` are resolver-internal request metadata. They are used when constructing proxy
 URLs and are therefore deliberately omitted from the `get_stream` JSON response.

@@ -1535,7 +1535,10 @@ function normalizeResolvedPlayerStream(payload: unknown): EntryResolvedPlayerStr
     imageTitleLink: firstNonEmptyString([readPath(payload, 'image/title', 'link')]),
     licenseUrl: firstNonEmptyString([payload.license_url, payload.licenseUrl]),
     licenseHeaders: readStringMap(payload.license_headers ?? payload.licenseHeaders),
-    vttUrl: firstNonEmptyString([payload.vtt_url, payload.vttUrl]),
+    storyboardVttUrl: firstNonEmptyString([
+      payload.storyboard_vtt_url,
+      payload.storyboardVttUrl,
+    ]),
     storyboard: normalizeRustifyStoryboard(payload.storyboard),
     chapters: normalizeRustifyChapters(payload.chapters),
   }

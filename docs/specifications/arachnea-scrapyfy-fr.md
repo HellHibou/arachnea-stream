@@ -654,11 +654,20 @@ Résout chaque valeur comme une URL relative par rapport à l'URL de la page.
 | Champ | Type | Description |
 |-------|------|-------------|
 | `proxy` | bool | Si true, enveloppe les URLs HTTP(S) via le proxy public |
+| `proxy_replace_all` | object[] | Règles `ReplaceAll` ordonnées jointes à l'URL proxy ; exige `proxy: true` |
 
 ```yaml
 - type: resolve_url
   proxy: true
+  proxy_replace_all:
+    - pattern: '(?m)^(https?://[^\r\n]+)'
+      replacement: '{proxy}/$1'
+      content_types: [text/vtt]
 ```
+
+Chaque règle contient `pattern` (regex obligatoire), `replacement` (template obligatoire avec
+captures `$1`, `$2`, etc. et variables proxy comme `{proxy}`) et `content_types` (liste optionnelle
+de MIME types). Le proxy applique les règles au corps textuel dans l'ordre déclaré.
 
 ### `resolve_url_from_parent`
 Résout les URLs relatives par rapport à un ancêtre de l'URL de la page.
@@ -667,6 +676,7 @@ Résout les URLs relatives par rapport à un ancêtre de l'URL de la page.
 |-------|------|-------------|
 | `levels` | usize | Nombre de segments de chemin à remonter |
 | `proxy` | bool | Envelopper via le proxy public |
+| `proxy_replace_all` | object[] | Règles `ReplaceAll` ordonnées jointes à l'URL proxy ; exige `proxy: true` |
 
 ```yaml
 - type: resolve_url_from_parent
@@ -808,6 +818,17 @@ Décode chaque valeur en Base64 (alphabet standard). Les valeurs non décodables
 
 ```yaml
 - type: base64_decode
+```
+
+### `unpack_packer`
+Dépaquette le format déterministe Dean Edwards Packer sans exécuter de JavaScript. L'action
+accepte uniquement les appels dont le payload, le radix, le compteur de symboles, le dictionnaire
+et le séparateur de `split` sont littéraux. Une valeur non conforme ou malformée est supprimée.
+
+Les radices de 2 à 62 sont supportés.
+
+```yaml
+- type: unpack_packer
 ```
 
 ---

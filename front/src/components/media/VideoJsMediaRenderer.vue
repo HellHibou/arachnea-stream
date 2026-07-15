@@ -104,7 +104,7 @@ const mergedAttrs = computed(() => ({
 const storyboardPreviewStyle = computed(() => {
   const storyboard = props.source.storyboard
 
-  if (!storyboard || props.source.vttUrl) {
+  if (!storyboard || props.source.storyboardVttUrl) {
     return undefined
   }
 

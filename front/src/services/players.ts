@@ -60,8 +60,8 @@ export interface ResolvedVideoMediaSource {
   licenseHeaders: Record<string, string>
   /** The sprite storyboard metadata for this source. */
   storyboard: ResolvedVideoSpriteThumbnails | null
-  /** Optional WebVTT metadata URL, preferred over sprite thumbnail metadata. */
-  vttUrl?: string | null
+  /** Optional WebVTT URL, preferred over sprite thumbnail metadata for previews. */
+  storyboardVttUrl?: string | null
   /** Optional ordered list of chapters extracted from the player metadata. */
   chapters: ResolvedVideoChapter[] | null
 }
@@ -400,7 +400,7 @@ export function resolvePlayerMediaSource(value: string | null): ResolvedPlayerMe
  * @param manifestType Stream manifest type returned by the backend.
  * @param licenseUrl Optional DRM license URL returned by the backend.
  * @param licenseHeaders Optional DRM license headers returned by the backend.
- * @param vttUrl Optional WebVTT URL returned by the backend.
+ * @param storyboardVttUrl Optional storyboard WebVTT URL returned by the backend.
  * @returns Resolved player source describing whether to render DASH or a native video asset.
  */
 export function resolveBackendStreamMediaSource(
@@ -408,7 +408,7 @@ export function resolveBackendStreamMediaSource(
   manifestType: string | null,
   licenseUrl: string | null = null,
   licenseHeaders: Record<string, string> = {},
-  vttUrl: string | null = null,
+  storyboardVttUrl: string | null = null,
   chapters: ResolvedVideoChapter[] | null = null,
 ): ResolvedPlayerMediaSource | null {
   const normalizedManifestType = manifestType?.trim().toLocaleLowerCase() ?? null
@@ -428,7 +428,7 @@ export function resolveBackendStreamMediaSource(
       licenseHeaders,
       storyboard: null,
       chapters,
-      vttUrl: resolveAbsoluteUrl(vttUrl),
+      storyboardVttUrl: resolveAbsoluteUrl(storyboardVttUrl),
     }
   }
 
@@ -442,7 +442,7 @@ export function resolveBackendStreamMediaSource(
       licenseHeaders: {},
       storyboard: null,
       chapters,
-      vttUrl: resolveAbsoluteUrl(vttUrl),
+      storyboardVttUrl: resolveAbsoluteUrl(storyboardVttUrl),
     }
   }
 

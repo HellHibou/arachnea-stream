@@ -530,7 +530,7 @@ une réponse de type union exclusive :
 | `image/title > link` | `string` | Image de titre optionnelle, sérialisée en JSON sous `{ "image/title": { "link": "…" } }` |
 | `license_url` | `string` | URL du proxy de licence DRM (optionnel) |
 | `license_headers` | `object` | En-têtes HTTP pour la requête de licence |
-| `vtt_url` | `string` | URL du WebVTT de miniatures (optionnel, préféré à `storyboard`) |
+| `storyboard_vtt_url` | `string` | URL du WebVTT de miniatures du storyboard (optionnel, préféré à `storyboard`) |
 | `storyboard` | `object` | Métadonnées du sprite storyboard (optionnel) |
 | `embed-link` | `string` | URL de repli iframe (exclusif de `stream_url`) |
 
@@ -540,6 +540,13 @@ Les champs `stream_url` et `embed-link` sont mutuellement exclusifs :
 
 Les `stream_headers` du résolveur ne font pas partie de la réponse publique : ils sont intégrés
 aux URLs de flux proxy générées.
+
+Lorsqu'un résolveur déclare `storyboard_vtt_url` avec l'action `resolve_url`, `proxy: true` et une
+règle `proxy_replace_all`, `get_stream` retourne une URL proxy. Le proxy réécrit alors chaque cue
+WebVTT dont la ligne commence par `http://` ou `https://` vers une URL proxy, puis le frontend
+convertit les coordonnées `#xywh` en configuration de sprite Video.js. Les VTT qui utilisent une
+image sprite unique et des cellules homogènes sont pris en charge. En cas de chargement ou de format
+incompatible, le frontend utilise le champ `storyboard` lorsqu'il est disponible.
 
 Le champ `storyboard` contient :
 
@@ -571,7 +578,7 @@ requêtes :
 | Requête | Type | Description |
 |---|---|---|
 | `can_resolve_url` | `static` | Détermine si une URL est couverte par ce résolveur (regex sur le domaine) |
-| `resolve_stream` | `html` / `json` / `text` | Extrait le flux média et les métadonnées optionnelles `title`, `image/title > link`, `stream_headers`, `vtt_url` et `storyboard` |
+| `resolve_stream` | `html` / `json` / `text` | Extrait le flux média et les métadonnées optionnelles `title`, `image/title > link`, `stream_headers`, `storyboard_vtt_url` et `storyboard` |
 
 La façade `StreamResolver` agrège les résultats de tous les YAML du groupe
 et sélectionne le premier service compatible dans l'ordre de `services.json`.
