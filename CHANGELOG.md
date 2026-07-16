@@ -10,13 +10,14 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **Unified polymorphic executor**: `scraper::query_executor::execute_query_items` dispatches on `ScraperType` (Html/Json/Static) using the common `ScraperQuery` trait. Single execution path for all query types.
 - **`ScraperRequestMethod` and `ScraperRequestHeader` made public** — now visible through the `ScraperQuery` trait return types.
 - **Proxy `RemoveHeader` redirect action**: controller proxy URLs can now carry `Arachnea-Proxy-RemoveHeader` JSON action headers with `type` and `headers` fields that remove selected `opts.headers` entries when an HTTP `302` redirect is rewritten.
+- **HTML group `post_build`**: Added ordered `math_formula` and `remove_fields` transformations that run after a YAML object group builds its child fields.
 
 ### Changed
 - **Module layout**: `scraper_json/query.rs` decoupled into `config.rs`, `response_parser.rs`, `pointer.rs`, `row_extractor.rs`. Same for `scraper_html/query.rs` → `config.rs`, `response_parser.rs`, `row_extractor.rs`.
 - **`ScraperManagerQuery` trait removed**: The legacy `async_trait`-based query trait and its single `impl` for `HtmlScraperQuery` are deleted. All query execution now goes through `ScraperQuery` (the unified trait).
 - **Legacy `execute_query` methods removed**: `HtmlScraperQuery::execute_query`, `JsonScraperQuery::execute_query`, `StaticScraperQuery::execute_query` — all replaced by the unified executor.
 - **`mod.rs` exports cleaned**: `ScraperManagerQuery` removed from public re-exports. `ScraperManager` trait retained for runtime integration.
-- **Stream proxy endpoint ownership**: `StreamScraper` now registers the generic HTTP `proxy` stream route and passes the controller-computed public proxy path into player resolvers, so RTBF Auvio media URLs no longer depend on a hardcoded `/api/proxy/` path.
+- **VK resolver**: New `vk.yaml` hoster resolver for `vk.com/video` pages and `video_ext.php` embeds, registered in `services.json`.
 - **Server public API mount configuration**: `arachnea` now accepts `--entrypoint-root` and `--entrypoint-api` in server mode so generated stream URLs can match reverse-proxy mounts such as `/arachnea/api/proxy`.
 - **YAML URL proxy option**: `resolve_url` and `resolve_url_from_parent` now accept optional `proxy: true` to wrap resolved HTTP(S) URLs through the controller-computed generic HTTP proxy path. Omitting `proxy` preserves direct URL output.
 - **Static query actions**: `scraper_type: static` entries with scalar `value` now honor their `actions` pipeline, allowing metadata fields such as service logos to use `resolve_url proxy: true`.

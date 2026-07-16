@@ -257,10 +257,61 @@ entries:
             proxy: true
 ```
 
+#### `post_build` des groupes
+
+Un groupe objet HTML peut déclarer des transformations ordonnées exécutées après
+l'extraction de tous ses champs enfants.
+
+##### `math_formula`
+
+Calcule un champ enfant numérique depuis les champs frères scalaires numériques
+du même objet.
+
+| Champ | Type | Description |
+|-------|------|-------------|
+| `target` | string | Chemin enfant séparé par `>` recevant le nombre calculé |
+| `expression` | string | Expression mathématique dont les placeholders `{chemin}` lisent les champs frères scalaires |
+
+Les expressions sont analysées par le moteur mathématique déterministe intégré.
+Tous les placeholders doivent résoudre vers des champs frères numériques à
+l'exécution, sinon la cible est omise. L'expression est validée au chargement
+du YAML.
+
+##### `remove_fields`
+
+Retire des champs frères temporaires après leur consommation par une
+transformation post-build précédente.
+
+| Champ | Type | Description |
+|-------|------|-------------|
+| `fields` | string[] | Chemins enfants séparés par `>` à supprimer |
+
+```yaml
+- name: storyboard
+  type: object
+  select: first
+  entries:
+    - name: count_per_image
+      type: number
+      actions: [ ... ]
+    - name: count_per_row
+      type: number
+      actions: [ ... ]
+  post_build:
+    - type: math_formula
+      target: rows
+      expression: "{count_per_image} / {count_per_row}"
+    - type: remove_fields
+      fields: [count_per_image, count_per_row]
+```
+
+Si une entrée de formule est absente ou non numérique à l'exécution, sa cible est omise.
+
 #### Règles de validation des entrées HTML :
 
 - Un champ doit définir `actions` ou `sub_queries` (ou les deux), mais pas `entries`.
 - Un groupe doit définir `entries` mais pas `actions`.
+- `post_build` est pris en charge uniquement par les groupes HTML, jamais par les champs feuilles.
 - `type` est obligatoire pour les deux.
 - Pour un groupe :
   - `type: object` avec `select: first` → un objet unique

@@ -257,10 +257,59 @@ entries:
             proxy: true
 ```
 
+#### Group `post_build`
+
+An HTML object group may declare ordered transformations that run after all its
+child fields have been extracted.
+
+##### `math_formula`
+
+Computes a numeric child from numeric scalar siblings of the same object.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `target` | string | `>`-separated child path receiving the computed number |
+| `expression` | string | Math expression whose `{path}` placeholders read sibling scalar values |
+
+Expressions are parsed by the built-in deterministic math engine. All
+placeholders must resolve to numeric sibling fields at runtime; otherwise the
+target is omitted. The expression is validated while loading the YAML.
+
+##### `remove_fields`
+
+Removes temporary sibling fields after a preceding post-build transformation
+has consumed them.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `fields` | string[] | `>`-separated child paths to remove |
+
+```yaml
+- name: storyboard
+  type: object
+  select: first
+  entries:
+    - name: count_per_image
+      type: number
+      actions: [ ... ]
+    - name: count_per_row
+      type: number
+      actions: [ ... ]
+  post_build:
+    - type: math_formula
+      target: rows
+      expression: "{count_per_image} / {count_per_row}"
+    - type: remove_fields
+      fields: [count_per_image, count_per_row]
+```
+
+If a formula input is absent or non-numeric at runtime, its target is omitted.
+
 #### HTML entry validation rules:
 
 - A field must define `actions` or `sub_queries` (or both), but not `entries`.
 - A group must define `entries` but not `actions`.
+- `post_build` is supported only by HTML groups, never by leaf fields.
 - `type` is required for both.
 - For a group:
   - `type: object` with `select: first` → single object

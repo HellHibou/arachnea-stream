@@ -14,7 +14,7 @@ use super::super::query_helpers;
 /// # Returns
 ///
 /// Ordered list of placeholder names found in `template`.
-pub(super) fn list_template_placeholders(template: &str) -> Vec<String> {
+pub(crate) fn list_template_placeholders(template: &str) -> Vec<String> {
     let params = HashMap::<String, String>::new();
     let (_resolved, missing_keys) = query_helpers::replace_template_placeholders(template, &params);
     missing_keys
@@ -31,7 +31,7 @@ pub(super) fn list_template_placeholders(template: &str) -> Vec<String> {
 ///
 /// Returns an error when the expression fails to parse, fails to compile, or
 /// evaluates to a non-finite value (NaN, infinity).
-pub(super) fn evaluate_math_expression(expression: &str) -> Result<f64> {
+pub(crate) fn evaluate_math_expression(expression: &str) -> Result<f64> {
     let compiled_expression = Expression::parse(expression)
         .with_context(|| format!("Failed to parse math expression `{}`", expression))?
         .compile(&[] as &[&str])
@@ -56,7 +56,7 @@ pub(super) fn evaluate_math_expression(expression: &str) -> Result<f64> {
 /// # Arguments
 ///
 /// * `value` - Numeric result to render.
-pub(super) fn format_math_result(value: f64) -> String {
+pub(crate) fn format_math_result(value: f64) -> String {
     let normalized_value = if value.abs() < 1e-12 { 0.0 } else { value };
     let rounded_value = normalized_value.round();
 

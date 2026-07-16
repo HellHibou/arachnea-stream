@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize, Serializer};
 
 use crate::scrapyfy::query_helpers;
 use crate::scrapyfy::scraper::entry_trait::ScraperEntrySpec;
+use crate::scrapyfy::scraper::post_build::ScraperPostBuild;
 use crate::scrapyfy::scraper::query_trait::ScraperQuery;
 use crate::scrapyfy::scraper::row_locator::ScraperType;
 use crate::scrapyfy::EntrySubQueryRaw;
@@ -64,6 +65,9 @@ pub struct HtmlScraperEntryRaw {
     /// to each matched element. Must be empty if `actions` is non-empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     entries: Vec<HtmlScraperEntryRaw>,
+    /// Transformations run after an object entry assembled all child fields.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    post_build: Vec<ScraperPostBuild>,
     /// Sub-queries executed on each value produced by this entry.
     ///
     /// These sub-queries fetch additional data based on values extracted from
@@ -201,6 +205,8 @@ pub enum HtmlScraperEntry {
         /// Each child entry extracts data from the matched HTML elements,
         /// creating nested structures in the output.
         entries: Vec<HtmlScraperEntry>,
+        /// Transformations run after all child entries built the object.
+        post_build: Vec<ScraperPostBuild>,
         /// Sub-queries attached to this entry (recursion across scraper types).
         ///
         /// Sub-queries allow fetching additional data based on values extracted
@@ -375,6 +381,7 @@ impl HtmlScraperEntry {
                 selector,
                 select,
                 entries,
+                post_build,
                 ..
             } => {
                 let path: Vec<&str> = name.split('>').map(|s| s.trim()).collect();
@@ -383,6 +390,9 @@ impl HtmlScraperEntry {
                     let mut item = ScraperDataNode::default();
                     for entry in entries {
                         entry.apply_to(&mut item, selected, params, request_url, response_body);
+                    }
+                    for transformation in post_build {
+                        transformation.apply(&mut item);
                     }
                     root.push_node_typed(&path, item, *output_type);
                 });
@@ -624,6 +634,7 @@ impl HtmlScraperEntry {
         output_type: ScraperOutputType,
         select: HtmlScraperSelectMode,
         entries: Vec<HtmlScraperEntry>,
+        post_build: Vec<ScraperPostBuild>,
     ) -> Result<Self> {
         Ok(HtmlScraperEntry::Group {
             name: name.to_string(),
@@ -632,6 +643,7 @@ impl HtmlScraperEntry {
             selector: Self::parse_selector(name, resolved_selector)?,
             select,
             entries,
+            post_build,
             sub_queries: Vec::new(),
         })
     }
@@ -703,6 +715,7 @@ impl HtmlScraperEntry {
             select,
             actions,
             entries,
+            post_build,
             sub_queries,
         } = config;
 
@@ -714,6 +727,9 @@ impl HtmlScraperEntry {
 
         match (actions.is_empty(), entries.is_empty()) {
             (false, true) => {
+                if !post_build.is_empty() {
+                    anyhow::bail!("Field entry {} cannot define post_build", name);
+                }
                 let output_type = HtmlScraperEntry::require_field_output_type(
                     &name,
                     output_type,
@@ -744,6 +760,9 @@ impl HtmlScraperEntry {
                         .into_iter()
                         .map(|e| HtmlScraperEntry::from_raw_with_base_url(e, base_url))
                         .collect::<Result<Vec<_>>>()?;
+                    for transformation in &post_build {
+                        transformation.validate(&name)?;
+                    }
                     HtmlScraperEntry::try_new_group_with_optional_selector(
                         &name,
                         selector.as_deref(),
@@ -751,6 +770,7 @@ impl HtmlScraperEntry {
                         output_type,
                         select,
                         entries,
+                        post_build,
                     )?
                 };
                 if let HtmlScraperEntry::Group {
@@ -763,6 +783,9 @@ impl HtmlScraperEntry {
                 Ok(entry)
             }
             (true, true) if !sub_queries.is_empty() => {
+                if !post_build.is_empty() {
+                    anyhow::bail!("Field entry {} cannot define post_build", name);
+                }
                 let output_type = HtmlScraperEntry::require_field_output_type(
                     &name,
                     output_type,
@@ -973,6 +996,7 @@ impl From<&HtmlScraperEntry> for HtmlScraperEntryRaw {
                 select: *select,
                 actions: actions.clone(),
                 entries: Vec::new(),
+                post_build: Vec::new(),
                 sub_queries: Vec::new(),
             },
             HtmlScraperEntry::Group {
@@ -982,6 +1006,7 @@ impl From<&HtmlScraperEntry> for HtmlScraperEntryRaw {
                 selector,
                 select,
                 entries,
+                post_build,
                 ..
             } => Self {
                 name: name.clone(),
@@ -991,6 +1016,7 @@ impl From<&HtmlScraperEntry> for HtmlScraperEntryRaw {
                 select: *select,
                 actions: Vec::new(),
                 entries: entries.iter().map(HtmlScraperEntryRaw::from).collect(),
+                post_build: post_build.clone(),
                 sub_queries: Vec::new(),
             },
         }

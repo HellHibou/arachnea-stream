@@ -26,6 +26,9 @@ pub use types::{
     ScraperGeneratedField, ScraperNestedFieldDefinition, ScraperPostProcessContext,
     ScraperRegexItemEntry,
 };
+pub(crate) use math_helpers::{
+    evaluate_math_expression, format_math_result, list_template_placeholders,
+};
 
 /// Structured transformations applied after one query extracted its raw fields.
 #[derive(Debug, Clone, Serialize, Deserialize)]

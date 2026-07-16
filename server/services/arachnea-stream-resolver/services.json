@@ -22,5 +22,9 @@
   {
     "path": "vidara.yaml",
     "enabled": true
+  },
+  {
+    "path": "vk.yaml",
+    "enabled": true
   }
 ]

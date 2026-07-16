@@ -20,6 +20,7 @@
 
 pub mod config;
 pub mod entry_trait;
+pub mod post_build;
 pub mod query_unified;
 pub mod row_locator;
 

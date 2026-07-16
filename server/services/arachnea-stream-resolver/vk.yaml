@@ -1,0 +1,185 @@
+id: vk
+title: VK
+description:
+  en: "Resolver for vk.com video pages and embeds (video_ext.php)"
+http:
+  mode: auto
+
+
+# ############################################################################
+# Parameters
+# ############################################################################ 
+parameters:
+  - name: url
+    value: ""
+    description: "URL of the embed page to be resolved"
+
+
+# ############################################################################
+# Queries
+# ############################################################################
+queries:
+
+  # --------------------------------------------------------------------------
+  # can_resolve_url — determines whether this rule can resolve the URL
+  # --------------------------------------------------------------------------
+  - name: can_resolve_url
+    scraper_type: static
+    entries:
+      - name: resolver
+        type: string
+        value: "{url}"
+        actions:
+          - type: regex_find_all
+            pattern: '^https?://(?:www\.)?vk\.com/video'
+            format: "{service_id}"
+
+
+  # --------------------------------------------------------------------------
+  # resolve_stream — extracts the video stream URL from the player page
+  # --------------------------------------------------------------------------
+  - name: resolve_stream
+    scraper_type: html
+    base_url: "{url}"
+    query_url: "{url}"
+    row_selector: "html"
+    request_headers:
+      - name: "Referer"
+        actions:
+          - type: format_text
+            argument: "{url}"
+      - name: "User-Agent"
+        actions:
+          - type: format_text
+            argument: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    entries:
+      - name: stream_url
+        type: string[]
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: '"files":\{([^}]*)\}'
+            format: "{1}"
+          - type: regex_find_all
+            pattern: '"dash_sep"\s*:\s*"((?:https?:)?\\/[^"]+)"'
+            format: "{1}"
+          - type: replace_text
+            search: '\/'
+            replace: '/'
+          - type: resolve_url
+            proxy: true
+            proxy_headers:
+              Referer: "{url}"
+              User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            proxy_replace_all:
+              - pattern: '(<BaseURL>)(\?[^<]+)(</BaseURL>)'
+                replacement: '$1{proxy_inherited}/{base_url}/$2$3'
+                content_types:
+                  - application/dash+xml
+      - name: stream_headers
+        type: object
+        select: first
+        entries:
+          - name: Referer
+            type: string
+            actions:
+              - type: format_text
+                argument: "{url}"
+      - name: manifest_type
+        type: string
+        actions:
+          - type: format_text
+            argument: "mpd"
+      - name: title
+        type: string
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: '"title":"([^"]+)"'
+            format: "{1}"
+      - name: image/title > link
+        type: string
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: '"first_frame":\[\{"url":"((?:https?:)?\\/[^"]+)"'
+            format: "{1}"
+          - type: replace_text
+            search: '\/'
+            replace: '/'
+          - type: resolve_url
+      - name: storyboard
+        type: object
+        select: first
+        entries:
+          - name: url
+            type: string
+            select: first
+            actions:
+              - type: get_response_body
+              - type: regex_find_all
+                pattern: '"timeline_thumbs":\{[^}]*"links":\["((?:https?:)?\\/[^"]+)"'
+                format: "{1}"
+              - type: replace_text
+                search: '\/'
+                replace: '/'
+              - type: resolve_url
+                proxy: true
+                proxy_headers:
+                  Referer: "{url}"
+                  User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+              - type: replace_text
+                search: 'uidx=0'
+                replace: 'uidx={index}'
+          - name: width
+            type: number
+            actions:
+              - type: get_response_body
+              - type: regex_find_all
+                pattern: '"timeline_thumbs":\{[^}]*"frame_width":(\d+)'
+                format: "{1}"
+          - name: height
+            type: number
+            actions:
+              - type: get_response_body
+              - type: regex_find_all
+                pattern: '"timeline_thumbs":\{[^}]*"frame_height":(\d+)'
+                format: "{1}"
+          - name: columns
+            type: number
+            actions:
+              - type: format_text
+                argument: "3"
+          - name: count_per_image
+            type: number
+            actions:
+              - type: get_response_body
+              - type: regex_find_all
+                pattern: '"timeline_thumbs":\{[^}]*"count_per_image":(\d+)'
+                format: "{1}"
+          - name: columns
+            type: number
+            actions:
+              - type: get_response_body
+              - type: regex_find_all
+                pattern: '"timeline_thumbs":\{[^}]*"count_per_row":(\d+)'
+                format: "{1}"
+          - name: first_page_index
+            type: number
+            actions:
+              - type: format_text
+                argument: "0"
+          - name: interval
+            type: number
+            actions:
+              - type: get_response_body
+              - type: regex_find_all
+                pattern: '"timeline_thumbs":\{[^}]*"frequency":(\d+)'
+                format: "{1}"
+        post_build:
+          - type: math_formula
+            target: rows
+            expression: "{count_per_image} / {columns}"
+          - type: remove_fields
+            fields:
+              - count_per_image

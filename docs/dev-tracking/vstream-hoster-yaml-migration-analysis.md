@@ -420,7 +420,7 @@ est donc documenté ici plutôt que rattaché artificiellement à `allow_redirec
 | `viki.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
 | `vimeo.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
 | `vimple.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
-| `vk.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
+| `vk.py` | ✅ Migré par `vk.yaml` ; validé le 2026-07-16 sur `video_ext.php` : extraction du manifeste DASH `dash_sep` du bloc JSON `files`, segments MPD réécrits vers le proxy avec le Referer, titre JSON et poster `first_frame` | ✅ `timeline_thumbs` : dimensions et intervalle extraits, `rows` calculé après construction (`count_per_image / count_per_row`), séquence `uidx={index}` proxifiée | ✅ `first_frame[0].url` → `image/title > link` | — |
 | `voe.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | ✅ Signature Voe |
 | `vshare.py` | ⚠️ À qualifier — mécanisme impératif détecté | ⬜ À auditer | ⬜ À auditer | — |
 | `vudeo.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |

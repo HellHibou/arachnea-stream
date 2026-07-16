@@ -279,6 +279,7 @@ mod tests {
             "https://french-anime.com/animes/",
             &params,
             true,
+            &HashMap::new(),
             &[],
         );
 
@@ -300,6 +301,7 @@ mod tests {
             "https://french-anime.com/animes/",
             &params,
             false,
+            &HashMap::new(),
             &[],
         );
 
