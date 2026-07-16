@@ -82,6 +82,11 @@ export interface VideoJsMediaRendererProps {
    */
   initialPlaybackTime?: number | null
   /**
+   * Preserves the current position and playback state while replacing the active source.
+   * @default false
+   */
+  preservePlaybackOnSourceSwitch?: boolean
+  /**
    * Indicates whether the episode autoplay toggle should be mounted inside the Video.js control bar.
    * @default false
    */

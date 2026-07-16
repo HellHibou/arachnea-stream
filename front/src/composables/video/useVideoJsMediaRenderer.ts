@@ -596,9 +596,10 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
    * Starts playback when autoplay is enabled and the current source is ready enough.
    *
    * @param player Video.js player currently bound to the renderer.
+   * @param autoplayOverride Indicates that the preceding source was playing.
    */
-  function attemptAutoplay(player: VideoJsPlayer) {
-    if (!props.autoplay) {
+  function attemptAutoplay(player: VideoJsPlayer, autoplayOverride?: boolean) {
+    if (!props.autoplay && !autoplayOverride) {
       return
     }
 
@@ -694,17 +695,21 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     * @param player Video.js player currently bound to the renderer.
     * @param source Resolved source selected for playback.
     * @param playerState State snapshot that should survive the source switch.
+    * @param switchTime Playback position captured before the source switch.
+    * @param switchAutoplay Indicates whether the preceding source was playing.
     */
     async function applySourceToPlayer(
       player: VideoJsPlayer,
       source: ResolvedVideoMediaSource,
       playerState: VideoJsPlayerState | null,
+      switchTime?: number | null,
+      switchAutoplay?: boolean,
     ) {
       const loadId = ++storyboardLoadId
       clearPendingSourceRestoreCleanup()
-     clearPendingQualitySelectorCleanup()
-     markVideoInitialLoadStart()
-      isPosterOverlayVisible.value = shouldRenderPosterOverlay.value && !props.autoplay
+      clearPendingQualitySelectorCleanup()
+      markVideoInitialLoadStart()
+      isPosterOverlayVisible.value = shouldRenderPosterOverlay.value && !(props.autoplay || switchAutoplay)
       let retainedQualityLabel = resolveRetainedQualityLabel(preferredQualityLabel, playerState)
 
       const spriteThumbnailOptions = await resolveSpriteThumbnailOptions(source)
@@ -728,10 +733,12 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
         return
       }
 
+      const effectiveInitialPlaybackTime = switchTime ?? props.initialPlaybackTime
+
       if (
-        typeof props.initialPlaybackTime !== 'number' ||
-        !Number.isFinite(props.initialPlaybackTime) ||
-        props.initialPlaybackTime <= 0
+        typeof effectiveInitialPlaybackTime !== 'number' ||
+        !Number.isFinite(effectiveInitialPlaybackTime) ||
+        effectiveInitialPlaybackTime <= 0
       ) {
         return
       }
@@ -739,8 +746,8 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       const duration = player.duration()
       const safePlaybackTime =
         typeof duration === 'number' && Number.isFinite(duration) && duration > 0
-          ? Math.min(props.initialPlaybackTime, Math.max(duration - 2, 0))
-          : props.initialPlaybackTime
+          ? Math.min(effectiveInitialPlaybackTime, Math.max(duration - 2, 0))
+          : effectiveInitialPlaybackTime
 
       if (safePlaybackTime <= 0) {
         return
@@ -787,23 +794,23 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
        restorePlayerUiState()
        syncRetainedQualityPreference()
 
-       if (player.readyState() >= 3) {
-         markVideoInitialLoadComplete()
-         emitVideoInitialLoadComplete()
-         attemptAutoplay(player)
-       }
+        if (player.readyState() >= 3) {
+          markVideoInitialLoadComplete()
+          emitVideoInitialLoadComplete()
+          attemptAutoplay(player, switchAutoplay)
+        }
      }
 
-     const handleCanPlay = () => {
-       emitVideoMetadataLoaded()
-       syncDerivedStoryboardInterval(player, source)
-       restorePlaybackTime()
-       restorePlayerUiState()
-       syncRetainedQualityPreference(true)
-       markVideoInitialLoadComplete()
-       emitVideoInitialLoadComplete()
-       attemptAutoplay(player)
-     }
+      const handleCanPlay = () => {
+        emitVideoMetadataLoaded()
+        syncDerivedStoryboardInterval(player, source)
+        restorePlaybackTime()
+        restorePlayerUiState()
+        syncRetainedQualityPreference(true)
+        markVideoInitialLoadComplete()
+        emitVideoInitialLoadComplete()
+        attemptAutoplay(player, switchAutoplay)
+      }
 
      const handlePlaying = () => {
        markVideoInitialLoadComplete()
@@ -1099,9 +1106,19 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
         return
       }
 
-      const playerState = capturePlayerState(activePlayer.value, preferredQualityLabel)
+      const player = activePlayer.value
+      const playerState = capturePlayerState(player, preferredQualityLabel)
       emitPlayerState(playerState)
-      void applySourceToPlayer(activePlayer.value, nextSource, playerState)
+
+      const currentTime = player.currentTime()
+      const pendingTime = props.preservePlaybackOnSourceSwitch &&
+        typeof currentTime === 'number' && Number.isFinite(currentTime) && currentTime > 0
+        ? currentTime
+        : null
+      const pendingAutoplay = props.preservePlaybackOnSourceSwitch &&
+        typeof player.paused === 'function' && !player.paused()
+
+      void applySourceToPlayer(player, nextSource, playerState, pendingTime, pendingAutoplay)
     },
   )
 

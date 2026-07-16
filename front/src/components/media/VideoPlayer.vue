@@ -340,8 +340,10 @@ const {
   activeVideoAriaHidden,
   /** Tab index for the active video. */
   activeVideoTabIndex,
-  /** Initial playback time for the active video. */
-  activeVideoInitialPlaybackTime,
+   /** Initial playback time for the active video. */
+   activeVideoInitialPlaybackTime,
+   /** Whether the active video should preserve playback during its source switch. */
+   activeVideoPreservePlaybackOnSourceSwitch,
   /** Whether to show episode autoplay toggle for the active video. */
   activeVideoShowEpisodeAutoplayToggle,
   /** Whether episode autoplay is enabled for the active video. */
@@ -430,9 +432,10 @@ const {
       :controls="activeVideoControls"
       :aria-hidden="activeVideoAriaHidden"
       :video-aria-label="activeVideoAriaLabel"
-      :tab-index="activeVideoTabIndex"
-      :initial-playback-time="activeVideoInitialPlaybackTime"
-      :initial-player-state="persistedVideoPlayerState"
+       :tab-index="activeVideoTabIndex"
+       :initial-playback-time="activeVideoInitialPlaybackTime"
+       :preserve-playback-on-source-switch="activeVideoPreservePlaybackOnSourceSwitch"
+       :initial-player-state="persistedVideoPlayerState"
       :show-episode-autoplay-toggle="activeVideoShowEpisodeAutoplayToggle"
       :is-episode-autoplay-enabled="activeVideoIsEpisodeAutoplayEnabled"
       :is-external-loading="shouldRenderSurfaceLoadingState"

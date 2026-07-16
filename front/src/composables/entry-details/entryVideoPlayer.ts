@@ -747,14 +747,6 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
       return
     }
 
-    if (
-      selectedPlayableItem.players.some(
-        (player) => player.id === selectedPlayablePlayerId.value,
-      )
-    ) {
-      return
-    }
-
     selectedPlayableLanguageKey.value = preferredLanguageKey.value
     selectedPlayablePlayerId.value = null
   })

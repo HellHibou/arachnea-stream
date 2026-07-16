@@ -26,8 +26,8 @@ interface UseEntryEpisodeSelectionOptions {
 export function entryEpisodeSelection(options: UseEntryEpisodeSelectionOptions) {
   /** The currently selected episode identifier. */
   const selectedEpisodeId = shallowRef<string | null>(null)
-  /** Cache of all episodes encountered across seasons, keyed by episode id. */
-  const allEpisodes = shallowRef<Map<string, EntryEpisode>>(new Map())
+  /** Episode currently selected in the built-in player. */
+  const selectedEpisode = shallowRef<EntryEpisode | null>(null)
   /** Whether the first playable episode has been auto-selected for the current entry. */
   let initialEpisodeSelected = false
 
@@ -53,35 +53,18 @@ export function entryEpisodeSelection(options: UseEntryEpisodeSelectionOptions) 
    */
 
   watch(displayedEpisodes, (eps) => {
-    const map = allEpisodes.value
-    for (const ep of eps) {
-      map.set(ep.id, ep)
-    }
-
     // Auto-select the first playable episode when episodes come directly
     // from get_entry (no seasons) and none is currently selected.
     if (!initialEpisodeSelected && !selectedEpisodeId.value && !hasSeasons.value) {
       const firstPlayable = eps.find((ep) => ep.players.length > 0)
       if (firstPlayable) {
-        selectedEpisodeId.value = firstPlayable.id
+        selectEpisode(firstPlayable)
         initialEpisodeSelected = true
       }
     }
   }, { immediate: true })
 
   /**
-   * Exposes the episode currently selected in the built-in player.
-   * Resolves from the accumulated episode cache to persist across season changes.
-   *
-   * @returns The selected episode, or null if none is selected.
-   */
-  const selectedEpisode = computed<EntryEpisode | null>(() => {
-    if (!selectedEpisodeId.value) {
-      return null
-    }
-    return allEpisodes.value.get(selectedEpisodeId.value) ?? null
-  })
-
   /**
    * Exposes the playable episodes available for previous/next navigation.
    *
@@ -118,11 +101,11 @@ export function entryEpisodeSelection(options: UseEntryEpisodeSelectionOptions) 
   )
 
   /**
-   * Clears the currently selected episode and the accumulated episode cache.
+   * Clears the currently selected episode.
    */
   function resetSelectedEpisode(): void {
     selectedEpisodeId.value = null
-    allEpisodes.value.clear()
+    selectedEpisode.value = null
   }
 
   /**
@@ -132,6 +115,7 @@ export function entryEpisodeSelection(options: UseEntryEpisodeSelectionOptions) 
    */
   function selectEpisode(episode: EntryEpisode): void {
     selectedEpisodeId.value = episode.id
+    selectedEpisode.value = episode
   }
 
   /**
@@ -208,6 +192,7 @@ export function entryEpisodeSelection(options: UseEntryEpisodeSelectionOptions) 
      hasPreviousEpisode,
      hasNextEpisode,
      resetSelectedEpisode,
+     selectEpisode,
      selectEpisodeById,
      handleEpisodeSelect,
      handleEpisodeStep,

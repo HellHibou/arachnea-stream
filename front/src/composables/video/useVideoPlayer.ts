@@ -1,4 +1,4 @@
-import { computed, ref, useAttrs, watch, type ComputedRef } from 'vue'
+import { computed, ref, shallowRef, useAttrs, watch, type ComputedRef } from 'vue'
 
 import type { EntryPlayer } from '@/types/entry'
 import type { EntryPlayerLanguageOption } from '@/composables/entry-details/entryVideoPlayer'
@@ -308,6 +308,10 @@ export function useVideoPlayer(props: VideoPlayerProps, emit: VideoPlayerEmits) 
   const storage = useStorage()
   /** The last resolved media source, used to keep the media surface mounted during transitions. */
   const lastResolvedMediaSource = ref<ResolvedPlayerMediaSource | null>(null)
+  /** Whether a language or player selection is waiting for its next source to resolve. */
+  const isPlayerSelectionChangePending = shallowRef(false)
+  /** Source URL whose preceding playback state should survive a player selection change. */
+  const sourcePreservingPlayback = shallowRef<string | null>(null)
 
   /** Type for the last resolved media source reference. */
   type LastResolvedMediaSource = ResolvedPlayerMediaSource | null
@@ -317,6 +321,12 @@ export function useVideoPlayer(props: VideoPlayerProps, emit: VideoPlayerEmits) 
     (nextMediaSource) => {
       if (nextMediaSource) {
         lastResolvedMediaSource.value = nextMediaSource
+
+        if (isPlayerSelectionChangePending.value) {
+          sourcePreservingPlayback.value = nextMediaSource.src
+        }
+
+        isPlayerSelectionChangePending.value = false
       }
     },
     { immediate: true },
@@ -370,13 +380,13 @@ export function useVideoPlayer(props: VideoPlayerProps, emit: VideoPlayerEmits) 
   )
 
   /**
-   * Keeps the media surface mounted through one explicit episode transition while the next media
-   * source is being resolved.
+   * Keeps the media surface mounted while an episode, language, or player transition resolves its
+   * next media source.
    *
    * @returns True when a persisted media surface should be kept during transition.
    */
   const shouldKeepMediaSurfaceMountedDuringTransition = computed(() =>
-    props.preferPersistedMediaSurface &&
+    (props.preferPersistedMediaSurface || isPlayerSelectionChangePending.value) &&
     !props.mediaPlayerErrorMessage &&
     Boolean(lastResolvedMediaSource.value) &&
     (
@@ -781,6 +791,15 @@ const activeIframeReferrerPolicy = computed<MediaIframeReferrerPolicy | null>(()
   )
 
   /**
+   * Indicates whether the active source follows a language or player selection change.
+   *
+   * @returns True when its preceding playback position and state should be restored.
+   */
+  const activeVideoPreservePlaybackOnSourceSwitch = computed(() =>
+    activeVideoSource.value?.src === sourcePreservingPlayback.value,
+  )
+
+  /**
    * Indicates whether the episode autoplay toggle should be shown.
    *
    * @returns True when the media surface is active and episode autoplay toggle is enabled.
@@ -898,8 +917,13 @@ const handlePlayerStateUpdate = (value: VideoJsPlayerState | null): void => {
  */
 const handleLanguageChange = (event: Event): void => {
   const target = event.target as HTMLSelectElement
+  const nextLanguageKey = target.value || null
 
-  emit('update:active-language-key', target.value || null)
+  if (nextLanguageKey !== languageModel.value) {
+    isPlayerSelectionChangePending.value = true
+  }
+
+  emit('update:active-language-key', nextLanguageKey)
   emit('remember-current-language')
 }
 
@@ -910,8 +934,13 @@ const handleLanguageChange = (event: Event): void => {
  */
 const handlePlayerChange = (event: Event): void => {
   const target = event.target as HTMLSelectElement
+  const nextPlayerId = target.value || null
 
-  emit('update:active-player-id', target.value || null)
+  if (nextPlayerId !== playerModel.value) {
+    isPlayerSelectionChangePending.value = true
+  }
+
+  emit('update:active-player-id', nextPlayerId)
   emit('remember-current-player')
 }
 
@@ -1054,9 +1083,10 @@ const handleActiveVideoVideoNavigation = (direction: -1 | 1): void => {
      activeVideoPlaysinline,
      activeVideoPreload,
      activeVideoAriaHidden,
-     activeVideoTabIndex,
-     activeVideoInitialPlaybackTime,
-     activeVideoShowEpisodeAutoplayToggle,
+      activeVideoTabIndex,
+      activeVideoInitialPlaybackTime,
+      activeVideoPreservePlaybackOnSourceSwitch,
+      activeVideoShowEpisodeAutoplayToggle,
      activeVideoIsEpisodeAutoplayEnabled,
      activeVideoShowVideoNavigationControls,
      activeVideoHasPreviousVideo,

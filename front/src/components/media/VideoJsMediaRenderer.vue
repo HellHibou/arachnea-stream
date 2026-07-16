@@ -42,6 +42,7 @@ const props = withDefaults(defineProps<VideoJsMediaRendererProps & {
   ariaHidden: false,
   tabIndex: null,
   initialPlaybackTime: null,
+  preservePlaybackOnSourceSwitch: false,
   showEpisodeAutoplayToggle: false,
   isEpisodeAutoplayEnabled: false,
   initialPlayerState: null,
