@@ -34,6 +34,7 @@ All notable changes to the server workspace are recorded here. Add new entries a
 
 ### Fixed
 - **VOE HLS manifests**: VOE proxied manifests now preserve the required User-Agent and rewrite absolute playlist URLs through the inherited proxy options.
+- **VOE stream hoster metadata**: The VOE YAML hoster now exposes page title, preview image, and single-frame storyboard metadata when available from the embed HTML.
 - **Scraper HTTP redirect limits**: `max_redirects` is now deserialized from YAML HTTP configuration, so query-specific redirect limits are applied to the outbound client.
 - **Optional storyboard interval**: `get_stream` now allows an omitted storyboard interval; the frontend derives it from video duration divided by the sprite cell count.
 - **Storyboard page indexing**: `first_index` is replaced with `first_page_index` for numbered sprite files.

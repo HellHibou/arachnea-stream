@@ -50,6 +50,56 @@ queries:
           - type: regex_find_all
             pattern: "window\\.location\\.href\\s*=\\s*'([^']+)'"
             format: "{1}"
+      - name: title
+        type: string
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: '<meta[^>]+(?:property|name)=["''](?:og:title|twitter:title)["''][^>]+content=["'']([^"'']+)["'']|<meta[^>]+content=["'']([^"'']+)["''][^>]+(?:property|name)=["''](?:og:title|twitter:title)["'']|<title>([^<]+)</title>'
+            format: "{1}{2}{3}"
+      - name: image/title > link
+        type: string
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: '<meta[^>]+(?:property|name)=["''](?:og:image|twitter:image)["''][^>]+content=["'']([^"'']+)["'']|<meta[^>]+content=["'']([^"'']+)["''][^>]+(?:property|name)=["''](?:og:image|twitter:image)["'']'
+            format: "{1}{2}"
+          - type: resolve_url
+            proxy: true
+      - name: storyboard
+        type: object
+        select: first
+        entries:
+          - name: url
+            type: string
+            select: first
+            actions:
+              - type: get_response_body
+              - type: regex_find_all
+                pattern: '["''](?:storyboard|sprite|preview|thumbnail|poster)["'']\s*:\s*["'']([^"'']+)["'']|<meta[^>]+(?:property|name)=["''](?:og:image|twitter:image)["''][^>]+content=["'']([^"'']+)["'']|<meta[^>]+content=["'']([^"'']+)["''][^>]+(?:property|name)=["''](?:og:image|twitter:image)["'']'
+                format: "{1}{2}{3}"
+              - type: resolve_url
+                proxy: true
+          - name: width
+            type: number
+            actions:
+              - type: format_text
+                argument: "125"
+          - name: height
+            type: number
+            actions:
+              - type: format_text
+                argument: "70"
+          - name: columns
+            type: number
+            actions:
+              - type: format_text
+                argument: "10"
+          - name: rows
+            type: number
+            actions:
+              - type: format_text
+                argument: "10"
     post_process:
       - type: fetch_actions_to_field
         source: redirect_url
@@ -60,10 +110,48 @@ queries:
           - type: regex_find_all
             pattern: '<script\s+type="application/json">\s*\["([^"]+)"\]\s*</script>'
             format: "{1}"
+      - type: fetch_actions_to_field
+        source: redirect_url
+        target: title
+        output_type: string
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: '<meta[^>]+(?:property|name)=["''](?:og:title|twitter:title)["''][^>]+content=["'']([^"'']+)["'']|<meta[^>]+content=["'']([^"'']+)["''][^>]+(?:property|name)=["''](?:og:title|twitter:title)["'']|<title>([^<]+)</title>'
+            format: "{1}{2}{3}"
+      - type: fetch_actions_to_field
+        source: redirect_url
+        target: image/title > link
+        output_type: string
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: '<meta[^>]+(?:property|name)=["''](?:og:image|twitter:image)["''][^>]+content=["'']([^"'']+)["'']|<meta[^>]+content=["'']([^"'']+)["''][^>]+(?:property|name)=["''](?:og:image|twitter:image)["'']'
+            format: "{1}{2}"
+          - type: replace_text
+            search: "_storyboard_L2.jpg"
+            replace: "_storyboard_L5.jpg"
+          - type: resolve_url
+            proxy: true
+      - type: fetch_actions_to_field
+        source: redirect_url
+        target: storyboard > url
+        output_type: string
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: '["''](?:storyboard|sprite|preview|thumbnail|poster)["'']\s*:\s*["'']([^"'']+)["'']|<meta[^>]+(?:property|name)=["''](?:og:image|twitter:image)["''][^>]+content=["'']([^"'']+)["'']|<meta[^>]+content=["'']([^"'']+)["''][^>]+(?:property|name)=["''](?:og:image|twitter:image)["'']'
+            format: "{1}{2}{3}"
+
+          - type: replace_text
+            search: "_storyboard_L2.jpg"
+            replace: "_storyboard_L0.jpg"
+          - type: resolve_url
+            proxy: true
       - type: apply_actions_to_field
         source: encoded_config
-        target: stream_url
-        output_type: string[]
+        target: decoded_config
+        output_type: string
         actions:
           - type: caesar_shift
             shift: 13
@@ -75,6 +163,11 @@ queries:
             value: -3
           - type: reverse
           - type: base64_decode
+      - type: apply_actions_to_field
+        source: decoded_config
+        target: stream_url
+        output_type: string[]
+        actions:
           - type: json_extract_text
             path: /source
           - type: resolve_url
