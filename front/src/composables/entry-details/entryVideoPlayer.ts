@@ -735,21 +735,21 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
       }
 
       if (previousPlayableItemId !== nextPlayableItemId) {
-        selectedPlayableLanguageKey.value = preferredLanguageKey.value
-        selectedPlayablePlayerId.value = null
+        const selectedItemPlayers = options.selectedPlayableItem.value?.players ?? []
+        const preferredPlayer = preferredPlayerKey.value
+          ? selectedItemPlayers.find(
+              (player) => getPlayerPreferenceKey(player) === preferredPlayerKey.value,
+            )
+          : null
+
+        selectedPlayableLanguageKey.value = preferredPlayer
+          ? getPlayerLanguageKey(preferredPlayer)
+          : preferredLanguageKey.value
+        selectedPlayablePlayerId.value = preferredPlayer?.id ?? null
         activeVideoMode.value = 'media'
       }
     },
   )
-
-  watch(options.selectedPlayableItem, (selectedPlayableItem) => {
-    if (!selectedPlayableItem || selectedPlayableItem.players.length === 0) {
-      return
-    }
-
-    selectedPlayableLanguageKey.value = preferredLanguageKey.value
-    selectedPlayablePlayerId.value = null
-  })
 
   watch(activeLanguageKey, (nextLanguageKey, previousLanguageKey) => {
     if (
