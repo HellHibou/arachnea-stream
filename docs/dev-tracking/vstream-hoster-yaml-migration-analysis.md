@@ -7,7 +7,7 @@
 ## Objectif
 
 Migrer progressivement les résolveurs historiques vStream vers des fichiers YAML dans
-`server/services/arachnea-stream-resolver/`. Chaque résolveur doit proposer `resolve_stream` ;
+`server/services/arachnea-stream-hoster/`. Chaque résolveur doit proposer `resolve_stream` ;
 `can_resolve_url` et `can_resolve_html` sont des reconnaissances optionnelles selon le chemin
 nécessaire. La réponse publique `get_stream` est déjà stabilisée.
 
@@ -22,15 +22,15 @@ Références à appliquer :
 - [spécification Scrapyfy française](../specifications/arachnea-scrapyfy-fr.md) et
   [anglaise](../specifications/arachnea-scrapyfy-en.md), pour `request_headers`,
   `get_response_body`, `resolve_url` et `suffix` ;
-- [résolveur de référence Sibnet](../../server/services/arachnea-stream-resolver/sibnet.yaml).
+- [résolveur de référence Sibnet](../../server/services/arachnea-stream-hoster/sibnet.yaml).
 
 ## Fondations existantes à conserver
 
 Les fondations ci-dessous, transférées de l’analyse précédente, sont déjà implémentées. Toute
 nouvelle migration de hoster doit les utiliser sans introduire de sélection par domaine dans Rust.
 
-- Le groupe `arachnea-stream-resolver` est chargé via
-  `server/services/arachnea-stream-resolver/services.json`. Chaque YAML déclare `resolve_stream` ;
+- Le groupe `arachnea-stream-hoster` est chargé via
+  `server/services/arachnea-stream-hoster/services.json`. Chaque YAML déclare `resolve_stream` ;
   `can_resolve_url` sert de préfiltre optionnel pour les tentatives directes, et
   `can_resolve_html` sert à reconnaître une page déjà chargée. En cas de plusieurs
   correspondances, le premier service actif dans `services.json` reste prioritaire.

@@ -569,9 +569,9 @@ La commande binaire `get_drm_license` remplace l'ancienne commande
 `get_stream` pour le proxy de licence DRM. Son chemin public est
 `/api/get_drm_license/{source}/{token}`.
 
-### 5.9.3 Groupe de résolveurs YAML — `arachnea-stream-resolver`
+### 5.9.3 Groupe de résolveurs YAML — `arachnea-stream-hoster`
 
-Le groupe `arachnea-stream-resolver` contient des résolveurs configurables
+Le groupe `arachnea-stream-hoster` contient des résolveurs configurables
 par YAML pour les hébergeurs externes. Chaque fichier YAML déclare au minimum
 `resolve_stream`. Les requêtes de reconnaissance sont optionnelles et servent
 à éviter des requêtes réseau inutiles ou à reconnaître une page déjà chargée.

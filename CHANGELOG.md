@@ -26,6 +26,7 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **M6Play manifest redirects**: M6 manifest proxy URLs now remove the `Arachnea-Proxy-Country` option after HTTP `302` redirects so the redirected manifest request no longer forces country routing.
 - **M6Play MPD initialization URLs**: M6 proxied manifests now rewrite `/m6web/` initialization paths to the proxied Bedrock CDN URL so segment initialization requests stay on the controller proxy route.
 - **Stream YAML output standardization**: Dark-stream home sections now emit `entries` instead of `items`, selected media metadata fields now use typed arrays/numbers, m6play category descriptions were removed from YAML and the frontend category model, and TF1 category request descriptors no longer carry the redundant `channel_label` parameter.
+- **YAML stream hoster group rename**: Renamed the YAML stream resolver service group and directory to `arachnea-stream-hoster`.
 
 ### Removed
 - Dead helpers: `process_root`, `parse_html_rows`, `collect_ordered_results`, `matches` (response_parser), `resolve_request_headers`/`resolve_request_body`/`execution_options` (JsonScraperQuery), `split_static_path`, `render_static_value`, `render_yaml_value`, `render_yaml_values` (StaticScraperQuery).

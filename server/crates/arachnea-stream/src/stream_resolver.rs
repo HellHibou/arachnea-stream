@@ -13,8 +13,8 @@ use crate::services::player_resolver::{
 const MAX_EMBED_HTML_BYTES: usize = 1_048_576;
 const STREAM_RESOLVER_MAX_REDIRECTS: usize = 16;
 
-/// Group name used by the stream resolver configuration.
-pub const STREAM_RESOLVER_GROUP_NAME: &str = "arachnea-stream-resolver";
+/// Group name used by the stream hoster configuration.
+pub const STREAM_RESOLVER_GROUP_NAME: &str = "arachnea-stream-hoster";
 
 /// Default path used by the stream resolver services configuration.
 pub const STREAM_RESOLVER_CONFIG_PATH: &str = concatcp!(
@@ -56,7 +56,7 @@ pub(crate) enum ResolvedStream {
 
 /// Generic YAML-driven stream resolver facade.
 ///
-/// Uses the `arachnea-stream-resolver` group loaded into a `ScraperAgregator` to match
+/// Uses the `arachnea-stream-hoster` group loaded into a `ScraperAgregator` to match
 /// external player URLs against configured YAML rules, then extracts playable media URLs.
 /// This facade does not contain any source-specific domain logic.
 pub(crate) struct StreamResolver<'a> {
@@ -69,7 +69,7 @@ impl<'a> StreamResolver<'a> {
     ///
     /// # Arguments
     ///
-    /// * `scraper_agregator` - Aggregator that has loaded the `arachnea-stream-resolver` group.
+    /// * `scraper_agregator` - Aggregator that has loaded the `arachnea-stream-hoster` group.
     /// * `endpoints` - Player resolver endpoints for proxy URL generation.
     pub fn new(
         scraper_agregator: &'a ScraperAgregator,

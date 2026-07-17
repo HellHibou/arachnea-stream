@@ -21,7 +21,7 @@ fn unique_temp_dir() -> PathBuf {
         .expect("system time should be after UNIX_EPOCH")
         .as_nanos();
     std::env::temp_dir().join(format!(
-        "arachnea-stream-resolver-test-{}-{}",
+        "arachnea-stream-hoster-test-{}-{}",
         std::process::id(),
         nanos
     ))
@@ -294,7 +294,7 @@ queries:
 
 #[test]
 fn voe_can_resolve_html_detects_proposed_domains_in_memory() {
-    let voe_yaml = include_str!("../../../services/arachnea-stream-resolver/voe.yaml");
+    let voe_yaml = include_str!("../../../services/arachnea-stream-hoster/voe.yaml");
     let (agregator, temp_dir) = setup_resolver_sources(&[("voe", voe_yaml)]);
     let endpoints = crate::services::player_resolver::PlayerResolverEndpoints::default();
     let resolver = StreamResolver::new(&agregator, &endpoints);
@@ -329,7 +329,7 @@ fn voe_can_resolve_html_detects_proposed_domains_in_memory() {
 
 #[test]
 fn voe_can_resolve_html_rejects_generic_encoded_config_marker() {
-    let voe_yaml = include_str!("../../../services/arachnea-stream-resolver/voe.yaml");
+    let voe_yaml = include_str!("../../../services/arachnea-stream-hoster/voe.yaml");
     let (agregator, temp_dir) = setup_resolver_sources(&[("voe", voe_yaml)]);
     let endpoints = crate::services::player_resolver::PlayerResolverEndpoints::default();
     let resolver = StreamResolver::new(&agregator, &endpoints);

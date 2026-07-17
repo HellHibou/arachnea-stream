@@ -578,9 +578,9 @@ first sprite URL by replacing `{index}` with `1`. A single-image sprite still de
 The `get_drm_license` binary command handles DRM license proxying. Its public path is
 `/api/get_drm_license/{source}/{token}`.
 
-### 5.9.3 YAML resolver group — `arachnea-stream-resolver`
+### 5.9.3 YAML resolver group — `arachnea-stream-hoster`
 
-The `arachnea-stream-resolver` group contains YAML-configurable resolvers for external hosts.
+The `arachnea-stream-hoster` group contains YAML-configurable resolvers for external hosts.
 Each YAML file declares at least `resolve_stream`. Recognition queries are optional and are
 used to avoid unnecessary network fetches or to identify a page that has already been loaded.
 
