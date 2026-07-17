@@ -338,7 +338,7 @@ function handleLoadMore() {
 }
 
 .entry-details__pagination-action {
-  background: var(--bg-accent-blue);
+  background: var(--bg-accent-primary);
   box-shadow: var(--box-shadow-elevated);
   border: 1px solid var(--border-color-primary);
   border-radius: 999px;

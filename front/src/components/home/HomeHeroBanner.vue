@@ -699,7 +699,7 @@ onBeforeUnmount(() => {
   padding: 0 20px;
   border: 0;
   border-radius: var(--radius);
-  background: var(--bg-accent-blue);
+  background: var(--bg-accent-primary);
   color: var(--text-primary);
   font: inherit;
   font-size: 0.98rem;
@@ -799,7 +799,7 @@ onBeforeUnmount(() => {
 
 .home-hero-banner__dot--active {
   transform: scale(1.14);
-  background: var(--bg-accent-blue);
+  background: var(--bg-accent-primary);
 }
 
 .home-hero-banner__controls {

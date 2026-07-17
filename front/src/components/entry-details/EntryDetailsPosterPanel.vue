@@ -213,7 +213,7 @@ function handleSourceLogoError() {
 
 .entry-details__secondary-action {
   border: 1px solid var(--border-color-primary);
-  background: var(--bg-accent-blue);
+  background: var(--bg-accent-primary);
   box-shadow: var(--box-shadow-elevated);
   cursor: pointer;
 }

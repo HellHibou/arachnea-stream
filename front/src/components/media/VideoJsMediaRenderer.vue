@@ -274,6 +274,7 @@ const storyboardPreviewStyle = computed(() => {
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-progress-control .vjs-load-progress),
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-progress-control .vjs-play-progress) {
   height: 100%;
+  background: var(--bg-accent-primary);
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-progress-control .vjs-play-progress::before) {
@@ -283,7 +284,7 @@ const storyboardPreviewStyle = computed(() => {
   width: 1.1rem;
   height: 1.1rem;
   border-radius: 50%;
-  background: var(--color-primary);
+  background: var(--bg-accent-primary);
   content: '';
   opacity: 0;
   transform: translateY(-50%);
@@ -348,7 +349,7 @@ const storyboardPreviewStyle = computed(() => {
   width: 1.1rem;
   height: 1.1rem;
   border-radius: 50%;
-  background: var(--color-primary);
+  background: var(--bg-accent-primary);
   content: '';
   transform: translateY(-50%);
   opacity: 0;
@@ -376,8 +377,8 @@ const storyboardPreviewStyle = computed(() => {
   top: 2px;
 }
 
-.videojs-media-host :deep(.arachnea-videojs-theme .vjs-audio-button .vjs-icon-placeholder:before){    font-size: 2.3em;   /* encore plus gros */
- font-size: 2.1em;   /* encore plus gros */
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-audio-button .vjs-icon-placeholder:before){    
+  font-size: 2.1em;   /* encore plus gros */
 }
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-subs-caps-button .vjs-icon-placeholder:before),
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-subtitles-button .vjs-icon-placeholder:before) {
@@ -390,7 +391,8 @@ const storyboardPreviewStyle = computed(() => {
   left: 55%;
   width: 1.7rem;
   height: 1.7rem;
-  background-image: url("@/assets/icons/volume-mute.svg");  content: '';
+  background-image: url("@/assets/icons/volume-mute.svg"); 
+  content: '';
   transform: translate(-50%, -50%);
 }
 
@@ -451,7 +453,7 @@ const storyboardPreviewStyle = computed(() => {
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-volume-level) {
   height: 100%;
   border-radius: 0;
-  background: var(--color-primary);
+  background: var(--bg-accent-primary);
   overflow: visible;
 }
 
@@ -646,7 +648,7 @@ const storyboardPreviewStyle = computed(() => {
 }
 
 .videojs-media-host :deep(.vjs-episode-autoplay-toggle--active .vjs-episode-autoplay-track) {
-  background: var(--color-primary);
+  background: var(--bg-accent-primary);
 }
 
 .videojs-media-host :deep(.vjs-episode-autoplay-toggle .vjs-episode-autoplay-thumb) {
@@ -721,7 +723,7 @@ const storyboardPreviewStyle = computed(() => {
   border-radius: 50% !important;
   box-shadow: 0 14px 26px rgb(0 0 0 / 0.34) !important;
   transform: translate(-50%, -50%) !important;
-  background: var(--bg-accent-blue) !important;
+  background: var(--bg-accent-primary) !important;
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-big-play-button .vjs-icon-placeholder) {

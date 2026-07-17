@@ -117,7 +117,7 @@ function handleChange(value: string) {
 }
 
 .parameters-segmented__input:checked + .parameters-segmented__label {
-  background: var(--bg-accent-blue);
+  background: var(--bg-accent-primary);
   color: var(--text-primary);
 }
 

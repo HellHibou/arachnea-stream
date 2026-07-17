@@ -274,7 +274,7 @@ defineExpose({ focus })
   padding: 0 20px;
   border: 0;
   border-radius: var(--radius);
-  background: var(--bg-accent-blue);
+  background: var(--bg-accent-primary);
   color: var(--text-primary);
   font: inherit;
   font-size: 1rem;

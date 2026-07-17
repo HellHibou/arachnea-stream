@@ -148,7 +148,7 @@ function handleChange(event: Event) {
 }
 
 .parameters-switch__input:checked + .parameters-switch__control {
-  background: var(--bg-accent-blue);
+  background: var(--bg-accent-primary);
 }
 
 .parameters-switch__input:checked + .parameters-switch__control::after {

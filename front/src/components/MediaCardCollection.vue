@@ -473,7 +473,7 @@ const effectiveInitialLoadingMessage = computed(() =>
   }
 
   .media-card-collection__load-more--action {
-    background: var(--bg-accent-blue);
+    background: var(--bg-accent-primary);
     box-shadow: var(--box-shadow-elevated);
   }
 

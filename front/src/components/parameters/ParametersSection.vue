@@ -63,6 +63,6 @@ defineProps<Props>()
   height: 18px;
   border-radius: 999px;
   transform: translateY(-50%);
-  background: var(--bg-accent-marker-blue);
+  background: var(--bg-accent-marker-primary);
 }
 </style>

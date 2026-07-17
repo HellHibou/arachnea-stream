@@ -63,7 +63,7 @@ function handleSelect() {
   padding: 0 16px;
   border: 0;
   border-radius: 999px;
-  background: var(--bg-accent-blue);
+  background: var(--bg-accent-primary);
   box-shadow: 0 10px 18px var(--shadow-color);
   color: var(--text-primary);
   font: inherit;

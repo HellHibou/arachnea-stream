@@ -1,14 +1,21 @@
 /* Shared frontend design tokens */
 
 :root {
+
+   --h-primary: 210;   --s-primary: 100%;   --l-primary: 60%;    /* Arachnea Blue   */
+/* --h-primary: 120;   --s-primary: 100%;   --l-primary: 35%;    /* Rumble Green    */
+/* --h-primary: 23.9;  --s-primary: 90.6%;  --l-primary: 54.3%;  /* Orange Crunchy  */
+/* --h-primary: 357;   --s-primary: 92%;    --l-primary: 36%;    /* Red-flix        */
+/* --h-primary: 258.5; --s-primary: 95.4%;  --l-primary: 66.1%;  /* Purple Twitch   */
+
+  --color-primary: hsl(var(--h-primary), var(--s-primary), var(--l-primary));
+
   /* Breakpoint references */
   --bp-xs: 640px;
   --bp-sm: 720px;
   --bp-md: 820px;
   --bp-lg: 960px;
   --bp-xl: 1120px;
-
-  --color-primary: #33a3ff;
 
   /* Text colors */
   --text-primary: #ffffff;
@@ -27,7 +34,16 @@
   --bg-surface-soft: rgba(16, 20, 28, 0.20);
 
   /* Accent backgrounds */
-  --bg-accent-blue: linear-gradient(180deg, #33a3ff 0%, #2484df 100%);
+  --bg-accent-primary: linear-gradient(
+    180deg,
+    var(--color-primary) 0%,
+    hsl(
+      var(--h-primary),
+      calc(var(--s-primary) - 26%),
+      calc(var(--l-primary) - 9%)
+    ) 100%
+  );
+
   --bg-accent-red: linear-gradient(180deg, #ff4f5f 0%, #ea293d 100%);
 
   /* Borders */
@@ -42,7 +58,12 @@
   /* Focus and shared alphas */
   --inset-light: inset 0 1px 0 rgba(255, 255, 255, 0.04);
   --shadow-color: rgba(0, 0, 0, 0.32);
-  --focus-ring-color : rgba(130, 197, 255, 0.86);
+  --focus-ring-color: hsla(
+    var(--h-primary),
+    var(--s-primary),
+    calc(var(--l-primary) + 15%),
+    0.86
+  );
   --focus-ring-danger-color: rgba(255, 212, 217, 0.92);
   --duration-fast: 160ms;
 
@@ -66,7 +87,16 @@
   --bg-rating-good: linear-gradient(180deg, #13c261 0%, #0ca24f 100%);
   --bg-rating-average: linear-gradient(180deg, #ff8a2b 0%, #f06a0d 100%);
   --bg-rating-low: linear-gradient(180deg, #ff5b5b 0%, #d53e3e 100%);
-  --bg-accent-marker-blue: linear-gradient(180deg, #46a3ff 0%, #2b7bd7 100%);
+  --bg-accent-marker-primary: linear-gradient(
+    180deg,
+    /* Départ : #46a3ff (Luminosité +3.7%) */
+    hsl(var(--h-primary), var(--s-primary), calc(var(--l-primary) + 3.7%)) 0%,
+    hsl(
+      var(--h-primary),
+      calc(var(--s-primary) - 31.75%),
+      calc(var(--l-primary) - 9.4%)
+    ) 100%
+  );
 
   /* Reusable overlays */
   --bg-overlay-media-card-shade: linear-gradient(180deg, transparent 0%, rgba(9, 11, 16, 0.82) 100%);

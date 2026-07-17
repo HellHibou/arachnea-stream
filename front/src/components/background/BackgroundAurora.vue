@@ -48,9 +48,24 @@ withDefaults(defineProps<Props>(), {
   background:
     radial-gradient(
       ellipse at 38% 58%,
-      rgba(98, 162, 214, 0.4) 0%,
-      rgba(98, 162, 214, 0.24) 26%,
-      rgba(98, 162, 214, 0.1) 42%,
+      hsla(
+        calc(var(--h-primary) - 3),
+        calc(var(--s-primary) - 41%),
+        calc(var(--l-primary) + 1%),
+        0.4
+      ) 0%,
+      hsla(
+        calc(var(--h-primary) - 3),
+        calc(var(--s-primary) - 41%),
+        calc(var(--l-primary) + 1%),
+        0.24
+      ) 26%,
+      hsla(
+        calc(var(--h-primary) - 3),
+        calc(var(--s-primary) - 41%),
+        calc(var(--l-primary) + 1%),
+        0.1
+      ) 42%,
       transparent 78%
     );
 }
@@ -59,9 +74,24 @@ withDefaults(defineProps<Props>(), {
   background:
     radial-gradient(
       ellipse at 64% 58%,
-      rgba(92, 176, 198, 0.28) 0%,
-      rgba(92, 176, 198, 0.16) 24%,
-      rgba(92, 176, 198, 0.06) 42%,
+      hsla(
+        calc(var(--h-primary) - 17),
+        calc(var(--s-primary) - 51%),
+        calc(var(--l-primary) - 3%),
+        0.28
+      ) 0%,
+      hsla(
+        calc(var(--h-primary) - 17),
+        calc(var(--s-primary) - 51%),
+        calc(var(--l-primary) - 3%),
+        0.16
+      ) 24%,
+      hsla(
+        calc(var(--h-primary) - 17),
+        calc(var(--s-primary) - 51%),
+        calc(var(--l-primary) - 3%),
+        0.06
+      ) 42%,
       transparent 78%
     );
 }
@@ -70,9 +100,24 @@ withDefaults(defineProps<Props>(), {
   background:
     radial-gradient(
       ellipse at 50% 72%,
-      rgba(184, 158, 126, 0.1) 0%,
-      rgba(184, 158, 126, 0.05) 22%,
-      rgba(184, 158, 126, 0.02) 38%,
+      hsla(
+        calc(var(--h-primary) - 178),
+        calc(var(--s-primary) - 69%),
+        calc(var(--l-primary) + 1%),
+        0.1
+      ) 0%,
+      hsla(
+        calc(var(--h-primary) - 178),
+        calc(var(--s-primary) - 69%),
+        calc(var(--l-primary) + 1%),
+        0.05
+      ) 22%,
+      hsla(
+        calc(var(--h-primary) - 178),
+        calc(var(--s-primary) - 69%),
+        calc(var(--l-primary) + 1%),
+        0.02
+      ) 38%,
       transparent 74%
     );
 }
