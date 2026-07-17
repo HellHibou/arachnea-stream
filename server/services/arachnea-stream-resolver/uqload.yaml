@@ -1,14 +1,14 @@
-id: vidhide
-title: VidHide
+id: uqload
+title: Uqload
 description:
-  en: "Resolver VidHide for minochinos.com"
+  en: "Resolver for uqload.is, uqload.com"
 http:
   mode: auto
 
 
 # ############################################################################
 # Parameters
-# ############################################################################ 
+# ############################################################################
 parameters:
   - name: url
     value: ""
@@ -31,7 +31,7 @@ queries:
         value: "{url}"
         actions:
           - type: regex_find_all
-            pattern: '^https?://(?:www\.)?minochinos\.com/embed/'
+            pattern: '^https?://(?:www\.)?(?:uqload\.(?:is|com|to|ws|co))/'
             format: "{service_id}"
 
 
@@ -43,6 +43,27 @@ queries:
     base_url: "{url}"
     query_url: "{url}"
     row_selector: "html"
+    request_headers:
+      - name: "User-Agent"
+        actions:
+          - type: format_text
+            argument: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+      - name: "sec-ch-ua"
+        actions:
+          - type: format_text
+            argument: '"Chromium";v="138", "Google Chrome";v="138", "Not(A:Brand";v="8"'
+      - name: "sec-ch-ua-mobile"
+        actions:
+          - type: format_text
+            argument: "?0"
+      - name: "sec-ch-ua-platform"
+        actions:
+          - type: format_text
+            argument: '"Windows"'
+      - name: "upgrade-insecure-requests"
+        actions:
+          - type: format_text
+            argument: "1"
     entries:
       - name: stream_url
         type: string[]
@@ -50,39 +71,30 @@ queries:
           - type: get_response_body
           - type: unpack_packer
           - type: regex_find_all
-            pattern: '["'']hls[234]["'']\s*:\s*["'']([^"'']+)'
+            pattern: 'file:\s*"((?:https?://)[^"]+\.m3u8[^"]*)"'
             format: "{1}"
           - type: resolve_url
             proxy: true
-      - name: stream_headers
-        type: object
-        select: first
-        entries:
-          - name: Referer
-            type: string
-            actions:
-              - type: format_text
-                argument: "{url}"
+            proxy_headers:
+              User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+              Referer: "{base_url}"
+              Origine: "{base_url}"
+            proxy_replace_all:
+              - pattern: '(?m)^(https?://[^\r\n]+)'
+                replacement: '{proxy_inherited}/$1'
+                content_types:
+                  - application/vnd.apple.mpegurl
       - name: manifest_type
         type: string
         actions:
           - type: format_text
             argument: "hls"
-      - name: title
-        type: string
-        selector: "meta[name='description']"
-        actions:
-          - type: get_attribut
-            argument: content
       - name: image/title > link
         type: string
         selector: "#vplayer img"
         actions:
           - type: get_attribut
             argument: src
-          - type: replace_text
-            search: "_xt.jpg"
-            replace: ".jpg"
           - type: resolve_url
             proxy: true
       - name: storyboard_vtt_url
@@ -91,13 +103,19 @@ queries:
           - type: get_response_body
           - type: unpack_packer
           - type: regex_find_all
-            pattern: '(/dl\?op=get_slides[^"''\s]+)'
+            pattern: '(https?://[^"''\s]+/vtt/[^"''\s]+_sli\.vtt)'
             format: "{1}"
           - type: resolve_url
             proxy: true
             proxy_replace_all:
-              - pattern: '(?m)^(https?://[^\r\n]+)'
-                replacement: '{proxy_inherited}/$1'
+              - pattern: '(?m)^([^\r\n]+\.jpg#xywh=[^\r\n]+)$'
+                replacement: '{proxy_inherited}/{base_url}{path_base}$1'
                 content_types:
                   - text/vtt
-                  - application/vnd.apple.mpegurl
+      - name: title
+        type: string
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: '<title>([^<]*)</title>'
+            format: "{1}"

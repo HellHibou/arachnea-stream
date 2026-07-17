@@ -26,5 +26,9 @@
   {
     "path": "vk.yaml",
     "enabled": true
+  },
+  {
+    "path": "uqload.yaml",
+    "enabled": true
   }
 ]

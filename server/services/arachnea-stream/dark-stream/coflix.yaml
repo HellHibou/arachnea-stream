@@ -78,46 +78,55 @@ queries:
             argument: "{source}"
       - name: banners
         type: object[]
-        selector: 'article.splide__slide'
+        selector: '#slider-main .slide'
+        select: all
         entries:
           - name: title
             type: string
             select: first
-            selector: "h2"
-            actions:
-              - type: get_text
-          - name: image
-            type: string
-            selector: "figure.bg > img"
-            select: all
+            selector: "h2.title"
             actions:
               - type: get_attribut
-                argument: data-splide-lazy
-              - type: format_text
-                argument: "https:{}"
+                argument: data-jp
+          - name: image
+            type: string
+            select: first
+            selector: "img.thum-img"
+            actions:
+              - type: get_attribut
+                argument: src
           - name: link
             type: string
             select: first
-            selector: ul > li > a.btn
+            selector: a.btn-watch
             actions:
               - type: get_attribut
                 argument: href
           - name: web-link
             type: string
             select: first
-            selector: ul > li > a.btn
+            selector: a.btn-watch
             actions:
               - type: get_attribut
                 argument: href
           - name: description
             type: string
             select: first
-            selector: "div.entry-content > p"
+            selector: "p.excerpt"
             actions:
               - type: get_text
           - name: theme
             type: string[]
-            selector: "span.categories > div > a"
+            select: first
+            selector: "span.cats"
+            actions:
+              - type: get_text
+              - type: split
+                argument: ", "
+          - name: year
+            type: number
+            select: first
+            selector: "span.year"
             actions:
               - type: get_text
       - name: categories
@@ -176,62 +185,48 @@ queries:
                 argument: "{base_url}/wp-json/apiflix/v1/options/?post_type=animes&sort=1"
       - name: sections
         type: object[]
-        selector: ".main > section.wdgt_home_movies"
+        selector: "aside.main > section"
         select: all
         entries:
           - name: label
             type: string
             select: first
-            selector: "header > div"
+            selector: "div.head h2.title"
             actions:
-                - type: get_text
+              - type: get_text
           - name: entries
             type: object[]
-            selector: "div.movie-lst > div"
+            selector: "div.ani.items > div.item"
             select: all
             entries:
               - name: title
                 type: string
                 select: first
-                selector: a
+                selector: a.name
                 actions:
                   - type: get_attribut
-                    argument: "aria-label"
+                    argument: data-jp
               - name: link
                 type: string
                 select: first
-                selector: a
+                selector: a.ani.poster
                 actions:
                   - type: get_attribut
                     argument: href
               - name: web-link
                 type: string
                 select: first
-                selector: a
+                selector: a.ani.poster
                 actions:
                   - type: get_attribut
                     argument: href
               - name: img/poster > link
                 type: string
                 select: first
-                selector: div > figure > img
+                selector: a.ani.poster > img
                 actions:
                   - type: get_attribut
                     argument: src
-                  - type: format_text
-                    argument: "http:{}"
-              - name: year
-                type: number
-                select: first
-                selector: .yearyear
-                actions:
-                  - type: get_text
-              - name: rating
-                type: number
-                select: first
-                selector: .imdb > span
-                actions:
-                  - type: get_text
 
 
   # ---------------------------------------------------------------
@@ -598,56 +593,60 @@ queries:
       - name: title
         type: string
         select: first
-        selector: "h1.entry-title, h1"
+        selector: "h1.title"
         actions:
-          - type: get_text
+          - type: get_attribut
+            argument: data-jp
       - name: description
         type: string
         select: first
-        selector: "div.summary p"
+        selector: "div.synopsis div.content p"
         actions:
           - type: get_text
       - name: img/poster > link
         type: string
         select: first
-        selector: "figure > img"
+        selector: "section#w-info div.poster img"
         actions:
           - type: get_attribut
             argument: src
-          - type: resolve_url
       - name: year
         type: number
-        select: first
-        selector: ".year, span.release-year, .date"
         actions:
-          - type: get_text
+          - type: get_response_body
           - type: regex_find_all
-            pattern: '(\d{4})'
+            pattern: 'Date aired:</span>\s*(\d{4})'
             format: "{1}"
-      - name: seasons > label
-        type: string
-        selector: 'input[name="seasons"] + span'
+      - name: theme
+        type: string[]
+        selector: "div.list-genres a"
         select: all
         actions:
           - type: get_text
+      - name: seasons > label
+        type: string
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: 'type\s*:\s*"Series"'
+            format: "Saison"
       - name: seasons > link
         type: string
         actions:
           - type: get_response_body
           - type: regex_find_all
-            pattern: 'name="seasons"\s[^>]*data-season="(\d+)"\s[^>]*post-id="(\d+)'
-            format: "{base_url}/wp-json/apiflix/v1/series/{2}/{1}"
+            pattern: 'movie\s*=\s*\{[^}]*?id\s*:\s*"(\d+)"[^}]*?type\s*:\s*"Series"'
+            format: "{base_url}/wp-json/apiflix/v1/series/{1}"
       - name: players
         type: object[]
         actions:
           - type: get_response_body
           - type: regex_find_all
-            pattern: '<iframe[^>]+src="([^"]+)'
-            format: "{1}"
+            pattern: 'episode_play\.id\s*=\s*"(\d+)"'
+            format: "{base_url}/wp-json/apiflix/v1/playerepisode?post_id={1}"
         sub_queries:
-          - scraper_type: html
-            row_selector: "html"
-            context_pointer: "/*"
+          - scraper_type: json
+            row_pointer: "/"
             request_headers:
               - name: "Referer"
                 actions:
@@ -656,55 +655,42 @@ queries:
             entries:
               - name: resolver
                 type: string
-                value: "stream-resolver"
+                actions:
+                  - type: format_text
+                    argument: "stream-resolver"
               - name: target
                 type: string
                 actions:
                   - type: get_response_body
                   - type: regex_find_all
-                    pattern: "showVideo\\(\\s*['\"]([A-Za-z0-9+/=]+)['\"]"
+                    pattern: '"link":"([^"]+)"'
                     format: "{1}"
-                  - type: base64_decode
-              - name: name
-                type: string
-                actions:
-                  - type: get_response_body
-                  - type: regex_find_all
-                    pattern: "showVideo\\(\\s*['\"]([A-Za-z0-9+/=]+)['\"]"
-                    format: "{1}"
-                  - type: base64_decode
-                  - type: get_url_host
-      - name: rating
-        type: number
-        select: first
-        selector: "span.imdb > span"
-        actions:
-            - type: get_text
-      - name: casting
-        type: string[]
-        selector: p.cast > a
-        select: all
-        actions:
-          - type: get_text
-      - name: director
-        type: string[]
-        selector: aside.title-content > p > a
-        select: all
-        actions:
-          - type: get_text
-
-      - name: year
-        type: number
-        select: first
-        selector: "h1 + span"
-        actions:
-          - type: get_text
-      - name: theme
-        type: string[]
-        selector: "header > div > div > a"
-        select: all
-        actions:
-          - type: get_text
+                sub_queries:
+                  - scraper_type: html
+                    row_selector: "html"
+                    request_headers:
+                      - name: "Referer"
+                        actions:
+                          - type: format_text
+                            argument: "{base_url}"
+                    entries:
+                      - name: target
+                        type: string
+                        actions:
+                          - type: get_response_body
+                          - type: regex_find_all
+                            pattern: "showVideo\\(\\s*['\"]([A-Za-z0-9+/=]+)['\"]"
+                            format: "{1}"
+                          - type: base64_decode
+                      - name: name
+                        type: string
+                        actions:
+                          - type: get_response_body
+                          - type: regex_find_all
+                            pattern: "showVideo\\(\\s*['\"]([A-Za-z0-9+/=]+)['\"]"
+                            format: "{1}"
+                          - type: base64_decode
+                          - type: get_url_host
 
   # ---------------------------------------------------------------
   # Season
@@ -774,7 +760,9 @@ queries:
                 entries:
                   - name: resolver
                     type: string
-                    value: "stream-resolver"
+                    actions:
+                      - type: format_text
+                        argument: "stream-resolver"
                   - name: target
                     type: string
                     actions:

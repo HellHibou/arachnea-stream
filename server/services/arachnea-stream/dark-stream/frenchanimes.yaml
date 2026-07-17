@@ -637,7 +637,7 @@ queries:
       - type: extract_regex_items
         source: _raw_eps
         target: seasons > episodes
-        pattern: '(\d+)!((?:https?://[^,\s]+(?:,\s*https?://[^,\s]+)*))'
+        pattern: '(\d+)!((?:(?:https?:)?//[^,\s]+(?:,(?:https?:)?//[^,\s]+)*))'
         entries:
           - name: episode-number
             type: number
@@ -660,18 +660,21 @@ queries:
             actions:
               - type: split
                 argument: ","
+              - type: resolve_url
           - name: players > web-link
             type: string
             capture_group: 2
             actions:
               - type: split
                 argument: ","
+              - type: resolve_url
           - name: players > name
             type: string
             capture_group: 2
             actions:
               - type: split
                 argument: ","
+              - type: resolve_url
               - type: get_url_host
       - type: derive_pagination
         remove_fields:

@@ -388,7 +388,7 @@ est donc documenté ici plutôt que rattaché artificiellement à `allow_redirec
 | `uptostream.py` | ⚠️ À qualifier — mécanisme impératif détecté | ⬜ À auditer | ⬜ À auditer | — |
 | `upvid.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
 | `upvideo.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
-| `uqload.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
+| `uqload.py` | ✅ YAML `uqload.yaml` activé ; validation réelle du Packer et du flux HLS en attente | ✅ Sprite Packer via `/vtt/`, 5 × 5 imagettes de 200 × 112 px | ✅ image `<img>` dans `#vplayer` → `image/title > link` avec proxy | — |
 | `userload.py` | ⚠️ À qualifier — mécanisme impératif détecté | ⬜ À auditer | ⬜ À auditer | — |
 | `verystream.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
 | `vf-manga.py` | ⚠️ À qualifier — mécanisme impératif détecté | ⬜ À auditer | ⬜ À auditer | — |

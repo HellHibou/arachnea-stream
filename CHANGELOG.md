@@ -260,3 +260,15 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **Storyboard WebVTT proxying**: `resolve_url` now supports declarative `proxy_replace_all` actions that rewrite proxied textual responses through the controller HTTP proxy, used by the VidHide storyboard VTT resolver.
 - **LuluStream resolver**: Added the enabled YAML HLS resolver for `luluvdo.com` and `lulustream.com` (`.com`, `.to`). Handles Dean Edwards Packer-encoded JWPlayer setup via `unpack_packer`, stream Referer, proxied HLS source, title from `<title>`, and poster from `meta[name='og:image']`.
 - **Proxy URL headers**: `resolve_url` and `resolve_url_from_parent` now accept declarative `proxy_headers`, embedding upstream HTTP headers in generated proxy URLs without exposing resolver-only stream metadata.
+
+## Unreleased — UQLoad storyboard metadata
+
+### Added
+
+- **UQLoad resolver storyboard**: `uqload.yaml` now extracts the Packer-declared `/vtt/` thumbnail track through the HTTP proxy, rewriting its relative sprite references; the current sprite is a 5 × 5 grid of 200 × 112 px thumbnails.
+
+## Unreleased — VidHide poster URL
+
+### Fixed
+
+- **VidHide resolver poster**: The proxied `image/title` URL now removes the `_xt` thumbnail suffix before `.jpg`.
