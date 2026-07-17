@@ -183,7 +183,6 @@ pub struct ScraperHttpConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     /// Proxy country hint (ISO country code) for geo-targeted requests.
     pub proxy_country: Option<String>,
-    #[serde(skip)]
     /// Maximum number of redirects to follow before returning an error.
     pub max_redirects: Option<usize>,
 }

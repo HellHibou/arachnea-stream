@@ -10,23 +10,23 @@ use std::{
 };
 
 /// A normalized DNS query used by the public core API.
-/// 
+///
 /// This struct represents a DNS query that has been normalized for consistent
 /// processing. The domain name is converted to lowercase and any trailing dots
 /// are removed to ensure consistent comparison and caching.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct QueryRequest {
     /// Domain name, normalized to lower case without a trailing dot.
-    /// 
+    ///
     /// This field contains the fully qualified domain name in a normalized form
     /// suitable for DNS lookups and cache key generation.
     pub name: String,
     /// Requested record type.
-    /// 
+    ///
     /// Specifies the type of DNS record being requested (e.g., A, AAAA, MX).
     pub record_type: RecordType,
     /// DNS class. Version 1 supports only IN.
-    /// 
+    ///
     /// Currently only the Internet (IN) class is supported, as specified in
     /// the DNS protocol standards.
     pub class: DnsClass,
@@ -53,20 +53,20 @@ impl QueryRequest {
 }
 
 /// DNS class supported by the resolver.
-/// 
+///
 /// This enum represents the DNS class field as defined in RFC 1035.
 /// Currently only the Internet (IN) class is supported.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum DnsClass {
     /// Internet class.
-    /// 
+    ///
     /// The IN class is the standard DNS class used for Internet resources.
     IN,
 }
 
 /// Public DNS record types supported by version 1 APIs.
-/// 
+///
 /// This enum represents the standard DNS record types that are supported
 /// by the resolver. Each variant corresponds to a specific type of DNS
 /// resource record as defined in RFC 1035 and related standards.
@@ -74,30 +74,30 @@ pub enum DnsClass {
 #[serde(rename_all = "UPPERCASE")]
 pub enum RecordType {
     /// IPv4 address.
-    /// 
+    ///
     /// A records map domain names to IPv4 addresses.
     A,
     /// IPv6 address.
-    /// 
+    ///
     /// AAAA records map domain names to IPv6 addresses.
     AAAA,
     /// Canonical name.
-    /// 
+    ///
     /// CNAME records specify that a domain name is an alias for another
     /// domain name (the canonical name).
     CNAME,
     /// Mail exchanger.
-    /// 
+    ///
     /// MX records specify mail exchange servers for a domain, used for
     /// email routing.
     MX,
     /// Text record.
-    /// 
+    ///
     /// TXT records contain arbitrary text data and are often used for
     /// domain verification and configuration.
     TXT,
     /// Service locator.
-    /// 
+    ///
     /// SRV records specify the location of services (such as LDAP or SIP)
     /// within a domain.
     SRV,
@@ -184,7 +184,7 @@ impl FromStr for RecordType {
 }
 
 /// Data stored in a DNS resource record.
-/// 
+///
 /// This enum represents the payload data for different types of DNS
 /// resource records. Each variant corresponds to a specific record type
 /// and contains the appropriate data fields for that type.
@@ -261,46 +261,46 @@ impl RecordData {
 }
 
 /// Public resource record returned by the resolver.
-/// 
+///
 /// This struct represents a single DNS resource record as returned by
 /// the DNS resolver. It contains the domain name, time-to-live, and
 /// the record-specific data payload.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Record {
     /// Owner name.
-    /// 
+    ///
     /// The domain name to which this record applies.
     pub name: String,
     /// Time to live in seconds.
-    /// 
+    ///
     /// Specifies how long the record can be cached before it should be
     /// considered stale and refreshed from an authoritative source.
     pub ttl: u32,
     /// Typed record payload.
-    /// 
+    ///
     /// Contains the record-type-specific data for this resource record.
     pub data: RecordData,
 }
 
 /// Complete answer for a DNS query.
-/// 
+///
 /// This struct represents the complete response to a DNS query, including
 /// the original query information, the resource records that answer the
 /// query, and metadata about how the answer was obtained.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Answer {
     /// Original normalized query.
-    /// 
+    ///
     /// The query that produced this answer, in normalized form.
     pub query: QueryRequest,
     /// Records returned for the query.
-    /// 
+    ///
     /// The resource records that satisfy the DNS query. This may include
     /// records of the requested type as well as CNAME records that form
     /// a chain of aliases.
     pub records: Vec<Record>,
     /// Cache, upstream, DNSSEC and policy metadata.
-    /// 
+    ///
     /// Additional information about how this answer was obtained, including
     /// cache status, upstream server used, DNSSEC validation status, and
     /// any policy decisions that affected the answer.
@@ -308,38 +308,38 @@ pub struct Answer {
 }
 
 /// Metadata attached to a DNS answer.
-/// 
+///
 /// This struct contains additional information about a DNS answer that
 /// describes how it was obtained and processed, including cache status,
 /// upstream server information, and security validation results.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnswerMetadata {
     /// Minimum TTL across returned records.
-    /// 
+    ///
     /// The smallest TTL value among all records in the answer, which
     /// determines how long the entire answer can be cached.
     pub ttl: Option<u32>,
     /// CNAME targets followed or observed in the answer.
-    /// 
+    ///
     /// A list of domain names that form a chain of CNAME aliases that
     /// were followed to resolve the original query.
     pub cname_chain: Vec<String>,
     /// Name of the upstream that produced the answer.
-    /// 
+    ///
     /// The name of the upstream DNS server that provided this answer,
     /// if the answer came from an upstream server.
     pub upstream: Option<String>,
     /// Cache state for the answer.
-    /// 
+    ///
     /// Indicates whether this answer came from cache, and if so,
     /// whether it was fresh or stale.
     pub cache: crate::core::CacheState,
     /// DNSSEC state associated with the answer.
-    /// 
+    ///
     /// Indicates the DNSSEC validation status of this answer.
     pub dnssec: crate::core::DnssecState,
     /// Winning policy decision, when any.
-    /// 
+    ///
     /// If a policy (such as a blocklist or routing rule) affected this
     /// answer, this field contains information about which policy was
     /// applied and what action it took.

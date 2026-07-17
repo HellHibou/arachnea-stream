@@ -46,6 +46,13 @@ pub struct HtmlScraperQueryRaw {
     /// Resolved row selector after collection-level placeholder substitution.
     #[serde(skip)]
     pub resolved_row_selector: Option<String>,
+    /// Optional template providing HTML content directly, bypassing the HTTP
+    /// fetch. When set, the template is resolved with runtime parameters
+    /// (typically `{html}`) and the resulting HTML is parsed directly without
+    /// an HTTP request. `query_url` is still used as the context URL for
+    /// actions, headers, and error messages.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_html: Option<String>,
     /// Field extractors executed for every matched row.
     pub entries: Vec<HtmlScraperEntryRaw>,
 }
@@ -111,6 +118,7 @@ impl TryFrom<HtmlScraperQueryRaw> for HtmlScraperQuery {
             row_concurrency,
             row_selector,
             resolved_row_selector,
+            input_html,
             entries,
         } = config;
 
@@ -166,6 +174,7 @@ impl TryFrom<HtmlScraperQueryRaw> for HtmlScraperQuery {
         query.http_config = http.clone();
         query.http_client = HttpClient::with_http_config(http);
         query.row_selector_template = row_selector;
+        query.input_html = input_html;
         query.query_param_mappings = query_param_mappings;
         query.result_item_field = result_item_field;
 
@@ -222,6 +231,7 @@ impl From<&HtmlScraperQuery> for HtmlScraperQueryRaw {
             row_concurrency: query.row_concurrency,
             row_selector: query.row_selector_template.clone(),
             resolved_row_selector: None,
+            input_html: query.input_html.clone(),
             entries: query
                 .scraper_entries
                 .iter()

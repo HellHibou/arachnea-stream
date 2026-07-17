@@ -59,7 +59,7 @@ fn charset_from_content_type(content_type: &str) -> Option<&str> {
 static CLOUDFLARE_USER_AGENTS: OnceLock<Arc<RwLock<HashMap<String, String>>>> = OnceLock::new();
 /// Default maximum number of HTTP redirects followed by the client facade
 /// when ArachneaHttpConfig.max_redirects is None.
-const DEFAULT_MAX_REDIRECTS: usize = 3;
+const DEFAULT_MAX_REDIRECTS: usize = 16;
 
 /// Returns the shared Cloudflare solver user-agent cache.
 ///

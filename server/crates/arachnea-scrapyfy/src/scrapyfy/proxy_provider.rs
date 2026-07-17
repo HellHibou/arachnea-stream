@@ -164,12 +164,10 @@ impl ProxyDataProvider for ScrapyfyProxyDataProvider {
                     .await
                 {
                     Ok(rows) => {
-                        for row in &rows {  
-                            if let Some(country) = row
-                                .get("country_code")
-                                .and_then(|n| n.value_as_string())
+                        for row in &rows {
+                            if let Some(country) =
+                                row.get("country_code").and_then(|n| n.value_as_string())
                             {
-             
                                 if !country.is_empty() {
                                     records[*idx].country =
                                         Some(country.trim().to_ascii_uppercase());
@@ -187,7 +185,10 @@ impl ProxyDataProvider for ScrapyfyProxyDataProvider {
                     }
                 }
             }
-            info!(resolved_count, "resolved missing country codes via ip-api.com YAML query");
+            info!(
+                resolved_count,
+                "resolved missing country codes via ip-api.com YAML query"
+            );
         }
 
         let filtered: Vec<ProxyRecord> = records
@@ -289,12 +290,10 @@ pub fn default_scrapyfy_ip_country_resolver(
     scraper_agregator: &mut ScraperAgregator,
 ) -> IpCountryResolver {
     let provider = ScrapyfyIpCountryDataProvider::new(scraper_agregator);
-    let store = Arc::new(
-        arachnea_proxy::core::IpCountrySerdeStore::new(
-            "data/ip-countries.json",
-            Arc::new(arachnea_proxy::core::JsonIpCountryCodec::new()),
-        ),
-    );
+    let store = Arc::new(arachnea_proxy::core::IpCountrySerdeStore::new(
+        "data/ip-countries.json",
+        Arc::new(arachnea_proxy::core::JsonIpCountryCodec::new()),
+    ));
     IpCountryResolver::new(
         IpCountryResolverConfig::default(),
         Some(Arc::new(provider)),

@@ -2,29 +2,29 @@ use crate::core::{QueryRequest, Record, RecordType};
 use serde::{Deserialize, Serialize};
 
 /// Local DNS records that can answer before cache or upstream resolution.
-/// 
+///
 /// This struct defines domain names that are answered locally by the resolver
 /// without querying upstream DNS servers. Local records are useful for testing,
 /// development, or overriding DNS responses for specific domains.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalRecord {
     /// Domain name matched by this local record set.
-    /// 
+    ///
     /// The domain name for which this local record set provides answers.
     /// If wildcard is true, this acts as a suffix match.
     pub name: String,
     /// Records returned when the rule matches.
-    /// 
+    ///
     /// The resource records that are returned when a query matches this
     /// local record's domain name and record type.
     pub records: Vec<Record>,
     /// Whether the name is treated as a wildcard suffix.
-    /// 
+    ///
     /// If true, this local record matches any domain that ends with the
     /// specified name (e.g., "example.com" would match "www.example.com").
     pub wildcard: bool,
     /// Whether local answers have priority over upstream answers.
-    /// 
+    ///
     /// If true, local records are returned even when upstream servers
     /// could provide answers. If false, upstream answers are preferred.
     pub priority_over_upstream: bool,
@@ -44,7 +44,7 @@ pub struct BlockRule {
 }
 
 /// Action returned when a block rule matches.
-/// 
+///
 /// This enum defines the different ways a block rule can respond to
 /// DNS queries for blocked domains. Different actions provide different
 /// behaviors for handling blocked content.
@@ -52,26 +52,26 @@ pub struct BlockRule {
 #[serde(rename_all = "snake_case")]
 pub enum BlockAction {
     /// Nxdomain,
-    /// 
+    ///
     /// Respond with NXDOMAIN, indicating that the domain does not exist.
     /// This is the most common blocking behavior.
     Nxdomain,
     /// NoData,
-    /// 
+    ///
     /// Respond with NODATA, indicating that the domain exists but has
     /// no records of the requested type.
     NoData,
     /// Refused,
-    /// 
+    ///
     /// Respond with REFUSED, indicating that the server refuses to
     /// answer the query for policy reasons.
     Refused,
     /// Empty,
-    /// 
+    ///
     /// Respond with an empty answer (no records) but without an error.
     Empty,
     /// Address,
-    /// 
+    ///
     /// Respond with specific IP addresses instead of the real ones.
     /// This can be used to redirect blocked domains to a specific server
     /// (e.g., a blocking page or local service).
@@ -177,18 +177,18 @@ pub enum RuleAction {
 }
 
 /// Normalized exact/suffix/wildcard domain pattern.
-/// 
+///
 /// This struct represents a domain matching pattern that can match domains
 /// exactly, by suffix, or using wildcards. Patterns are normalized to
 /// lowercase with trailing dots removed for consistent matching.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DomainPattern {
     /// Original normalized pattern string.
-    /// 
+    ///
     /// The pattern string after normalization (lowercase, no trailing dot).
     pub raw: String,
     /// Parsed matching strategy.
-    /// 
+    ///
     /// The specific type of matching to perform with this pattern.
     pub kind: DomainPatternKind,
 }
@@ -253,7 +253,7 @@ impl From<&str> for DomainPattern {
 }
 
 /// Kind of domain pattern.
-/// 
+///
 /// This enum defines the different types of domain matching that can be
 /// performed by domain patterns. Each variant specifies how the pattern
 /// should be interpreted when matching against domain names.
@@ -261,17 +261,17 @@ impl From<&str> for DomainPattern {
 #[serde(rename_all = "snake_case")]
 pub enum DomainPatternKind {
     /// Exact(String),
-    /// 
+    ///
     /// The pattern must match the domain name exactly, character for character.
     Exact(String),
     /// Suffix(String),
-    /// 
+    ///
     /// The pattern matches any domain name that ends with the specified suffix.
     /// For example, ".example.com" would match "www.example.com" and
     /// "api.example.com".
     Suffix(String),
     /// WildcardSuffix(String),
-    /// 
+    ///
     /// The pattern matches any domain name that ends with the specified suffix,
     /// but the suffix must be preceded by at least one label. For example,
     /// "*.example.com" would match "www.example.com" but not "example.com".
@@ -290,7 +290,7 @@ pub struct PolicyDecision {
 }
 
 /// Policy layer that produced a decision.
-/// 
+///
 /// This enum identifies which type of policy rule was responsible for
 /// a particular DNS resolution decision. This information is included
 /// in metadata to provide transparency about how queries were handled.
@@ -298,22 +298,22 @@ pub struct PolicyDecision {
 #[serde(rename_all = "snake_case")]
 pub enum PolicySource {
     /// Blocklist,
-    /// 
+    ///
     /// The decision was made by a blocklist rule that matches blocked
     /// domain patterns.
     Blocklist,
     /// LocalRecords,
-    /// 
+    ///
     /// The decision was made by a local record configuration that
     /// provides predefined answers for specific domains.
     LocalRecords,
     /// SmartDns,
-    /// 
+    ///
     /// The decision was made by a Smart DNS rule that provides advanced
     /// routing or answering behavior based on domain patterns.
     SmartDns,
     /// Rule,
-    /// 
+    ///
     /// The decision was made by an advanced policy rule that can perform
     /// various actions like allowing, blocking, answering, or routing
     /// queries.
@@ -321,7 +321,7 @@ pub enum PolicySource {
 }
 
 /// NXDOMAIN behavior for failover strategies.
-/// 
+///
 /// This enum defines how the resolver should handle NXDOMAIN (non-existent
 /// domain) responses when using multiple upstream servers with failover
 /// or consensus strategies.
@@ -329,23 +329,23 @@ pub enum PolicySource {
 #[serde(rename_all = "snake_case")]
 pub enum NxdomainStrategy {
     /// TrustFirst,
-    /// 
+    ///
     /// Accept the first upstream's NXDOMAIN response without questioning
     /// it or trying other upstreams.
     TrustFirst,
     /// FallbackOnNxdomain,
-    /// 
+    ///
     /// When an upstream returns NXDOMAIN, try the next upstream in the
     /// list to see if it can provide a positive answer.
     FallbackOnNxdomain,
     /// FallbackOnSuspiciousNxdomain,
-    /// 
+    ///
     /// Similar to FallbackOnNxdomain, but only fall back when the
     /// NXDOMAIN response seems suspicious (e.g., from upstreams that
     /// might be censoring or manipulating responses).
     FallbackOnSuspiciousNxdomain,
     /// Consensus,
-    /// 
+    ///
     /// Require multiple upstreams to agree on an NXDOMAIN response
     /// before accepting it as definitive.
     Consensus,

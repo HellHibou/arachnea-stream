@@ -359,6 +359,7 @@ impl EntrySubQueryRaw {
                     result_item_field: None,
                     scraper_entries: all_entries,
                     post_processes: post_process,
+                    input_html: None,
                     http_client: HttpClient::new(base_url),
                     // Sub-query specific fields
                     context_pointer,

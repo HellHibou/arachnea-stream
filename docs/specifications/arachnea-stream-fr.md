@@ -572,16 +572,24 @@ La commande binaire `get_drm_license` remplace l'ancienne commande
 ### 5.9.3 Groupe de résolveurs YAML — `arachnea-stream-resolver`
 
 Le groupe `arachnea-stream-resolver` contient des résolveurs configurables
-par YAML pour les hébergeurs externes. Chaque fichier YAML déclare deux
-requêtes :
+par YAML pour les hébergeurs externes. Chaque fichier YAML déclare au minimum
+`resolve_stream`. Les requêtes de reconnaissance sont optionnelles et servent
+à éviter des requêtes réseau inutiles ou à reconnaître une page déjà chargée.
 
 | Requête | Type | Description |
 |---|---|---|
-| `can_resolve_url` | `static` | Détermine si une URL est couverte par ce résolveur (regex sur le domaine) |
+| `can_resolve_url` | `static` | Préfiltre optionnel avant tentative directe ; un résultat positif autorise `resolve_stream` à charger l'URL |
+| `can_resolve_html` | `static` / `html` | Reconnaissance optionnelle d'un HTML déjà téléchargé avec les paramètres `{url, html}` |
 | `resolve_stream` | `html` / `json` / `text` | Extrait le flux média et les métadonnées optionnelles `title`, `image/title > link`, `stream_headers`, `storyboard_vtt_url` et `storyboard` |
 
-La façade `StreamResolver` agrège les résultats de tous les YAML du groupe
-et sélectionne le premier service compatible dans l'ordre de `services.json`.
+La façade `StreamResolver` parcourt les YAML actifs dans l'ordre de `services.json`.
+Pour le chemin direct, elle appelle `can_resolve_url` quand la requête existe ; seuls les
+services qui répondent positivement tentent alors `resolve_stream` avec chargement réseau.
+Si aucun flux direct n'est obtenu, le résolveur télécharge la page une seule fois, vérifie
+un `Content-Type` HTML et une taille maximale de 1 Mio, puis appelle `can_resolve_html`
+avec `{url, html}`. Le premier service reconnu relance `resolve_stream` avec ce même
+HTML en mémoire via `input_html`, sans deuxième GET sur la page d'embed. En l'absence de
+service compatible, `get_stream` retourne `{ "embed-link": "<url>" }`.
 
 `stream_headers` est une métadonnée interne du résolveur : elle sert à construire les URLs proxy
 et n'est donc volontairement pas sérialisée dans la réponse JSON de `get_stream`.

@@ -297,7 +297,9 @@ impl IpCountryResolver {
 
         let records = store.load_ip_countries().await?;
         for record in &records {
-            inner.map.insert(record.ip.to_string(), record.country.clone());
+            inner
+                .map
+                .insert(record.ip.to_string(), record.country.clone());
         }
         inner.loaded = true;
 
@@ -363,11 +365,9 @@ impl IpCountryResolver {
             inner.resolving.insert(ip.to_string(), Instant::now());
         }
 
-        let result = tokio::time::timeout(
-            self.config.resolve_timeout,
-            provider.resolve_ip_country(ip),
-        )
-        .await;
+        let result =
+            tokio::time::timeout(self.config.resolve_timeout, provider.resolve_ip_country(ip))
+                .await;
 
         // Clear the resolving marker
         {

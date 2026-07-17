@@ -168,7 +168,7 @@ fn filter_non_transferable(headers: &mut HashMap<String, String>) {
         "transfer-encoding",
         "host",
         "proxy-authorization",
-        "proxy-connection"
+        "proxy-connection",
     ];
     headers.retain(|key, _| {
         let lower = key.to_ascii_lowercase();
@@ -959,7 +959,8 @@ pub fn proxied_url(
                     let trimmed_name = name.trim();
                     let trimmed_value = value.trim();
                     if !trimmed_name.is_empty() && !trimmed_value.is_empty() {
-                        proxy_headers.push(vec![trimmed_name.to_string(), trimmed_value.to_string()]);
+                        proxy_headers
+                            .push(vec![trimmed_name.to_string(), trimmed_value.to_string()]);
                     }
                 }
 

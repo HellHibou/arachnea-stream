@@ -581,12 +581,22 @@ The `get_drm_license` binary command handles DRM license proxying. Its public pa
 ### 5.9.3 YAML resolver group — `arachnea-stream-resolver`
 
 The `arachnea-stream-resolver` group contains YAML-configurable resolvers for external hosts.
-Each YAML file declares two queries:
+Each YAML file declares at least `resolve_stream`. Recognition queries are optional and are
+used to avoid unnecessary network fetches or to identify a page that has already been loaded.
 
 | Query | Type | Description |
 |---|---|---|
-| `can_resolve_url` | `static` | Determines whether the resolver handles the URL (typically a domain regex) |
+| `can_resolve_url` | `static` | Optional prefilter before direct resolution; a positive result allows `resolve_stream` to fetch the URL |
+| `can_resolve_html` | `static` / `html` | Optional recognition of pre-fetched HTML with `{url, html}` runtime parameters |
 | `resolve_stream` | `html` / `json` / `text` | Extracts the media stream and optional `title`, `image/title > link`, `stream_headers`, `storyboard_vtt_url`, and `storyboard` metadata |
+
+`StreamResolver` walks active YAML services in `services.json` order. On the direct path, it
+calls `can_resolve_url` when present; only services with a positive result then run
+`resolve_stream` with a network fetch. If no direct stream is found, the resolver fetches the
+page once, requires an HTML `Content-Type` and a body below 1 MiB, then calls `can_resolve_html`
+with `{url, html}`. The first recognized service runs `resolve_stream` with the same in-memory
+HTML through `input_html`, without a second embed-page GET. When no service matches, `get_stream`
+returns `{ "embed-link": "<url>" }`.
 
 `stream_headers` are resolver-internal request metadata. They are used when constructing proxy
 URLs and are therefore deliberately omitted from the `get_stream` JSON response.

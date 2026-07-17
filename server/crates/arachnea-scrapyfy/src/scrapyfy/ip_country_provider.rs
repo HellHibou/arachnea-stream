@@ -4,8 +4,8 @@ use std::net::IpAddr;
 use async_trait::async_trait;
 
 use arachnea_proxy::core::{
-    IpCountryDataProvider, IpCountryRecord, IpCountrySerdeStore, IpCountryStore, JsonIpCountryCodec,
-    Result,
+    IpCountryDataProvider, IpCountryRecord, IpCountrySerdeStore, IpCountryStore,
+    JsonIpCountryCodec, Result,
 };
 use tracing::{info, warn};
 
@@ -38,10 +38,9 @@ impl ScrapyfyIpCountryDataProvider {
             IP_COUNTRY_GROUP_NAME,
             "services.json"
         );
-        if let Err(preferred_error) = scraper_agregator.add_query_collection_from_config_json(
-            IP_COUNTRY_GROUP_NAME,
-            &preferred_config_path,
-        ) {
+        if let Err(preferred_error) = scraper_agregator
+            .add_query_collection_from_config_json(IP_COUNTRY_GROUP_NAME, &preferred_config_path)
+        {
             warn!(
                 error = %preferred_error,
                 "failed to load IP-country query collection"
@@ -111,7 +110,11 @@ impl ScrapyfyIpCountryDataProvider {
             }
         }
 
-        info!(resolved = results.len(), total = ips.len(), "IP-country resolution complete");
+        info!(
+            resolved = results.len(),
+            total = ips.len(),
+            "IP-country resolution complete"
+        );
         Ok(results)
     }
 }
@@ -160,10 +163,7 @@ impl IpCountryDataProvider for ScrapyfyIpCountryDataProvider {
         };
 
         for row in &rows {
-            if let Some(country) = row
-                .get("country_code")
-                .and_then(|n| n.value_as_string())
-            {
+            if let Some(country) = row.get("country_code").and_then(|n| n.value_as_string()) {
                 if !country.is_empty() {
                     let country = country.trim().to_ascii_uppercase();
                     return Ok(Some(country));
@@ -180,9 +180,7 @@ fn row_to_ip_country_record(
     row: &HashMap<String, crate::scrapyfy::ScraperDataNode>,
     expected_ip: &IpAddr,
 ) -> Option<IpCountryRecord> {
-    let country = row
-        .get("country_code")
-        .and_then(|n| n.value_as_string())?;
+    let country = row.get("country_code").and_then(|n| n.value_as_string())?;
 
     if country.is_empty() {
         return None;

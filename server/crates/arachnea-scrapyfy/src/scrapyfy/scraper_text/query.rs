@@ -10,7 +10,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::scrapyfy::query_helpers::QueryTemplateParamMapping;
-use crate::scrapyfy::scraper::config::{ScraperQueryCommon, ScraperRequestHeader, ScraperRequestHeaderRaw, ScraperRequestMethod};
+use crate::scrapyfy::scraper::config::{
+    ScraperQueryCommon, ScraperRequestHeader, ScraperRequestHeaderRaw, ScraperRequestMethod,
+};
 use crate::scrapyfy::scraper::entry_trait::ScraperEntrySpec;
 use crate::scrapyfy::scraper::query_trait::ScraperQuery;
 use crate::scrapyfy::scraper::row_locator::{RowLocator, ScraperType};
@@ -130,7 +132,9 @@ fn collect_text_field_names(
         None => entry.name().to_string(),
     };
     match entry {
-        crate::scrapyfy::scraper_text::entry::TextScraperEntry::Field { .. } => names.push(full_name),
+        crate::scrapyfy::scraper_text::entry::TextScraperEntry::Field { .. } => {
+            names.push(full_name)
+        }
         crate::scrapyfy::scraper_text::entry::TextScraperEntry::Group { entries, .. } => {
             for child in entries {
                 collect_text_field_names(child, Some(&full_name), names);
@@ -305,10 +309,8 @@ impl TryFrom<TextScraperQueryRaw> for TextScraperQuery {
 
         let media_types = media_types.unwrap_or_default();
 
-        let resolved_base_url = crate::scrapyfy::query_helpers::resolved_or_template(
-            &base_url,
-            resolved_base_url,
-        );
+        let resolved_base_url =
+            crate::scrapyfy::query_helpers::resolved_or_template(&base_url, resolved_base_url);
         let entries = entries
             .into_iter()
             .map(|e| e.try_into())
@@ -342,7 +344,8 @@ impl From<&TextScraperQuery> for TextScraperQueryRaw {
                 query_url: query.query_url.clone(),
                 request_method: query.request_method,
                 request_body_pointer: None,
-                request_body_select: crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode::All,
+                request_body_select:
+                    crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode::All,
                 request_body_actions: Vec::new(),
                 request_headers: query
                     .request_headers

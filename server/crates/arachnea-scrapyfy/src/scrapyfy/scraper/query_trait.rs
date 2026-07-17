@@ -251,6 +251,23 @@ pub trait ScraperQuery: Send + Sync {
         None
     }
 
+    // --- Input HTML mode ---
+
+    /// Returns an optional HTML template whose resolved value is used as the
+    /// response body, bypassing the HTTP fetch.
+    ///
+    /// The template is resolved with runtime parameters (typically `{html}`).
+    /// When the resolved string is non-empty, the query executor creates a
+    /// synthetic [`FetchedResponse::Html`] from it instead of making an HTTP
+    /// request. When the resolution produces an empty string or fails, the
+    /// executor falls through to the normal HTTP fetch path.
+    ///
+    /// Default returns `None` — queries that do not support this mode (JSON,
+    /// Static, Text) or are not configured for it can leave this unchanged.
+    fn input_html(&self) -> Option<&str> {
+        None
+    }
+
     /// Returns a reference to the concrete type as `&dyn Any`.
     ///
     /// The unified executor uses this to downcast back to the concrete

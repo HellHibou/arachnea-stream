@@ -44,7 +44,9 @@ pub(super) fn apply(
 
             match &base_url {
                 Some(base_url) => resolve_relative_url(base_url, &value)
-                    .map(|url| resolved_url_string(url, proxy_path, &proxy_headers, proxy_replace_all))
+                    .map(|url| {
+                        resolved_url_string(url, proxy_path, &proxy_headers, proxy_replace_all)
+                    })
                     .unwrap_or(value),
                 _none => value,
             }
@@ -92,7 +94,9 @@ pub(super) fn apply_from_parent(
             match &base_url {
                 Some(base_url) => base_url
                     .join(&value)
-                    .map(|url| resolved_url_string(url, proxy_path, &proxy_headers, proxy_replace_all))
+                    .map(|url| {
+                        resolved_url_string(url, proxy_path, &proxy_headers, proxy_replace_all)
+                    })
                     .unwrap_or(value),
                 None => value,
             }
@@ -114,7 +118,8 @@ fn resolve_proxy_headers<'a>(
     configured_headers
         .iter()
         .map(|(name, value)| {
-            let (value, _missing_keys) = query_helpers::replace_template_placeholders(value, params);
+            let (value, _missing_keys) =
+                query_helpers::replace_template_placeholders(value, params);
             (
                 name.as_str(),
                 value

@@ -7,33 +7,33 @@ use serde::{Deserialize, Serialize};
 use std::{net::SocketAddr, path::Path};
 
 /// Listener and network safety settings for the DNS server.
-/// 
+///
 /// This struct contains configuration for the DNS server's network
 /// listeners, including bind addresses and access control settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
     /// Whether server listeners should be started.
-    /// 
+    ///
     /// If false, the server will not start any listeners and will not
     /// accept DNS queries. This can be useful for testing or when using
     /// the resolver in library mode.
     #[serde(default = "default_enabled")]
     pub enabled: bool,
     /// UDP listen address.
-    /// 
+    ///
     /// The socket address (IP:port) on which the DNS server will listen
     /// for UDP DNS queries. UDP is the primary transport for DNS.
     #[serde(default = "default_listen")]
     pub listen_udp: SocketAddr,
     /// TCP listen address.
-    /// 
+    ///
     /// The socket address (IP:port) on which the DNS server will listen
     /// for TCP DNS queries. TCP is used for large responses or when
     /// UDP is blocked.
     #[serde(default = "default_listen")]
     pub listen_tcp: SocketAddr,
     /// Network ACL settings.
-    /// 
+    ///
     /// Access control configuration that determines which clients are
     /// allowed to query the DNS server and which features they can use.
     #[serde(default)]
@@ -53,14 +53,14 @@ impl Default for ServerConfig {
 }
 
 /// CIDR lists used to control access to a network-exposed server.
-/// 
+///
 /// This struct defines network-based access control lists that determine
 /// which clients can query the DNS server and which features they can use.
 /// Access control is based on IP address ranges specified in CIDR notation.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct NetworkConfig {
     /// Clients allowed to use the server.
-    /// 
+    ///
     /// List of CIDR networks that are permitted to query this DNS server.
     /// If empty, the default behavior depends on the listen address:
     /// loopback addresses allow loopback clients, other addresses are
@@ -68,14 +68,14 @@ pub struct NetworkConfig {
     #[serde(default)]
     pub allow_clients: Vec<String>,
     /// Clients denied even if broader allow rules match.
-    /// 
+    ///
     /// List of CIDR networks that are explicitly denied access, even if
     /// they would otherwise be allowed by allow_clients rules. Deny
     /// rules take precedence over allow rules.
     #[serde(default)]
     pub deny_clients: Vec<String>,
     /// Clients allowed to use recursive behavior.
-    /// 
+    ///
     /// List of CIDR networks that are permitted to use recursive DNS
     /// resolution. This is a subset of allow_clients that have permission
     /// for more resource-intensive recursive queries.
@@ -276,7 +276,7 @@ impl FileForwarder {
 }
 
 /// Profile names accepted in TOML files.
-/// 
+///
 /// This enum defines the high-level usage profiles that can be specified
 /// in TOML configuration files. These profiles provide convenient presets
 /// for common DNS server configurations.
@@ -284,36 +284,36 @@ impl FileForwarder {
 #[serde(rename_all = "snake_case")]
 pub enum FileProfile {
     /// SystemRelay,
-    /// 
+    ///
     /// Configure the server to use the operating system's DNS resolver.
     /// This is useful for testing or when you want to delegate to the
     /// system's DNS configuration.
     SystemRelay,
     /// SingleForwarder,
-    /// 
+    ///
     /// Configure the server to forward all queries to a single upstream
     /// DNS server. This provides simple forwarding behavior.
     SingleForwarder,
     /// Resilience,
-    /// 
+    ///
     /// Configure the server for high availability with multiple upstream
     /// servers and failover behavior. This profile ensures that queries
     /// can be resolved even if some upstreams are unavailable.
     Resilience,
     /// Privacy,
-    /// 
+    ///
     /// Configure the server to prioritize privacy by using encrypted
     /// transports and disabling features that might leak client information.
     /// This profile is suitable for privacy-conscious users.
     Privacy,
     /// Secure,
-    /// 
+    ///
     /// Configure the server to emphasize security and data integrity.
     /// This profile enables DNSSEC validation and uses secure upstream
     /// transports to protect against DNS spoofing and manipulation.
     Secure,
     /// Advanced,
-    /// 
+    ///
     /// Configure the server with no automatic presets, requiring all
     /// settings to be specified explicitly. This profile gives full control
     /// to the administrator for custom configurations.

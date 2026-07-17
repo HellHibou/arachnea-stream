@@ -101,7 +101,7 @@ http:
   user_agent_profile: chrome    # chrome | chrome_stable | firefox | firefox_stable
   user_agent: "Custom UA"       # optional: complete User-Agent override
   proxy_country: "US"           # optional: country hint for proxy
-  max_redirects: 5              # optional: max redirect count
+  max_redirects: 16             # optional: max redirect count (global default: 16)
 ```
 
 ### HTTP modes (`mode`)
@@ -224,9 +224,20 @@ name: search
 scraper_type: html
 row_selector: "div.result-item"     # required: CSS selector for each row
 row_concurrency: 4                  # optional: max parallel rows processed (default: 4)
+input_html: "{html}"                # optional: template resolving to HTML content, bypasses HTTP fetch
 entries: []                         # required: field extractors
 sub_queries: []                     # optional: sub-queries (see section 10)
 ```
+
+When `input_html` is set, the template is resolved with runtime parameters
+(typically `{html}`) and the resulting HTML is used as the response body
+without making an HTTP request. The `query_url` is still used as the
+context URL for actions, headers, and error messages. When the template
+resolves to an empty string or `{html}` is absent from the runtime
+parameters, the normal HTTP fetch path is used.
+
+`input_html` requires at least a `query_url` or a runtime `{url}` parameter
+for context URL resolution.
 
 ### HTML entries (`entries`)
 
@@ -877,6 +888,25 @@ Decodes each value from Base64 (standard alphabet). Non-decodable values are kep
 - type: base64_decode
 ```
 
+### `caesar_shift`, `regex_replace_all`, `bytes_shift`, `reverse`, and `json_extract_text`
+
+Generic transformations for text values.
+
+```yaml
+- type: caesar_shift
+  shift: 13
+- type: regex_replace_all
+  pattern: '[^A-Za-z0-9]'
+  replacement: ''
+- type: bytes_shift
+  value: -3
+- type: reverse
+- type: json_extract_text
+  path: /source/url
+```
+
+`caesar_shift` rotates ASCII letters by a signed offset. `regex_replace_all` performs a global regex replacement. `bytes_shift` applies a wrapping signed delta to every UTF-8 byte and preserves a value when the result is not valid UTF-8. `reverse` reverses Unicode scalar values. `json_extract_text` parses each current value as JSON and returns the scalar addressed by its JSON Pointer.
+
 ### `unpack_packer`
 Unpacks the deterministic Dean Edwards Packer format without executing JavaScript. The action
 accepts only calls whose payload, radix, symbol count, dictionary, and `split` separator are
@@ -895,6 +925,41 @@ Radices from 2 through 62 are supported.
 Transformations applied after initial field extraction. Available on `html` and `json` queries, and on sub-queries.
 
 Tagged by `type` in snake_case.
+
+### `apply_actions_to_field`
+
+Applies a normal action pipeline to all scalar values from one root field and writes the result to another root field.
+
+| Field | Type | Description |
+|---|---|---|
+| `source` | string | Existing root field to read |
+| `target` | string | Root field to create or replace |
+| `output_type` | string (opt.) | Output type assigned to the target |
+| `actions` | array | Non-empty action pipeline |
+
+```yaml
+- type: apply_actions_to_field
+  source: encoded
+  target: stream_url
+  output_type: string[]
+  actions:
+    - type: base64_decode
+    - type: json_extract_text
+      path: /source
+```
+
+### `fetch_actions_to_field`
+
+Fetches every URL in a root scalar field, then applies an action pipeline to each response and writes the combined values to a target field.
+
+| Field | Type | Description |
+|---|---|---|
+| `source` | string | Root field containing request URLs |
+| `target` | string | Root field receiving extracted values |
+| `output_type` | string (opt.) | Output type assigned to the target |
+| `request_actions` | array (opt.) | Actions applied to URLs before fetching |
+| `actions` | array | Non-empty action pipeline applied to response bodies |
+
 
 ### `extract_regex_items`
 Builds group items from repeated regex matches in a text field.

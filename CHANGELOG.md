@@ -5,6 +5,7 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ## Unreleased
 
 ### Added
+- **Generic scraper transformation pipeline**: Added `caesar_shift`, `regex_replace_all`, `bytes_shift`, `reverse`, and `json_extract_text` actions plus generic `apply_actions_to_field` and `fetch_actions_to_field` post-processes. Added the YAML VOE resolver using those primitives.
 - **Dynamic proxy loading analysis**: Added a French design analysis for country-based dynamic proxy loading, proxy probing, persistence, and the `arachnea-proxy`/`arachnea-scrapyfy` trait boundary.
 - **YAML `sub_queries` at entry level**: New `EntrySubQueryRaw` type (tagged by `scraper_type: html|json`) allows entries to declare follow-up HTTP requests seeded by the entry value. Supported in both `HtmlScraperEntryRaw` and `JsonScraperEntryRaw`. Parsed into `Box<dyn ScraperQuery>` via `EntrySubQueryRaw::into_boxed_query()`.
 - **Unified polymorphic executor**: `scraper::query_executor::execute_query_items` dispatches on `ScraperType` (Html/Json/Static) using the common `ScraperQuery` trait. Single execution path for all query types.
@@ -31,6 +32,8 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - `JsonScraperSubQuery::execute` / `execute_siblings` / `execute_context` / `execute_indexed_context` / `execute_indexed_sibling` / `build_row_node` — re-used through the new `JsonScraperSubQuery::execute_query_level` unified entry point (see regression fix below).
 
 ### Fixed
+- **VOE HLS manifests**: VOE proxied manifests now preserve the required User-Agent and rewrite absolute playlist URLs through the inherited proxy options.
+- **Scraper HTTP redirect limits**: `max_redirects` is now deserialized from YAML HTTP configuration, so query-specific redirect limits are applied to the outbound client.
 - **Optional storyboard interval**: `get_stream` now allows an omitted storyboard interval; the frontend derives it from video duration divided by the sprite cell count.
 - **Storyboard page indexing**: `first_index` is replaced with `first_page_index` for numbered sprite files.
 - **Storyboard preview sizing**: Video.js now keeps hover previews at a fixed 160×90 px while using the `get_stream` storyboard `width` and `height` values solely to crop each source sprite cell.
@@ -272,3 +275,18 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ### Fixed
 
 - **VidHide resolver poster**: The proxied `image/title` URL now removes the `_xt` thumbnail suffix before `.jpg`.
+
+### Added
+
+- **`input_html` field for HTML scraper queries**: New optional `input_html` template on `scraper_type: html` queries that provides HTML content directly, bypassing the HTTP fetch. The template (typically `"{html}"`) is resolved with runtime parameters. When resolved to a non-empty string, the executor creates a synthetic `FetchedResponse::Html` from it instead of calling `fetch_responses`. Falls through to normal HTTP fetch when the template resolves empty. See `docs/specifications/arachnea-scrapyfy-en.md` and the design analysis at `docs/dev-tracking/vstream-resolver-content-detection-analysis.md`.
+- **VOE HTML content detection**: Added optional `html` runtime input and `can_resolve_html` to `voe.yaml`, recognizing embedded VOE URLs on `voe.sx`, `voe.com`, `voe.ru`, `voesx.sx`, `voesx.com`, and `voesx.ru`. `resolve_stream` now accepts in-memory HTML via `input_html` while preserving the direct URL fetch path when `html` is empty.
+- **VOE HTML marker detection**: Kept `can_resolve_html` restricted to explicit VOE or known VOE mirror domains in the URL or HTML to avoid false positives from generic encoded JSON script markers on unrelated hosts. The mirror whitelist now covers the observed redirect chain domains such as `jessicayeahcatch.com`, `pamelachangemission.com`, and `ellenpoliticalfollow.com`.
+
+### Changed
+
+- **`ScraperQuery` trait**: Added `fn input_html(&self) -> Option<&str>` with a default `None` implementation. `HtmlScraperQuery` overrides it to expose the configured template. All existing query types (JSON, Static, Text, sub-queries) are unaffected.
+- **Stream resolver**: Replaced `aggregate_can_resolve` with sequential resolver selection in `services.json` order. `can_resolve_url` is now an optional direct-resolution prefilter rather than a mandatory contract: services with a positive result get a direct `resolve_stream` attempt, while services without a positive URL match are left for the shared HTML-content phase. This avoids repeated GETs against the same embed URL for unrelated services. Added `source_names_in_group()` to `ScraperAgregator` to enumerate source names in insertion order.
+- **Stream resolver HTML fallback**: After direct `resolve_stream` attempts fail, the resolver now fetches the embed page once with the central scraper HTTP client, rejects non-`text/html` responses and bodies above 1 MiB, runs optional `can_resolve_html` queries in `services.json` order with `{url, html}`, and calls the recognized service's `resolve_stream` with the same in-memory HTML.
+- **Redirect handling**: Raised the HTTP client's default redirect limit to 16 and aligned VOE plus the shared stream-resolver HTML fallback fetch with the same 16-redirect limit.
+- **Stream resolver tests**: Reworked resolver tests to use isolated YAML service fixtures instead of the full `StreamScraper` service path. Added coverage for missing `resolve_stream` queries, first valid resolver priority, one-shot HTML fallback fetching, in-memory VOE domain detection, and embed-link fallback when no YAML recognizes the fetched document.
+- **Stream resolver integration validation**: Extended the HTML fallback test to validate local integration behavior for HLS proxying, encoded `Referer` proxy options, `hls` manifest metadata, single HTML fetch, and absence of raw HTML or resolver headers in the serialized public stream JSON.

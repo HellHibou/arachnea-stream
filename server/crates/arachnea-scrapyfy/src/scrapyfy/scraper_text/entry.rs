@@ -196,9 +196,8 @@ impl TryFrom<TextScraperEntryRaw> for TextScraperEntry {
         } = config;
 
         if entries.is_empty() {
-            let output_type = output_type.ok_or_else(|| {
-                anyhow::anyhow!("Text entry {} must define type", name)
-            })?;
+            let output_type = output_type
+                .ok_or_else(|| anyhow::anyhow!("Text entry {} must define type", name))?;
             Ok(TextScraperEntry::Field {
                 name,
                 output_type,

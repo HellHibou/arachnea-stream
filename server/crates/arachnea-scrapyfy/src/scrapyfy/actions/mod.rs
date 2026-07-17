@@ -6,6 +6,8 @@ use std::collections::HashMap;
 mod base64_decode;
 mod build_nextjs_data_url;
 mod build_url;
+mod bytes_shift;
+mod caesar_shift;
 mod extract_field;
 mod format_text;
 mod get_attribut;
@@ -15,13 +17,16 @@ mod get_response_body;
 mod get_text;
 mod get_url_host;
 mod html_to_text;
+mod json_extract_text;
 mod map;
 mod max;
 mod normalize_duration;
 mod ratio;
 mod regex_find_all;
+mod regex_replace_all;
 mod replace_text;
 mod resolve_url;
+mod reverse;
 mod split;
 mod suffix;
 mod unpack_packer;
@@ -116,6 +121,20 @@ pub enum ScraperAction {
         format: String,
     },
 
+    /// Applies a signed Caesar shift to ASCII letters in every current value.
+    CaesarShift {
+        /// Signed number of positions to shift, normalized modulo 26.
+        shift: i8,
+    },
+
+    /// Replaces every regex match in each current value.
+    RegexReplaceAll {
+        /// Regular expression applied globally to each value.
+        pattern: String,
+        /// Replacement text; capture expansion follows the `regex` crate syntax.
+        replacement: String,
+    },
+
     /// Appends the current request URL to the value list.
     GetRequestUrl,
 
@@ -192,9 +211,9 @@ pub enum ScraperAction {
     ///
     /// # Fields
     /// * `argument`: the multiplier as a string.
-    Ratio { 
+    Ratio {
         /// The multiplier to apply to the numeric value.
-        argument: f64 
+        argument: f64,
     },
 
     /// Replaces all occurrences of `search` with `replace` in every current value.
@@ -210,15 +229,30 @@ pub enum ScraperAction {
         replace: String,
     },
 
+    /// Adds a signed value to every UTF-8 byte in each current value.
+    BytesShift {
+        /// Signed byte delta, with wrapping arithmetic.
+        value: i8,
+    },
+
+    /// Reverses Unicode scalar values in every current value.
+    Reverse,
+
+    /// Parses every current value as JSON and extracts one scalar by JSON Pointer.
+    JsonExtractText {
+        /// JSON Pointer identifying the scalar to return.
+        path: String,
+    },
+
     /// Formats each current value using a string template.
     ///
     /// The template replaces:
     /// - `{}` with the current value when one exists,
     /// - `{request_url}` with the fetched request URL,
     /// - named placeholders such as `{base_url}` or `{locale}` using runtime params.
-    FormatText { 
+    FormatText {
         /// The format template string.
-        argument: String 
+        argument: String,
     },
 
     /// Builds a URL from multiple JSON fields extracted from the response.
@@ -297,6 +331,11 @@ impl ScraperAction {
             ScraperAction::RegexFindAll { pattern, format } => {
                 regex_find_all::apply(texts, pattern, format, params, request_url)
             }
+            ScraperAction::CaesarShift { shift } => caesar_shift::apply(texts, *shift),
+            ScraperAction::RegexReplaceAll {
+                pattern,
+                replacement,
+            } => regex_replace_all::apply(texts, pattern, replacement),
             ScraperAction::GetRequestUrl => get_request_url::apply(texts, request_url),
             ScraperAction::GetResponseBody => get_response_body::apply(texts, response_body),
             ScraperAction::Suffix { argument } => suffix::apply(texts, argument),
@@ -305,32 +344,28 @@ impl ScraperAction {
                 proxy,
                 proxy_headers,
                 proxy_replace_all,
-            } => {
-                resolve_url::apply(
-                    texts,
-                    request_url,
-                    params,
-                    *proxy,
-                    proxy_headers,
-                    proxy_replace_all,
-                )
-            }
+            } => resolve_url::apply(
+                texts,
+                request_url,
+                params,
+                *proxy,
+                proxy_headers,
+                proxy_replace_all,
+            ),
             ScraperAction::ResolveUrlFromParent {
                 levels,
                 proxy,
                 proxy_headers,
                 proxy_replace_all,
-            } => {
-                resolve_url::apply_from_parent(
-                    texts,
-                    request_url,
-                    params,
-                    *levels,
-                    *proxy,
-                    proxy_headers,
-                    proxy_replace_all,
-                )
-            }
+            } => resolve_url::apply_from_parent(
+                texts,
+                request_url,
+                params,
+                *levels,
+                *proxy,
+                proxy_headers,
+                proxy_replace_all,
+            ),
             ScraperAction::GetUrlHost => get_url_host::apply(texts),
             ScraperAction::BuildNextjsDataUrl {
                 data_root,
@@ -348,6 +383,9 @@ impl ScraperAction {
             ScraperAction::ReplaceText { search, replace } => {
                 replace_text::apply(texts, search, replace)
             }
+            ScraperAction::BytesShift { value } => bytes_shift::apply(texts, *value),
+            ScraperAction::Reverse => reverse::apply(texts),
+            ScraperAction::JsonExtractText { path } => json_extract_text::apply(texts, path),
             ScraperAction::ExtractField { path } => extract_field::apply(path, response_json),
             ScraperAction::BuildUrl { base, fields } => {
                 build_url::apply(response_json, base, fields, params)
@@ -380,6 +418,15 @@ impl ScraperAction {
             ScraperAction::RegexFindAll { pattern, .. } => {
                 regex_find_all::validate(name, owner, pattern)
             }
+            ScraperAction::RegexReplaceAll { pattern, .. } => regex_replace_all::validate(pattern)
+                .map_err(|error| {
+                    anyhow::anyhow!(
+                        "{} {} has invalid regex_replace_all pattern: {}",
+                        owner,
+                        name,
+                        error
+                    )
+                }),
             ScraperAction::Map { argument, default } => {
                 map::validate(name, owner, argument, default)
             }
@@ -396,11 +443,13 @@ impl ScraperAction {
                 proxy_headers,
                 proxy_replace_all,
                 ..
-            } if (!proxy_replace_all.is_empty() || !proxy_headers.is_empty()) && !*proxy => Err(anyhow::anyhow!(
-                "{} {} configures proxy options without `proxy: true`",
-                owner,
-                name
-            )),
+            } if (!proxy_replace_all.is_empty() || !proxy_headers.is_empty()) && !*proxy => {
+                Err(anyhow::anyhow!(
+                    "{} {} configures proxy options without `proxy: true`",
+                    owner,
+                    name
+                ))
+            }
             ScraperAction::ResolveUrl {
                 proxy_replace_all, ..
             }

@@ -555,10 +555,7 @@ fn extract_storyboard_from_video_payload(video_payload: &Value) -> Option<Sprite
         .collect();
 
     let first_key = storyboard_keys.first()?;
-    let url = format!(
-        "https://images.6play.fr/v1/images/{}/raw",
-        first_key
-    );
+    let url = format!("https://images.6play.fr/v1/images/{}/raw", first_key);
 
     let duration_seconds: f64 = video_payload
         .pointer("/clips/0/duration")

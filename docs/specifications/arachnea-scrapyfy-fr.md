@@ -101,7 +101,7 @@ http:
   user_agent_profile: chrome    # chrome | chrome_stable | firefox | firefox_stable
   user_agent: "Custom UA"       # optionnel : surcharge complète du User-Agent
   proxy_country: "US"           # optionnel : pays hint pour le proxy
-  max_redirects: 5              # optionnel : nombre max de redirections
+  max_redirects: 16             # optionnel : nombre max de redirections (défaut global: 16)
 ```
 
 ### Modes HTTP (`mode`)
@@ -224,9 +224,20 @@ name: recherche
 scraper_type: html
 row_selector: "div.result-item"     # obligatoire : sélecteur CSS pour chaque ligne
 row_concurrency: 4                  # optionnel : nombre max de lignes traitées en parallèle (défaut: 4)
+input_html: "{html}"                # optionnel : modèle résolu en HTML, contourne la requête HTTP
 entries: []                         # obligatoire : extracteurs de champs
 sub_queries: []                     # optionnel : sous-requêtes (voir section 10)
 ```
+
+Quand `input_html` est défini, le modèle est résolu avec les paramètres
+d'exécution (typiquement `{html}`) et le HTML obtenu est utilisé comme corps
+de réponse sans effectuer de requête HTTP. `query_url` reste utilisé comme
+URL de contexte pour les actions, en-têtes et messages d'erreur. Lorsque le
+modèle se résout en une chaîne vide ou que `{html}` est absent des paramètres
+d'exécution, le chemin de récupération HTTP normal est utilisé.
+
+`input_html` nécessite au moins un `query_url` ou un paramètre d'exécution
+`{url}` pour la résolution de l'URL de contexte.
 
 ### Entrées HTML (`entries`)
 
@@ -879,6 +890,25 @@ Décode chaque valeur en Base64 (alphabet standard). Les valeurs non décodables
 - type: base64_decode
 ```
 
+### `caesar_shift`, `regex_replace_all`, `bytes_shift`, `reverse` et `json_extract_text`
+
+Transformations génériques de valeurs texte.
+
+```yaml
+- type: caesar_shift
+  shift: 13
+- type: regex_replace_all
+  pattern: '[^A-Za-z0-9]'
+  replacement: ''
+- type: bytes_shift
+  value: -3
+- type: reverse
+- type: json_extract_text
+  path: /source/url
+```
+
+`caesar_shift` fait pivoter les lettres ASCII d'un décalage signé. `regex_replace_all` effectue un remplacement regex global. `bytes_shift` applique un décalage signé avec retour à zéro sur chaque octet UTF-8 et conserve la valeur lorsque le résultat n'est pas un UTF-8 valide. `reverse` inverse les scalaires Unicode. `json_extract_text` parse chaque valeur courante comme JSON et retourne le scalaire ciblé par son pointeur JSON.
+
 ### `unpack_packer`
 Dépaquette le format déterministe Dean Edwards Packer sans exécuter de JavaScript. L'action
 accepte uniquement les appels dont le payload, le radix, le compteur de symboles, le dictionnaire
@@ -897,6 +927,41 @@ Les radices de 2 à 62 sont supportés.
 Transformations appliquées après l'extraction initiale des champs. Disponibles sur les requêtes `html` et `json`, ainsi que sur les sous-requêtes.
 
 Tagguées par `type` en snake_case.
+
+### `apply_actions_to_field`
+
+Applique une pipeline normale d'actions aux valeurs scalaires d'un champ racine et écrit le résultat dans un autre champ racine.
+
+| Champ | Type | Description |
+|---|---|---|
+| `source` | string | Champ racine existant à lire |
+| `target` | string | Champ racine à créer ou remplacer |
+| `output_type` | string (opt.) | Type de sortie assigné à la cible |
+| `actions` | array | Pipeline d'actions non vide |
+
+```yaml
+- type: apply_actions_to_field
+  source: encoded
+  target: stream_url
+  output_type: string[]
+  actions:
+    - type: base64_decode
+    - type: json_extract_text
+      path: /source
+```
+
+### `fetch_actions_to_field`
+
+Récupère chaque URL d'un champ scalaire racine, puis applique une pipeline d'actions à chaque réponse et écrit les valeurs combinées dans un champ cible.
+
+| Champ | Type | Description |
+|---|---|---|
+| `source` | string | Champ racine contenant les URL de requête |
+| `target` | string | Champ racine recevant les valeurs extraites |
+| `output_type` | string (opt.) | Type de sortie assigné à la cible |
+| `request_actions` | array (opt.) | Actions appliquées aux URL avant la requête |
+| `actions` | array | Pipeline non vide appliquée aux corps de réponse |
+
 
 ### `extract_regex_items`
 Construit des items de groupe à partir de correspondances regex répétées dans un champ texte.

@@ -10,6 +10,9 @@ use crate::services::player_resolver::{
     PlayerResolverEndpoints, ResolvedPlayerImageTitle, ResolvedPlayerStream, SpriteThumbnail,
 };
 
+const MAX_EMBED_HTML_BYTES: usize = 1_048_576;
+const STREAM_RESOLVER_MAX_REDIRECTS: usize = 16;
+
 /// Group name used by the stream resolver configuration.
 pub const STREAM_RESOLVER_GROUP_NAME: &str = "arachnea-stream-resolver";
 
@@ -21,25 +24,17 @@ pub const STREAM_RESOLVER_CONFIG_PATH: &str = concatcp!(
     "/services.json"
 );
 
-/// Name of the `can_resolve_url` YAML query.
-const CAN_RESOLVE_QUERY_NAME: &str = "can_resolve_url";
-
 /// Name of the `resolve_stream` YAML query.
 const RESOLVE_STREAM_QUERY_NAME: &str = "resolve_stream";
 
+/// Name of the optional `can_resolve_url` YAML query.
+const CAN_RESOLVE_URL_QUERY_NAME: &str = "can_resolve_url";
+
+/// Name of the optional `can_resolve_html` YAML query.
+const CAN_RESOLVE_HTML_QUERY_NAME: &str = "can_resolve_html";
+
 /// Resolver identifier used by the flat YAML player descriptor.
 pub const GENERIC_STREAM_RESOLVER_ID: &str = "stream-resolver";
-
-/// Result of the `can_resolve_url` aggregation across all YAML services.
-#[derive(Default)]
-struct CanResolveResult {
-    /// Whether at least one service matched the URL.
-    can_resolve: bool,
-    /// Name of the first matching service (in `services.json` order).
-    resolver: Option<String>,
-    /// List of all matching service names when multiple services matched.
-    matched_services: Vec<String>,
-}
 
 /// Union response returned by `get_stream`.
 ///
@@ -88,6 +83,12 @@ impl<'a> StreamResolver<'a> {
 
     /// Resolves one external player URL into a playable stream or iframe fallback.
     ///
+    /// Uses optional `can_resolve_url` queries as a cheap prefilter for direct
+    /// `resolve_stream` attempts, then falls back to one shared HTML fetch and
+    /// optional `can_resolve_html` recognition. Stops at the first service that
+    /// produces a valid stream. When no service matches, returns an `EmbedLink`
+    /// fallback.
+    ///
     /// # Arguments
     ///
     /// * `url` - Absolute HTTP(S) URL of the external player page.
@@ -99,113 +100,94 @@ impl<'a> StreamResolver<'a> {
     ///
     /// # Errors
     ///
-    /// Returns an error when a matched resolver exists but fails to extract the stream.
-    /// This is intentionally distinct from the fallback: extraction failures are visible
-    /// and not silently masked by the iframe fallback.
+    /// Returns an error when all services have been tried and none produced a
+    /// valid stream, but the fallback has already been applied as `EmbedLink`.
+    /// Errors from individual services (timeout, DNS, HTTP failure) are logged
+    /// and do not abort the search.
     pub async fn get_stream(&self, url: &str) -> Result<ResolvedStream> {
         // Validate the URL is HTTP(S)
         if !url.starts_with("http://") && !url.starts_with("https://") {
             bail!("Unsupported URL scheme for stream resolution: `{}`", url);
         }
 
-        // Run can_resolve_url across all services in the group
-        let can_resolve = self.aggregate_can_resolve(url).await?;
-
-        if !can_resolve.can_resolve {
-            tracing::debug!(
-                url = %url,
-                "No YAML resolver matched the URL, falling back to embed-link"
-            );
-            return Ok(ResolvedStream::EmbedLink {
-                embed_link: url.to_string(),
-            });
-        }
-
-        let selected_service = can_resolve.resolver.unwrap_or_default();
-
-        if can_resolve.matched_services.len() > 1 {
-            tracing::warn!(
-                url = %url,
-                matched = ?can_resolve.matched_services,
-                selected = %selected_service,
-                "Multiple YAML resolvers matched the URL; using first in services.json order"
-            );
-        }
-
-        // Execute resolve_stream on the selected service
-        match self.execute_resolve_stream(&selected_service, url).await {
-            Ok(stream) => Ok(ResolvedStream::Stream(stream)),
-            Err(error) => {
-                bail!(
-                    "Stream resolver `{}` failed for URL `{}`: {}",
-                    selected_service,
-                    url,
-                    error
-                );
-            }
-        }
-    }
-
-    /// Runs `can_resolve_url` on every service in the group and aggregates results.
-    async fn aggregate_can_resolve(&self, url: &str) -> Result<CanResolveResult> {
-        let mut params = HashMap::new();
-        params.insert("url".to_string(), url.to_string());
-
-        let results = self
+        let source_names = self
             .scraper_agregator
-            .execute_query_async(
-                STREAM_RESOLVER_GROUP_NAME,
-                CAN_RESOLVE_QUERY_NAME,
-                &params,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
-            .await?;
+            .source_names_in_group(STREAM_RESOLVER_GROUP_NAME);
 
-        let mut result = CanResolveResult::default();
-
-        for entry in results {
-            let resolver = entry
-                .get("resolver")
-                .and_then(|node| node.value_as_string())
-                .map(|value| value.trim().to_string())
-                .filter(|value| !value.is_empty());
-
-            if let Some(resolver) = resolver {
-                if result.resolver.is_none() {
-                    result.resolver = Some(resolver.clone());
-                    result.can_resolve = true;
+        for name in &source_names {
+            match self.can_resolve_url(name, url).await {
+                Ok(true) => {}
+                Ok(false) => {
+                    tracing::debug!(
+                        service = %name,
+                        url = %url,
+                        "Service did not declare a positive can_resolve_url; skipping direct resolve_stream"
+                    );
+                    continue;
                 }
-                result.matched_services.push(resolver);
+                Err(error) => {
+                    tracing::warn!(
+                        service = %name,
+                        url = %url,
+                        error = ?error,
+                        "Error while checking URL resolver compatibility, trying next service"
+                    );
+                    continue;
+                }
+            }
+
+            match self.try_resolve_stream(name, url, None).await {
+                Ok(Some(stream)) => {
+                    tracing::debug!(
+                        service = %name,
+                        url = %url,
+                        "Stream resolved by YAML service"
+                    );
+                    return Ok(ResolvedStream::Stream(stream));
+                }
+                Ok(None) => {
+                    tracing::debug!(
+                        service = %name,
+                        url = %url,
+                        "Service did not resolve the stream"
+                    );
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        service = %name,
+                        url = %url,
+                        error = ?error,
+                        "Error while resolving stream, trying next service"
+                    );
+                }
             }
         }
 
-        Ok(result)
+        if let Some(stream) = self.resolve_from_fetched_html(url, &source_names).await? {
+            return Ok(ResolvedStream::Stream(stream));
+        }
+
+        tracing::debug!(
+            url = %url,
+            "No YAML resolver matched the URL or HTML content, falling back to embed-link"
+        );
+        Ok(ResolvedStream::EmbedLink {
+            embed_link: url.to_string(),
+        })
     }
 
-    /// Executes `resolve_stream` on the named service with the given URL.
-    async fn execute_resolve_stream(
+    /// Attempts to resolve a stream for the given service and URL.
+    ///
+    /// Returns `Ok(Some(stream))` on success, `Ok(None)` when the service does
+    /// not have a `resolve_stream` query or its response contains no stream
+    /// URL, and `Err` when the query execution itself fails.
+    async fn try_resolve_stream(
         &self,
         service_name: &str,
         url: &str,
-    ) -> Result<ResolvedPlayerStream> {
-        let mut params = HashMap::new();
-        params.insert("url".to_string(), url.to_string());
-        if let Some(proxy_path) = self
-            .endpoints
-            .http_proxy_public_path
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            params.insert(
-                HTTP_PROXY_PUBLIC_PATH_PARAM.to_string(),
-                proxy_path.to_string(),
-            );
-        }
+        html: Option<&str>,
+    ) -> Result<Option<ResolvedPlayerStream>> {
+        let params = self.build_resolver_params(url, html);
 
         let results = self
             .scraper_agregator
@@ -221,27 +203,15 @@ impl<'a> StreamResolver<'a> {
             )
             .await?;
 
-        let entry = results
-            .into_iter()
-            .next()
-            .context("Empty stream resolution response from YAML resolver")?;
+        let entry = match results.into_iter().next() {
+            Some(entry) => entry,
+            None => return Ok(None),
+        };
 
-        tracing::debug!(
-            service = %service_name,
-            keys = ?entry.keys().collect::<Vec<_>>(),
-            "resolve_stream raw entry"
-        );
-        for (key, node) in &entry {
-            tracing::debug!(
-                service = %service_name,
-                key = %key,
-                values = ?node.values,
-                children = ?node.children.keys().collect::<Vec<_>>(),
-                "resolve_stream entry field"
-            );
-        }
-
-        let mut stream = convert_resolver_entry_to_stream(&entry, url)?;
+        let mut stream = match convert_resolver_entry_to_stream(&entry, url) {
+            Ok(stream) => stream,
+            Err(_) => return Ok(None),
+        };
 
         // Proxy stream URLs through the HTTP proxy with embedded headers.
         if let Some(proxy_path) = self.endpoints.http_proxy_public_path.as_deref() {
@@ -255,10 +225,182 @@ impl<'a> StreamResolver<'a> {
                 .into_iter()
                 .map(|u| proxied_url(&u, Some(proxy_path), None, &[], &headers))
                 .collect();
-
         }
 
-        Ok(stream)
+        Ok(Some(stream))
+    }
+
+    /// Runs the HTML-content fallback phase after every direct resolver attempt fails.
+    async fn resolve_from_fetched_html(
+        &self,
+        url: &str,
+        source_names: &[String],
+    ) -> Result<Option<ResolvedPlayerStream>> {
+        let html = self.fetch_embed_html(url).await?;
+
+        for name in source_names {
+            match self.can_resolve_html(name, url, &html).await {
+                Ok(true) => {
+                    tracing::debug!(
+                        service = %name,
+                        url = %url,
+                        "HTML content recognized by YAML resolver"
+                    );
+
+                    return match self.try_resolve_stream(name, url, Some(&html)).await {
+                        Ok(Some(stream)) => Ok(Some(stream)),
+                        Ok(None) => bail!(
+                            "HTML resolver `{}` recognized URL `{}` but produced no stream",
+                            name,
+                            url
+                        ),
+                        Err(error) => Err(error).with_context(|| {
+                            format!(
+                                "HTML resolver `{}` recognized URL `{}` but failed to extract stream",
+                                name, url
+                            )
+                        }),
+                    };
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    tracing::warn!(
+                        service = %name,
+                        url = %url,
+                        error = ?error,
+                        "Error while checking HTML resolver compatibility, trying next service"
+                    );
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    /// Fetches the original embed page once for HTML-content resolver detection.
+    async fn fetch_embed_html(&self, url: &str) -> Result<String> {
+        let http_config = ScraperHttpConfig {
+            max_redirects: Some(STREAM_RESOLVER_MAX_REDIRECTS),
+            ..ScraperHttpConfig::default()
+        };
+        let client = self
+            .scraper_agregator
+            .create_http_client(http_config);
+        let response = client
+            .send_for_request(http::Method::GET, url, &HashMap::new(), None)
+            .await
+            .with_context(|| format!("Failed to fetch embed HTML `{}`", url))?;
+
+        if !response.status().is_success() {
+            bail!(
+                "Failed to fetch embed HTML `{}`: HTTP status {}",
+                url,
+                response.status()
+            );
+        }
+
+        let content_type = response
+            .headers()
+            .get(http::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default();
+        let mime_type = content_type
+            .split(';')
+            .next()
+            .map(str::trim)
+            .unwrap_or_default();
+
+        if !mime_type.eq_ignore_ascii_case("text/html") {
+            bail!(
+                "Failed to inspect embed HTML `{}`: unsupported Content-Type `{}`",
+                url,
+                content_type
+            );
+        }
+
+        let bytes = response.bytes().await?;
+        if bytes.len() > MAX_EMBED_HTML_BYTES {
+            bail!(
+                "Failed to inspect embed HTML `{}`: body is {} bytes, limit is {} bytes",
+                url,
+                bytes.len(),
+                MAX_EMBED_HTML_BYTES
+            );
+        }
+
+        response.text().await.map_err(Into::into)
+    }
+
+    /// Runs optional `can_resolve_html` on one service with `{url, html}` params.
+    async fn can_resolve_html(&self, service_name: &str, url: &str, html: &str) -> Result<bool> {
+        let params = self.build_resolver_params(url, Some(html));
+        let results = self
+            .scraper_agregator
+            .execute_query_async(
+                STREAM_RESOLVER_GROUP_NAME,
+                CAN_RESOLVE_HTML_QUERY_NAME,
+                &params,
+                None,
+                Some(&vec![service_name.to_string()]),
+                None,
+                None,
+                None,
+            )
+            .await?;
+
+        Ok(results.into_iter().any(|entry| {
+            entry
+                .get("resolver")
+                .and_then(|node| node.value_as_string())
+                .is_some_and(|value| !value.trim().is_empty())
+        }))
+    }
+
+    /// Runs optional `can_resolve_url` on one service as a cheap direct-resolution prefilter.
+    async fn can_resolve_url(&self, service_name: &str, url: &str) -> Result<bool> {
+        let params = self.build_resolver_params(url, None);
+        let results = self
+            .scraper_agregator
+            .execute_query_async(
+                STREAM_RESOLVER_GROUP_NAME,
+                CAN_RESOLVE_URL_QUERY_NAME,
+                &params,
+                None,
+                Some(&vec![service_name.to_string()]),
+                None,
+                None,
+                None,
+            )
+            .await?;
+
+        Ok(results.into_iter().any(|entry| {
+            entry
+                .get("resolver")
+                .and_then(|node| node.value_as_string())
+                .is_some_and(|value| !value.trim().is_empty())
+        }))
+    }
+
+    /// Builds common runtime parameters for resolver queries.
+    fn build_resolver_params(&self, url: &str, html: Option<&str>) -> HashMap<String, String> {
+        let mut params = HashMap::new();
+        params.insert("url".to_string(), url.to_string());
+        if let Some(html) = html {
+            params.insert("html".to_string(), html.to_string());
+        }
+        if let Some(proxy_path) = self
+            .endpoints
+            .http_proxy_public_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            params.insert(
+                HTTP_PROXY_PUBLIC_PATH_PARAM.to_string(),
+                proxy_path.to_string(),
+            );
+        }
+        params
     }
 }
 
@@ -326,12 +468,7 @@ fn extract_image_title(
 ) -> Option<ResolvedPlayerImageTitle> {
     let image_title = entry
         .get("image/title")
-        .or_else(|| {
-            entry
-                .get("image")?
-                .children
-                .get("title")
-        })?;
+        .or_else(|| entry.get("image")?.children.get("title"))?;
     let link = first_child_value(image_title, "link")?.trim().to_string();
 
     if link.is_empty() {
@@ -401,21 +538,27 @@ fn extract_string_map(
 /// Reads `url`/`link`, dimensions, and interval from child nodes.
 fn extract_storyboard(entry: &HashMap<String, ScraperDataNode>) -> Option<SpriteThumbnail> {
     let storyboard = entry.get("storyboard")?;
-    let url = first_child_value(storyboard, "url")
-        .or_else(|| first_child_value(storyboard, "link"))?;
+    let url =
+        first_child_value(storyboard, "url").or_else(|| first_child_value(storyboard, "link"))?;
     let url = url.trim().to_string();
     if url.is_empty() {
         return None;
     }
 
-    let width = first_child_value(storyboard, "width")?.parse::<u32>().ok()?;
-    let height = first_child_value(storyboard, "height")?.parse::<u32>().ok()?;
-    let columns = first_child_value(storyboard, "columns")?.parse::<u32>().ok()?;
+    let width = first_child_value(storyboard, "width")?
+        .parse::<u32>()
+        .ok()?;
+    let height = first_child_value(storyboard, "height")?
+        .parse::<u32>()
+        .ok()?;
+    let columns = first_child_value(storyboard, "columns")?
+        .parse::<u32>()
+        .ok()?;
     let rows = first_child_value(storyboard, "rows")?.parse::<u32>().ok()?;
     let first_page_index = first_child_value(storyboard, "first_page_index")
         .and_then(|value| value.parse::<u32>().ok());
-    let interval = first_child_value(storyboard, "interval")
-        .and_then(|value| value.parse::<f64>().ok());
+    let interval =
+        first_child_value(storyboard, "interval").and_then(|value| value.parse::<f64>().ok());
 
     if width == 0
         || height == 0

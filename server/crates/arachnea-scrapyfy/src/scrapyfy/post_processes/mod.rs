@@ -3,12 +3,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::actions::ScraperAction;
-use super::scraper_data_node::ScraperDataNode;
+use super::scraper_data_node::{ScraperDataNode, ScraperOutputType};
 
 mod append_static_items;
+mod apply_actions_to_field;
 mod compute_items_field;
 mod derive_pagination;
 mod extract_regex_items;
+mod fetch_actions_to_field;
 mod fetch_regex_items_from_items;
 mod filter_items;
 mod math_helpers;
@@ -21,19 +23,48 @@ mod types;
 // Re-export the shared building blocks so the rest of the crate keeps
 // importing them from `crate::scrapyfy::post_processes` without having to
 // know about the inner module split.
+pub(crate) use math_helpers::{
+    evaluate_math_expression, format_math_result, list_template_placeholders,
+};
 pub use types::{
     ScraperComputedFieldVariable, ScraperComputedFieldVariableScope, ScraperFieldMapping,
     ScraperGeneratedField, ScraperNestedFieldDefinition, ScraperPostProcessContext,
     ScraperRegexItemEntry,
-};
-pub(crate) use math_helpers::{
-    evaluate_math_expression, format_math_result, list_template_placeholders,
 };
 
 /// Structured transformations applied after one query extracted its raw fields.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ScraperPostProcess {
+    /// Applies an action pipeline to one root scalar field and stores the result.
+    ApplyActionsToField {
+        /// Root field containing the values supplied to the pipeline.
+        source: String,
+        /// Root field receiving the transformed values.
+        target: String,
+        /// Optional serialized type assigned to the target field.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        output_type: Option<ScraperOutputType>,
+        /// Ordered generic actions applied to the source values.
+        actions: Vec<ScraperAction>,
+    },
+
+    /// Fetches URLs from one root field and applies actions to each response.
+    FetchActionsToField {
+        /// Root field containing follow-up request URLs.
+        source: String,
+        /// Root field receiving values extracted from follow-up responses.
+        target: String,
+        /// Optional serialized type assigned to the target field.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        output_type: Option<ScraperOutputType>,
+        /// Optional actions used to prepare each request URL.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        request_actions: Vec<ScraperAction>,
+        /// Non-empty actions applied to each fetched response.
+        actions: Vec<ScraperAction>,
+    },
+
     /// Builds explicit group items from repeated regex matches extracted from one text field.
     ExtractRegexItems {
         /// Source field containing the text to extract items from.
@@ -206,6 +237,19 @@ impl ScraperPostProcess {
     /// regex, empty field name, invalid math expression, etc.).
     pub fn validate(&self, owner: &str) -> Result<()> {
         match self {
+            ScraperPostProcess::ApplyActionsToField {
+                source,
+                target,
+                actions,
+                ..
+            } => apply_actions_to_field::validate(owner, source, target, actions),
+            ScraperPostProcess::FetchActionsToField {
+                source,
+                target,
+                request_actions,
+                actions,
+                ..
+            } => fetch_actions_to_field::validate(owner, source, target, actions, request_actions),
             ScraperPostProcess::ExtractRegexItems {
                 pattern, entries, ..
             } => extract_regex_items::validate(owner, pattern, entries),
@@ -288,6 +332,33 @@ impl ScraperPostProcess {
         context: &ScraperPostProcessContext<'_>,
     ) -> Result<()> {
         match self {
+            ScraperPostProcess::ApplyActionsToField {
+                source,
+                target,
+                output_type,
+                actions,
+            } => {
+                apply_actions_to_field::apply(root, context, source, target, *output_type, actions);
+                Ok(())
+            }
+            ScraperPostProcess::FetchActionsToField {
+                source,
+                target,
+                output_type,
+                request_actions,
+                actions,
+            } => {
+                fetch_actions_to_field::apply(
+                    root,
+                    context,
+                    source,
+                    target,
+                    *output_type,
+                    request_actions,
+                    actions,
+                )
+                .await
+            }
             ScraperPostProcess::ExtractRegexItems {
                 source,
                 target,

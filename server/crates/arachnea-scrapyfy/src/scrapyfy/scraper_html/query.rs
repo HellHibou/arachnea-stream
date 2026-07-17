@@ -123,6 +123,13 @@ pub struct HtmlScraperQuery {
     /// after the data has been extracted but before it is finalized.
     pub(crate) post_processes: Vec<ScraperPostProcess>,
 
+    /// Optional template providing HTML content directly, bypassing the HTTP
+    /// fetch. When set, the template is resolved with runtime parameters
+    /// (typically `{html}`) and the resulting HTML is parsed directly without
+    /// an HTTP request. `query_url` is still used as the context URL for
+    /// actions, headers, and error messages.
+    pub(crate) input_html: Option<String>,
+
     /// HTTP client used to issue requests.
     ///
     /// The HTTP client instance configured with the query's HTTP settings.
@@ -281,6 +288,7 @@ impl HtmlScraperQuery {
             result_item_field: None,
             scraper_entries: Vec::new(),
             post_processes: Vec::new(),
+            input_html: None,
             // Nouveaux champs sub-query (par défaut)
             context_pointer: None,
             context_select: HtmlScraperSelectMode::All,
@@ -628,6 +636,10 @@ impl ScraperQuery for HtmlScraperQuery {
     /// A slice of post-process configurations.
     fn post_processes(&self) -> &[crate::scrapyfy::ScraperPostProcess] {
         &self.post_processes
+    }
+
+    fn input_html(&self) -> Option<&str> {
+        self.input_html.as_deref()
     }
 
     /// Returns the entries for this query.

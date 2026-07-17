@@ -279,12 +279,37 @@ async fn execute_query_internal(
 
     // 2. Resolve request URL(s).
     let request_urls = resolve_request_urls(query, context);
-    if request_urls.is_empty() {
+
+    // 2a. Check for input_html mode: when the query provides an input_html
+    //     template that resolves to a non-empty string, use it as the response
+    //     body instead of fetching.
+    let input_html_resolved: Option<String> = query
+        .input_html()
+        .and_then(|template| {
+            if template.is_empty() {
+                return None;
+            }
+            query_helpers::format_query_template(query.base_url(), template, context.params)
+                .ok()
+                .filter(|s| !s.is_empty())
+        });
+    let has_input_html = input_html_resolved.is_some();
+
+    if request_urls.is_empty() && !has_input_html {
         return Ok(Vec::new());
     }
 
-    // 2. Fetch all responses in parallel.
-    let responses = fetch_responses(query, &request_urls, context).await?;
+    // 2b. Fetch or use provided input_html.
+    let responses: Vec<(String, FetchedResponse)> = if let Some(html_body) = input_html_resolved {
+        let ctx_url = request_urls
+            .first()
+            .cloned()
+            .or_else(|| context.params.get("url").cloned())
+            .unwrap_or_default();
+        vec![(ctx_url, FetchedResponse::Html(html_body))]
+    } else {
+        fetch_responses(query, &request_urls, context).await?
+    };
 
     // 3. Build the merged root from items.
     let mut all_items = Vec::new();
@@ -1029,8 +1054,8 @@ fn extract_items(
                 for entry in query.entries() {
                     if let Some(text_entry) = entry
                         .as_any()
-                        .downcast_ref::<crate::scrapyfy::scraper_text::entry::TextScraperEntry>()
-                    {
+                        .downcast_ref::<crate::scrapyfy::scraper_text::entry::TextScraperEntry>(
+                    ) {
                         text_entry.apply_to(&mut item, &fields, context.params, request_url);
                     }
                 }

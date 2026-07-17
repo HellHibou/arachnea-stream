@@ -11,23 +11,23 @@ use tokio::{sync::RwLock, time::timeout};
 use tracing::{debug, warn};
 
 /// Main reusable DNS resolver.
-/// 
+///
 /// This struct represents the core DNS resolver that handles DNS queries,
 /// applies policies, manages caching, and communicates with upstream
 /// DNS servers. It is the central component of the DNS resolution system.
 pub struct ArachneaDnsCore {
     /// Resolved configuration.
-    /// 
+    ///
     /// The complete, validated configuration for this resolver instance,
     /// including all settings and derived values.
     config: ResolvedConfig,
     /// DNS cache instance.
-    /// 
+    ///
     /// The in-memory cache that stores both positive and negative DNS
     /// responses to improve performance and reduce upstream queries.
     cache: Cache,
     /// Runtime statistics.
-    /// 
+    ///
     /// Counters and metrics that track the operation of this resolver
     /// instance, including request counts, cache hits/misses, and errors.
     stats: Arc<RwLock<CoreStats>>,

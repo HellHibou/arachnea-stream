@@ -7,8 +7,9 @@
 ## Objectif
 
 Migrer progressivement les résolveurs historiques vStream vers des fichiers YAML dans
-`server/services/arachnea-stream-resolver/`. Chaque résolveur doit proposer `can_resolve_url`,
-`resolve_stream` et la réponse publique `get_stream` déjà stabilisée.
+`server/services/arachnea-stream-resolver/`. Chaque résolveur doit proposer `resolve_stream` ;
+`can_resolve_url` et `can_resolve_html` sont des reconnaissances optionnelles selon le chemin
+nécessaire. La réponse publique `get_stream` est déjà stabilisée.
 
 Cette analyse est un plan d’implémentation et un tableau de suivi, pas une validation de la
 disponibilité actuelle des hosters. Les extracteurs proviennent de vStream 3.9.2 : domaines,
@@ -29,12 +30,16 @@ Les fondations ci-dessous, transférées de l’analyse précédente, sont déj�
 nouvelle migration de hoster doit les utiliser sans introduire de sélection par domaine dans Rust.
 
 - Le groupe `arachnea-stream-resolver` est chargé via
-  `server/services/arachnea-stream-resolver/services.json`. Chaque YAML déclare obligatoirement
-  `can_resolve_url` et `resolve_stream`. En cas de plusieurs correspondances, le premier service
-  activé dans `services.json` est retenu : son ordre est donc une priorité fonctionnelle.
+  `server/services/arachnea-stream-resolver/services.json`. Chaque YAML déclare `resolve_stream` ;
+  `can_resolve_url` sert de préfiltre optionnel pour les tentatives directes, et
+  `can_resolve_html` sert à reconnaître une page déjà chargée. En cas de plusieurs
+  correspondances, le premier service actif dans `services.json` reste prioritaire.
 - `StreamResolver`, dans `server/crates/arachnea-stream/src/stream_resolver.rs`, valide l’URL
-  HTTP(S), agrège `can_resolve_url`, exécute uniquement le `resolve_stream` du service retenu et
-  convertit le résultat en `ResolvedPlayerStream`. Le résolveur générique est enregistré sous
+  HTTP(S), utilise `can_resolve_url` uniquement comme préfiltre bon marché, tente
+  `resolve_stream` sur les services positifs, puis effectue au besoin un GET HTML unique
+  (16 redirections maximum, `Content-Type: text/html`, limite 1 Mio) et appelle
+  `can_resolve_html` avec `{url, html}`. Le service reconnu relance `resolve_stream` avec le
+  même HTML en mémoire via `input_html`. Le résolveur générique est enregistré sous
   l’identifiant global `stream-resolver`.
 - L’absence de service compatible retourne le fallback
   `{ "embed-link": "<url-validée>" }`. À l’inverse, l’échec d’extraction d’un service déjà
@@ -58,10 +63,11 @@ nouvelle migration de hoster doit les utiliser sans introduire de sélection par
   `get_drm_license` gère le proxy de licence. Les paramètres propres aux résolveurs légaux
   restent internes au backend.
 - Les tests de base existent dans
-  `server/crates/arachnea-stream/src/stream_resolver_tests.rs` : détection Sibnet, URL inconnue
-  avec fallback iframe et rejet des URLs non HTTP(S). La validation d’un YAML ajouté s’appuie sur
-  ces contrôles existants et sur une URL réelle autorisée ; ne pas créer de nouveaux tests sans
-  demande explicite.
+  `server/crates/arachnea-stream/src/stream_resolver_tests.rs` : préfiltre URL optionnel,
+  priorité du premier flux valide, fallback HTML chargé une seule fois, reconnaissance VOE en
+  mémoire, fallback iframe et rejet des URLs non HTTP(S). La validation d’un YAML ajouté s’appuie
+  sur ces contrôles existants et sur une URL réelle autorisée ; ne pas créer de nouvelle
+  infrastructure de test sans demande explicite.
 - Le storyboard M6+ est désormais produit par son résolveur spécialisé, et non par les
   `players[]` du YAML de catalogue. Les lecteurs directs ou intégrés qui ne passent pas par
   `get_stream` peuvent conserver leur storyboard de catalogue.
@@ -89,7 +95,9 @@ une taille de tooltip fixe, indépendamment de `width` et `height`.
   d’extracteur universel.
 - `__init__.py` et `hoster.py` ne sont pas des hosters migrables.
 - Un fichier Python ne correspond pas forcément à un domaine unique. La regex
-  `can_resolve_url` doit être obtenue des URLs actuelles et de la sélection vStream, puis testée.
+  `can_resolve_url`, lorsqu’elle est utile, doit être obtenue des URLs actuelles et de la sélection
+  vStream, puis testée. Les hosters à domaines miroirs/redirections peuvent préférer
+  `can_resolve_html` avec une liste blanche explicite.
 - Les débrideurs, secrets, authentification, CAPTCHA, JavaScript évalué, génération aléatoire,
   horodatage et boucles de redirections conditionnelles restent hors YAML tant qu’une primitive
   Scrapyfy générique, testable et utilisée par plusieurs résolveurs n’existe pas.
@@ -125,7 +133,7 @@ parameters:
 queries:
 
   # --------------------------------------------------------------------------
-  # can_resolve_url — determines whether this rule can resolve the URL
+  # can_resolve_url — optional cheap URL prefilter before direct resolution
   # --------------------------------------------------------------------------
   - name: can_resolve_url
     scraper_type: static
@@ -140,12 +148,28 @@ queries:
 
 
   # --------------------------------------------------------------------------
+  # can_resolve_html — optional content recognition after one shared HTML fetch
+  # --------------------------------------------------------------------------
+  - name: can_resolve_html
+    scraper_type: static
+    entries:
+      - name: resolver
+        type: string
+        value: "{url}\n{html}"
+        actions:
+          - type: regex_find_all
+            pattern: '^https?://(?:www\\.)?example\\.invalid/'
+            format: "{service_id}"
+
+
+  # --------------------------------------------------------------------------
   # resolve_stream — extracts the video stream URL from the player page
   # --------------------------------------------------------------------------
   - name: resolve_stream
     scraper_type: html
     base_url: "{url}"
     query_url: "{url}"
+    input_html: "{html}"
     row_selector: "html"
     request_headers:
       - name: Referer
@@ -171,6 +195,7 @@ queries:
 | Comportement vStream | Portage requis | Validation |
 |---|---|---|
 | Page + regex `sources`, `file`, `src` ou JSON intégré | `resolve_stream` HTML/texte, `get_response_body`, `regex_find_all`, `resolve_url` | Au moins une `stream_url` absolue et lisible |
+| Domaines miroirs ou redirections HTML/JS | `can_resolve_html` avec liste blanche stricte, puis `resolve_stream` avec `input_html` | Un seul GET HTML partagé, aucun faux positif générique |
 | Plusieurs qualités/miroirs | `stream_url: string[]` dans l’ordre de préférence | Le front tente les URLs suivantes après erreur média |
 | Referer / User-Agent CDN | Objet `stream_headers` dans le YAML | Présents dans l’URL proxy, absents du JSON public |
 | Sous-requête déterministe | Sous-requête YAML, paramètres et en-têtes explicites | URL, Referer et cookies vérifiés de bout en bout |
@@ -194,8 +219,8 @@ queries:
    réellement présents et testés.
 6. Ajouter le YAML dans `services.json`. Les règles les plus spécifiques doivent précéder les
    règles générales afin de maîtriser les collisions.
-7. Tester `can_resolve_url`, `get_stream`, l’URL proxy, les URLs alternatives, le poster et les
-   miniatures, puis mettre à jour le tableau.
+7. Tester `can_resolve_url` si déclaré, `can_resolve_html` si déclaré, `get_stream`, l’URL proxy,
+   les URLs alternatives, le poster et les miniatures, puis mettre à jour le tableau.
 
 ## Extensions Scrapyfy à cadrer avant implémentation
 
@@ -279,9 +304,10 @@ elles ne supposent pas que ces métadonnées existent. La colonne « Sonde `/e`/
 cinq résolveurs sélectionnables après l’inspection HTML dynamique de vStream ; « — » signifie
 qu’aucune de ces signatures n’est gérée par ce fallback.
 
-Le fallback reconnaît également une redirection JavaScript `Redirecting...`, puis relance la
-sélection complète sur l’URL obtenue. Ce chemin n’appartient à aucun fichier Python unique ; il
-est donc documenté ici plutôt que rattaché artificiellement à `allow_redirects.py`.
+La phase HTML du résolveur générique peut reconnaître des pages avec redirections JavaScript
+quand un YAML déclare explicitement `can_resolve_html` et une liste blanche adaptée. Le backend ne
+relance pas une sélection globale implicite sur une URL extraite par JavaScript : cette décision
+reste portée par le YAML du hoster concerné.
 
 | Fichier Python | Migration vers YAML | Storyboard | `image/title` | Sonde `/e`/`/v` |
 |---|---|---|---|---|
@@ -421,7 +447,7 @@ est donc documenté ici plutôt que rattaché artificiellement à `allow_redirec
 | `vimeo.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
 | `vimple.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
 | `vk.py` | ✅ Migré par `vk.yaml` ; validé le 2026-07-16 sur `video_ext.php` : extraction du manifeste DASH `dash_sep` du bloc JSON `files`, segments MPD réécrits vers le proxy avec le Referer, titre JSON et poster `first_frame` | ✅ `timeline_thumbs` : dimensions et intervalle extraits, `rows` calculé après construction (`count_per_image / count_per_row`), séquence `uidx={index}` proxifiée | ✅ `first_frame[0].url` → `image/title > link` | — |
-| `voe.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | ✅ Signature Voe |
+| `voe.py` | ✅ Migré par `voe.yaml` ; `can_resolve_html` restreint aux domaines VOE et miroirs connus (`voe.*`, `voesx.*`, `jessicayeahcatch.com`, `jeanprofessorcentral.com`, `juliewomanwish.com`, `garylargeavailable.com`, `jennifereconomicgive.com`, `pamelachangemission.com`, `ellenpoliticalfollow.com`) ; extraction du script JSON encodé VOE avec HTML fourni en mémoire | ⬜ Aucun storyboard observé | ⬜ Aucun poster observé | ✅ Signature Voe |
 | `vshare.py` | ⚠️ À qualifier — mécanisme impératif détecté | ⬜ À auditer | ⬜ À auditer | — |
 | `vudeo.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
 | `vupload.py` | ⚠️ À qualifier — mécanisme impératif détecté | ⬜ À auditer | ⬜ À auditer | — |

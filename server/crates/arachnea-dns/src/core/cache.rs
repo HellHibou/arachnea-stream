@@ -11,7 +11,7 @@ use std::{
 use tokio::sync::RwLock;
 
 /// Cache status for a returned answer.
-/// 
+///
 /// This enum indicates the cache status of a DNS answer, providing
 /// information about whether the answer came from cache and the freshness
 /// of the cached data.
@@ -19,21 +19,21 @@ use tokio::sync::RwLock;
 #[serde(rename_all = "snake_case")]
 pub enum CacheState {
     /// Disabled,
-    /// 
+    ///
     /// Caching is disabled for this resolver instance, so this answer
     /// did not come from cache.
     Disabled,
     /// Miss,
-    /// 
+    ///
     /// The answer was not found in cache, so it was obtained from an
     /// upstream server or other source.
     Miss,
     /// Hit,
-    /// 
+    ///
     /// The answer was served from cache and was still fresh (not expired).
     Hit,
     /// Stale,
-    /// 
+    ///
     /// The answer was served from cache but was stale (expired). This
     /// typically happens when serve_stale is enabled and fresh data
     /// cannot be obtained.
@@ -41,67 +41,67 @@ pub enum CacheState {
 }
 
 /// Runtime counters maintained by a core instance.
-/// 
+///
 /// This struct contains statistical counters that track the operation
 /// of a DNS resolver core instance, providing insights into cache
 /// effectiveness, error rates, and overall performance.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct CoreStats {
     /// Total number of resolution calls.
-    /// 
+    ///
     /// Count of all DNS resolution requests processed by this core instance.
     pub requests: u64,
     /// Answers served from fresh or stale cache.
-    /// 
+    ///
     /// Count of responses that were served from cache, including both
     /// fresh and stale cache hits.
     pub cache_hits: u64,
     /// Cache misses.
-    /// 
+    ///
     /// Count of requests that were not found in cache and had to be
     /// resolved from upstream servers or other sources.
     pub cache_misses: u64,
     /// Upstream errors observed.
-    /// 
+    ///
     /// Count of errors encountered when communicating with upstream
     /// DNS servers (timeouts, connection failures, protocol errors, etc.).
     pub upstream_errors: u64,
     /// Negative answers served from cache.
-    /// 
+    ///
     /// Count of negative responses (NXDOMAIN, NODATA) that were served
     /// from the negative cache.
     pub negative_cache_hits: u64,
     /// Negative answers synthesized from cached DNSSEC denial proofs.
-    /// 
+    ///
     /// Count of negative responses that were synthesized using cached
     /// DNSSEC NSEC records when aggressive DNSSEC negative caching is enabled.
     pub aggressive_negative_cache_hits: u64,
 }
 
 /// Per-core in-memory TTL cache.
-/// 
+///
 /// This struct implements an in-memory cache for DNS responses, including
 /// both positive answers and negative responses. The cache respects TTL
 /// (Time To Live) values and can serve stale data when configured to do so.
 #[derive(Debug, Clone)]
 pub struct Cache {
     /// Hash map storing positive DNS answers keyed by CacheKey.
-    /// 
+    ///
     /// Contains successfully resolved DNS answers that can be reused
     /// to avoid querying upstream servers.
     entries: Arc<RwLock<HashMap<CacheKey, CacheEntry>>>,
     /// Hash map storing negative DNS responses keyed by CacheKey.
-    /// 
+    ///
     /// Contains NXDOMAIN and NODATA responses that can be cached to
     /// avoid repeatedly querying for non-existent domains.
     negative_entries: Arc<RwLock<HashMap<CacheKey, NegativeCacheEntry>>>,
     /// Vector storing DNSSEC negative proofs for aggressive caching.
-    /// 
+    ///
     /// Contains DNSSEC NSEC records that can be used to synthesize
     /// authoritative negative responses for domains covered by the proofs.
     dnssec_negative_proofs: Arc<RwLock<Vec<DnssecNegativeProof>>>,
     /// Configuration governing cache behavior and limits.
-    /// 
+    ///
     /// The cache configuration that controls size limits, TTL bounds,
     /// and other cache behavior parameters.
     config: CacheConfig,
@@ -326,23 +326,23 @@ struct DnssecNegativeProof {
 
 /// A cached NSEC denial proof. NSEC3 proofs are intentionally collected by the
 /// recursor but not synthesized here until a full validator is wired in.
-/// 
+///
 /// This struct represents a DNSSEC NSEC record that can be used for
 /// aggressive negative caching. NSEC records provide cryptographic proof
 /// that certain domain names or record types do not exist.
 #[derive(Debug, Clone)]
 pub(crate) struct NsecProof {
     /// The owner name of this NSEC record.
-    /// 
+    ///
     /// The domain name to which this NSEC record applies.
     pub(crate) owner: String,
     /// The next owner name in the canonical ordering.
-    /// 
+    ///
     /// The next domain name in the canonical ordering of the zone,
     /// which defines the range of names covered by this NSEC record.
     pub(crate) next_owner: String,
     /// The record types present at the owner name.
-    /// 
+    ///
     /// The set of DNS record types that exist at the owner name.
     /// This is used to prove that other record types do not exist.
     pub(crate) types: Vec<HickoryRecordType>,
@@ -437,31 +437,31 @@ impl NegativeCachedError {
 }
 
 /// Cache key includes protocol and privacy/security policy dimensions.
-/// 
+///
 /// This struct serves as a composite key for the DNS cache, uniquely
 /// identifying cached entries based on the query parameters and relevant
 /// policy settings that affect the answer.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct CacheKey {
     /// The domain name being queried.
-    /// 
+    ///
     /// The normalized domain name from the DNS query.
     pub(crate) name: String,
     /// The DNS record type being requested.
-    /// 
+    ///
     /// The type of DNS record (A, AAAA, MX, etc.) requested in the query.
     pub(crate) record_type: RecordType,
     /// The DNS class of the query.
-    /// 
+    ///
     /// The class field from the DNS query (currently only IN is supported).
     pub(crate) class: DnsClass,
     /// The EDNS Client Subnet policy in effect.
-    /// 
+    ///
     /// The ECS policy affects which answers might be returned, so it
     /// must be part of the cache key to ensure correct caching behavior.
     pub(crate) ecs: EcsPolicy,
     /// The DNSSEC validation state in effect.
-    /// 
+    ///
     /// The DNSSEC policy affects answer validation, so it must be part
     /// of the cache key.
     pub(crate) dnssec: DnssecState,

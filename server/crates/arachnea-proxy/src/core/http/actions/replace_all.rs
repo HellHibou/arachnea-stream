@@ -341,7 +341,11 @@ fn resolve_variables(template: &str, context: &PostActionContext) -> String {
     let proxy_inherited = if context.opts_encoded.is_empty() {
         proxy_path.clone()
     } else {
-        format!("{}/opts_{}", proxy_path.trim_end_matches('/'), context.opts_encoded)
+        format!(
+            "{}/opts_{}",
+            proxy_path.trim_end_matches('/'),
+            context.opts_encoded
+        )
     };
 
     template

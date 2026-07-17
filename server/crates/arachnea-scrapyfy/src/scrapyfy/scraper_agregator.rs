@@ -371,6 +371,23 @@ impl ScraperAgregator {
         Ok(self)
     }
 
+    /// Returns the source names within a group, in insertion (services.json) order.
+    ///
+    /// # Arguments
+    ///
+    /// * `group_name` - Group name to look up.
+    pub fn source_names_in_group(&self, group_name: &str) -> Vec<String> {
+        self.queries_collection
+            .get(group_name)
+            .map(|collections| {
+                collections
+                    .iter()
+                    .map(|c| c.name().to_string())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// Returns the configured parameters for one loaded source within a group.
     ///
     /// # Arguments

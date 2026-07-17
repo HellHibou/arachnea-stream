@@ -276,7 +276,9 @@ impl ScraperQueryDefinition {
                 bind_json_query_proxy_handle(query, &proxy_handle)
             }
             ScraperQueryDefinition::Static(query) => query.set_proxy_handle(proxy_handle),
-            ScraperQueryDefinition::Text(query) => bind_text_query_proxy_handle(query, &proxy_handle),
+            ScraperQueryDefinition::Text(query) => {
+                bind_text_query_proxy_handle(query, &proxy_handle)
+            }
         }
     }
 }

@@ -105,7 +105,7 @@ let response = client
 
 ## Redirects
 
-- `ArachneaHttpConfig::max_redirects(None)` uses the crate default of three redirects.
+- `ArachneaHttpConfig::max_redirects(None)` uses the crate default of 16 redirects.
 - `Some(0)` disables redirect following and returns the first redirect response.
 - `Some(n)` follows up to `n` redirects.
 - `303`, `302`, and `301` responses rewrite non-GET and non-HEAD requests to `GET`; `307` and `308` preserve the original method and body.

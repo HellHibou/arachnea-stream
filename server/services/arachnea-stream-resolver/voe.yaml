@@ -1,0 +1,95 @@
+id: voe
+title: VOE
+description:
+  en: "Resolver for VOE embed pages and mirror domains"
+http:
+  mode: auto
+  max_redirects: 16
+
+parameters:
+  - name: url
+    value: ""
+    description: "URL of the VOE embed page to resolve"
+  - name: html
+    value: ""
+    description: "Optional pre-fetched HTML document used for content-based resolution"
+
+queries:
+
+  - name: can_resolve_html
+    scraper_type: static
+    entries:
+      - name: resolver
+        type: string
+        value: "{url}\n{html}"
+        actions:
+          - type: regex_find_all
+            pattern: 'https?://(?:www\.)?(?:voe|voesx)\.(?:sx|com|ru)/e/|https?://(?:www\.)?(?:jessicayeahcatch|jeanprofessorcentral|juliewomanwish|garylargeavailable|jennifereconomicgive|pamelachangemission|ellenpoliticalfollow)\.com/e/'
+            format: "{service_id}"
+
+  - name: resolve_stream
+    scraper_type: html
+    base_url: "{url}"
+    query_url: "{url}"
+    input_html: "{html}"
+    row_selector: "html"
+    http:
+      max_redirects: 16
+    entries:
+      - name: encoded_config
+        type: string
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: '<script\s+type="application/json">\s*\["([^"]+)"\]\s*</script>'
+            format: "{1}"
+      - name: redirect_url
+        type: string
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: "window\\.location\\.href\\s*=\\s*'([^']+)'"
+            format: "{1}"
+    post_process:
+      - type: fetch_actions_to_field
+        source: redirect_url
+        target: encoded_config
+        output_type: string
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: '<script\s+type="application/json">\s*\["([^"]+)"\]\s*</script>'
+            format: "{1}"
+      - type: apply_actions_to_field
+        source: encoded_config
+        target: stream_url
+        output_type: string[]
+        actions:
+          - type: caesar_shift
+            shift: 13
+          - type: regex_replace_all
+            pattern: '(@\$|\^\^|~@|%\?|\*~|!!|#&)'
+            replacement: ""
+          - type: base64_decode
+          - type: bytes_shift
+            value: -3
+          - type: reverse
+          - type: base64_decode
+          - type: json_extract_text
+            path: /source
+          - type: resolve_url
+            proxy: true
+            proxy_headers:
+              User-Agent: "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:66.0) Gecko/20100101 Firefox/66.0"
+            proxy_replace_all:
+              - pattern: '(?m)^(https?://[^\r\n]+)'
+                replacement: '{proxy_inherited}/$1'
+                content_types:
+                  - application/vnd.apple.mpegurl
+      - type: apply_actions_to_field
+        source: stream_url
+        target: manifest_type
+        output_type: string
+        actions:
+          - type: format_text
+            argument: hls

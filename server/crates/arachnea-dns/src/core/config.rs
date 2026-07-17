@@ -3,74 +3,74 @@ use serde::{Deserialize, Serialize};
 use std::{net::SocketAddr, path::PathBuf};
 
 /// Embedded default root DNS server hints.
-/// 
+///
 /// This constant contains the default list of root DNS server IP addresses
 /// that are used for recursive DNS resolution when no custom root hints
 /// are provided. The data is embedded in the binary at compile time.
 const EMBEDDED_ROOT_HINTS: &str = include_str!("../../resources/root_hints.txt");
 
 /// Root configuration object for the reusable DNS core.
-/// 
+///
 /// This struct contains the complete configuration for the DNS resolver core,
 /// including resolver behavior, upstream servers, caching, privacy and
 /// security settings, and various policy rules.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoreConfig {
     /// High-level profile used to seed defaults.
-    /// 
+    ///
     /// The usage profile that provides default values for other configuration
     /// fields. Profiles like "Privacy" or "Secure" set appropriate defaults
     /// for privacy and security settings.
     pub profile: UsageProfile,
     /// Resolver behavior and timeout settings.
-    /// 
+    ///
     /// Configuration for the DNS resolver, including resolution mode,
     /// timeouts, retry behavior, and upstream selection strategy.
     pub resolver: ResolverConfig,
     /// Outbound DNS resolvers used in forwarder mode.
-    /// 
+    ///
     /// List of upstream DNS servers to which queries are forwarded when
     /// operating in forwarder mode.
     pub upstreams: Vec<Upstream>,
     /// Per-core in-memory cache configuration.
-    /// 
+    ///
     /// Configuration for the in-memory DNS cache, including size limits,
     /// TTL bounds, and negative caching behavior.
     pub cache: CacheConfig,
     /// Privacy-related options.
-    /// 
+    ///
     /// Privacy settings including QNAME minimization, ECS (EDNS Client
     /// Subnet) handling, and query logging preferences.
     pub privacy: PrivacyConfig,
     /// Security-related options.
-    /// 
+    ///
     /// Security settings including DNSSEC validation mode, DNS cookies,
     /// and rate limiting configuration.
     pub security: SecurityConfig,
     /// Locally answered records.
-    /// 
+    ///
     /// Domain names and their associated resource records that are
     /// answered locally without querying upstream servers.
     pub local_records: Vec<LocalRecord>,
     /// Domain block rules.
-    /// 
+    ///
     /// Rules that block or modify responses for specific domain patterns,
     /// used for content filtering and access control.
     pub blocklists: Vec<crate::core::BlockRule>,
     /// Smart DNS routing rules.
-    /// 
+    ///
     /// Advanced routing rules that can answer queries directly, route
     /// them to specific upstreams, or use proxy targets based on domain
     /// patterns.
     pub smart_dns: crate::core::SmartDnsConfig,
     /// Advanced ordered policy rules.
-    /// 
+    ///
     /// Ordered list of policy rules that are evaluated in sequence to
     /// determine how to handle DNS queries. Rules can allow, block, answer,
     /// rewrite, or route queries.
     pub rules: Vec<crate::core::Rule>,
     /// Proxy targets used by Smart DNS rules.
-    /// 
+    ///
     /// Named proxy targets that can be referenced by Smart DNS rules
     /// to provide specialized routing or load balancing.
     pub proxy_targets: Vec<crate::core::ProxyTarget>,
@@ -113,7 +113,7 @@ pub struct ResolvedConfig {
 }
 
 /// High-level usage profiles that generate explicit configuration.
-/// 
+///
 /// These profiles provide convenient presets for common DNS resolver
 /// configurations, setting appropriate defaults for privacy, security,
 /// and upstream selection behavior.
@@ -121,7 +121,7 @@ pub struct ResolvedConfig {
 #[serde(rename_all = "snake_case")]
 pub enum UsageProfile {
     /// Use the operating system resolver.
-    /// 
+    ///
     /// This profile configures the resolver to use the system's built-in
     /// DNS resolution capabilities, typically through /etc/resolv.conf
     /// on Unix-like systems.
@@ -132,7 +132,7 @@ pub enum UsageProfile {
     /// # Parameters
     ///
     /// - `Upstream`: Upstream that receives every forwarded query.
-    /// 
+    ///
     /// This profile sends all DNS queries to a single upstream DNS server,
     /// providing simple forwarding behavior.
     SingleForwarder(Upstream),
@@ -142,7 +142,7 @@ pub enum UsageProfile {
     /// # Parameters
     ///
     /// - `Vec<Upstream>`: Upstreams used by the failover strategy.
-    /// 
+    ///
     /// This profile is designed for reliability, using multiple upstream
     /// servers with failover behavior to ensure queries can be resolved
     /// even if some upstreams are unavailable.
@@ -153,7 +153,7 @@ pub enum UsageProfile {
     /// # Parameters
     ///
     /// - `Vec<Upstream>`: Private upstreams queried by the forwarder.
-    /// 
+    ///
     /// This profile prioritizes privacy by using encrypted transports
     /// (like DNS-over-TLS or DNS-over-HTTPS) and disabling features that
     /// might leak client information.
@@ -165,13 +165,13 @@ pub enum UsageProfile {
     ///
     /// - `Vec<Upstream>`: Secure upstreams queried by the forwarder.
     /// - `DnssecState`: DNSSEC validation mode applied to the profile.
-    /// 
+    ///
     /// This profile emphasizes security and data integrity, enabling
     /// DNSSEC validation and using secure upstream transports.
     Secure(Vec<Upstream>, DnssecState),
 
     /// Require explicit settings.
-    /// 
+    ///
     /// This profile provides no automatic configuration and requires
     /// all settings to be specified explicitly, giving full control
     /// to the administrator.
@@ -276,25 +276,25 @@ impl Default for ResolverConfig {
 }
 
 /// High-level resolution mode.
-/// 
+///
 /// This enum specifies the fundamental operating mode of the DNS resolver,
 /// determining how DNS queries are processed and answered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ResolutionMode {
     /// Use the system resolver from application code.
-    /// 
+    ///
     /// In stub mode, the resolver delegates to the operating system's
     /// DNS resolution facilities rather than implementing its own
     /// DNS protocol handling.
     Stub,
     /// Forward to configured upstreams.
-    /// 
+    ///
     /// In forwarder mode, the resolver sends DNS queries to configured
     /// upstream DNS servers and returns their responses to clients.
     Forwarder,
     /// Recursive mode placeholder for v1 architecture.
-    /// 
+    ///
     /// Recursive mode indicates that the resolver should perform full
     /// recursive DNS resolution starting from root servers. Note that
     /// this is a placeholder in the current architecture.
@@ -302,36 +302,36 @@ pub enum ResolutionMode {
 }
 
 /// Upstream selection algorithm.
-/// 
+///
 /// This enum defines the strategies used to select among multiple
 /// configured upstream DNS servers when resolving queries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UpstreamStrategy {
     /// FixedOrder,
-    /// 
+    ///
     /// Queries are always sent to upstreams in the exact order they
     /// are configured. If the first upstream fails, the next one is tried,
     /// and so on.
     FixedOrder,
     /// RoundRobin,
-    /// 
+    ///
     /// Upstreams are selected in a round-robin fashion, distributing
     /// queries evenly across all available upstreams.
     RoundRobin,
     /// Race,
-    /// 
+    ///
     /// All upstreams are queried simultaneously, and the first response
     /// to arrive is used. This provides the fastest response time but
     /// uses more network resources.
     Race,
     /// Failover,
-    /// 
+    ///
     /// Upstreams are tried in order until one succeeds. If an upstream
     /// fails or times out, the next one in the list is attempted.
     Failover,
     /// Consensus,
-    /// 
+    ///
     /// Multiple upstreams are queried, and their responses are compared.
     /// Only answers that achieve consensus (agreement) among multiple
     /// upstreams are accepted.
@@ -446,7 +446,7 @@ impl Upstream {
 }
 
 /// DNS transport protocol.
-/// 
+///
 /// This enum specifies the network protocols used to communicate with
 /// upstream DNS servers. Different protocols offer varying levels of
 /// security, privacy, and performance characteristics.
@@ -454,41 +454,41 @@ impl Upstream {
 #[serde(rename_all = "snake_case")]
 pub enum Transport {
     /// System,
-    /// 
+    ///
     /// Use the operating system's built-in DNS resolution facilities.
     System,
     /// Udp,
-    /// 
+    ///
     /// Classic DNS over UDP (port 53), the traditional DNS protocol.
     Udp,
     /// Tcp,
-    /// 
+    ///
     /// Classic DNS over TCP (port 53), used for large responses or when
     /// UDP is blocked.
     Tcp,
     /// Dot,
-    /// 
+    ///
     /// DNS over TLS (port 853), provides encrypted DNS queries using
     /// TLS for confidentiality and integrity.
     Dot,
     /// Doh,
-    /// 
+    ///
     /// DNS over HTTPS (typically port 443), encapsulates DNS queries
     /// in HTTP/HTTPS for better compatibility with existing infrastructure.
     Doh,
     /// Doq,
-    /// 
+    ///
     /// DNS over QUIC, uses the QUIC protocol (UDP-based) for encrypted
     /// DNS with reduced connection setup latency.
     Doq,
     /// Odoh,
-    /// 
+    ///
     /// Oblivious DNS over HTTPS, provides enhanced privacy by preventing
     /// the DNS resolver from knowing both the client's identity and the
     /// query content.
     Odoh,
     /// Recursive,
-    /// 
+    ///
     /// Indicates that the resolver should perform recursive resolution
     /// starting from root servers rather than forwarding to upstreams.
     Recursive,
@@ -619,7 +619,7 @@ impl Default for SecurityConfig {
 }
 
 /// DNSSEC validation mode exposed in metadata and configuration.
-/// 
+///
 /// This enum defines the different levels of DNSSEC (DNS Security Extensions)
 /// validation that can be applied to DNS responses to ensure data integrity
 /// and authenticity.
@@ -627,29 +627,29 @@ impl Default for SecurityConfig {
 #[serde(rename_all = "snake_case")]
 pub enum DnssecState {
     /// Off,
-    /// 
+    ///
     /// DNSSEC validation is disabled. No cryptographic verification
     /// of DNS responses is performed.
     Off,
     /// Passthrough,
-    /// 
+    ///
     /// DNSSEC records are preserved in responses but no validation
     /// is performed. Useful for debugging or when validation is handled
     /// elsewhere.
     Passthrough,
     /// ReportOnly,
-    /// 
+    ///
     /// DNSSEC validation is performed and results are recorded in
     /// metadata, but validation failures do not cause queries to fail.
     ReportOnly,
     /// Opportunistic,
-    /// 
+    ///
     /// DNSSEC validation is performed when possible, but queries
     /// continue even if validation cannot be performed (e.g., due to
     /// missing keys or unsupported algorithms).
     Opportunistic,
     /// Strict,
-    /// 
+    ///
     /// Full DNSSEC validation is required. Queries fail if DNSSEC
     /// validation cannot be performed or if validation fails.
     /// This provides the highest level of security.

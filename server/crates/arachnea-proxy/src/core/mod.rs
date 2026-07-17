@@ -14,11 +14,11 @@ mod dns_integration;
 mod error;
 mod extension;
 pub mod http;
+/// Country-level IP geolocation provider.
+pub mod ip_country;
 mod observability;
 mod parameters;
 pub mod policy;
-/// Country-level IP geolocation provider.
-pub mod ip_country;
 /// Dynamic proxy inventory with health tracking.
 pub mod proxy_inventory;
 /// Proxy liveness probing engine.
@@ -52,6 +52,10 @@ pub use extension::{
     RoutePlugin,
 };
 pub use http::{HttpRequestStream, HttpRequestTargetForm};
+pub use ip_country::{
+    IpCountryDataProvider, IpCountryRecord, IpCountryResolver, IpCountryResolverConfig,
+    IpCountrySerdeCodec, IpCountrySerdeStore, IpCountryStore, JsonIpCountryCodec,
+};
 pub use observability::{LogSensitivity, ObservabilityConfig};
 pub use parameters::{
     build_parameter_handler, context_from_parameter_pairs, normalize_parameter_value,
@@ -63,10 +67,6 @@ pub use parameters::{
 pub use policy::{
     EgressPool, EgressPoolStrategy, EgressSelector, NoopEgressSelector, PrivacyPolicy,
     ProxyPoolMemberState, ProxyPoolMemberStatus, SecurityPolicy,
-};
-pub use ip_country::{
-    IpCountryDataProvider, IpCountryRecord, IpCountryResolver, IpCountryResolverConfig,
-    IpCountrySerdeCodec, IpCountrySerdeStore, IpCountryStore, JsonIpCountryCodec,
 };
 pub use proxy_inventory::{CoexistencePolicy, InventoryConfig, ProxyInventory};
 pub use proxy_probe::{ProbeConfig, ProbeMode, ProxyProbe};

@@ -16,17 +16,17 @@ use tokio::{
 use tracing::{error, info, warn};
 
 /// DNS server wrapper around one shared core instance.
-/// 
+///
 /// This struct represents a complete DNS server that listens for DNS
 /// queries on UDP and TCP sockets, applies access control policies,
 /// and delegates resolution to a shared DNS core instance.
 pub struct Server {
     /// Server configuration.
-    /// 
+    ///
     /// Configuration for the DNS server's listeners and network settings.
     config: ServerConfig,
     /// Shared DNS core instance.
-    /// 
+    ///
     /// The DNS resolver core that performs actual DNS resolution. This
     /// is shared among all listener tasks and provides caching, policy
     /// enforcement, and upstream communication.
@@ -240,34 +240,34 @@ async fn handle_tcp_stream(mut stream: TcpStream, core: Arc<ArachneaDnsCore>) ->
 }
 
 /// Runtime ACL and rate-limit policy for DNS listeners.
-/// 
+///
 /// This struct implements access control and rate limiting for DNS server
 /// listeners. It enforces network-based access control lists and per-client
 /// request rate limits to protect against abuse and unauthorized access.
 struct RuntimePolicy {
     /// Allowed client networks.
-    /// 
+    ///
     /// List of IP networks (in CIDR notation) that are permitted to query
     /// this DNS server.
     allow: Vec<IpNet>,
     /// Denied client networks.
-    /// 
+    ///
     /// List of IP networks that are explicitly denied access, even if they
     /// would be allowed by the allow list. Deny rules take precedence.
     deny: Vec<IpNet>,
     /// Whether to allow loopback clients when allow list is empty.
-    /// 
+    ///
     /// If true and the allow list is empty, clients connecting from
     /// loopback addresses (127.0.0.1, ::1) are allowed. This provides
     /// sensible defaults for development and testing.
     allow_loopback_when_empty: bool,
     /// Per-client rate limit in requests per second.
-    /// 
+    ///
     /// Optional rate limit that restricts how many requests each client
     /// IP address can make per second. None means no rate limiting.
     rate_limit_per_second: Option<u32>,
     /// Rate limit buckets for each client IP.
-    /// 
+    ///
     /// Hash map tracking the request count for each client IP address
     /// within the current rate limiting window.
     buckets: Mutex<HashMap<IpAddr, RateBucket>>,
@@ -385,18 +385,18 @@ impl RuntimePolicy {
 }
 
 /// Per-client request counter for the current one-second window.
-/// 
+///
 /// This struct tracks the number of requests made by a single client IP
 /// address within the current rate limiting window. The window is
 /// typically one second, and the count is reset when the window expires.
 struct RateBucket {
     /// Timestamp when the current window started.
-    /// 
+    ///
     /// The instant in time when the current rate limiting window began.
     /// This is used to determine when the window should be reset.
     window_started: Instant,
     /// Number of requests in the current window.
-    /// 
+    ///
     /// The count of requests made by this client since window_started.
     /// When this count reaches the rate limit, further requests are
     /// rejected until the window resets.
