@@ -77,6 +77,8 @@ const {
   hasLoaded,
   /** Error message from catalog loading. */
   errorMessage,
+  /** Function to load deferred banners after the hero has mounted. */
+  loadDeferredBanners,
   /** The current catalog being displayed. */
   currentCatalog,
   /** Whether there is content to display. */
@@ -183,9 +185,11 @@ function handleSelectCollectionItem(item: MediaItem) {
       <template v-else>
         <section class="home-catalog__content">
           <HomeHeroBanner
-            v-if="currentCatalog.banners.entries.length > 0"
+            v-if="currentCatalog.banners.entries.length > 0 || currentCatalog.deferredBanners.length > 0"
             :banners="currentCatalog.banners.entries"
+            :should-load-deferred-banners="currentCatalog.deferredBanners.some((collection) => Boolean(collection.link))"
             @select-item="handleSelectItem"
+            @load-banners="loadDeferredBanners"
           />
 
           <header v-if="props.mode === 'category' && props.category" class="home-catalog__heading">

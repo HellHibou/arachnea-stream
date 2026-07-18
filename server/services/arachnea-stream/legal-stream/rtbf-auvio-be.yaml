@@ -199,210 +199,6 @@ shared:
             type: object[]
             entries: *rtbf_episode_entries
 
-  home_category_sub_queries: &home_category_sub_queries
-    - scraper_type: json
-      context_pointer: /widgets/*
-      filters:
-        /type:
-          - CATEGORY_LIST
-      request_pointer: /contentPath
-      row_pointer: /data
-      entries:
-        - name: categories
-          type: object[]
-          pointer: /content/*
-          select: all
-          entries:
-            - name: key
-              type: string
-              select: first
-              pointer: /label
-              actions:
-                - type: map
-                  default: "{}"
-                  argument:
-                    "Séries": series
-                    Films: films
-                    Sport: sport
-                    Info: info
-                    Kids: kids
-                    Documentaires: documentaires
-            - name: label
-              type: string
-              select: first
-              pointer: /label
-            - name: image
-              type: string
-              select: first
-              pointer: /illustration/m
-            - name: request > query_url
-              type: string
-              select: first
-              pointer: /path
-              actions: *actions_format_rtbf_pages
-
-  home_banner_sub_queries: &home_banner_sub_queries
-    - scraper_type: json
-      context_pointer: /widgets/*
-      filters:
-        /type:
-          - PROMOBOX
-      request_pointer: /contentPath
-      row_pointer: /data/content/*
-      target: banners
-      entries:
-        - name: key
-          type: string
-          select: first
-          pointer: /mediaId
-        - name: title
-          type: string
-          select: first
-          pointer: /title
-        - name: subtitle
-          type: string
-          select: first
-          pointer: /subtitle
-        - name: description
-          type: string
-          select: first
-          pointer: /description
-        - name: image
-          type: string
-          select: first
-          pointer: /image/xl
-        - name: link
-          type: string
-          select: first
-          pointer: /deeplink
-          actions: *actions_format_rtbf_pages
-        - name: web-link
-          type: string
-          select: first
-          pointer: /deeplink
-          actions:
-            - type: format_text
-              argument: "https://auvio.rtbf.be{}"
-        - name: players
-          type: object
-          entries:
-            - name: source
-              type: string
-              actions:
-                - type: format_text
-                  argument: "{source}"
-            - name: link
-              type: string
-              select: first
-              pointer: /mediaId
-              actions:
-                - type: format_text
-                  argument: "https://exposure.api.redbee.live:443/v2/customer/RTBF/businessunit/Auvio/auth/anonymous?assetId={}"
-
-    - scraper_type: json
-      context_pointer: /widgets/*
-      filters:
-        /type:
-          - BANNER
-          - MEDIA_TRAILER
-      request_pointer: /path
-      row_pointer: /data
-      entries:
-        - name: banners
-          type: object[]
-          entries:
-            - name: key
-              type: string
-              select: first
-              pointer: /id
-            - name: title
-              type: string
-              select: first
-              pointer: /title
-            - name: subtitle
-              type: string
-              select: first
-              pointer: /subtitle
-            - name: description
-              type: string
-              select: first
-              pointer: /description
-            - name: description
-              type: string
-              select: first
-              pointer: /programDescription
-            - name: image
-              type: string
-              select: first
-              pointer: /image/xl
-            - name: image
-              type: string
-              select: first
-              pointer: /illustration/xl
-            - name: video
-              type: string
-              select: first
-              pointer: /video/url
-              actions:
-                - type: resolve_url
-                  proxy: true
-            - name: video
-              type: string
-              select: first
-              pointer: /media/url
-              actions:
-                - type: resolve_url
-                  proxy: true
-            - name: video
-              type: string
-              select: first
-              pointer: /url
-              actions:
-                - type: resolve_url
-                  proxy: true
-            - name: video
-              type: string
-              select: first
-              pointer: /trailerUrl
-              actions:
-                - type: resolve_url
-                  proxy: true
-            - name: video
-              type: string
-              select: first
-              pointer: /trailer/url
-              actions:
-                - type: resolve_url
-                  proxy: true
-            - name: video
-              type: string
-              select: first
-              pointer: /embedPath
-              actions:
-                - type: resolve_url
-                  proxy: true
-            - name: link
-              type: string
-              select: first
-              pointer: /deepLink
-              actions: *actions_format_rtbf_pages
-            - name: link
-              type: string
-              select: first
-              pointer: /path
-              actions: *actions_format_rtbf_pages
-            - name: web-link
-              type: string
-              select: first
-              pointer: /deepLink
-              actions:
-                - type: resolve_url
-            - name: web-link
-              type: string
-              select: first
-              pointer: /path
-              actions:
-                - type: resolve_url
 
 # ############################################################################
 # Queries
@@ -436,9 +232,6 @@ queries:
     scraper_type: json
     base_url: https://auvio.rtbf.be
     query_url: "{home_url}"
-    sibling_sub_query_concurrency: 6
-    sub_query_context_concurrency: 6
-    sub_query_fetch_concurrency: 8
     media_types: *media_types_rtbf
     row_pointer: /data
     entries:
@@ -468,16 +261,14 @@ queries:
             type: string
             select: first
             pointer: /contentPath
-      - name: banners-link
+      - name: banners > link
         type: string
         actions:
           - type: format_text
             argument: "{home_url}"
-    sub_queries: *home_category_sub_queries
-
 
   # ---------------------------------------------------------------
-  # Category listing
+  # Banners listing
   # ---------------------------------------------------------------
   - name: get_banners
     scraper_type: json
@@ -489,8 +280,153 @@ queries:
     media_types: *media_types_rtbf
     row_pointer: /data
     entries: []
-    sub_queries: *home_banner_sub_queries
+    sub_queries:
+      - scraper_type: json
+        context_pointer: /widgets/*
+        filters:
+          /type:
+            - PROMOBOX
+        request_pointer: /contentPath
+        row_pointer: /data/content/*
+        target: banners
+        entries:
+          - name: key
+            type: string
+            select: first
+            pointer: /mediaId
+          - name: title
+            type: string
+            select: first
+            pointer: /title
+          - name: subtitle
+            type: string
+            select: first
+            pointer: /subtitle
+          - name: description
+            type: string
+            select: first
+            pointer: /description
+          - name: image
+            type: string
+            select: first
+            pointer: /image/xl
+          - name: link
+            type: string
+            select: first
+            pointer: /deeplink
+            actions: *actions_format_rtbf_pages
+          - name: web-link
+            type: string
+            select: first
+            pointer: /deeplink
+            actions:
+              - type: format_text
+                argument: "https://auvio.rtbf.be{}"
+          - name: players
+            type: object[]
+            entries:
+              - name: resolver
+                type: object
+                select: first
+                entries:
+                  - name: kind
+                    type: string
+                    actions:
+                      - type: format_text
+                        argument: "rtbf-auvio-video"
+                  - name: target_id
+                    type: string
+                    select: first
+                    pointer: /mediaId
 
+      - scraper_type: json
+        context_pointer: /widgets/*
+        filters:
+          /type:
+            - BANNER
+            - MEDIA_TRAILER
+        request_pointer: /contentPath
+        row_pointer: /data
+        target: banners
+        entries:
+          - name: key
+            type: string
+            select: first
+            pointer: /id
+          - name: title
+            type: string
+            select: first
+            pointer: /title
+          - name: subtitle
+            type: string
+            select: first
+            pointer: /subtitle
+          - name: description
+            type: string
+            select: first
+            pointer: /description
+          - name: description
+            type: string
+            select: first
+            pointer: /programDescription
+          - name: image
+            type: string
+            select: first
+            pointer: /image/xl
+          - name: image
+            type: string
+            select: first
+            pointer: /illustration/xl
+          - name: mediaAssetId
+            type: string
+            select: first
+            pointer: /mediaAssetId
+          - name: mediaId
+            type: string
+            select: first
+            pointer: /mediaId
+          - name: players
+            type: object[]
+            entries:
+              - name: resolver
+                type: object
+                select: first
+                entries:
+                  - name: kind
+                    type: string
+                    actions:
+                      - type: format_text
+                        argument: "rtbf-auvio-video"
+                  - name: target_id
+                    type: string
+                    select: first
+                    pointer: /mediaAssetId
+          - name: link
+            type: string
+            select: first
+            pointer: /deepLink
+            actions: *actions_format_rtbf_pages
+          - name: link
+            type: string
+            select: first
+            pointer: /path
+            actions: *actions_format_rtbf_pages
+          - name: web-link
+            type: string
+            select: first
+            pointer: /deepLink
+            actions:
+              - type: resolve_url
+          - name: web-link
+            type: string
+            select: first
+            pointer: /path
+            actions:
+              - type: resolve_url
+
+  # ---------------------------------------------------------------
+  # Category listing
+  # ---------------------------------------------------------------
   - name: get_category
     scraper_type: json
     base_url: https://auvio.rtbf.be
@@ -527,13 +463,52 @@ queries:
             type: string
             select: first
             pointer: /contentPath
-      - name: banners-link
+      - name: banners > link
         type: string
         actions:
           - type: format_text
             argument: "{query_url}"
-    sub_queries: *home_category_sub_queries
-
+    sub_queries:
+        - scraper_type: json
+          context_pointer: /widgets/*
+          filters:
+            /type:
+              - CATEGORY_LIST
+          request_pointer: /contentPath
+          row_pointer: /data
+          entries:
+            - name: categories
+              type: object[]
+              pointer: /content/*
+              select: all
+              entries:
+                - name: key
+                  type: string
+                  select: first
+                  pointer: /label
+                  actions:
+                    - type: map
+                      default: "{}"
+                      argument:
+                        "Séries": series
+                        Films: films
+                        Sport: sport
+                        Info: info
+                        Kids: kids
+                        Documentaires: documentaires
+                - name: label
+                  type: string
+                  select: first
+                  pointer: /label
+                - name: image
+                  type: string
+                  select: first
+                  pointer: /illustration/m
+                - name: request > query_url
+                  type: string
+                  select: first
+                  pointer: /path
+                  actions: *actions_format_rtbf_pages
 
   # ---------------------------------------------------------------
   # Section listing
@@ -958,7 +933,9 @@ queries:
           - *rtbf_program_episode_sub_query
       - *rtbf_program_episode_sub_query
 
-
+  # ---------------------------------------------------------------
+  # Get players
+  # ---------------------------------------------------------------
   - name: get_players
     scraper_type: json
     base_url: https://auvio.rtbf.be

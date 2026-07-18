@@ -35,6 +35,18 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - `JsonScraperSubQuery::execute` / `execute_siblings` / `execute_context` / `execute_indexed_context` / `execute_indexed_sibling` / `build_row_node` — re-used through the new `JsonScraperSubQuery::execute_query_level` unified entry point (see regression fix below).
 
 ### Fixed
+- **TF1+ trailer extraction**: `get_entry` now returns the TF1 video page for
+  `video/trailer` instead of an image preview URL, allowing the frontend to
+  render the trailer as an embedded player.
+- **Deferred home banners**: `get_banners` now starts only after the home
+  hero mounts, allowing the catalog shell and sections to render before
+  deferred banner sources are requested.
+- **RTBF Auvio deferred trailers and home section loading**: `get_banners`
+  trailer entries now retain their RedBee resolver through frontend
+  normalization and the hero banner resolves its protected stream with the
+  existing `get_stream` contract. Home sections are no longer fetched eagerly
+  after `load_home`; their first page is requested by the existing visibility
+  observer instead.
 - **VOE HLS manifests**: VOE proxied manifests now preserve the required User-Agent and rewrite absolute playlist URLs through the inherited proxy options.
 - **VOE stream hoster metadata**: The VOE YAML hoster now exposes page title, preview image, and single-frame storyboard metadata when available from the embed HTML.
 - **Scraper HTTP redirect limits**: `max_redirects` is now deserialized from YAML HTTP configuration, so query-specific redirect limits are applied to the outbound client.
@@ -298,3 +310,7 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **TF1 deferred home covers**: TF1 load_home now returns the covers endpoint as a deferred banner link. A single get_banners query reads both program and video covers, replacing the two blocking cover subqueries.
 
 - **Deferred RTBF and M6 banners**: M6 Play and RTBF home banners are now loaded through get_banners; RTBF promobox RedBee authorization is exposed through get_players.
+
+### Fixed
+
+- **Deferred banner sources**: The frontend now preserves every deferred `source`/`link` pair, displays initial banner entries immediately, and appends each successful `get_banners` response as it arrives.

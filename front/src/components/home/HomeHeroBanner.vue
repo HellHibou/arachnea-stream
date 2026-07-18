@@ -2,14 +2,19 @@
 import { computed, onBeforeUnmount, onMounted, shallowRef, useTemplateRef, watch } from 'vue'
 
 import {
+  resolveBackendStreamMediaSource,
   resolveBackgroundMediaSource,
+  resolveIframeMediaSource,
   type ResolvedPlayerMediaSource,
 } from '@/services/players'
+import { getStream } from '@/services/rustify'
 import VideoPlayer from '@/components/media/VideoPlayer.vue'
 import type { VideoJsMediaDimensions } from '@/composables/video/useVideoJsMediaRenderer'
 import { useI18n } from '@/i18n'
 import type { HomeBanner } from '@/types/home'
+import type { EntryPlayer } from '@/types/entry'
 import type { MediaSelectionTarget } from '@/types/media'
+import { useServiceMetadata } from '@/composables/useServiceMetadata'
 
 /**
  * Props accepted by the featured banner carousel.
@@ -19,20 +24,32 @@ interface Props {
    * Banners exposed by the backend catalog payload.
    */
   banners: HomeBanner[]
+  /**
+   * Indicates that deferred banners should be requested after this component mounts.
+   * @default false
+   */
+  shouldLoadDeferredBanners?: boolean
 }
 
-/** Component props without defaults. */
-const props = defineProps<Props>()
+/** Component props with applied defaults. */
+const props = withDefaults(defineProps<Props>(), {
+  shouldLoadDeferredBanners: false,
+})
 
 const emit = defineEmits<{
   /** Emitted when a media item is selected from a banner. */
   'select-item': [target: MediaSelectionTarget]
+  /** Emitted after mount to request deferred banner collections. */
+  'load-banners': []
 }>()
 
 /** Delay in milliseconds between automatic banner rotations. */
 const AUTO_ROTATION_DELAY_MS = 20000
 /** Default aspect ratio for banner videos. */
 const DEFAULT_BANNER_VIDEO_ASPECT_RATIO = 16 / 9
+
+/** Identifier used to ignore stale banner stream resolutions. */
+let bannerStreamRequestId = 0
 
 /** Index of the currently active banner. */
 const activeIndex = shallowRef(0)
@@ -51,16 +68,95 @@ const isBannerVideoMuted = shallowRef(true)
 /** Internationalization utilities. */
 const { t } = useI18n()
 
+/** Service metadata utilities. */
+const { getService } = useServiceMetadata()
+
+/** Metadata for the service of the current media item. */
+const serviceMetadata = computed(() => getService(activeBanner.value?.source))
+
 /**
  * Returns the banner currently visible in the hero surface.
  */
 const activeBanner = computed(() => props.banners[activeIndex.value] ?? null)
 
 /**
+ * Resolved media source for the active banner.
+ *
+ * When a banner provides a `player` resolver instead of a direct `videoUrl`,
+ * this ref is asynchronously populated by calling `get_stream` on the backend.
+ */
+const resolvedBannerMediaSource = shallowRef<ResolvedPlayerMediaSource | null>(null)
+
+/**
+ * Builds the minimal player descriptor required to resolve one banner stream.
+ *
+ * @param banner Banner containing an optional backend player resolver.
+ * @returns Player descriptor, or null when the banner has no resolver.
+ */
+function createBannerPlayer(banner: HomeBanner): EntryPlayer | null {
+  if (!banner.player) {
+    return null
+  }
+
+  return {
+    id: `${banner.id}-banner`,
+    label: banner.title ?? banner.id,
+    directLink: null,
+    name: null,
+    lang: null,
+    resolver: banner.player,
+    storyboard: null,
+  }
+}
+
+/**
+ * Asynchronously resolves the active banner video stream when player-based resolution is needed.
+ */
+watch(activeBanner, async (banner) => {
+  const requestId = ++bannerStreamRequestId
+  const directMediaSource = resolveBackgroundMediaSource(banner?.videoUrl ?? null)
+
+  if (directMediaSource) {
+    resolvedBannerMediaSource.value = directMediaSource
+    return
+  }
+
+  const player = banner ? createBannerPlayer(banner) : null
+  if (!player) {
+    resolvedBannerMediaSource.value = null
+    return
+  }
+
+  try {
+    const response = await getStream(player)
+    if (requestId !== bannerStreamRequestId) {
+      return
+    }
+
+    resolvedBannerMediaSource.value = !response
+      ? null
+      : 'embedLink' in response
+        ? resolveIframeMediaSource(response.embedLink)
+        : resolveBackendStreamMediaSource(
+            response.streamUrl[0] ?? null,
+            response.manifestType,
+            response.licenseUrl,
+            response.licenseHeaders,
+            response.storyboardVttUrl,
+            response.chapters,
+          )
+  } catch (error) {
+    if (requestId === bannerStreamRequestId) {
+      resolvedBannerMediaSource.value = null
+    }
+  }
+}, { immediate: true })
+
+/**
  * Returns the resolved video source displayed behind the active banner.
  */
 const activeBannerVideoSource = computed<ResolvedPlayerMediaSource | null>(() =>
-  resolveBackgroundMediaSource(activeBanner.value?.videoUrl ?? null),
+  resolvedBannerMediaSource.value,
 )
 
 /**
@@ -345,10 +441,21 @@ function restartAutoRotation() {
   }, AUTO_ROTATION_DELAY_MS)
 }
 
-/** Sets up resize observer and initial size measurement when component mounts. */
+/** Requests deferred banners only after the hero placeholder has mounted. */
 onMounted(() => {
-  const element = bannerElement.value
+  if (props.shouldLoadDeferredBanners) {
+    emit('load-banners')
+  }
+})
 
+/**
+ * Observes the currently rendered hero surface, including the deferred loading placeholder.
+ *
+ * This watcher reconnects when the placeholder is replaced by the populated banner.
+ */
+watch(bannerElement, (element) => {
+  bannerResizeObserver.value?.disconnect()
+  bannerResizeObserver.value = null
   updateBannerSize()
 
   if (!element || typeof ResizeObserver === 'undefined') {
@@ -361,7 +468,7 @@ onMounted(() => {
 
   resizeObserver.observe(element)
   bannerResizeObserver.value = resizeObserver
-})
+}, { flush: 'post' })
 
 /** Cleans up rotation timer and resize observer when component unmounts. */
 onBeforeUnmount(() => {
@@ -373,7 +480,14 @@ onBeforeUnmount(() => {
 
 <template>
   <section
-    v-if="activeBanner"
+    v-if="!activeBanner && props.shouldLoadDeferredBanners"
+    class="home-hero-banner home-hero-banner--loading"
+    :aria-label="t('catalog.featuredContent')"
+    aria-busy="true"
+  />
+
+  <section
+    v-else-if="activeBanner"
     ref="bannerElement"
     class="home-hero-banner"
     :aria-label="activeBanner.title ?? t('catalog.featuredContent')"
@@ -433,6 +547,11 @@ onBeforeUnmount(() => {
     <div class="home-hero-banner__panel">
       <div class="home-hero-banner__content">
         <div class="home-hero-banner__text">
+          <img v-if="serviceMetadata?.logo"
+            class="source-logo-image"
+            :src="serviceMetadata?.logo"
+            :alt="serviceMetadata?.title ? `${serviceMetadata?.title} logo` : ''"
+          /><br  v-if="serviceMetadata?.logo" />
           <img
             v-if="activeBanner.logoUrl"
             class="home-hero-banner__logo"
@@ -518,6 +637,20 @@ onBeforeUnmount(() => {
   box-shadow:
     var(--shadow-heavy),
     var(--inset-light);
+}
+
+.home-hero-banner--loading {
+  animation: home-hero-banner-loading 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes home-hero-banner-loading {
+  from {
+    opacity: 0.65;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 .home-hero-banner::after {
@@ -647,6 +780,7 @@ onBeforeUnmount(() => {
   object-fit: contain;
   object-position: left center;
   filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.45));
+
 }
 
 .home-hero-banner__eyebrow {
@@ -816,6 +950,12 @@ onBeforeUnmount(() => {
   right: 0;
   z-index: 10;
   pointer-events: none;
+}
+
+.source-logo-image {
+  height: 32px;
+  vertical-align: top;
+  margin-bottom: 8px;
 }
 
 .home-hero-banner__arrow,

@@ -39,7 +39,7 @@ queries:
       - banners > description
       - banners > logo
       - banners > video
-      - banners-link
+      - banners > link
 
   - name: get_entry
     fields_result:

@@ -14,6 +14,7 @@ import type {
 } from '@/types/entry'
 import type {
   HomeBanner,
+  HomeBannerPlayer,
   HomeCatalogData,
   HomeCategory,
   HomeCategorySource,
@@ -122,7 +123,7 @@ export async function call_api<T = unknown>(
   const payload = await parseResponseBody(response)
 
   if (!response.ok) {
-    throw new Error(extractErrorMessage(payload) ?? 
+    throw new Error(extractErrorMessage(payload) ??
       t('errors.restCallFailed', { function: fct_name, status: response.status }))
   }
 
@@ -590,7 +591,8 @@ function normalizeHomeCatalog(payload: unknown): HomeCatalogData {
   }
 
   const rows = readRecordList(payload)
-  let banners: Collection<HomeBanner> = { entries: [], source: '' }
+  const banners: Collection<HomeBanner> = { entries: [], source: '' }
+  const deferredBanners: Collection<HomeBanner>[] = []
   const categories: HomeCategory[] = []
   const sections: HomeSection[] = []
 
@@ -598,7 +600,7 @@ function normalizeHomeCatalog(payload: unknown): HomeCatalogData {
     const rowSource = firstNonEmptyString([row.source, readPath(row, 'source', 'name')])
     const bannerCollection = isJsonRecord(row.banners) ? row.banners : null
     const bannerSource = firstNonEmptyString([bannerCollection?.source, rowSource])
-    const bannerLink = firstNonEmptyString([bannerCollection?.link, row['banners-link']])
+    const bannerLink = firstNonEmptyString([bannerCollection?.link])
 
     const bannerEntries: HomeBanner[] = []
     readBannerList(bannerCollection?.entries ?? row.banners).forEach((banner) => {
@@ -609,21 +611,21 @@ function normalizeHomeCatalog(payload: unknown): HomeCatalogData {
       )
       if (
         normalizedBanner.entryUrl &&
-        (normalizedBanner.imageUrl || normalizedBanner.title || normalizedBanner.videoUrl)
+        (
+          normalizedBanner.imageUrl ||
+          normalizedBanner.title ||
+          normalizedBanner.videoUrl ||
+          normalizedBanner.player
+        )
       ) {
         bannerEntries.push(normalizedBanner)
       }
     })
 
-    if (bannerEntries.length > 0) {
-      banners = {
-        entries: [...banners.entries, ...bannerEntries],
-        source: bannerSource ?? banners.source,
-        link: bannerLink ?? banners.link,
-      }
-    }
-    if (row.source) {
-      banners.source = firstNonEmptyString([row.source]) ?? banners.source
+    banners.entries.push(...bannerEntries)
+
+    if (bannerSource && bannerLink) {
+      deferredBanners.push({ entries: [], source: bannerSource, link: bannerLink })
     }
 
     readRecordList(row.categories).forEach((category) => {
@@ -644,6 +646,7 @@ function normalizeHomeCatalog(payload: unknown): HomeCatalogData {
   return mergeNormalizedCatalogs([
     {
       banners,
+      deferredBanners,
       categories,
       sections,
     },
@@ -724,14 +727,15 @@ function normalizeServiceThemes(value: unknown): ServiceThemeMetadata[] {
 function mergeNormalizedCatalogs(catalogs: HomeCatalogData[]): HomeCatalogData {
   const banners: Collection<HomeBanner> = {
     entries: catalogs.flatMap((catalog) => catalog.banners.entries),
-    source: catalogs.find((catalog) => catalog.banners.source)?.banners.source ?? '',
-    link: catalogs.find((catalog) => catalog.banners.link)?.banners.link,
+    source: '',
   }
+  const deferredBanners = catalogs.flatMap((catalog) => catalog.deferredBanners)
   const categories = mergeHomeCategories(catalogs.flatMap((catalog) => catalog.categories))
   const sections = mergeHomeSections(catalogs.flatMap((catalog) => catalog.sections))
 
   return {
     banners,
+    deferredBanners,
     categories,
     sections,
   }
@@ -773,6 +777,8 @@ function normalizeHomeBanner(
   )
   const title = firstNonEmptyString([record.title])
 
+  const player = extractBannerPlayer(record)
+
   return {
     id:
       buildScopedId(firstNonEmptyString([record.id, record.key]), source) ??
@@ -783,10 +789,35 @@ function normalizeHomeBanner(
     imageUrl,
     logoUrl,
     videoUrl,
+    player,
     source,
     entryUrl: entryUrl ?? webUrl,
     webUrl: webUrl ?? entryUrl,
   }
+}
+
+/**
+ * Extracts the first player resolver from a raw banner record.
+ *
+ * @param record Raw banner record returned by the backend.
+ * @returns Player descriptor or null when no player is available.
+ */
+function extractBannerPlayer(record: Record<string, unknown>): HomeBannerPlayer | null {
+  if (!Array.isArray(record.players)) {
+    return null
+  }
+
+  for (const player of record.players) {
+    const resolver = isJsonRecord(player) ? (player as Record<string, unknown>).resolver : null
+    const kind = isJsonRecord(resolver) ? firstNonEmptyString([(resolver as Record<string, unknown>).kind]) : null
+    const targetId = isJsonRecord(resolver) ? firstNonEmptyString([(resolver as Record<string, unknown>).target_id]) : null
+
+    if (kind && targetId) {
+      return { kind, targetId }
+    }
+  }
+
+  return null
 }
 
 /**
@@ -803,13 +834,27 @@ export function normalizeBannersResponse(
   startIndex = 0,
 ): HomeBanner[] {
   const record = isJsonRecord(payload) ? payload : {}
-  return readBannerList(record.banners ?? record.entries ?? record)
+  const banners = readBannerList(record.banners ?? record.entries ?? record)
     .map((banner, index) => normalizeHomeBanner(banner, startIndex + index, source))
     .filter(
       (banner) =>
         banner.entryUrl &&
-        (banner.imageUrl || banner.title || banner.videoUrl),
+        (banner.imageUrl || banner.title || banner.videoUrl || banner.player),
     )
+
+  return banners.sort((left, right) =>
+    Number(isBannerVideoPlayable(right)) - Number(isBannerVideoPlayable(left)),
+  )
+}
+
+/**
+ * Returns whether a banner carries a directly playable video or a stream resolver.
+ *
+ * @param banner Normalized featured banner.
+ * @returns True when the banner can render video in the hero carousel.
+ */
+function isBannerVideoPlayable(banner: HomeBanner): boolean {
+  return Boolean(banner.videoUrl || banner.player)
 }
 
 /**

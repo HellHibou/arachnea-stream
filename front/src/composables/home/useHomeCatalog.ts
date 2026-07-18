@@ -61,7 +61,7 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
   /** Intersection observer for lazy loading sections. */
   let sectionObserver: IntersectionObserver | null = null
 
-  const { catalog, isLoading, hasLoaded, errorMessage } = homeCatalogData({
+  const { catalog, isLoading, hasLoaded, errorMessage, loadDeferredBanners } = homeCatalogData({
     mode,
     category,
   })
@@ -76,7 +76,7 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
   )
   /** The current catalog data with fallback empty object. */
   const currentCatalog = computed<HomeCatalogData>(
-    () => catalog.value ?? { banners: { entries: [], source: '' }, categories: [], sections: [] },
+    () => catalog.value ?? { banners: { entries: [], source: '' }, deferredBanners: [], categories: [], sections: [] },
   )
   /** Whether the catalog has any content (banners, categories, or sections). */
   const hasContent = computed(
@@ -523,6 +523,7 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
     isLoading,
     hasLoaded,
     errorMessage,
+    loadDeferredBanners,
     currentCatalog,
     hasContent,
     isHomeMode,

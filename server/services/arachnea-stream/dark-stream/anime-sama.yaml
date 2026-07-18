@@ -281,7 +281,7 @@ queries:
     media_types: *media_types_anime_sama
     row_selector: "html"
     entries:
-    - name: banners
+    - name: banners > entries
       type: object[]
       selector: "div.ak-slide:not([aria-hidden=\"true\"])"
       select: all

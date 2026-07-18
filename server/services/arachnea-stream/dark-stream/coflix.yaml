@@ -76,7 +76,7 @@ queries:
         actions:
           - type: format_text
             argument: "{source}"
-      - name: banners
+      - name: banners > entries
         type: object[]
         selector: '#slider-main .slide'
         select: all

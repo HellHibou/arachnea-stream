@@ -391,7 +391,7 @@ queries:
     media_types: *media_types_rtlplay
     row_pointer: /
     entries:
-      - name: banners
+      - name: banners > entries
         type: object[]
         pointer: /rows/*[rowType=TOP_BANNER]/teaser
         select: all
@@ -556,7 +556,7 @@ queries:
     media_types: *media_types_rtlplay
     row_pointer: /
     entries:
-      - name: banners
+      - name: banners > entries
         type: object[]
         pointer: /rows/*[rowType=TOP_BANNER]/teaser
         select: all

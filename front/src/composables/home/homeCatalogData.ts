@@ -3,7 +3,6 @@ import { computed, shallowRef, toRef, watch, type MaybeRefOrGetter } from 'vue'
 import {
   getCategoryCatalog,
   loadHomeCatalog,
-  loadInitialHomeSectionPages,
 } from '@/services/rustify'
 import { loadDeferredBannerPages } from '@/composables/home/deferredBannerLoader'
 import { t } from '@/i18n'
@@ -44,6 +43,8 @@ export function homeCatalogData(options: UseHomeCatalogDataOptions) {
   const errorMessage = shallowRef<string | null>(null)
   /** Request identifier counter for ignoring stale responses. */
   const latestRequestId = shallowRef(0)
+  /** Request identifiers that already started their deferred banner loading. */
+  const deferredBannerLoadRequestIds = new Set<number>()
 
   /**
    * Cache key derived from the current mode and category.
@@ -81,15 +82,15 @@ export function homeCatalogData(options: UseHomeCatalogDataOptions) {
         mode.value === 'category' && category.value
           ? await getCategoryCatalog(category.value)
           : await loadHomeCatalog()
-      const catalogWithInitialSections = await loadInitialHomeSectionPages(loadedCatalog)
-      const nextCatalog = await loadDeferredBannerPages(catalogWithInitialSections)
 
       if (requestId !== latestRequestId.value) {
         return
       }
 
-      catalog.value = nextCatalog
+      catalog.value = loadedCatalog
       hasLoaded.value = true
+      isLoading.value = false
+
     } catch (error) {
       if (requestId !== latestRequestId.value) {
         return
@@ -110,10 +111,44 @@ export function homeCatalogData(options: UseHomeCatalogDataOptions) {
     void loadCatalog()
   }, { immediate: true })
 
+  /**
+   * Loads deferred banner collections after the hero component has mounted.
+   *
+   * Repeated mount notifications for the same catalog request are ignored.
+   */
+  async function loadDeferredBanners(): Promise<void> {
+    const requestId = latestRequestId.value
+    const currentCatalog = catalog.value
+
+    if (
+      !currentCatalog ||
+      deferredBannerLoadRequestIds.has(requestId) ||
+      !currentCatalog.deferredBanners.some((collection) => collection.link)
+    ) {
+      return
+    }
+
+    deferredBannerLoadRequestIds.add(requestId)
+
+    const nextCatalog = await loadDeferredBannerPages(
+      currentCatalog,
+      (updatedCatalog) => {
+        if (requestId === latestRequestId.value) {
+          catalog.value = updatedCatalog
+        }
+      },
+    )
+
+    if (requestId === latestRequestId.value) {
+      catalog.value = nextCatalog
+    }
+  }
+
   return {
     catalog,
     isLoading,
     hasLoaded,
     errorMessage,
+    loadDeferredBanners,
   }
 }

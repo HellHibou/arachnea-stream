@@ -74,9 +74,3 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 
 
 # BUGS
-
-- M6Play : la liste des saisons n'est pas toujours correcte.
-- Le lecteur intégré n'est pas toujours modifié dans les cas suivants :
-    1) On change de langue dans le menu déroulant.
-    2) On passe à l'épisode suivant ou précédent.
-    3) Vérifier le bouton 'Regarder'.

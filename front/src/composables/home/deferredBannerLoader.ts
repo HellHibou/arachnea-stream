@@ -2,32 +2,33 @@ import { getBanners, normalizeBannersResponse } from '@/services/rustify'
 import type { HomeBanner, HomeCatalogData } from '@/types/home'
 
 /**
- * Loads every deferred banner collection present in the catalog,
- * with concurrency limiting and idempotent merging by source+link.
+ * Loads deferred banner collections with concurrency limiting and idempotent merging by source+link.
  *
- * Banners are appended to the global list in arrival order.
- * Already loaded source+link pairs are skipped to prevent duplicates on refresh.
+ * The callback is invoked after each successful source response so the UI can append those banners
+ * without waiting for the remaining requests.
  *
  * @param catalog Catalog returned by the home or category endpoint.
- * @returns Catalog whose banners include every resolved deferred source.
+ * @param onCatalogUpdate Callback receiving the catalog after each successful deferred response.
+ * @returns Catalog whose deferred banner links have been consumed.
  */
 export async function loadDeferredBannerPages(
   catalog: HomeCatalogData,
+  onCatalogUpdate?: (catalog: HomeCatalogData) => void,
 ): Promise<HomeCatalogData> {
-  const collection = catalog.banners
-
-  if (!collection.link || !collection.source) {
-    return catalog
-  }
-
-  const taskKey = `${collection.source}|${collection.link}`
   const seenKeys = new Set<string>()
-  const loadedEntries: HomeBanner[] = [...collection.entries]
+  const loadedEntries: HomeBanner[] = [...catalog.banners.entries]
   const tasks: Array<{ key: string; loader: () => Promise<HomeBanner[]> }> = []
 
-  tasks.push({
-    key: taskKey,
-    loader: () => loadDeferredBannersFromSource(collection.source, collection.link!),
+  catalog.deferredBanners.forEach((collection) => {
+    if (!collection.source || !collection.link) {
+      return
+    }
+
+    const key = `${collection.source}|${collection.link}`
+    tasks.push({
+      key,
+      loader: () => loadDeferredBannersFromSource(collection.source, collection.link!),
+    })
   })
 
   if (tasks.length === 0) {
@@ -36,24 +37,25 @@ export async function loadDeferredBannerPages(
 
   const concurrency = 4
   let nextIndex = 0
-  const arrivalResults: HomeBanner[] = []
 
   async function worker(): Promise<void> {
     while (nextIndex < tasks.length) {
       const task = tasks[nextIndex++]
-      if (!task) {
-        return
+      if (!task || seenKeys.has(task.key)) {
+        continue
       }
 
-      const { key, loader } = task
+      seenKeys.add(task.key)
+
       try {
-        const banners = await loader()
-        if (!seenKeys.has(key)) {
-          seenKeys.add(key)
-          arrivalResults.push(...banners)
-        }
+        const banners = await task.loader()
+        loadedEntries.push(...banners)
+        onCatalogUpdate?.({
+          ...catalog,
+          banners: { ...catalog.banners, entries: [...loadedEntries] },
+        })
       } catch {
-        // A single failed source should not block the others
+        // A failed source must not prevent the other banner sources from loading.
       }
     }
   }
@@ -61,15 +63,10 @@ export async function loadDeferredBannerPages(
   const workers = Array.from({ length: Math.min(concurrency, tasks.length) }, () => worker())
   await Promise.all(workers)
 
-  loadedEntries.push(...arrivalResults)
-
   return {
     ...catalog,
-    banners: {
-      ...collection,
-      entries: loadedEntries,
-      link: undefined,
-    },
+    banners: { ...catalog.banners, entries: loadedEntries },
+    deferredBanners: catalog.deferredBanners.map((collection) => ({ ...collection, link: undefined })),
   }
 }
 

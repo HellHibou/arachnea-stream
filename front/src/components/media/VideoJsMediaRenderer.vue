@@ -241,7 +241,7 @@ const storyboardPreviewStyle = computed(() => {
   padding-top: 5px;
   padding-right: var(--videojs-control-padding);
   padding-left: var(--videojs-control-padding);
-  background: var(--bg-surface);
+  background: var(--bg-surface-strong);
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-progress-control) {
@@ -274,7 +274,10 @@ const storyboardPreviewStyle = computed(() => {
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-progress-control .vjs-load-progress),
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-progress-control .vjs-play-progress) {
   height: 100%;
-  background: var(--bg-accent-primary);
+}
+
+.vjs-theme-city :deep(.vjs-play-progress) {
+    background-color: var(--color-primary);
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-progress-control .vjs-play-progress::before) {
@@ -453,7 +456,7 @@ const storyboardPreviewStyle = computed(() => {
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-volume-level) {
   height: 100%;
   border-radius: 0;
-  background: var(--bg-accent-primary);
+  background: var(--color-primary);
   overflow: visible;
 }
 
@@ -480,12 +483,8 @@ const storyboardPreviewStyle = computed(() => {
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme.arachnea-live-stream .vjs-play-progress) {
-  background-color: var(--color-primary);
+  background-color: var(--bg-accent-primary);
   transition: width 0.1s ease;
-}
-
-.videojs-media-host :deep(.arachnea-videojs-theme.arachnea-live-stream .vjs-load-progress) {
-  background-color: rgb(255 255 255 / 0.3);
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-live-control),
@@ -759,9 +758,8 @@ const storyboardPreviewStyle = computed(() => {
   padding: 0.45rem;
   border: 1px solid var(--border-color-primary);
   border-radius: 12px;
-  background: var(--bg-surface);
+  background: var(--bg-surface-strong);
   box-shadow: var(--shadow-card);
-  backdrop-filter: var(--backdrop-filter-strong);
   bottom: 25px;
 }
 
@@ -830,8 +828,8 @@ const storyboardPreviewStyle = computed(() => {
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-quality-menu-button-HD-flag::after),
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-quality-menu-button-4K-flag::after) {
   border: 1px solid rgb(255 255 255 / 0.14);
-  background: rgb(70 163 255 / 0.18);
-  color: var(--text-primary);
+    background: rgb(70 163 255 / 0.18);
+    color: var(--text-primary);
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-time-tooltip) {

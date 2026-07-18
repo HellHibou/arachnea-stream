@@ -22,6 +22,19 @@ export interface HomeCategory {
 }
 
 /**
+ * Player resolver descriptor embedded in a featured banner.
+ *
+ * When `videoUrl` is null, the banner can call `get_stream` with this descriptor
+ * to obtain a playable stream URL on demand.
+ */
+export interface HomeBannerPlayer {
+  /** The kind of resolver to use, e.g. `"rtbf-auvio-video"`. */
+  kind: string
+  /** The target identifier to resolve. */
+  targetId: string
+}
+
+/**
  * Featured banner rendered at the top of the home catalog.
  */
 export interface HomeBanner {
@@ -37,8 +50,10 @@ export interface HomeBanner {
   imageUrl: string | null
   /** The URL for the logo image. */
   logoUrl: string | null
-  /** The URL for the background video. */
+  /** The URL for the background video, or null when the video requires player resolution. */
   videoUrl: string | null
+  /** Optional player resolver used to obtain a playable stream via `get_stream`. */
+  player: HomeBannerPlayer | null
   /** The source identifier for the banner content. */
   source: string | null
   /** The internal API URL to fetch entry details. */
@@ -95,6 +110,8 @@ export interface HomeSection {
 export interface HomeCatalogData {
   /** The featured banners collection, eagerly loaded or deferred by source. */
   banners: Collection<HomeBanner>
+  /** Deferred banner collections, each retaining its backend source and link. */
+  deferredBanners: Collection<HomeBanner>[]
   /** The list of clickable categories. */
   categories: HomeCategory[]
   /** The list of media sections to display. */
