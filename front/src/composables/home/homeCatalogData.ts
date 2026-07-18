@@ -5,6 +5,7 @@ import {
   loadHomeCatalog,
   loadInitialHomeSectionPages,
 } from '@/services/rustify'
+import { loadDeferredBannerPages } from '@/composables/home/deferredBannerLoader'
 import { t } from '@/i18n'
 import type { HomeCatalogData, HomeCategory } from '@/types/home'
 
@@ -80,7 +81,8 @@ export function homeCatalogData(options: UseHomeCatalogDataOptions) {
         mode.value === 'category' && category.value
           ? await getCategoryCatalog(category.value)
           : await loadHomeCatalog()
-      const nextCatalog = await loadInitialHomeSectionPages(loadedCatalog)
+      const catalogWithInitialSections = await loadInitialHomeSectionPages(loadedCatalog)
+      const nextCatalog = await loadDeferredBannerPages(catalogWithInitialSections)
 
       if (requestId !== latestRequestId.value) {
         return

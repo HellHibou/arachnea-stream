@@ -150,7 +150,7 @@ Les composants ne devraient pas avoir à connaître le format brut du YAML. Les 
    - Fonctions frontend `getBanners` et `getPlayers` ajoutées dans `front/src/services/rustify.ts`
    - Compilation backend (`cargo check -p arachnea-stream`) et frontend (`vue-tsc --noEmit`) validées
 3. **Créer l’infrastructure frontend.** Ajouter les types de collections différées, les normaliseurs et les chargeurs dédiés. Implémenter la déduplication des appels en cours, la limitation de concurrence pour les bannières, les états de chargement/erreur par source et l’ajout des bannières dans l’ordre d’arrivée.
-4. **Migrer TF1 `load_home`.** Remplacer les deux sous-requêtes de couvertures par une seule `get_banners` qui lit les deux types depuis une réponse distante. C’est le premier cas de validation du contrat et un gain sans changement de comportement fonctionnel.
+4. ✅ **Migrer TF1 `load_home`.** Remplacer les deux sous-requêtes de couvertures par une seule `get_banners` qui lit les deux types depuis une réponse distante. C’est le premier cas de validation du contrat et un gain sans changement de comportement fonctionnel.
 5. **Migrer CoFlix.** Remplacer les sous-requêtes de players de `get_entry` et `get_season` par des collections `players` différées. Le front appelle `get_players`, puis la commande existante `get_stream` au moment de la lecture.
 6. **Migrer RTBF et M6 Play.** Déplacer les bannières de RTBF et de M6 Play vers `get_banners`; déplacer l’autorisation HLS de promobox RTBF vers `get_players`. Ne pas modifier les sous-requêtes de `RTBF get_entry` dans ce chantier.
 7. **Valider et mesurer.** Mettre à jour les tests existants affectés, vérifier la conformité des réponses YAML au nouveau contrat et comparer les mesures listées ci-dessous avant de supprimer les sous-requêtes migrées.
@@ -162,3 +162,28 @@ Les composants ne devraient pas avoir à connaître le format brut du YAML. Les 
 - temps entre le clic sur Lecture et le démarrage du flux ;
 - taux d’échec des chargements différés ;
 - taux de réutilisation du cache des bannières et taux de déduplication des appels en cours.
+
+
+## Etat du point 3
+
+Partiellement implemente :
+
+- le normaliseur de catalogue accepte maintenant la collection de bannieres (entries, source, link) et le normaliseur de reponse get_banners est exporte ;
+- les bannieres differees sont chargees apres les premieres pages de sections, avec une limite de quatre requetes et une fusion idempotente ;
+- les consommateurs live respectent aussi le contrat Collection<EntryPlayer>.
+
+Le chargement differe des players au clic reste a raccorder pendant les migrations des sources (points 4 a 6) : aucune source YAML ne fournit encore cette collection differee.
+
+Le point 3 ne doit donc pas etre marque comme termine : il manque le chargeur de players au clic, sa deduplication et ses etats de chargement/erreur par objet.
+
+## Etat du point 4
+
+Termine : TF1 load_home ne lance plus les deux sous-requetes de couvertures. La query get_banners charge maintenant les couvertures de programmes et de videos avec une seule requete differee.
+
+## Etat du point 6
+
+Migration YAML realisee : M6 Play et RTBF exposent leurs bannieres par get_banners. RTBF deplace aussi la chaine RedBee de promobox vers get_players.
+
+## Finalisation du point 3
+
+Termine : les players differes sont charges uniquement a l activation de la lecture. Les requetes sont dedupliquees par source et link, les erreurs sont exposees dans l etat existant du lecteur, et la collection resolue remplace celle de l entree ou de l episode actif.

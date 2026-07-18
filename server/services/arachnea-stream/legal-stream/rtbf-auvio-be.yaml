@@ -11,6 +11,9 @@ http:
 # Parameters
 # ############################################################################
 parameters:
+  - name: home_url
+    value: "https://bff-service.rtbf.be/auvio/v1.23/pages/home"
+    description: RTBF home endpoint for deferred banners.
   - name: page_size
     value: 20
     description: Default number of catalog entries requested for one paged section.
@@ -196,7 +199,7 @@ shared:
             type: object[]
             entries: *rtbf_episode_entries
 
-  home_sub_queries: &home_sub_queries
+  home_category_sub_queries: &home_category_sub_queries
     - scraper_type: json
       context_pointer: /widgets/*
       filters:
@@ -238,6 +241,7 @@ shared:
               pointer: /path
               actions: *actions_format_rtbf_pages
 
+  home_banner_sub_queries: &home_banner_sub_queries
     - scraper_type: json
       context_pointer: /widgets/*
       filters:
@@ -279,58 +283,21 @@ shared:
           actions:
             - type: format_text
               argument: "https://auvio.rtbf.be{}"
-        - name: video
-          type: string
-          select: first
-          pointer: /mediaId
-          actions:
-            - type: format_text
-              argument: "https://exposure.api.redbee.live:443/v2/customer/RTBF/businessunit/Auvio/auth/anonymous?assetId={}"
-          sub_queries:
-            - scraper_type: json
-              request_method: post
-              request_body_actions:
+        - name: players
+          type: object
+          entries:
+            - name: source
+              type: string
+              actions:
                 - type: format_text
-                  argument: '{"device":{"name":"Browser","type":"WEB"},"deviceId":"00000000-0000-4000-8000-000000000000"}'
-              request_headers:
-                - name: accept
-                  actions:
-                    - type: format_text
-                      argument: "application/json"
-                - name: content-type
-                  actions:
-                    - type: format_text
-                      argument: "application/json"
-              row_pointer: /
-              entries:
-                - name: video
-                  type: string
-                  select: first
-                  actions:
-                    - type: get_request_url
-                    - type: regex_find_all
-                      pattern: '[?&]assetId=([^&]+)'
-                      format: "https://exposure.api.redbee.live:443/v2/customer/RTBF/businessunit/Auvio/entitlement/{1}/play"
-                  sub_queries:
-                    - scraper_type: json
-                      request_headers:
-                        - name: Authorization
-                          pointer: /sessionToken
-                          actions:
-                            - type: format_text
-                              argument: "Bearer {}"
-                      row_pointer: /formats/*
-                      row_filters:
-                        /format:
-                          - HLS
-                      entries:
-                        - name: video
-                          type: string
-                          select: first
-                          pointer: /mediaLocator
-                          actions:
-                            - type: resolve_url
-                              proxy: true
+                  argument: "{source}"
+            - name: link
+              type: string
+              select: first
+              pointer: /mediaId
+              actions:
+                - type: format_text
+                  argument: "https://exposure.api.redbee.live:443/v2/customer/RTBF/businessunit/Auvio/auth/anonymous?assetId={}"
 
     - scraper_type: json
       context_pointer: /widgets/*
@@ -468,7 +435,7 @@ queries:
   - name: load_home
     scraper_type: json
     base_url: https://auvio.rtbf.be
-    query_url: "https://bff-service.rtbf.be/auvio/v1.23/pages/home"
+    query_url: "{home_url}"
     sibling_sub_query_concurrency: 6
     sub_query_context_concurrency: 6
     sub_query_fetch_concurrency: 8
@@ -501,12 +468,29 @@ queries:
             type: string
             select: first
             pointer: /contentPath
-    sub_queries: *home_sub_queries
+      - name: banners-link
+        type: string
+        actions:
+          - type: format_text
+            argument: "{home_url}"
+    sub_queries: *home_category_sub_queries
 
 
   # ---------------------------------------------------------------
   # Category listing
   # ---------------------------------------------------------------
+  - name: get_banners
+    scraper_type: json
+    base_url: https://auvio.rtbf.be
+    query_url: "{query_url}"
+    sibling_sub_query_concurrency: 6
+    sub_query_context_concurrency: 6
+    sub_query_fetch_concurrency: 8
+    media_types: *media_types_rtbf
+    row_pointer: /data
+    entries: []
+    sub_queries: *home_banner_sub_queries
+
   - name: get_category
     scraper_type: json
     base_url: https://auvio.rtbf.be
@@ -543,7 +527,12 @@ queries:
             type: string
             select: first
             pointer: /contentPath
-    sub_queries: *home_sub_queries
+      - name: banners-link
+        type: string
+        actions:
+          - type: format_text
+            argument: "{query_url}"
+    sub_queries: *home_category_sub_queries
 
 
   # ---------------------------------------------------------------
@@ -969,6 +958,52 @@ queries:
           - *rtbf_program_episode_sub_query
       - *rtbf_program_episode_sub_query
 
+
+  - name: get_players
+    scraper_type: json
+    base_url: https://auvio.rtbf.be
+    query_url: "{query_url}"
+    request_method: post
+    request_body_actions:
+      - type: format_text
+        argument: '{"device":{"name":"Browser","type":"WEB"},"deviceId":"00000000-0000-4000-8000-000000000000"}'
+    request_headers:
+      - name: accept
+        actions:
+          - type: format_text
+            argument: "application/json"
+      - name: content-type
+        actions:
+          - type: format_text
+            argument: "application/json"
+    row_pointer: /
+    entries: []
+    sub_queries:
+      - scraper_type: json
+        request_actions:
+          - type: get_request_url
+          - type: regex_find_all
+            pattern: '[?&]assetId=([^&]+)'
+            format: "https://exposure.api.redbee.live:443/v2/customer/RTBF/businessunit/Auvio/entitlement/{1}/play"
+        request_headers:
+          - name: Authorization
+            pointer: /sessionToken
+            actions:
+              - type: format_text
+                argument: "Bearer {}"
+        row_pointer: /formats/*
+        row_filters:
+          /format:
+            - HLS
+        target: players
+        entries:
+          - name: direct-link
+            type: string
+            select: first
+            pointer: /mediaLocator
+            actions:
+              - type: resolve_url
+                proxy: true
 
   # ---------------------------------------------------------------
   # Season

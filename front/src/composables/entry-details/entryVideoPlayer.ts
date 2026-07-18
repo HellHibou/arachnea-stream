@@ -9,7 +9,7 @@ import {
   type ResolvedVideoChapter,
   type ResolvedVideoSpriteThumbnails,
 } from '@/services/players'
-import { getStream } from '@/services/rustify'
+import { getPlayers, getStream, normalizePlayersResponse } from '@/services/rustify'
 import type { EntryDetails, EntryPlayableItem, EntryPlayer, EntryResolvedPlayerStream } from '@/types/entry'
 
 /** Sentinel value used for players without a language code. */
@@ -238,6 +238,46 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
     return selectedItemPlayers.length > 0 ? selectedItemPlayers : availablePlayers.value
   })
 
+
+  const pendingPlayerLoads = new Map<string, Promise<EntryPlayer[]>>()
+
+  async function loadDeferredPlayers(): Promise<void> {
+    const item = options.selectedPlayableItem.value
+    const collection = item?.players ?? options.details.value?.players
+
+    if (!collection?.link || !collection.source || collection.entries.length > 0) {
+      return
+    }
+
+    const key = collection.source + "|" + collection.link
+    let request = pendingPlayerLoads.get(key)
+
+    if (!request) {
+      request = getPlayers(collection.source, collection.link).then((response) =>
+        normalizePlayersResponse(response, collection.source),
+      )
+      pendingPlayerLoads.set(key, request)
+    }
+
+    isMediaPlayerLoading.value = true
+    mediaPlayerErrorMessage.value = null
+
+    try {
+      const entries = await request
+      const players = { ...collection, entries, link: undefined }
+
+      if (item) {
+        options.selectedPlayableItem.value = { ...item, players }
+      } else if (options.details.value) {
+        options.details.value = { ...options.details.value, players }
+      }
+    } catch (error) {
+      mediaPlayerErrorMessage.value = String(error)
+    } finally {
+      pendingPlayerLoads.delete(key)
+      isMediaPlayerLoading.value = false
+    }
+  }
   /**
    * Exposes the language identifier currently selected in the UI.
    * Automatically switches between playable item and entry language selection.
@@ -550,6 +590,7 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
    */
   function activateMediaPlayer(): void {
     activeVideoMode.value = 'media'
+    void loadDeferredPlayers()
   }
 
   /**

@@ -294,3 +294,7 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **Redirect handling**: Raised the HTTP client's default redirect limit to 16 and aligned VOE plus the shared stream-resolver HTML fallback fetch with the same 16-redirect limit.
 - **Stream resolver tests**: Reworked resolver tests to use isolated YAML service fixtures instead of the full `StreamScraper` service path. Added coverage for missing `resolve_stream` queries, first valid resolver priority, one-shot HTML fallback fetching, in-memory VOE domain detection, and embed-link fallback when no YAML recognizes the fetched document.
 - **Stream resolver integration validation**: Extended the HTML fallback test to validate local integration behavior for HLS proxying, encoded `Referer` proxy options, `hls` manifest metadata, single HTML fetch, and absence of raw HTML or resolver headers in the serialized public stream JSON.
+
+- **TF1 deferred home covers**: TF1 load_home now returns the covers endpoint as a deferred banner link. A single get_banners query reads both program and video covers, replacing the two blocking cover subqueries.
+
+- **Deferred RTBF and M6 banners**: M6 Play and RTBF home banners are now loaded through get_banners; RTBF promobox RedBee authorization is exposed through get_players.

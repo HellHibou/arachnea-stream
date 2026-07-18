@@ -152,7 +152,7 @@ const selectedPlayableItem = computed<EntryPlayableItem | null>(() => {
   return {
     id: liveItem.id,
     link: liveItem.webUrl ?? liveItem.entryUrl,
-    players: selectedLivePlayers.value,
+    players:  { entries: selectedLivePlayers.value, source: liveItem.source ?? '' },
     seasonName: null,
     title: liveItem.title?.trim() || null,
     description: liveItem.overview ?? MSG_LIVE_TV,
@@ -178,7 +178,7 @@ const details = computed<EntryDetailsModel | null>(() => {
     title: liveItem.title?.trim() || MSG_LIVE,
     alternativeTitleLabel: liveItem.alternativeTitleLabel?.trim() || null,
     trailerUrl: null,
-    players: selectedLivePlayers.value,
+    players:  { entries: selectedLivePlayers.value, source: liveItem.source ?? '' },
     description: liveItem.overview ?? MSG_LIVE_PLAYING,
     imagePosterUrl: liveItem.imagePosterUrl,
     imagePortraitUrl: liveItem.imagePortraitUrl,

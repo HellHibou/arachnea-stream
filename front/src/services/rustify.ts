@@ -596,10 +596,17 @@ function normalizeHomeCatalog(payload: unknown): HomeCatalogData {
 
   rows.forEach((row) => {
     const rowSource = firstNonEmptyString([row.source, readPath(row, 'source', 'name')])
+    const bannerCollection = isJsonRecord(row.banners) ? row.banners : null
+    const bannerSource = firstNonEmptyString([bannerCollection?.source, rowSource])
+    const bannerLink = firstNonEmptyString([bannerCollection?.link, row['banners-link']])
 
     const bannerEntries: HomeBanner[] = []
-    readBannerList(row.banners).forEach((banner) => {
-      const normalizedBanner = normalizeHomeBanner(banner, banners.entries.length + bannerEntries.length, rowSource)
+    readBannerList(bannerCollection?.entries ?? row.banners).forEach((banner) => {
+      const normalizedBanner = normalizeHomeBanner(
+        banner,
+        banners.entries.length + bannerEntries.length,
+        bannerSource,
+      )
       if (
         normalizedBanner.entryUrl &&
         (normalizedBanner.imageUrl || normalizedBanner.title || normalizedBanner.videoUrl)
@@ -611,7 +618,8 @@ function normalizeHomeCatalog(payload: unknown): HomeCatalogData {
     if (bannerEntries.length > 0) {
       banners = {
         entries: [...banners.entries, ...bannerEntries],
-        source: rowSource ?? banners.source,
+        source: bannerSource ?? banners.source,
+        link: bannerLink ?? banners.link,
       }
     }
     if (row.source) {
@@ -717,6 +725,7 @@ function mergeNormalizedCatalogs(catalogs: HomeCatalogData[]): HomeCatalogData {
   const banners: Collection<HomeBanner> = {
     entries: catalogs.flatMap((catalog) => catalog.banners.entries),
     source: catalogs.find((catalog) => catalog.banners.source)?.banners.source ?? '',
+    link: catalogs.find((catalog) => catalog.banners.link)?.banners.link,
   }
   const categories = mergeHomeCategories(catalogs.flatMap((catalog) => catalog.categories))
   const sections = mergeHomeSections(catalogs.flatMap((catalog) => catalog.sections))
@@ -778,6 +787,29 @@ function normalizeHomeBanner(
     entryUrl: entryUrl ?? webUrl,
     webUrl: webUrl ?? entryUrl,
   }
+}
+
+/**
+ * Converts one raw backend `get_banners` response into a normalized banner array.
+ *
+ * @param payload Raw backend payload returned by `get_banners`.
+ * @param source Backend source name used to resolve banner asset URLs.
+ * @param startIndex Stable offset used to build banner ids when prepending or appending.
+ * @returns Normalized home banners.
+ */
+export function normalizeBannersResponse(
+  payload: unknown,
+  source: string | null,
+  startIndex = 0,
+): HomeBanner[] {
+  const record = isJsonRecord(payload) ? payload : {}
+  return readBannerList(record.banners ?? record.entries ?? record)
+    .map((banner, index) => normalizeHomeBanner(banner, startIndex + index, source))
+    .filter(
+      (banner) =>
+        banner.entryUrl &&
+        (banner.imageUrl || banner.title || banner.videoUrl),
+    )
 }
 
 /**
@@ -1390,6 +1422,18 @@ function normalizePlayers(
  */
 function normalizeEntryPlayers(entry: JsonRecord, source: string): EntryPlayer[] {
   return normalizePlayers(readRecordList(entry.players), source)
+}
+
+/**
+ * Converts one raw backend get_players response into normalized player entries.
+ *
+ * @param payload Raw backend payload returned by get_players.
+ * @param source Backend source name used to resolve player URLs.
+ * @returns Normalized players.
+ */
+export function normalizePlayersResponse(payload: unknown, source: string): EntryPlayer[] {
+  const record = isJsonRecord(payload) ? payload : {}
+  return normalizePlayers(readRecordList(record.players ?? record.entries ?? record), source)
 }
 
 /**

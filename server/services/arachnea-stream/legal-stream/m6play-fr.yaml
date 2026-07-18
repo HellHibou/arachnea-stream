@@ -210,16 +210,22 @@ queries:
             actions:
               - type: format_text
                 argument: "{api_root}/6play/folders/{}/programs?csa=6&with=parentcontext"
-    sub_queries:
-      - scraper_type: json
-        request_pointer: /0/id
-        request_select: first
-        request_actions:
+      - name: banners-link
+        type: string
+        actions:
           - type: format_text
             argument: "{api_root}/m6replay/programs?limit={max_banners}&offset=0&csa=6&sort=last_video_publication&with=layout"
-        request_headers: *generic_request_headers
-        row_pointer: /*
-        target: banners
+  - name: get_banners
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    request_headers: *generic_request_headers
+    row_pointer: /
+    entries:
+      - name: banners
+        type: object[]
+        pointer: /*
+        select: all
         entries:
           - name: key
             type: string
@@ -272,8 +278,6 @@ queries:
             type: string
             select: first
             pointer: year_copyright
-
-
   # ---------------------------------------------------------------
   # Category listing
   # ---------------------------------------------------------------

@@ -752,16 +752,29 @@ queries:
             select: first
             pointer: /bannerDecoration/logoImg/sourcesWithScales/0/src
             actions: *actions_android_photo_url
-    sub_queries:
-      - scraper_type: json
-        request_actions:
+      - name: banners-link
+        type: string
+        actions:
           - type: format_text
             argument: "{android_home_covers_url}"
-        request_headers: *android_request_headers
-        http:
-          user_agent: "Mozilla/5.0 (Linux; Android 13) Arachnea/1.0"
-        row_pointer: /data/homeCoversByRight/*[__typename=CoverOfProgram]
-        target: banners
+  - name: get_banners
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    request_headers: *android_request_headers
+    http:
+      user_agent: "Mozilla/5.0 (Linux; Android 13) Arachnea/1.0"
+    row_pointer: /
+    entries:
+      - name: source
+        type: string
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: banners
+        type: object[]
+        pointer: /data/homeCoversByRight/*[__typename=CoverOfProgram]
+        select: all
         entries:
           - name: key
             type: string
@@ -808,15 +821,10 @@ queries:
                 fields:
                   slug: /program/slug
                   channel: /program/mainChannel/slug
-      - scraper_type: json
-        request_actions:
-          - type: format_text
-            argument: "{android_home_covers_url}"
-        request_headers: *android_request_headers
-        http:
-          user_agent: "Mozilla/5.0 (Linux; Android 13) Arachnea/1.0"
-        row_pointer: /data/homeCoversByRight/*[__typename=CoverOfVideo]
-        target: banners
+      - name: banners
+        type: object[]
+        pointer: /data/homeCoversByRight/*[__typename=CoverOfVideo]
+        select: all
         entries:
           - name: key
             type: string
@@ -864,8 +872,6 @@ queries:
                   channel: /video/program/mainChannel/slug
                   program_slug: /video/program/slug
                   slug: /video/slug
-
-
   # ---------------------------------------------------------------
   # Category listing
   # ---------------------------------------------------------------

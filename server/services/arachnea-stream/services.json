@@ -44,9 +44,5 @@
   {
     "path": "dark-stream/frenchanimes.yaml",
     "enabled": true
-  },
-  {
-    "path": "dark-stream/animeultime.yaml",
-    "enabled": true
   }
 ]
