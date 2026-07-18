@@ -1,3 +1,5 @@
+import type { Collection } from '@/types/media'
+
 /**
  * Normalized playable item consumed by the featured media detail components.
  */
@@ -6,8 +8,8 @@ export interface EntryPlayableItem {
   id: string
   /** The link to fetch additional details for this item. */
   link: string | null
-  /** The list of available players for this item. */
-  players: EntryPlayer[]
+  /** The collection of available players for this item. */
+  players: Collection<EntryPlayer>
   /** The name of the season this item belongs to. */
   seasonName: string | null
   /** The title of the playable item. */
@@ -188,8 +190,8 @@ export interface EntryDetails {
   alternativeTitleLabel: string | null
   /** The URL to the trailer for this entry. */
   trailerUrl: string | null
-  /** The list of available players for this entry. */
-  players: EntryPlayer[]
+  /** The collection of available players for this entry. */
+  players: Collection<EntryPlayer>
   /** The description of the entry. */
   description: string | null
   /** The URL for the poster image. */

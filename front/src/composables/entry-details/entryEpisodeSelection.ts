@@ -56,7 +56,7 @@ export function entryEpisodeSelection(options: UseEntryEpisodeSelectionOptions) 
     // Auto-select the first playable episode when episodes come directly
     // from get_entry (no seasons) and none is currently selected.
     if (!initialEpisodeSelected && !selectedEpisodeId.value && !hasSeasons.value) {
-      const firstPlayable = eps.find((ep) => ep.players.length > 0)
+      const firstPlayable = eps.find((ep) => ep.players.entries.length > 0)
       if (firstPlayable) {
         selectEpisode(firstPlayable)
         initialEpisodeSelected = true
@@ -71,7 +71,7 @@ export function entryEpisodeSelection(options: UseEntryEpisodeSelectionOptions) 
    * @returns Array of episodes that have at least one player.
    */
   const navigableEpisodes = computed<EntryEpisode[]>(() =>
-    displayedEpisodes.value.filter((episode) => episode.players.length > 0),
+    displayedEpisodes.value.filter((episode) => episode.players.entries.length > 0),
   )
 
   /**
@@ -145,7 +145,7 @@ export function entryEpisodeSelection(options: UseEntryEpisodeSelectionOptions) 
 
     const episode = displayedEpisodes.value.find((entry) => entry.id === episodeId)
 
-    if (!episode || episode.players.length === 0) {
+    if (!episode || episode.players.entries.length === 0) {
       return false
     }
 
@@ -161,7 +161,7 @@ export function entryEpisodeSelection(options: UseEntryEpisodeSelectionOptions) 
   function handleEpisodeSelect(item: MediaItem) {
     const episode = displayedEpisodes.value.find((entry) => entry.id === item.id)
 
-    if (!episode || episode.players.length === 0) {
+    if (!episode || episode.players.entries.length === 0) {
       return
     }
 

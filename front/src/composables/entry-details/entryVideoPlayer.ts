@@ -225,7 +225,7 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
    *
    * @returns Array of all players for the entry.
    */
-  const availablePlayers = computed<EntryPlayer[]>(() => options.details.value?.players ?? [])
+  const availablePlayers = computed<EntryPlayer[]>(() => options.details.value?.players.entries ?? [])
 
   /**
    * Exposes the players that should drive the built-in player.
@@ -234,7 +234,7 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
    * @returns Array of players relevant to the current playable context.
    */
   const activePlayers = computed<EntryPlayer[]>(() => {
-    const selectedItemPlayers = options.selectedPlayableItem.value?.players ?? []
+    const selectedItemPlayers = options.selectedPlayableItem.value?.players.entries ?? []
     return selectedItemPlayers.length > 0 ? selectedItemPlayers : availablePlayers.value
   })
 
@@ -246,12 +246,12 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
    */
   const activeLanguageKey = computed<string | null>({
     get() {
-      return options.selectedPlayableItem.value?.players.length
+      return options.selectedPlayableItem.value?.players.entries.length
         ? selectedPlayableLanguageKey.value
         : selectedLanguageKey.value
     },
     set(value) {
-      if (options.selectedPlayableItem.value?.players.length) {
+      if (options.selectedPlayableItem.value?.players.entries.length) {
         selectedPlayableLanguageKey.value = value
         return
       }
@@ -268,12 +268,12 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
    */
   const activePlayerId = computed<string | null>({
     get() {
-      return options.selectedPlayableItem.value?.players.length
+      return options.selectedPlayableItem.value?.players.entries.length
         ? selectedPlayablePlayerId.value
         : selectedPlayerId.value
     },
     set(value) {
-      if (options.selectedPlayableItem.value?.players.length) {
+      if (options.selectedPlayableItem.value?.players.entries.length) {
         selectedPlayablePlayerId.value = value
         return
       }
@@ -521,7 +521,7 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
    * @param nextDetails - Detailed entry returned by the backend.
    */
   function applyLoadedEntryDefaults(nextDetails: EntryDetails): void {
-    activeVideoMode.value = nextDetails.players.length > 0
+    activeVideoMode.value = nextDetails.players.entries.length > 0
       ? 'media'
       : (resolvePlayerMediaSource(nextDetails.trailerUrl) ? 'trailer' : 'media')
     selectedLanguageKey.value = preferredLanguageKey.value
@@ -735,7 +735,7 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
       }
 
       if (previousPlayableItemId !== nextPlayableItemId) {
-        const selectedItemPlayers = options.selectedPlayableItem.value?.players ?? []
+        const selectedItemPlayers = options.selectedPlayableItem.value?.players.entries ?? []
         const preferredPlayer = preferredPlayerKey.value
           ? selectedItemPlayers.find(
               (player) => getPlayerPreferenceKey(player) === preferredPlayerKey.value,

@@ -76,12 +76,12 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
   )
   /** The current catalog data with fallback empty object. */
   const currentCatalog = computed<HomeCatalogData>(
-    () => catalog.value ?? { banners: [], categories: [], sections: [] },
+    () => catalog.value ?? { banners: { entries: [], source: '' }, categories: [], sections: [] },
   )
   /** Whether the catalog has any content (banners, categories, or sections). */
   const hasContent = computed(
     () =>
-      currentCatalog.value.banners.length > 0 ||
+      currentCatalog.value.banners.entries.length > 0 ||
       currentCatalog.value.categories.length > 0 ||
       currentCatalog.value.sections.length > 0,
   )
@@ -95,7 +95,7 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
     const items: BackgroundMediaCandidate[] = []
     const uniqueImageUrls = new Set<string>()
 
-    currentCatalog.value.banners.forEach((banner) => {
+    currentCatalog.value.banners.entries.forEach((banner) => {
       const imageUrl = banner.imageUrl?.trim() || null
 
       if (!imageUrl) {

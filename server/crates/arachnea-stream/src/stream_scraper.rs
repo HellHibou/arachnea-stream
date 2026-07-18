@@ -124,6 +124,22 @@ struct GetSectionRequest {
     source_params: Vec<SourceParamsRequestEntry>,
 }
 
+#[derive(Serialize, Deserialize)]
+struct GetBannersRequest {
+    #[serde(default)]
+    source: String,
+    #[serde(default)]
+    link: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct GetPlayersRequest {
+    #[serde(default)]
+    source: String,
+    #[serde(default)]
+    link: String,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 struct SourceParamsRequestEntry {
     source: String,
@@ -633,6 +649,116 @@ impl StreamScraper {
         Ok(root.children)
     }
 
+    /// Loads banners for the provided source and banner link.
+    ///
+    /// # Arguments
+    ///
+    /// * `query_source` - Query source name.
+    /// * `query_url` - Source-specific banner URL or API endpoint.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the selected source fails to execute the `get_banners` query.
+    pub async fn get_banners(
+        &self,
+        query_source: String,
+        query_url: String,
+    ) -> Result<HashMap<String, ScraperDataNode>> {
+        let mut params: HashMap<String, String> = HashMap::new();
+        self.enrich_runtime_params(&mut params);
+
+        if !query_url.trim().is_empty() {
+            params.insert("query_url".to_string(), query_url.clone());
+            params.insert("link".to_string(), query_url);
+        }
+
+        let scrapper_list = if query_source.trim().is_empty() {
+            None
+        } else {
+            Some(vec![query_source])
+        };
+
+        let rows = self
+            .scraper_agregator
+            .execute_query_async(
+                STREAM_SERVICE_GROUP_NAME,
+                "get_banners",
+                &params,
+                None,
+                scrapper_list.as_ref(),
+                None,
+                None,
+                Some("source"),
+            )
+            .await?;
+
+        let mut root = ScraperDataNode::default();
+        for row in rows {
+            root.merge_first(&ScraperDataNode {
+                children: row,
+                ..Default::default()
+            });
+        }
+        root.keep_first_values();
+
+        Ok(root.children)
+    }
+
+    /// Loads players for the provided source and player link.
+    ///
+    /// # Arguments
+    ///
+    /// * `query_source` - Query source name.
+    /// * `query_url` - Source-specific player URL or API endpoint.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the selected source fails to execute the `get_players` query.
+    pub async fn get_players(
+        &self,
+        query_source: String,
+        query_url: String,
+    ) -> Result<HashMap<String, ScraperDataNode>> {
+        let mut params: HashMap<String, String> = HashMap::new();
+        self.enrich_runtime_params(&mut params);
+
+        if !query_url.trim().is_empty() {
+            params.insert("query_url".to_string(), query_url.clone());
+            params.insert("link".to_string(), query_url);
+        }
+
+        let scrapper_list = if query_source.trim().is_empty() {
+            None
+        } else {
+            Some(vec![query_source])
+        };
+
+        let rows = self
+            .scraper_agregator
+            .execute_query_async(
+                STREAM_SERVICE_GROUP_NAME,
+                "get_players",
+                &params,
+                None,
+                scrapper_list.as_ref(),
+                None,
+                None,
+                Some("source"),
+            )
+            .await?;
+
+        let mut root = ScraperDataNode::default();
+        for row in rows {
+            root.merge_first(&ScraperDataNode {
+                children: row,
+                ..Default::default()
+            });
+        }
+        root.keep_first_values();
+
+        Ok(root.children)
+    }
+
     async fn get_stream(&self, resolver_id: String, target: String) -> Result<ResolvedStream> {
         if resolver_id.trim() == GENERIC_STREAM_RESOLVER_ID {
             return StreamResolver::new(&self.scraper_agregator, &self.player_resolver_endpoints)
@@ -821,6 +947,22 @@ impl ScraperManager for StreamScraper {
                         source_params_from_entries(input.source_params),
                     )
                     .await
+            },
+        );
+
+        controler.register_result_function_with_state(
+            "get_banners",
+            Arc::clone(&connector),
+            |scraper, input: GetBannersRequest| async move {
+                scraper.get_banners(input.source, input.link).await
+            },
+        );
+
+        controler.register_result_function_with_state(
+            "get_players",
+            Arc::clone(&connector),
+            |scraper, input: GetPlayersRequest| async move {
+                scraper.get_players(input.source, input.link).await
             },
         );
 

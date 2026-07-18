@@ -471,7 +471,7 @@ function cancelPendingEpisodeNavigation() {
  * @returns First playable episode or `null` when none is available.
  */
 function findFirstPlayableEpisode(episodes: EntryEpisode[]): EntryEpisode | null {
-  return episodes.find((episode) => episode.players.length > 0) ?? null
+  return episodes.find((episode) => episode.players.entries.length > 0) ?? null
 }
 
 /**

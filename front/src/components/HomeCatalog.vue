@@ -183,8 +183,8 @@ function handleSelectCollectionItem(item: MediaItem) {
       <template v-else>
         <section class="home-catalog__content">
           <HomeHeroBanner
-            v-if="currentCatalog.banners.length > 0"
-            :banners="currentCatalog.banners"
+            v-if="currentCatalog.banners.entries.length > 0"
+            :banners="currentCatalog.banners.entries"
             @select-item="handleSelectItem"
           />
 

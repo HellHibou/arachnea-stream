@@ -1,4 +1,4 @@
-import type { MediaItem } from '@/types/media'
+import type { Collection, MediaItem } from '@/types/media'
 import type {
   EntryDetails,
   EntryEmbedFallback,
@@ -590,22 +590,33 @@ function normalizeHomeCatalog(payload: unknown): HomeCatalogData {
   }
 
   const rows = readRecordList(payload)
-  const banners: HomeBanner[] = []
+  let banners: Collection<HomeBanner> = { entries: [], source: '' }
   const categories: HomeCategory[] = []
   const sections: HomeSection[] = []
 
   rows.forEach((row) => {
     const rowSource = firstNonEmptyString([row.source, readPath(row, 'source', 'name')])
 
+    const bannerEntries: HomeBanner[] = []
     readBannerList(row.banners).forEach((banner) => {
-      const normalizedBanner = normalizeHomeBanner(banner, banners.length, rowSource)
+      const normalizedBanner = normalizeHomeBanner(banner, banners.entries.length + bannerEntries.length, rowSource)
       if (
         normalizedBanner.entryUrl &&
         (normalizedBanner.imageUrl || normalizedBanner.title || normalizedBanner.videoUrl)
       ) {
-        banners.push(normalizedBanner)
+        bannerEntries.push(normalizedBanner)
       }
     })
+
+    if (bannerEntries.length > 0) {
+      banners = {
+        entries: [...banners.entries, ...bannerEntries],
+        source: rowSource ?? banners.source,
+      }
+    }
+    if (row.source) {
+      banners.source = firstNonEmptyString([row.source]) ?? banners.source
+    }
 
     readRecordList(row.categories).forEach((category) => {
       const normalizedCategory = normalizeHomeCategory(category, categories.length, rowSource)
@@ -703,7 +714,10 @@ function normalizeServiceThemes(value: unknown): ServiceThemeMetadata[] {
  * @returns Aggregated catalog with merged categories and merged section rails.
  */
 function mergeNormalizedCatalogs(catalogs: HomeCatalogData[]): HomeCatalogData {
-  const banners = catalogs.flatMap((catalog) => catalog.banners)
+  const banners: Collection<HomeBanner> = {
+    entries: catalogs.flatMap((catalog) => catalog.banners.entries),
+    source: catalogs.find((catalog) => catalog.banners.source)?.banners.source ?? '',
+  }
   const categories = mergeHomeCategories(catalogs.flatMap((catalog) => catalog.categories))
   const sections = mergeHomeSections(catalogs.flatMap((catalog) => catalog.sections))
 
@@ -1109,6 +1123,34 @@ function buildHomeSectionPreferenceKey(label: string | null, id: string): string
 }
 
 /**
+ * Executes the backend banners endpoint and returns the raw banners payload.
+ *
+ * @param source Backend source name that owns the banners.
+ * @param link Source-specific banner link or API endpoint.
+ * @returns Raw banners payload returned by the backend.
+ */
+export async function getBanners(
+  source: string,
+  link: string,
+): Promise<unknown> {
+  return call_api<unknown>('get_banners', { source, link })
+}
+
+/**
+ * Executes the backend players endpoint and returns the raw players payload.
+ *
+ * @param source Backend source name that owns the players.
+ * @param link Source-specific player link or API endpoint.
+ * @returns Raw players payload returned by the backend.
+ */
+export async function getPlayers(
+  source: string,
+  link: string,
+): Promise<unknown> {
+  return call_api<unknown>('get_players', { source, link })
+}
+
+/**
  * Executes the backend season endpoint and normalizes the response for the entry detail UI.
  *
  * @param source Backend source name that owns the season.
@@ -1280,7 +1322,10 @@ return {
 function normalizeEntryDetails(entry: unknown, source: string, entryUrl: string): EntryDetails {
   const record = isJsonRecord(entry) ? entry : {}
   const seasons = normalizeEntrySeasons(record, source)
-  const players = normalizeEntryPlayers(record, source)
+  const players: Collection<EntryPlayer> = {
+    entries: normalizeEntryPlayers(record, source),
+    source,
+  }
   const imagePosterUrl = resolveAssetUrl(readFirstLink(record, 'img/poster', ['img', 'poster']), source)
   const imagePortraitUrl = resolveAssetUrl(readFirstLink(record, 'img/portrait', ['img', 'portrait']), source)
   const imageLandscapeUrl = resolveAssetUrl(readFirstLink(record, 'img/landscape', ['img', 'landscape']), source)
@@ -1712,7 +1757,10 @@ function normalizeEntryEpisode(
   const imagePosterUrl = readFirstLink(entry, 'img/poster', ['img', 'poster'])
   const link = resolveEntryUrl(firstNonEmptyString([entry.link]), source)
   const duration = firstNonEmptyString([entry.duration])
-  const players = normalizePlayers(readRecordList(entry.players), source)
+  const players: Collection<EntryPlayer> = {
+    entries: normalizePlayers(readRecordList(entry.players), source),
+    source,
+  }
   const rawTitle = firstNonEmptyString([entry.title])
   const altTitle = firstNonEmptyString([entry['title/alt']])
   const title = rawTitle || altTitle

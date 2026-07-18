@@ -121,6 +121,22 @@ export type VideoJsTextTrackSettings = Partial<Record<
 /**
  * Persistent Video.js session state restored when the integrated player switches source.
  */
+
+/**
+ * Descriptor for a deferred-loaded collection following the hybrid contract.
+ *
+ * When `link` is present, the frontend should call the backend query identified by `source`
+ * with that `link` to obtain the remaining items. When `link` is absent, all items are
+ * already present in `entries`.
+ */
+export interface Collection<T> {
+  /** Items already loaded in the current payload. */
+  entries: T[]
+  /** YAML service name that can load the deferred items. */
+  source: string
+  /** Internal link to pass to the backend when deferred loading is needed. */
+  link?: string
+}
 export interface VideoJsPlayerState {
   /** The current volume level (0.0 to 1.0). */
   volume: number

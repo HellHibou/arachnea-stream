@@ -1,4 +1,4 @@
-import type { MediaItem } from '@/types/media'
+import type { Collection, MediaItem } from '@/types/media'
 
 /**
  * YAML-defined source descriptor used to resolve one category payload.
@@ -93,8 +93,8 @@ export interface HomeSection {
  * Full normalized payload rendered by the home and category screens.
  */
 export interface HomeCatalogData {
-  /** The list of featured banners to display. */
-  banners: HomeBanner[]
+  /** The featured banners collection, eagerly loaded or deferred by source. */
+  banners: Collection<HomeBanner>
   /** The list of clickable categories. */
   categories: HomeCategory[]
   /** The list of media sections to display. */
