@@ -6,8 +6,8 @@ use async_trait::async_trait;
 use arachnea_proxy::core::{
     ArachneaProxyCore, InventoryConfig, IpCountryResolver, IpCountryResolverConfig,
     ParameterHandlerConfig, ParameterHandlerKind, ProbeConfig, ProxyAvailabilityHint, ProxyChain,
-    ProxyConfig, ProxyDataProvider, ProxyInventory, ProxyLoadRequest, ProxyProbe,
-    ProxyProfile, ProxyProtocol, ProxyRecord, ProxyRuntimeStatus, Result, RoutePolicy,
+    ProxyConfig, ProxyDataProvider, ProxyInventory, ProxyLoadRequest, ProxyProbe, ProxyProfile,
+    ProxyProtocol, ProxyRecord, ProxyRuntimeStatus, Result, RoutePolicy,
     PROXY_HEADER_PARAMETER_COUNTRY, PROXY_PARAMETER_COUNTRY,
 };
 use tracing::{info, trace};
@@ -166,8 +166,7 @@ impl ProxyDataProvider for ScrapyfyProxyDataProvider {
                             row.get("country_code").and_then(|n| n.value_as_string())
                         {
                             if !country.is_empty() {
-                                records[*idx].country =
-                                    Some(country.trim().to_ascii_uppercase());
+                                records[*idx].country = Some(country.trim().to_ascii_uppercase());
                             }
                             break;
                         }

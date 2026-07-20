@@ -314,3 +314,18 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ### Fixed
 
 - **Deferred banner sources**: The frontend now preserves every deferred `source`/`link` pair, displays initial banner entries immediately, and appends each successful `get_banners` response as it arrives.
+
+## Unreleased — Source-scoped scraper errors
+
+### Added
+
+- **Structured scraper execution errors**: Added shared `ScraperAggregationResult<T>`, `ScraperExecutionError`, and `ScraperErrorOrigin` contracts plus thread-safe `ARACHNEA_E{millis}{sequence}` correlation codes.
+- **Aggregator contract coverage**: Added tests for successful aggregation order, partial and complete source failures, pre-execution errors without a source, nullable sources, and correlation-code formatting.
+
+### Changed
+
+- **Source failures no longer discard successful rows**: `ScraperAgregator::execute_query_async` now returns successful data together with ordered per-source errors, logs each failure with its correlation code, and reports missing groups or unmatched source selections as source-less errors.
+- **Stream JSON command responses**: All `StreamScraper` JSON commands now return `{ data, errors }`, preserving each command's former payload shape inside `data`; `get_section`, `get_banners`, and `get_players` merge only successful rows while retaining errors.
+- **Frontend scraper response boundary**: `call_api` now validates and unwraps the shared envelope for REST and Tauri, logs and queues structured backend errors, and synthesizes browser-local correlation codes for transport or protocol failures.
+- **Source error notifications**: Added a route-independent, non-modal notification stack with localized source-aware summaries, copyable diagnostic codes, collapsed technical details, and Escape dismissal.
+- **Concurrent deferred loading**: Section pages now retain fulfilled source results when another concurrent source rejects; deferred banner workers continue after an independently notified technical failure.

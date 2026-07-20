@@ -63,7 +63,10 @@ impl ErrorCodeGenerator {
     /// The returned code is unique within this process for the lifetime of the
     /// generator.
     pub fn next_code(&self) -> ArachneaErrorCode {
-        let mut guard = self.inner.lock().expect("ErrorCodeGenerator mutex poisoned");
+        let mut guard = self
+            .inner
+            .lock()
+            .expect("ErrorCodeGenerator mutex poisoned");
         let now = OffsetDateTime::now_utc();
         let millis = now.unix_timestamp() * 1000 + now.millisecond() as i64;
 

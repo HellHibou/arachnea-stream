@@ -346,31 +346,68 @@ Les libellés du dialogue seront ajoutés aux deux catalogues existants
    - [x] Mise à jour des rustdocs (suppression des `# Errors` obsolètes mentionnant l'échec source)
    - [x] Mise à jour des tests : extraction de `.data` pour compatibilité avec `test_query`
    - Voir `server/crates/arachnea-stream/src/stream_scraper.rs`
-4. **Vérifier le contrat serveur.** Mettre à jour les tests existants affectés
-   et ajouter les assertions nécessaires seulement si elles entrent dans ces
-   fichiers existants : succès complet, succès partiel, échec complet, erreur
-   pré-exécution sans source, stabilité d'ordre et présence du code dans les
-   logs/erreurs. Mettre à jour le changelog serveur.
-5. **Centraliser la lecture frontend.** Ajouter les types, le parseur
-   d'enveloppe, les générateurs de code client et l'intégration `call_api`.
-   Vérifier les deux transports (REST et Tauri), la compatibilité de lecture
-   transitoire et le log console avec `code`, `operation`, `source`, `origin`,
-   `message`. Convertir également toute erreur technique en notification avant
-   de la relancer vers le chargement appelant.
-6. **Construire la pile UI.** Créer le composable de file, les deux composants
-   de notification et leur raccordement dans `App.vue`. Ajouter les traductions
-   FR/EN : titre, message localisé par défaut, libellé « détails techniques »,
-   code, fermeture et état sans source.
-7. **Adapter les chargements concurrents.** Vérifier que `loadHomeSectionPage`
-   continue d'intégrer les sources réussies lorsque certains appels retournent
-   `data` vide avec erreurs, et que les bannières différées poursuivent leur
-   chargement. Ne plus attraper/silencier les erreurs déjà traitées par
-   `call_api`.
-8. **Validation finale.** Exécuter formatage, compilation Rust ciblée et les
-   vérifications TypeScript/Vue existantes. Vérifier manuellement les cinq
-   requêtes (`load_home`, `search`, `get_category`, `get_banners`, `get_section`)
-   avec une source en échec : données conservées, une notification par erreur,
-   détail replié, code identique dans console et logs backend.
+4. **Vérifier le contrat serveur.** ✅ Terminé
+   - [x] Ajout de tests directs dans `scraper_agregator.rs` : succès complet,
+     succès partiel, échec complet, ordre configuré, code de corrélation et
+     erreur pré-exécution avec `source: null`.
+   - [x] Les erreurs pré-exécution (groupe absent ou sélection sans source
+     configurée) produisent désormais une enveloppe avec code, log
+     `tracing::error!` et `source: null`.
+   - [x] Les tests existants de `StreamScraper` vérifient que les enveloppes de
+     succès n'ont aucune erreur avant d'extraire `data`.
+   - [x] `CHANGELOG.md` mis à jour avec le contrat d'erreurs par source.
+   - Validation : `cargo test -p arachnea-scrapyfy scraper_agregator::tests --lib`
+     et `cargo check --tests`.
+5. **Centraliser la lecture frontend.** ✅ Terminé
+   - [x] Types partagés `ScraperAggregationResult<T>`,
+     `ScraperExecutionError` et `ScraperErrorOrigin` dans
+     `front/src/types/scraperError.ts`, réexportés par `rustify.ts`.
+   - [x] `call_api` valide l'enveloppe pour REST et Tauri, notifie chaque
+     élément de `errors`, puis retourne uniquement `data` aux normaliseurs.
+   - [x] Compatibilité transitoire : un payload nu est lu comme
+     `{ data: payload, errors: [] }`; une enveloppe partielle ou invalide est
+     une erreur frontend.
+   - [x] Erreurs REST non-2xx, réponses JSON invalides ou vides, rejet Tauri
+     et échecs réseau deviennent des erreurs structurées frontend, sont
+     journalisées, ajoutées à la file, puis relancées.
+   - [x] Générateur frontend monotone de codes
+     `ARACHNEA_E{millis}{sequence:02}`.
+   - [x] File réactive minimale `useErrorNotifications` ajoutée comme source
+     de vérité; le rendu accessible de la pile reste le point 6.
+   - Validation : `npm run type-check`.
+6. **Construire la pile UI.** ✅ Terminé
+   - [x] `useErrorNotifications` fournit la file réactive globale, en lecture
+     seule, avec les actions `enqueue` et `dismiss`.
+   - [x] `ErrorNotification.vue` rend une erreur non modale avec `role="alert"`,
+     message localisé, code copiable, détails techniques repliés, origine et
+     bouton de fermeture accessible.
+   - [x] `ErrorNotificationStack.vue` téléporte la pile en bas à droite,
+     limite l'affichage à cinq notifications et ferme l'élément actif avec
+     Escape.
+   - [x] `App.vue` raccorde la file et le rendu global, indépendamment des
+     changements de route.
+   - [x] Traductions ajoutées dans les catalogues `en` et `fr`.
+   - Validation : `npm run type-check`.
+7. **Adapter les chargements concurrents.** ✅ Terminé
+   - [x] `loadHomeSectionPage` utilise `Promise.allSettled` et ne fusionne que
+     les sources résolues; une erreur technique ne fait plus perdre les pages
+     réussies concurrentes.
+   - [x] Les données vides ou partielles retournées par une enveloppe restent
+     des réponses résolues et mettent à jour les sections normalement.
+   - [x] Les workers de bannières différées conservent leur isolation par
+     source : un rejet technique est déjà notifié par `call_api` et ne bloque
+     pas les autres travailleurs.
+   - Validation : `npm run type-check`.
+8. **Validation finale.** ⏳ Partiellement terminée
+   - [x] `cargo check -p arachnea-scrapyfy -p arachnea-stream`
+   - [x] `cargo test -p arachnea-scrapyfy scraper_agregator::tests --lib`
+     couvre succès total/partiel, échec total, ordre et codes de corrélation.
+   - [x] `cargo fmt --check`, `npm run type-check`, `npm run build`,
+     `npm run lint:css` et `git diff --check`.
+   - [ ] Scénario manuel avec serveur et source réellement défaillante pour
+     `load_home`, `search`, `get_category`, `get_banners` et `get_section` :
+     non exécuté, aucun serveur local ni configuration de source défaillante
+     n'étant disponible dans cette session.
 
 ## Décisions validées
 

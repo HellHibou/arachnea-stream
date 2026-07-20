@@ -304,7 +304,8 @@ impl StreamScraper {
             Some(&media_types)
         };
 
-        Ok(self.scraper_agregator
+        Ok(self
+            .scraper_agregator
             .execute_query_async(
                 STREAM_SERVICE_GROUP_NAME,
                 "search",
@@ -478,7 +479,8 @@ impl StreamScraper {
     ) -> Result<ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>>> {
         let mut params: HashMap<String, String> = HashMap::new();
         self.enrich_runtime_params(&mut params);
-        Ok(self.scraper_agregator
+        Ok(self
+            .scraper_agregator
             .execute_query_async(
                 STREAM_SERVICE_GROUP_NAME,
                 "load_home",
@@ -500,7 +502,8 @@ impl StreamScraper {
         let mut params: HashMap<String, String> = HashMap::new();
         self.enrich_runtime_params(&mut params);
 
-        Ok(self.scraper_agregator
+        Ok(self
+            .scraper_agregator
             .execute_query_async(
                 STREAM_SERVICE_GROUP_NAME,
                 "service_stream_metadata",
@@ -564,7 +567,8 @@ impl StreamScraper {
         params.insert("page".to_string(), page.to_string());
         self.enrich_runtime_params(&mut params);
 
-        Ok(self.scraper_agregator
+        Ok(self
+            .scraper_agregator
             .execute_query_async(
                 STREAM_SERVICE_GROUP_NAME,
                 "get_category",
@@ -760,9 +764,8 @@ impl StreamScraper {
                 .get_stream(&target)
                 .await?
         } else {
-            let resolver = player_resolver_for_id(&resolver_id).ok_or_else(|| {
-                anyhow::anyhow!("Unsupported player resolver `{}`.", resolver_id)
-            })?;
+            let resolver = player_resolver_for_id(&resolver_id)
+                .ok_or_else(|| anyhow::anyhow!("Unsupported player resolver `{}`.", resolver_id))?;
             let service_parameters = self
                 .scraper_agregator
                 .query_collection_parameters(STREAM_SERVICE_GROUP_NAME, resolver.source_id())

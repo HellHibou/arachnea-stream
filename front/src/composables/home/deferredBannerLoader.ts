@@ -55,7 +55,7 @@ export async function loadDeferredBannerPages(
           banners: { ...catalog.banners, entries: [...loadedEntries] },
         })
       } catch {
-        // A failed source must not prevent the other banner sources from loading.
+        // call_api already queued the technical failure; this worker must keep other sources running.
       }
     }
   }

@@ -283,16 +283,14 @@ async fn execute_query_internal(
     // 2a. Check for input_html mode: when the query provides an input_html
     //     template that resolves to a non-empty string, use it as the response
     //     body instead of fetching.
-    let input_html_resolved: Option<String> = query
-        .input_html()
-        .and_then(|template| {
-            if template.is_empty() {
-                return None;
-            }
-            query_helpers::format_query_template(query.base_url(), template, context.params)
-                .ok()
-                .filter(|s| !s.is_empty())
-        });
+    let input_html_resolved: Option<String> = query.input_html().and_then(|template| {
+        if template.is_empty() {
+            return None;
+        }
+        query_helpers::format_query_template(query.base_url(), template, context.params)
+            .ok()
+            .filter(|s| !s.is_empty())
+    });
     let has_input_html = input_html_resolved.is_some();
 
     if request_urls.is_empty() && !has_input_html {

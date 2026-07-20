@@ -363,12 +363,6 @@ const storyboardPreviewStyle = computed(() => {
   opacity: 1;
 }
 
-.videojs-media-host :deep(.arachnea-videojs-theme .vjs-volume-panel:hover .vjs-volume-control.vjs-volume-horizontal) {
-  width: 5.15rem !important;
-  opacity: 1;
-  visibility: visible;
-}
-
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-mute-control) {
   position: relative;
   z-index: 2;
@@ -380,12 +374,12 @@ const storyboardPreviewStyle = computed(() => {
   top: 2px;
 }
 
-.videojs-media-host :deep(.arachnea-videojs-theme .vjs-audio-button .vjs-icon-placeholder:before){    
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-audio-button .vjs-icon-placeholder::before) {
   font-size: 2.1em;   /* encore plus gros */
 }
-.videojs-media-host :deep(.arachnea-videojs-theme .vjs-subs-caps-button .vjs-icon-placeholder:before),
-.videojs-media-host :deep(.arachnea-videojs-theme .vjs-subtitles-button .vjs-icon-placeholder:before) {
-    font-size: 2.4em;   /* encore plus gros */
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-subs-caps-button .vjs-icon-placeholder::before),
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-subtitles-button .vjs-icon-placeholder::before) {
+     font-size: 2.4em;   /* encore plus gros */
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-mute-control::before) {

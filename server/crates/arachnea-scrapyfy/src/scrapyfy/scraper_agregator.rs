@@ -387,12 +387,7 @@ impl ScraperAgregator {
     pub fn source_names_in_group(&self, group_name: &str) -> Vec<String> {
         self.queries_collection
             .get(group_name)
-            .map(|collections| {
-                collections
-                    .iter()
-                    .map(|c| c.name().to_string())
-                    .collect()
-            })
+            .map(|collections| collections.iter().map(|c| c.name().to_string()).collect())
             .unwrap_or_default()
     }
 
@@ -463,8 +458,8 @@ impl ScraperAgregator {
     ///
     /// The returned entries are already tree-shaped when fields include `>` in their names.
     ///
-    /// Per-source errors are collected in [`ScraperAggregationResult::errors`] and logged
-    /// with a correlation code. A missing group returns empty data without errors.
+    /// Per-source and pre-execution errors are collected in
+    /// [`ScraperAggregationResult::errors`] and logged with a correlation code.
     pub async fn execute_query_async(
         &self,
         group_name: &str,
@@ -478,8 +473,25 @@ impl ScraperAgregator {
         operation: &str,
     ) -> ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>> {
         let Some(queries_collection) = self.queries_collection.get(group_name) else {
-            tracing::warn!("query group `{group_name}` not found");
-            return ScraperAggregationResult::ok(Vec::new());
+            let code = ERROR_CODE_GEN.next_code();
+            let message = format!("query group `{group_name}` not found");
+            tracing::error!(
+                error_code = %code,
+                operation = operation,
+                source = ?Option::<String>::None,
+                error = %message,
+                "query execution could not start",
+            );
+            return ScraperAggregationResult::new(
+                Vec::new(),
+                vec![ScraperExecutionError {
+                    code,
+                    operation: operation.to_string(),
+                    source: None,
+                    origin: ScraperErrorOrigin::Backend,
+                    message,
+                }],
+            );
         };
 
         let filtered_queries: Vec<&ScraperQueryCollection> = queries_collection
@@ -491,6 +503,28 @@ impl ScraperAgregator {
                 _none => true,
             })
             .collect();
+
+        if filtered_queries.is_empty() {
+            let code = ERROR_CODE_GEN.next_code();
+            let message = format!("no configured sources selected in query group `{group_name}`");
+            tracing::error!(
+                error_code = %code,
+                operation = operation,
+                source = ?Option::<String>::None,
+                error = %message,
+                "query execution could not start",
+            );
+            return ScraperAggregationResult::new(
+                Vec::new(),
+                vec![ScraperExecutionError {
+                    code,
+                    operation: operation.to_string(),
+                    source: None,
+                    origin: ScraperErrorOrigin::Backend,
+                    message,
+                }],
+            );
+        }
 
         let results = join_all(filtered_queries.iter().map(|query_collection| {
             let mut execution_params = params.clone();
@@ -557,5 +591,349 @@ impl ScraperAgregator {
         }
 
         ScraperAggregationResult::new(aggregated_results, errors)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use arachnea_core::error_code::ErrorCodeGenerator;
+    use arachnea_core::scraper_result::{
+        ScraperAggregationResult, ScraperErrorOrigin, ScraperExecutionError,
+    };
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static TEMP_DIR_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+    fn unique_temp_dir() -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after UNIX_EPOCH")
+            .as_nanos();
+        let sequence = TEMP_DIR_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "arachnea-scrapyfy-aggregator-test-{}-{nanos}-{sequence}",
+            std::process::id()
+        ))
+    }
+
+    fn setup_aggregator_sources(sources: &[(&str, &str)]) -> (ScraperAgregator, PathBuf) {
+        let dir = unique_temp_dir();
+        std::fs::create_dir_all(&dir).expect("test service directory should be created");
+
+        let mut service_entries = Vec::new();
+        for (name, yaml) in sources {
+            let file_name = format!("{name}.yaml");
+            std::fs::write(dir.join(&file_name), yaml).expect("test YAML should be written");
+            service_entries.push(serde_json::json!({
+                "path": file_name,
+                "enabled": true,
+            }));
+        }
+
+        let config_path = dir.join("services.json");
+        std::fs::write(
+            &config_path,
+            serde_json::to_string(&service_entries).expect("test services config should serialize"),
+        )
+        .expect("test services config should be written");
+
+        let mut aggregator =
+            ScraperAgregator::new_with_proxy_handle(SharedProxyConfigHandle::new());
+        aggregator
+            .add_query_collection_from_config_json("test", &config_path)
+            .expect("test sources should load");
+
+        (aggregator, dir)
+    }
+
+    fn static_source(id: &str, value: &str) -> String {
+        format!(
+            r#"
+id: {id}
+queries:
+  - name: probe
+    scraper_type: static
+    entries:
+      - name: value
+        type: string
+        value: {value}
+"#
+        )
+    }
+
+    fn failing_html_source(id: &str, url: &str) -> String {
+        format!(
+            r#"
+id: {id}
+queries:
+  - name: probe
+    scraper_type: html
+    base_url: {url}
+    query_url: {url}
+    row_selector: html
+    entries:
+      - name: value
+        type: string
+        selector: title
+        actions:
+          - type: get_text
+"#
+        )
+    }
+
+    fn value_from_row(row: &HashMap<String, ScraperDataNode>) -> Option<&str> {
+        row.get("value")
+            .and_then(|node| node.values.first())
+            .map(String::as_str)
+    }
+
+    #[test]
+    fn error_code_generator_monotonic() {
+        let gen = ErrorCodeGenerator::new();
+        let a = gen.next_code();
+        let b = gen.next_code();
+        let c = gen.next_code();
+
+        let a_str = a.to_string();
+        let b_str = b.to_string();
+        let c_str = c.to_string();
+
+        assert!(
+            a_str.starts_with("ARACHNEA_E"),
+            "code should start with prefix"
+        );
+        assert!(b_str >= a_str, "codes should be monotonic");
+        assert!(c_str >= b_str, "codes should be monotonic");
+        assert_ne!(a_str, b_str, "consecutive codes should differ");
+    }
+
+    #[test]
+    fn error_code_format() {
+        let gen = ErrorCodeGenerator::new();
+        let code = gen.next_code();
+        let s = code.to_string();
+
+        // Format: ARACHNEA_E{millis}{seq:02}
+        assert!(s.starts_with("ARACHNEA_E"), "missing prefix");
+        let numeric = s.trim_start_matches("ARACHNEA_E");
+        assert!(
+            numeric.len() >= 15,
+            "expected millis + 2-digit seq, got '{}'",
+            numeric
+        );
+        assert!(
+            numeric.chars().all(|c| c.is_ascii_digit()),
+            "numeric part should be all digits, got '{}'",
+            numeric,
+        );
+
+        // Sequence part (last 2 chars)
+        let seq = &numeric[numeric.len() - 2..];
+        assert!(
+            seq.parse::<u8>().is_ok(),
+            "sequence should be 2-digit number, got '{}'",
+            seq,
+        );
+    }
+
+    #[test]
+    fn error_code_serializable() {
+        let gen = ErrorCodeGenerator::new();
+        let code = gen.next_code();
+        let json = serde_json::to_string(&code).expect("serialization should succeed");
+        assert!(
+            json.contains("ARACHNEA_E"),
+            "serialized code should contain prefix"
+        );
+    }
+
+    #[test]
+    fn aggregation_result_ok_has_no_errors() {
+        let data: Vec<HashMap<String, String>> = vec![HashMap::new()];
+        let result = ScraperAggregationResult::ok(data.clone());
+        assert_eq!(result.data, data);
+        assert!(result.errors.is_empty());
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn aggregation_result_with_errors() {
+        let data: Vec<i32> = vec![1, 2, 3];
+        let errors = vec![ScraperExecutionError {
+            code: ErrorCodeGenerator::new().next_code(),
+            operation: "test_op".to_string(),
+            source: Some("source-a".to_string()),
+            origin: ScraperErrorOrigin::Backend,
+            message: "something went wrong".to_string(),
+        }];
+        let result = ScraperAggregationResult::new(data.clone(), errors);
+        assert_eq!(result.data, vec![1, 2, 3]);
+        assert!(!result.errors.is_empty());
+        assert!(!result.is_ok());
+    }
+
+    #[test]
+    fn execution_error_has_code() {
+        let gen = ErrorCodeGenerator::new();
+        let error = ScraperExecutionError {
+            code: gen.next_code(),
+            operation: "load_home".to_string(),
+            source: Some("my-source".to_string()),
+            origin: ScraperErrorOrigin::Backend,
+            message: "HTTP 500".to_string(),
+        };
+        assert!(
+            error.code.to_string().starts_with("ARACHNEA_E"),
+            "error should carry a correlation code",
+        );
+        assert_eq!(error.operation, "load_home");
+        assert_eq!(error.source.as_deref(), Some("my-source"));
+    }
+
+    #[test]
+    fn execution_error_nullable_source() {
+        let gen = ErrorCodeGenerator::new();
+        let error = ScraperExecutionError {
+            code: gen.next_code(),
+            operation: "validate".to_string(),
+            source: None,
+            origin: ScraperErrorOrigin::Backend,
+            message: "pre-execution validation failed".to_string(),
+        };
+        assert!(
+            error.source.is_none(),
+            "pre-execution errors should have no source"
+        );
+    }
+
+    #[tokio::test]
+    async fn execute_query_async_keeps_successes_in_config_order() {
+        let (aggregator, dir) = setup_aggregator_sources(&[
+            ("first", &static_source("first", "first")),
+            ("second", &static_source("second", "second")),
+        ]);
+
+        let result = aggregator
+            .execute_query_async(
+                "test",
+                "probe",
+                &HashMap::new(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                "probe",
+            )
+            .await;
+
+        assert!(result.is_ok(), "full success should not produce errors");
+        assert_eq!(result.data.len(), 2);
+        assert_eq!(value_from_row(&result.data[0]), Some("first"));
+        assert_eq!(value_from_row(&result.data[1]), Some("second"));
+        std::fs::remove_dir_all(dir).expect("test service directory should be removed");
+    }
+
+    #[tokio::test]
+    async fn execute_query_async_preserves_partial_success_and_error_code() {
+        let failing_url = "not-a-valid-url";
+        let (aggregator, dir) = setup_aggregator_sources(&[
+            ("success", &static_source("success", "kept")),
+            ("failure", &failing_html_source("failure", &failing_url)),
+        ]);
+
+        let result = aggregator
+            .execute_query_async(
+                "test",
+                "probe",
+                &HashMap::new(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                "probe",
+            )
+            .await;
+
+        assert_eq!(
+            result.data.len(),
+            1,
+            "successful source data should be kept"
+        );
+        assert_eq!(value_from_row(&result.data[0]), Some("kept"));
+        assert_eq!(result.errors.len(), 1, "failed source should be reported");
+        let error = &result.errors[0];
+        assert_eq!(error.operation, "probe");
+        assert_eq!(error.source.as_deref(), Some("failure"));
+        assert!(matches!(&error.origin, ScraperErrorOrigin::Backend));
+        assert!(error.code.to_string().starts_with("ARACHNEA_E"));
+        assert!(!error.message.is_empty());
+        std::fs::remove_dir_all(dir).expect("test service directory should be removed");
+    }
+
+    #[tokio::test]
+    async fn execute_query_async_reports_all_failed_sources_in_config_order() {
+        let failing_url = "not-a-valid-url";
+        let (aggregator, dir) = setup_aggregator_sources(&[
+            ("first", &failing_html_source("first", &failing_url)),
+            ("second", &failing_html_source("second", &failing_url)),
+        ]);
+
+        let result = aggregator
+            .execute_query_async(
+                "test",
+                "probe",
+                &HashMap::new(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                "probe",
+            )
+            .await;
+
+        assert!(
+            result.data.is_empty(),
+            "all failed sources should produce no data"
+        );
+        assert_eq!(result.errors.len(), 2);
+        assert_eq!(result.errors[0].source.as_deref(), Some("first"));
+        assert_eq!(result.errors[1].source.as_deref(), Some("second"));
+        assert!(result
+            .errors
+            .iter()
+            .all(|error| error.code.to_string().starts_with("ARACHNEA_E")));
+        std::fs::remove_dir_all(dir).expect("test service directory should be removed");
+    }
+
+    #[tokio::test]
+    async fn execute_query_async_reports_pre_execution_error_without_source() {
+        let aggregator = ScraperAgregator::new_with_proxy_handle(SharedProxyConfigHandle::new());
+        let result = aggregator
+            .execute_query_async(
+                "missing",
+                "probe",
+                &HashMap::new(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                "probe",
+            )
+            .await;
+
+        assert!(result.data.is_empty());
+        assert_eq!(result.errors.len(), 1);
+        let error = &result.errors[0];
+        assert_eq!(error.operation, "probe");
+        assert!(error.source.is_none());
+        assert!(error.code.to_string().starts_with("ARACHNEA_E"));
     }
 }

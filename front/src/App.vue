@@ -15,7 +15,9 @@ import type { BackgroundMediaCandidate, MediaSelectionTarget } from '@/types/med
 import type { HomeCategory } from '@/types/home'
 import Background from './components/Background.vue'
 import MainBar from './components/MainBar.vue'
+import ErrorNotificationStack from './components/errors/ErrorNotificationStack.vue'
 import { useSearchFilterOptions } from '@/composables/useSearchFilterOptions'
+import { useErrorNotifications } from '@/composables/useErrorNotifications'
 
 // Router instances
 const route = useRoute()
@@ -48,6 +50,9 @@ const parameters: Parameters = useStorage().getParameters()
 
 /** Filter options for media types and themes from the search configuration. */
 const { mediaTypeFilterOptions, themeFilterOptions } = useSearchFilterOptions()
+
+/** Session-global scraper errors rendered independently of route-level load state. */
+const { notifications, dismiss: dismissErrorNotification } = useErrorNotifications()
 
 /** Background media items collected from catalog screens for the background layer. */
 const catalogBackgroundMediaItems = shallowRef<BackgroundMediaCandidate[]>([])
@@ -276,6 +281,11 @@ function handleBackNavigation() {
         />
       </RouterView>
     </main>
+
+    <ErrorNotificationStack
+      :notifications="notifications"
+      @dismiss="dismissErrorNotification"
+    />
   </div>
 </template>
 

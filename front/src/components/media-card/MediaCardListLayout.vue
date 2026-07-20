@@ -156,7 +156,7 @@ defineEmits<{
 
 .media-card__list-action {
   display: flex;
-  align-self: top;
+  align-self: start;
   align-items: center;
   justify-content: flex-end;
   justify-self: end;

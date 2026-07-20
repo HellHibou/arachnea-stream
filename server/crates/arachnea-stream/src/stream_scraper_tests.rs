@@ -117,7 +117,17 @@ fn service_stream_metadata(yaml_file: &str) -> Result<()> {
         "service_stream_metadata",
         test_params(),
         yaml_file,
-        move |scraper| Box::pin(async move { scraper.get_service().await.map(|r| r.data) }),
+        move |scraper| {
+            Box::pin(async move {
+                let result = scraper.get_service().await?;
+                assert!(
+                    result.is_ok(),
+                    "service_stream_metadata should complete without errors, got {:?}",
+                    result.errors,
+                );
+                Ok(result.data)
+            })
+        },
     )
 }
 
@@ -132,7 +142,17 @@ fn load_home(yaml_file: &str) -> Result<()> {
         "load_home",
         test_params(),
         yaml_file,
-        move |scraper| Box::pin(async move { scraper.load_home().await.map(|r| r.data) }),
+        move |scraper| {
+            Box::pin(async move {
+                let result = scraper.load_home().await?;
+                assert!(
+                    result.is_ok(),
+                    "load_home should complete without errors, got {:?}",
+                    result.errors,
+                );
+                Ok(result.data)
+            })
+        },
     )
 }
 
@@ -154,7 +174,14 @@ fn search(search_term: String, yaml_file: &str) -> Result<()> {
                     .search(search_term, Vec::new(), Vec::new(), 1, Default::default())
                     .await?;
 
-                Ok(result.data
+                // Verify envelope contract
+                assert!(
+                    result.is_ok(),
+                    "search should not fail at the envelope level",
+                );
+
+                Ok(result
+                    .data
                     .into_iter()
                     .flat_map(|mut group| {
                         let source = group.get("source").cloned();
@@ -217,11 +244,15 @@ fn get_entry(get_entry_url: Option<String>, yaml_file: &str) -> Result<()> {
                 // Use yaml_file without extension as source
                 let source_path = Path::new(&yaml_file_inner).with_extension("");
                 let source_name = source_path.to_string_lossy();
-                scraper
+                let entry_result = scraper
                     .get_entry(source_name.to_string(), entry_url)
-                    .await
-                    .map(|result| result.data)
-                    .map(|entry| vec![entry])
+                    .await?;
+                assert!(
+                    entry_result.is_ok(),
+                    "get_entry should complete without errors, got {:?}",
+                    entry_result.errors,
+                );
+                Ok(vec![entry_result.data])
             })
         },
     )

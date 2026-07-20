@@ -35,10 +35,7 @@ fn setup_resolver_sources(sources: &[(&str, &str)]) -> (ScraperAgregator, PathBu
     for (name, yaml) in sources {
         let file_name = format!("{name}.yaml");
         std::fs::write(dir.join(&file_name), yaml).expect("test YAML should be written");
-        service_entries.push(format!(
-            r#"{{ "path": "{}", "enabled": true }}"#,
-            file_name
-        ));
+        service_entries.push(format!(r#"{{ "path": "{}", "enabled": true }}"#, file_name));
     }
 
     let services_json = format!("[{}]", service_entries.join(","));
@@ -221,12 +218,8 @@ queries:
     endpoints.http_proxy_public_path = Some("/api/proxy".to_string());
     let resolver = StreamResolver::new(&agregator, &endpoints);
 
-    let can_resolve = block_on(resolver.can_resolve_html(
-        "html-resolver",
-        &url,
-        html_body,
-    ))
-    .expect("HTML resolver detection should execute");
+    let can_resolve = block_on(resolver.can_resolve_html("html-resolver", &url, html_body))
+        .expect("HTML resolver detection should execute");
     assert!(can_resolve, "HTML resolver should recognize fixture body");
 
     let result = block_on(resolver.get_stream(&url)).expect("HTML fallback should resolve");
@@ -238,10 +231,7 @@ queries:
             assert!(stream.stream_url[0].starts_with("/api/proxy/opts_"));
             assert!(stream.stream_url[0].contains("/https://cdn.test/fallback.m3u8"));
             let opts = decode_proxy_opts(&stream.stream_url[0]);
-            assert_eq!(
-                opts["headers"],
-                serde_json::json!([["Referer", url]])
-            );
+            assert_eq!(opts["headers"], serde_json::json!([["Referer", url]]));
             let public_json = serde_json::to_string(&stream).expect("stream should serialize");
             assert!(!public_json.contains(html_body));
             assert!(!public_json.contains("DETECTME"));
@@ -315,12 +305,9 @@ fn voe_can_resolve_html_detects_proposed_domains_in_memory() {
         "ellenpoliticalfollow.com",
     ] {
         let html = format!(r#"<html><body>https://{domain}/e/example</body></html>"#);
-        let can_resolve = block_on(resolver.can_resolve_html(
-            "voe",
-            "https://embed.test/player",
-            &html,
-        ))
-        .expect("VOE can_resolve_html should execute");
+        let can_resolve =
+            block_on(resolver.can_resolve_html("voe", "https://embed.test/player", &html))
+                .expect("VOE can_resolve_html should execute");
         assert!(can_resolve, "VOE should detect {domain} in provided HTML");
     }
 
@@ -335,12 +322,9 @@ fn voe_can_resolve_html_rejects_generic_encoded_config_marker() {
     let resolver = StreamResolver::new(&agregator, &endpoints);
 
     let html = r#"<html><script type="application/json">["encodedVoePayload"]</script></html>"#;
-    let can_resolve = block_on(resolver.can_resolve_html(
-        "voe",
-        "https://unrelated.example/e/example",
-        html,
-    ))
-    .expect("VOE can_resolve_html should execute");
+    let can_resolve =
+        block_on(resolver.can_resolve_html("voe", "https://unrelated.example/e/example", html))
+            .expect("VOE can_resolve_html should execute");
 
     assert!(
         !can_resolve,

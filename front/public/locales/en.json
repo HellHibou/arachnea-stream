@@ -267,6 +267,18 @@
     "unexpectedLiveListResponseFormat": "Unexpected live list response format returned by the backend.",
     "unexpectedLiveResponseFormat": "Unexpected live response format returned by the backend.",
     "unexpectedHomeResponseFormat": "Unexpected home response format returned by the backend.",
-    "unexpectedSeasonResponseFormat": "Unexpected season response format returned by the backend."
+    "unexpectedSeasonResponseFormat": "Unexpected season response format returned by the backend.",
+    "notifications": {
+      "title": "Source unavailable",
+      "messageWithSource": "{operation} could not be completed for {source}.",
+      "messageWithoutSource": "A technical problem occurred during {operation}.",
+      "technicalDetails": "Technical details",
+      "code": "Code",
+      "copyCode": "Copy diagnostic code {code}",
+      "codeCopied": "Copied",
+      "origin": "Origin",
+      "message": "Technical message",
+      "close": "Dismiss notification"
+    }
   }
 }

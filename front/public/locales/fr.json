@@ -267,6 +267,18 @@
     "unexpectedLiveListResponseFormat": "Format de réponse inattendu pour la liste en direct renvoyé par le backend.",
     "unexpectedLiveResponseFormat": "Format de réponse inattendu pour le flux en direct renvoyé par le backend.",
     "unexpectedHomeResponseFormat": "Format de réponse inattendu pour la page d'accueil renvoyé par le backend.",
-    "unexpectedSeasonResponseFormat": "Format de réponse inattendu pour la saison renvoyé par le backend."
+    "unexpectedSeasonResponseFormat": "Format de réponse inattendu pour la saison renvoyé par le backend.",
+    "notifications": {
+      "title": "Source indisponible",
+      "messageWithSource": "L'opération {operation} n'a pas pu être effectuée pour {source}.",
+      "messageWithoutSource": "Un problème technique est survenu pendant {operation}.",
+      "technicalDetails": "Détails techniques",
+      "code": "Code",
+      "copyCode": "Copier le code de diagnostic {code}",
+      "codeCopied": "Copié",
+      "origin": "Origine",
+      "message": "Message technique",
+      "close": "Fermer la notification"
+    }
   }
 }

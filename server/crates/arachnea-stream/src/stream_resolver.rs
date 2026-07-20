@@ -285,9 +285,7 @@ impl<'a> StreamResolver<'a> {
             max_redirects: Some(STREAM_RESOLVER_MAX_REDIRECTS),
             ..ScraperHttpConfig::default()
         };
-        let client = self
-            .scraper_agregator
-            .create_http_client(http_config);
+        let client = self.scraper_agregator.create_http_client(http_config);
         let response = client
             .send_for_request(http::Method::GET, url, &HashMap::new(), None)
             .await

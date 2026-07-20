@@ -23,6 +23,17 @@ import type {
 } from '@/types/home'
 import { t, tm } from '@/i18n'
 import type { ServiceMetadata, ServiceThemeMetadata } from '@/types/serviceMetadata'
+import { enqueueErrorNotification } from '@/composables/useErrorNotifications'
+import type {
+  ScraperAggregationResult,
+  ScraperExecutionError,
+} from '@/types/scraperError'
+
+export type {
+  ScraperAggregationResult,
+  ScraperErrorOrigin,
+  ScraperExecutionError,
+} from '@/types/scraperError'
 
 /** Base URL for the REST API. Falls back to '/api' when not configured via environment. */
 const restApiBaseUrl = import.meta.env.VITE_RUSTIFY_API_BASE_URL ?? '/api'
@@ -110,24 +121,152 @@ export async function call_api<T = unknown>(
   const tauriInvoke =
     tauriWindow.__TAURI__?.core?.invoke ?? tauriWindow.__TAURI__?.invoke
 
-  if (tauriInvoke) {
-    return tauriInvoke<T>(fct_name, params)
+  try {
+    if (tauriInvoke) {
+      const payload = await tauriInvoke<unknown>(fct_name, params)
+      return unwrapAggregationPayload<T>(payload, fct_name)
+    }
+
+    const response = await fetch(`${restApiBaseUrl}/${fct_name}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    })
+    const payload = await parseResponseBody(response)
+
+    if (!response.ok) {
+      handleFailedRestResponse(payload, fct_name, response.status)
+    }
+
+    return unwrapAggregationPayload<T>(payload, fct_name)
+  } catch (error) {
+    if (error instanceof ReportedApiError) {
+      throw error
+    }
+
+    const message = error instanceof Error ? error.message : String(error)
+    throwFrontendApiError(fct_name, message)
+  }
+}
+
+/**
+ * Validates a JSON command envelope, emits its errors, and returns its data.
+ * Bare payloads remain accepted temporarily during the backend rollout.
+ */
+function unwrapAggregationPayload<T>(payload: unknown, operation: string): T {
+  const aggregationPayload = readAggregationPayload<T>(payload)
+
+  if (aggregationPayload.kind === 'malformed') {
+    return throwFrontendApiError(operation, 'Malformed scraper aggregation response envelope.')
   }
 
-  const response = await fetch(`${restApiBaseUrl}/${fct_name}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
+  if (aggregationPayload.kind === 'bare') {
+    return payload as T
+  }
+
+  reportExecutionErrors(aggregationPayload.value.errors)
+  return aggregationPayload.value.data
+}
+
+/** Handles REST failures while preserving structured backend errors when available. */
+function handleFailedRestResponse(payload: unknown, operation: string, status: number): never {
+  const aggregationPayload = readAggregationPayload<unknown>(payload)
+
+  if (aggregationPayload.kind === 'envelope') {
+    const firstError = aggregationPayload.value.errors[0]
+    if (firstError) {
+      reportExecutionErrors(aggregationPayload.value.errors)
+      throw new ReportedApiError(firstError.message)
+    }
+  }
+
+  const message = extractErrorMessage(payload) ??
+    t('errors.restCallFailed', { function: operation, status })
+  return throwFrontendApiError(operation, message)
+}
+
+/** Distinguishes valid envelopes, transitional bare payloads, and malformed envelopes. */
+function readAggregationPayload<T>(payload: unknown): AggregationPayload<T> {
+  if (!isJsonRecord(payload) || (!('data' in payload) && !('errors' in payload))) {
+    return { kind: 'bare' }
+  }
+
+  if (!('data' in payload) || !Array.isArray(payload.errors)) {
+    return { kind: 'malformed' }
+  }
+
+  if (!payload.errors.every(isScraperExecutionError)) {
+    return { kind: 'malformed' }
+  }
+
+  return {
+    kind: 'envelope',
+    value: {
+      data: payload.data as T,
+      errors: payload.errors,
+    },
+  }
+}
+
+/** Returns whether a JSON value is a complete structured execution error. */
+function isScraperExecutionError(value: unknown): value is ScraperExecutionError {
+  if (!isJsonRecord(value)) {
+    return false
+  }
+
+  return typeof value.code === 'string' &&
+    typeof value.operation === 'string' &&
+    (typeof value.source === 'string' || value.source === null) &&
+    (value.origin === 'backend' || value.origin === 'frontend') &&
+    typeof value.message === 'string'
+}
+
+/** Logs and queues every structured execution error. */
+function reportExecutionErrors(errors: ScraperExecutionError[]): void {
+  errors.forEach((error) => {
+    console.error('Scraper API error', {
+      code: error.code,
+      operation: error.operation,
+      source: error.source,
+      origin: error.origin,
+      message: error.message,
+    })
+    enqueueErrorNotification(error)
   })
+}
 
-  const payload = await parseResponseBody(response)
+/** Creates, logs, queues, and rejects a frontend-generated technical error. */
+function throwFrontendApiError(operation: string, message: string): never {
+  const error: ScraperExecutionError = {
+    code: nextFrontendErrorCode(),
+    operation,
+    source: null,
+    origin: 'frontend',
+    message,
+  }
+  reportExecutionErrors([error])
+  throw new ReportedApiError(message)
+}
 
-  if (!response.ok) {
-    throw new Error(extractErrorMessage(payload) ??
-      t('errors.restCallFailed', { function: fct_name, status: response.status }))
+let lastFrontendErrorMillis = 0
+let frontendErrorSequence = 0
+
+/** Generates a monotonic browser-local diagnostic code matching the backend format. */
+function nextFrontendErrorCode(): string {
+  const currentMillis = Date.now()
+
+  if (currentMillis <= lastFrontendErrorMillis) {
+    frontendErrorSequence += 1
+    if (frontendErrorSequence > 99) {
+      lastFrontendErrorMillis += 1
+      frontendErrorSequence = 0
+    }
+  } else {
+    lastFrontendErrorMillis = currentMillis
+    frontendErrorSequence = 0
   }
 
-  return payload as T
+  return `ARACHNEA_E${lastFrontendErrorMillis}${String(frontendErrorSequence).padStart(2, '0')}`
 }
 
 /**
@@ -428,7 +567,7 @@ export async function getCategoryCatalog(category: HomeCategory, page = 1): Prom
  *
  * @param section Section descriptor previously returned by `loadHomeCatalog`.
  * @param sources Source descriptors to load for the section.
- * @returns Normalized section payload returned by all section sources.
+ * @returns Normalized section payload assembled from every fulfilled source response.
  */
 export async function loadHomeSectionPage(
   section: HomeSection,
@@ -439,7 +578,7 @@ export async function loadHomeSectionPage(
   }
 
   const isInitialLoad = sources.some((source) => !source.hasInitialItems)
-  const loadedSources = await Promise.all(sources.map(async (source) => {
+  const settledSources = await Promise.allSettled(sources.map(async (source) => {
     const page = source.hasInitialItems ? source.currentPage + 1 : 1
     const response = await call_api<unknown>('get_section', {
       source: source.name,
@@ -467,6 +606,12 @@ export async function loadHomeSectionPage(
 
     return { source, normalizedSection }
   }))
+  const loadedSources = settledSources
+    .filter((result): result is PromiseFulfilledResult<{
+      source: HomeSectionSource
+      normalizedSection: HomeSection
+    }> => result.status === 'fulfilled')
+    .map((result) => result.value)
   const loadedSourcesByKey = new Map(
     loadedSources.map(({ source, normalizedSection }) => [
       buildHomeSectionSourceKey(source),
@@ -846,6 +991,14 @@ export function normalizeBannersResponse(
     Number(isBannerVideoPlayable(right)) - Number(isBannerVideoPlayable(left)),
   )
 }
+
+/** Signals that a structured error has already been queued and logged. */
+class ReportedApiError extends Error {}
+
+type AggregationPayload<T> =
+  | { kind: 'envelope', value: ScraperAggregationResult<T> }
+  | { kind: 'bare' }
+  | { kind: 'malformed' }
 
 /**
  * Returns whether a banner carries a directly playable video or a stream resolver.
@@ -1279,13 +1432,13 @@ async function parseResponseBody(response: Response): Promise<unknown> {
   const body = await response.text()
 
   if (!body) {
-    return null
+    throw new Error('Empty JSON response body.')
   }
 
   try {
     return JSON.parse(body)
   } catch {
-    return body
+    throw new Error('Invalid JSON response body.')
   }
 }
 
