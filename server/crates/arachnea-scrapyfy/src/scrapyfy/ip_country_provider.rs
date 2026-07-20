@@ -88,24 +88,14 @@ impl ScrapyfyIpCountryDataProvider {
                     None,
                     None,
                     None,
+                    "resolve_ip_country",
                 )
                 .await;
 
-            match query_results {
-                Ok(rows) => {
-                    for row in &rows {
-                        if let Some(record) = row_to_ip_country_record(row, ip) {
-                            results.push(record);
-                            break; // one record per IP
-                        }
-                    }
-                }
-                Err(error) => {
-                    warn!(
-                        ip = %ip_str,
-                        error = %error,
-                        "failed to resolve IP country"
-                    );
+            for row in &query_results.data {
+                if let Some(record) = row_to_ip_country_record(row, ip) {
+                    results.push(record);
+                    break; // one record per IP
                 }
             }
         }
@@ -142,7 +132,7 @@ impl IpCountryDataProvider for ScrapyfyIpCountryDataProvider {
         let mut params = HashMap::new();
         params.insert("ip".to_string(), ip_str.clone());
 
-        let rows = match agregator
+        let rows = agregator
             .execute_query_async(
                 IP_COUNTRY_GROUP_NAME,
                 "resolve_ip_country",
@@ -152,15 +142,10 @@ impl IpCountryDataProvider for ScrapyfyIpCountryDataProvider {
                 None,
                 None,
                 None,
+                "resolve_ip_country",
             )
             .await
-        {
-            Ok(rows) => rows,
-            Err(error) => {
-                warn!(ip = %ip_str, %error, "IP-country resolution query failed");
-                return Ok(None);
-            }
-        };
+            .data;
 
         for row in &rows {
             if let Some(country) = row.get("country_code").and_then(|n| n.value_as_string()) {

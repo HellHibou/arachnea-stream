@@ -117,7 +117,7 @@ fn service_stream_metadata(yaml_file: &str) -> Result<()> {
         "service_stream_metadata",
         test_params(),
         yaml_file,
-        move |scraper| Box::pin(scraper.get_service()),
+        move |scraper| Box::pin(async move { scraper.get_service().await.map(|r| r.data) }),
     )
 }
 
@@ -132,7 +132,7 @@ fn load_home(yaml_file: &str) -> Result<()> {
         "load_home",
         test_params(),
         yaml_file,
-        move |scraper| Box::pin(scraper.load_home()),
+        move |scraper| Box::pin(async move { scraper.load_home().await.map(|r| r.data) }),
     )
 }
 
@@ -150,11 +150,11 @@ fn search(search_term: String, yaml_file: &str) -> Result<()> {
         move |scraper| {
             let search_term = search_term.clone();
             Box::pin(async move {
-                let groups = scraper
+                let result = scraper
                     .search(search_term, Vec::new(), Vec::new(), 1, Default::default())
                     .await?;
 
-                Ok(groups
+                Ok(result.data
                     .into_iter()
                     .flat_map(|mut group| {
                         let source = group.get("source").cloned();
@@ -220,6 +220,7 @@ fn get_entry(get_entry_url: Option<String>, yaml_file: &str) -> Result<()> {
                 scraper
                     .get_entry(source_name.to_string(), entry_url)
                     .await
+                    .map(|result| result.data)
                     .map(|entry| vec![entry])
             })
         },
@@ -250,7 +251,7 @@ async fn load_entry_url_from_home(
     scraper: &mut StreamScraper,
     query_source: &str,
 ) -> Result<String> {
-    let home_result: Vec<HashMap<String, ScraperDataNode>> = scraper.load_home().await?;
+    let home_result = scraper.load_home().await?.data;
 
     let section: ScraperDataNode = home_result
         .iter()
@@ -281,7 +282,8 @@ async fn load_entry_url_from_home(
             .ok_or_else(|| anyhow::anyhow!("Missing link in load_home section"))?;
         let section_result = scraper
             .get_section(query_source.to_string(), section_url, 1, Default::default())
-            .await?;
+            .await?
+            .data;
 
         section_result
             .get("entries")

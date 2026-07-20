@@ -200,8 +200,10 @@ impl<'a> StreamResolver<'a> {
                 None,
                 None,
                 None,
+                "resolve_stream",
             )
-            .await?;
+            .await
+            .data;
 
         let entry = match results.into_iter().next() {
             Some(entry) => entry,
@@ -345,8 +347,10 @@ impl<'a> StreamResolver<'a> {
                 None,
                 None,
                 None,
+                "can_resolve_html",
             )
-            .await?;
+            .await
+            .data;
 
         Ok(results.into_iter().any(|entry| {
             entry
@@ -370,8 +374,10 @@ impl<'a> StreamResolver<'a> {
                 None,
                 None,
                 None,
+                "can_resolve_url",
             )
-            .await?;
+            .await
+            .data;
 
         Ok(results.into_iter().any(|entry| {
             entry

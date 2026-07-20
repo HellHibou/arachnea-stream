@@ -1,11 +1,19 @@
 use anyhow::Result;
-use futures::future::try_join_all;
+use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::HashMap;
 use std::fs;
 use std::io::BufReader;
 use std::path::Path;
+use std::sync::LazyLock;
+
+use arachnea_core::error_code::ErrorCodeGenerator;
+use arachnea_core::scraper_result::{
+    ScraperAggregationResult, ScraperErrorOrigin, ScraperExecutionError,
+};
+
+static ERROR_CODE_GEN: LazyLock<ErrorCodeGenerator> = LazyLock::new(ErrorCodeGenerator::new);
 
 use super::*;
 
@@ -451,12 +459,12 @@ impl ScraperAgregator {
     /// * `query_media_type_filter` - Filter on media_type query.
     /// * `fields_filters` - Root fields filter list or None.
     /// * `source_field_name` - Optional metadata key used to store the originating source name.
+    /// * `operation` - Logical operation name used in error correlation codes.
     ///
     /// The returned entries are already tree-shaped when fields include `>` in their names.
     ///
-    /// # Errors
-    ///
-    /// Returns an error if one of the underlying query collections fails.
+    /// Per-source errors are collected in [`ScraperAggregationResult::errors`] and logged
+    /// with a correlation code. A missing group returns empty data without errors.
     pub async fn execute_query_async(
         &self,
         group_name: &str,
@@ -467,10 +475,11 @@ impl ScraperAgregator {
         query_media_type_filter: Option<&Vec<String>>,
         fields_filters: Option<&HashMap<String, Vec<String>>>,
         source_field_name: Option<&str>,
-    ) -> Result<Vec<HashMap<String, ScraperDataNode>>> {
+        operation: &str,
+    ) -> ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>> {
         let Some(queries_collection) = self.queries_collection.get(group_name) else {
             tracing::warn!("query group `{group_name}` not found");
-            return Ok(Vec::new());
+            return ScraperAggregationResult::ok(Vec::new());
         };
 
         let filtered_queries: Vec<&ScraperQueryCollection> = queries_collection
@@ -483,7 +492,7 @@ impl ScraperAgregator {
             })
             .collect();
 
-        let results = try_join_all(filtered_queries.iter().map(|query_collection| {
+        let results = join_all(filtered_queries.iter().map(|query_collection| {
             let mut execution_params = params.clone();
 
             if let Some(source_params) = source_params {
@@ -503,26 +512,50 @@ impl ScraperAgregator {
                     .await
             }
         }))
-        .await?;
+        .await;
 
         let mut aggregated_results: Vec<HashMap<String, ScraperDataNode>> = Vec::new();
-        for (query, entries) in filtered_queries.into_iter().zip(results) {
-            for mut entry in entries {
-                if let Some(source_field_name) = source_field_name {
-                    // Preserve the origin of each row when the caller requests it.
-                    entry.insert(
-                        source_field_name.to_string(),
-                        ScraperDataNode::from_values_typed(
-                            vec![query.name().to_string()],
-                            ScraperOutputType::String,
-                        ),
-                    );
-                }
+        let mut errors: Vec<ScraperExecutionError> = Vec::new();
 
-                aggregated_results.push(entry);
+        for (query, result) in filtered_queries.into_iter().zip(results) {
+            match result {
+                Ok(entries) => {
+                    for mut entry in entries {
+                        if let Some(source_field_name) = source_field_name {
+                            // Preserve the origin of each row when the caller requests it.
+                            entry.insert(
+                                source_field_name.to_string(),
+                                ScraperDataNode::from_values_typed(
+                                    vec![query.name().to_string()],
+                                    ScraperOutputType::String,
+                                ),
+                            );
+                        }
+
+                        aggregated_results.push(entry);
+                    }
+                }
+                Err(error) => {
+                    let code = ERROR_CODE_GEN.next_code();
+                    let source_name = query.name().to_string();
+                    tracing::error!(
+                        error_code = %code,
+                        operation = operation,
+                        source = %source_name,
+                        error = %error,
+                        "source query failed",
+                    );
+                    errors.push(ScraperExecutionError {
+                        code,
+                        operation: operation.to_string(),
+                        source: Some(source_name),
+                        origin: ScraperErrorOrigin::Backend,
+                        message: format!("{error:#}"),
+                    });
+                }
             }
         }
 
-        Ok(aggregated_results)
+        ScraperAggregationResult::new(aggregated_results, errors)
     }
 }

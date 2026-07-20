@@ -6,11 +6,11 @@ use async_trait::async_trait;
 use arachnea_proxy::core::{
     ArachneaProxyCore, InventoryConfig, IpCountryResolver, IpCountryResolverConfig,
     ParameterHandlerConfig, ParameterHandlerKind, ProbeConfig, ProxyAvailabilityHint, ProxyChain,
-    ProxyConfig, ProxyDataProvider, ProxyError, ProxyInventory, ProxyLoadRequest, ProxyProbe,
+    ProxyConfig, ProxyDataProvider, ProxyInventory, ProxyLoadRequest, ProxyProbe,
     ProxyProfile, ProxyProtocol, ProxyRecord, ProxyRuntimeStatus, Result, RoutePolicy,
     PROXY_HEADER_PARAMETER_COUNTRY, PROXY_PARAMETER_COUNTRY,
 };
-use tracing::{info, trace, warn};
+use tracing::{info, trace};
 
 use crate::scrapyfy::ip_country_provider::ScrapyfyIpCountryDataProvider;
 use crate::scrapyfy::ScraperDataNode;
@@ -118,14 +118,10 @@ impl ProxyDataProvider for ScrapyfyProxyDataProvider {
                 None,
                 None,
                 None,
+                "load_proxies",
             )
             .await
-            .map_err(|e| {
-                ProxyError::Config(format!(
-                    "proxy query `{}/list_proxies_for_country` failed: {e}",
-                    PROXIES_GROUP_NAME
-                ))
-            })?;
+            .data;
 
         let mut records: Vec<ProxyRecord> = results
             .into_iter()
@@ -150,7 +146,7 @@ impl ProxyDataProvider for ScrapyfyProxyDataProvider {
             for (idx, ip_str) in &unresolved {
                 let mut ip_params = HashMap::new();
                 ip_params.insert("ip".to_string(), ip_str.clone());
-                match agregator
+                let rows = agregator
                     .execute_query_async(
                         IP_COUNTRY_GROUP_NAME,
                         "resolve_ip_country",
@@ -160,28 +156,21 @@ impl ProxyDataProvider for ScrapyfyProxyDataProvider {
                         None,
                         None,
                         None,
+                        "resolve_ip_country",
                     )
                     .await
-                {
-                    Ok(rows) => {
-                        for row in &rows {
-                            if let Some(country) =
-                                row.get("country_code").and_then(|n| n.value_as_string())
-                            {
-                                if !country.is_empty() {
-                                    records[*idx].country =
-                                        Some(country.trim().to_ascii_uppercase());
-                                }
-                                break;
+                    .data;
+                if !rows.is_empty() {
+                    for row in &rows {
+                        if let Some(country) =
+                            row.get("country_code").and_then(|n| n.value_as_string())
+                        {
+                            if !country.is_empty() {
+                                records[*idx].country =
+                                    Some(country.trim().to_ascii_uppercase());
                             }
+                            break;
                         }
-                    }
-                    Err(error) => {
-                        warn!(
-                            ip = %ip_str,
-                            error = %error,
-                            "IP-country resolution query failed"
-                        );
                     }
                 }
             }

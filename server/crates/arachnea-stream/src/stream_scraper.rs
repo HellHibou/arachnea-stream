@@ -11,6 +11,7 @@ use arachnea_core::{
         ResponseBody,
     },
     persistence::{CredentialsStore, FileCredentialsStore},
+    scraper_result::ScraperAggregationResult,
 };
 use arachnea_proxy::core::{ArachneaProxyCore, ProxyConfig};
 use arachnea_scrapyfy::*;
@@ -270,11 +271,6 @@ impl StreamScraper {
     /// * `themes` - Optional theme filters applied to scraped results.
     /// * `page` - 1-based page number requested by the caller.
     /// * `source_params` - Source-specific runtime parameters returned by the previous page.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if query execution cannot be started or if one
-    /// of the configured sources fails to execute the search query.
     pub async fn search(
         &self,
         query: String,
@@ -282,7 +278,7 @@ impl StreamScraper {
         themes: Vec<String>,
         page: usize,
         source_params: ScraperSourceParams,
-    ) -> Result<Vec<HashMap<String, ScraperDataNode>>> {
+    ) -> Result<ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>>> {
         let page = page.max(1);
         let scrapper_list = if page > 1 && !source_params.is_empty() {
             Some(source_params.keys().cloned().collect::<Vec<_>>())
@@ -308,7 +304,7 @@ impl StreamScraper {
             Some(&media_types)
         };
 
-        self.scraper_agregator
+        Ok(self.scraper_agregator
             .execute_query_async(
                 STREAM_SERVICE_GROUP_NAME,
                 "search",
@@ -318,8 +314,9 @@ impl StreamScraper {
                 media,
                 None,
                 None,
+                "search",
             )
-            .await
+            .await)
     }
 
     /// Convenience helper for the `get_entry` query using the provided absolute entry URL.
@@ -331,20 +328,19 @@ impl StreamScraper {
     ///
     /// # Errors
     ///
-    /// Returns an error if query execution cannot be started or if one
-    /// of the configured sources fails to execute the `get_entry` query.
+    /// Returns an error if query execution cannot be started.
     pub async fn get_entry(
         &self,
         query_source: String,
         query_url: String,
-    ) -> Result<HashMap<String, ScraperDataNode>> {
+    ) -> Result<ScraperAggregationResult<HashMap<String, ScraperDataNode>>> {
         let mut params: HashMap<String, String> = HashMap::new();
         params.insert("query_url".to_string(), query_url);
         self.enrich_runtime_params(&mut params);
 
         let scrapper_list = vec![query_source];
 
-        let mut results = self
+        let result = self
             .scraper_agregator
             .execute_query_async(
                 STREAM_SERVICE_GROUP_NAME,
@@ -355,10 +351,14 @@ impl StreamScraper {
                 None,
                 None,
                 None,
+                "get_entry",
             )
-            .await?;
+            .await;
 
-        Ok(results.pop().unwrap_or_default())
+        Ok(ScraperAggregationResult::new(
+            result.data.into_iter().next().unwrap_or_default(),
+            result.errors,
+        ))
     }
 
     /// Convenience helper for the `get_season` query using the provided absolute season URL.
@@ -371,14 +371,13 @@ impl StreamScraper {
     ///
     /// # Errors
     ///
-    /// Returns an error if query execution cannot be started or if one
-    /// of the configured sources fails to execute the `get_season` query.
+    /// Returns an error if query execution cannot be started.
     pub async fn get_season(
         &self,
         query_source: String,
         query_url: String,
         page: usize,
-    ) -> Result<HashMap<String, ScraperDataNode>> {
+    ) -> Result<ScraperAggregationResult<HashMap<String, ScraperDataNode>>> {
         let mut params: HashMap<String, String> = HashMap::new();
         params.insert("query_url".to_string(), query_url);
         params.insert("page".to_string(), page.max(1).to_string());
@@ -386,7 +385,7 @@ impl StreamScraper {
 
         let scrapper_list = vec![query_source];
 
-        let mut results = self
+        let result = self
             .scraper_agregator
             .execute_query_async(
                 STREAM_SERVICE_GROUP_NAME,
@@ -397,22 +396,23 @@ impl StreamScraper {
                 None,
                 None,
                 None,
+                "get_season",
             )
-            .await?;
+            .await;
 
-        Ok(results.pop().unwrap_or_default())
+        Ok(ScraperAggregationResult::new(
+            result.data.into_iter().next().unwrap_or_default(),
+            result.errors,
+        ))
     }
 
     /// Loads the aggregated live catalog across every configured source.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if one of the configured sources fails to execute the
-    /// `list_lives` query.
-    pub async fn list_lives(&self) -> Result<Vec<HashMap<String, ScraperDataNode>>> {
+    pub async fn list_lives(
+        &self,
+    ) -> Result<ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>>> {
         let mut params: HashMap<String, String> = HashMap::new();
         self.enrich_runtime_params(&mut params);
-        let lives = self
+        let result = self
             .scraper_agregator
             .execute_query_async(
                 STREAM_SERVICE_GROUP_NAME,
@@ -423,10 +423,11 @@ impl StreamScraper {
                 None,
                 None,
                 Some("source"),
+                "list_lives",
             )
-            .await?;
+            .await;
 
-        Ok(lives)
+        Ok(result)
     }
 
     /// Loads one live payload for the provided source and channel identifier.
@@ -438,20 +439,19 @@ impl StreamScraper {
     ///
     /// # Errors
     ///
-    /// Returns an error if query execution cannot be started or if one
-    /// of the configured sources fails to execute the `get_live` query.
+    /// Returns an error if query execution cannot be started.
     pub async fn get_live(
         &self,
         query_source: String,
         channel: String,
-    ) -> Result<HashMap<String, ScraperDataNode>> {
+    ) -> Result<ScraperAggregationResult<HashMap<String, ScraperDataNode>>> {
         let mut params: HashMap<String, String> = HashMap::new();
         params.insert("channel".to_string(), channel);
         self.enrich_runtime_params(&mut params);
 
         let scrapper_list = vec![query_source];
 
-        let mut results = self
+        let result = self
             .scraper_agregator
             .execute_query_async(
                 STREAM_SERVICE_GROUP_NAME,
@@ -462,22 +462,23 @@ impl StreamScraper {
                 None,
                 None,
                 None,
+                "get_live",
             )
-            .await?;
+            .await;
 
-        Ok(results.pop().unwrap_or_default())
+        Ok(ScraperAggregationResult::new(
+            result.data.into_iter().next().unwrap_or_default(),
+            result.errors,
+        ))
     }
 
     /// Loads the aggregated home catalog across every configured source.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if one of the configured sources fails to execute the
-    /// `load_home` query.
-    pub async fn load_home(&self) -> Result<Vec<HashMap<String, ScraperDataNode>>> {
+    pub async fn load_home(
+        &self,
+    ) -> Result<ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>>> {
         let mut params: HashMap<String, String> = HashMap::new();
         self.enrich_runtime_params(&mut params);
-        self.scraper_agregator
+        Ok(self.scraper_agregator
             .execute_query_async(
                 STREAM_SERVICE_GROUP_NAME,
                 "load_home",
@@ -487,21 +488,19 @@ impl StreamScraper {
                 None,
                 None,
                 Some("source"),
+                "load_home",
             )
-            .await
+            .await)
     }
 
     /// Loads display metadata for every configured source.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if one of the configured sources fails to execute the
-    /// `service_stream_metadata` query.
-    pub async fn get_service(&self) -> Result<Vec<HashMap<String, ScraperDataNode>>> {
+    pub async fn get_service(
+        &self,
+    ) -> Result<ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>>> {
         let mut params: HashMap<String, String> = HashMap::new();
         self.enrich_runtime_params(&mut params);
 
-        self.scraper_agregator
+        Ok(self.scraper_agregator
             .execute_query_async(
                 STREAM_SERVICE_GROUP_NAME,
                 "service_stream_metadata",
@@ -511,8 +510,9 @@ impl StreamScraper {
                 None,
                 None,
                 None,
+                "service_stream_metadata",
             )
-            .await
+            .await)
     }
 
     /// Loads category payloads for the provided YAML-defined source descriptors.
@@ -525,14 +525,13 @@ impl StreamScraper {
     ///
     /// # Errors
     ///
-    /// Returns an error if a descriptor is missing its source name or if one
-    /// selected source fails to execute the `get_category` query.
+    /// Returns an error if a required source name is missing from the request.
     pub async fn get_category(
         &self,
         sources: Vec<HashMap<String, String>>,
         page: usize,
         source_params: ScraperSourceParams,
-    ) -> Result<Vec<HashMap<String, ScraperDataNode>>> {
+    ) -> Result<ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>>> {
         let page = page.max(1);
         let mut source_params = source_params;
         let mut scrapper_list = Vec::new();
@@ -565,7 +564,7 @@ impl StreamScraper {
         params.insert("page".to_string(), page.to_string());
         self.enrich_runtime_params(&mut params);
 
-        self.scraper_agregator
+        Ok(self.scraper_agregator
             .execute_query_async(
                 STREAM_SERVICE_GROUP_NAME,
                 "get_category",
@@ -575,8 +574,9 @@ impl StreamScraper {
                 None,
                 None,
                 Some("source"),
+                "get_category",
             )
-            .await
+            .await)
     }
 
     /// Loads one paged section payload for the provided source and section link.
@@ -587,17 +587,13 @@ impl StreamScraper {
     /// * `query_url` - Source-specific section URL or API endpoint.
     /// * `page` - 1-based page number requested from the backend source.
     /// * `source_params` - Optional per-source runtime parameters overriding global values.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the selected source fails to execute the `get_section` query.
     pub async fn get_section(
         &self,
         query_source: String,
         query_url: String,
         page: usize,
         mut source_params: ScraperSourceParams,
-    ) -> Result<HashMap<String, ScraperDataNode>> {
+    ) -> Result<ScraperAggregationResult<HashMap<String, ScraperDataNode>>> {
         let mut params: HashMap<String, String> = HashMap::new();
         params.insert("page".to_string(), page.max(1).to_string());
         self.enrich_runtime_params(&mut params);
@@ -623,7 +619,7 @@ impl StreamScraper {
             None
         };
 
-        let rows = self
+        let result = self
             .scraper_agregator
             .execute_query_async(
                 STREAM_SERVICE_GROUP_NAME,
@@ -634,11 +630,12 @@ impl StreamScraper {
                 None,
                 None,
                 Some("source"),
+                "get_section",
             )
-            .await?;
+            .await;
 
         let mut root = ScraperDataNode::default();
-        for row in rows {
+        for row in result.data {
             root.merge_first(&ScraperDataNode {
                 children: row,
                 ..Default::default()
@@ -646,7 +643,7 @@ impl StreamScraper {
         }
         root.keep_first_values();
 
-        Ok(root.children)
+        Ok(ScraperAggregationResult::new(root.children, result.errors))
     }
 
     /// Loads banners for the provided source and banner link.
@@ -655,15 +652,11 @@ impl StreamScraper {
     ///
     /// * `query_source` - Query source name.
     /// * `query_url` - Source-specific banner URL or API endpoint.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the selected source fails to execute the `get_banners` query.
     pub async fn get_banners(
         &self,
         query_source: String,
         query_url: String,
-    ) -> Result<HashMap<String, ScraperDataNode>> {
+    ) -> Result<ScraperAggregationResult<HashMap<String, ScraperDataNode>>> {
         let mut params: HashMap<String, String> = HashMap::new();
         self.enrich_runtime_params(&mut params);
 
@@ -678,7 +671,7 @@ impl StreamScraper {
             Some(vec![query_source])
         };
 
-        let rows = self
+        let result = self
             .scraper_agregator
             .execute_query_async(
                 STREAM_SERVICE_GROUP_NAME,
@@ -689,11 +682,12 @@ impl StreamScraper {
                 None,
                 None,
                 Some("source"),
+                "get_banners",
             )
-            .await?;
+            .await;
 
         let mut root = ScraperDataNode::default();
-        for row in rows {
+        for row in result.data {
             root.merge_first(&ScraperDataNode {
                 children: row,
                 ..Default::default()
@@ -701,7 +695,7 @@ impl StreamScraper {
         }
         root.keep_first_values();
 
-        Ok(root.children)
+        Ok(ScraperAggregationResult::new(root.children, result.errors))
     }
 
     /// Loads players for the provided source and player link.
@@ -710,15 +704,11 @@ impl StreamScraper {
     ///
     /// * `query_source` - Query source name.
     /// * `query_url` - Source-specific player URL or API endpoint.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the selected source fails to execute the `get_players` query.
     pub async fn get_players(
         &self,
         query_source: String,
         query_url: String,
-    ) -> Result<HashMap<String, ScraperDataNode>> {
+    ) -> Result<ScraperAggregationResult<HashMap<String, ScraperDataNode>>> {
         let mut params: HashMap<String, String> = HashMap::new();
         self.enrich_runtime_params(&mut params);
 
@@ -733,7 +723,7 @@ impl StreamScraper {
             Some(vec![query_source])
         };
 
-        let rows = self
+        let result = self
             .scraper_agregator
             .execute_query_async(
                 STREAM_SERVICE_GROUP_NAME,
@@ -744,11 +734,12 @@ impl StreamScraper {
                 None,
                 None,
                 Some("source"),
+                "get_players",
             )
-            .await?;
+            .await;
 
         let mut root = ScraperDataNode::default();
-        for row in rows {
+        for row in result.data {
             root.merge_first(&ScraperDataNode {
                 children: row,
                 ..Default::default()
@@ -756,35 +747,42 @@ impl StreamScraper {
         }
         root.keep_first_values();
 
-        Ok(root.children)
+        Ok(ScraperAggregationResult::new(root.children, result.errors))
     }
 
-    async fn get_stream(&self, resolver_id: String, target: String) -> Result<ResolvedStream> {
-        if resolver_id.trim() == GENERIC_STREAM_RESOLVER_ID {
-            return StreamResolver::new(&self.scraper_agregator, &self.player_resolver_endpoints)
+    async fn get_stream(
+        &self,
+        resolver_id: String,
+        target: String,
+    ) -> Result<ScraperAggregationResult<ResolvedStream>> {
+        let resolved = if resolver_id.trim() == GENERIC_STREAM_RESOLVER_ID {
+            StreamResolver::new(&self.scraper_agregator, &self.player_resolver_endpoints)
                 .get_stream(&target)
-                .await;
-        }
+                .await?
+        } else {
+            let resolver = player_resolver_for_id(&resolver_id).ok_or_else(|| {
+                anyhow::anyhow!("Unsupported player resolver `{}`.", resolver_id)
+            })?;
+            let service_parameters = self
+                .scraper_agregator
+                .query_collection_parameters(STREAM_SERVICE_GROUP_NAME, resolver.source_id())
+                .unwrap_or(&[]);
 
-        let resolver = player_resolver_for_id(&resolver_id)
-            .ok_or_else(|| anyhow::anyhow!("Unsupported player resolver `{}`.", resolver_id))?;
-        let service_parameters = self
-            .scraper_agregator
-            .query_collection_parameters(STREAM_SERVICE_GROUP_NAME, resolver.source_id())
-            .unwrap_or(&[]);
+            ResolvedStream::Stream(
+                resolver
+                    .get_stream(
+                        &self.scraper_agregator,
+                        self.credentials_store.as_ref(),
+                        &resolver_id,
+                        &target,
+                        service_parameters,
+                        &self.player_resolver_endpoints,
+                    )
+                    .await?,
+            )
+        };
 
-        Ok(ResolvedStream::Stream(
-            resolver
-                .get_stream(
-                    &self.scraper_agregator,
-                    self.credentials_store.as_ref(),
-                    &resolver_id,
-                    &target,
-                    service_parameters,
-                    &self.player_resolver_endpoints,
-                )
-                .await?,
-        ))
+        Ok(ScraperAggregationResult::ok(resolved))
     }
 
     async fn get_drm_license(&self, input: ControlerStreamInput) -> Result<ControlerStreamOutput> {
