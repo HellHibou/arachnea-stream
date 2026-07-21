@@ -18,11 +18,14 @@ parameters:
 http:
   mode: auto
   user_agent_profile: chrome
+proxy_insecure_tls_hosts:
+  - media.example.invalid
 queries:
   - name: ma_query
     scraper_type: html
     # ... champs spécifiques au type
 ```
+Le champ de collection optionnel proxy_insecure_tls_hosts autorise une exception TLS explicite pour des hôtes HTTPS exacts. La vérification reste activée par défaut : le proxy normalise la liste côté serveur, la contrôle à chaque requête et après chaque redirection, et refuse tout autre hôte. Ne l’utiliser que pour un défaut temporaire connu du fournisseur, puis retirer l’entrée après renouvellement du certificat.
 
 ---
 

@@ -3,7 +3,7 @@ use const_format::concatcp;
 use serde::Serialize;
 use std::collections::HashMap;
 
-use arachnea_proxy::http::proxy_service::proxied_url;
+use arachnea_proxy::http::proxy_service::proxied_url_with_insecure_tls;
 use arachnea_scrapyfy::*;
 
 use crate::services::player_resolver::{
@@ -217,6 +217,10 @@ impl<'a> StreamResolver<'a> {
 
         // Proxy stream URLs through the HTTP proxy with embedded headers.
         if let Some(proxy_path) = self.endpoints.http_proxy_public_path.as_deref() {
+            let insecure_tls_hosts = self
+                .scraper_agregator
+                .proxy_insecure_tls_hosts(STREAM_RESOLVER_GROUP_NAME, service_name)
+                .unwrap_or_default();
             let headers: Vec<(&str, &str)> = stream
                 .stream_headers
                 .iter()
@@ -225,7 +229,17 @@ impl<'a> StreamResolver<'a> {
             stream.stream_url = stream
                 .stream_url
                 .into_iter()
-                .map(|u| proxied_url(&u, Some(proxy_path), None, &[], &headers))
+                .map(|u| {
+                    let insecure_tls = is_insecure_tls_host(&u, insecure_tls_hosts);
+                    proxied_url_with_insecure_tls(
+                        &u,
+                        Some(proxy_path),
+                        None,
+                        &[],
+                        &headers,
+                        insecure_tls,
+                    )
+                })
                 .collect();
         }
 
@@ -406,6 +420,27 @@ impl<'a> StreamResolver<'a> {
         }
         params
     }
+}
+
+/// Returns whether an absolute stream URL targets one exact allowlisted host.
+fn is_insecure_tls_host(url: &str, allowed_hosts: &[String]) -> bool {
+    let authority = url
+        .trim()
+        .strip_prefix("https://")
+        .and_then(|value| value.split(['/', '?', '#']).next())
+        .unwrap_or_default();
+    let host = authority
+        .rsplit('@')
+        .next()
+        .unwrap_or_default()
+        .split(':')
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    allowed_hosts
+        .iter()
+        .any(|allowed_host| allowed_host.eq_ignore_ascii_case(&host))
 }
 
 /// Converts one YAML resolver response entry into a `ResolvedPlayerStream`.

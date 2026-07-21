@@ -295,7 +295,6 @@ d’examen, pas une preuve que le YAML est impossible.
 | `filemoon.py`, `iframe_secure.py`, `iframe_secured.py` | Dépaquetage/évaluation JavaScript dans le code vStream | Ne pas traduire le JavaScript en regex YAML ; qualifier un mécanisme partagé ou écarter |
 | Débrideurs (`alldebrid.py`, `realdebrid.py`, `debrid_link.py`) | API et/ou identifiants utilisateur | Hors périmètre du résolveur YAML anonyme |
 | `embed4me.com` (hors vStream) | Vite SPA avec Vidstack HLS, API AES-CBC (clé/IV dérivés de `window.location`), Cloudflare, IMA ads | Hors YAML direct sans primitive Scrapyfy AES-CBC ou résolveur Rust spécialisé ; deux endpoints `/api/v1/info` et `/api/v1/download` chiffrés |
-| `vidsonic.net` (hors vStream) | Page `/e/{id}` HTML directe ; manifeste HLS encodé sous forme d'hexadécimal inversé ; poster OG et VTT de miniatures en clair | YAML `vidsonic.yaml` activé avec l'action générique `hex_decode`; la validation de lecture reste bloquée par le certificat TLS expiré du CDN HLS au contrôle du 2026-07-21 |
 
 ### Vidsonic — URL contrôlée le 2026-07-21
 
@@ -317,10 +316,6 @@ URL : `https://vidsonic.net/e/tgpv1j2rpgi2`.
   entrées invalides. Avec `reverse`, elle rend le portage déclaratif : `regex_find_all` →
   suppression des séparateurs → `hex_decode` → `reverse` → `resolve_url`. Le YAML
   `vidsonic.yaml` est activé dans `services.json`.
-- Le CDN du manifeste (`sfy-01-fr.vidsonic.net`) répond au manifeste avec HLS, mais sa chaîne TLS
-  était expirée pendant le contrôle : une requête normale a échoué avec `curl (60)`. Ce défaut
-  bloque la validation de lecture via le proxy et doit être retesté après correction par le
-  fournisseur; il ne faut pas désactiver la vérification TLS dans Arachnea.
 
 ## Tableau de suivi
 
@@ -485,7 +480,6 @@ reste portée par le YAML du hoster concerné.
 | `yourvid.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
 | `youtube.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
 | `embed4me.com` (hors vStream) | ⚠️ Nouvel hoster — AES-CBC client-side, SPA Vite/Vidstack, Cloudflare, IMA ads. Poster et titre extraits du JSON déchiffré. Hors YAML direct. | ✅ Poster PNG confirmé | ✅ Titre extrait du JSON | — |
-| `vidsonic.net` (hors vStream) | ⬜ YAML `vidsonic.yaml` activé : HLS temporaire obtenu par hexadécimal inversé via `hex_decode`; validation réelle de lecture en attente de correction du certificat TLS CDN expiré au 2026-07-21. | ✅ VTT de sprites, cues de 14 s et imagettes 160 × 90 | ✅ `og:image` et `og:title` confirmés | — |
 
 
 

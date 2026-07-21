@@ -74,6 +74,7 @@ pub struct ArachneaProxyCore {
     config: Arc<ResolvedProxyConfig>,
     stats: Arc<ProxyStats>,
     parameter_handlers: Arc<Vec<Arc<dyn ProxyParameterHandler>>>,
+    insecure_tls_hosts: Arc<RwLock<HashSet<String>>>,
     socks5_local_dns_nodes: Arc<RwLock<HashSet<String>>>,
     proxy_pool_states: Arc<RwLock<BTreeMap<String, ProxyPoolRuntimeState>>>,
     proxy_inventory: Option<Arc<ProxyInventory>>,
@@ -97,6 +98,14 @@ impl fmt::Debug for ArachneaProxyCore {
             .field("config", &self.config)
             .field("stats", &self.stats)
             .field("parameter_handlers", &self.parameter_handlers.len())
+            .field(
+                "insecure_tls_hosts",
+                &self
+                    .insecure_tls_hosts
+                    .read()
+                    .map(|hosts| hosts.len())
+                    .unwrap_or_default(),
+            )
             .field(
                 "socks5_local_dns_nodes",
                 &self
@@ -196,6 +205,7 @@ impl ArachneaProxyCore {
                 config: Arc::new(config),
                 stats: Arc::new(ProxyStats::default()),
                 parameter_handlers: Arc::new(parameter_handlers),
+                insecure_tls_hosts: Arc::new(RwLock::new(HashSet::new())),
                 socks5_local_dns_nodes: Arc::new(RwLock::new(HashSet::new())),
                 proxy_pool_states: Arc::new(RwLock::new(BTreeMap::new())),
                 proxy_inventory: None,
@@ -237,6 +247,7 @@ impl ArachneaProxyCore {
                 config: Arc::new(config),
                 stats: Arc::new(ProxyStats::default()),
                 parameter_handlers: Arc::new(parameter_handlers),
+                insecure_tls_hosts: Arc::new(RwLock::new(HashSet::new())),
                 socks5_local_dns_nodes: Arc::new(RwLock::new(HashSet::new())),
                 proxy_pool_states: Arc::new(RwLock::new(BTreeMap::new())),
                 proxy_inventory: Some(Arc::new(inventory)),
@@ -297,6 +308,7 @@ impl ArachneaProxyCore {
             config: Arc::new(config),
             stats: Arc::new(ProxyStats::default()),
             parameter_handlers: Arc::new(parameter_handlers),
+            insecure_tls_hosts: Arc::new(RwLock::new(HashSet::new())),
             socks5_local_dns_nodes: Arc::new(RwLock::new(HashSet::new())),
             proxy_pool_states: Arc::new(RwLock::new(BTreeMap::new())),
             proxy_inventory: Some(Arc::new(inventory)),
@@ -447,6 +459,38 @@ impl ArachneaProxyCore {
             registry.register_handler(handler.as_ref());
         }
         registry.into_definitions()
+    }
+
+    /// Replaces the exact-host allowlist eligible for an explicit TLS bypass.
+    ///
+    /// The allowlist is owned by trusted server configuration. Proxy URL options
+    /// can request a bypass but cannot add arbitrary hosts to this list.
+    pub fn set_insecure_tls_hosts<I, S>(&self, hosts: I)
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let normalized = hosts
+            .into_iter()
+            .map(|host| {
+                host.as_ref()
+                    .trim()
+                    .trim_end_matches('.')
+                    .to_ascii_lowercase()
+            })
+            .filter(|host| !host.is_empty())
+            .collect::<HashSet<_>>();
+        if let Ok(mut allowed_hosts) = self.insecure_tls_hosts.write() {
+            *allowed_hosts = normalized;
+        }
+    }
+
+    /// Returns whether one exact host is allowed to disable certificate validation.
+    pub fn allows_insecure_tls_for_host(&self, host: &str) -> bool {
+        let normalized = host.trim().trim_end_matches('.').to_ascii_lowercase();
+        self.insecure_tls_hosts
+            .read()
+            .is_ok_and(|allowed_hosts| allowed_hosts.contains(&normalized))
     }
 
     /// Installs an additional code-defined parameter handler on this core handle.

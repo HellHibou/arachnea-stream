@@ -67,6 +67,8 @@ pub struct ProxiedHttpRequest {
     pub headers_only: bool,
     /// Request context for action variable substitution.
     pub context: PostActionContext,
+    /// Whether the target TLS certificate must be validated.
+    pub verify_tls: bool,
 }
 
 /// Minimal HTTP client that uses `ArachneaProxyCore` for connections.
@@ -287,7 +289,7 @@ impl SimpleHttpClient {
                     stream.stream,
                     host,
                     Duration::from_secs(10),
-                    true,
+                    request.verify_tls,
                 )
                 .await?;
                 ProxyStream::new(tls_stream, metadata)

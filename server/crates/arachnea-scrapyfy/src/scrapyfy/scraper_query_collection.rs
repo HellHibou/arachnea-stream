@@ -65,6 +65,9 @@ pub struct ScraperQueryCollectionRaw {
     /// HTTP configuration shared across all queries in this collection.
     #[serde(default, skip_serializing_if = "ScraperHttpConfig::is_empty")]
     pub http: ScraperHttpConfig,
+    /// Exact HTTPS hosts eligible for an explicit proxy TLS bypass.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub proxy_insecure_tls_hosts: Vec<String>,
     /// Query definitions available for this source.
     pub queries: Vec<ScraperQueryDefinitionRaw>,
 }
@@ -369,6 +372,7 @@ pub struct ScraperQueryCollection {
     logo: String,
     description: HashMap<String, String>,
     parameters: Vec<ScraperQueryCollectionParameter>,
+    proxy_insecure_tls_hosts: Vec<String>,
     parameter_defaults: HashMap<String, String>,
     queries: HashMap<String, ScraperQueryDefinition>,
 }
@@ -391,6 +395,7 @@ impl ScraperQueryCollection {
         logo: &str,
         description: HashMap<String, String>,
         parameters: Vec<ScraperQueryCollectionParameter>,
+        proxy_insecure_tls_hosts: Vec<String>,
         parameter_defaults: HashMap<String, String>,
         queries: Vec<ScraperQueryDefinition>,
     ) -> Self {
@@ -400,6 +405,7 @@ impl ScraperQueryCollection {
             logo: logo.to_string(),
             description,
             parameters,
+            proxy_insecure_tls_hosts,
             parameter_defaults,
             queries: HashMap::new(),
         };
@@ -419,6 +425,11 @@ impl ScraperQueryCollection {
     /// Returns the collection-level parameters available to this source.
     pub fn parameters(&self) -> &[ScraperQueryCollectionParameter] {
         &self.parameters
+    }
+
+    /// Returns exact hosts eligible for an explicit proxy TLS bypass.
+    pub fn proxy_insecure_tls_hosts(&self) -> &[String] {
+        &self.proxy_insecure_tls_hosts
     }
 
     #[cfg(any(test, feature = "test-support"))]
@@ -802,6 +813,7 @@ impl TryFrom<ScraperQueryCollectionRaw> for ScraperQueryCollection {
             description,
             parameters,
             http,
+            proxy_insecure_tls_hosts,
             mut queries,
         } = config;
         let id = id.trim().to_string();
@@ -838,6 +850,7 @@ impl TryFrom<ScraperQueryCollectionRaw> for ScraperQueryCollection {
             &logo,
             description,
             parameters,
+            proxy_insecure_tls_hosts,
             parameter_defaults,
             queries,
         ))
@@ -865,6 +878,7 @@ impl From<&ScraperQueryCollection> for ScraperQueryCollectionRaw {
             description: collection.description.clone(),
             parameters: collection.parameters.clone(),
             http: ScraperHttpConfig::default(),
+            proxy_insecure_tls_hosts: collection.proxy_insecure_tls_hosts.clone(),
             queries,
         }
     }

@@ -414,6 +414,31 @@ impl ScraperAgregator {
         }
     }
 
+    /// Returns the exact hosts declared by one source for an explicit proxy TLS bypass.
+    pub fn proxy_insecure_tls_hosts(&self, group_name: &str, name: &str) -> Option<&[String]> {
+        self.queries_collection
+            .get(group_name)?
+            .iter()
+            .find(|query_collection| query_collection.name() == name)
+            .map(ScraperQueryCollection::proxy_insecure_tls_hosts)
+    }
+
+    /// Returns the deduplicated exact TLS-bypass host allowlist for a query group.
+    pub fn group_proxy_insecure_tls_hosts(&self, group_name: &str) -> Vec<String> {
+        let mut hosts = self
+            .queries_collection
+            .get(group_name)
+            .into_iter()
+            .flatten()
+            .flat_map(|collection| collection.proxy_insecure_tls_hosts().iter().cloned())
+            .map(|host| host.trim().trim_end_matches('.').to_ascii_lowercase())
+            .filter(|host| !host.is_empty())
+            .collect::<Vec<_>>();
+        hosts.sort();
+        hosts.dedup();
+        hosts
+    }
+
     #[cfg(any(test, feature = "test-support"))]
     /// Returns the last loaded query collection within a group.
     pub fn get_last_query_collection(&self, group_name: &str) -> Option<&ScraperQueryCollection> {

@@ -4,6 +4,9 @@ description:
   en: "Resolver for Vidsonic embed pages"
 http:
   mode: auto
+proxy_insecure_tls_hosts:
+  - sfy-01-fr.vidsonic.net
+# This exception is limited by the server-side exact-host allowlist.
 
 parameters:
   - name: url

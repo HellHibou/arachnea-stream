@@ -220,6 +220,7 @@ impl StreamScraper {
                 STREAM_RESOLVER_GROUP_NAME,
                 STREAM_RESOLVER_CONFIG_PATH,
             )?;
+        instance.configure_proxy_insecure_tls_hosts();
 
         Ok(instance)
     }
@@ -245,6 +246,17 @@ impl StreamScraper {
     /// * `proxy_http_core` - Optional proxy core used by the `/proxy` stream command.
     pub fn set_proxy_http_core(&mut self, proxy_http_core: Option<ArachneaProxyCore>) {
         self.proxy_http_core = proxy_http_core;
+        self.configure_proxy_insecure_tls_hosts();
+    }
+
+    /// Synchronizes trusted resolver TLS-bypass hosts into the local proxy core.
+    fn configure_proxy_insecure_tls_hosts(&self) {
+        if let Some(proxy_core) = &self.proxy_http_core {
+            proxy_core.set_insecure_tls_hosts(
+                self.scraper_agregator
+                    .group_proxy_insecure_tls_hosts(STREAM_RESOLVER_GROUP_NAME),
+            );
+        }
     }
 
     fn enrich_runtime_params(&self, params: &mut HashMap<String, String>) {
@@ -879,6 +891,10 @@ impl ScraperManager for StreamScraper {
         };
 
         if let Some(proxy_core) = proxy_core.as_ref() {
+            proxy_core.set_insecure_tls_hosts(
+                self.scraper_agregator
+                    .group_proxy_insecure_tls_hosts(STREAM_RESOLVER_GROUP_NAME),
+            );
             let proxy_public_path = controler.stream_public_path(HTTP_PROXY_COMMAND);
             self.player_resolver_endpoints.http_proxy_public_path = Some(proxy_public_path);
             arachnea_proxy::core::http::register_service(controler, proxy_core, HTTP_PROXY_COMMAND);

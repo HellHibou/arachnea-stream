@@ -18,11 +18,14 @@ parameters:
 http:
   mode: auto
   user_agent_profile: chrome
+proxy_insecure_tls_hosts:
+  - media.example.invalid
 queries:
   - name: my_query
     scraper_type: html
     # ... type-specific fields
 ```
+The optional proxy_insecure_tls_hosts collection field permits an explicit TLS exception for exact HTTPS hosts. Certificate validation remains enabled by default: the proxy normalizes the server-side list, checks it for every request and every redirect, and rejects all other hosts. Use it only for a known temporary provider failure and remove the entry once the certificate is renewed.
 
 ---
 

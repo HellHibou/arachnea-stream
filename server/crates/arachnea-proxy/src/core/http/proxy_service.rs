@@ -35,7 +35,7 @@ use arachnea_core::controler::{
 const MAX_LOCAL_URL_BYTES: usize = 8192;
 
 /// Known option fields allowed in the `opts` JSON.
-const ALLOWED_OPTS_FIELDS: &[&str] = &["headers", "cookies", "proxy"];
+const ALLOWED_OPTS_FIELDS: &[&str] = &["headers", "cookies", "proxy", "insecure_tls"];
 
 /// Parsed options from the `opts` segment of a proxy URL.
 #[derive(Clone)]
@@ -47,6 +47,8 @@ struct ProxyHttpOpts {
     /// Proxy configuration (reserved).
     #[allow(dead_code)]
     proxy: serde_json::Value,
+    /// Requests a TLS bypass for an allowlisted exact host.
+    insecure_tls: bool,
 }
 
 struct MergedProxyHttpInput {
@@ -76,6 +78,7 @@ fn parse_opts_value(value: &serde_json::Value) -> Result<ProxyHttpOpts, (u16, St
                 headers: Vec::new(),
                 cookies: HashMap::new(),
                 proxy: serde_json::Value::Null,
+                insecure_tls: false,
             });
         }
         _ => return Err((400, "'opts' must be a JSON object".to_string())),
@@ -152,11 +155,17 @@ fn parse_opts_value(value: &serde_json::Value) -> Result<ProxyHttpOpts, (u16, St
     };
 
     let proxy = obj.get("proxy").cloned().unwrap_or(serde_json::Value::Null);
+    let insecure_tls = match obj.get("insecure_tls") {
+        Some(serde_json::Value::Bool(value)) => *value,
+        Some(_) => return Err((400, "'insecure_tls' must be a boolean".to_string())),
+        None => false,
+    };
 
     Ok(ProxyHttpOpts {
         headers,
         cookies,
         proxy,
+        insecure_tls,
     })
 }
 
@@ -733,6 +742,25 @@ pub async fn handle_proxy_http(
 
     let redirect_opts = opts.clone();
 
+    let verify_tls = if opts.as_ref().is_some_and(|opts| opts.insecure_tls) {
+        let Some(host) = parsed_target.host_str() else {
+            return Ok(stream_error(400, "HTTPS target is missing a host"));
+        };
+        if parsed_target.scheme() != "https" || !proxy_core.allows_insecure_tls_for_host(host) {
+            return Ok(stream_error(
+                403,
+                format!("TLS bypass is not allowed for host '{host}'"),
+            ));
+        }
+        tracing::warn!(
+            host,
+            "TLS certificate validation bypassed for allowlisted proxy host"
+        );
+        false
+    } else {
+        true
+    };
+
     // Strip incoming Referer that points back to the proxy itself —
     // the proxy's own URL is meaningless to the upstream server.
     // Explicit Referer via opts headers will still be applied below.
@@ -808,6 +836,7 @@ pub async fn handle_proxy_http(
             target_url: target_url_str.clone(),
             opts_encoded: parsed.opts_encoded.clone(),
         },
+        verify_tls,
     };
 
     let proxy_response = match client.request_proxied(proxy_request).await {
@@ -920,6 +949,28 @@ pub fn proxied_url(
     actions: &[ProxyHttpActionConfig],
     headers: &[(&str, &str)],
 ) -> String {
+    proxied_url_with_insecure_tls(
+        media_locator,
+        http_proxy_public_path,
+        country,
+        actions,
+        headers,
+        false,
+    )
+}
+
+/// Constructs a proxied media URL with an explicit TLS-bypass request.
+///
+/// The request is still rejected by the proxy unless the target host appears in
+/// its trusted server-side exact-host allowlist.
+pub fn proxied_url_with_insecure_tls(
+    media_locator: &str,
+    http_proxy_public_path: Option<&str>,
+    country: Option<&str>,
+    actions: &[ProxyHttpActionConfig],
+    headers: &[(&str, &str)],
+    insecure_tls: bool,
+) -> String {
     let normalized_media_locator = media_locator.trim();
     if normalized_media_locator.starts_with("http://")
         || normalized_media_locator.starts_with("https://")
@@ -935,7 +986,7 @@ pub fn proxied_url(
             let has_actions = !actions.is_empty();
             let has_extra_headers = !headers.is_empty();
 
-            if has_country || has_actions || has_extra_headers {
+            if has_country || has_actions || has_extra_headers || insecure_tls {
                 // Build proxy headers
                 let mut proxy_headers: Vec<Vec<String>> = Vec::new();
 
@@ -964,8 +1015,15 @@ pub fn proxied_url(
                     }
                 }
 
-                let opts = serde_json::json!({ "headers": proxy_headers });
-                let opts_encoded = URL_SAFE_NO_PAD.encode(opts.to_string());
+                let mut opts = serde_json::Map::new();
+                if !proxy_headers.is_empty() {
+                    opts.insert("headers".to_string(), serde_json::json!(proxy_headers));
+                }
+                if insecure_tls {
+                    opts.insert("insecure_tls".to_string(), serde_json::Value::Bool(true));
+                }
+                let opts_encoded =
+                    URL_SAFE_NO_PAD.encode(serde_json::Value::Object(opts).to_string());
 
                 return format!(
                     "{}/opts_{}/{}",
