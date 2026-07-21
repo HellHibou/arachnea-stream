@@ -890,6 +890,14 @@ Décode chaque valeur en Base64 (alphabet standard). Les valeurs non décodables
 - type: base64_decode
 ```
 
+### `hex_decode`
+Décode chaque valeur hexadécimale en texte UTF-8. Les valeurs comportant des caractères non
+hexadécimaux, un nombre impair de chiffres ou des octets UTF-8 invalides sont supprimées.
+
+```yaml
+- type: hex_decode
+```
+
 ### `caesar_shift`, `regex_replace_all`, `bytes_shift`, `reverse` et `json_extract_text`
 
 Transformations génériques de valeurs texte.

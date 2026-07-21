@@ -5,6 +5,7 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ## Unreleased
 
 ### Added
+- **Vidsonic YAML hoster**: Added `vidsonic.yaml` for `/e/{id}` embed pages, including HLS URL extraction, title, poster, and thumbnail VTT metadata. Added the generic `hex_decode` Scrapyfy action used to decode its deterministic hexadecimal payload.
 - **TF1 intro chapters**: TF1 player resolution now maps `inGD`/`outGD`
   metadata to an `intro` chapter. The frontend displays localized intro
   labels and provides a Skip Intro button during that chapter.

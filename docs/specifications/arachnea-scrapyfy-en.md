@@ -888,6 +888,14 @@ Decodes each value from Base64 (standard alphabet). Non-decodable values are kep
 - type: base64_decode
 ```
 
+### `hex_decode`
+Decodes each hexadecimal value into UTF-8 text. Values containing non-hexadecimal characters, an
+odd number of digits, or invalid UTF-8 bytes are discarded.
+
+```yaml
+- type: hex_decode
+```
+
 ### `caesar_shift`, `regex_replace_all`, `bytes_shift`, `reverse`, and `json_extract_text`
 
 Generic transformations for text values.

@@ -16,6 +16,7 @@ mod get_request_url;
 mod get_response_body;
 mod get_text;
 mod get_url_host;
+mod hex_decode;
 mod html_to_text;
 mod json_extract_text;
 mod map;
@@ -296,6 +297,9 @@ pub enum ScraperAction {
     #[serde(rename = "base64_decode")]
     Base64Decode,
 
+    /// Decodes hexadecimal UTF-8 values and discards malformed inputs.
+    HexDecode,
+
     /// Unpacks literal Dean Edwards Packer blocks without executing JavaScript.
     UnpackPacker,
 }
@@ -396,6 +400,7 @@ impl ScraperAction {
             ScraperAction::GetDate { format, months } => get_date::apply(texts, format, months),
             ScraperAction::NormalizeDuration => normalize_duration::apply(texts),
             ScraperAction::Base64Decode => base64_decode::apply(texts),
+            ScraperAction::HexDecode => hex_decode::apply(texts),
             ScraperAction::UnpackPacker => unpack_packer::apply(texts),
         }
     }

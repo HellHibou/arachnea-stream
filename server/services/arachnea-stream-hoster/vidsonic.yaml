@@ -1,0 +1,85 @@
+id: vidsonic
+title: Vidsonic
+description:
+  en: "Resolver for Vidsonic embed pages"
+http:
+  mode: auto
+
+parameters:
+  - name: url
+    value: ""
+    description: "URL of the embed page to be resolved"
+
+queries:
+  - name: can_resolve_url
+    scraper_type: static
+    entries:
+      - name: resolver
+        type: string
+        value: "{url}"
+        actions:
+          - type: regex_find_all
+            pattern: '^https?://(?:www\.)?vidsonic\.net/e/'
+            format: "{service_id}"
+
+  - name: resolve_stream
+    scraper_type: html
+    base_url: "{url}"
+    query_url: "{url}"
+    row_selector: "html"
+    entries:
+      - name: stream_url
+        type: string[]
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: "(?:const|let)\\s+_0x1\\s*=\\s*'([0-9A-Fa-f|]+)'"
+            format: "{1}"
+          - type: replace_text
+            search: "|"
+            replace: ""
+          - type: hex_decode
+          - type: reverse
+          - type: regex_find_all
+            pattern: '(https?://[^"''\s]+\.m3u8[^"''\s]*)'
+            format: "{1}"
+          - type: resolve_url
+      - name: stream_headers
+        type: object
+        select: first
+        entries:
+          - name: Referer
+            type: string
+            actions:
+              - type: format_text
+                argument: "{url}"
+      - name: manifest_type
+        type: string
+        actions:
+          - type: format_text
+            argument: "hls"
+      - name: title
+        type: string
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: '<meta[^>]+property=["'']og:title["''][^>]+content=["'']([^"'']+)["'']|<title>([^<]+)</title>'
+            format: "{1}{2}"
+      - name: image/title > link
+        type: string
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: '<meta[^>]+property=["'']og:image["''][^>]+content=["'']([^"'']+)["'']'
+            format: "{1}"
+          - type: resolve_url
+            proxy: true
+      - name: storyboard_vtt_url
+        type: string
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: "const\\s+vttSrc\\s*=\\s*'([^']+)'"
+            format: "{1}"
+          - type: resolve_url
+            proxy: true

@@ -34,5 +34,9 @@
   {
     "path": "voe.yaml",
     "enabled": true
+  },
+  {
+    "path": "vidsonic.yaml",
+    "enabled": true
   }
 ]
