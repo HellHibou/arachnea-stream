@@ -65,6 +65,8 @@ const {
   shouldRenderPosterOverlay,
   /** Whether the video is in initial loading state. */
   isVideoInitialLoading,
+  /** Resolved VTT storyboard grid info (async, null until resolved). */
+  vttStoryboardGrid,
 } = useVideoJsMediaRenderer({
   props,
   emit,
@@ -101,21 +103,39 @@ const mergedAttrs = computed(() => ({
  * The sprite thumbnail plugin uses `width` and `height` both to crop a cell from the
  * source image and to size its tooltip. Scaling the tooltip here preserves the source
  * dimensions for cropping while rendering a fixed-size preview.
+ *
+ * The scale factors use content-only dimensions (without border) so that every source
+ * cell renders at the exact preview size.  The 1 px border set by the plugin is scaled
+ * along with the content, but the tiny difference is consistent across sources.
+ *
+ * `--sb-bg-src-w` / `--sb-bg-src-h` let the CSS override `background-size` from
+ * `Wpx auto` to `Wpx Hpx` (explicit cell-grid size), preventing cumulative vertical drift
+ * when the browser's `auto` height doesn't exactly match `cellHeight × rows`.
+ *
+ * `--storyboard-preview-text-scale` counter-scales the tooltip font-size so that time
+ * text renders at the intended size regardless of the source cell dimensions.
  */
 const storyboardPreviewStyle = computed(() => {
+  const vttSize = vttStoryboardGrid.value
   const storyboard = props.source.storyboard
+  const cellWidth = vttSize?.width ?? storyboard?.width
+  const cellHeight = vttSize?.height ?? storyboard?.height
 
-  if (!storyboard || props.source.storyboardVttUrl) {
+  if (!cellWidth || !cellHeight) {
     return undefined
   }
 
+  const cols = vttSize?.columns ?? storyboard?.columns
+  const rows = vttSize?.rows ?? storyboard?.rows
+
   return {
-    '--storyboard-preview-scale-x': String(
-      (STORYBOARD_PREVIEW_WIDTH + 2) / (storyboard.width + 2),
-    ),
-    '--storyboard-preview-scale-y': String(
-      (STORYBOARD_PREVIEW_HEIGHT + 2) / (storyboard.height + 2),
-    ),
+    '--storyboard-preview-scale-x': String(STORYBOARD_PREVIEW_WIDTH / cellWidth),
+    '--storyboard-preview-scale-y': String(STORYBOARD_PREVIEW_HEIGHT / cellHeight),
+    '--storyboard-preview-text-scale': String(cellWidth / STORYBOARD_PREVIEW_WIDTH),
+    ...(cols && rows ? {
+      '--sb-bg-src-w': String(cellWidth * cols),
+      '--sb-bg-src-h': String(cellHeight * rows),
+    } : {}),
   }
 })
 </script>
@@ -842,9 +862,13 @@ const storyboardPreviewStyle = computed(() => {
     var(--storyboard-preview-scale-x, 1),
     var(--storyboard-preview-scale-y, 1)
   ) !important;
+  font-size: calc(var(--player-font-size, 1rem) * var(--storyboard-preview-text-scale, 1)) !important;
   font-weight: 700 !important;
   border: 1px solid rgba(255, 255, 255, .9) !important;
   background-color: rgba(0,0,0, 0.40);
+  background-size:
+    calc(var(--sb-bg-src-w) * 1px)
+    calc(var(--sb-bg-src-h) * 1px) !important;
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-play-progress .vjs-time-tooltip) {

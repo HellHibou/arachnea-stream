@@ -70,7 +70,3 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 - Si on affiche le dernier épisode chargé de la liste et que 'Charger plus' est dispo, il faut charger plus de données. Si le signet est actif, il faut charger plus si l'épisode courant n'a pas été chargé dans la liste.
 - Dans l'accueil et les catégories, ajouter des boutons Section suivante / précédente en bas à droite.
 - Ajouter le support de diffusion ChromeCast et AirPlay.
-
-
-
-# BUGS

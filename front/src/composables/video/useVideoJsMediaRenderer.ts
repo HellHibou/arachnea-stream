@@ -100,6 +100,10 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     let hasEmittedCurrentSourceMetadata = false
     /** Monotonic identifier used to discard stale asynchronous storyboard loads. */
     let storyboardLoadId = 0
+    /** Resolved VTT storyboard grid info (cell size + grid dimensions). */
+    const vttStoryboardGrid = shallowRef<{
+      width: number; height: number; columns: number; rows: number
+    } | null>(null)
 
    /**
     * Emits the video initial load complete event once per player instance.
@@ -397,7 +401,12 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     const urlArray = [...new Set(cues.map((cue) => cue.imageUrl))]
     const columns = Math.max(...cues.map((cue) => cue.x / cue.width + 1))
     const rows = Math.max(...cues.map((cue) => cue.y / cue.height + 1))
-    const interval = cues[1] ? cues[1].start - firstCue.start : firstCue.end - firstCue.start
+    const lastCue = cues[cues.length - 1]
+    const interval = lastCue
+      ? lastCue.end / cues.length
+      : cues[1]
+        ? cues[1].start - firstCue.start
+        : firstCue.end - firstCue.start
 
     if (
       !Number.isInteger(columns) ||
@@ -731,10 +740,27 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       markVideoInitialLoadStart()
       isPosterOverlayVisible.value = shouldRenderPosterOverlay.value && !(props.autoplay || switchAutoplay)
       let retainedQualityLabel = resolveRetainedQualityLabel(preferredQualityLabel, playerState)
+      vttStoryboardGrid.value = null
 
       const spriteThumbnailOptions = await resolveSpriteThumbnailOptions(source)
       if (loadId !== storyboardLoadId || activePlayer.value !== player) {
         return
+      }
+
+      const optWidth = spriteThumbnailOptions.width as number | undefined
+      const optHeight = spriteThumbnailOptions.height as number | undefined
+      const optColumns = spriteThumbnailOptions.columns as number | undefined
+      const optRows = spriteThumbnailOptions.rows as number | undefined
+      if (
+        typeof optWidth === 'number' && typeof optHeight === 'number' &&
+        typeof optColumns === 'number' && typeof optRows === 'number'
+      ) {
+        vttStoryboardGrid.value = {
+          width: optWidth,
+          height: optHeight,
+          columns: optColumns,
+          rows: optRows,
+        }
       }
 
     let playbackRestored = false
@@ -1213,5 +1239,6 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
      isPosterOverlayVisible,
      shouldRenderPosterOverlay,
      isVideoInitialLoading,
+     vttStoryboardGrid,
    }
 }
