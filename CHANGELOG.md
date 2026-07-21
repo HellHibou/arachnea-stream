@@ -5,6 +5,9 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ## Unreleased
 
 ### Added
+- **TF1 intro chapters**: TF1 player resolution now maps `inGD`/`outGD`
+  metadata to an `intro` chapter. The frontend displays localized intro
+  labels and provides a Skip Intro button during that chapter.
 - **Generic scraper transformation pipeline**: Added `caesar_shift`, `regex_replace_all`, `bytes_shift`, `reverse`, and `json_extract_text` actions plus generic `apply_actions_to_field` and `fetch_actions_to_field` post-processes. Added the YAML VOE resolver using those primitives.
 - **Backend `get_banners` and `get_players` commands**: Added `GetBannersRequest`/`GetPlayersRequest` input structs, `StreamScraper::get_banners`/`get_players` methods executing the respective YAML query for a single source with `source`/`link` parameters, and command registration in the controller. Added frontend `getBanners`/`getPlayers` API wrappers.
 - **Hybrid collection contract for banners and players**: Added `Collection<T>` type (`front/src/types/media.ts`). `HomeCatalogData.banners`, `EntryDetails.players`, and `EntryPlayableItem.players` migrated from bare arrays to `Collection<T>` with `entries`, `source`, and optional `link`. All normalizers and consumers updated without backward compatibility layer.
@@ -78,6 +81,7 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **`m6play-fr.yaml` `search` result grouping**: Search now extracts one root response with hits nested under `entries`, preventing repeated root `source` values from breaking typed serialization.
 - **`francetv.yaml` `get_entry` season grouping**: FranceTV program details now build seasons from `collections` filtered to `type: playlist_video`, keeping each season's episodes under that season instead of flattening every playlist video item into a top-level `episode` list.
 - **RTBF Auvio playback CORS**: RTBF RedBee media manifest URLs returned by the player resolver now use the same-origin `/api/proxy/` route, so the DASH MPD and relative segment requests are fetched through Arachnea while the Widevine license proxy remains on `/api/get_stream/rtbf-auvio-be/...`.
+- **RTBF Auvio storyboard VTT**: RedBee player entitlements now map the first `sprites[].vtt` URL to `storyboard_vtt_url`, using the same-origin HTTP proxy path when configured.
 - **RTBF Auvio home banners**: Query-level sub-query fetches now execute child sub-queries on fetched responses and resolve nested request headers/bodies from the parent response, allowing `load_home` PROMOBOX banners to include the RedBee HLS `video` URL.
 - **coflix.yaml**: Updated `get_entry` query to correctly extract season labels and links from the HTML entry page.
 - **coflix.yaml**: Fixed `get_season` query to correctly iterate over all episodes in the `episodes` array.

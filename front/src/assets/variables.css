@@ -30,9 +30,10 @@
   /* Backgrounds */
   --bg-base: #12151b;
   --bg-transparent: transparent;
-  --bg-surface-strong: rgba(16, 20, 28, 0.80);
-  --bg-surface: rgba(16, 20, 28, 0.40);
   --bg-surface-soft: rgba(16, 20, 28, 0.20);
+  --bg-surface: rgba(16, 20, 28, 0.40);
+  --bg-surface-strong: rgba(16, 20, 28, 0.80);
+
 
   /* Accent backgrounds */
   --bg-accent-primary: linear-gradient(

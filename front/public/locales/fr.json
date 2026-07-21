@@ -206,7 +206,13 @@
     "showRemainingTime" : "Afficher le temps restant",
     "defaultDisplayTitle" : "ce contenu",
     "trailerTitle" : "Bande-annonce de {title}",
-    "videoTitle" : "Lecteur intégré de {title}"
+    "videoTitle" : "Lecteur intégré de {title}",
+    "chapter": {
+      "intro": "Introduction",
+      "skipIntro": "Passer l’introduction",
+      "outro": "Générique",
+      "skipOutro": "Passer le générique"
+    }
   },
   "live": {
     "unavailableTitle": "Live indisponible",

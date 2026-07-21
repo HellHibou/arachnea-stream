@@ -26,8 +26,10 @@ pub(crate) struct Chapter {
     pub start: f64,
     /// End time of the chapter in seconds.
     pub end: f64,
-    /// Display title of the chapter.
-    pub title: String,
+    /// Display title of the chapter. When `None`, the frontend resolves a
+    /// localized title from the chapter type.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     /// Type discriminator for the chapter (e.g. "chapter").
     #[serde(rename = "type")]
     pub chapter_type: String,

@@ -1851,14 +1851,12 @@ function normalizeRustifyChapters(value: unknown): EntryPlayerChapter[] | null {
 
     const start = item.start ?? item.tc_in
     const end = item.end ?? item.tc_out
-    const title = item.title
+    const title = item.title ?? null
     const chapterType = item.type ?? item.chapter_type
 
     if (
       typeof start !== 'number' ||
       typeof end !== 'number' ||
-      typeof title !== 'string' ||
-      !title.trim() ||
       typeof chapterType !== 'string'
     ) {
       continue
@@ -1867,7 +1865,7 @@ function normalizeRustifyChapters(value: unknown): EntryPlayerChapter[] | null {
     chapters.push({
       start,
       end,
-      title: title.trim(),
+      title: typeof title === 'string' ? title.trim() : '',
       type: chapterType,
     })
   }

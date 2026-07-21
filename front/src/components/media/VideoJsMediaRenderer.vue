@@ -905,6 +905,7 @@ const storyboardPreviewStyle = computed(() => {
   overflow: hidden;
 }
 
+
 .videojs-media-host :deep(.vjs-chapter-segment-divider) {
   position: absolute;
   top: 0;
@@ -912,5 +913,35 @@ const storyboardPreviewStyle = computed(() => {
   height: 100%;
   background: rgb(255 255 255 / 0.5);
   transform: translateX(-1px);
+}
+
+.videojs-media-host :deep(.vjs-skip-intro-button),
+.videojs-media-host :deep(.vjs-skip-outro-button) {
+  display: none;
+  position: absolute;
+  bottom: 64px;
+  right: 24px;
+  padding: 8px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--bg-surface);
+  border: 1px solid rgb(255 255 255 / 0.3);
+  border-radius: 6px;
+  cursor: pointer;
+  z-index: 2;
+  white-space: nowrap;
+  backdrop-filter: blur(4px);
+  transition: opacity 0.2s;
+}
+
+.videojs-media-host :deep(.vjs-skip-intro-button--visible),
+.videojs-media-host :deep(.vjs-skip-outro-button--visible) {
+  display: block;
+}
+
+.videojs-media-host :deep(.vjs-skip-intro-button:active),
+.videojs-media-host :deep(.vjs-skip-outro-button:active) {
+  background: rgb(0 0 0 / 0.9);
 }
 </style>

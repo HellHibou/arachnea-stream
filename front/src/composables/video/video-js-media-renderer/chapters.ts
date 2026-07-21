@@ -1,5 +1,6 @@
 import type { ResolvedVideoChapter } from '@/services/players'
 import type { VideoJsPlayer } from '@/composables/video/video-js-media-renderer/types'
+import { t } from '@/i18n'
 
 /** CSS class applied to the chapter overlay element. */
 const CHAPTER_TITLE_CLASS = 'vjs-chapter-overlay'
@@ -11,6 +12,8 @@ const CHAPTER_SEGMENTS_CLASS = 'vjs-chapter-segments'
 const CHAPTER_SEGMENT_CLASS = 'vjs-chapter-segment'
 /** CSS class applied to the chapter segment divider. */
 const CHAPTER_SEGMENT_DIVIDER_CLASS = 'vjs-chapter-segment-divider'
+/** CSS class prefix applied to skip chapter buttons. */
+const SKIP_CHAPTER_BUTTON_CLASS_PREFIX = 'vjs-skip-'
 
 /**
  * Returns the active duration when available and finite.
@@ -87,7 +90,7 @@ export function installChapterOverlay(player: VideoJsPlayer, chapters: ResolvedV
       overlay.style.width = `${tooltipRect.width}px`
     }
 
-    overlay.textContent = chapter.title
+    overlay.textContent = chapter.title || t('player.chapter.' + chapter.type)
     overlay.classList.add(CHAPTER_TITLE_VISIBLE_CLASS)
   }
 
@@ -116,7 +119,7 @@ export function installChapterOverlay(player: VideoJsPlayer, chapters: ResolvedV
  * @param chapters Ordered list of chapters from the resolved stream.
  */
 export function installChapterSegments(player: VideoJsPlayer, chapters: ResolvedVideoChapter[]): void {
-  if (chapters.length < 2) {
+  if (chapters.length === 0) {
     return
   }
 
@@ -138,11 +141,6 @@ export function installChapterSegments(player: VideoJsPlayer, chapters: Resolved
       return
     }
 
-    const lastChapter = chapters[chapters.length - 1]
-    if (!lastChapter) {
-      return
-    }
-
     const container = document.createElement('div')
     container.className = CHAPTER_SEGMENTS_CLASS
 
@@ -160,12 +158,20 @@ export function installChapterSegments(player: VideoJsPlayer, chapters: Resolved
       segment.style.width = `${rightPct - leftPct}%`
       container.appendChild(segment)
 
-      // Add a divider at the chapter boundary (except for the last chapter).
-      if (chapter.end < lastChapter.end) {
-        const divider = document.createElement('div')
-        divider.className = CHAPTER_SEGMENT_DIVIDER_CLASS
-        divider.style.left = `${rightPct}%`
-        container.appendChild(divider)
+      // Draw a divider at the chapter start boundary.
+      if (leftPct > 0) {
+        const startDivider = document.createElement('div')
+        startDivider.className = CHAPTER_SEGMENT_DIVIDER_CLASS
+        startDivider.style.left = `${leftPct}%`
+        container.appendChild(startDivider)
+      }
+
+      // Draw a divider at the chapter end boundary.
+      if (rightPct < 100) {
+        const endDivider = document.createElement('div')
+        endDivider.className = CHAPTER_SEGMENT_DIVIDER_CLASS
+        endDivider.style.left = `${rightPct}%`
+        container.appendChild(endDivider)
       }
     }
 
@@ -195,4 +201,58 @@ function hideOverlay(overlay: HTMLElement): void {
 
 function findChapterAtTime(chapters: ResolvedVideoChapter[], time: number): ResolvedVideoChapter | null {
   return chapters.find((chapter) => time >= chapter.start && time < chapter.end) ?? null
+}
+
+/**
+ * Installs a button that appears during a chapter's timecode and seeks to
+ * the chapter end on click.
+ *
+ * @param player Video.js player instance.
+ * @param chapters Ordered list of chapters from the resolved stream.
+ * @param chapterType Type of chapter that the button skips.
+ */
+export function installSkipChapterButton(
+  player: VideoJsPlayer,
+  chapters: ResolvedVideoChapter[],
+  chapterType: 'intro' | 'outro',
+): void {
+  const chapter = chapters.find((item) => item.type === chapterType)
+  if (!chapter) {
+    return
+  }
+
+  const playerElement = player.el()
+  if (!playerElement) {
+    return
+  }
+
+  const button = document.createElement('button')
+  const buttonClass = `${SKIP_CHAPTER_BUTTON_CLASS_PREFIX}${chapterType}-button`
+  const visibleButtonClass = `${buttonClass}--visible`
+  button.className = buttonClass
+  button.textContent = t(chapterType === 'intro' ? 'player.chapter.skipIntro' : 'player.chapter.skipOutro')
+  button.addEventListener('click', () => {
+    const duration = player.duration() ?? chapter.end
+    const targetTime = Math.min(chapter.end, duration - 0.5)
+    player.currentTime(targetTime)
+  })
+
+  const handleTimeUpdate = () => {
+    const currentTime = player.currentTime() ?? 0
+    const visible = currentTime >= chapter.start && currentTime < chapter.end
+    button.classList.toggle(visibleButtonClass, visible)
+  }
+
+  player.on('timeupdate', handleTimeUpdate)
+  player.on('loadedmetadata', handleTimeUpdate)
+  player.on('seeked', handleTimeUpdate)
+
+  playerElement.appendChild(button)
+
+  player.on('dispose', () => {
+    player.off('timeupdate', handleTimeUpdate)
+    player.off('loadedmetadata', handleTimeUpdate)
+    player.off('seeked', handleTimeUpdate)
+    button.remove()
+  })
 }

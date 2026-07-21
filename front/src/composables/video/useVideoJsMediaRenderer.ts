@@ -20,7 +20,7 @@ import {
   syncPrevNextVideoControls,
 } from '@/composables/video/video-js-media-renderer/controls'
 import { installStableFullscreenBridge } from '@/composables/video/video-js-media-renderer/fullscreen'
-import { installChapterOverlay, installChapterSegments } from '@/composables/video/video-js-media-renderer/chapters'
+import { installChapterOverlay, installChapterSegments, installSkipChapterButton } from '@/composables/video/video-js-media-renderer/chapters'
 import {
   isDurationAvailable,
   isLiveStream,
@@ -274,10 +274,10 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
   }
 
   /**
-   * Builds the Video.js source descriptor expected by the EME-enabled player.
+   * Builds sprite thumbnail plugin options from declared storyboard metadata.
    *
    * @param source Resolved source selected for playback.
-   * @returns Video.js source configuration.
+   * @returns Sprite thumbnail plugin configuration.
    */
   function buildSpriteThumbnailOptions(source: ResolvedVideoMediaSource): Record<string, unknown> {
     if (!source.storyboard) {
@@ -318,10 +318,11 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
    * Parses image cue geometry from a storyboard WebVTT document.
    *
    * @param documentText Raw WebVTT document.
+   * @param vttUrl Absolute URL of the WebVTT document.
    * @returns Parsed cue metadata for one sprite image, or an empty list.
    */
-  function parseStoryboardVttCues(documentText: string): StoryboardVttCue[] {
-    const cuePattern = /(?:^|\n)\s*(\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+-->\s+(\d{2}:\d{2}:\d{2}(?:\.\d+)?)[^\n]*\n\s*([^\s#]+)#xywh=(\d+),(\d+),(\d+),(\d+)/g
+  function parseStoryboardVttCues(documentText: string, vttUrl: string): StoryboardVttCue[] {
+    const cuePattern = /(?:^|\n)\s*((?:\d+:)?\d{2}:\d{2}(?:\.\d+)?)\s+-->\s+((?:\d+:)?\d{2}:\d{2}(?:\.\d+)?)[^\n]*\n\s*([^\s#]+)#xywh=(\d+),(\d+),(\d+),(\d+)/g
     const cues: StoryboardVttCue[] = []
 
     for (const match of documentText.matchAll(cuePattern)) {
@@ -351,8 +352,15 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
         continue
       }
 
+      let resolvedImageUrl = imageUrl
+      try {
+        resolvedImageUrl = new URL(imageUrl, vttUrl).href
+      } catch {
+        continue
+      }
+
       cues.push({
-        imageUrl,
+        imageUrl: resolvedImageUrl,
         start,
         end,
         x,
@@ -366,23 +374,27 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
   }
 
   /**
-   * Derives sprite thumbnail plugin options from a single-image storyboard WebVTT document.
+   * Derives sprite thumbnail plugin options from a storyboard WebVTT document.
    *
    * @param documentText Raw WebVTT document.
+   * @param vttUrl Absolute URL of the WebVTT document.
    * @returns Plugin configuration, or null for unsupported cue layouts.
    */
-  function parseStoryboardVttOptions(documentText: string): Record<string, unknown> | null {
-    const cues = parseStoryboardVttCues(documentText)
+  function parseStoryboardVttOptions(
+    documentText: string,
+    vttUrl: string,
+  ): Record<string, unknown> | null {
+    const cues = parseStoryboardVttCues(documentText, vttUrl)
     const firstCue = cues[0]
 
     if (!firstCue || cues.some((cue) =>
-      cue.imageUrl !== firstCue.imageUrl ||
       cue.width !== firstCue.width ||
       cue.height !== firstCue.height,
     )) {
       return null
     }
 
+    const urlArray = [...new Set(cues.map((cue) => cue.imageUrl))]
     const columns = Math.max(...cues.map((cue) => cue.x / cue.width + 1))
     const rows = Math.max(...cues.map((cue) => cue.y / cue.height + 1))
     const interval = cues[1] ? cues[1].start - firstCue.start : firstCue.end - firstCue.start
@@ -399,12 +411,13 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     }
 
     return {
-      url: firstCue.imageUrl,
+      urlArray,
       width: firstCue.width,
       height: firstCue.height,
       columns,
       rows,
       interval,
+      downlink: 0,
     }
   }
 
@@ -431,7 +444,8 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
         return buildSpriteThumbnailOptions(source)
       }
 
-      return parseStoryboardVttOptions(await response.text()) ?? buildSpriteThumbnailOptions(source)
+      return parseStoryboardVttOptions(await response.text(), source.storyboardVttUrl)
+        ?? buildSpriteThumbnailOptions(source)
     } catch {
       return buildSpriteThumbnailOptions(source)
     } finally {
@@ -473,14 +487,20 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     spriteThumbnailsPlugin.options.interval = interval
   }
 
-  function buildPlayerSource(source: ResolvedVideoMediaSource): VideoJsSourceInput {
-
+  /**
+   * Builds the Video.js source descriptor expected by the EME-enabled player.
+   *
+   * @param source Resolved source selected for playback.
+   * @param spriteThumbnailOptions Resolved storyboard configuration for the sprite plugin.
+   * @returns Video.js source configuration.
+   */
+  function buildPlayerSource(
+    source: ResolvedVideoMediaSource,
+    spriteThumbnailOptions: Record<string, unknown>,
+  ): VideoJsSourceInput {
     const sourceInput: VideoJsSourceInput = {
       src: source.src,
-    }
-
-    if (!source.storyboardVttUrl) {
-      sourceInput.spriteThumbnails = buildSpriteThumbnailOptions(source)
+      spriteThumbnails: spriteThumbnailOptions,
     }
 
     if (source.mimeType) {
@@ -717,14 +737,6 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
         return
       }
 
-      if (spriteThumbnailsPlugin) {
-        Object.assign(spriteThumbnailsPlugin.options, {
-          url: '',
-          urlArray: [],
-          ...spriteThumbnailOptions,
-        })
-      }
-
     let playbackRestored = false
     let playerStateRestored = false
 
@@ -827,7 +839,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       player.off('canplay', handleCanPlay)
       player.off('playing', handlePlaying)
     }
-    player.src(buildPlayerSource(source))
+    player.src(buildPlayerSource(source, spriteThumbnailOptions))
     configureQualityPreferenceSelector(player, retainedQualityLabel, source.src)
   }
 
@@ -903,6 +915,8 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
         if (props.controls && source.chapters && source.chapters.length > 0) {
           installChapterOverlay(player, source.chapters)
           installChapterSegments(player, source.chapters)
+          installSkipChapterButton(player, source.chapters, 'intro')
+          installSkipChapterButton(player, source.chapters, 'outro')
         }
 
        /** Last playback step that was saved to persist progress. */

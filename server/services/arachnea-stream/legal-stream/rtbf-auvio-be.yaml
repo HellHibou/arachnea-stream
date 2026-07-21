@@ -927,7 +927,7 @@ queries:
       - scraper_type: json
         context_pointer: /data/content/program/path
         request_actions: *actions_format_rtbf_pages
-        row_pointer: /
+        row_pointer: /data/widgets/*[type=TAB_LIST]
         entries: []
         sub_queries:
           - *rtbf_program_episode_sub_query

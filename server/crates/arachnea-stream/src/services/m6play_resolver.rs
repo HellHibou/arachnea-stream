@@ -611,7 +611,7 @@ fn extract_chapters_from_video_payload(video_payload: &Value) -> Option<Vec<Chap
             Some(Chapter {
                 start,
                 end,
-                title,
+                title: Some(title),
                 chapter_type,
             })
         })

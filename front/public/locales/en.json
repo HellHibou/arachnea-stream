@@ -206,7 +206,13 @@
     "showRemainingTime" : "Show remaining time",
     "defaultDisplayTitle" : "this content", 
     "trailerTitle" : "Trailer for {title}", 
-    "videoTitle": "Embedded player for {title}"
+    "videoTitle": "Embedded player for {title}",
+    "chapter": {
+      "intro": "Intro",
+      "skipIntro": "Skip Intro",
+      "outro": "Outro",
+      "skipOutro": "Skip Outro"
+    }
   },
   "live": {
     "unavailableTitle": "Live unavailable",

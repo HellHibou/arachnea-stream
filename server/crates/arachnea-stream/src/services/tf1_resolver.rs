@@ -1,5 +1,5 @@
 use anyhow::{bail, Context, Result};
-use arachnea_proxy::http::proxy_service::proxied_url;
+use arachnea_proxy::http::{actions::ReplaceAll, proxy_service::proxied_url};
 use async_trait::async_trait;
 use rand::{distr::Alphanumeric, Rng};
 use serde_json::{json, Value};
@@ -14,8 +14,8 @@ use arachnea_scrapyfy::{
 };
 
 use crate::services::player_resolver::{
-    normalize_stream_kind, PlayerResolverEndpoints, PlayerStreamResolver, ProxiedStreamResponse,
-    ResolvedPlayerStream,
+    normalize_stream_kind, Chapter, PlayerResolverEndpoints, PlayerStreamResolver,
+    ProxiedStreamResponse, ResolvedPlayerImageTitle, ResolvedPlayerStream,
 };
 
 const TF1_SERVICE_ID: &str = "tf1-fr";
@@ -331,6 +331,31 @@ async fn build_resolved_player_stream(
     let proxy_url =
         save_tf1_license_proxy_url(endpoints, &license_url, &license_headers, &stream_kind);
 
+    let title = media_info
+        .pointer("/media/title")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .map(String::from);
+
+    let image_title = media_info
+        .pointer("/media/preview")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .map(|url| ResolvedPlayerImageTitle {
+            link: url.to_string(),
+        });
+
+    let storyboard_vtt_url = media_info
+        .pointer("/media/sb")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .map(|url| proxied_tf1_storyboard_vtt_url(endpoints, url));
+
+    let chapters = extract_chapters(media_info);
+
     Ok(ResolvedPlayerStream {
         stream_url: vec![proxied_url(
             &manifest_url,
@@ -342,8 +367,65 @@ async fn build_resolved_player_stream(
         manifest_type: Some(manifest_type),
         license_url: Some(proxy_url),
         license_headers: HashMap::new(),
+        title,
+        image_title,
+        storyboard_vtt_url,
+        chapters,
         ..Default::default()
     })
+}
+
+fn extract_chapters(media_info: &Value) -> Option<Vec<Chapter>> {
+    let chapters = [
+        extract_chapter(media_info, "inGD", "outGD", "intro"),
+        extract_chapter(media_info, "inGF", "outGF", "outro"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
+
+    (!chapters.is_empty()).then_some(chapters)
+}
+
+fn extract_chapter(
+    media_info: &Value,
+    start_marker: &str,
+    end_marker: &str,
+    chapter_type: &str,
+) -> Option<Chapter> {
+    let start = media_info
+        .pointer(&format!("/media/markers/{start_marker}"))
+        .and_then(Value::as_f64)?;
+    let end = media_info
+        .pointer(&format!("/media/markers/{end_marker}"))
+        .and_then(Value::as_f64)?;
+
+    if start <= 0.0 || end <= 0.0 || end <= start {
+        return None;
+    }
+
+    Some(Chapter {
+        start: start / 1000.0,
+        end: end / 1000.0,
+        title: None,
+        chapter_type: chapter_type.to_string(),
+    })
+}
+
+fn proxied_tf1_storyboard_vtt_url(endpoints: &PlayerResolverEndpoints, vtt_url: &str) -> String {
+    let actions = [ReplaceAll::new(
+        r"(?m)^\s*(/[^#\r\n]+)(#xywh=\d+,\d+,\d+,\d+)",
+        "{base_url}$1$2",
+        None,
+    )];
+
+    proxied_url(
+        vtt_url,
+        endpoints.http_proxy_public_path.as_deref(),
+        None,
+        &actions,
+        &[],
+    )
 }
 
 async fn get_or_login_session(

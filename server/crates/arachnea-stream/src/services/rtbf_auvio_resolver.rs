@@ -111,6 +111,9 @@ async fn resolve_redbee_stream(
     let license_url = selected_format
         .license_url
         .map(|license_url| save_redbee_license_proxy_url(endpoints, &license_url, &stream_kind));
+    let storyboard_vtt_url = extract_redbee_storyboard_vtt_url(&entitlement).map(|vtt_url| {
+        proxied_redbee_media_url(&vtt_url, endpoints.http_proxy_public_path.as_deref())
+    });
 
     Ok(ResolvedPlayerStream {
         stream_url: vec![proxied_redbee_media_url(
@@ -120,8 +123,24 @@ async fn resolve_redbee_stream(
         manifest_type: Some(selected_format.manifest_type),
         license_url,
         license_headers: HashMap::new(),
+        storyboard_vtt_url,
         ..Default::default()
     })
+}
+
+fn extract_redbee_storyboard_vtt_url(entitlement: &Value) -> Option<String> {
+    entitlement
+        .get("sprites")?
+        .as_array()?
+        .iter()
+        .find_map(|sprite| {
+            sprite
+                .get("vtt")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        })
 }
 
 fn proxied_redbee_media_url(media_locator: &str, http_proxy_public_path: Option<&str>) -> String {
