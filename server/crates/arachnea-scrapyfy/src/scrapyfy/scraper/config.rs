@@ -390,6 +390,10 @@ pub struct ScraperQueryCommon {
     /// This template is formatted with runtime parameters to build the actual request URL.
     pub query_url: String,
 
+    /// Actions applied to the resolved query URL before the HTTP call.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub request_url_actions: Vec<ScraperAction>,
+
     /// HTTP method used to issue the request.
     ///
     /// Either GET or POST.

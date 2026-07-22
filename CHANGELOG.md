@@ -5,6 +5,8 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ## Unreleased
 
 ### Added
+- **Embed4me YAML hoster**: Added `embed4me.yaml` for `lpayer.embed4me.com/#id` embeds. The resolver derives the encrypted video API endpoint from the fragment and exposes HLS, title, poster, and thumbnail VTT metadata.
+- **Generic encrypted API support**: Added `request_url_actions` for transforming resolved root query URLs and `aes_cbc_decrypt` for deterministic hexadecimal AES-128-CBC payloads.
 - **Vidsonic YAML hoster**: Added `vidsonic.yaml` for `/e/{id}` embed pages, including HLS URL extraction, title, poster, and thumbnail VTT metadata. Added the generic `hex_decode` Scrapyfy action used to decode its deterministic hexadecimal payload.
 - **TF1 intro chapters**: TF1 player resolution now maps `inGD`/`outGD`
   metadata to an `intro` chapter. The frontend displays localized intro
@@ -39,6 +41,8 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - `JsonScraperSubQuery::execute` / `execute_siblings` / `execute_context` / `execute_indexed_context` / `execute_indexed_sibling` / `build_row_node` — re-used through the new `JsonScraperSubQuery::execute_query_level` unified entry point (see regression fix below).
 
 ### Fixed
+- **VTT storyboard cue timing**: Video.js thumbnail previews now use each WebVTT cue's declared time range and crop geometry instead of an averaged interval, preserving irregular cue durations.
+- **VTT storyboard cropping**: Video.js now preserves the sprite image's intrinsic height instead of stretching it to the VTT-declared row count, preventing progressive vertical drift when trailing VTT cues exceed the image bounds.
 - **TF1+ trailer extraction**: `get_entry` now returns the TF1 video page for
   `video/trailer` instead of an image preview URL, allowing the frontend to
   render the trailer as an embedded player.

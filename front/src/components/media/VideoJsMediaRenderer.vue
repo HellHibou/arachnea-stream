@@ -108,9 +108,9 @@ const mergedAttrs = computed(() => ({
  * cell renders at the exact preview size.  The 1 px border set by the plugin is scaled
  * along with the content, but the tiny difference is consistent across sources.
  *
- * `--sb-bg-src-w` / `--sb-bg-src-h` let the CSS override `background-size` from
- * `Wpx auto` to `Wpx Hpx` (explicit cell-grid size), preventing cumulative vertical drift
- * when the browser's `auto` height doesn't exactly match `cellHeight × rows`.
+ * `--sb-bg-src-w` preserves the sprite's declared column width. The height remains `auto` so
+ * the browser keeps the image's intrinsic aspect ratio when a VTT declares trailing cues outside
+ * the actual sprite image.
  *
  * `--storyboard-preview-text-scale` counter-scales the tooltip font-size so that time
  * text renders at the intended size regardless of the source cell dimensions.
@@ -126,15 +126,12 @@ const storyboardPreviewStyle = computed(() => {
   }
 
   const cols = vttSize?.columns ?? storyboard?.columns
-  const rows = vttSize?.rows ?? storyboard?.rows
-
   return {
     '--storyboard-preview-scale-x': String(STORYBOARD_PREVIEW_WIDTH / cellWidth),
     '--storyboard-preview-scale-y': String(STORYBOARD_PREVIEW_HEIGHT / cellHeight),
     '--storyboard-preview-text-scale': String(cellWidth / STORYBOARD_PREVIEW_WIDTH),
-    ...(cols && rows ? {
+    ...(cols ? {
       '--sb-bg-src-w': String(cellWidth * cols),
-      '--sb-bg-src-h': String(cellHeight * rows),
     } : {}),
   }
 })
@@ -868,7 +865,7 @@ const storyboardPreviewStyle = computed(() => {
   background-color: rgba(0,0,0, 0.40);
   background-size:
     calc(var(--sb-bg-src-w) * 1px)
-    calc(var(--sb-bg-src-h) * 1px) !important;
+    auto !important;
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-play-progress .vjs-time-tooltip) {

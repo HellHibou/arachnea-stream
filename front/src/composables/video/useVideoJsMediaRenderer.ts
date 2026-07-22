@@ -63,6 +63,11 @@ type StoryboardVttCue = {
   height: number
 }
 
+type ResolvedSpriteThumbnailOptions = {
+  options: Record<string, unknown>
+  cues: StoryboardVttCue[]
+}
+
 export type {
   VideoJsMediaDimensions,
   VideoJsMediaRendererEmits,
@@ -100,6 +105,8 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     let hasEmittedCurrentSourceMetadata = false
     /** Monotonic identifier used to discard stale asynchronous storyboard loads. */
     let storyboardLoadId = 0
+    /** Exact VTT cue geometry used to override the plugin's uniform interval calculation. */
+    let storyboardVttCues: StoryboardVttCue[] = []
     /** Resolved VTT storyboard grid info (cell size + grid dimensions). */
     const vttStoryboardGrid = shallowRef<{
       width: number; height: number; columns: number; rows: number
@@ -387,7 +394,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
   function parseStoryboardVttOptions(
     documentText: string,
     vttUrl: string,
-  ): Record<string, unknown> | null {
+  ): ResolvedSpriteThumbnailOptions | null {
     const cues = parseStoryboardVttCues(documentText, vttUrl)
     const firstCue = cues[0]
 
@@ -420,13 +427,16 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     }
 
     return {
-      urlArray,
-      width: firstCue.width,
-      height: firstCue.height,
-      columns,
-      rows,
-      interval,
-      downlink: 0,
+      options: {
+        urlArray,
+        width: firstCue.width,
+        height: firstCue.height,
+        columns,
+        rows,
+        interval,
+        downlink: 0,
+      },
+      cues,
     }
   }
 
@@ -439,9 +449,9 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
    */
   async function resolveSpriteThumbnailOptions(
     source: ResolvedVideoMediaSource,
-  ): Promise<Record<string, unknown>> {
+  ): Promise<ResolvedSpriteThumbnailOptions> {
     if (!source.storyboardVttUrl) {
-      return buildSpriteThumbnailOptions(source)
+      return { options: buildSpriteThumbnailOptions(source), cues: [] }
     }
 
     const controller = new AbortController()
@@ -450,16 +460,71 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     try {
       const response = await fetch(source.storyboardVttUrl, { signal: controller.signal })
       if (!response.ok) {
-        return buildSpriteThumbnailOptions(source)
+        return { options: buildSpriteThumbnailOptions(source), cues: [] }
       }
 
       return parseStoryboardVttOptions(await response.text(), source.storyboardVttUrl)
-        ?? buildSpriteThumbnailOptions(source)
+        ?? { options: buildSpriteThumbnailOptions(source), cues: [] }
     } catch {
-      return buildSpriteThumbnailOptions(source)
+      return { options: buildSpriteThumbnailOptions(source), cues: [] }
     } finally {
       window.clearTimeout(timeout)
     }
+  }
+
+  /**
+   * Applies exact VTT cue geometry after the sprite plugin updates its uniform-grid preview.
+   *
+   * The plugin only supports one fixed interval, whereas valid VTT documents can contain cues
+   * with different durations. Deferring the override keeps plugin layout behavior while selecting
+   * the image region declared for the actual hover timestamp.
+   *
+   * @param player Video.js player owning the seek bar and thumbnail tooltip.
+   */
+  function installStoryboardVttCueOverride(player: VideoJsPlayer) {
+    const playerElement = player.el()
+    const seekBarElement = playerElement?.querySelector<HTMLElement>('.vjs-progress-control')
+
+    if (!playerElement || !seekBarElement) {
+      return
+    }
+
+    const handleMouseMove = (event: MouseEvent) => {
+      const duration = player.duration()
+      const bounds = seekBarElement.getBoundingClientRect()
+
+      if (
+        storyboardVttCues.length === 0 ||
+        typeof duration !== 'number' || !Number.isFinite(duration) || duration <= 0 ||
+        bounds.width <= 0
+      ) {
+        return
+      }
+
+      const progress = Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width))
+      const time = progress * duration
+      const cue = storyboardVttCues.find(({ start, end }) => time >= start && time < end)
+        ?? (time === duration ? storyboardVttCues[storyboardVttCues.length - 1] : undefined)
+
+      if (!cue) {
+        return
+      }
+
+      queueMicrotask(() => {
+        const tooltip = playerElement.querySelector<HTMLElement>('.vjs-mouse-display .vjs-time-tooltip')
+        if (!tooltip) {
+          return
+        }
+
+        tooltip.style.backgroundImage = `url("${cue.imageUrl}")`
+        tooltip.style.backgroundPosition = `${-cue.x}px ${-cue.y}px`
+      })
+    }
+
+    seekBarElement.addEventListener('mousemove', handleMouseMove)
+    player.on('dispose', () => {
+      seekBarElement.removeEventListener('mousemove', handleMouseMove)
+    })
   }
 
   /**
@@ -741,11 +806,14 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       isPosterOverlayVisible.value = shouldRenderPosterOverlay.value && !(props.autoplay || switchAutoplay)
       let retainedQualityLabel = resolveRetainedQualityLabel(preferredQualityLabel, playerState)
       vttStoryboardGrid.value = null
+      storyboardVttCues = []
 
-      const spriteThumbnailOptions = await resolveSpriteThumbnailOptions(source)
+      const resolvedStoryboard = await resolveSpriteThumbnailOptions(source)
+      const { options: spriteThumbnailOptions, cues } = resolvedStoryboard
       if (loadId !== storyboardLoadId || activePlayer.value !== player) {
         return
       }
+      storyboardVttCues = cues
 
       const optWidth = spriteThumbnailOptions.width as number | undefined
       const optHeight = spriteThumbnailOptions.height as number | undefined
@@ -934,9 +1002,10 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
          })
        }
 
-        if (props.controls && typeof player.spriteThumbnails === 'function') {
-           spriteThumbnailsPlugin = player.spriteThumbnails({}) ?? null
-        }
+         if (props.controls && typeof player.spriteThumbnails === 'function') {
+            spriteThumbnailsPlugin = player.spriteThumbnails({}) ?? null
+         }
+         installStoryboardVttCueOverride(player)
 
         if (props.controls && source.chapters && source.chapters.length > 0) {
           installChapterOverlay(player, source.chapters)

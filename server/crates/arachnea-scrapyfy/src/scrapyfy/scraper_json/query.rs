@@ -56,6 +56,8 @@ pub struct JsonScraperQuery {
 
     /// URL template used to build the request.
     pub(crate) query_url: String,
+    /// Actions applied to the resolved root query URL before the HTTP call.
+    pub(crate) request_url_actions: Vec<ScraperAction>,
 
     /// When `true`, the response is parsed as Next.js `__NEXT_DATA__` payload.
     pub(crate) extract_next_data: bool,
@@ -429,6 +431,7 @@ impl JsonScraperQuery {
             http_client: HttpClient::new(base_url),
             http_config: ScraperHttpConfig::default(),
             query_url: query_url.to_string(),
+            request_url_actions: Vec::new(),
             extract_next_data: false,
             request_method: ScraperRequestMethod::Get,
             request_body_pointer: None,
@@ -519,6 +522,10 @@ impl ScraperQuery for JsonScraperQuery {
 
     fn query_url(&self) -> &str {
         &self.query_url
+    }
+
+    fn request_url_actions(&self) -> &[ScraperAction] {
+        &self.request_url_actions
     }
 
     fn request_method(&self) -> ScraperRequestMethod {

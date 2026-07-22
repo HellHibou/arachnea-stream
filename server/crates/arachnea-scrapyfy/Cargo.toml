@@ -14,6 +14,7 @@ arachnea-proxy = ["arachnea-http/arachnea-proxy", "dep:arachnea-proxy"]
 [dependencies]
 quick_html2md.workspace = true
 anyhow.workspace = true
+aes.workspace = true
 arachnea-core = { path = "../arachnea-core" }
 arachnea-http = { path = "../arachnea-http", default-features = false }
 arachnea-proxy = { path = "../arachnea-proxy", default-features = false, features = ["core"], optional = true }
@@ -24,6 +25,7 @@ http.workspace = true
 mathexpr.workspace = true
 regex.workspace = true
 base64.workspace = true
+cbc.workspace = true
 scopeguard.workspace = true
 scraper.workspace = true
 serde.workspace = true

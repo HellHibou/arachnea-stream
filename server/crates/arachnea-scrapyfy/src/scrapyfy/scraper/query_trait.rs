@@ -84,6 +84,11 @@ pub trait ScraperQuery: Send + Sync {
     /// This template is formatted with runtime parameters to build the actual request URL.
     fn query_url(&self) -> &str;
 
+    /// Returns actions applied to the root query URL after template resolution.
+    fn request_url_actions(&self) -> &[ScraperAction] {
+        &[]
+    }
+
     /// Returns the HTTP method used to issue the request.
     ///
     /// Either GET or POST.

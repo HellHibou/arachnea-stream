@@ -34,6 +34,8 @@ pub struct TextScraperQuery {
     pub(crate) media_types: Vec<String>,
     /// URL template used to build the request.
     pub(crate) query_url: String,
+    /// Actions applied to the resolved root query URL before the HTTP call.
+    pub(crate) request_url_actions: Vec<ScraperAction>,
     /// HTTP method used to issue the request.
     pub(crate) request_method: ScraperRequestMethod,
     /// HTTP headers attached to the request.
@@ -90,6 +92,7 @@ impl TextScraperQuery {
             base_url: base_url.to_string(),
             media_types,
             query_url: query_url.to_string(),
+            request_url_actions: Vec::new(),
             request_method: ScraperRequestMethod::Get,
             request_headers: Vec::new(),
             http_config: ScraperHttpConfig::default(),
@@ -162,6 +165,10 @@ impl ScraperQuery for TextScraperQuery {
 
     fn query_url(&self) -> &str {
         &self.query_url
+    }
+
+    fn request_url_actions(&self) -> &[ScraperAction] {
+        &self.request_url_actions
     }
 
     fn request_method(&self) -> ScraperRequestMethod {
@@ -302,6 +309,7 @@ impl TryFrom<TextScraperQueryRaw> for TextScraperQuery {
             resolved_base_url,
             media_types,
             query_url,
+            request_url_actions,
             http,
             result_item_field,
             ..
@@ -327,6 +335,7 @@ impl TryFrom<TextScraperQueryRaw> for TextScraperQuery {
             entries,
         )?;
         query.http_config = http.clone();
+        query.request_url_actions = request_url_actions;
         query.http_client = HttpClient::with_http_config(http);
         Ok(query)
     }
@@ -342,6 +351,7 @@ impl From<&TextScraperQuery> for TextScraperQueryRaw {
                 resolved_base_url: None,
                 media_types: Some(query.media_types.clone()),
                 query_url: query.query_url.clone(),
+                request_url_actions: query.request_url_actions.clone(),
                 request_method: query.request_method,
                 request_body_pointer: None,
                 request_body_select:

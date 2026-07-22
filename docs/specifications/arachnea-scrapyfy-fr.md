@@ -149,6 +149,7 @@ media_types:                          # optionnel : types de contenu produits
   - movie
   - series
 query_url: "/api/data"                # obligatoire : template d'URL
+request_url_actions: []                 # optionnel : actions après résolution de l'URL
 request_method: get                   # optionnel : get (défaut) | post
 request_body_pointer: "/data/payload" # optionnel : pointeur JSON pour le corps POST
 request_body_select: first            # optionnel : first | all (défaut: all)
@@ -899,6 +900,28 @@ hexadécimaux, un nombre impair de chiffres ou des octets UTF-8 invalides sont s
 
 ```yaml
 - type: hex_decode
+```
+
+### `aes_cbc_decrypt`
+Déchiffre chaque valeur hexadécimale avec AES-128-CBC, une clé et un IV UTF-8 de 16 octets.
+Les valeurs malformées, invalides ou dont le texte déchiffré n'est pas UTF-8 sont supprimées.
+
+```yaml
+- type: aes_cbc_decrypt
+  key: "sixteen-byte-key"
+  iv: "sixteen-byte-iv!"
+```
+
+### `request_url_actions`
+Les actions de cette liste transforment l'URL obtenue après l'interpolation de `query_url` et avant
+la requête HTTP. Elles sont utiles quand une URL d'entrée doit être convertie en endpoint API.
+
+```yaml
+query_url: "{url}"
+request_url_actions:
+  - type: regex_find_all
+    pattern: '#([A-Za-z0-9]+)$'
+    format: "https://example.invalid/api?id={1}"
 ```
 
 ### `caesar_shift`, `regex_replace_all`, `bytes_shift`, `reverse` et `json_extract_text`

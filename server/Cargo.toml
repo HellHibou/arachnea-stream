@@ -16,9 +16,11 @@ license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 aes-gcm = "0.10"
+aes = "0.8"
 anyhow = "1.0"
 async-trait = "0.1"
 base64 = "0.22"
+cbc = "0.1"
 bytes = "1"
 chaser-cf = "0.2.1"
 chaser-oxide = "0.2.4"

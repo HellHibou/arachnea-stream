@@ -1,0 +1,95 @@
+id: embed4me
+title: Embed4me
+description:
+  en: "Resolver for lpayer.embed4me.com fragment embeds"
+http:
+  mode: auto
+
+parameters:
+  - name: url
+    value: ""
+    description: "URL of the embed page to be resolved"
+
+queries:
+  - name: can_resolve_url
+    scraper_type: static
+    entries:
+      - name: resolver
+        type: string
+        value: "{url}"
+        actions:
+          - type: regex_find_all
+            pattern: '^https?://lpayer\.embed4me\.com/#(?:[A-Za-z0-9]+)$'
+            format: "{service_id}"
+
+  - name: resolve_stream
+    scraper_type: html
+    base_url: "https://lpayer.embed4me.com"
+    query_url: "{url}"
+    request_url_actions:
+      - type: regex_find_all
+        pattern: '^https?://lpayer\.embed4me\.com/#([A-Za-z0-9]+)$'
+        format: "https://lpayer.embed4me.com/api/v1/video?id={1}"
+    row_selector: "html"
+    entries:
+      - name: stream_url
+        type: string[]
+        actions:
+          - type: get_response_body
+          - type: aes_cbc_decrypt
+            key: "kiemtienmua911ca"
+            iv: "1234567890oiuytr"
+          - type: json_extract_text
+            path: "/hlsVideoTiktok"
+          - type: replace_text
+            search: "/hls/"
+            replace: "https://lpayer.embed4me.com/hlsmod/p16-ad-site-sign-sg.tiktokcdn.com/"
+          - type: suffix
+            argument: "?v=1766826492"
+          - type: resolve_url
+      - name: stream_headers > Referer
+        type: string
+        actions:
+          - type: format_text
+            argument: "https://lpayer.embed4me.com/"
+      - name: stream_headers > User-Agent
+        type: string
+        actions:
+          - type: format_text
+            argument: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:152.0) Gecko/20100101 Firefox/152.0"
+      - name: manifest_type
+        type: string
+        actions:
+          - type: format_text
+            argument: "hls"
+      - name: title
+        type: string
+        actions:
+          - type: get_response_body
+          - type: aes_cbc_decrypt
+            key: "kiemtienmua911ca"
+            iv: "1234567890oiuytr"
+          - type: json_extract_text
+            path: "/title"
+      - name: image/title > link
+        type: string
+        actions:
+          - type: get_response_body
+          - type: aes_cbc_decrypt
+            key: "kiemtienmua911ca"
+            iv: "1234567890oiuytr"
+          - type: json_extract_text
+            path: "/poster"
+          - type: resolve_url
+            proxy: true
+      - name: storyboard_vtt_url
+        type: string
+        actions:
+          - type: get_response_body
+          - type: aes_cbc_decrypt
+            key: "kiemtienmua911ca"
+            iv: "1234567890oiuytr"
+          - type: json_extract_text
+            path: "/thumbnail"
+          - type: resolve_url
+            proxy: true

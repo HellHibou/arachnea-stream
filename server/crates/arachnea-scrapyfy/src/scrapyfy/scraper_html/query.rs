@@ -63,6 +63,8 @@ pub struct HtmlScraperQuery {
     /// The URL template that is formatted with runtime parameters to build
     /// the actual request URL. Supports `{placeholder}` syntax.
     pub(crate) query_url: String,
+    /// Actions applied to the resolved root query URL before the HTTP call.
+    pub(crate) request_url_actions: Vec<ScraperAction>,
     /// HTTP method used to issue the request.
     ///
     /// The HTTP method (GET or POST) used when making the request.
@@ -276,6 +278,7 @@ impl HtmlScraperQuery {
             http_client: HttpClient::new(base_url),
             http_config: ScraperHttpConfig::default(),
             query_url: query_url.to_string(),
+            request_url_actions: Vec::new(),
             request_method: ScraperRequestMethod::Get,
             request_body_pointer: None,
             request_body_select: HtmlScraperSelectMode::All,
@@ -514,6 +517,10 @@ impl ScraperQuery for HtmlScraperQuery {
     /// The query URL template string.
     fn query_url(&self) -> &str {
         &self.query_url
+    }
+
+    fn request_url_actions(&self) -> &[ScraperAction] {
+        &self.request_url_actions
     }
 
     /// Returns the HTTP method used for requests.

@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_yaml::{Mapping as YamlMapping, Value as YamlValue};
 use std::collections::HashMap;
 
+mod aes_cbc_decrypt;
 mod base64_decode;
 mod build_nextjs_data_url;
 mod build_url;
@@ -302,6 +303,13 @@ pub enum ScraperAction {
 
     /// Unpacks literal Dean Edwards Packer blocks without executing JavaScript.
     UnpackPacker,
+    /// Decrypts hexadecimal AES-128-CBC values using UTF-8 key and IV strings.
+    AesCbcDecrypt {
+        /// 16-byte UTF-8 AES-128 key.
+        key: String,
+        /// 16-byte UTF-8 CBC initialization vector.
+        iv: String,
+    },
 }
 
 impl ScraperAction {
@@ -402,6 +410,7 @@ impl ScraperAction {
             ScraperAction::Base64Decode => base64_decode::apply(texts),
             ScraperAction::HexDecode => hex_decode::apply(texts),
             ScraperAction::UnpackPacker => unpack_packer::apply(texts),
+            ScraperAction::AesCbcDecrypt { key, iv } => aes_cbc_decrypt::apply(texts, key, iv),
         }
     }
 
@@ -437,6 +446,16 @@ impl ScraperAction {
             }
             ScraperAction::GetDate { format, months } => {
                 get_date::validate(name, owner, format, months)
+            }
+            ScraperAction::AesCbcDecrypt { key, iv } => {
+                aes_cbc_decrypt::validate(key, iv).map_err(|error| {
+                    anyhow::anyhow!(
+                        "{} {} has invalid aes_cbc_decrypt configuration: {}",
+                        owner,
+                        name,
+                        error
+                    )
+                })
             }
             ScraperAction::ResolveUrl {
                 proxy,

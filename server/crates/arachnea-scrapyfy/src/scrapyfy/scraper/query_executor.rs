@@ -656,8 +656,8 @@ fn json_row_filters(query: &dyn ScraperQuery) -> Option<&HashMap<String, Vec<Str
 /// Resolves the request URL by formatting the template with resolved params.
 ///
 /// The URL template is resolved using [`query_helpers::format_query_template`]
-/// with the parameters from the context. The `request_actions` pipeline is
-/// applied at the body/header level, not the URL level.
+/// with the parameters from the context. `request_url_actions`, when present,
+/// transform the resolved template before the HTTP call.
 ///
 /// # Arguments
 ///
@@ -672,12 +672,17 @@ fn json_row_filters(query: &dyn ScraperQuery) -> Option<&HashMap<String, Vec<Str
 fn resolve_request_urls(query: &dyn ScraperQuery, context: &QueryContext<'_>) -> Vec<String> {
     // First, try to resolve from query_url template (root queries)
     if !query.query_url().is_empty() {
-        return vec![query_helpers::format_query_template(
+        let url = query_helpers::format_query_template(
             query.base_url(),
             query.query_url(),
             context.params,
         )
-        .unwrap_or_else(|_| query.query_url().to_string())];
+        .unwrap_or_else(|_| query.query_url().to_string());
+        let mut urls = vec![url];
+        for action in query.request_url_actions() {
+            urls = action.apply(&None, urls, context.params, context.request_url, None, None);
+        }
+        return urls;
     }
 
     if let Some(parent_response) = context.parent_response {

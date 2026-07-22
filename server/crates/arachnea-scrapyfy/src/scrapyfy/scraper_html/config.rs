@@ -128,6 +128,7 @@ impl TryFrom<HtmlScraperQueryRaw> for HtmlScraperQuery {
             resolved_base_url,
             media_types,
             query_url,
+            request_url_actions,
             request_method,
             request_body_pointer,
             request_body_select,
@@ -155,6 +156,7 @@ impl TryFrom<HtmlScraperQueryRaw> for HtmlScraperQuery {
             query_helpers::resolved_or_template(&row_selector, resolved_row_selector);
 
         HtmlScraperQuery::validate_request_actions(&name, &request_body_actions)?;
+        HtmlScraperQuery::validate_request_actions(&name, &request_url_actions)?;
 
         let mut query = HtmlScraperQuery::try_new(
             &name,
@@ -167,6 +169,7 @@ impl TryFrom<HtmlScraperQueryRaw> for HtmlScraperQuery {
         )?;
         query.base_url_template = base_url;
         query.request_method = request_method;
+        query.request_url_actions = request_url_actions;
         query.request_body_pointer = request_body_pointer;
         query.request_body_select = request_body_select;
         query.request_body_actions = request_body_actions;
@@ -209,6 +212,7 @@ impl From<&HtmlScraperQuery> for HtmlScraperQueryRaw {
                 resolved_base_url: None,
                 media_types: Some(query.media_types.clone()),
                 query_url: query.query_url.clone(),
+                request_url_actions: query.request_url_actions.clone(),
                 request_method: query.request_method,
                 request_body_pointer: query.request_body_pointer.clone(),
                 request_body_select: query.request_body_select,

@@ -38,5 +38,9 @@
   {
     "path": "vidsonic.yaml",
     "enabled": true
+  },
+  {
+    "path": "embed4me.yaml",
+    "enabled": true
   }
 ]

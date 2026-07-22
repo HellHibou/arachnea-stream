@@ -345,6 +345,7 @@ impl EntrySubQueryRaw {
                     base_url_template: base_url.to_string(),
                     media_types: Vec::new(),
                     query_url: String::new(),
+                    request_url_actions: Vec::new(),
                     request_method,
                     request_body_pointer: None,
                     request_body_select:
@@ -668,6 +669,7 @@ impl TryFrom<JsonScraperQueryRaw> for JsonScraperQuery {
             resolved_base_url,
             media_types,
             query_url,
+            request_url_actions,
             request_method,
             request_body_pointer,
             request_body_select,
@@ -699,6 +701,7 @@ impl TryFrom<JsonScraperQueryRaw> for JsonScraperQuery {
             .collect::<Result<Vec<_>>>()?;
 
         JsonScraperQuery::validate_request_actions(&name, &request_body_actions)?;
+        JsonScraperQuery::validate_request_actions(&name, &request_url_actions)?;
 
         let mut query = JsonScraperQuery::try_new(
             &name,
@@ -716,6 +719,7 @@ impl TryFrom<JsonScraperQueryRaw> for JsonScraperQuery {
         query.base_url_template = base_url;
         query.extract_next_data = extract_next_data;
         query.request_method = request_method;
+        query.request_url_actions = request_url_actions;
         query.request_body_pointer = request_body_pointer;
         query.request_body_select = request_body_select;
         query.request_body_actions = request_body_actions;
@@ -749,6 +753,7 @@ impl From<&JsonScraperQuery> for JsonScraperQueryRaw {
                 resolved_base_url: None,
                 media_types: Some(query.media_types.clone()),
                 query_url: query.query_url.clone(),
+                request_url_actions: query.request_url_actions.clone(),
                 request_method: query.request_method,
                 request_body_pointer: query.request_body_pointer.clone(),
                 request_body_select: query.request_body_select,

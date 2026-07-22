@@ -149,6 +149,7 @@ media_types:                        # optional: content types produced
   - movie
   - series
 query_url: "/api/data"              # required: URL template
+request_url_actions: []               # optional: actions after URL resolution
 request_method: get                 # optional: get (default) | post
 request_body_pointer: "/data/payload" # optional: JSON pointer for POST body
 request_body_select: first          # optional: first | all (default: all)
@@ -897,6 +898,28 @@ odd number of digits, or invalid UTF-8 bytes are discarded.
 
 ```yaml
 - type: hex_decode
+```
+
+### `aes_cbc_decrypt`
+Decrypts each hexadecimal value with AES-128-CBC, a 16-byte UTF-8 key, and a 16-byte UTF-8 IV.
+Malformed or invalid values, and plaintext that is not UTF-8, are discarded.
+
+```yaml
+- type: aes_cbc_decrypt
+  key: "sixteen-byte-key"
+  iv: "sixteen-byte-iv!"
+```
+
+### `request_url_actions`
+This action list transforms the URL produced after `query_url` interpolation and before the HTTP
+request. It is useful when an input URL must be converted into an API endpoint.
+
+```yaml
+query_url: "{url}"
+request_url_actions:
+  - type: regex_find_all
+    pattern: '#([A-Za-z0-9]+)$'
+    format: "https://example.invalid/api?id={1}"
 ```
 
 ### `caesar_shift`, `regex_replace_all`, `bytes_shift`, `reverse`, and `json_extract_text`

@@ -294,7 +294,7 @@ d’examen, pas une preuve que le YAML est impossible.
 | `dood.py` | Iframe éventuel, requêtes multiples, suffixe aléatoire et horodatage | Hors YAML direct ; ne traiter qu’après une primitive commune ou un résolveur spécialisé |
 | `filemoon.py`, `iframe_secure.py`, `iframe_secured.py` | Dépaquetage/évaluation JavaScript dans le code vStream | Ne pas traduire le JavaScript en regex YAML ; qualifier un mécanisme partagé ou écarter |
 | Débrideurs (`alldebrid.py`, `realdebrid.py`, `debrid_link.py`) | API et/ou identifiants utilisateur | Hors périmètre du résolveur YAML anonyme |
-| `embed4me.com` (hors vStream) | Vite SPA avec Vidstack HLS, API AES-CBC (clé/IV dérivés de `window.location`), Cloudflare, IMA ads | Hors YAML direct sans primitive Scrapyfy AES-CBC ou résolveur Rust spécialisé ; deux endpoints `/api/v1/info` et `/api/v1/download` chiffrés |
+| `embed4me.com` (hors vStream) | Vite SPA avec Vidstack HLS et API AES-CBC ; l'endpoint `/api/v1/video?id=<fragment>` retourne `hlsVideoTiktok`, que le lecteur transforme vers `/hlsmod/p16-ad-site-sign-sg.tiktokcdn.com/<chemin>?v=1766826492` | YAML activé avec `request_url_actions` et `aes_cbc_decrypt` ; le chemin HLS same-origin et ses en-têtes sont requis |
 
 ### Vidsonic — URL contrôlée le 2026-07-21
 
@@ -479,7 +479,7 @@ reste portée par le YAML du hoster concerné.
 | `xtremestream.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
 | `yourvid.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
 | `youtube.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
-| `embed4me.com` (hors vStream) | ⚠️ Nouvel hoster — AES-CBC client-side, SPA Vite/Vidstack, Cloudflare, IMA ads. Poster et titre extraits du JSON déchiffré. Hors YAML direct. | ✅ Poster PNG confirmé | ✅ Titre extrait du JSON | — |
+| `embed4me.com` (hors vStream) | ⬜ YAML `embed4me.yaml` activé ; `/api/v1/video?id=<fragment>` déchiffré avec AES-CBC. Le flux utilise `hlsVideoTiktok` réécrit vers `/hlsmod/`, avec le Referer et le User-Agent observés. | ✅ VTT `thumbnail` déclaré | ✅ `poster` JSON → `image/title > link` avec proxy | — |
 
 
 
