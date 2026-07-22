@@ -608,13 +608,53 @@ queries:
               - type: regex_find_all
                 pattern: "getxfield\\(this,\\s*'[^']+',\\s*'[^']+',\\s*'([^']+)'"
                 format: "{1}"
-          - name: player-endpoint
+          - name: player-user-hash
+            type: string
+            actions:
+              - type: get_response_body
+              - type: regex_find_all
+                pattern: "var dle_login_hash = '([^']+)'"
+                format: "{1}"
+          - name: embed-link
             type: string
             actions:
               - type: get_request_url
               - type: regex_find_all
                 pattern: "^(https?://[^/]+)/"
                 format: "{1}/engine/ajax/controller.php?mod=getxfield"
+            sub_queries:
+              - scraper_type: html
+                request_method: post
+                request_body_actions:
+                  - type: format_text
+                    argument: "id={player_id}&xfield={player_field}&type={player_type}&g_recaptcha_response={browser_turnstile_token}&user_hash={player_user_hash}"
+                request_headers:
+                  - name: X-Requested-With
+                    actions:
+                      - type: format_text
+                        argument: XMLHttpRequest
+                  - name: Content-Type
+                    actions:
+                      - type: format_text
+                        argument: application/x-www-form-urlencoded; charset=UTF-8
+                http:
+                  mode: auto
+                  execution: page_fetch
+                  browser_context: origin
+                  page_url: "{query_url}"
+                  browser_token:
+                    source: turnstile_callback
+                    placeholder: "{browser_turnstile_token}"
+                    cache_scope: domain
+                    retry_on_rejection: once
+                    rejection_statuses: [403]
+                row_selector: "iframe[src]"
+                entries:
+                  - name: embed-link
+                    type: string
+                    actions:
+                      - type: get_attribut
+                        argument: src
           - name: web-link
             type: string
             actions:

@@ -312,6 +312,7 @@ impl EntrySubQueryRaw {
                     request_pointer,
                     request_select,
                     request_actions,
+                    request_body_actions,
                     request_method,
                     http,
                     ..
@@ -350,7 +351,7 @@ impl EntrySubQueryRaw {
                     request_body_pointer: None,
                     request_body_select:
                         crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode::All,
-                    request_body_actions: Vec::new(),
+                    request_body_actions,
                     request_headers,
                     http_config: http,
                     query_param_mappings: Vec::new(),
@@ -929,6 +930,7 @@ impl From<&JsonScraperSubQuery> for JsonScraperSubQueryRaw {
                 request_pointer: sub_query.request_pointer.clone(),
                 request_select: sub_query.request_select,
                 request_actions: sub_query.request_actions.clone(),
+                request_body_actions: sub_query.request_body_actions.clone(),
                 request_method: sub_query.request_method,
                 request_headers: sub_query
                     .request_headers

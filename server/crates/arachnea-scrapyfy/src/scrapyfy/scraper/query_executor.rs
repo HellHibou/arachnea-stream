@@ -20,7 +20,9 @@ use crate::scrapyfy::scraper_json::entry::{
 };
 use crate::scrapyfy::scraper_json::query::{JsonScraperQuery, JsonScraperSubQuery};
 use crate::scrapyfy::scraper_static::query::StaticScraperEntryRaw;
-use crate::scrapyfy::HttpClient;
+use crate::scrapyfy::{
+    HttpClient, ScraperBrowserContext, ScraperBrowserTokenRetry, ScraperHttpExecution,
+};
 
 use super::entry_trait::ScraperEntrySpec;
 use super::query_trait::ScraperQuery;
@@ -1171,6 +1173,7 @@ async fn execute_entry_sub_queries(
     // Collect entry names → values from the item so we can map sub-query
     // `request_pointer` to the entry value that seeds the URL.
     let entry_values: HashMap<String, Vec<String>> = collect_entry_values(item);
+    let sub_query_params = build_sub_query_params(context.params, &entry_values);
 
     for entry in query.entries() {
         // Determine which values from this entry seed sub-query URLs.
@@ -1202,6 +1205,7 @@ async fn execute_entry_sub_queries(
                             url,
                             &mut item_clone,
                             context,
+                            &sub_query_params,
                         )
                         .await?;
                         merged.merge(item_clone);
@@ -1434,6 +1438,38 @@ fn collect_entry_values(item: &ScraperDataNode) -> HashMap<String, Vec<String>> 
     map
 }
 
+/// Adds current entry values to the template context of an entry sub-query.
+///
+/// Both the original field name and an underscore-normalized variant are
+/// available, so YAML can reference a field such as `player-id` through the
+/// placeholder `{player_id}` accepted by the template grammar.
+fn build_sub_query_params(
+    base: &HashMap<String, String>,
+    entry_values: &HashMap<String, Vec<String>>,
+) -> HashMap<String, String> {
+    let mut params = base.clone();
+    for (name, values) in entry_values {
+        let Some(value) = values.first().filter(|value| !value.is_empty()) else {
+            continue;
+        };
+        params.insert(name.clone(), value.clone());
+        let normalized = name
+            .chars()
+            .map(|character| {
+                if character.is_ascii_alphanumeric() || character == '_' {
+                    character
+                } else {
+                    '_'
+                }
+            })
+            .collect::<String>();
+        if !normalized.is_empty() {
+            params.insert(normalized, value.clone());
+        }
+    }
+    params
+}
+
 /// Recursive helper for [`collect_entry_values`].
 ///
 /// Walks the tree accumulating leaf values under their `>`-separated path.
@@ -1489,11 +1525,12 @@ async fn fetch_and_extract_for_entry_sub_query(
     url: &str,
     item: &mut ScraperDataNode,
     context: &QueryContext<'_>,
+    params: &HashMap<String, String>,
 ) -> Result<()> {
     let method = sub_query.request_method().as_http_method();
     let headers: HashMap<String, String> = resolve_request_headers(
         sub_query.request_headers(),
-        context.params,
+        params,
         url,
         context.parent_response,
     );
@@ -1501,23 +1538,76 @@ async fn fetch_and_extract_for_entry_sub_query(
         sub_query.request_body_pointer(),
         sub_query.request_body_select(),
         sub_query.request_body_actions(),
-        context.params,
+        params,
         url,
         context.parent_response,
     );
     let client = context
         .http_client
         .configured(sub_query.http_config().clone());
-    let response = fetch_single(
-        &client,
-        method,
-        url,
-        &headers,
-        body.as_deref(),
-        sub_query.extract_next_data(),
-        sub_query.scraper_type(),
-    )
-    .await?;
+    let response = if matches!(
+        sub_query.http_config().execution,
+        Some(ScraperHttpExecution::PageFetch)
+    ) {
+        if sub_query.scraper_type() != ScraperType::Html {
+            anyhow::bail!("page_fetch is only supported by HTML sub-queries");
+        }
+        if sub_query.http_config().browser_context != Some(ScraperBrowserContext::Origin) {
+            anyhow::bail!("page_fetch requires http.browser_context: origin");
+        }
+        let page_url_template = sub_query
+            .http_config()
+            .page_url
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("page_fetch requires http.page_url"))?;
+        let page_url =
+            query_helpers::format_query_template(sub_query.base_url(), page_url_template, params)?;
+        let token = sub_query.http_config().browser_token.as_ref();
+        let retry_once =
+            token.is_some_and(|config| config.retry_on_rejection == ScraperBrowserTokenRetry::Once);
+        let mut attempts = 0;
+        loop {
+            match client
+                .page_fetch_for_request(
+                    &page_url,
+                    method.clone(),
+                    url,
+                    &headers,
+                    body.as_deref(),
+                    token,
+                )
+                .await
+            {
+                Ok(html) => break FetchedResponse::Html(html),
+                Err(error)
+                    if retry_once
+                        && attempts == 0
+                        && error
+                            .downcast_ref::<arachnea_http::ArachneaHttpError>()
+                            .is_some_and(|error| {
+                                matches!(
+                                    error,
+                                    arachnea_http::ArachneaHttpError::TokenRejected { .. }
+                                )
+                            }) =>
+                {
+                    attempts += 1;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    } else {
+        fetch_single(
+            &client,
+            method,
+            url,
+            &headers,
+            body.as_deref(),
+            sub_query.extract_next_data(),
+            sub_query.scraper_type(),
+        )
+        .await?
+    };
     let mut nested_response_body: Option<String> = None;
     let mut nested_parent_response: Option<Value> = None;
 
@@ -1537,13 +1627,7 @@ async fn fetch_and_extract_for_entry_sub_query(
                     for element in doc.select(&sel) {
                         for entry in sub_query.entries() {
                             if let Some(html_entry) = as_html_entry(entry) {
-                                html_entry.apply_to(
-                                    item,
-                                    element,
-                                    context.params,
-                                    url,
-                                    Some(&html),
-                                );
+                                html_entry.apply_to(item, element, params, url, Some(&html));
                             }
                         }
                         if select_first {
@@ -1584,7 +1668,7 @@ async fn fetch_and_extract_for_entry_sub_query(
                 }
                 for entry in sub_query.entries() {
                     if let Some(json_entry) = as_json_entry(entry) {
-                        json_entry.apply_to(item, row_value, context.params, url);
+                        json_entry.apply_to(item, row_value, params, url);
                     }
                 }
             }
@@ -1596,7 +1680,7 @@ async fn fetch_and_extract_for_entry_sub_query(
 
     if !sub_query.entries().is_empty() {
         let sub_context = QueryContext {
-            params: context.params,
+            params,
             request_url: url,
             response_body: nested_response_body.as_deref(),
             http_client: context.http_client,

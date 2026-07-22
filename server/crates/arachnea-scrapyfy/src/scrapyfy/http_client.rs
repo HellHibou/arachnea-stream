@@ -2,11 +2,11 @@ use anyhow::{Context, Result};
 use arachnea_http::{
     global_cookie_cache, header_map_from_strings, ArachneaHttpClient, ArachneaHttpConfig,
     ArachneaResponse, BrowserProfile, CookieEntry, HttpProxyConfig, HttpRequestMode,
-    SharedCookieCache,
+    PageFetchRequest, PageNavigationRequest, SharedCookieCache,
 };
 #[cfg(feature = "arachnea-proxy")]
 use arachnea_proxy::core::{ArachneaProxyCore, UsageProfile};
-use http::Method;
+use http::{HeaderMap, Method};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -128,6 +128,75 @@ pub enum ScraperHttpMode {
     CloudflareBrowser,
 }
 
+/// Execution transport for a scraper sub-query.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScraperHttpExecution {
+    /// Use the normal HTTP client request path.
+    Direct,
+    /// Navigate a retained browser page, then execute JavaScript `fetch()` in it.
+    PageFetch,
+}
+
+/// Scope used to reuse browser page sessions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScraperBrowserContext {
+    /// Reuse a session only when origin, browser profile, and proxy route match.
+    Origin,
+}
+
+/// Browser-side source from which one request token is captured.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScraperBrowserTokenSource {
+    /// Application token passed to `turnstile.render(... callback(token))`.
+    TurnstileCallback,
+}
+
+/// Maximum browser-token retry policy for one sub-query execution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScraperBrowserTokenRetry {
+    /// Never retry after a classified token rejection.
+    Never,
+    /// Re-navigate once, obtain a fresh token, and submit one more request.
+    Once,
+}
+
+/// Optional reuse scope for a browser callback token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScraperBrowserTokenCacheScope {
+    /// Reuse the token only in the matching origin/profile/proxy browser session.
+    Domain,
+}
+
+/// Token substitution and rejection signals for a browser page fetch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScraperBrowserTokenConfig {
+    /// Source used to capture the token in the browser page.
+    pub source: ScraperBrowserTokenSource,
+    /// Literal request-body placeholder replaced with the captured token.
+    pub placeholder: String,
+    /// Optional opt-in reuse scope for the captured token.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_scope: Option<ScraperBrowserTokenCacheScope>,
+    /// Bounded retry policy when the target rejects the captured token.
+    #[serde(default = "default_browser_token_retry")]
+    pub retry_on_rejection: ScraperBrowserTokenRetry,
+    /// HTTP status codes classified as token rejection after token submission.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rejection_statuses: Vec<u16>,
+    /// Response text fragments classified as token rejection.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rejection_body_markers: Vec<String>,
+}
+
+fn default_browser_token_retry() -> ScraperBrowserTokenRetry {
+    ScraperBrowserTokenRetry::Never
+}
+
 impl From<ScraperHttpMode> for HttpRequestMode {
     /// Converts the scraper-level mode into the [`HttpRequestMode`] expected by `arachnea-http`.
     fn from(mode: ScraperHttpMode) -> Self {
@@ -185,6 +254,18 @@ pub struct ScraperHttpConfig {
     pub proxy_country: Option<String>,
     /// Maximum number of redirects to follow before returning an error.
     pub max_redirects: Option<usize>,
+    /// Optional browser execution mode for a sub-query.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution: Option<ScraperHttpExecution>,
+    /// Browser session reuse scope required by `execution: page_fetch`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser_context: Option<ScraperBrowserContext>,
+    /// Source page URL template navigated before an in-page fetch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_url: Option<String>,
+    /// Optional browser token configuration for the in-page request body.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser_token: Option<ScraperBrowserTokenConfig>,
 }
 
 impl ScraperHttpConfig {
@@ -195,6 +276,10 @@ impl ScraperHttpConfig {
             && self.user_agent.is_none()
             && self.proxy_country.is_none()
             && self.max_redirects.is_none()
+            && self.execution.is_none()
+            && self.browser_context.is_none()
+            && self.page_url.is_none()
+            && self.browser_token.is_none()
     }
 
     /// Applies a child override on top of this config.
@@ -213,6 +298,14 @@ impl ScraperHttpConfig {
                 .or(self.proxy_country.as_ref())
                 .map(|value| normalize_proxy_country(value)),
             max_redirects: child.max_redirects.or(self.max_redirects),
+            execution: child.execution.or(self.execution),
+            browser_context: child.browser_context.or(self.browser_context),
+            page_url: child.page_url.as_ref().or(self.page_url.as_ref()).cloned(),
+            browser_token: child
+                .browser_token
+                .as_ref()
+                .or(self.browser_token.as_ref())
+                .cloned(),
         }
     }
 
@@ -276,7 +369,6 @@ impl ScraperHttpConfig {
                 params,
             )?);
         }
-
         Ok(())
     }
 }
@@ -546,6 +638,61 @@ impl HttpClient {
         let text = response.text().await?;
         trace!("{}", text);
         Ok(text)
+    }
+
+    /// Navigates a browser page and executes one JavaScript fetch for a scraper sub-query.
+    ///
+    /// The browser session, cookie handoff, callback token capture, and token
+    /// rejection classification are provided by `arachnea-http`.
+    pub async fn page_fetch_for_request(
+        &self,
+        page_url: &str,
+        method: Method,
+        url: &str,
+        request_headers: &HashMap<String, String>,
+        request_body: Option<&str>,
+        token: Option<&ScraperBrowserTokenConfig>,
+    ) -> Result<String> {
+        let headers = header_map_from_strings(
+            request_headers
+                .iter()
+                .map(|(name, value)| (name.as_str(), value.as_str())),
+        )?;
+        let token_rejection_statuses = token
+            .map(|config| {
+                config
+                    .rejection_statuses
+                    .iter()
+                    .filter_map(|status| http::StatusCode::from_u16(*status).ok())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let response = self
+            .http_client()
+            .await?
+            .page_fetch(
+                PageNavigationRequest {
+                    url: page_url.to_string(),
+                    headers: HeaderMap::new(),
+                    collect_body: false,
+                },
+                PageFetchRequest {
+                    method,
+                    url: url.to_string(),
+                    headers,
+                    body: request_body.map(|body| body.as_bytes().to_vec().into()),
+                    turnstile_token_placeholder: token.map(|config| config.placeholder.clone()),
+                    reuse_turnstile_token: token.is_some_and(|config| {
+                        config.cache_scope == Some(ScraperBrowserTokenCacheScope::Domain)
+                    }),
+                    token_rejection_statuses,
+                    token_rejection_body_markers: token
+                        .map(|config| config.rejection_body_markers.clone())
+                        .unwrap_or_default(),
+                },
+            )
+            .await?;
+        Ok(response.body)
     }
 
     /// Resolves the final response URL after redirects for one HTTP request definition.

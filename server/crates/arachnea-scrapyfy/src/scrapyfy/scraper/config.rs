@@ -305,6 +305,10 @@ pub struct SubQueryCommon {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub request_actions: Vec<ScraperAction>,
 
+    /// Actions building the request body for an HTML follow-up request.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub request_body_actions: Vec<ScraperAction>,
+
     /// HTTP method used for the follow-up request.
     ///
     /// Either GET or POST.

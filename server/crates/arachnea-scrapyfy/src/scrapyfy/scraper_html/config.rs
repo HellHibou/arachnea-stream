@@ -438,6 +438,7 @@ impl From<&crate::scrapyfy::scraper_html::query::HtmlScraperSubQuery> for HtmlSc
                 request_pointer: sub_query.request_pointer.clone(),
                 request_select: sub_query.request_select,
                 request_actions: sub_query.request_actions.clone(),
+                request_body_actions: Vec::new(),
                 request_method: sub_query.request_method,
                 request_headers: sub_query
                     .request_headers

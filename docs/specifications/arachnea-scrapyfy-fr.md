@@ -562,6 +562,36 @@ Si absent, les résultats sont fusionnés au niveau racine.
 target: "details>episodes"
 ```
 
+### Requête dans une page navigateur
+
+Les sous-requêtes HTML peuvent exécuter un `fetch()` JavaScript authentifié dans
+une page navigateur conservée, au lieu du transport HTTP normal. Les templates
+de l'URL de page, des en-têtes et du corps utilisent le contexte de paramètres
+de la sous-requête ; les champs d'entrée sont aussi disponibles avec les
+caractères non alphanumériques remplacés par `_`.
+
+```yaml
+http:
+  mode: auto
+  execution: page_fetch
+  browser_context: origin
+  page_url: "{episode_url}"
+  browser_token:
+    source: turnstile_callback
+    placeholder: "{browser_turnstile_token}"
+    cache_scope: domain
+    retry_on_rejection: once
+    rejection_statuses: [403]
+    rejection_body_markers: ["captcha invalid"]
+```
+
+`browser_context` doit valoir `origin`. `page_fetch` est réservé aux sous-requêtes
+HTML. Le jeton reste en mémoire et n'est jamais exposé aux données extraites ni
+aux diagnostics. `cache_scope: domain` réutilise explicitement le jeton seulement
+pour la même origine, le même profil navigateur et la même route proxy ; sans ce
+champ, le comportement reste à usage unique. `retry_on_rejection: once` réalise
+au maximum une nouvelle navigation et soumission après un signal de rejet configuré.
+
 ### Sous-requête HTML
 
 ```yaml

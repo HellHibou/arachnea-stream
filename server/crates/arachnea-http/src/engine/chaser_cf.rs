@@ -28,6 +28,10 @@ use tracing::{info, warn};
 use url::Url;
 
 use crate::{
+    browser::{
+        BrowserPageSession, BrowserSessionMetadata, PageFetchRequest, PageFetchResponse,
+        PageNavigationRequest, PageNavigationResponse,
+    },
     config::ArachneaHttpConfig,
     engine::{EngineRequest, EngineResponse, HttpEngine, SOLVER_USER_AGENT_HEADER},
     error::ArachneaHttpError,
@@ -62,6 +66,62 @@ pub struct ChaserCfEngine {
     /// Optional persistent session cache used before opening Chrome again.
     session_cache: Option<ChaserSessionCache>,
 }
+
+/// Persistent chaser-cf page retained by one `BrowserSessionHandle`.
+///
+/// The owning `BrowserSessionManager` limits retained pages because chaser-cf
+/// does not expose its internal context permit type.
+struct ChaserCfPageSession {
+    page: chaser_oxide::Page,
+    chaser: ChaserPage,
+    timeout: Duration,
+}
+
+/// JSON shape returned by the in-page JavaScript fetch bridge.
+#[derive(Deserialize)]
+struct InPageFetchResult {
+    url: String,
+    status: u16,
+    headers: HashMap<String, String>,
+    body: String,
+}
+
+/// Global name used only inside the browser page for a callback token.
+const TURNSTILE_TOKEN_GLOBAL: &str = "__arachnea_turnstile_callback_token";
+
+/// Captures application Turnstile callback tokens without replacing callbacks.
+const TURNSTILE_CALLBACK_HOOK: &str = r#"
+(() => {
+  const tokenKey = '__arachnea_turnstile_callback_token';
+  const wrap = () => {
+    const turnstile = window.turnstile;
+    if (!turnstile || turnstile.__arachneaCallbackHooked || typeof turnstile.render !== 'function') {
+      return Boolean(turnstile && turnstile.__arachneaCallbackHooked);
+    }
+    const originalRender = turnstile.render.bind(turnstile);
+    turnstile.render = (container, options = {}) => {
+      const originalCallback = options.callback;
+      const wrappedOptions = {
+        ...options,
+        callback: (token) => {
+          window[tokenKey] = token;
+          if (typeof originalCallback === 'function') {
+            return originalCallback(token);
+          }
+          return undefined;
+        },
+      };
+      return originalRender(container, wrappedOptions);
+    };
+    turnstile.__arachneaCallbackHooked = true;
+    return true;
+  };
+  if (wrap()) return;
+  const timer = window.setInterval(() => {
+    if (wrap()) window.clearInterval(timer);
+  }, 25);
+})();
+"#;
 
 /// Persistent Cloudflare sessions indexed by normalized origin.
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -314,9 +374,14 @@ impl ChaserCfEngine {
                 let _ = probe.await;
             }
 
-            let body = self
-                .wait_for_clearance_and_stable_source(url, &page, &chaser, collect_body)
-                .await?;
+            let body = Self::wait_for_clearance_and_stable_source(
+                self.config.timeout(),
+                url,
+                &page,
+                &chaser,
+                collect_body,
+            )
+            .await?;
 
             let raw_cookies = page
                 .get_cookies()
@@ -370,25 +435,18 @@ impl ChaserCfEngine {
         page: &chaser_oxide::Page,
         custom_headers: Option<&HeaderMap>,
     ) -> Result<(), ArachneaHttpError> {
-        let Some(custom_headers) = custom_headers else {
-            return Ok(());
-        };
-
         let mut headers = HashMap::new();
-        for (name, value) in custom_headers {
-            if *name == REFERER {
-                continue;
+        if let Some(custom_headers) = custom_headers {
+            for (name, value) in custom_headers {
+                if *name == REFERER {
+                    continue;
+                }
+                let value = value
+                    .to_str()
+                    .map_err(|err| ArachneaHttpError::InvalidHeader(err.to_string()))?;
+                headers.insert(name.as_str().to_string(), value.to_string());
             }
-            let value = value
-                .to_str()
-                .map_err(|err| ArachneaHttpError::InvalidHeader(err.to_string()))?;
-            headers.insert(name.as_str().to_string(), value.to_string());
         }
-
-        if headers.is_empty() {
-            return Ok(());
-        }
-
         let payload = serde_json::to_value(headers)
             .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
         page.execute(SetExtraHttpHeadersParams::new(Headers::new(payload)))
@@ -477,7 +535,7 @@ impl ChaserCfEngine {
     /// The polling and Turnstile click happen in the same browser tab so one
     /// request cannot create a loop of new chaser-cf pages.
     async fn wait_for_clearance_and_stable_source(
-        &self,
+        timeout: Duration,
         url: &str,
         page: &chaser_oxide::Page,
         chaser: &ChaserPage,
@@ -488,7 +546,6 @@ impl ChaserCfEngine {
         const CLEARANCE_STABILIZATION: Duration = Duration::from_millis(500);
 
         let started = Instant::now();
-        let timeout = self.config.timeout();
         let mut last_click = started
             .checked_sub(Duration::from_secs(30))
             .unwrap_or(started);
@@ -822,6 +879,29 @@ impl HttpEngine for ChaserCfEngine {
         })
     }
 
+    /// Opens a persistent Chrome page for source navigation and same-page fetches.
+    async fn open_browser_page_session(
+        &self,
+    ) -> Result<Box<dyn BrowserPageSession>, ArachneaHttpError> {
+        let manager = self.browser().await?;
+        let context_id = manager
+            .create_context(None)
+            .await
+            .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
+        let (page, chaser) = manager
+            .new_page(context_id, "about:blank")
+            .await
+            .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
+        page.evaluate_on_new_document(TURNSTILE_CALLBACK_HOOK)
+            .await
+            .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
+        Ok(Box::new(ChaserCfPageSession {
+            page,
+            chaser,
+            timeout: self.config.timeout(),
+        }))
+    }
+
     /// Refreshes Cloudflare cookies with chaser-cf's automatic WAF solver.
     ///
     /// # Parameters
@@ -866,6 +946,175 @@ impl HttpEngine for ChaserCfEngine {
         self.refresh_cloudflare_with_cache_policy(request, false)
             .await
     }
+}
+
+#[async_trait]
+impl BrowserPageSession for ChaserCfPageSession {
+    async fn navigate(
+        &mut self,
+        request: PageNavigationRequest,
+    ) -> Result<PageNavigationResponse, ArachneaHttpError> {
+        ChaserCfEngine::apply_custom_headers(&self.page, Some(&request.headers)).await?;
+        self.page
+            .goto(ChaserCfEngine::navigate_params(
+                &request.url,
+                Some(&request.headers),
+            ))
+            .await
+            .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
+        let body = ChaserCfEngine::wait_for_clearance_and_stable_source(
+            self.timeout,
+            &request.url,
+            &self.page,
+            &self.chaser,
+            request.collect_body,
+        )
+        .await?;
+        let url = self.page.url().await.ok().flatten().unwrap_or(request.url);
+        Ok(PageNavigationResponse {
+            url,
+            body: request
+                .collect_body
+                .then(|| String::from_utf8_lossy(&body).into_owned()),
+        })
+    }
+
+    async fn fetch(
+        &mut self,
+        request: PageFetchRequest,
+    ) -> Result<PageFetchResponse, ArachneaHttpError> {
+        let mut headers = HashMap::new();
+        for (name, value) in &request.headers {
+            let value = value
+                .to_str()
+                .map_err(|err| ArachneaHttpError::InvalidHeader(err.to_string()))?;
+            headers.insert(name.as_str().to_string(), value.to_string());
+        }
+        let body = request
+            .body
+            .map(|body| {
+                String::from_utf8(body.to_vec()).map_err(|_| {
+                    ArachneaHttpError::PageFetchFailed(
+                        "in-page fetch currently requires a UTF-8 request body".to_string(),
+                    )
+                })
+            })
+            .transpose()?;
+        let payload = serde_json::json!({
+            "method": request.method.as_str(),
+            "url": request.url,
+            "headers": headers,
+            "body": body,
+        });
+        let script = format!(
+            "async function() {{ const input = {}; const response = await fetch(input.url, {{ method: input.method, headers: input.headers, body: input.body, credentials: 'same-origin' }}); const headers = {{}}; response.headers.forEach((value, name) => {{ headers[name] = value; }}); return {{ url: response.url, status: response.status, headers, body: await response.text() }}; }}",
+            serde_json::to_string(&payload)
+                .map_err(|err| ArachneaHttpError::PageFetchFailed(err.to_string()))?
+        );
+        let result = self
+            .page
+            .evaluate_function(script)
+            .await
+            .map_err(|err| ArachneaHttpError::PageFetchFailed(err.to_string()))?
+            .into_value::<InPageFetchResult>()
+            .map_err(|err| ArachneaHttpError::PageFetchFailed(err.to_string()))?;
+        let mut response_headers = HeaderMap::new();
+        for (name, value) in result.headers {
+            let name = http::header::HeaderName::from_bytes(name.as_bytes())
+                .map_err(|err| ArachneaHttpError::PageFetchFailed(err.to_string()))?;
+            let value = HeaderValue::from_str(&value)
+                .map_err(|err| ArachneaHttpError::PageFetchFailed(err.to_string()))?;
+            response_headers.append(name, value);
+        }
+        Ok(PageFetchResponse {
+            url: result.url,
+            status: StatusCode::from_u16(result.status).map_err(|err| {
+                ArachneaHttpError::PageFetchFailed(format!("invalid browser fetch status: {err}"))
+            })?,
+            headers: response_headers,
+            body: result.body,
+        })
+    }
+
+    async fn metadata(&mut self) -> Result<BrowserSessionMetadata, ArachneaHttpError> {
+        browser_session_metadata(&self.page, &self.chaser).await
+    }
+
+    async fn read_turnstile_token(&mut self) -> Result<Option<String>, ArachneaHttpError> {
+        let script = format!(
+            "function() {{ const token = window['{TURNSTILE_TOKEN_GLOBAL}']; return typeof token === 'string' && token.length > 0 ? token : null; }}"
+        );
+        self.page
+            .evaluate_function(script)
+            .await
+            .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?
+            .into_value::<Option<String>>()
+            .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))
+    }
+
+    async fn clear_turnstile_token(&mut self) -> Result<(), ArachneaHttpError> {
+        let script =
+            format!("function() {{ delete window['{TURNSTILE_TOKEN_GLOBAL}']; return true; }}");
+        self.page
+            .evaluate_function(script)
+            .await
+            .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
+        Ok(())
+    }
+
+    async fn close(self: Box<Self>) {
+        if let Err(err) = self.page.close().await {
+            warn!(error = %err, "failed to close retained chaser-cf page");
+        }
+    }
+}
+
+/// Collects browser cookies and user-agent without exposing their raw values in logs.
+async fn browser_session_metadata(
+    page: &chaser_oxide::Page,
+    chaser: &ChaserPage,
+) -> Result<BrowserSessionMetadata, ArachneaHttpError> {
+    let cookies = page
+        .get_cookies()
+        .await
+        .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
+    let mut headers = HeaderMap::new();
+    for cookie in cookies {
+        let chaser_cookie = ChaserCookie {
+            name: cookie.name,
+            value: cookie.value,
+            domain: Some(cookie.domain),
+            path: Some(cookie.path),
+            expires: Some(cookie.expires),
+            http_only: Some(cookie.http_only),
+            secure: Some(cookie.secure),
+            same_site: cookie.same_site.map(|value| format!("{value:?}")),
+        };
+        headers.append(
+            SET_COOKIE,
+            HeaderValue::from_str(&set_cookie_header(&chaser_cookie))
+                .map_err(|err| ArachneaHttpError::InvalidHeader(err.to_string()))?,
+        );
+    }
+    if let Some(user_agent) = chaser
+        .evaluate("navigator.userAgent")
+        .await
+        .ok()
+        .and_then(|value| value?.as_str().map(str::to_owned))
+        .filter(|value| !value.is_empty())
+    {
+        headers.insert(
+            SOLVER_USER_AGENT_HEADER,
+            HeaderValue::from_str(&user_agent)
+                .map_err(|err| ArachneaHttpError::InvalidHeader(err.to_string()))?,
+        );
+    }
+    let url = page
+        .url()
+        .await
+        .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?
+        .unwrap_or_default();
+    Ok(BrowserSessionMetadata { url, headers })
 }
 
 impl ChaserSessionCache {

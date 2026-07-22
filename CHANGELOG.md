@@ -341,3 +341,24 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **Frontend scraper response boundary**: `call_api` now validates and unwraps the shared envelope for REST and Tauri, logs and queues structured backend errors, and synthesizes browser-local correlation codes for transport or protocol failures.
 - **Source error notifications**: Added a route-independent, non-modal notification stack with localized source-aware summaries, copyable diagnostic codes, collapsed technical details, and Escape dismissal.
 - **Concurrent deferred loading**: Section pages now retain fulfilled source results when another concurrent source rejects; deferred banner workers continue after an independently notified technical failure.
+
+## Unreleased — Browser page fetch sessions
+
+### Added
+
+- **Reusable browser page fetch primitive**: `arachnea-http` now exposes origin-scoped browser sessions and `ArachneaHttpClient::page_fetch`, allowing supported browser engines to navigate a source page, capture an application Turnstile callback token in memory, and execute an authenticated same-page JavaScript `fetch()`.
+- **chaser-cf persistent page support**: chaser-cf retains the browser page across navigation and fetch, hands browser cookies plus the observed user-agent back to the shared HTTP cache, and closes retained pages on invalidation or eviction.
+- **Structured page-fetch contracts**: Added navigation/fetch request and response types, explicit unsupported-engine behavior, configurable token-rejection classification, and unit coverage for session reuse, token insertion, and cookie/UA handoff.
+
+## Unreleased — PapaDuStream browser player resolution
+
+### Changed
+
+- **PapaDuStream v2 players**: `get_players` now resolves each delayed player through the generic browser `page_fetch` sub-query, submits its `getxfield` form in the episode page context, and returns the resulting `iframe[src]` as `embed-link` while preserving player name and language.
+- **HTML sub-query request bodies**: HTML entry sub-queries now support the existing `request_body_actions` pipeline, enabling generic form-body construction without source-specific Rust code.
+
+## Unreleased — Domain-scoped browser token cache
+
+### Added
+
+- **Opt-in browser callback-token reuse**: `browser_token.cache_scope: domain` now retains one opaque callback token in memory for the matching origin, browser profile, and proxy route. The token is evicted on rejection, session invalidation, eviction, or closure and is never persisted or logged.

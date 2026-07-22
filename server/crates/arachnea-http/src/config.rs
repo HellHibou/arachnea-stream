@@ -5,6 +5,7 @@ use arachnea_proxy::core::ArachneaProxyCore;
 use url::Url;
 
 use crate::{
+    browser::BrowserSessionConfig,
     engine::{DynHttpEngine, HttpEngine},
     error::ArachneaHttpError,
 };
@@ -469,6 +470,9 @@ pub struct ArachneaHttpConfig {
     pub max_cloudflare_retries: u8,
     /// TTL applied to session cookies that do not carry an explicit expiration.
     pub default_session_cookie_ttl: Duration,
+    /// Configuration for the browser session manager when browser page sessions
+    /// are needed.
+    pub browser_session: BrowserSessionConfig,
 }
 
 impl ArachneaHttpConfig {
@@ -504,6 +508,7 @@ impl Default for ArachneaHttpConfig {
             max_redirects: None,
             max_cloudflare_retries: 1,
             default_session_cookie_ttl: Duration::from_secs(60 * 60),
+            browser_session: BrowserSessionConfig::default(),
         }
     }
 }
@@ -800,6 +805,20 @@ impl ArachneaHttpConfigBuilder {
         self
     }
 
+    /// Sets the browser session management configuration.
+    ///
+    /// # Parameters
+    ///
+    /// - `config`: Browser session configuration.
+    ///
+    /// # Returns
+    ///
+    /// The updated builder.
+    pub fn browser_session(mut self, config: BrowserSessionConfig) -> Self {
+        self.config.browser_session = config;
+        self
+    }
+
     /// Validates and finalizes the configuration.
     ///
     /// # Returns
@@ -819,6 +838,16 @@ impl ArachneaHttpConfigBuilder {
         if self.config.default_session_cookie_ttl.is_zero() {
             return Err(ArachneaHttpError::InvalidConfiguration(
                 "default_session_cookie_ttl must be greater than zero".to_string(),
+            ));
+        }
+        if self.config.browser_session.max_sessions == 0 {
+            return Err(ArachneaHttpError::InvalidConfiguration(
+                "browser_session.max_sessions must be greater than zero".to_string(),
+            ));
+        }
+        if self.config.browser_session.idle_timeout.is_zero() {
+            return Err(ArachneaHttpError::InvalidConfiguration(
+                "browser_session.idle_timeout must be greater than zero".to_string(),
             ));
         }
         if self.config.default_request_mode != HttpRequestMode::Direct

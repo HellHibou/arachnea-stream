@@ -31,6 +31,7 @@ This README is the design and usage home for the HTTP crate. Remaining work is t
 - JSON response parsing through `ArachneaResponse::json<T>()`.
 - Text header conversion through `header_map_from_strings`.
 - Per-request mode overrides through `ArachneaRequestBuilder::mode`.
+- Origin-scoped reusable browser page sessions through `ArachneaHttpClient::page_fetch` when the configured browser engine supports persistent pages.
 - Optional Cloudflare-oriented flows using Ghostwire, chaser-cf, or a Tauri/Wry-based solver path.
 - Typed errors for network, status, Cloudflare, cookie, and configuration failures.
 
@@ -102,6 +103,16 @@ let response = client
 - Cloudflare cookies of special interest include `cf_clearance`, `__cf_bm`, and `_cfuvid`.
 - Cookies must be refreshed when absent, expired, close to expiration, explicitly forced, or after a configured Cloudflare block.
 - Redirect responses are processed by the facade so intermediate `Set-Cookie` headers are stored before the next request is sent.
+
+## Browser Page Sessions
+
+`ArachneaHttpClient::page_fetch(PageNavigationRequest, PageFetchRequest)` navigates a persistent browser page to a source URL, then executes one JavaScript `fetch()` inside that page. Sessions are scoped to origin, user-agent profile, and proxy route; they are bounded by `BrowserSessionConfig` and evicted after inactivity.
+
+- The `chaser-cf` engine supports persistent page sessions. Engines without this capability return `UnsupportedEngineOperation` rather than silently falling back to direct HTTP.
+- Browser cookies and the observed user-agent are handed back to the existing in-memory HTTP caches after navigation and fetch.
+- `PageFetchRequest::turnstile_token_placeholder` can be replaced from an application `turnstile.render(... callback(token))` token captured in the current page. The token remains in memory and is never logged or returned. A caller must explicitly opt into reuse for the matching origin, browser profile, and proxy route.
+- Callers can declare token-rejection response statuses and body markers. The client reports `TokenRejected`; callers must apply any bounded retry policy explicitly.
+- Browser contexts are resource-intensive. Keep `BrowserSessionConfig::max_sessions` small and invalidate an origin when its session is known to be invalid.
 
 ## Redirects
 

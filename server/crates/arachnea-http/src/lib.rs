@@ -53,6 +53,7 @@
 //!
 //! # Crate Modules
 //!
+//! - `browser`: Reusable browser session management and in-page fetch execution
 //! - `client`: Main client facade and request builder
 //! - `config`: Configuration structures and builders
 //! - `cookies`: Shared in-memory cookie cache
@@ -60,6 +61,8 @@
 //! - `engine`: HTTP engine abstraction and concrete implementations
 //! - `error`: Error types for HTTP operations
 
+/// Reusable browser session management and in-page HTTP fetch execution.
+pub mod browser;
 /// Main client facade, request builder, and response types.
 pub mod client;
 /// Cloudflare block detection and cookie state helpers.
@@ -72,6 +75,12 @@ pub mod cookies;
 pub mod engine;
 /// Error types for HTTP operations.
 pub mod error;
+
+pub use browser::{
+    BrowserPageSession, BrowserSessionConfig, BrowserSessionHandle, BrowserSessionKey,
+    BrowserSessionManager, BrowserSessionMetadata, PageFetchRequest, PageFetchResponse,
+    PageNavigationRequest, PageNavigationResponse, ResolvedIframeCache, TurnstileTokenState,
+};
 
 pub use client::{
     header_map_from_strings, ArachneaHttpClient, ArachneaRequestBuilder, ArachneaResponse,

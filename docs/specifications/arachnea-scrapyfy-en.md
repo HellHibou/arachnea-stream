@@ -560,6 +560,35 @@ If absent, results are merged at root level.
 target: "details>episodes"
 ```
 
+### Browser page fetch
+
+HTML sub-queries can execute an authenticated JavaScript `fetch()` in a retained
+browser page instead of using the normal HTTP transport. The page URL and all
+request body/header templates use the current sub-query parameter context; entry
+fields are also exposed with non-alphanumeric characters normalized to `_`.
+
+```yaml
+http:
+  mode: auto
+  execution: page_fetch
+  browser_context: origin
+  page_url: "{episode_url}"
+  browser_token:
+    source: turnstile_callback
+    placeholder: "{browser_turnstile_token}"
+    cache_scope: domain
+    retry_on_rejection: once
+    rejection_statuses: [403]
+    rejection_body_markers: ["captcha invalid"]
+```
+
+`browser_context` must be `origin`. `page_fetch` is HTML-only. The token is
+kept in memory and is never exposed to extracted data or diagnostics.
+`cache_scope: domain` explicitly reuses it only for the matching origin,
+browser profile, and proxy route; omitting it retains one-shot behavior.
+`retry_on_rejection: once` performs at most one fresh navigation and submission
+after a configured rejection signal.
+
 ### HTML sub-query
 
 ```yaml
