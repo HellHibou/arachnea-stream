@@ -1039,4 +1039,78 @@ mod tests {
             body: "accepted".to_string(),
         }));
     }
+
+    // --- BrowserSessionHandle token cache lifecycle tests ---
+
+    #[test]
+    fn test_handle_token_cache_starts_empty() {
+        let mgr = BrowserSessionManager::new(BrowserSessionConfig::default());
+        let key = BrowserSessionKey {
+            origin: "https://token-cache.example".into(),
+            profile: "p".into(),
+            proxy_route: None,
+        };
+        let handle = mgr.get_or_create(&key);
+        assert_eq!(handle.cached_turnstile_token(), None);
+    }
+
+    #[test]
+    fn test_handle_token_cache_roundtrip() {
+        let mgr = BrowserSessionManager::new(BrowserSessionConfig::default());
+        let key = BrowserSessionKey {
+            origin: "https://token-cache.example".into(),
+            profile: "p".into(),
+            proxy_route: None,
+        };
+        let handle = mgr.get_or_create(&key);
+        handle.cache_turnstile_token("test-token".to_string());
+        assert_eq!(handle.cached_turnstile_token(), Some("test-token".to_string()));
+    }
+
+    #[test]
+    fn test_handle_token_cache_clear() {
+        let mgr = BrowserSessionManager::new(BrowserSessionConfig::default());
+        let key = BrowserSessionKey {
+            origin: "https://token-cache.example".into(),
+            profile: "p".into(),
+            proxy_route: None,
+        };
+        let handle = mgr.get_or_create(&key);
+        handle.cache_turnstile_token("test-token".to_string());
+        handle.clear_turnstile_token();
+        assert_eq!(handle.cached_turnstile_token(), None);
+    }
+
+    #[test]
+    fn test_handle_token_cache_replace() {
+        let mgr = BrowserSessionManager::new(BrowserSessionConfig::default());
+        let key = BrowserSessionKey {
+            origin: "https://token-cache.example".into(),
+            profile: "p".into(),
+            proxy_route: None,
+        };
+        let handle = mgr.get_or_create(&key);
+        handle.cache_turnstile_token("first".to_string());
+        handle.cache_turnstile_token("second".to_string());
+        assert_eq!(handle.cached_turnstile_token(), Some("second".to_string()));
+    }
+
+    #[test]
+    fn test_handle_token_cache_does_not_share_between_handles() {
+        let mgr = BrowserSessionManager::new(BrowserSessionConfig::default());
+        let k1 = BrowserSessionKey {
+            origin: "https://a.example".into(),
+            profile: "p".into(),
+            proxy_route: None,
+        };
+        let k2 = BrowserSessionKey {
+            origin: "https://b.example".into(),
+            profile: "p".into(),
+            proxy_route: None,
+        };
+        let h1 = mgr.get_or_create(&k1);
+        let h2 = mgr.get_or_create(&k2);
+        h1.cache_turnstile_token("token-a".to_string());
+        assert_eq!(h2.cached_turnstile_token(), None);
+    }
 }

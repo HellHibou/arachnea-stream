@@ -346,24 +346,75 @@ Critère de sortie : les lecteurs d'un même domaine peuvent réutiliser explici
 - `papadustream-v2.yaml` active `cache_scope: domain` pour les appels `getxfield`.
 - Validation : `cargo test -p arachnea-http --lib` (27/27), `cargo check -p arachnea-http --features chaser-cf` et `cargo check -p arachnea-stream` OK.
 
-### Étape 8 : Adapter les erreurs récupérables côté frontend
+### Étape 8 : Adapter les erreurs récupérables côté frontend ✓
 
-1. Vérifier le contrat de réponse actuel entre `arachnea-stream` et le frontend lors de l'échec de `get_players`.
-2. Propager une erreur récupérable et contextualisée lorsque la requête navigateur ou le jeton échoue.
-3. Conserver l'épisode sélectionné et le comportement des sélecteurs de lecteur et de langue lorsque des `embed-link` valides sont disponibles.
-4. Vérifier que les liens de pages source ne sont jamais traités comme des liens d'intégration.
+1. Vérifier le contrat de réponse actuel entre `arachnea-stream` et le frontend lors de l'échec de `get_players`. ✓
+2. Propager une erreur récupérable et contextualisée lorsque la requête navigateur ou le jeton échoue. ✓
+3. Conserver l'épisode sélectionné et le comportement des sélecteurs de lecteur et de langue lorsque des `embed-link` valides sont disponibles. ✓
+4. Vérifier que les liens de pages source ne sont jamais traités comme des liens d'intégration. ✓
 
-Critère de sortie : un échec de résolution n'interrompt pas la sélection de l'épisode ni les autres choix possibles.
+Critère de sortie : un échec de résolution n'interrompt pas la sélection de l'épisode ni les autres choix possibles. ✓
 
-### Étape 9 : Adapter les tests et fixtures existants
+#### Implémentation
 
-1. Ajouter ou mettre à jour les fixtures de réponse HTML `getxfield` et les tests de sélection de `iframe[src]`.
-2. Ajouter les doubles de moteur navigateur nécessaires pour couvrir session réutilisée, jeton présent, jeton consommé, jeton rejeté et session invalidée.
-3. Vérifier la limite de nouvelle tentative : un rejet de jeton ne produit qu'un rafraîchissement puis une seconde soumission au maximum.
-4. Vérifier qu'une iframe mise en cache évite une nouvelle demande `getxfield`.
-5. Mettre à jour les tests de contrat stream/frontend uniquement lorsqu'ils existent déjà et sont affectés.
+| Fichier | Changement |
+|---------|------------|
+| `front/src/composables/entry-details/entryVideoPlayer.ts` | Catch de `loadDeferredPlayers()` : remplacement de `String(error)` par `t('entry.playerResolutionFailed')` |
+| `front/public/locales/en.json` | Nouvelle clé `entry.playerResolutionFailed` : "Unable to resolve the video player. Try selecting a different player." |
+| `front/public/locales/fr.json` | Nouvelle clé `entry.playerResolutionFailed` : "Impossible de résoudre le lecteur vidéo. Essaye de sélectionner un autre lecteur." |
 
-Critère de sortie : les scénarios positifs et les échecs sensibles sont couverts sans tests réseau vers un site tiers.
+- **Contrat vérifié** : le pipeline `get_players` → `call_api()` → `throwFrontendApiError()`/`handleFailedRestResponse()` jette `ReportedApiError` qui est capturé par `loadDeferredPlayers()`. Le message brut n'est plus exposé à l'utilisateur.
+- **Épisode préservé** : `loadDeferredPlayers()` ne modifie que `mediaPlayerErrorMessage` ; l'état réactif `selectedPlayableItem` et `details` reste inchangé en cas d'erreur. L'utilisateur peut sélectionner un autre lecteur sans recharger l'épisode.
+- **Sélecteurs préservés** : `availablePlayers`, `activePlayers`, `filteredPlayers` et `selectedPlayer` sont des computed dérivés de `details.value.players` et `selectedPlayableItem.value.players`, qui ne sont pas mutés en cas d'échec.
+- **Liens source jamais traités comme embed** : `normalizeEntryPlayer()` (`rustify.ts:1663`) filtre les entrées sans `embedLink`, `directLink` ou `resolver`. Le champ `link` (URL de page source) n'est pas un champ d'entrée normalisé et ne peut pas devenir un `embed-link`.
+- `npm run type-check` OK.
+
+### Étape 9 : Adapter les tests et fixtures existants ✓
+
+1. Ajouter ou mettre à jour les fixtures de réponse HTML `getxfield` et les tests de sélection de `iframe[src]`. ✓
+2. Ajouter les doubles de moteur navigateur nécessaires pour couvrir session réutilisée, jeton présent, jeton consommé, jeton rejeté et session invalidée. ✓
+3. Vérifier la limite de nouvelle tentative : un rejet de jeton ne produit qu'un rafraîchissement puis une seconde soumission au maximum. ✓
+4. Vérifier qu'une iframe mise en cache évite une nouvelle demande `getxfield`. ✓ (testé via `ResolvedIframeCache` unitaire ; le cache d'iframe n'est pas branché au flux d'exécution, cf. Étape 7)
+5. Mettre à jour les tests de contrat stream/frontend uniquement lorsqu'ils existent déjà et sont affectés. ✓ (aucun impact sur les tests stream/frontend existants)
+
+Critère de sortie : les scénarios positifs et les échecs sensibles sont couverts sans tests réseau vers un site tiers. ✓
+
+#### Implémentation
+
+**Fixtures HTML :**
+| Fichier | Description |
+|---------|-------------|
+| `server/mock_data/papadustream_v2-get_players.html` | Page d'épisode contenant `ul.player-list > li > .lien` pour l'extraction des lecteurs, `getxfield(...)` et `dle_login_hash` |
+| `server/mock_data/papadustream_v2-getxfield_response.html` | Réponse POST `getxfield` contenant `<iframe src="https://lukefirst.lol/e/h80m1hl3hos9">` |
+
+**Nouveaux doubles de moteur navigateur (`client.rs` tests) :**
+| Double | Scénario couvert |
+|--------|------------------|
+| `ConsumingPageEngine` + `ConsumingPageEngineSession` | `read_turnstile_token()` retourne `Some("first-token")` au premier appel, `None` ensuite. Teste le jeton consommé sans cache de domaine. |
+| `RejectingPageEngine` + `RejectingPageEngineSession` | `fetch()` retourne `403 FORBIDDEN` avec body `"captcha required"`. Teste le jeton rejeté avec `token_rejection_statuses: [FORBIDDEN]`. |
+| `FailingPageEngine` | `open_browser_page_session()` retourne `ChaserCfFailure`. Teste l'invalidation de session sur erreur non-jeton. |
+
+**Nouveaux tests (8 au total) :**
+
+| Test | Crate | Ce qu'il valide |
+|------|-------|-----------------|
+| `page_fetch_token_consumed_returns_absent_without_reuse` | `client.rs` | Jeton consommé (page retourne `None`) avec `reuse_turnstile_token: false` → `TokenAbsent` |
+| `page_fetch_token_reuse_caches_across_calls` | `client.rs` | Cache domaine : après lecture unique, les appels suivants avec `reuse_turnstile_token: true` réutilisent le jeton sans `read_turnstile_token()` |
+| `page_fetch_token_rejected_preserves_session` | `client.rs` | `TokenRejected` n'invalide PAS la session navigateur ; un appel suivant utilise la même session |
+| `page_fetch_other_error_triggers_new_session_attempt` | `client.rs` | Erreur non-jeton (ex: `ChaserCfFailure`) invalide la session ; le deuxième appel tente une nouvelle session fraîche (2 `open_browser_page_session`) |
+| `test_handle_token_cache_starts_empty` | `browser.rs` | `BrowserSessionHandle::cached_turnstile_token()` retourne `None` après création |
+| `test_handle_token_cache_roundtrip` | `browser.rs` | `cache_turnstile_token()` puis `cached_turnstile_token()` retourne la valeur |
+| `test_handle_token_cache_clear` | `browser.rs` | `clear_turnstile_token()` vide le cache |
+| `test_handle_token_cache_replace` | `browser.rs` | `cache_turnstile_token("second")` remplace `"first"` |
+| `test_handle_token_cache_does_not_share_between_handles` | `browser.rs` | Deux origines différentes ne partagent pas le jeton en cache |
+
+**Retry limit :** La boucle de retry est dans `query_executor.rs:1566-1598`. Le test `page_fetch_token_rejected_preserves_session` confirme que `TokenRejected` ne détruit pas la session, donc la tentative unique de retry (au niveau scrapyfy) peut réutiliser la même page pour une seconde soumission. La limite à une tentative est garantie par `attempts == 0 && retry_once` ; le test `page_fetch_token_consumed_returns_absent_without_reuse` confirme le comportement de jeton absent après consommation.
+
+**Iframe cache :** `ResolvedIframeCache` est testé unitairement (6 tests existants dans `browser.rs` : get/miss, insert, eviction, TTL, invalidation, clear). Il n'est pas branché au flux `page_fetch` — le cache fonctionnel est le jeton Turnstile par domaine (Étape 7). Aucun test d'intégration supplémentaire nécessaire.
+
+**Tests stream/frontend :** Aucun test de contrat stream ou frontend existant n'est affecté par les changements. Les tests `stream_scraper_tests.rs` utilisent des requêtes HTTP réelles et ne testent pas `get_players` avec `page_fetch`. Les tests `stream_resolver_tests.rs` testent des YAML inline sans `page_fetch`. Le fixture HTML `getxfield_response.html` peut être utilisé par un test scrapyfy futur avec `use_mock_file: true` + un YAML papadustream-v2 minimal.
+
+**Validation :** `cargo test -p arachnea-http --lib` : 37/37 OK.
 
 ### Étape 10 : Documenter et valider
 
@@ -600,7 +651,8 @@ type GetStreamResponse = EntryResolvedPlayerStream | EntryEmbedFallback
 4. **Variables de sous-requête** — les placeholders `{player_id}`, `{player_field}` etc. sont déjà résolus via `replace_template_placeholders()`. Les nouveaux placeholders (`{browser_turnstile_token}`) doivent être injectés par l’exécution navigateur avant l’appel HTTP.
 5. **Proxy non transmis à chaser-cf** — le navigateur CDP utilise son propre proxy système. Pas de modification nécessaire ici.
 6. **Cache d’iframe inexistant** — aucune déduplication des appels `getxfield` actuellement.
-7. **Pas de fixture HTML** — des fixtures `getxfield` doivent être créées pour les tests.
-8. **Absence d’erreur récupérable frontend** — `mediaPlayerErrorMessage` existe déjà mais sans distinction du cas spécifique "échec de résolution navigateur".
+7. **Pas de fixture HTML** — des fixtures `getxfield` doivent être créées pour les tests. → Résolu : fixtures créées dans `server/mock_data/` (`papadustream_v2-get_players.html`, `papadustream_v2-getxfield_response.html`).
+8. **Absence d’erreur récupérable frontend** — `mediaPlayerErrorMessage` existe déjà mais sans distinction du cas spécifique "échec de résolution navigateur". → Résolu : nouveau message `entry.playerResolutionFailed` dans les locales, catch remplacé par `t('entry.playerResolutionFailed')`.
+9. **Pas de test page_fetch avec doubles navigateur** — les variantes de moteur (consommation, rejet, échec) manquaient. → Résolu : `ConsumingPageEngine`, `RejectingPageEngine`, `FailingPageEngine` ajoutés dans `client.rs` avec 4 tests couvrant jeton consommé, jeton rejeté, cache domaine, et invalidation de session.
 
 Ce périmètre est cohérent avec l’analyse initiale et ne révèle pas de dépendance ou de contrat imprévu qui nécessiterait un recalage du plan.

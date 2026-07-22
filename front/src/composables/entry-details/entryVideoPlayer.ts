@@ -272,7 +272,7 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
         options.details.value = { ...options.details.value, players }
       }
     } catch (error) {
-      mediaPlayerErrorMessage.value = String(error)
+      mediaPlayerErrorMessage.value = t('entry.playerResolutionFailed')
     } finally {
       pendingPlayerLoads.delete(key)
       isMediaPlayerLoading.value = false
