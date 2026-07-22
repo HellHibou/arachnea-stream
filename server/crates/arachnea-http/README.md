@@ -108,11 +108,53 @@ let response = client
 
 `ArachneaHttpClient::page_fetch(PageNavigationRequest, PageFetchRequest)` navigates a persistent browser page to a source URL, then executes one JavaScript `fetch()` inside that page. Sessions are scoped to origin, user-agent profile, and proxy route; they are bounded by `BrowserSessionConfig` and evicted after inactivity.
 
-- The `chaser-cf` engine supports persistent page sessions. Engines without this capability return `UnsupportedEngineOperation` rather than silently falling back to direct HTTP.
-- Browser cookies and the observed user-agent are handed back to the existing in-memory HTTP caches after navigation and fetch.
-- `PageFetchRequest::turnstile_token_placeholder` can be replaced from an application `turnstile.render(... callback(token))` token captured in the current page. The token remains in memory and is never logged or returned. A caller must explicitly opt into reuse for the matching origin, browser profile, and proxy route.
-- Callers can declare token-rejection response statuses and body markers. The client reports `TokenRejected`; callers must apply any bounded retry policy explicitly.
-- Browser contexts are resource-intensive. Keep `BrowserSessionConfig::max_sessions` small and invalidate an origin when its session is known to be invalid.
+### Session lifecycle
+
+1. **Creation**: On the first `page_fetch` call for an origin, the session manager calls the engine's `open_browser_page_session()`. The page handle is cached in a `BrowserSessionHandle` behind the `BrowserSessionManager` (in-memory, keyed by origin + profile + proxy route).
+2. **Navigation**: Each `page_fetch` navigates the retained page to `PageNavigationRequest.url`. Browser cookies and the observed user-agent are handed back to the shared HTTP caches via `store_browser_session_metadata()`.
+3. **Token capture**: If `PageFetchRequest.turnstile_token_placeholder` is set, the client reads an application Turnstile callback token from the page. With `reuse_turnstile_token: true`, the token is cached on the handle for the session's lifetime and reused without re-reading the page.
+4. **Fetch**: A JavaScript `fetch()` is executed within the page context with the configured method, URL, headers, and body. The token placeholder is replaced in memory (never logged).
+5. **Token-rejection classification**: If the fetch response matches `token_rejection_statuses` or `token_rejection_body_markers`, the client returns `TokenRejected`. The session and its page are preserved — the caller may retry with a fresh token.
+6. **Session invalidation**: Any non-token error (engine failure, network error, etc.) invalidates the entire session for that origin. The page is closed and the handle is removed. A subsequent call will create a fresh session.
+7. **Eviction**: Idle sessions are evicted after `BrowserSessionConfig::idle_timeout`. When at capacity (`max_sessions`), the least-recently-used session is evicted first (after idle candidates).
+
+### Security rules
+
+- Turnstile callback tokens are held only in memory, never serialized, logged, or exposed in extracted data or diagnostics.
+- Token `Debug` is redacted to `<redacted>`.
+- Two distinct origins never share the same token cache.
+- Cookies from browser sessions are handed back to the existing in-memory HTTP cache; raw cookie values are not logged.
+- The `BrowserSessionKey` includes profile and proxy route to prevent token reuse across different browser fingerprints or network paths.
+
+### Configuration
+
+```rust
+use arachnea_http::browser::BrowserSessionConfig;
+
+let config = ArachneaHttpConfig::builder()
+    .browser_session(BrowserSessionConfig {
+        max_sessions: 8,
+        idle_timeout: Duration::from_secs(300),
+    })
+    .build()?;
+```
+
+### Engine support
+
+- The `chaser-cf` engine supports persistent page sessions.
+- Engines without this capability return `UnsupportedEngineOperation` rather than silently falling back to direct HTTP.
+- `BrowserPageSession::clear_turnstile_token()` has a default no-op implementation.
+- Browser contexts are resource-intensive. Keep `max_sessions` small and invalidate an origin when its session is known to be invalid.
+
+### Error contract for callers
+
+| Error variant | Meaning | Session state |
+|---|---|---|
+| `TokenAbsent` | The page callback did not produce a token | Preserved |
+| `TokenRejected` | The fetch response matched rejection signals | Preserved (caller may retry once) |
+| `BrowserSessionUnavailable` | Session was invalidated or manager is disabled | — |
+| `CloudflareSolverUnavailable` | No browser engine is configured | — |
+| `ChaserCfFailure` / other engine errors | Engine-level failure | Invalidated |
 
 ## Redirects
 

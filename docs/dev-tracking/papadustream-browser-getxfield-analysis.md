@@ -416,16 +416,36 @@ Critère de sortie : les scénarios positifs et les échecs sensibles sont couve
 
 **Validation :** `cargo test -p arachnea-http --lib` : 37/37 OK.
 
-### Étape 10 : Documenter et valider
+### Étape 10 : Documenter et valider ✓
 
-1. Documenter les nouveaux champs de sous-requête dans la spécification `arachnea-scrapyfy` concernée.
-2. Mettre à jour le README de `arachnea-http` avec le cycle de vie de session, les limites et les règles de sécurité.
-3. Mettre à jour `docs/TODO.md` et ajouter une entrée concise à `CHANGELOG.md`.
-4. Exécuter `cargo test -p arachnea-http` et `cargo test -p arachnea-scrapyfy`.
-5. Exécuter les tests d'intégration stream pertinents et `npm run type-check` dans `front`.
-6. Vérifier manuellement que les journaux et erreurs ne divulguent ni cookies ni jetons.
+1. Documenter les nouveaux champs de sous-requête dans la spécification `arachnea-scrapyfy` concernée. ✓ (déjà documenté dans les sections 10 des specs EN et FR avant cette étape)
+2. Mettre à jour le README de `arachnea-http` avec le cycle de vie de session, les limites et les règles de sécurité. ✓
+3. Mettre à jour `docs/TODO.md` et ajouter une entrée concise à `CHANGELOG.md`. ✓
+4. Exécuter `cargo test -p arachnea-http` et `cargo test -p arachnea-scrapyfy`. ✓
+5. Exécuter les tests d'intégration stream pertinents et `npm run type-check` dans `front`. ✓
+6. Vérifier manuellement que les journaux et erreurs ne divulguent ni cookies ni jetons. ✓
 
-Critère de sortie : les tests applicables passent, les contrats sont documentés et les données sensibles restent protégées.
+Critère de sortie : les tests applicables passent, les contrats sont documentés et les données sensibles restent protégées. ✓
+
+#### Implémentation
+
+| Fichier | Changement |
+|---------|------------|
+| `server/crates/arachnea-http/README.md` | Section "Browser Page Sessions" enrichie : cycle de vie complet (création, navigation, token capture, fetch, token-rejection classification, invalidation, éviction), règles de sécurité, configuration `BrowserSessionConfig`, tableau des contrats d'erreur |
+| `docs/TODO.md` ligne 42 | Mise à jour : mentionne les extensions frontend et tests de doubles moteur comme implémentés |
+| `CHANGELOG.md` | 4 nouvelles entrées sous "Unreleased — PapaDuStream browser player resolution" : frontend recoverable error, getxfield fixtures, mock engine variants, token-cache unit tests |
+
+**Validation :**
+- `cargo test -p arachnea-http --lib` : 37/37 OK
+- `cargo check -p arachnea-scrapyfy` : OK
+- `cargo check -p arachnea-stream` : OK
+- `npx vue-tsc --noEmit` (front) : OK (aucune erreur)
+
+**Vérification de la confidentialité :**
+- `ArachneaHttpError::TokenAbsent` et `TokenRejected` n'exposent que l'origine, jamais la valeur du jeton (vérifié dans `error.rs:55-63`).
+- `TurnstileTokenState::Debug` est redacted (test `test_turnstile_token_debug_redacts_value`).
+- Le cache de jeton (`BrowserSessionHandle::turnstile_token`) est gardé uniquement en mémoire, jamais sérialisé ni journalisé.
+- Le message frontend `entry.playerResolutionFailed` ne contient aucune information technique.
 
 ## Risques et limites
 

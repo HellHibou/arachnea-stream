@@ -357,6 +357,13 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **PapaDuStream v2 players**: `get_players` now resolves each delayed player through the generic browser `page_fetch` sub-query, submits its `getxfield` form in the episode page context, and returns the resulting `iframe[src]` as `embed-link` while preserving player name and language.
 - **HTML sub-query request bodies**: HTML entry sub-queries now support the existing `request_body_actions` pipeline, enabling generic form-body construction without source-specific Rust code.
 
+### Added
+
+- **Frontend recoverable error on player resolution failure**: `loadDeferredPlayers` catch now shows a localized `entry.playerResolutionFailed` message instead of raw `String(error)`. Episode selection and player/lang selectors are preserved on error.
+- **getxfield HTML fixtures**: Created `server/mock_data/papadustream_v2-get_players.html` and `server/mock_data/papadustream_v2-getxfield_response.html` for future scrapyfy integration tests.
+- **Browser page-fetch mock engine variants**: Added `ConsumingPageEngine`, `RejectingPageEngine`, and `FailingPageEngine` in `arachnea-http` client tests covering token consumption, token rejection with session preservation, and non-token error triggering fresh session attempts.
+- **Browser session token-cache unit tests**: 5 new tests in `browser.rs` for the handle-level `cached_turnstile_token`, `cache_turnstile_token`, `clear_turnstile_token` lifecycle and origin isolation.
+
 ## Unreleased — Domain-scoped browser token cache
 
 ### Added
