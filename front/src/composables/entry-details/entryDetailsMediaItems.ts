@@ -55,7 +55,7 @@ export function toEntryEpisodeMediaItem(episode: EntryEpisode, source: string): 
     imagePosterUrl: episode.previewUrl ?? null,
     imagePortraitUrl: null,
     imageLandscapeUrl: null,
-    source: episode.players.entries.length > 0 ? source : null,
+    source: episode.players.entries.length > 0 || episode.players.link ? source : null,
     entryUrl: episode.link ?? null,
     webUrl: episode.link ?? null,
     mediaTypeLabel: null,

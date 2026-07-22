@@ -1,0 +1,621 @@
+id: papadustream-v2
+title: PapaDuStream v2
+logo: "{base_url}/templates/papadustream2/images/favicon1.png"
+description:
+  fr: "Séries en streaming VF et VOSTFR."
+http:
+  mode: auto
+
+parameters:
+  - name: base_url
+    value: https://papadustream.recipes
+    description: "Base URL — update on domain change"
+
+shared:
+  media_types_series: &media_types_series
+    - video/show/serie
+
+  poster_actions: &poster_actions
+    - type: get_attribut
+      argument: data-src
+    - type: resolve_url
+
+  link_actions: &link_actions
+                  - type: get_attribut
+                    argument: href
+                  - type: resolve_url
+
+  catalog_card: &catalog_card
+    - name: source
+      type: string
+      actions:
+        - type: format_text
+          argument: "{source}"
+    - name: title
+      type: string
+      select: first
+      selector: ".short_title > a"
+      actions:
+        - type: get_text
+    - name: link
+      type: string
+      select: first
+      selector: ".short_img"
+      actions: *link_actions
+    - name: web-link
+      type: string
+      select: first
+      selector: ".short_img"
+      actions: *link_actions
+    - name: img/poster > link
+      type: string
+      select: first
+      selector: ".short_img > img"
+      actions: *poster_actions
+    - name: media-type
+      type: string[]
+      actions:
+        - type: format_text
+          argument: video/show/serie
+    - name: year
+      type: number
+      select: first
+      selector: ".short_img > .label_quel-hd"
+      actions:
+        - type: get_text
+    - name: lang
+      type: string[]
+      selector: ".short_img > .label_sezon-seria"
+      select: all
+      actions:
+        - type: get_text
+        - type: map
+          default: "{}"
+          argument:
+            VF: vf
+            VOSTFR: vostfr
+
+queries:
+  - name: service_stream_metadata
+    scraper_type: static
+    entries:
+      - name: id
+        type: string
+        value: "{service_id}"
+      - name: title
+        type: string
+        value: "{service_title}"
+      - name: logo
+        type: string
+        value: "{service_logo}"
+        actions:
+          - type: resolve_url
+      - name: description
+        type: object
+        value: "{service_description}"
+
+  - name: load_home
+    scraper_type: html
+    base_url: "{base_url}"
+    query_url: "{base_url}/"
+    media_types: *media_types_series
+    row_selector: html
+    entries:
+      - name: source
+        type: string
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: sections
+        type: object[]
+        selector: "#cols > aside.side > .side_box:nth-of-type(1)"
+        select: all
+        entries:
+          - name: label
+            type: string
+            actions:
+              - type: format_text
+                argument: "NOUVEAUX ÉPISODES AJOUTÉS"
+          - name: entries
+            type: object[]
+            selector: ".side_bc > .upd-item"
+            select: all
+            entries:
+              - name: source
+                type: string
+                actions:
+                  - type: format_text
+                    argument: "{source}"
+              - name: title
+                type: string
+                select: first
+                selector: ".upd-title"
+                actions:
+                  - type: get_text
+              - name: link
+                type: string
+                select: first
+                selector: "a.upd-in"
+                actions: *link_actions
+              - name: web-link
+                type: string
+                select: first
+                selector: "a.upd-in"
+                actions: *link_actions
+              - name: img/poster > link
+                type: string
+                select: first
+                selector: "img.anim"
+                actions: *poster_actions
+              - name: media-type
+                type: string[]
+                actions:
+                  - type: format_text
+                    argument: video/show/serie
+              - name: season-number
+                type: number
+                select: first
+                selector: ".episodes-main"
+                actions:
+                  - type: get_text
+              - name: episode-number
+                type: number
+                selector: ".episodes-main:nth-of-type(2)"
+                select: first
+                actions:
+                  - type: get_text
+              - name: lang
+                type: string[]
+                select: first
+                selector: ".translation1"
+                actions:
+                  - type: get_text
+                  - type: regex_find_all
+                    pattern: "\\((VF|VOSTFR)\\)"
+                    format: "{1}"
+                  - type: map
+                    argument:
+                      VF: vf
+                      VOSTFR: vostfr
+      - name: sections
+        type: object[]
+        selector: "#cols > aside.side > .side_box:nth-of-type(2)"
+        select: all
+        entries:
+          - name: label
+            type: string
+            actions:
+              - type: format_text
+                argument: "NOUVELLES SAISONS AJOUTÉES"
+          - name: entries
+            type: object[]
+            selector: ".side_bc > .upd-item"
+            select: all
+            entries:
+              - name: source
+                type: string
+                actions:
+                  - type: format_text
+                    argument: "{source}"
+              - name: title
+                type: string
+                select: first
+                selector: ".upd-title"
+                actions:
+                  - type: get_text
+              - name: link
+                type: string
+                select: first
+                selector: "a.upd-in"
+                actions: *link_actions
+              - name: web-link
+                type: string
+                select: first
+                selector: "a.upd-in"
+                actions: *link_actions
+              - name: img/poster > link
+                type: string
+                select: first
+                selector: "img.anim"
+                actions: *poster_actions
+              - name: media-type
+                type: string[]
+                actions:
+                  - type: format_text
+                    argument: video/show/serie
+              - name: season-number
+                type: number
+                select: first
+                selector: ".episodes-main"
+                actions:
+                  - type: get_text
+      - name: sections
+        type: object[]
+        selector: "#main > section.section > .sect_c.items.pad-main.gridder"
+        select: all
+        entries:
+          - name: label
+            type: string
+            actions:
+              - type: format_text
+                argument: "Regarder des Nouvelles Séries en Streaming VF"
+          - name: entries
+            type: object[]
+            selector: "#dle-content > .short.gridder-list"
+            select: all
+            entries: *catalog_card
+
+  - name: search
+    scraper_type: html
+    base_url: "{base_url}"
+    query_url: "{base_url}/f/l.title={search_terms}/p.cat=11/sort=editdate/order=desc/"
+    media_types: *media_types_series
+    row_selector: html
+    entries:
+      - name: source
+        type: string
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: current_page
+        type: number
+        actions:
+          - type: format_text
+            argument: "1"
+      - name: have_more
+        type: boolean
+        actions:
+          - type: format_text
+            argument: "false"
+      - name: entries
+        type: object[]
+        selector: "#dle-content > .short.gridder-list"
+        select: all
+        entries: *catalog_card
+
+  - name: get_entry
+    scraper_type: html
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    media_types: *media_types_series
+    row_selector: html
+    entries:
+      - name: source
+        type: string
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: title
+        type: string
+        select: first
+        selector: "meta[property='og:title']"
+        actions:
+          - type: get_attribut
+            argument: content
+      - name: img/poster > link
+        type: string
+        select: first
+        selector: "article.full .full_header .full_content-poster img"
+        actions: *poster_actions
+      - name: year
+        type: number
+        select: first
+        selector: "#full_info > li:nth-of-type(1)"
+        actions:
+          - type: get_text
+          - type: regex_find_all
+            pattern: "(\\d{4})"
+            format: "{1}"
+      - name: theme
+        type: string[]
+        selector: "#full_info > li:nth-of-type(2) > a"
+        select: all
+        actions:
+          - type: get_text
+      - name: country
+        type: string
+        select: first
+        selector: "#full_info > li:nth-of-type(3)"
+        actions:
+          - type: get_text
+          - type: regex_find_all
+            pattern: "Pays:\\s*(.+)"
+            format: "{1}"
+      - name: duration
+        type: string
+        select: first
+        selector: "#full_info > li:nth-of-type(4)"
+        actions:
+          - type: get_text
+          - type: regex_find_all
+            pattern: "Durée:\\s*(.+)"
+            format: "{1}"
+      - name: director
+        type: string[]
+        select: first
+        selector: "#full_info > li:nth-of-type(5)"
+        actions:
+          - type: get_text
+          - type: regex_find_all
+            pattern: "Réalisé par:\\s*(.+)"
+            format: "{1}"
+      - name: casting
+        type: string[]
+        select: first
+        selector: "#full_info > li:nth-of-type(6)"
+        actions:
+          - type: get_text
+          - type: regex_find_all
+            pattern: "Casting:\\s*(.+)"
+            format: "{1}"
+          - type: split
+            argument: ", "
+      - name: description
+        type: string
+        select: first
+        selector: ".full_content-desc"
+        actions:
+          - type: get_text
+          - type: regex_find_all
+            pattern: "VOSTFR / VF:\\s*(.+)"
+            format: "{1}"
+      - name: seasons
+        type: object[]
+        selector: ".seasontab a.th-hover"
+        select: all
+        entries:
+          - name: label
+            type: string
+            select: first
+            selector: ".th-title1"
+            actions:
+              - type: get_text
+          - name: link
+            type: string
+            actions: *link_actions
+          - name: img/poster > link
+            type: string
+            select: first
+            selector: "img"
+            actions: *poster_actions
+
+  - name: get_season
+    scraper_type: html
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    media_types: *media_types_series
+    row_selector: html
+    entries:
+      - name: source
+        type: string
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: current_page
+        type: number
+        actions:
+          - type: format_text
+            argument: "1"
+      - name: have_more
+        type: boolean
+        actions:
+          - type: format_text
+            argument: "false"
+      - name: episodes
+        type: object[]
+        selector: "a:has(.fsa-ep)"
+        select: all
+        entries:
+          - name: episode-number
+            type: number
+            actions:
+              - type: get_text
+              - type: regex_find_all
+                pattern: "(?:Episode|épisode)\\s*(\\d+)"
+                format: "{1}"
+          - name: title
+            type: string
+            actions:
+              - type: get_text
+          - name: link
+            type: string
+            actions:
+              - type: get_attribut
+                argument: href
+              - type: resolve_url
+          - name: web-link
+            type: string
+            actions:
+              - type: get_attribut
+                argument: href
+              - type: resolve_url
+      - name: episodes
+        type: object[]
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: '<a\s+class="th-hover"\s+href="([^"]+)"'
+            format: "{1}"
+          - type: resolve_url
+        sub_queries:
+          - scraper_type: html
+            row_selector: "a:has(.fsa-ep)"
+            entries:
+              - name: episode-number
+                type: number
+                actions:
+                  - type: get_text
+                  - type: regex_find_all
+                    pattern: "(?:Episode|épisode)\\s*(\\d+)"
+                    format: "{1}"
+              - name: title
+                type: string
+                actions:
+                  - type: get_text
+              - name: link
+                type: string
+                actions:
+                  - type: get_attribut
+                    argument: href
+                  - type: resolve_url
+              - name: web-link
+                type: string
+                actions:
+                  - type: get_attribut
+                    argument: href
+                  - type: resolve_url
+
+  - name: get_episode
+    scraper_type: html
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    media_types: *media_types_series
+    row_selector: html
+    entries:
+      - name: source
+        type: string
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: player-user-hash
+        type: string
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: "var dle_login_hash = '([^']+)'"
+            format: "{1}"
+      - name: players
+        type: object[]
+        selector: ".player-list > li > .lien"
+        select: all
+        entries:
+          - name: name
+            type: string
+            select: first
+            selector: ".serv"
+            actions:
+              - type: get_text
+          - name: lang
+            type: string[]
+            select: first
+            selector: ".pl-4 img"
+            actions:
+              - type: get_attribut
+                argument: src
+              - type: regex_find_all
+                pattern: "/(VF|VOSTFR)\\.png$"
+                format: "{1}"
+              - type: map
+                argument:
+                  VF: vf
+                  VOSTFR: vostfr
+          - name: player-id
+            type: string
+            actions:
+              - type: get_attribut
+                argument: onclick
+              - type: regex_find_all
+                pattern: "getxfield\\(this,\\s*'([^']+)'"
+                format: "{1}"
+          - name: player-field
+            type: string
+            actions:
+              - type: get_attribut
+                argument: onclick
+              - type: regex_find_all
+                pattern: "getxfield\\(this,\\s*'[^']+',\\s*'([^']+)'"
+                format: "{1}"
+          - name: player-type
+            type: string
+            actions:
+              - type: get_attribut
+                argument: onclick
+              - type: regex_find_all
+                pattern: "getxfield\\(this,\\s*'[^']+',\\s*'[^']+',\\s*'([^']+)'"
+                format: "{1}"
+          - name: player-endpoint
+            type: string
+            actions:
+              - type: get_request_url
+              - type: regex_find_all
+                pattern: "^(https?://[^/]+)/"
+                format: "{1}/engine/ajax/controller.php?mod=getxfield"
+          - name: web-link
+            type: string
+            actions:
+              - type: get_request_url
+
+  - name: get_players
+    scraper_type: html
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    media_types: *media_types_series
+    row_selector: html
+    entries:
+      - name: player-user-hash
+        type: string
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: "var dle_login_hash = '([^']+)'"
+            format: "{1}"
+      - name: players
+        type: object[]
+        selector: ".player-list > li > .lien"
+        select: all
+        entries:
+          - name: name
+            type: string
+            select: first
+            selector: ".serv"
+            actions:
+              - type: get_text
+          - name: lang
+            type: string[]
+            select: first
+            selector: ".pl-4 img"
+            actions:
+              - type: get_attribut
+                argument: src
+              - type: regex_find_all
+                pattern: "/(VF|VOSTFR)\\.png$"
+                format: "{1}"
+              - type: map
+                argument:
+                  VF: vf
+                  VOSTFR: vostfr
+          - name: player-id
+            type: string
+            actions:
+              - type: get_attribut
+                argument: onclick
+              - type: regex_find_all
+                pattern: "getxfield\\(this,\\s*'([^']+)'"
+                format: "{1}"
+          - name: player-field
+            type: string
+            actions:
+              - type: get_attribut
+                argument: onclick
+              - type: regex_find_all
+                pattern: "getxfield\\(this,\\s*'[^']+',\\s*'([^']+)'"
+                format: "{1}"
+          - name: player-type
+            type: string
+            actions:
+              - type: get_attribut
+                argument: onclick
+              - type: regex_find_all
+                pattern: "getxfield\\(this,\\s*'[^']+',\\s*'[^']+',\\s*'([^']+)'"
+                format: "{1}"
+          - name: player-endpoint
+            type: string
+            actions:
+              - type: get_request_url
+              - type: regex_find_all
+                pattern: "^(https?://[^/]+)/"
+                format: "{1}/engine/ajax/controller.php?mod=getxfield"
+          - name: web-link
+            type: string
+            actions:
+              - type: get_request_url
