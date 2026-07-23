@@ -303,8 +303,11 @@ fn voe_can_resolve_html_detects_proposed_domains_in_memory() {
         "jennifereconomicgive.com",
         "pamelachangemission.com",
         "ellenpoliticalfollow.com",
+        "ralphysuccessfull.org",
     ] {
-        let html = format!(r#"<html><body>https://{domain}/e/example</body></html>"#);
+        let html = format!(
+            r#"<html><head><meta name="keywords" content="VOE"></head><body>https://{domain}/e/example</body></html>"#
+        );
         let can_resolve =
             block_on(resolver.can_resolve_html("voe", "https://embed.test/player", &html))
                 .expect("VOE can_resolve_html should execute");
@@ -328,7 +331,7 @@ fn voe_can_resolve_html_rejects_generic_encoded_config_marker() {
 
     assert!(
         !can_resolve,
-        "VOE should not detect a generic encoded config marker without a VOE domain"
+        "VOE should not detect a page without the VOE keywords meta tag"
     );
 
     let _ = std::fs::remove_dir_all(temp_dir);
