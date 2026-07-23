@@ -24,7 +24,7 @@ queries:
         value: "{url}\n{html}"
         actions:
           - type: regex_find_all
-            pattern: 'https?://(?:www\.)?(?:voe|voesx)\.(?:sx|com|ru)/e/|https?://(?:www\.)?(?:jessicayeahcatch|jeanprofessorcentral|juliewomanwish|garylargeavailable|jennifereconomicgive|pamelachangemission|ellenpoliticalfollow)\.com/e/'
+            pattern: '<meta[^>]+name=["'']keywords["''][^>]+content=["'']VOE["'']'
             format: "{service_id}"
 
   - name: resolve_stream

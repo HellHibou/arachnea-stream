@@ -88,10 +88,12 @@ pub(super) async fn apply(
         output_values.extend(values);
     }
 
-    let mut target_node = ScraperDataNode::from_values(output_values);
-    if let Some(output_type) = output_type {
-        target_node.set_self_output_type(output_type);
+    if !output_values.is_empty() {
+        let mut target_node = ScraperDataNode::from_values(output_values);
+        if let Some(output_type) = output_type {
+            target_node.set_self_output_type(output_type);
+        }
+        set_node(root, &split_path(target), target_node);
     }
-    set_node(root, &split_path(target), target_node);
     Ok(())
 }
