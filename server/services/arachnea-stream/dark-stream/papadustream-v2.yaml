@@ -378,6 +378,60 @@ queries:
             select: first
             selector: "img"
             actions: *poster_actions
+      - name: seasons
+        type: object[]
+        selector: ".saisontab a.th-hover"
+        select: all
+        entries:
+          - name: label
+            type: string
+            select: first
+            selector: ".th-title1"
+            actions:
+              - type: get_text
+          - name: link
+            type: string
+            actions: *link_actions
+          - name: img/poster > link
+            type: string
+            select: first
+            selector: "img"
+            actions: *poster_actions
+      - name: seasons
+        type: object[]
+        selector: ".saisontab :not(a) > .thumb"
+        select: all
+        entries:
+          - name: label
+            type: string
+            select: first
+            selector: ".th-title1"
+            actions:
+              - type: get_text
+          - name: img/poster > link
+            type: string
+            select: first
+            selector: "img"
+            actions: *poster_actions
+      - name: seasons
+        type: object[]
+        selector: "#nav-season-select > option"
+        select: all
+        entries:
+          - name: label
+            type: string
+            actions:
+              - type: get_text
+          - name: link
+            type: string
+            actions:
+              - type: get_attribut
+                argument: value
+              - type: format_text
+                argument: "{}{request_url}"
+              - type: regex_find_all
+                pattern: '^(\d+)(https?://[^/]+(?:/[^/]+)*?)/(?:\d+-saison/\d+-episode\.html)$'
+                format: "{2}/{1}-saison.html"
 
   - name: get_season
     scraper_type: html
@@ -429,41 +483,6 @@ queries:
               - type: get_attribut
                 argument: href
               - type: resolve_url
-      - name: episodes
-        type: object[]
-        actions:
-          - type: get_response_body
-          - type: regex_find_all
-            pattern: '<a\s+class="th-hover"\s+href="([^"]+)"'
-            format: "{1}"
-          - type: resolve_url
-        sub_queries:
-          - scraper_type: html
-            row_selector: "a:has(.fsa-ep)"
-            entries:
-              - name: episode-number
-                type: number
-                actions:
-                  - type: get_text
-                  - type: regex_find_all
-                    pattern: "(?:Episode|épisode)\\s*(\\d+)"
-                    format: "{1}"
-              - name: title
-                type: string
-                actions:
-                  - type: get_text
-              - name: link
-                type: string
-                actions:
-                  - type: get_attribut
-                    argument: href
-                  - type: resolve_url
-              - name: web-link
-                type: string
-                actions:
-                  - type: get_attribut
-                    argument: href
-                  - type: resolve_url
 
   - name: get_episode
     scraper_type: html
@@ -550,6 +569,8 @@ queries:
     base_url: "{base_url}"
     query_url: "{query_url}"
     media_types: *media_types_series
+    http:
+      mode: direct
     row_selector: html
     entries:
       - name: player-user-hash
@@ -624,30 +645,14 @@ queries:
                 format: "{1}/engine/ajax/controller.php?mod=getxfield"
             sub_queries:
               - scraper_type: html
-                request_method: post
-                request_body_actions:
-                  - type: format_text
-                    argument: "id={player_id}&xfield={player_field}&type={player_type}&g_recaptcha_response={browser_turnstile_token}&user_hash={player_user_hash}"
-                request_headers:
-                  - name: X-Requested-With
-                    actions:
-                      - type: format_text
-                        argument: XMLHttpRequest
-                  - name: Content-Type
-                    actions:
-                      - type: format_text
-                        argument: application/x-www-form-urlencoded; charset=UTF-8
                 http:
-                  mode: auto
-                  execution: page_fetch
+                  mode: direct
+                  execution: page_click
                   browser_context: origin
                   page_url: "{query_url}"
-                  browser_token:
-                    source: turnstile_callback
-                    placeholder: "{browser_turnstile_token}"
-                    cache_scope: domain
-                    retry_on_rejection: once
-                    rejection_statuses: [403]
+                  browser_click:
+                    selector: '.player-list .lien[onclick*="''{player_field}''"]'
+                    wait_for_selector: "#videoIframe iframe[src]"
                 row_selector: "iframe[src]"
                 entries:
                   - name: embed-link

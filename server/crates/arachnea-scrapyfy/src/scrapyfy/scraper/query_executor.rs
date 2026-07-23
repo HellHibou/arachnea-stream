@@ -213,7 +213,14 @@ pub async fn execute_query_items(
     query: &dyn ScraperQuery,
     context: &QueryContext<'_>,
 ) -> Result<Vec<HashMap<String, ScraperDataNode>>> {
-    let items = execute_query_internal(query, context).await?;
+    let result = execute_query_internal(query, context).await;
+    if let Some(url) = resolve_request_urls(query, context).into_iter().next() {
+        context
+            .http_client
+            .close_browser_session_for_url(&url)
+            .await?;
+    }
+    let items = result?;
 
     // Merge all items into a single root so that per-row fields
     // (e.g. episodes) accumulate into one array, while first-occurrence
@@ -875,6 +882,27 @@ async fn fetch_responses(
     );
     let extract_next_data = query.extract_next_data();
     let scraper_type = query.scraper_type();
+    let execution = query.http_config().execution;
+    match execution {
+        Some(ScraperHttpExecution::PageNavigate) => {
+            if scraper_type != ScraperType::Html {
+                anyhow::bail!("page_navigate is only supported by HTML queries");
+            }
+            if query.http_config().browser_context != Some(ScraperBrowserContext::Origin) {
+                anyhow::bail!("page_navigate requires http.browser_context: origin");
+            }
+            if method != http::Method::GET {
+                anyhow::bail!("page_navigate only supports GET queries");
+            }
+        }
+        Some(ScraperHttpExecution::PageFetch) => {
+            anyhow::bail!("page_fetch is only supported by HTML sub-queries");
+        }
+        Some(ScraperHttpExecution::PageClick) => {
+            anyhow::bail!("page_click is only supported by HTML sub-queries");
+        }
+        Some(ScraperHttpExecution::Direct) | None => {}
+    }
     // Configure the client with the query's HTTP settings once, then clone
     // for each parallel job.
     let configured_client = context.http_client.configured(query.http_config().clone());
@@ -896,16 +924,20 @@ async fn fetch_responses(
             let method = method.clone();
             let client = configured_client.clone();
             async move {
-                let response = fetch_single(
-                    &client,
-                    method,
-                    &url,
-                    &headers,
-                    body.as_deref(),
-                    extract_next_data,
-                    scraper_type,
-                )
-                .await?;
+                let response = if execution == Some(ScraperHttpExecution::PageNavigate) {
+                    FetchedResponse::Html(client.page_navigate_for_request(&url, &headers).await?)
+                } else {
+                    fetch_single(
+                        &client,
+                        method,
+                        &url,
+                        &headers,
+                        body.as_deref(),
+                        extract_next_data,
+                        scraper_type,
+                    )
+                    .await?
+                };
                 Ok::<(usize, (String, FetchedResponse)), anyhow::Error>((index, (url, response)))
             }
         });
@@ -1170,12 +1202,26 @@ async fn execute_entry_sub_queries(
     request_url: &str,
     context: &QueryContext<'_>,
 ) -> Result<()> {
+    let entries = query.entries();
+    execute_entry_sub_queries_for_entries(&entries, item, request_url, context).await
+}
+
+/// Executes entry-level sub-queries for one output node and its nested groups.
+///
+/// Each object-group item receives its own template parameters, preventing
+/// follow-up requests from mixing values extracted from distinct rows.
+async fn execute_entry_sub_queries_for_entries(
+    entries: &[&dyn ScraperEntrySpec],
+    item: &mut ScraperDataNode,
+    request_url: &str,
+    context: &QueryContext<'_>,
+) -> Result<()> {
     // Collect entry names → values from the item so we can map sub-query
     // `request_pointer` to the entry value that seeds the URL.
     let entry_values: HashMap<String, Vec<String>> = collect_entry_values(item);
     let sub_query_params = build_sub_query_params(context.params, &entry_values);
 
-    for entry in query.entries() {
+    for entry in entries {
         // Determine which values from this entry seed sub-query URLs.
         let entry_name = entry.name().to_string();
         let parent_urls = entry_values.get(&entry_name).cloned().unwrap_or_default();
@@ -1419,6 +1465,29 @@ async fn execute_entry_sub_queries(
                 merge_targeted_items(item, sub_items, sub_query.target());
             }
         }
+
+        let child_entries = entry.sub_entries();
+        if child_entries.is_empty() {
+            continue;
+        }
+        let path: Vec<&str> = entry
+            .name()
+            .split('>')
+            .map(str::trim)
+            .filter(|segment| !segment.is_empty())
+            .collect();
+        let Some(group) = get_node_mut(item, &path) else {
+            continue;
+        };
+        for group_item in &mut group.items {
+            Box::pin(execute_entry_sub_queries_for_entries(
+                &child_entries,
+                group_item,
+                request_url,
+                context,
+            ))
+            .await?;
+        }
     }
     Ok(())
 }
@@ -1596,6 +1665,40 @@ async fn fetch_and_extract_for_entry_sub_query(
                 Err(error) => return Err(error),
             }
         }
+    } else if matches!(
+        sub_query.http_config().execution,
+        Some(ScraperHttpExecution::PageClick)
+    ) {
+        if sub_query.scraper_type() != ScraperType::Html {
+            anyhow::bail!("page_click is only supported by HTML sub-queries");
+        }
+        if sub_query.http_config().browser_context != Some(ScraperBrowserContext::Origin) {
+            anyhow::bail!("page_click requires http.browser_context: origin");
+        }
+        let page_url_template = sub_query
+            .http_config()
+            .page_url
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("page_click requires http.page_url"))?;
+        let click = sub_query
+            .http_config()
+            .browser_click
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("page_click requires http.browser_click"))?;
+        let page_url =
+            query_helpers::format_query_template(sub_query.base_url(), page_url_template, params)?;
+        let selector =
+            query_helpers::format_query_template(sub_query.base_url(), &click.selector, params)?;
+        let wait_for_selector = query_helpers::format_query_template(
+            sub_query.base_url(),
+            &click.wait_for_selector,
+            params,
+        )?;
+        FetchedResponse::Html(
+            client
+                .page_click_for_request(&page_url, &selector, &wait_for_selector)
+                .await?,
+        )
     } else {
         fetch_single(
             &client,
@@ -1857,6 +1960,18 @@ fn walk_mut<'a>(item: &'a mut ScraperDataNode, path: &[&str]) -> &'a mut Scraper
         current = current.children.entry((*segment).to_string()).or_default();
     }
     current
+}
+
+/// Walks an existing `>`-split path without creating output nodes.
+fn get_node_mut<'a>(
+    item: &'a mut ScraperDataNode,
+    path: &[&str],
+) -> Option<&'a mut ScraperDataNode> {
+    let mut current = item;
+    for segment in path {
+        current = current.children.get_mut(*segment)?;
+    }
+    Some(current)
 }
 
 /// Returns `true` if the given string is a valid fetchable URL.

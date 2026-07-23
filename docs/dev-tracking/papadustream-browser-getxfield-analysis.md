@@ -63,13 +63,11 @@ Ajouter un gestionnaire de sessions navigateur réutilisables détenu par `arach
 
 Étendre `sub_queries` au lieu d'ajouter un nouveau type de requête. La sous-requête conserve ses mécanismes existants de sélection, `request_method`, URL, en-têtes, corps et analyse HTML; elle reçoit seulement les options d'exécution navigateur nécessaires.
 
-Une sous-requête avec `http.execution: page_fetch` doit :
+Une sous-requête avec `http.execution: page_click` doit :
 
 1. Naviguer la session navigateur réutilisable de l'origine vers une page d'épisode.
-2. Attendre la source configurée du jeton de rappel JavaScript ou le défi complété par l'utilisateur.
-3. Construire une requête navigateur `fetch`/XHR configurée dans le même contexte de page.
-4. Envoyer la méthode, l'URL, les en-têtes et le corps de formulaire configurés.
-5. Renvoyer le texte de réponse en tant que réponse de scraper HTML.
+2. Cliquer le contrôle du lecteur configuré afin que le JavaScript de la source crée le CAPTCHA et soumette sa requête AJAX.
+3. Attendre le sélecteur de résultat configuré, puis renvoyer le HTML rendu au scraper HTML.
 
 La primitive doit être générique. Elle ne doit pas contenir de noms d'hébergeurs PapaDuStream, de noms de champs, de sélecteurs CSS ou de post-traitement spécifique au service dans Rust.
 
@@ -79,49 +77,34 @@ Forme YAML suggérée :
 sub_queries:
   - scraper_type: html
     http:
-      mode: auto
+      mode: direct
       browser_context: origin
-      execution: page_fetch
-    page_url: "{episode_url}"
-    browser_token:
-      source: turnstile_callback
-      placeholder: "{browser_turnstile_token}"
-      retry_on_rejection: once
-    request_method: post
-    query_url: "{request_origin}/engine/ajax/controller.php?mod=getxfield"
-    request_headers:
-      - name: X-Requested-With
-        value: XMLHttpRequest
-    request_body_template: >
-      id={player_id}&xfield={player_field}&type={player_type}
-      &g_recaptcha_response={browser_turnstile_token}&user_hash={player_user_hash}
+      execution: page_click
+      page_url: "{episode_url}"
+      browser_click:
+        selector: '.player-list .lien[onclick*="''{player_field}''"]'
+        wait_for_selector: "#videoIframe iframe[src]"
     row_selector: "iframe[src]"
 ```
 
-Le schéma exact doit réutiliser les conventions existantes de `request_method`, `request_headers` et `request_body_actions`. `browser_context`, `execution` et `browser_token` sont des extensions ciblées de sous-requête, non un modèle parallèle de requêtes.
+Le schéma exact conserve l'analyse HTML existante. `browser_context`, `execution` et `browser_click` sont des extensions ciblées de sous-requête, non un modèle parallèle de requêtes. Le script de la source conserve la maîtrise du CAPTCHA, du jeton et de la requête AJAX.
 
 ### 3. Cycle de vie du jeton Turnstile
 
-Ne pas définir une durée de vie arbitraire pour le jeton.
+Pour PapaDuStream, le jeton Turnstile reste exclusivement dans le callback du
+JavaScript de la page. `page_click` ne le lit, ne le sérialise et ne le transmet
+jamais à Scrapyfy : le site l'envoie dans sa propre requête AJAX après la
+résolution du CAPTCHA.
 
-- Conserver un jeton uniquement en mémoire, limité à la page/session navigateur qui l'a obtenu.
-- L'utiliser pour un seul POST `getxfield`, puis le marquer comme consommé.
-- Ne pas conserver les valeurs des jetons sur disque, dans les journaux, les diagnostics ou le cache de sessions navigateur.
-- Lorsqu'une réponse indique un captcha ou une session expirés/non valides, invalider ce jeton de page et réessayer une fois après avoir obtenu un nouveau jeton.
-- Lors d'un échec de session Cloudflare, invalider la session navigateur d'origine et le cache de cookies, puis réacquérir la session via le flux navigateur normal.
-
-La session navigateur elle-même est conservée tant qu'elle reste utilisable. Sa validité est déterminée par les réponses du site et les échecs de cookie/session, et non par un délai estimé.
+La session navigateur reste disponible tant qu'elle ne rencontre pas une erreur
+d'interaction ou qu'elle n'est pas évincée par la configuration de sessions.
 
 ### 4. Cache des iframes résolues
 
-Mettre en cache une iframe d'hébergeur résolue séparément de la session Cloudflare.
-
-- Clé de cache : URL de l'épisode, `player-id`, `player-field` et `player-type`.
-- Valeur : `iframe[src]`, date de création et métadonnées facultatives de l'hébergeur.
-- Portée : mémoire du processus uniquement.
-- Invalider lors d'un échec de résolution du lecteur, d'un échec de lecture de l'hébergeur signalé par l'appelant, d'une modification de la page d'épisode, d'un rafraîchissement explicite ou d'une éviction limitée.
-
-Cela évite de répéter les requêtes `getxfield` sans réutiliser incorrectement les jetons Turnstile.
+Aucun cache fonctionnel d'iframe résolue n'est prévu pour le flux `page_fetch`.
+La réutilisation concerne uniquement le jeton Turnstile en mémoire lorsque
+`browser_token.cache_scope: domain` est configuré. `ResolvedIframeCache` reste
+testé comme primitive isolée, mais n'est pas branché au flux PapaDuStream.
 
 ## Modifications requises
 
@@ -136,19 +119,20 @@ Cela évite de répéter les requêtes `getxfield` sans réutiliser incorrecteme
 
 ### `server/crates/arachnea-scrapyfy`
 
-- Étendre les sous-requêtes HTML existantes avec les options `browser_context`, `execution: page_fetch` et une source de jeton navigateur.
+- Étendre les sous-requêtes HTML existantes avec les options `browser_context`, `execution: page_click` et une action de clic navigateur.
 - Rendre la réponse du navigateur disponible pour l'analyse HTML existante, afin que `iframe[src]` ne nécessite aucun analyseur Rust personnalisé.
-- Prendre en charge une nouvelle tentative configurée une fois en cas de rejet du jeton, sans boucle de défi non bornée.
+- Attendre un sélecteur de résultat après le clic, sans boucle de défi non bornée.
 - Documenter le schéma dans `docs/specifications/arachnea-scrapyfy-*.md`.
 
 ### `server/services/arachnea-stream/dark-stream/papadustream-v2.yaml`
 
 - Conserver le `link` d'épisode de `get_season` comme lien source différé des lecteurs.
 - Conserver dans `get_players` l'analyse du nom du lecteur, de la langue, de l'identifiant, du champ, du type et de `user_hash`.
-- Ajouter pour chaque lecteur une sous-requête `page_fetch` vers `getxfield`, exécutée dans le contexte navigateur partagé de l'épisode.
-- Analyser `iframe[src]` du HTML `getxfield` réussi dans `players > embed-link`.
+- Ajouter pour chaque lecteur une sous-requête `page_click` qui invoque son contrôle dans le contexte navigateur partagé de la page d'épisode qui porte le CAPTCHA.
+- Analyser `iframe[src]` du HTML rendu par le JavaScript `getxfield` dans `players > embed-link`.
 - Préserver le nom du lecteur et la langue collectés sur la page de l'épisode.
-- Ne configurer que les en-têtes et champs de formulaire de la source ; ne coder en dur aucune URL d'hébergeur.
+- Ne configurer que le sélecteur de contrôle et le sélecteur de résultat de la source ; ne coder en dur aucune URL d'hébergeur.
+- Fermer systématiquement la session navigateur après la query, une fois tous les lecteurs résolus.
 
 ### `front`
 
@@ -159,13 +143,10 @@ Cela évite de répéter les requêtes `getxfield` sans réutiliser incorrecteme
 
 ## Plan de validation
 
-1. Ajouter des tests de fixtures locales pour analyser la réponse iframe `getxfield` fournie.
-2. Ajouter des tests de sessions navigateur simulées pour un jeton présent, un jeton consommé, un jeton non valide, une erreur de session et l'invalidation du cache.
-3. Vérifier que la réutilisation de la session navigateur ne provoque pas une seconde interaction Turnstile pour une session d'origine valide.
-4. Vérifier qu'un jeton rejeté entraîne au plus un rafraîchissement et une nouvelle tentative.
-5. Vérifier qu'un lecteur résolu est servi depuis le cache d'iframe sans nouvelle requête `getxfield`.
-6. Vérifier que `get_players` renvoie des valeurs `embed-link` propres à l'hébergeur, et non des URL de pages d'épisode.
-7. Exécuter `cargo test -p arachnea-http`, `cargo test -p arachnea-scrapyfy`, les tests d'intégration stream et `npm run type-check`.
+1. Vérifier avec des moteurs navigateur simulés un clic réussi, un contrôle absent, un délai d'attente et une erreur de session avec invalidation.
+2. Vérifier que `get_players` renvoie des valeurs `embed-link` propres à l'hébergeur, et non des URL de pages d'épisode.
+3. Conserver les fixtures `getxfield` pour un futur test d'intégration Scrapyfy ; aucun test de fixture n'est actuellement branché au flux `page_click`.
+4. Exécuter les vérifications applicables : `cargo test -p arachnea-http --lib`, `cargo check -p arachnea-scrapyfy`, `cargo check -p arachnea-stream` et `npx vue-tsc --noEmit` dans `front`.
 
 ## Plan d'implémentation par étapes
 
@@ -286,7 +267,7 @@ Critère de sortie : le résultat de `get_players` contient une URL d'iframe d'h
 
 - `get_players` conserve l'URL d'épisode différée comme `query_url` et les métadonnées `name`, `lang`, `player-id`, `player-field` et `player-type`.
 - Chaque lecteur extrait aussi son `player-user-hash`, puis son `embed-link` temporaire pointe vers `getxfield`.
-- La sous-requête HTML `page_fetch` soumet le POST form-urlencoded depuis la page d'épisode, avec le callback Turnstile et les en-têtes AJAX de PapaDuStream.
+- La sous-requête HTML `page_fetch` navigue vers la page d'épisode, obtient le callback Turnstile, puis soumet le POST form-urlencoded vers l'endpoint AJAX avec les en-têtes AJAX de PapaDuStream.
 - Le sélecteur `iframe[src]` remplace l'URL temporaire par `embed-link`, sans URL d'hébergeur ni logique spécifique introduite dans Rust.
 - Ajout générique de `request_body_actions` aux sous-requêtes HTML pour réutiliser le pipeline d'actions existant.
 - Validation : `cargo check -p arachnea-stream` OK.
@@ -434,6 +415,8 @@ Critère de sortie : les tests applicables passent, les contrats sont documenté
 | `server/crates/arachnea-http/README.md` | Section "Browser Page Sessions" enrichie : cycle de vie complet (création, navigation, token capture, fetch, token-rejection classification, invalidation, éviction), règles de sécurité, configuration `BrowserSessionConfig`, tableau des contrats d'erreur |
 | `docs/TODO.md` ligne 42 | Mise à jour : mentionne les extensions frontend et tests de doubles moteur comme implémentés |
 | `CHANGELOG.md` | 4 nouvelles entrées sous "Unreleased — PapaDuStream browser player resolution" : frontend recoverable error, getxfield fixtures, mock engine variants, token-cache unit tests |
+| `server/crates/arachnea-http/src/client.rs` | `page_navigate()` réutilise une session navigateur par origine et retourne le HTML stable d'une navigation configurée |
+| `arachnea-scrapyfy` | `execution: page_navigate` est disponible pour les requêtes HTML racines ; `get_players` conserve une lecture directe de l'épisode et ses sous-requêtes `page_fetch` partagent la même session origine/profil/proxy depuis la page d'épisode |
 
 **Validation :**
 - `cargo test -p arachnea-http --lib` : 37/37 OK

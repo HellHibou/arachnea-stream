@@ -29,8 +29,8 @@ use url::Url;
 
 use crate::{
     browser::{
-        BrowserPageSession, BrowserSessionMetadata, PageFetchRequest, PageFetchResponse,
-        PageNavigationRequest, PageNavigationResponse,
+        BrowserPageSession, BrowserSessionMetadata, PageClickRequest, PageClickResponse,
+        PageFetchRequest, PageFetchResponse, PageNavigationRequest, PageNavigationResponse,
     },
     config::ArachneaHttpConfig,
     engine::{EngineRequest, EngineResponse, HttpEngine, SOLVER_USER_AGENT_HEADER},
@@ -46,14 +46,17 @@ const DEFAULT_SESSION_CACHE_REFRESH_MARGIN: Duration = Duration::from_secs(300);
 /// File name used by the default persistent chaser-cf session cache.
 const DEFAULT_SESSION_CACHE_FILE_NAME: &str = "chaser-cf-sessions.json";
 
-/// Minimum time to keep sampling source after chaser-cf clears Cloudflare.
-const DEFAULT_SOURCE_MIN_WAIT: Duration = Duration::from_secs(4);
-
 /// Interval between page source sampling attempts.
 const DEFAULT_SOURCE_POLL_INTERVAL: Duration = Duration::from_millis(1_000);
 
 /// Time the page source must remain unchanged before it is returned.
 const DEFAULT_SOURCE_STABILITY: Duration = Duration::from_millis(2_500);
+
+/// Short stability window used before an in-page interaction.
+const INTERACTION_SOURCE_STABILITY: Duration = Duration::from_millis(400);
+
+/// Sampling interval used before an in-page interaction.
+const INTERACTION_SOURCE_POLL_INTERVAL: Duration = Duration::from_millis(200);
 
 /// `chaser-cf` engine adapter for browser-backed Cloudflare solving.
 pub struct ChaserCfEngine {
@@ -72,6 +75,8 @@ pub struct ChaserCfEngine {
 /// The owning `BrowserSessionManager` limits retained pages because chaser-cf
 /// does not expose its internal context permit type.
 struct ChaserCfPageSession {
+    /// Keeps the owning browser alive while this retained page session exists.
+    _browser_manager: Arc<BrowserManager>,
     page: chaser_oxide::Page,
     chaser: ChaserPage,
     timeout: Duration,
@@ -530,10 +535,11 @@ impl ChaserCfEngine {
         params
     }
 
-    /// Waits for Cloudflare clearance and, when requested, stable page source.
+    /// Waits for a stable non-interstitial page source.
     ///
-    /// The polling and Turnstile click happen in the same browser tab so one
-    /// request cannot create a loop of new chaser-cf pages.
+    /// The polling and Cloudflare Turnstile click happen in the same browser tab
+    /// so one request cannot create a loop of new chaser-cf pages. A valid source
+    /// page without a `cf_clearance` cookie is also accepted for page interactions.
     async fn wait_for_clearance_and_stable_source(
         timeout: Duration,
         url: &str,
@@ -549,53 +555,48 @@ impl ChaserCfEngine {
         let mut last_click = started
             .checked_sub(Duration::from_secs(30))
             .unwrap_or(started);
-        let mut clearance_seen_at: Option<Instant> = None;
         let mut last_signature: Option<(usize, u64)> = None;
         let mut stable_since: Option<Instant> = None;
         let mut latest_non_challenge_body: Option<Bytes> = None;
+        let source_stability = if collect_body {
+            DEFAULT_SOURCE_STABILITY
+        } else {
+            INTERACTION_SOURCE_STABILITY
+        };
+        let source_poll_interval = if collect_body {
+            DEFAULT_SOURCE_POLL_INTERVAL
+        } else {
+            INTERACTION_SOURCE_POLL_INTERVAL
+        };
 
         loop {
-            let mut should_click_challenge = false;
-            if has_clearance_cookie(page).await {
-                let seen_at = *clearance_seen_at.get_or_insert_with(Instant::now);
-                if seen_at.elapsed() >= CLEARANCE_STABILIZATION {
-                    let source = chaser
-                        .content()
-                        .await
-                        .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
-                    let body_is_usable =
-                        !source.trim().is_empty() && !looks_like_cloudflare_interstitial(&source);
-                    if !collect_body && body_is_usable {
-                        return Ok(Bytes::new());
-                    } else if collect_body && body_is_usable {
-                        let body = Bytes::from(source.clone());
-                        latest_non_challenge_body = Some(body.clone());
-                        let signature = page_source_signature(&source);
-                        if last_signature == Some(signature) {
-                            let stable_since = stable_since.get_or_insert_with(Instant::now);
-                            if seen_at.elapsed() >= DEFAULT_SOURCE_MIN_WAIT
-                                && stable_since.elapsed() >= DEFAULT_SOURCE_STABILITY
-                            {
-                                return Ok(body);
-                            }
-                        } else {
-                            last_signature = Some(signature);
-                            stable_since = Some(Instant::now());
-                        }
-                    } else {
-                        last_signature = None;
-                        stable_since = None;
-                        should_click_challenge = true;
+            let source = chaser
+                .content()
+                .await
+                .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
+            let body_is_usable =
+                !source.trim().is_empty() && !looks_like_cloudflare_interstitial(&source);
+            if body_is_usable {
+                let body = Bytes::from(source.clone());
+                latest_non_challenge_body = Some(body.clone());
+                let signature = page_source_signature(&source);
+                if last_signature == Some(signature) {
+                    let stable_since = stable_since.get_or_insert_with(Instant::now);
+                    let clearance_ready = !has_clearance_cookie(page).await
+                        || started.elapsed() >= CLEARANCE_STABILIZATION;
+                    if clearance_ready && stable_since.elapsed() >= source_stability {
+                        return Ok(if collect_body { body } else { Bytes::new() });
                     }
+                } else {
+                    last_signature = Some(signature);
+                    stable_since = Some(Instant::now());
                 }
             } else {
-                clearance_seen_at = None;
                 last_signature = None;
                 stable_since = None;
-                should_click_challenge = true;
             }
 
-            if should_click_challenge
+            if !body_is_usable
                 && started.elapsed() >= PASSIVE_WAIT
                 && last_click.elapsed() >= CLICK_INTERVAL
             {
@@ -613,7 +614,7 @@ impl ChaserCfEngine {
                 });
             }
 
-            tokio::time::sleep(DEFAULT_SOURCE_POLL_INTERVAL).await;
+            tokio::time::sleep(source_poll_interval).await;
         }
     }
 
@@ -807,7 +808,10 @@ impl ChaserCfEngine {
 impl Drop for ChaserCfEngine {
     fn drop(&mut self) {
         if let Ok(browser) = self.browser.try_read() {
-            if browser.is_some() {
+            if browser
+                .as_ref()
+                .is_some_and(|manager| Arc::strong_count(manager) == 1)
+            {
                 warn!(
                     "ChaserCfEngine dropped with an active browser; chaser-cf does not expose async drop"
                 );
@@ -896,6 +900,7 @@ impl HttpEngine for ChaserCfEngine {
             .await
             .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
         Ok(Box::new(ChaserCfPageSession {
+            _browser_manager: manager,
             page,
             chaser,
             timeout: self.config.timeout(),
@@ -1034,6 +1039,51 @@ impl BrowserPageSession for ChaserCfPageSession {
             headers: response_headers,
             body: result.body,
         })
+    }
+
+    async fn click_and_wait(
+        &mut self,
+        request: PageClickRequest,
+    ) -> Result<PageClickResponse, ArachneaHttpError> {
+        let selector = serde_json::to_string(&request.selector)
+            .map_err(|err| ArachneaHttpError::PageInteractionFailed(err.to_string()))?;
+        let click_script = format!(
+            "(() => {{ const element = document.querySelector({selector}); if (!element) throw new Error('click target was not found'); element.click(); return true; }})()"
+        );
+        self.chaser
+            .evaluate(&click_script)
+            .await
+            .map_err(|err| ArachneaHttpError::PageInteractionFailed(err.to_string()))?;
+
+        let wait_script = format!(
+            "(() => document.querySelector({selector}) !== null)()",
+            selector = serde_json::to_string(&request.wait_for_selector)
+                .map_err(|err| ArachneaHttpError::PageInteractionFailed(err.to_string()))?
+        );
+        let started = Instant::now();
+        loop {
+            let found = self
+                .chaser
+                .evaluate(&wait_script)
+                .await
+                .map_err(|err| ArachneaHttpError::PageInteractionFailed(err.to_string()))?
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            if found {
+                let body = self
+                    .chaser
+                    .content()
+                    .await
+                    .map_err(|err| ArachneaHttpError::PageInteractionFailed(err.to_string()))?;
+                return Ok(PageClickResponse { body });
+            }
+            if started.elapsed() >= self.timeout {
+                return Err(ArachneaHttpError::PageInteractionFailed(
+                    "timed out waiting for the page action result".to_string(),
+                ));
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
     }
 
     async fn metadata(&mut self) -> Result<BrowserSessionMetadata, ArachneaHttpError> {
@@ -1491,9 +1541,6 @@ fn looks_like_cloudflare_interstitial(source: &str) -> bool {
         "cf-challenge",
         "cf-chl-",
         "cf-please-wait",
-        "cf-turnstile-response",
-        "challenge-platform",
-        "challenges.cloudflare.com",
         "checking if the site connection is secure",
         "verify you are human",
         "just a moment",

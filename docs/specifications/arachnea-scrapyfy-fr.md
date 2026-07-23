@@ -528,7 +528,7 @@ Avec une ligne comme `42|Mon Film|1h30`, cela produit :
 
 ## 10. Sous-requêtes (`sub_queries`)
 
-Les sous-requêtes permettent d'enchaîner des requêtes HTTP supplémentaires à partir des valeurs extraites. Elles sont disponibles dans les scrapers `html` et `json`.
+Les sous-requêtes permettent d'enchaîner des requêtes HTTP supplémentaires à partir des valeurs extraites. Elles sont disponibles dans les scrapers `html` et `json`. Une sous-requête attachée à un champ dans un groupe d'objets s'exécute séparément pour chaque objet extrait : ses templates utilisent les champs de cet objet et son résultat remplace uniquement l'URL source de ce champ.
 
 ### Structure commune (`SubQueryCommon`)
 
@@ -564,11 +564,43 @@ target: "details>episodes"
 
 ### Requête dans une page navigateur
 
-Les sous-requêtes HTML peuvent exécuter un `fetch()` JavaScript authentifié dans
-une page navigateur conservée, au lieu du transport HTTP normal. Les templates
-de l'URL de page, des en-têtes et du corps utilisent le contexte de paramètres
-de la sous-requête ; les champs d'entrée sont aussi disponibles avec les
-caractères non alphanumériques remplacés par `_`.
+Les requêtes et sous-requêtes HTML peuvent utiliser une page navigateur
+conservée au lieu du transport HTTP normal. `page_navigate` navigue une requête
+HTML racine et retourne son HTML stable. `page_click` navigue, clique un élément
+et retourne le HTML rendu lorsqu'un sélecteur configuré apparaît. `page_fetch`
+navigue puis exécute un `fetch()` JavaScript authentifié pour une sous-requête
+HTML. Ces modes réutilisent la même session navigateur lorsque l'origine, le
+profil navigateur et la route proxy correspondent. Les templates de l'URL de
+page, des en-têtes et du corps utilisent le contexte de paramètres de la
+sous-requête ; les champs d'entrée sont aussi disponibles avec les caractères
+non alphanumériques remplacés par `_`.
+
+```yaml
+http:
+  execution: page_navigate
+  browser_context: origin
+```
+
+`page_navigate` est réservé au HTML, ne prend en charge que `GET` et utilise
+l'URL de la requête comme URL de navigation. Il exige
+`browser_context: origin`.
+
+```yaml
+http:
+  execution: page_click
+  browser_context: origin
+  page_url: "{episode_url}"
+  browser_click:
+    selector: '.player-list .lien[onclick*="''{player_field}''"]'
+    wait_for_selector: "#videoIframe iframe[src]"
+```
+
+`page_click` est réservé aux sous-requêtes HTML. Il invoque l'élément de page
+sélectionné : le JavaScript de la page garde alors la maîtrise du rendu CAPTCHA,
+des callbacks et des requêtes de même origine. Il retourne ensuite le HTML de
+la page lorsque `wait_for_selector` apparaît. `browser_click.selector` et
+`wait_for_selector` sont obligatoires, utilisent des sélecteurs CSS et prennent
+en charge les templates de sous-requête.
 
 ```yaml
 http:
@@ -591,6 +623,27 @@ aux diagnostics. `cache_scope: domain` réutilise explicitement le jeton seuleme
 pour la même origine, le même profil navigateur et la même route proxy ; sans ce
 champ, le comportement reste à usage unique. `retry_on_rejection: once` réalise
 au maximum une nouvelle navigation et soumission après un signal de rejet configuré.
+
+`http.execution` est facultatif et utilise par défaut le chemin HTTP direct.
+Avec `page_navigate`, `http.browser_context: origin` est obligatoire. Avec
+`page_click`, `http.browser_context: origin`, `http.page_url` et
+`http.browser_click` sont obligatoires. Avec `page_fetch`,
+`http.browser_context: origin` et `http.page_url` sont obligatoires. `page_url`,
+les en-têtes et les valeurs du corps de requête sont résolus comme templates de
+sous-requête avant l'envoi de la requête navigateur.
+
+Scrapyfy ferme la page navigateur retenue pour l'origine après l'exécution de
+toutes les sous-requêtes de chaque query racine. Les sessions de page navigateur
+sont donc limitées à une query et ne demandent aucune option YAML de cycle de
+vie.
+
+`browser_token` est facultatif. S'il est présent, `source: turnstile_callback`
+et un `placeholder` littéral dans le corps de la requête sont obligatoires ;
+`turnstile_callback` est la seule source prise en charge. `cache_scope` peut
+être absent ou valoir `domain`. `retry_on_rejection` vaut `never` par défaut et
+accepte `never` ou `once`. `rejection_statuses` et
+`rejection_body_markers` valent par défaut des listes vides ; ils classent une
+réponse comme rejet de jeton uniquement lorsqu'un jeton a été soumis.
 
 ### Sous-requête HTML
 

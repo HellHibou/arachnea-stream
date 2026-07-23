@@ -106,17 +106,22 @@ let response = client
 
 ## Browser Page Sessions
 
-`ArachneaHttpClient::page_fetch(PageNavigationRequest, PageFetchRequest)` navigates a persistent browser page to a source URL, then executes one JavaScript `fetch()` inside that page. Sessions are scoped to origin, user-agent profile, and proxy route; they are bounded by `BrowserSessionConfig` and evicted after inactivity.
+`ArachneaHttpClient::page_navigate(PageNavigationRequest)` navigates a persistent
+browser page and can return its stable HTML source. `ArachneaHttpClient::page_click(PageNavigationRequest, PageClickRequest)` navigates, clicks a CSS-selected element, then returns the rendered HTML when a result selector appears. `ArachneaHttpClient::page_fetch(PageNavigationRequest, PageFetchRequest)` navigates that same kind of page to a source URL, then executes one JavaScript `fetch()` inside it. Sessions are scoped to origin, user-agent profile, and proxy route; they are bounded by `BrowserSessionConfig` and evicted after inactivity.
+
+`ArachneaHttpClient::close_browser_session(url)` invalidates and closes the
+retained page for the URL origin when a query-scoped browser workflow finishes.
 
 ### Session lifecycle
 
 1. **Creation**: On the first `page_fetch` call for an origin, the session manager calls the engine's `open_browser_page_session()`. The page handle is cached in a `BrowserSessionHandle` behind the `BrowserSessionManager` (in-memory, keyed by origin + profile + proxy route).
-2. **Navigation**: Each `page_fetch` navigates the retained page to `PageNavigationRequest.url`. Browser cookies and the observed user-agent are handed back to the shared HTTP caches via `store_browser_session_metadata()`.
-3. **Token capture**: If `PageFetchRequest.turnstile_token_placeholder` is set, the client reads an application Turnstile callback token from the page. With `reuse_turnstile_token: true`, the token is cached on the handle for the session's lifetime and reused without re-reading the page.
-4. **Fetch**: A JavaScript `fetch()` is executed within the page context with the configured method, URL, headers, and body. The token placeholder is replaced in memory (never logged).
-5. **Token-rejection classification**: If the fetch response matches `token_rejection_statuses` or `token_rejection_body_markers`, the client returns `TokenRejected`. The session and its page are preserved — the caller may retry with a fresh token.
-6. **Session invalidation**: Any non-token error (engine failure, network error, etc.) invalidates the entire session for that origin. The page is closed and the handle is removed. A subsequent call will create a fresh session.
-7. **Eviction**: Idle sessions are evicted after `BrowserSessionConfig::idle_timeout`. When at capacity (`max_sessions`), the least-recently-used session is evicted first (after idle candidates).
+2. **Navigation**: Each browser operation navigates the retained page to `PageNavigationRequest.url`. `page_navigate` returns stable HTML when `collect_body` is enabled. A stable non-interstitial HTML page is usable for page interactions even when it does not issue a Cloudflare `cf_clearance` cookie. Browser cookies and the observed user-agent are handed back to the shared HTTP caches via `store_browser_session_metadata()`.
+3. **Click workflow**: `page_click` invokes the selected page element and waits for its result selector. This lets a page own its CAPTCHA callback, form submission, and DOM update without exposing the token to the caller.
+4. **Token capture**: If `PageFetchRequest.turnstile_token_placeholder` is set, `page_fetch` reads an application Turnstile callback token from the page. With `reuse_turnstile_token: true`, the token is cached on the handle for the session's lifetime and reused without re-reading the page.
+5. **Fetch**: A JavaScript `fetch()` is executed within the page context with the configured method, URL, headers, and body. The token placeholder is replaced in memory (never logged).
+6. **Token-rejection classification**: If the fetch response matches `token_rejection_statuses` or `token_rejection_body_markers`, the client returns `TokenRejected`. The session and its page are preserved — the caller may retry with a fresh token.
+7. **Session invalidation**: Any non-token error (engine failure, network error, etc.) invalidates the entire session for that origin. The page is closed and the handle is removed. A subsequent call will create a fresh session.
+8. **Eviction**: Idle sessions are evicted after `BrowserSessionConfig::idle_timeout`. When at capacity (`max_sessions`), the least-recently-used session is evicted first (after idle candidates).
 
 ### Security rules
 
@@ -142,6 +147,7 @@ let config = ArachneaHttpConfig::builder()
 ### Engine support
 
 - The `chaser-cf` engine supports persistent page sessions.
+- A retained chaser-cf page holds its browser manager, so temporary configured clients cannot close Chrome while the session remains valid.
 - Engines without this capability return `UnsupportedEngineOperation` rather than silently falling back to direct HTTP.
 - `BrowserPageSession::clear_turnstile_token()` has a default no-op implementation.
 - Browser contexts are resource-intensive. Keep `max_sessions` small and invalidate an origin when its session is known to be invalid.
@@ -150,8 +156,9 @@ let config = ArachneaHttpConfig::builder()
 
 | Error variant | Meaning | Session state |
 |---|---|---|
-| `TokenAbsent` | The page callback did not produce a token | Preserved |
+| `TokenAbsent` | The page callback did not produce a token | Invalidated |
 | `TokenRejected` | The fetch response matched rejection signals | Preserved (caller may retry once) |
+| `PageInteractionFailed` | Click target or result selector failed | Invalidated |
 | `BrowserSessionUnavailable` | Session was invalidated or manager is disabled | — |
 | `CloudflareSolverUnavailable` | No browser engine is configured | — |
 | `ChaserCfFailure` / other engine errors | Engine-level failure | Invalidated |

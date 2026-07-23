@@ -1,8 +1,9 @@
 use anyhow::{Context, Result};
 use arachnea_http::{
     global_cookie_cache, header_map_from_strings, ArachneaHttpClient, ArachneaHttpConfig,
-    ArachneaResponse, BrowserProfile, CookieEntry, HttpProxyConfig, HttpRequestMode,
-    PageFetchRequest, PageNavigationRequest, SharedCookieCache,
+    ArachneaResponse, BrowserProfile, BrowserSessionConfig, BrowserSessionManager, CookieEntry,
+    HttpProxyConfig, HttpRequestMode, PageClickRequest, PageFetchRequest, PageNavigationRequest,
+    SharedCookieCache,
 };
 #[cfg(feature = "arachnea-proxy")]
 use arachnea_proxy::core::{ArachneaProxyCore, UsageProfile};
@@ -128,12 +129,16 @@ pub enum ScraperHttpMode {
     CloudflareBrowser,
 }
 
-/// Execution transport for a scraper sub-query.
+/// Execution transport for a scraper query or sub-query.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ScraperHttpExecution {
     /// Use the normal HTTP client request path.
     Direct,
+    /// Navigate a retained browser page and return its stable HTML source.
+    PageNavigate,
+    /// Navigate a retained browser page, click an element, then return rendered HTML.
+    PageClick,
     /// Navigate a retained browser page, then execute JavaScript `fetch()` in it.
     PageFetch,
 }
@@ -197,6 +202,15 @@ fn default_browser_token_retry() -> ScraperBrowserTokenRetry {
     ScraperBrowserTokenRetry::Never
 }
 
+/// Browser-page click and DOM wait configuration for a scraper sub-query.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScraperBrowserClickConfig {
+    /// CSS selector for the page element that triggers the site workflow.
+    pub selector: String,
+    /// CSS selector that must appear before the rendered page is extracted.
+    pub wait_for_selector: String,
+}
+
 impl From<ScraperHttpMode> for HttpRequestMode {
     /// Converts the scraper-level mode into the [`HttpRequestMode`] expected by `arachnea-http`.
     fn from(mode: ScraperHttpMode) -> Self {
@@ -257,7 +271,7 @@ pub struct ScraperHttpConfig {
     /// Optional browser execution mode for a sub-query.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub execution: Option<ScraperHttpExecution>,
-    /// Browser session reuse scope required by `execution: page_fetch`.
+    /// Browser session reuse scope required by browser page execution.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub browser_context: Option<ScraperBrowserContext>,
     /// Source page URL template navigated before an in-page fetch.
@@ -266,6 +280,9 @@ pub struct ScraperHttpConfig {
     /// Optional browser token configuration for the in-page request body.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub browser_token: Option<ScraperBrowserTokenConfig>,
+    /// Optional click and DOM wait configuration for `execution: page_click`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser_click: Option<ScraperBrowserClickConfig>,
 }
 
 impl ScraperHttpConfig {
@@ -280,6 +297,7 @@ impl ScraperHttpConfig {
             && self.browser_context.is_none()
             && self.page_url.is_none()
             && self.browser_token.is_none()
+            && self.browser_click.is_none()
     }
 
     /// Applies a child override on top of this config.
@@ -305,6 +323,11 @@ impl ScraperHttpConfig {
                 .browser_token
                 .as_ref()
                 .or(self.browser_token.as_ref())
+                .cloned(),
+            browser_click: child
+                .browser_click
+                .as_ref()
+                .or(self.browser_click.as_ref())
                 .cloned(),
         }
     }
@@ -407,6 +430,7 @@ pub struct HttpClient {
     http_config: ScraperHttpConfig,
     proxy_handle: SharedProxyConfigHandle,
     cookie_cache: Arc<AsyncRwLock<SharedCookieCache>>,
+    browser_session_manager: Arc<BrowserSessionManager>,
     client: Arc<AsyncRwLock<Option<CachedHttpClient>>>,
 }
 
@@ -448,17 +472,24 @@ impl HttpClient {
             http_config,
             proxy_handle,
             cookie_cache,
+            browser_session_manager: Arc::new(BrowserSessionManager::new(
+                BrowserSessionConfig::default(),
+            )),
             client: Arc::new(AsyncRwLock::new(None)),
         }
     }
 
     /// Returns a clone using a fresh cookie cache while preserving HTTP and proxy config.
     pub fn with_isolated_cookies(&self) -> Self {
-        Self::with_http_config_proxy_handle_and_cookie_cache(
-            self.http_config.clone(),
-            self.proxy_handle.clone(),
-            Arc::new(AsyncRwLock::new(SharedCookieCache::default())),
-        )
+        Self {
+            http_config: self.http_config.clone(),
+            proxy_handle: self.proxy_handle.clone(),
+            cookie_cache: Arc::new(AsyncRwLock::new(SharedCookieCache::default())),
+            browser_session_manager: Arc::new(BrowserSessionManager::new(
+                BrowserSessionConfig::default(),
+            )),
+            client: Arc::new(AsyncRwLock::new(None)),
+        }
     }
 
     /// Returns the shared mutable proxy handle used by this client family.
@@ -472,11 +503,30 @@ impl HttpClient {
             return self.clone();
         }
 
-        Self::with_http_config_proxy_handle_and_cookie_cache(
+        // Browser execution settings do not alter the underlying HTTP transport.
+        // Reuse its client and engine when mode, browser fingerprint, and proxy
+        // routing remain unchanged so retained page sessions outlive sub-queries.
+        if http_config.request_mode() == self.http_config.request_mode()
+            && http_config.browser_profile() == self.http_config.browser_profile()
+            && http_config.proxy_country_hint() == self.http_config.proxy_country_hint()
+            && http_config.max_redirects == self.http_config.max_redirects
+        {
+            return Self {
+                http_config,
+                proxy_handle: self.proxy_handle.clone(),
+                cookie_cache: self.cookie_cache.clone(),
+                browser_session_manager: self.browser_session_manager.clone(),
+                client: self.client.clone(),
+            };
+        }
+
+        Self {
             http_config,
-            self.proxy_handle.clone(),
-            self.cookie_cache.clone(),
-        )
+            proxy_handle: self.proxy_handle.clone(),
+            cookie_cache: self.cookie_cache.clone(),
+            browser_session_manager: self.browser_session_manager.clone(),
+            client: Arc::new(AsyncRwLock::new(None)),
+        }
     }
 
     /// Stores simple name/value cookies for a URL in the shared HTTP cache.
@@ -586,7 +636,12 @@ impl HttpClient {
         }
         let config = builder.build()?;
         let client = Arc::new(
-            ArachneaHttpClient::new_with_cookie_cache(config, self.cookie_cache.clone()).await?,
+            ArachneaHttpClient::new_with_cookie_cache_and_browser_session_manager(
+                config,
+                self.cookie_cache.clone(),
+                self.browser_session_manager.clone(),
+            )
+            .await?,
         );
 
         let mut guard = self.client.write().await;
@@ -638,6 +693,64 @@ impl HttpClient {
         let text = response.text().await?;
         trace!("{}", text);
         Ok(text)
+    }
+
+    /// Navigates a browser page and returns its stable HTML for a scraper query.
+    ///
+    /// The browser session and cookie handoff are provided by `arachnea-http`.
+    pub async fn page_navigate_for_request(
+        &self,
+        url: &str,
+        request_headers: &HashMap<String, String>,
+    ) -> Result<String> {
+        let headers = header_map_from_strings(
+            request_headers
+                .iter()
+                .map(|(name, value)| (name.as_str(), value.as_str())),
+        )?;
+        let response = self
+            .http_client()
+            .await?
+            .page_navigate(PageNavigationRequest {
+                url: url.to_string(),
+                headers,
+                collect_body: true,
+            })
+            .await?;
+        response
+            .body
+            .ok_or_else(|| anyhow::anyhow!("browser navigation did not return page HTML"))
+    }
+
+    /// Navigates a browser page, clicks one element, and returns the rendered HTML.
+    pub async fn page_click_for_request(
+        &self,
+        page_url: &str,
+        selector: &str,
+        wait_for_selector: &str,
+    ) -> Result<String> {
+        let response = self
+            .http_client()
+            .await?
+            .page_click(
+                PageNavigationRequest {
+                    url: page_url.to_string(),
+                    headers: HeaderMap::new(),
+                    collect_body: false,
+                },
+                PageClickRequest {
+                    selector: selector.to_string(),
+                    wait_for_selector: wait_for_selector.to_string(),
+                },
+            )
+            .await?;
+        Ok(response.body)
+    }
+
+    /// Closes the retained browser session associated with one page URL.
+    pub async fn close_browser_session_for_url(&self, url: &str) -> Result<()> {
+        self.http_client().await?.close_browser_session(url)?;
+        Ok(())
     }
 
     /// Navigates a browser page and executes one JavaScript fetch for a scraper sub-query.

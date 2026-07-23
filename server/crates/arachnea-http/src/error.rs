@@ -65,6 +65,9 @@ pub enum ArachneaHttpError {
     /// An in-page JavaScript fetch/XHR execution failed.
     #[error("page fetch failed: {0}")]
     PageFetchFailed(String),
+    /// A browser-page click or DOM wait failed.
+    #[error("page interaction failed: {0}")]
+    PageInteractionFailed(String),
     /// An engine cannot execute the requested normalized operation.
     #[error("engine {engine} does not support {operation}")]
     UnsupportedEngineOperation {

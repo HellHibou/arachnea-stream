@@ -18,8 +18,9 @@ use url::Url;
 
 use crate::{
     browser::{
-        BrowserSessionKey, BrowserSessionManager, BrowserSessionMetadata, PageFetchRequest,
-        PageFetchResponse, PageNavigationRequest,
+        BrowserSessionKey, BrowserSessionManager, BrowserSessionMetadata, PageClickRequest,
+        PageClickResponse, PageFetchRequest, PageFetchResponse, PageNavigationRequest,
+        PageNavigationResponse,
     },
     cloudflare::detect_cloudflare_block,
     config::{ArachneaHttpConfig, CloudflareSolverKind, HttpProxyConfig, HttpRequestMode},
@@ -305,6 +306,24 @@ impl ArachneaHttpClient {
         config: ArachneaHttpConfig,
         cookies: Arc<RwLock<SharedCookieCache>>,
     ) -> Result<Self, ArachneaHttpError> {
+        let browser_session_manager = Arc::new(BrowserSessionManager::new(config.browser_session));
+        Self::new_with_cookie_cache_and_browser_session_manager(
+            config,
+            cookies,
+            browser_session_manager,
+        )
+        .await
+    }
+
+    /// Builds a new HTTP client with explicit cookies and shared browser sessions.
+    ///
+    /// Callers that derive clients with distinct request modes can pass the same
+    /// manager to preserve pages for matching origin, profile, and proxy keys.
+    pub async fn new_with_cookie_cache_and_browser_session_manager(
+        config: ArachneaHttpConfig,
+        cookies: Arc<RwLock<SharedCookieCache>>,
+        browser_session_manager: Arc<BrowserSessionManager>,
+    ) -> Result<Self, ArachneaHttpError> {
         let proxy_runtime = Arc::new(PreparedProxyRuntime::new(&config).await?);
         let direct_engine = config.engine.direct_engine();
         let rquest = if direct_engine.is_some() {
@@ -320,7 +339,6 @@ impl ArachneaHttpClient {
             Self::build_smart_cloudflare_engine(&config, proxy_runtime.as_ref()).await?;
         let browser_cloudflare_engine =
             build_browser_cloudflare_solver(&config, &config.cloudflare_browser_solver).await?;
-        let browser_session_config = config.browser_session;
         Ok(Self {
             config,
             cookies,
@@ -330,9 +348,7 @@ impl ArachneaHttpClient {
             browser_cloudflare_engine,
             _proxy_runtime: proxy_runtime,
             cloudflare_user_agents: global_cloudflare_user_agents(),
-            browser_session_manager: Some(Arc::new(BrowserSessionManager::new(
-                browser_session_config,
-            ))),
+            browser_session_manager: Some(browser_session_manager),
         })
     }
 
@@ -484,6 +500,145 @@ impl ArachneaHttpClient {
     /// Returns a reference to the browser session manager, if available.
     pub fn browser_session_manager(&self) -> Option<&Arc<BrowserSessionManager>> {
         self.browser_session_manager.as_ref()
+    }
+
+    /// Closes the retained browser session for the origin of one URL.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidUrl` when `url` does not contain a valid origin.
+    pub fn close_browser_session(&self, url: &str) -> Result<(), ArachneaHttpError> {
+        let origin = origin_url(url)?;
+        if let Some(manager) = &self.browser_session_manager {
+            manager.invalidate_origin(&origin);
+        }
+        Ok(())
+    }
+
+    /// Navigates a reusable browser page and returns its stable HTML when requested.
+    ///
+    /// The page is scoped to the navigation origin, configured user-agent profile,
+    /// and proxy route. Browser cookies and the observed user-agent are handed back
+    /// to the existing shared HTTP state after navigation.
+    ///
+    /// # Errors
+    ///
+    /// Returns `UnsupportedEngineOperation` when the configured browser solver does
+    /// not implement persistent pages, or browser/session failures otherwise.
+    pub async fn page_navigate(
+        &self,
+        navigation: PageNavigationRequest,
+    ) -> Result<PageNavigationResponse, ArachneaHttpError> {
+        let origin = origin_url(&navigation.url)?;
+        let manager = self.browser_session_manager.as_ref().ok_or_else(|| {
+            ArachneaHttpError::BrowserSessionUnavailable {
+                origin: origin.clone(),
+                reason: "browser session management is disabled".to_string(),
+            }
+        })?;
+        let session_key = BrowserSessionKey {
+            origin: origin.clone(),
+            profile: self.config.user_agent_profile.user_agent().to_string(),
+            proxy_route: self
+                ._proxy_runtime
+                .proxy_url(&self.config)
+                .map(str::to_owned),
+        };
+        let handle = manager.get_or_create(&session_key);
+        if !handle.is_valid() {
+            return Err(ArachneaHttpError::BrowserSessionUnavailable {
+                origin,
+                reason: "the cached browser session was invalidated".to_string(),
+            });
+        }
+
+        let result = async {
+            let mut session = handle.lock().await;
+            if session.page.is_none() {
+                let engine = self
+                    .browser_cloudflare_engine
+                    .as_ref()
+                    .ok_or_else(|| ArachneaHttpError::CloudflareSolverUnavailable)?;
+                session.page = Some(engine.open_browser_page_session().await?);
+            }
+            let page = session.page.as_mut().expect("browser page initialized");
+            let response = page.navigate(navigation).await?;
+            self.store_browser_session_metadata(page.metadata().await?)
+                .await?;
+            handle.touch();
+            Ok(response)
+        }
+        .await;
+
+        if result.is_err() {
+            manager.invalidate_origin(&origin);
+        }
+        result
+    }
+
+    /// Navigates a reusable browser page, clicks an element, and waits for a result selector.
+    ///
+    /// The page is scoped to the navigation origin, configured user-agent profile,
+    /// and proxy route. Browser cookies and the observed user-agent are handed back
+    /// to the existing shared HTTP state after navigation and interaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns `UnsupportedEngineOperation` when the configured browser solver does
+    /// not support page interaction, or browser/session failures otherwise.
+    pub async fn page_click(
+        &self,
+        navigation: PageNavigationRequest,
+        click: PageClickRequest,
+    ) -> Result<PageClickResponse, ArachneaHttpError> {
+        let origin = origin_url(&navigation.url)?;
+        let manager = self.browser_session_manager.as_ref().ok_or_else(|| {
+            ArachneaHttpError::BrowserSessionUnavailable {
+                origin: origin.clone(),
+                reason: "browser session management is disabled".to_string(),
+            }
+        })?;
+        let session_key = BrowserSessionKey {
+            origin: origin.clone(),
+            profile: self.config.user_agent_profile.user_agent().to_string(),
+            proxy_route: self
+                ._proxy_runtime
+                .proxy_url(&self.config)
+                .map(str::to_owned),
+        };
+        let handle = manager.get_or_create(&session_key);
+        if !handle.is_valid() {
+            return Err(ArachneaHttpError::BrowserSessionUnavailable {
+                origin,
+                reason: "the cached browser session was invalidated".to_string(),
+            });
+        }
+
+        let result = async {
+            let mut session = handle.lock().await;
+            if session.page.is_none() {
+                let engine = self
+                    .browser_cloudflare_engine
+                    .as_ref()
+                    .ok_or_else(|| ArachneaHttpError::CloudflareSolverUnavailable)?;
+                session.page = Some(engine.open_browser_page_session().await?);
+            }
+            let page = session.page.as_mut().expect("browser page initialized");
+            page.navigate(navigation).await?;
+            self.store_browser_session_metadata(page.metadata().await?)
+                .await?;
+            let response = page.click_and_wait(click).await?;
+            self.store_browser_session_metadata(page.metadata().await?)
+                .await?;
+            handle.touch();
+            Ok(response)
+        }
+        .await;
+
+        if result.is_err() {
+            manager.invalidate_origin(&origin);
+        }
+        result
     }
 
     /// Navigates a reusable browser page, then executes one JavaScript fetch in it.

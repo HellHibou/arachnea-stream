@@ -13,9 +13,10 @@ pub mod http_client;
 pub use arachnea_http::{ArachneaHttpError, HttpProxyConfig};
 pub use http_client::HttpClient;
 pub use http_client::{
-    ScraperBrowserContext, ScraperBrowserTokenCacheScope, ScraperBrowserTokenConfig,
-    ScraperBrowserTokenRetry, ScraperBrowserTokenSource, ScraperHttpConfig, ScraperHttpExecution,
-    ScraperHttpMode, ScraperHttpUserAgentProfile, SharedProxyConfigHandle,
+    ScraperBrowserClickConfig, ScraperBrowserContext, ScraperBrowserTokenCacheScope,
+    ScraperBrowserTokenConfig, ScraperBrowserTokenRetry, ScraperBrowserTokenSource,
+    ScraperHttpConfig, ScraperHttpExecution, ScraperHttpMode, ScraperHttpUserAgentProfile,
+    SharedProxyConfigHandle,
 };
 
 /// Text extraction and normalization actions.

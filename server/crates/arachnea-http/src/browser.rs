@@ -196,7 +196,7 @@ impl BrowserSessionHandle {
 /// A browser-specific persistent page context.
 ///
 /// Implementations must retain the browser's page, cookies, and JavaScript
-/// execution state between `navigate` and `fetch` calls. All methods are
+/// execution state between `navigate`, `click_and_wait`, and `fetch` calls. All methods are
 /// invoked while the owning `BrowserSessionHandle` is exclusively locked.
 #[async_trait]
 pub trait BrowserPageSession: Send {
@@ -211,6 +211,17 @@ pub trait BrowserPageSession: Send {
         &mut self,
         request: PageFetchRequest,
     ) -> Result<PageFetchResponse, crate::ArachneaHttpError>;
+
+    /// Clicks an element in the current page and returns HTML after a selector appears.
+    async fn click_and_wait(
+        &mut self,
+        _request: PageClickRequest,
+    ) -> Result<PageClickResponse, crate::ArachneaHttpError> {
+        Err(crate::ArachneaHttpError::UnsupportedEngineOperation {
+            engine: "browser-page-session",
+            operation: "click_and_wait",
+        })
+    }
 
     /// Returns browser cookies and the observed user-agent for HTTP handoff.
     async fn metadata(&mut self) -> Result<BrowserSessionMetadata, crate::ArachneaHttpError>;
@@ -248,6 +259,22 @@ pub struct PageNavigationResponse {
     pub url: String,
     /// Stable page HTML when `PageNavigationRequest::collect_body` is enabled.
     pub body: Option<String>,
+}
+
+/// Parameters for a browser-page click followed by a DOM wait.
+#[derive(Debug, Clone)]
+pub struct PageClickRequest {
+    /// CSS selector identifying the element to click.
+    pub selector: String,
+    /// CSS selector that must appear after the click completes.
+    pub wait_for_selector: String,
+}
+
+/// Stable HTML captured after a browser-page click completes.
+#[derive(Debug, Clone)]
+pub struct PageClickResponse {
+    /// Current page HTML after the configured selector appears.
+    pub body: String,
 }
 
 /// Cookies and browser fingerprint metadata that can be handed off to HTTP.

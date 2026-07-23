@@ -347,6 +347,12 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ### Added
 
 - **Reusable browser page fetch primitive**: `arachnea-http` now exposes origin-scoped browser sessions and `ArachneaHttpClient::page_fetch`, allowing supported browser engines to navigate a source page, capture an application Turnstile callback token in memory, and execute an authenticated same-page JavaScript `fetch()`.
+- **Browser page click primitive**: `ArachneaHttpClient::page_click` now invokes a CSS-selected page control and returns rendered HTML after a result selector appears, preserving site-owned CAPTCHA callbacks and same-page AJAX behavior.
+- **Browser navigation without Cloudflare clearance**: Persistent page operations now accept stable, non-interstitial HTML that does not set `cf_clearance`, allowing application-level CAPTCHA flows to run after navigation.
+- **Faster browser page interactions**: Browser operations that only need a navigable page now use a short source-stability window before clicking, while full HTML collection retains the longer stability check.
+- **Retained Chaser-CF sessions**: A retained browser page now owns its `BrowserManager`, preventing temporary configured clients from closing Chrome and breaking subsequent player resolutions.
+- **Shared configured browser clients**: Scrapyfy configurations that only differ in browser execution settings now reuse the same underlying HTTP client and Chaser-CF engine when their transport, browser profile, and proxy route match.
+- **Query-scoped browser cleanup**: Root Scrapyfy queries now always close retained origin sessions after all sub-queries complete; no YAML lifecycle option is required.
 - **chaser-cf persistent page support**: chaser-cf retains the browser page across navigation and fetch, hands browser cookies plus the observed user-agent back to the shared HTTP cache, and closes retained pages on invalidation or eviction.
 - **Structured page-fetch contracts**: Added navigation/fetch request and response types, explicit unsupported-engine behavior, configurable token-rejection classification, and unit coverage for session reuse, token insertion, and cookie/UA handoff.
 
@@ -354,7 +360,7 @@ All notable changes to the server workspace are recorded here. Add new entries a
 
 ### Changed
 
-- **PapaDuStream v2 players**: `get_players` now resolves each delayed player through the generic browser `page_fetch` sub-query, submits its `getxfield` form in the episode page context, and returns the resulting `iframe[src]` as `embed-link` while preserving player name and language.
+- **PapaDuStream v2 players**: `get_players` extracts delayed-player fields through direct HTTP, then resolves each player through the generic browser `page_click` sub-query. It invokes the site's player control, lets the site render and resolve its CAPTCHA plus AJAX request, and returns the resulting `iframe[src]` as `embed-link` while preserving player name and language.
 - **HTML sub-query request bodies**: HTML entry sub-queries now support the existing `request_body_actions` pipeline, enabling generic form-body construction without source-specific Rust code.
 
 ### Added
@@ -369,3 +375,7 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ### Added
 
 - **Opt-in browser callback-token reuse**: `browser_token.cache_scope: domain` now retains one opaque callback token in memory for the matching origin, browser profile, and proxy route. The token is evicted on rejection, session invalidation, eviction, or closure and is never persisted or logged.
+
+### Fixed
+
+- **PapaDuStream v2 `get_entry` season fallback**: Added two fallback `seasons` entries for season-specific variant pages: `.saisontab a.th-hover` for linked seasons, and `.saisontab :not(a) > .thumb` for the current non-linked season (rendered as a plain `<div.thumb>` without an `<a>` wrapper).

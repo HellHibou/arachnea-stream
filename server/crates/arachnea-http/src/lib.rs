@@ -78,8 +78,9 @@ pub mod error;
 
 pub use browser::{
     BrowserPageSession, BrowserSessionConfig, BrowserSessionHandle, BrowserSessionKey,
-    BrowserSessionManager, BrowserSessionMetadata, PageFetchRequest, PageFetchResponse,
-    PageNavigationRequest, PageNavigationResponse, ResolvedIframeCache, TurnstileTokenState,
+    BrowserSessionManager, BrowserSessionMetadata, PageClickRequest, PageClickResponse,
+    PageFetchRequest, PageFetchResponse, PageNavigationRequest, PageNavigationResponse,
+    ResolvedIframeCache, TurnstileTokenState,
 };
 
 pub use client::{
