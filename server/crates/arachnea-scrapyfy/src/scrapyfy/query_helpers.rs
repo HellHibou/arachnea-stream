@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use regex::{Captures, Regex};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
@@ -13,6 +13,165 @@ use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
 
 /// Compiled regex matching `{placeholder}` tokens in template strings.
 static PLACEHOLDER_REGEX: OnceLock<Regex> = OnceLock::new();
+
+/// Prefix reserved for variables produced while a scraper request is being extracted.
+pub const DYNAMIC_TEMPLATE_VARIABLE_PREFIX: &str = "@";
+
+/// Request-scoped template variables produced by extraction actions.
+///
+/// Dynamic variables are intentionally separated from collection/runtime
+/// parameters. Every dynamic name must start with [`DYNAMIC_TEMPLATE_VARIABLE_PREFIX`]
+/// and duplicates are rejected by default so extraction pipelines cannot silently
+/// shadow previous values.
+#[derive(Debug, Clone, Default)]
+pub struct DynamicTemplateVariables {
+    values: HashMap<String, String>,
+}
+
+impl DynamicTemplateVariables {
+    /// Creates an empty dynamic variable set.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Adds one dynamic variable after validating its reserved prefix and collisions.
+    ///
+    /// # Arguments
+    ///
+    /// * `standard_params` - Standard runtime parameters that must not be overwritten.
+    /// * `name` - Dynamic variable name. Must start with `@` and contain at least one
+    ///   character after the prefix.
+    /// * `value` - Textual value stored for placeholder replacement.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the name is empty, lacks the `@` prefix, collides with
+    /// a standard parameter, or duplicates an existing dynamic variable.
+    pub fn insert(
+        &mut self,
+        standard_params: &HashMap<String, String>,
+        name: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Result<()> {
+        let name = name.into();
+        validate_dynamic_template_variable_name(&name)?;
+
+        if standard_params.contains_key(&name) {
+            anyhow::bail!(
+                "Dynamic template variable {} cannot overwrite a standard parameter",
+                name
+            );
+        }
+
+        if self.values.contains_key(&name) {
+            anyhow::bail!("Duplicate dynamic template variable {}", name);
+        }
+
+        self.values.insert(name, value.into());
+        Ok(())
+    }
+
+    /// Adds or replaces one dynamic variable after validating its reserved prefix.
+    ///
+    /// This is intended for extraction pipelines that deliberately read the same
+    /// request-scoped declarations more than once. Standard parameters remain
+    /// protected from overwrite.
+    pub fn insert_or_replace(
+        &mut self,
+        standard_params: &HashMap<String, String>,
+        name: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Result<()> {
+        let name = name.into();
+        validate_dynamic_template_variable_name(&name)?;
+
+        if standard_params.contains_key(&name) {
+            anyhow::bail!(
+                "Dynamic template variable {} cannot overwrite a standard parameter",
+                name
+            );
+        }
+
+        self.values.insert(name, value.into());
+        Ok(())
+    }
+
+    /// Returns the stored dynamic variables.
+    pub fn as_map(&self) -> &HashMap<String, String> {
+        &self.values
+    }
+
+    /// Returns whether no dynamic variables are currently stored.
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+}
+
+/// Validates one dynamic template variable name.
+///
+/// # Errors
+///
+/// Returns an error when the name does not use the reserved `@` namespace.
+pub fn validate_dynamic_template_variable_name(name: &str) -> Result<()> {
+    if name.trim().is_empty() {
+        anyhow::bail!("Dynamic template variable name cannot be empty");
+    }
+
+    if !name.starts_with(DYNAMIC_TEMPLATE_VARIABLE_PREFIX) {
+        anyhow::bail!(
+            "Dynamic template variable {} must start with {}",
+            name,
+            DYNAMIC_TEMPLATE_VARIABLE_PREFIX
+        );
+    }
+
+    if name == DYNAMIC_TEMPLATE_VARIABLE_PREFIX {
+        anyhow::bail!("Dynamic template variable name must include a name after @");
+    }
+
+    Ok(())
+}
+
+/// Builds a template parameter map containing standard and dynamic variables.
+///
+/// Dynamic variables keep their `@` prefix and can therefore be referenced as
+/// `{@name}`. Standard parameters are rejected if they use the reserved dynamic
+/// namespace, preventing a standard value from overwriting an extracted value.
+///
+/// # Errors
+///
+/// Returns an error when a standard parameter uses the reserved `@` prefix or a
+/// dynamic variable collides with a standard parameter.
+pub fn build_template_params_with_dynamic_variables(
+    standard_params: &HashMap<String, String>,
+    dynamic_variables: &DynamicTemplateVariables,
+) -> Result<HashMap<String, String>> {
+    let mut merged = standard_params.clone();
+
+    for key in standard_params.keys() {
+        if key.starts_with(DYNAMIC_TEMPLATE_VARIABLE_PREFIX) {
+            anyhow::bail!(
+                "Standard template parameter {} cannot use reserved dynamic prefix {}",
+                key,
+                DYNAMIC_TEMPLATE_VARIABLE_PREFIX
+            );
+        }
+    }
+
+    for (key, value) in dynamic_variables.as_map() {
+        validate_dynamic_template_variable_name(key)
+            .with_context(|| format!("Invalid dynamic template variable {}", key))?;
+        if merged.contains_key(key) {
+            anyhow::bail!(
+                "Dynamic template variable {} cannot overwrite a standard parameter",
+                key
+            );
+        }
+        merged.insert(key.clone(), value.clone());
+    }
+
+    Ok(merged)
+}
 
 /// Defines how one source parameter is mapped into a target parameter through
 /// a value translation table.
@@ -166,7 +325,7 @@ pub fn replace_template_placeholders(
     params: &HashMap<String, String>,
 ) -> (String, Vec<String>) {
     let placeholder_re = PLACEHOLDER_REGEX
-        .get_or_init(|| Regex::new(r"\{([A-Za-z0-9_]+)\}").expect("Invalid placeholder regex"));
+        .get_or_init(|| Regex::new(r"\{(@?[A-Za-z0-9_]+)\}").expect("Invalid placeholder regex"));
     let mut missing_keys: Vec<String> = Vec::new();
 
     let rendered = placeholder_re
@@ -459,5 +618,65 @@ mod tests {
             resolved.get("android_home_covers_url").map(String::as_str),
             Some("https://app-api.tf1.fr/graphql/fr-fr/android?id=abc")
         );
+    }
+
+    #[test]
+    fn replace_template_placeholders_resolves_dynamic_prefixed_keys() {
+        let params = HashMap::from([
+            ("country".to_string(), "BE".to_string()),
+            ("@PortPart".to_string(), "80".to_string()),
+        ]);
+
+        let (rendered, missing) = replace_template_placeholders("{country}:{@PortPart}", &params);
+
+        assert_eq!(rendered, "BE:80");
+        assert!(missing.is_empty());
+    }
+
+    #[test]
+    fn dynamic_template_variables_reject_missing_prefix() {
+        let params = HashMap::new();
+        let mut dynamic = DynamicTemplateVariables::new();
+
+        let error = dynamic.insert(&params, "PortPart", "80").unwrap_err();
+
+        assert!(error.to_string().contains("must start with @"));
+    }
+
+    #[test]
+    fn dynamic_template_variables_reject_duplicates() {
+        let params = HashMap::new();
+        let mut dynamic = DynamicTemplateVariables::new();
+
+        dynamic.insert(&params, "@PortPart", "80").unwrap();
+        let error = dynamic.insert(&params, "@PortPart", "81").unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("Duplicate dynamic template variable"));
+    }
+
+    #[test]
+    fn build_template_params_with_dynamic_variables_keeps_namespaces_separate() {
+        let params = HashMap::from([("country".to_string(), "BE".to_string())]);
+        let mut dynamic = DynamicTemplateVariables::new();
+
+        dynamic.insert(&params, "@PortPart", "80").unwrap();
+        let merged = build_template_params_with_dynamic_variables(&params, &dynamic).unwrap();
+
+        assert_eq!(merged.get("country").map(String::as_str), Some("BE"));
+        assert_eq!(merged.get("@PortPart").map(String::as_str), Some("80"));
+    }
+
+    #[test]
+    fn build_template_params_with_dynamic_variables_rejects_standard_dynamic_prefix() {
+        let params = HashMap::from([("@PortPart".to_string(), "80".to_string())]);
+        let dynamic = DynamicTemplateVariables::new();
+
+        let error = build_template_params_with_dynamic_variables(&params, &dynamic).unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("cannot use reserved dynamic prefix"));
     }
 }

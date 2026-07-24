@@ -74,6 +74,8 @@ List of default collection parameters. Each parameter has:
 
 Parameters are resolved sequentially in YAML declaration order. A parameter can reference previous parameters via `{placeholder}`.
 
+The `@` prefix is reserved for dynamic variables produced while a request is extracted. These variables are not collection parameters and are referenced with the `{@name}` syntax. Standard parameters must not use names starting with `@`.
+
 ```yaml
 parameters:
   - name: base_url
@@ -621,6 +623,18 @@ entries:
 
 Actions are a transformation pipeline applied to extracted values. They are tagged by `type` in snake_case.
 
+### Dynamic Variables `@...`
+Some actions can produce dynamic variables shared during one request execution. These variables must use the reserved `@` prefix and are referenced with the `{@name}` syntax.
+
+Rules:
+
+- Standard collection parameters must not start with `@`.
+- A dynamic variable added by an action must start with `@` and contain a name after the prefix.
+- `extract_variables` rejects duplicates by default with `on_duplicate: error`.
+- `on_duplicate: replace` can be used explicitly when the same request-scoped variable block is read multiple times.
+- Dynamic variables are not resolved automatically by every action. Use `replace_variables` exactly where dynamic placeholders should be replaced.
+- `replace_variables` resolves only known dynamic variables; standard and unknown placeholders are left unchanged.
+
 ### `get_text`
 Reads the concatenated text content of the selected HTML element.
 
@@ -633,6 +647,13 @@ Converts HTML content to plain text via `quick_html2md`.
 
 ```yaml
 - type: html_to_text
+```
+
+### `get_html`
+Adds the selected element HTML to the value list.
+
+```yaml
+- type: get_html
 ```
 
 ### `get_attribut`
@@ -681,6 +702,61 @@ Applies a regex and replaces the list with captured groups.
 - type: regex_find_all
   pattern: "id=(\\d+)"
   format: "{1}"
+```
+
+### `extract_variables`
+Extracts dynamic variables from the current values and adds them to the request context. The current value list is preserved unchanged.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `pattern` or `regex` | string | Regular expression applied to each value |
+| `name` | string | Variable name template, with captures `{1}`, `{2}`, etc. The rendered result must start with `@` |
+| `value` | string | Variable value template, with captures `{1}`, `{2}`, etc. |
+| `on_duplicate` | string | Duplicate policy: `error` by default or `replace` |
+
+Extracted variables are available as dynamic placeholders `{@name}` for actions that explicitly resolve dynamic variables. A duplicate `@...` variable is a runtime error.
+
+```yaml
+- type: extract_variables
+  regex: "\\b([A-Za-z][A-Za-z0-9_]*)\\s*=\\s*(\\d+)\\s*;"
+  name: "@{1}"
+  value: "{2}"
+  on_duplicate: replace
+```
+
+### `replace_variables`
+Explicitly replaces dynamic placeholders in the current values. This action does not resolve standard parameters and does not modify unknown placeholders.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `variable_prefix` | string | Variable prefix to resolve. Only `@` is currently supported. Default: `@` |
+
+```yaml
+- type: replace_variables
+  variable_prefix: "@"
+```
+
+Example: when `@PortPart` is `80`, the value `"({@PortPart}+1)"` becomes `"(80+1)"`. Placeholders such as `{country}` or `{@Missing}` are left unchanged.
+
+### `eval_math`
+Evaluates each current value as a deterministic integer expression. The parser accepts only positive integers, whitespace, parentheses, addition `+`, and bitwise XOR `^`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `operators` | string[] | Declarative allow-list of operators. Accepted values: `xor`, `add` |
+| `js_string_concat` | bool | When `true`, root-level `+` terms are evaluated and concatenated as they would be after a JavaScript string prefix. Default: `false` |
+
+```yaml
+- type: eval_math
+  operators: [xor, add]
+```
+
+For a Spys.one expression extracted from `":" + (...) + (...)`, use concatenation mode:
+
+```yaml
+- type: eval_math
+  operators: [xor, add]
+  js_string_concat: true
 ```
 
 ### `get_request_url`

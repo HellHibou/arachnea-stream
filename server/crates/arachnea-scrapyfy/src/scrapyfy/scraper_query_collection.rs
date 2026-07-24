@@ -250,8 +250,11 @@ impl ScraperQueryDefinition {
             }
         };
 
+        let dynamic_template_variables =
+            std::sync::Mutex::new(crate::scrapyfy::query_helpers::DynamicTemplateVariables::new());
         let context = crate::scrapyfy::scraper::query_executor::QueryContext {
             params: &execution_params,
+            dynamic_template_variables: &dynamic_template_variables,
             request_url: "",
             response_body: None,
             http_client: query_ref.http_client(),

@@ -6,5 +6,8 @@
   {
     "path": "iplocate-free-proxy-list.yaml",
     "enabled": true
+  },{
+    "path": "spysone.yaml",
+    "enabled": true
   }
 ]

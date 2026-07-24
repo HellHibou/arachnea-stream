@@ -10,9 +10,10 @@ use anyhow::Result;
 use futures::stream::{self, StreamExt};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
+use std::sync::Mutex;
 
 use crate::scrapyfy::post_processes::{ScraperPostProcess, ScraperPostProcessContext};
-use crate::scrapyfy::query_helpers;
+use crate::scrapyfy::query_helpers::{self, DynamicTemplateVariables};
 use crate::scrapyfy::scraper_data_node::{ScraperDataNode, ScraperOutputType};
 use crate::scrapyfy::scraper_html::entry::{HtmlScraperEntry, HtmlScraperSelectMode};
 use crate::scrapyfy::scraper_json::entry::{
@@ -50,6 +51,13 @@ pub struct QueryContext<'a> {
     /// These parameters are available to actions and template resolution throughout
     /// the execution chain.
     pub params: &'a HashMap<String, String>,
+
+    /// Request-scoped variables produced during extraction.
+    ///
+    /// The same storage is shared with sub-query contexts so action pipelines can
+    /// add dynamic `@...` values once and later resolve them through the template
+    /// placeholder mechanism.
+    pub dynamic_template_variables: &'a Mutex<DynamicTemplateVariables>,
 
     /// URL of the parent request for action resolution.
     ///
@@ -360,7 +368,7 @@ async fn execute_query_internal(
                                     ctx,
                                     context,
                                     &request_url,
-                                );
+                                )?;
                                 // Apply filters on context rows.
                                 let filters = sibling.filters();
                                 let mut filtered_out = false;
@@ -387,6 +395,8 @@ async fn execute_query_internal(
                                 if sibling.request_pointer().is_some() {
                                     let sub_context = QueryContext {
                                         params: context.params,
+                                        dynamic_template_variables: context
+                                            .dynamic_template_variables,
                                         request_url: &request_url,
                                         response_body: context.response_body,
                                         http_client: context.http_client,
@@ -469,6 +479,8 @@ async fn execute_query_internal(
                                                 for child_sibling in sibling.sub_queries() {
                                                     let child_context = QueryContext {
                                                         params: context.params,
+                                                        dynamic_template_variables: context
+                                                            .dynamic_template_variables,
                                                         request_url: &url,
                                                         response_body: None,
                                                         http_client: context.http_client,
@@ -490,6 +502,8 @@ async fn execute_query_internal(
                                                     for child_sibling in sibling.sub_queries() {
                                                         let child_context = QueryContext {
                                                             params: context.params,
+                                                            dynamic_template_variables: context
+                                                                .dynamic_template_variables,
                                                             request_url: &url,
                                                             response_body: None,
                                                             http_client: context.http_client,
@@ -549,6 +563,7 @@ async fn execute_query_internal(
                 });
                 let sub_context = QueryContext {
                     params: context.params,
+                    dynamic_template_variables: context.dynamic_template_variables,
                     request_url: &request_url,
                     response_body: context.response_body,
                     http_client: context.http_client,
@@ -627,14 +642,20 @@ fn extract_json_context_entries(
     row: &Value,
     context: &QueryContext<'_>,
     request_url: &str,
-) -> ScraperDataNode {
+) -> Result<ScraperDataNode> {
     let mut item = ScraperDataNode::default();
     for entry in query.context_entries() {
         if let Some(json_entry) = as_json_entry(entry) {
-            json_entry.apply_to(&mut item, row, context.params, request_url);
+            json_entry.apply_to(
+                &mut item,
+                row,
+                context.params,
+                context.dynamic_template_variables,
+                request_url,
+            )?;
         }
     }
-    item
+    Ok(item)
 }
 
 /// Returns JSON row filters for a concrete JSON query or sub-query.
@@ -984,9 +1005,10 @@ fn extract_items(
                             &mut item,
                             element,
                             context.params,
+                            context.dynamic_template_variables,
                             request_url,
                             html_body,
-                        );
+                        )?;
                     }
                 }
                 items.push(item);
@@ -1010,7 +1032,13 @@ fn extract_items(
                 let mut item = ScraperDataNode::default();
                 for entry in query.entries() {
                     if let Some(json_entry) = as_json_entry(entry) {
-                        json_entry.apply_to(&mut item, row_value, context.params, request_url);
+                        json_entry.apply_to(
+                            &mut item,
+                            row_value,
+                            context.params,
+                            context.dynamic_template_variables,
+                            request_url,
+                        )?;
                     }
                 }
                 items.push(item);
@@ -1029,7 +1057,11 @@ fn extract_items(
             let mut item = ScraperDataNode::default();
             for entry in query.entries() {
                 if let Some(static_entry) = entry.as_any().downcast_ref::<StaticScraperEntryRaw>() {
-                    static_entry.apply_to(&mut item, context.params)?;
+                    static_entry.apply_to(
+                        &mut item,
+                        context.params,
+                        context.dynamic_template_variables,
+                    )?;
                 }
             }
             vec![item]
@@ -1059,7 +1091,13 @@ fn extract_items(
                         .as_any()
                         .downcast_ref::<crate::scrapyfy::scraper_text::entry::TextScraperEntry>(
                     ) {
-                        text_entry.apply_to(&mut item, &fields, context.params, request_url);
+                        text_entry.apply_to(
+                            &mut item,
+                            &fields,
+                            context.params,
+                            context.dynamic_template_variables,
+                            request_url,
+                        )?;
                     }
                 }
                 items.push(item);
@@ -1120,7 +1158,13 @@ fn extract_items_with_rows<'a>(
                 let mut item = ScraperDataNode::default();
                 for entry in query.entries() {
                     if let Some(json_entry) = as_json_entry(entry) {
-                        json_entry.apply_to(&mut item, row_value, context.params, request_url);
+                        json_entry.apply_to(
+                            &mut item,
+                            row_value,
+                            context.params,
+                            context.dynamic_template_variables,
+                            request_url,
+                        )?;
                     }
                 }
                 result.push((item, Some(row_value)));
@@ -1391,6 +1435,7 @@ async fn execute_entry_sub_queries(
                     // Non-default request_pointer → fall through to generic executor.
                     let sub_context = QueryContext {
                         params: context.params,
+                        dynamic_template_variables: context.dynamic_template_variables,
                         request_url,
                         response_body: context.response_body,
                         http_client: context.http_client,
@@ -1405,6 +1450,7 @@ async fn execute_entry_sub_queries(
                 // No parent values available — try the generic executor path.
                 let sub_context = QueryContext {
                     params: context.params,
+                    dynamic_template_variables: context.dynamic_template_variables,
                     request_url,
                     response_body: context.response_body,
                     http_client: context.http_client,
@@ -1541,9 +1587,10 @@ async fn fetch_and_extract_for_entry_sub_query(
                                     item,
                                     element,
                                     context.params,
+                                    context.dynamic_template_variables,
                                     url,
                                     Some(&html),
-                                );
+                                )?;
                             }
                         }
                         if select_first {
@@ -1584,7 +1631,13 @@ async fn fetch_and_extract_for_entry_sub_query(
                 }
                 for entry in sub_query.entries() {
                     if let Some(json_entry) = as_json_entry(entry) {
-                        json_entry.apply_to(item, row_value, context.params, url);
+                        json_entry.apply_to(
+                            item,
+                            row_value,
+                            context.params,
+                            context.dynamic_template_variables,
+                            url,
+                        )?;
                     }
                 }
             }
@@ -1597,6 +1650,7 @@ async fn fetch_and_extract_for_entry_sub_query(
     if !sub_query.entries().is_empty() {
         let sub_context = QueryContext {
             params: context.params,
+            dynamic_template_variables: context.dynamic_template_variables,
             request_url: url,
             response_body: nested_response_body.as_deref(),
             http_client: context.http_client,

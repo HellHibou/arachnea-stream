@@ -74,6 +74,8 @@ Liste de paramètres par défaut de la collection. Chaque paramètre a :
 
 Les paramètres sont résolus séquentiellement dans l'ordre de déclaration YAML. Un paramètre peut référencer les paramètres précédents via `{placeholder}`.
 
+Le préfixe `@` est réservé aux variables dynamiques produites pendant l'extraction d'une requête. Ces variables ne sont pas des paramètres de collection et se référencent avec la syntaxe `{@nom}`. Les paramètres standards ne doivent pas utiliser de nom commençant par `@`.
+
 ```yaml
 parameters:
   - name: base_url
@@ -623,6 +625,18 @@ entries:
 
 Les actions sont un pipeline de transformations appliquées aux valeurs extraites. Elles sont taggées par `type` en snake_case.
 
+### Variables dynamiques `@...`
+Certaines actions peuvent produire des variables dynamiques partagées pendant l'exécution d'une requête. Ces variables utilisent obligatoirement le préfixe réservé `@` et se référencent avec la syntaxe `{@nom}`.
+
+Règles :
+
+- Les paramètres standards de collection ne doivent pas commencer par `@`.
+- Une variable dynamique ajoutée par action doit commencer par `@` et contenir un nom après ce préfixe.
+- `extract_variables` refuse les doublons par défaut avec `on_duplicate: error`.
+- `on_duplicate: replace` peut être utilisé explicitement quand le même bloc de variables request-scoped est relu plusieurs fois.
+- Les variables dynamiques ne sont pas résolues automatiquement dans toutes les actions. Utiliser `replace_variables` à l'endroit exact où les placeholders dynamiques doivent être remplacés.
+- `replace_variables` résout uniquement les variables dynamiques connues ; les placeholders standards et inconnus restent inchangés.
+
 ### `get_text`
 Lit le contenu textuel concaténé de l'élément HTML sélectionné.
 
@@ -635,6 +649,13 @@ Convertit le contenu HTML en texte brut via `quick_html2md`.
 
 ```yaml
 - type: html_to_text
+```
+
+### `get_html`
+Ajoute le HTML de l'élément sélectionné à la liste des valeurs.
+
+```yaml
+- type: get_html
 ```
 
 ### `get_attribut`
@@ -683,6 +704,61 @@ Applique une regex et remplace la liste par les groupes capturés.
 - type: regex_find_all
   pattern: "id=(\\d+)"
   format: "{1}"
+```
+
+### `extract_variables`
+Extrait des variables dynamiques depuis les valeurs courantes et les ajoute au contexte de la requête. La liste de valeurs courantes est conservée inchangée.
+
+| Champ | Type | Description |
+|-------|------|-------------|
+| `pattern` ou `regex` | string | Expression régulière appliquée à chaque valeur |
+| `name` | string | Template du nom de variable, avec captures `{1}`, `{2}`, etc. Le résultat doit commencer par `@` |
+| `value` | string | Template de la valeur, avec captures `{1}`, `{2}`, etc. |
+| `on_duplicate` | string | Politique de doublon : `error` par défaut ou `replace` |
+
+Les variables extraites sont disponibles comme placeholders dynamiques `{@nom}` pour les actions qui résolvent explicitement les variables dynamiques. Un doublon `@...` est une erreur d'exécution.
+
+```yaml
+- type: extract_variables
+  regex: "\\b([A-Za-z][A-Za-z0-9_]*)\\s*=\\s*(\\d+)\\s*;"
+  name: "@{1}"
+  value: "{2}"
+  on_duplicate: replace
+```
+
+### `replace_variables`
+Remplace explicitement les placeholders dynamiques dans les valeurs courantes. Cette action ne résout pas les paramètres standards et ne modifie pas les placeholders inconnus.
+
+| Champ | Type | Description |
+|-------|------|-------------|
+| `variable_prefix` | string | Préfixe de variables à résoudre. Seul `@` est supporté actuellement. Défaut : `@` |
+
+```yaml
+- type: replace_variables
+  variable_prefix: "@"
+```
+
+Exemple : si `@PortPart` vaut `80`, la valeur `"({@PortPart}+1)"` devient `"(80+1)"`. Les placeholders comme `{country}` ou `{@Missing}` restent inchangés.
+
+### `eval_math`
+Évalue chaque valeur courante comme une expression entière déterministe. Le parseur accepte uniquement les entiers positifs, les espaces, les parenthèses, l'addition `+` et le XOR bitwise `^`.
+
+| Champ | Type | Description |
+|-------|------|-------------|
+| `operators` | string[] | Liste déclarative d'opérateurs autorisés. Valeurs acceptées : `xor`, `add` |
+| `js_string_concat` | bool | Si `true`, les termes séparés par `+` au niveau racine sont évalués puis concaténés comme après un préfixe chaîne JavaScript. Défaut : `false` |
+
+```yaml
+- type: eval_math
+  operators: [xor, add]
+```
+
+Pour une expression Spys.one issue de `":" + (...) + (...)`, utiliser le mode concaténation :
+
+```yaml
+- type: eval_math
+  operators: [xor, add]
+  js_string_concat: true
 ```
 
 ### `get_request_url`

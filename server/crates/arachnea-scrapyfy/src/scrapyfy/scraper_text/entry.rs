@@ -5,11 +5,13 @@
 //! splitting the row by the query's `field_delimiter`.
 
 use std::any::Any;
+use std::sync::Mutex;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::scrapyfy::actions::ScraperAction;
+use crate::scrapyfy::query_helpers::DynamicTemplateVariables;
 use crate::scrapyfy::scraper::entry_trait::ScraperEntrySpec;
 use crate::scrapyfy::scraper::query_trait::ScraperQuery;
 use crate::scrapyfy::scraper::row_locator::ScraperType;
@@ -104,8 +106,9 @@ impl TextScraperEntry {
         root: &mut ScraperDataNode,
         fields: &[&str],
         params: &HashMap<String, String>,
+        dynamic_variables: &Mutex<DynamicTemplateVariables>,
         request_url: &str,
-    ) {
+    ) -> Result<()> {
         match self {
             TextScraperEntry::Field {
                 name,
@@ -126,12 +129,21 @@ impl TextScraperEntry {
                 }
 
                 for action in actions {
-                    values = action.apply(&None, values, params, request_url, None, None);
+                    values = action.apply_with_dynamic_variables(
+                        &None,
+                        values,
+                        params,
+                        request_url,
+                        None,
+                        None,
+                        Some(dynamic_variables),
+                    )?;
                 }
 
                 for value in values {
                     root.push_value_typed(&path, value, *output_type);
                 }
+                Ok(())
             }
             TextScraperEntry::Group {
                 name,
@@ -142,9 +154,10 @@ impl TextScraperEntry {
                 root.set_output_type(&path, *output_type);
                 let mut item = ScraperDataNode::default();
                 for entry in entries {
-                    entry.apply_to(&mut item, fields, params, request_url);
+                    entry.apply_to(&mut item, fields, params, dynamic_variables, request_url)?;
                 }
                 root.push_node_typed(&path, item, *output_type);
+                Ok(())
             }
         }
     }

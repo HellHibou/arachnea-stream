@@ -1,0 +1,103 @@
+id: spysone-free-proxy-list
+title: Spys.one free proxy list
+description:
+  en: "Free public proxies from Spys.one."
+http:
+  mode: auto
+
+# ############################################################################
+# Parameters
+# ############################################################################
+parameters:
+  - name: base_url
+    value: https://spys.one
+    description: Base URL used to resolve requests.
+  - name: post_body
+    value: "xx00=&xpp=5&xf1=0&xf2=0&xf4=0&xf5=0"
+    description: Form body requesting up to 500 proxies with all filters enabled.
+
+# ==========================================================
+# Queries
+# ==========================================================
+queries:
+
+  # --------------------------------------------------------------------------
+  # Load Belgian proxies
+  # --------------------------------------------------------------------------
+  - name: list_proxies_for_country
+    scraper_type: html
+    base_url: "{base_url}"
+    query_url: "{base_url}/free-proxy-list/{country}/"
+    request_method: post
+    request_headers:
+      - name: Content-Type
+        actions:
+          - type: format_text
+            argument: application/x-www-form-urlencoded
+      - name: User-Agent
+        actions:
+          - type: format_text
+            argument: Mozilla/5.0
+    request_body_pointer: /post_body
+    request_body_select: first
+    media_types:
+      - application/arachnea-proxy
+    result_item_field: proxies
+    row_selector: "tr.spy1x, tr.spy1xx"
+    entries:
+      - name: proxies
+        type: object[]
+        entries:
+          - name: _script_variables
+            type: string
+            actions:
+              - type: get_response_body
+              - type: unpack_packer
+              - type: extract_variables
+                regex: "\\b([A-Za-z][A-Za-z0-9_]*)\\s*=\\s*(\\d+)\\s*;"
+                name: "@{1}"
+                value: "{2}"
+                on_duplicate: replace
+          - name: host
+            type: string
+            selector: "td:nth-child(1)"
+            actions:
+              - type: get_text
+              - type: regex_find_all
+                pattern: "([0-9]{1,3}(?:\\.[0-9]{1,3}){3})"
+                format: "{1}"
+          - name: port
+            type: number
+            selector: "td:nth-child(1)"
+            actions:
+              - type: get_html
+              - type: regex_find_all
+                pattern: "document\\.write\\(\":\"\\+(.+?)\\)</script>"
+                format: "{1}"
+              - type: replace_variables
+                variable_prefix: "@"
+              - type: eval_math
+                operators: [xor, add]
+                js_string_concat: true
+          - name: protocol
+            type: string
+            selector: "td:nth-child(2)"
+            actions:
+              - type: get_text
+              - type: regex_find_all
+                pattern: "(?i)(https|http|socks4|socks5)"
+                format: "{1}"
+              - type: map
+                argument:
+                  HTTP: http
+                  HTTPS: https
+                  SOCKS4: socks4
+                  SOCKS5: socks5
+          - name: country
+            type: string
+            actions:
+              - type: format_text
+                argument: "{country}"
+        post_build:
+          - type: remove_fields
+            fields: [_script_variables]

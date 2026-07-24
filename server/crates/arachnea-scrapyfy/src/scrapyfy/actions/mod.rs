@@ -2,6 +2,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_yaml::{Mapping as YamlMapping, Value as YamlValue};
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 mod aes_cbc_decrypt;
 mod base64_decode;
@@ -9,10 +10,13 @@ mod build_nextjs_data_url;
 mod build_url;
 mod bytes_shift;
 mod caesar_shift;
+mod eval_math;
 mod extract_field;
+mod extract_variables;
 mod format_text;
 mod get_attribut;
 mod get_date;
+mod get_html;
 mod get_request_url;
 mod get_response_body;
 mod get_text;
@@ -27,6 +31,7 @@ mod ratio;
 mod regex_find_all;
 mod regex_replace_all;
 mod replace_text;
+mod replace_variables;
 mod resolve_url;
 mod reverse;
 mod split;
@@ -41,6 +46,30 @@ pub const HTTP_PROXY_PUBLIC_PATH_PARAM: &str = "__arachnea_http_proxy_public_pat
 // Re-export them so the surrounding `ScraperAction` enum can keep naming
 // `GetDateSources` directly.
 pub use get_date::{GetDateSource, GetDateSources};
+
+/// Returns the default dynamic variable prefix used by actions that resolve request-scoped variables.
+fn default_dynamic_variable_prefix() -> String {
+    crate::scrapyfy::query_helpers::DYNAMIC_TEMPLATE_VARIABLE_PREFIX.to_string()
+}
+
+/// Validates the explicit operator allow-list accepted by `eval_math`.
+fn validate_eval_math_operators(name: &str, owner: &str, operators: &[String]) -> Result<()> {
+    for operator in operators {
+        match operator.as_str() {
+            "xor" | "add" => {}
+            _ => {
+                anyhow::bail!(
+                    "{} {} has unsupported eval_math operator {}; supported operators are xor and add",
+                    owner,
+                    name,
+                    operator
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
 
 /// One `ReplaceAll` post-response action attached to a URL generated through the public proxy.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,6 +92,8 @@ pub enum ScraperAction {
     GetText,
     /// Converts HTML content of the selected element to plain text using `quick_html2md`.
     HtmlToText,
+    /// Reads the selected element HTML and appends it to the current value list.
+    GetHtml,
 
     /// Reads one HTML attribute from the selected element and appends its value to
     /// the current value list.
@@ -121,6 +152,54 @@ pub enum ScraperAction {
         pattern: String,
         /// Output template used for one regex match.
         format: String,
+    },
+
+    /// Extracts request-scoped dynamic variables from current values without
+    /// changing the value list.
+    ///
+    /// # Fields
+    ///
+    /// * `pattern` - Regular expression applied to each current value.
+    /// * `name` - Variable name template using regex captures, such as `@{1}`.
+    /// * `value` - Variable value template using regex captures, such as `{2}`.
+    /// * `on_duplicate` - Duplicate handling policy: `error` (default) or `replace`.
+    ExtractVariables {
+        /// Regular expression applied to each current value.
+        #[serde(alias = "regex")]
+        pattern: String,
+        /// Dynamic variable name template. The rendered name must start with `@`.
+        name: String,
+        /// Dynamic variable value template.
+        value: String,
+        /// Duplicate handling policy.
+        #[serde(default)]
+        on_duplicate: Option<String>,
+    },
+
+    /// Replaces dynamic placeholders in current values using request-scoped variables.
+    ///
+    /// # Fields
+    ///
+    /// * `variable_prefix` - Dynamic variable namespace to resolve. Currently only `@` is supported.
+    ReplaceVariables {
+        /// Dynamic variable namespace to resolve.
+        #[serde(default = "default_dynamic_variable_prefix")]
+        variable_prefix: String,
+    },
+
+    /// Evaluates each current value as a small deterministic integer expression.
+    ///
+    /// # Fields
+    ///
+    /// * `operators` - Explicit operator allow-list. Currently accepts `xor` and `add`.
+    /// * `js_string_concat` - When true, top-level `+` terms are evaluated and concatenated.
+    EvalMath {
+        /// Explicit operator allow-list. Currently accepts `xor` and `add`.
+        #[serde(default)]
+        operators: Vec<String>,
+        /// Whether top-level `+` should concatenate evaluated terms as JavaScript would after a string prefix.
+        #[serde(default)]
+        js_string_concat: bool,
     },
 
     /// Applies a signed Caesar shift to ASCII letters in every current value.
@@ -332,8 +411,37 @@ impl ScraperAction {
         response_body: Option<&str>,
         response_json: Option<&serde_json::Value>,
     ) -> Vec<String> {
-        match self {
+        self.apply_with_dynamic_variables(
+            selected,
+            texts.clone(),
+            params,
+            request_url,
+            response_body,
+            response_json,
+            None,
+        )
+        .unwrap_or(texts)
+    }
+
+    /// Applies one extraction step with access to request-scoped dynamic variables.
+    ///
+    /// This variant is used by extraction pipelines that can propagate runtime
+    /// errors. It is required for actions such as `extract_variables`, where
+    /// duplicate dynamic variables must fail the current request instead of being
+    /// silently ignored.
+    pub fn apply_with_dynamic_variables(
+        &self,
+        selected: &Option<scraper::ElementRef<'_>>,
+        texts: Vec<String>,
+        params: &HashMap<String, String>,
+        request_url: &str,
+        response_body: Option<&str>,
+        response_json: Option<&serde_json::Value>,
+        dynamic_variables: Option<&Mutex<crate::scrapyfy::query_helpers::DynamicTemplateVariables>>,
+    ) -> Result<Vec<String>> {
+        let values = match self {
             ScraperAction::GetText => get_text::apply(selected, texts),
+            ScraperAction::GetHtml => get_html::apply(selected, texts),
             ScraperAction::HtmlToText => html_to_text::apply(selected, texts),
             ScraperAction::GetAttribut { argument } => {
                 get_attribut::apply(selected, texts, argument)
@@ -343,6 +451,36 @@ impl ScraperAction {
             ScraperAction::RegexFindAll { pattern, format } => {
                 regex_find_all::apply(texts, pattern, format, params, request_url)
             }
+            ScraperAction::ExtractVariables {
+                pattern,
+                name,
+                value,
+                on_duplicate,
+            } => {
+                let Some(dynamic_variables) = dynamic_variables else {
+                    return Ok(texts);
+                };
+                extract_variables::apply(
+                    texts,
+                    pattern,
+                    name,
+                    value,
+                    extract_variables::ExtractVariablesDuplicatePolicy::parse(
+                        on_duplicate.as_deref(),
+                    )?,
+                    params,
+                    dynamic_variables,
+                )?
+            }
+            ScraperAction::ReplaceVariables { variable_prefix } => {
+                let Some(dynamic_variables) = dynamic_variables else {
+                    return Ok(texts);
+                };
+                replace_variables::apply(texts, variable_prefix, dynamic_variables)
+            }
+            ScraperAction::EvalMath {
+                js_string_concat, ..
+            } => eval_math::apply(texts, *js_string_concat)?,
             ScraperAction::CaesarShift { shift } => caesar_shift::apply(texts, *shift),
             ScraperAction::RegexReplaceAll {
                 pattern,
@@ -411,7 +549,8 @@ impl ScraperAction {
             ScraperAction::HexDecode => hex_decode::apply(texts),
             ScraperAction::UnpackPacker => unpack_packer::apply(texts),
             ScraperAction::AesCbcDecrypt { key, iv } => aes_cbc_decrypt::apply(texts, key, iv),
-        }
+        };
+        Ok(values)
     }
 
     /// Validates one configured action before scraper execution by delegating
@@ -431,6 +570,21 @@ impl ScraperAction {
         match self {
             ScraperAction::RegexFindAll { pattern, .. } => {
                 regex_find_all::validate(name, owner, pattern)
+            }
+            ScraperAction::ExtractVariables {
+                pattern,
+                name: variable_name,
+                on_duplicate,
+                ..
+            } => {
+                extract_variables::ExtractVariablesDuplicatePolicy::parse(on_duplicate.as_deref())?;
+                extract_variables::validate(name, owner, pattern, variable_name)
+            }
+            ScraperAction::ReplaceVariables { variable_prefix } => {
+                replace_variables::validate(name, owner, variable_prefix)
+            }
+            ScraperAction::EvalMath { operators, .. } => {
+                validate_eval_math_operators(name, owner, operators)
             }
             ScraperAction::RegexReplaceAll { pattern, .. } => regex_replace_all::validate(pattern)
                 .map_err(|error| {

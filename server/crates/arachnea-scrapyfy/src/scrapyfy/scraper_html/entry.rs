@@ -8,12 +8,13 @@
 //! for the validated runtime enum.
 
 use std::any::Any;
+use std::sync::Mutex;
 
 use ::scraper::{selector::ToCss, ElementRef, Selector};
 use anyhow::Result;
 use serde::{Deserialize, Serialize, Serializer};
 
-use crate::scrapyfy::query_helpers;
+use crate::scrapyfy::query_helpers::{self, DynamicTemplateVariables};
 use crate::scrapyfy::scraper::entry_trait::ScraperEntrySpec;
 use crate::scrapyfy::scraper::post_build::ScraperPostBuild;
 use crate::scrapyfy::scraper::query_trait::ScraperQuery;
@@ -335,9 +336,10 @@ impl HtmlScraperEntry {
         root: &mut ScraperDataNode,
         card: ElementRef,
         params: &HashMap<String, String>,
+        dynamic_variables: &Mutex<DynamicTemplateVariables>,
         request_url: &str,
         response_body: Option<&str>,
-    ) {
+    ) -> Result<()> {
         match self {
             HtmlScraperEntry::Field {
                 name,
@@ -354,14 +356,15 @@ impl HtmlScraperEntry {
                     let mut values: Vec<String> = Vec::new();
                     let selected = Some(selected);
                     for action in actions {
-                        values = action.apply(
+                        values = action.apply_with_dynamic_variables(
                             &selected,
                             values,
                             params,
                             request_url,
                             response_body,
                             None,
-                        );
+                            Some(dynamic_variables),
+                        )?;
                     }
                     if *select == HtmlScraperSelectMode::First {
                         if let Some(value) = values.into_iter().next() {
@@ -372,7 +375,9 @@ impl HtmlScraperEntry {
                             root.push_value_typed(&path, value, *output_type);
                         }
                     }
-                });
+                    Ok(())
+                })?;
+                Ok(())
             }
             HtmlScraperEntry::Group {
                 name,
@@ -389,13 +394,22 @@ impl HtmlScraperEntry {
                 Self::for_each_selected(selector, *select, card, |selected| {
                     let mut item = ScraperDataNode::default();
                     for entry in entries {
-                        entry.apply_to(&mut item, selected, params, request_url, response_body);
+                        entry.apply_to(
+                            &mut item,
+                            selected,
+                            params,
+                            dynamic_variables,
+                            request_url,
+                            response_body,
+                        )?;
                     }
                     for transformation in post_build {
                         transformation.apply(&mut item);
                     }
                     root.push_node_typed(&path, item, *output_type);
-                });
+                    Ok(())
+                })?;
+                Ok(())
             }
         }
     }
@@ -668,22 +682,24 @@ impl HtmlScraperEntry {
         select: HtmlScraperSelectMode,
         card: ElementRef,
         mut callback: F,
-    ) where
-        F: FnMut(ElementRef),
+    ) -> Result<()>
+    where
+        F: FnMut(ElementRef) -> Result<()>,
     {
         match (selector, select) {
             (Some(selector), HtmlScraperSelectMode::All) => {
                 for selected in card.select(selector) {
-                    callback(selected);
+                    callback(selected)?;
                 }
             }
             (Some(selector), HtmlScraperSelectMode::First) => {
                 if let Some(selected) = card.select(selector).next() {
-                    callback(selected);
+                    callback(selected)?;
                 }
             }
-            (None, _) => callback(card),
+            (None, _) => callback(card)?,
         }
+        Ok(())
     }
 }
 

@@ -1,9 +1,11 @@
 use std::any::Any;
+use std::sync::Mutex;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::Value;
 
+use crate::scrapyfy::query_helpers::DynamicTemplateVariables;
 use crate::scrapyfy::scraper::entry_trait::ScraperEntrySpec;
 use crate::scrapyfy::scraper::query_trait::ScraperQuery;
 use crate::scrapyfy::scraper::row_locator::ScraperType;
@@ -144,8 +146,9 @@ impl JsonScraperEntry {
         root: &mut ScraperDataNode,
         row: &Value,
         params: &HashMap<String, String>,
+        dynamic_variables: &Mutex<DynamicTemplateVariables>,
         request_url: &str,
-    ) {
+    ) -> Result<()> {
         match self {
             JsonScraperEntry::Field {
                 name,
@@ -162,7 +165,15 @@ impl JsonScraperEntry {
                 for selected in select_json_values(row, pointer.as_deref(), *select) {
                     let mut values = json_value_to_strings(selected);
                     for action in actions {
-                        values = action.apply(&None, values, params, request_url, None, Some(row));
+                        values = action.apply_with_dynamic_variables(
+                            &None,
+                            values,
+                            params,
+                            request_url,
+                            None,
+                            Some(row),
+                            Some(dynamic_variables),
+                        )?;
                     }
 
                     if is_first {
@@ -175,6 +186,7 @@ impl JsonScraperEntry {
                         }
                     }
                 }
+                Ok(())
             }
             JsonScraperEntry::Group {
                 name,
@@ -190,11 +202,18 @@ impl JsonScraperEntry {
                 for selected in select_json_values(row, pointer.as_deref(), *select) {
                     let mut item = ScraperDataNode::default();
                     for entry in entries {
-                        entry.apply_to(&mut item, selected, params, request_url);
+                        entry.apply_to(
+                            &mut item,
+                            selected,
+                            params,
+                            dynamic_variables,
+                            request_url,
+                        )?;
                     }
 
                     root.push_node_typed(&path, item, *output_type);
                 }
+                Ok(())
             }
         }
     }

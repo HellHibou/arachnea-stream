@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::sync::Mutex;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize, Serializer};
@@ -6,6 +7,7 @@ use serde_yaml::Value;
 use std::collections::HashMap;
 
 use crate::scrapyfy::query_helpers;
+use crate::scrapyfy::query_helpers::DynamicTemplateVariables;
 use crate::scrapyfy::scraper::config::{ScraperRequestHeader, ScraperRequestMethod};
 use crate::scrapyfy::scraper::{RowLocator, ScraperEntrySpec, ScraperQuery, ScraperType};
 use crate::scrapyfy::scraper_data_node::ScraperDataNode;
@@ -312,6 +314,7 @@ impl StaticScraperEntryRaw {
         &self,
         root: &mut ScraperDataNode,
         params: &HashMap<String, String>,
+        dynamic_variables: &Mutex<DynamicTemplateVariables>,
     ) -> Result<()> {
         let entry_path = split_static_path(&self.name);
         let output_type = self
@@ -322,7 +325,15 @@ impl StaticScraperEntryRaw {
             root.set_output_type(&entry_path, output_type);
             let mut values = render_yaml_values(value, params)?;
             for action in &self.actions {
-                values = action.apply(&None, values, params, "", None, None);
+                values = action.apply_with_dynamic_variables(
+                    &None,
+                    values,
+                    params,
+                    "",
+                    None,
+                    None,
+                    Some(dynamic_variables),
+                )?;
             }
 
             if matches!(
