@@ -52,6 +52,14 @@ pub trait IpCountryDataProvider: Send + Sync {
     async fn resolve_ip_country(&self, _ip: &std::net::IpAddr) -> Result<Option<String>> {
         Ok(None)
     }
+
+    /// Resolves the current public outbound country code.
+    ///
+    /// The default implementation returns `None` and is suitable for providers
+    /// that cannot resolve the process' current public egress location.
+    async fn resolve_current_country(&self) -> Result<Option<String>> {
+        Ok(None)
+    }
 }
 
 /// Persistent store for IP-to-country records.
@@ -249,6 +257,14 @@ struct IpCountryResolverInner {
     resolving: HashMap<String, Instant>,
     /// Whether the map was loaded from the store.
     loaded: bool,
+    /// Explicit current outbound country configured by the application.
+    explicit_current_country: Option<String>,
+    /// Current outbound country detected through the provider.
+    detected_current_country: Option<String>,
+    /// Whether automatic current-country detection has already been attempted.
+    current_country_attempted: bool,
+    /// Timestamp while current-country detection is in progress.
+    current_country_resolving: Option<Instant>,
 }
 
 impl IpCountryResolver {
@@ -269,6 +285,10 @@ impl IpCountryResolver {
                 map: HashMap::new(),
                 resolving: HashMap::new(),
                 loaded: false,
+                explicit_current_country: None,
+                detected_current_country: None,
+                current_country_attempted: false,
+                current_country_resolving: None,
             }),
             provider,
             store,
@@ -426,6 +446,171 @@ impl IpCountryResolver {
         }
     }
 
+    /// Stores the explicitly configured current outbound country.
+    ///
+    /// Empty values clear the explicit country. Stored values are normalized to
+    /// uppercase ASCII after trimming whitespace.
+    pub async fn set_current_country(&self, country: impl AsRef<str>) {
+        let country = normalize_country(country.as_ref());
+        let mut inner = self.inner.write().await;
+        inner.explicit_current_country = (!country.is_empty()).then_some(country);
+        match &inner.explicit_current_country {
+            Some(country) => tracing::debug!(
+                local_country = %country,
+                source = "explicit",
+                "configured current outbound country"
+            ),
+            None => tracing::debug!("cleared explicit current outbound country"),
+        }
+    }
+
+    /// Resolves the current public outbound country.
+    ///
+    /// Explicit configuration has priority over automatic detection. Automatic
+    /// detection is attempted at most once per resolver instance; failures are
+    /// cached conservatively as unknown so callers keep using the requested proxy.
+    pub async fn resolve_current_country(&self) -> Result<Option<String>> {
+        {
+            let inner = self.inner.read().await;
+            if let Some(country) = &inner.explicit_current_country {
+                tracing::trace!(
+                    local_country = %country,
+                    source = "explicit",
+                    "using current outbound country"
+                );
+                return Ok(Some(country.clone()));
+            }
+            if let Some(country) = &inner.detected_current_country {
+                tracing::trace!(
+                    local_country = %country,
+                    source = "detected_cache",
+                    "using current outbound country"
+                );
+                return Ok(Some(country.clone()));
+            }
+            if inner.current_country_attempted {
+                tracing::trace!(
+                    source = "negative_cache",
+                    "current outbound country unavailable from cached detection result"
+                );
+                return Ok(None);
+            }
+            if inner.current_country_resolving.is_some() {
+                drop(inner);
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                let inner = self.inner.read().await;
+                let country = inner
+                    .explicit_current_country
+                    .clone()
+                    .or_else(|| inner.detected_current_country.clone());
+                tracing::trace!(
+                    local_country = ?country,
+                    source = "concurrent_resolution_wait",
+                    "using current outbound country after waiting for in-flight detection"
+                );
+                return Ok(country);
+            }
+        }
+
+        let provider = match &self.provider {
+            Some(provider) => provider,
+            None => {
+                tracing::trace!(
+                    "current outbound country unavailable because no provider is configured"
+                );
+                return Ok(None);
+            }
+        };
+
+        {
+            let mut inner = self.inner.write().await;
+            if inner.current_country_attempted {
+                tracing::trace!(
+                    source = "negative_cache",
+                    "current outbound country unavailable from cached detection result"
+                );
+                return Ok(None);
+            }
+            if let Some(country) = &inner.explicit_current_country {
+                tracing::trace!(
+                    local_country = %country,
+                    source = "explicit",
+                    "using current outbound country"
+                );
+                return Ok(Some(country.clone()));
+            }
+            inner.current_country_resolving = Some(Instant::now());
+            tracing::debug!(source = "provider", "resolving current outbound country");
+        }
+
+        let result = tokio::time::timeout(
+            self.config.resolve_timeout,
+            provider.resolve_current_country(),
+        )
+        .await;
+
+        {
+            let mut inner = self.inner.write().await;
+            inner.current_country_resolving = None;
+            inner.current_country_attempted = true;
+        }
+
+        match result {
+            Ok(Ok(Some(country))) => {
+                let country = normalize_country(&country);
+                if country.is_empty() {
+                    return Ok(None);
+                }
+                let mut inner = self.inner.write().await;
+                inner.detected_current_country = Some(country.clone());
+                tracing::debug!(
+                    local_country = %country,
+                    source = "provider",
+                    "resolved current outbound country"
+                );
+                Ok(Some(country))
+            }
+            Ok(Ok(None)) => {
+                tracing::debug!(
+                    source = "provider",
+                    "current outbound country detection returned no country; keeping requested proxy"
+                );
+                Ok(None)
+            }
+            Ok(Err(error)) => {
+                tracing::warn!(
+                    %error,
+                    source = "provider",
+                    "current outbound country detection failed; keeping requested proxy"
+                );
+                Ok(None)
+            }
+            Err(_) => {
+                tracing::warn!(
+                    source = "provider",
+                    "current outbound country detection timed out; keeping requested proxy"
+                );
+                Ok(None)
+            }
+        }
+    }
+
+    /// Returns whether a requested proxy country should be bypassed because the
+    /// current outbound country already matches it.
+    pub async fn should_bypass_requested_country(&self, requested_country: &str) -> bool {
+        let requested_country = normalize_country(requested_country);
+        if requested_country.is_empty() {
+            return false;
+        }
+
+        self.resolve_current_country()
+            .await
+            .ok()
+            .flatten()
+            .map(|current_country| current_country == requested_country)
+            .unwrap_or(false)
+    }
+
     /// Returns the number of cached IP-country mappings.
     pub async fn cached_count(&self) -> usize {
         self.inner.read().await.map.len()
@@ -435,4 +620,8 @@ impl IpCountryResolver {
     pub async fn is_loaded(&self) -> bool {
         self.inner.read().await.loaded
     }
+}
+
+fn normalize_country(country: &str) -> String {
+    country.trim().to_ascii_uppercase()
 }

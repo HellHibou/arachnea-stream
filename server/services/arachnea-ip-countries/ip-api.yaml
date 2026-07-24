@@ -38,3 +38,21 @@ queries:
       - name: query_ip
         type: string
         pointer: /query
+
+  # --------------------------------------------------------------------------
+  # Resolve the current public outbound IP address to its country code
+  # --------------------------------------------------------------------------
+  - name: resolve_current_country
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{base_url}"
+    media_types:
+      - application/arachnea-ip-country
+    row_pointer: "/"
+    entries:
+      - name: country_code
+        type: string
+        pointer: /countryCode
+      - name: query_ip
+        type: string
+        pointer: /query

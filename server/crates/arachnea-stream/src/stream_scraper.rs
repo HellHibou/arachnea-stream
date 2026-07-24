@@ -230,6 +230,21 @@ impl StreamScraper {
         self.proxy_handle.clone()
     }
 
+    /// Stores the explicitly configured local country used by geo proxy decisions.
+    ///
+    /// # Arguments
+    /// * `country` - ISO country code for the current outbound location.
+    pub async fn set_current_country(&self, country: impl AsRef<str>) {
+        let country = country.as_ref();
+        self.scraper_agregator.set_explicit_local_country(country);
+        if let Some(proxy_core) = self.scraper_agregator.proxy_core() {
+            proxy_core.set_current_country(country).await;
+        }
+        if let Some(proxy_core) = &self.proxy_http_core {
+            proxy_core.set_current_country(country).await;
+        }
+    }
+
     /// Replaces the proxy configuration used by this scraper instance.
     pub fn set_proxy(&self, proxy: HttpProxyConfig) {
         self.proxy_handle.set_proxy(proxy);

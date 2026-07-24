@@ -44,5 +44,9 @@
   {
     "path": "dark-stream/frenchanimes.yaml",
     "enabled": true
+  },
+  {
+    "path": "legal-stream/ln24-be.yaml",
+    "enabled": true
   }
 ]

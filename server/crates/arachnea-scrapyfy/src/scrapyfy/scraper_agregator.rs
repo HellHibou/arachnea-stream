@@ -45,6 +45,7 @@ fn default_enabled() -> bool {
 pub struct ScraperAgregator {
     queries_collection: HashMap<String, Vec<ScraperQueryCollection>>,
     proxy_handle: SharedProxyConfigHandle,
+    local_country: SharedLocalCountry,
     #[cfg(feature = "arachnea-proxy")]
     proxy_core: Option<ArachneaProxyCore>,
 }
@@ -71,6 +72,7 @@ impl ScraperAgregator {
         ScraperAgregator {
             queries_collection: HashMap::new(),
             proxy_handle,
+            local_country: SharedLocalCountry::new(),
             #[cfg(feature = "arachnea-proxy")]
             proxy_core: None,
         }
@@ -88,6 +90,8 @@ impl ScraperAgregator {
                 tracing::info!(
                     "Dynamic proxy core created with scrapyfy provider for country routing"
                 );
+                self.proxy_handle
+                    .set_proxy(HttpProxyConfig::Arachnea(core.clone()));
                 self.proxy_core = Some(core);
             }
             Err(error) => {
@@ -107,9 +111,20 @@ impl ScraperAgregator {
         ScraperAgregator {
             queries_collection: HashMap::new(),
             proxy_handle,
+            local_country: SharedLocalCountry::new(),
             #[cfg(feature = "arachnea-proxy")]
             proxy_core: None,
         }
+    }
+
+    /// Returns the shared local-country state used by this aggregator.
+    pub fn local_country(&self) -> SharedLocalCountry {
+        self.local_country.clone()
+    }
+
+    /// Stores the explicitly configured local country for this aggregator.
+    pub fn set_explicit_local_country(&self, country: impl AsRef<str>) {
+        self.local_country.set_explicit_country(country);
     }
 
     /// Returns the shared proxy handle used by this aggregator and its queries.
@@ -148,10 +163,18 @@ impl ScraperAgregator {
         if let Some(proxy_core) = &self.proxy_core {
             let handle = SharedProxyConfigHandle::new();
             handle.set_proxy(HttpProxyConfig::Arachnea(proxy_core.clone()));
-            return HttpClient::with_http_config_and_proxy_handle(http_config, handle);
+            return HttpClient::with_http_config_proxy_handle_and_local_country(
+                http_config,
+                handle,
+                self.local_country.clone(),
+            );
         }
 
-        HttpClient::with_http_config(http_config)
+        HttpClient::with_http_config_proxy_handle_and_local_country(
+            http_config,
+            self.proxy_handle.clone(),
+            self.local_country.clone(),
+        )
     }
 
     /// Loads every configured source from a config file using the provided parser.
@@ -283,7 +306,7 @@ impl ScraperAgregator {
                     source_path.display()
                 )
             })?;
-            collection.set_proxy_handle(self.proxy_handle.clone());
+            collection.set_runtime_handles(self.proxy_handle.clone(), self.local_country.clone());
 
             collections.push(collection);
             tracing::debug!(
@@ -333,7 +356,7 @@ impl ScraperAgregator {
         for path in paths {
             let mut collection =
                 ScraperQueryCollection::from_file_with(path, |reader| parse(reader))?;
-            collection.set_proxy_handle(self.proxy_handle.clone());
+            collection.set_runtime_handles(self.proxy_handle.clone(), self.local_country.clone());
             collections.push(collection);
         }
 

@@ -17,7 +17,7 @@ use tokio::sync::RwLock as AsyncRwLock;
 use tracing::{error, trace};
 use url::Url;
 
-use crate::scrapyfy::query_helpers;
+use crate::scrapyfy::{query_helpers, SharedLocalCountry};
 
 /// Optional mock router used in tests to intercept outgoing HTTP calls.
 pub type RouterFn = Box<dyn Fn(&HttpClient, &str) -> Result<String> + Send + Sync + 'static>;
@@ -45,7 +45,8 @@ struct ProxyConfigState {
 
 #[derive(Clone)]
 struct CachedHttpClient {
-    version: u64,
+    proxy_version: u64,
+    local_country_version: u64,
     client: Arc<ArachneaHttpClient>,
 }
 
@@ -314,6 +315,7 @@ pub fn remove_router() {
 pub struct HttpClient {
     http_config: ScraperHttpConfig,
     proxy_handle: SharedProxyConfigHandle,
+    local_country: SharedLocalCountry,
     cookie_cache: Arc<AsyncRwLock<SharedCookieCache>>,
     client: Arc<AsyncRwLock<Option<CachedHttpClient>>>,
 }
@@ -340,9 +342,24 @@ impl HttpClient {
         http_config: ScraperHttpConfig,
         proxy_handle: SharedProxyConfigHandle,
     ) -> Self {
+        Self::with_http_config_proxy_handle_and_local_country(
+            http_config,
+            proxy_handle,
+            SharedLocalCountry::new(),
+        )
+    }
+
+    /// Builds a client with explicit scraper HTTP configuration, a shared proxy
+    /// handle, and shared local-country state.
+    pub fn with_http_config_proxy_handle_and_local_country(
+        http_config: ScraperHttpConfig,
+        proxy_handle: SharedProxyConfigHandle,
+        local_country: SharedLocalCountry,
+    ) -> Self {
         Self::with_http_config_proxy_handle_and_cookie_cache(
             http_config,
             proxy_handle,
+            local_country,
             global_cookie_cache(),
         )
     }
@@ -350,11 +367,13 @@ impl HttpClient {
     fn with_http_config_proxy_handle_and_cookie_cache(
         http_config: ScraperHttpConfig,
         proxy_handle: SharedProxyConfigHandle,
+        local_country: SharedLocalCountry,
         cookie_cache: Arc<AsyncRwLock<SharedCookieCache>>,
     ) -> Self {
         Self {
             http_config,
             proxy_handle,
+            local_country,
             cookie_cache,
             client: Arc::new(AsyncRwLock::new(None)),
         }
@@ -365,6 +384,7 @@ impl HttpClient {
         Self::with_http_config_proxy_handle_and_cookie_cache(
             self.http_config.clone(),
             self.proxy_handle.clone(),
+            self.local_country.clone(),
             Arc::new(AsyncRwLock::new(SharedCookieCache::default())),
         )
     }
@@ -383,6 +403,7 @@ impl HttpClient {
         Self::with_http_config_proxy_handle_and_cookie_cache(
             http_config,
             self.proxy_handle.clone(),
+            self.local_country.clone(),
             self.cookie_cache.clone(),
         )
     }
@@ -471,11 +492,14 @@ impl HttpClient {
     /// Lazily initializes and returns the underlying [`ArachneaHttpClient`].
     async fn http_client(&self) -> Result<Arc<ArachneaHttpClient>> {
         let proxy_state = self.proxy_handle.snapshot();
+        let local_country_state = self.local_country.snapshot();
 
         {
             let guard = self.client.read().await;
             if let Some(cached) = guard.as_ref() {
-                if cached.version == proxy_state.version {
+                if cached.proxy_version == proxy_state.version
+                    && cached.local_country_version == local_country_state.version
+                {
                     return Ok(cached.client.clone());
                 }
             }
@@ -499,7 +523,8 @@ impl HttpClient {
 
         let mut guard = self.client.write().await;
         *guard = Some(CachedHttpClient {
-            version: proxy_state.version,
+            proxy_version: proxy_state.version,
+            local_country_version: local_country_state.version,
             client: client.clone(),
         });
         Ok(client)
