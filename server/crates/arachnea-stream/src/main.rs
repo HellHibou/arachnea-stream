@@ -43,6 +43,7 @@ struct RuntimeOptions {
     server_port: u16,
     entrypoint_root: Option<String>,
     entrypoint_api: Option<String>,
+    current_country: Option<String>,
 }
 
 /// Result of parsing command line arguments.
@@ -83,6 +84,8 @@ Options:
                            Public root path used before API routes in server mode
   --entrypoint-api <PATH>
                            Public API path segment used in server mode
+  --current-country <ISO_CODE>
+                           Explicit local country used for geo proxy decisions
   --refresh-ip-countries   Refresh IP-to-country geolocation data and exit"
     )
 }
@@ -115,6 +118,7 @@ fn tauri_controler_service() -> TauriControlerService {
 /// - `--desktop`: forces desktop mode
 /// - `--server`: forces server mode
 /// - `--server-port <port>`: overrides the REST server port
+/// - `--current-country <ISO_CODE>`: sets the explicit local country
 /// - `--help`: prints help and exits successfully
 ///
 /// When both `--desktop` and `--server` are provided, the last one wins.
@@ -128,6 +132,7 @@ fn parse_runtime_options(program_name: &str) -> Result<CliAction> {
         server_port: DEFAULT_SERVER_PORT,
         entrypoint_root: None,
         entrypoint_api: None,
+        current_country: None,
     };
     let mut args = std::env::args().skip(1);
 
@@ -159,6 +164,12 @@ fn parse_runtime_options(program_name: &str) -> Result<CliAction> {
                 options.entrypoint_api = Some(
                     args.next()
                         .context("missing value for `--entrypoint-api`")?,
+                );
+            }
+            "--current-country" => {
+                options.current_country = Some(
+                    args.next()
+                        .context("missing value for `--current-country`")?,
                 );
             }
             _ => bail!("unknown argument: `{arg}`"),
@@ -239,6 +250,9 @@ async fn main() -> Result<()> {
     );
 
     let manager = StreamScraper::from_json(None)?;
+    if let Some(current_country) = &options.current_country {
+        manager.set_current_country(current_country).await;
+    }
     let web_assets = generated_embedded_web_assets();
 
     let mut controler: Box<dyn ControlerService> = if options.mode_server {

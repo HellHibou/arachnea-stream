@@ -21,6 +21,12 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **`ScraperRequestMethod` and `ScraperRequestHeader` made public** — now visible through the `ScraperQuery` trait return types.
 - **Proxy `RemoveHeader` redirect action**: controller proxy URLs can now carry `Arachnea-Proxy-RemoveHeader` JSON action headers with `type` and `headers` fields that remove selected `opts.headers` entries when an HTTP `302` redirect is rewritten.
 - **HTML group `post_build`**: Added ordered `math_formula` and `remove_fields` transformations that run after a YAML object group builds its child fields.
+- **Current country IP query**: Added the `resolve_current_country` query to `arachnea-ip-countries` for direct public outbound country detection.
+- **Proxy-core current country resolution**: Extended `IpCountryDataProvider` and `IpCountryResolver` so `arachnea-proxy` can resolve or receive the current outbound country.
+- **Explicit current country CLI option**: Added `--current-country <ISO_CODE>` to propagate an explicit local country from `arachnea-stream` into the proxy core country resolver.
+- **Proxy-core geo-country bypass**: Dynamic country proxy routing now bypasses the `dynamic-country:<CODE>` proxy pool when the requested country matches the current outbound country.
+- **Geo-country bypass diagnostics**: Added structured proxy-core logs for requested country, local country source, bypass decisions, and conservative fallback when current-country detection is unavailable.
+- **Dynamic country proxy fallback**: Country-routed proxy requests now continue without a geo proxy when no usable dynamic proxy is available for the requested country.
 
 ### Changed
 - **Module layout**: `scraper_json/query.rs` decoupled into `config.rs`, `response_parser.rs`, `pointer.rs`, `row_extractor.rs`. Same for `scraper_html/query.rs` → `config.rs`, `response_parser.rs`, `row_extractor.rs`.

@@ -538,6 +538,19 @@ impl ArachneaProxyCore {
         self.proxy_inventory.as_ref()
     }
 
+    /// Stores the explicitly configured current outbound country on the
+    /// configured IP-country resolver, when available.
+    pub async fn set_current_country(&self, country: impl AsRef<str>) {
+        let Some(inventory) = &self.proxy_inventory else {
+            return;
+        };
+        let Some(resolver) = inventory.ip_country_resolver() else {
+            return;
+        };
+
+        resolver.set_current_country(country).await;
+    }
+
     /// Appends one proxy hop to the current default chain.
     ///
     /// This method updates only this core handle. Existing clones keep their
@@ -987,11 +1000,26 @@ impl ArachneaProxyCore {
         for (index, node) in chain.nodes.iter().enumerate() {
             if node.kind == TransportKind::ProxyPool {
                 if let Some(country) = node.name.strip_prefix(DYNAMIC_COUNTRY_POOL_PREFIX) {
+                    if self.should_bypass_dynamic_country_pool(country).await {
+                        continue;
+                    }
                     let require_https =
                         self.is_dynamic_country_https_request(chain, index, &request.destination)?;
-                    let selected = self
+                    let selected = match self
                         .resolve_dynamic_country_pool(country, require_https, &request.destination)
-                        .await?;
+                        .await
+                    {
+                        Ok(selected) => selected,
+                        Err(error) if is_dynamic_country_proxy_unavailable(&error) => {
+                            tracing::warn!(
+                                requested_proxy_country = %country,
+                                %error,
+                                "dynamic country proxy unavailable; continuing without geo proxy"
+                            );
+                            continue;
+                        }
+                        Err(error) => return Err(error),
+                    };
                     let endpoint = selected.endpoint.clone();
                     pool_selections.push(ProxyPoolSelection {
                         pool_name: node.name.clone(),
@@ -1059,6 +1087,55 @@ impl ArachneaProxyCore {
                 "dynamic proxy selected for '{country}' has no resolved protocol"
             ))
         })
+    }
+
+    /// Returns whether a dynamic country proxy pool marker should be skipped
+    /// because the current outbound country already matches the requested one.
+    async fn should_bypass_dynamic_country_pool(&self, country: &str) -> bool {
+        let Some(inventory) = &self.proxy_inventory else {
+            tracing::trace!(
+                requested_proxy_country = %country,
+                "dynamic country proxy bypass unavailable because no proxy inventory is configured"
+            );
+            return false;
+        };
+        let Some(resolver) = inventory.ip_country_resolver() else {
+            tracing::trace!(
+                requested_proxy_country = %country,
+                "dynamic country proxy bypass unavailable because no current-country resolver is configured"
+            );
+            return false;
+        };
+
+        let current_country = resolver.resolve_current_country().await.ok().flatten();
+        match current_country.as_deref() {
+            Some(local_country) if local_country == country => {
+                tracing::debug!(
+                    requested_proxy_country = %country,
+                    local_country = %local_country,
+                    bypass = true,
+                    "dynamic country proxy bypass applied"
+                );
+                true
+            }
+            Some(local_country) => {
+                tracing::debug!(
+                    requested_proxy_country = %country,
+                    local_country = %local_country,
+                    bypass = false,
+                    "dynamic country proxy retained because local country differs"
+                );
+                false
+            }
+            None => {
+                tracing::debug!(
+                    requested_proxy_country = %country,
+                    bypass = false,
+                    "dynamic country proxy retained because current country is unknown"
+                );
+                false
+            }
+        }
     }
 
     /// Determines whether a dynamic country pool requires HTTPS support.
@@ -2357,6 +2434,12 @@ fn selected_http_proxy_credentials(
         })
         .map(ProxyNode::credentials)
         .unwrap_or(Ok(None))
+}
+
+/// Returns whether a dynamic country selection failure should fall back to the
+/// remaining route without materialising a geo proxy.
+fn is_dynamic_country_proxy_unavailable(error: &ProxyError) -> bool {
+    matches!(error, ProxyError::RouteUnavailable(_))
 }
 
 /// Returns the target and check mode used to test a proxy pool marker.

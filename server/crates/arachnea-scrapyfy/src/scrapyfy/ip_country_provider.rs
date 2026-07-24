@@ -158,6 +158,37 @@ impl IpCountryDataProvider for ScrapyfyIpCountryDataProvider {
 
         Ok(None)
     }
+
+    /// Resolves the current public outbound country via the YAML-defined
+    /// geolocation query.
+    async fn resolve_current_country(&self) -> Result<Option<String>> {
+        let agregator = unsafe { &*self.scraper_agregator };
+
+        let rows = agregator
+            .execute_query_async(
+                IP_COUNTRY_GROUP_NAME,
+                "resolve_current_country",
+                &HashMap::new(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                "resolve_current_country",
+            )
+            .await
+            .data;
+
+        for row in &rows {
+            if let Some(country) = row.get("country_code").and_then(|n| n.value_as_string()) {
+                if !country.is_empty() {
+                    return Ok(Some(country.trim().to_ascii_uppercase()));
+                }
+            }
+        }
+
+        Ok(None)
+    }
 }
 
 /// Converts a scraper result row into an `IpCountryRecord`.

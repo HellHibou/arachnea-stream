@@ -1,0 +1,499 @@
+id: ln24-be
+title: LN24
+logo: "{base_url}/themes/custom/ln24_theme/logo.png"
+description:
+  fr: "LN24 est la première chaîne d'information en continu 100% belge, accessible en direct et en replay sur son site web."
+http:
+  mode: auto
+
+
+# ############################################################################
+# Parameters
+# ############################################################################
+parameters:
+  - name: base_url
+    value: https://www.ln24.be
+    description: "Base URL — update on domain change"
+
+
+# ############################################################################
+# Shared structs
+# ############################################################################
+shared:
+  media_types_ln24: &media_types_ln24
+    - video/news
+    - video/show/other
+    - video/live
+
+  actions_get_src_resolve: &actions_get_src_resolve
+    - type: get_attribut
+      argument: src
+    - type: resolve_url
+
+  actions_get_href_resolve: &actions_get_href_resolve
+    - type: get_attribut
+      argument: href
+    - type: resolve_url
+
+  actions_total_pages_from_pager: &actions_total_pages_from_pager
+    - type: get_response_body
+    - type: regex_find_all
+      pattern: 'pager__item[^>]*><a[^>]*href="[^"]*page[/=](\d+)"'
+      format: "{1}"
+    - type: max
+
+  entries_video_row: &entries_video_row
+    - name: title
+      type: string
+      select: first
+      selector: "h3 span, h3 a"
+      actions:
+        - type: get_text
+    - name: link
+      type: string
+      select: first
+      selector: "a"
+      actions: *actions_get_href_resolve
+    - name: web-link
+      type: string
+      select: first
+      selector: "a"
+      actions: *actions_get_href_resolve
+    - name: release-date
+      type: string
+      select: first
+      selector: "time"
+      actions:
+        - type: get_attribut
+          argument: datetime
+        - type: get_date
+          format: yyyy_mm_dd
+    - name: release-date
+      type: string
+      select: first
+      selector: "time"
+      actions:
+        - type: get_text
+        - type: regex_find_all
+          pattern: '(\d{2}\.\d{2}\.\d{2})'
+          format: "{1}"
+        - type: get_date
+          format: dd_mm_yy
+    - name: img/poster > link
+      type: string
+      select: first
+      selector: "img"
+      actions: *actions_get_src_resolve
+    - name: media-type
+      type: string[]
+      actions:
+        - type: format_text
+          argument: "video/news"
+
+
+# ############################################################################
+# Queries
+# ############################################################################
+queries:
+
+  # --------------------------------------------------------------------------
+  # Service stream metadata
+  # --------------------------------------------------------------------------
+  - name: service_stream_metadata
+    scraper_type: static
+    entries:
+      - name: id
+        type: string
+        value: "{service_id}"
+      - name: title
+        type: string
+        value: "{service_title}"
+      - name: logo
+        type: string
+        value: "{service_logo}"
+        actions:
+          - type: resolve_url
+      - name: description
+        type: object
+        value: "{service_description}"
+
+
+  # --------------------------------------------------------------------------
+  # Home page
+  # --------------------------------------------------------------------------
+  - name: load_home
+    scraper_type: html
+    base_url: "{base_url}"
+    query_url: "{base_url}"
+    media_types: *media_types_ln24
+    row_selector: "html"
+    entries:
+      - name: source
+        type: string
+        actions:
+          - type: format_text
+            argument: "{source}"
+
+      - name: categories
+        type: object[]
+        entries:
+          - name: key
+            type: string
+            actions:
+              - type: format_text
+                argument: "emissions"
+          - name: label
+            type: string
+            actions:
+              - type: format_text
+                argument: "Émissions"
+          - name: request > query_url
+            type: string
+            actions:
+              - type: format_text
+                argument: "{base_url}/categories/?cat=4"
+
+      - name: categories
+        type: object[]
+        entries:
+          - name: key
+            type: string
+            actions:
+              - type: format_text
+                argument: "series"
+          - name: label
+            type: string
+            actions:
+              - type: format_text
+                argument: "Séries"
+          - name: request > query_url
+            type: string
+            actions:
+              - type: format_text
+                argument: "{base_url}/categories/?cat=3"
+
+      - name: categories
+        type: object[]
+        entries:
+          - name: key
+            type: string
+            actions:
+              - type: format_text
+                argument: "ln24plus"
+          - name: label
+            type: string
+            actions:
+              - type: format_text
+                argument: "LN24+"
+          - name: request > query_url
+            type: string
+            actions:
+              - type: format_text
+                argument: "{base_url}/categories/?cat=5"
+
+
+  # --------------------------------------------------------------------------
+  # Category — list videos of a program
+  # Note: query_url is typically /categories/?cat=N
+  # Extracts videos from the featured side list (button.js-tv-video-card)
+  # --------------------------------------------------------------------------
+  - name: get_category
+    scraper_type: html
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    media_types: *media_types_ln24
+    row_selector: "html"
+    entries:
+      - name: source
+        type: string
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: sections
+        type: object[]
+        entries:
+          - name: label
+            type: string
+            actions:
+              - type: format_text
+                argument: "Vidéos"
+          - name: entries
+            type: object[]
+            selector: "button.tv-category-featured__side-item.js-tv-video-card"
+            select: all
+            entries:
+              - name: title
+                type: string
+                select: first
+                selector: "span.info span.title"
+                actions:
+                  - type: get_text
+              - name: link
+                type: string
+                select: first
+                actions:
+                  - type: get_attribut
+                    argument: data-show-id
+                  - type: format_text
+                    argument: "{base_url}/emissions/?e={}"
+              - name: web-link
+                type: string
+                actions:
+                  - type: format_text
+                    argument: "{query_url}"
+              - name: description
+                type: string
+                actions:
+                  - type: get_attribut
+                    argument: data-description
+              - name: img/poster > link
+                type: string
+                actions:
+                  - type: get_attribut
+                    argument: data-image
+              - name: release-date
+                type: string
+                actions:
+                  - type: get_attribut
+                    argument: data-date
+              - name: media-type
+                type: string[]
+                actions:
+                  - type: format_text
+                    argument: "video/news"
+              - name: players
+                type: object[]
+                entries:
+                  - name: name
+                    type: string
+                    actions:
+                      - type: format_text
+                        argument: "HD"
+                  - name: direct-link
+                    type: string
+                    actions:
+                      - type: get_attribut
+                        argument: data-player-url
+                      - type: regex_find_all
+                        pattern: 'media720=([^&]+)'
+                        format: "{1}"
+              - name: players
+                type: object[]
+                entries:
+                  - name: name
+                    type: string
+                    actions:
+                      - type: format_text
+                        argument: "SD"
+                  - name: direct-link
+                    type: string
+                    actions:
+                      - type: get_attribut
+                        argument: data-player-url
+                      - type: regex_find_all
+                        pattern: 'media480=([^&]+)'
+                        format: "{1}"
+
+
+  # --------------------------------------------------------------------------
+  # Entry / detail page — extract show metadata, featured player, and episodes
+  # query_url is typically /emissions/?e=N
+  # --------------------------------------------------------------------------
+  - name: get_entry
+    scraper_type: html
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    http:
+      proxy_country: BE
+    media_types: *media_types_ln24
+    row_selector: "html"
+    entries:
+      - name: source
+        type: string
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: title
+        type: string
+        select: first
+        selector: "h1"
+        actions:
+          - type: get_text
+      - name: description
+        type: string
+        select: first
+        selector: "p.emission-hero__desc"
+        actions:
+          - type: get_text
+      - name: img/poster > link
+        type: string
+        select: first
+        selector: ".emission-hero__image"
+        actions:
+          - type: get_attribut
+            argument: style
+          - type: regex_find_all
+            pattern: 'url\([''"]?([^)''"]+)'
+            format: "{1}"
+      - name: players
+        type: object[]
+        entries:
+          - name: name
+            type: string
+            actions:
+              - type: format_text
+                argument: "HD"
+          - name: direct-link
+            type: string
+            select: first
+            selector: "section.emission-featured iframe"
+            actions:
+              - type: get_attribut
+                argument: src
+              - type: regex_find_all
+                pattern: 'media720=([^&]+)'
+                format: "{1}"
+      - name: players
+        type: object[]
+        entries:
+          - name: name
+            type: string
+            actions:
+              - type: format_text
+                argument: "SD"
+          - name: direct-link
+            type: string
+            select: first
+            selector: "section.emission-featured iframe"
+            actions:
+              - type: get_attribut
+                argument: src
+              - type: regex_find_all
+                pattern: 'media480=([^&]+)'
+                format: "{1}"
+      - name: seasons
+        type: object[]
+        entries:
+          - name: label
+            type: string
+            actions:
+              - type: format_text
+                argument: "Toutes les vidéos"
+          - name: episodes
+            type: object[]
+            selector: "section.emission-videos article.emission-video-item.js-emission-card"
+            select: all
+            entries:
+              - name: title
+                type: string
+                select: first
+                selector: "h4"
+                actions:
+                  - type: get_text
+              - name: description
+                type: string
+                actions:
+                  - type: get_attribut
+                    argument: data-description
+              - name: img/poster > link
+                type: string
+                actions:
+                  - type: get_attribut
+                    argument: data-image
+              - name: release-date
+                type: string
+                actions:
+                  - type: get_attribut
+                    argument: data-date
+              - name: players
+                type: object[]
+                entries:
+                  - name: name
+                    type: string
+                    actions:
+                      - type: format_text
+                        argument: "HD"
+                  - name: direct-link
+                    type: string
+                    actions:
+                      - type: get_attribut
+                        argument: data-player-url
+                      - type: regex_find_all
+                        pattern: 'media720=([^&]+)'
+                        format: "{1}"
+              - name: players
+                type: object[]
+                entries:
+                  - name: name
+                    type: string
+                    actions:
+                      - type: format_text
+                        argument: "SD"
+                  - name: direct-link
+                    type: string
+                    actions:
+                      - type: get_attribut
+                        argument: data-player-url
+                      - type: regex_find_all
+                        pattern: 'media480=([^&]+)'
+                        format: "{1}"
+
+
+  # --------------------------------------------------------------------------
+  # List live channels
+  # --------------------------------------------------------------------------
+  - name: list_lives
+    scraper_type: static
+    media_types:
+      - video/live
+    entries:
+      - name: source
+        type: string
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: entries
+        type: object[]
+        items:
+          - key: "ln24"
+            title: "LN24 Live"
+            media-type: "video/live"
+            link: "ln24"
+            web-link: "{base_url}/live"
+            channel: "LN24"
+
+
+  # --------------------------------------------------------------------------
+  # Get live stream
+  # --------------------------------------------------------------------------
+  - name: get_live
+    scraper_type: html
+    base_url: "{base_url}"
+    query_url: "{base_url}/live"
+    media_types:
+      - video/live
+    row_selector: "html"
+    entries:
+      - name: source
+        type: string
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: title
+        type: string
+        actions:
+          - type: format_text
+            argument: "LN24 Live"
+      - name: players
+        type: object[]
+        entries:
+          - name: name
+            type: string
+            actions:
+              - type: format_text
+                argument: "LN24"
+          - name: embed-link
+            type: string
+            actions:
+              - type: format_text
+                argument: "{base_url}/live"

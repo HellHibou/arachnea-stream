@@ -54,6 +54,10 @@ pub(crate) mod scraper;
 /// Shared helpers for query URL formatting and filtering.
 pub mod query_helpers;
 
+/// Shared local-country state for geo-targeted proxy bypass decisions.
+pub mod local_country;
+pub use local_country::SharedLocalCountry;
+
 /// Query collection models and file loading helpers.
 pub mod scraper_query_collection;
 pub use scraper_query_collection::{

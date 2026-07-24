@@ -271,16 +271,27 @@ impl ScraperQueryDefinition {
 
     /// Rebinds all embedded HTTP clients to the provided shared proxy handle.
     pub fn set_proxy_handle(&mut self, proxy_handle: SharedProxyConfigHandle) {
+        self.set_runtime_handles(proxy_handle, SharedLocalCountry::new());
+    }
+
+    /// Rebinds all embedded HTTP clients to the provided shared runtime handles.
+    pub fn set_runtime_handles(
+        &mut self,
+        proxy_handle: SharedProxyConfigHandle,
+        local_country: SharedLocalCountry,
+    ) {
         match self {
             ScraperQueryDefinition::Html(query) => {
-                bind_html_query_proxy_handle(query, &proxy_handle)
+                bind_html_query_runtime_handles(query, &proxy_handle, &local_country)
             }
             ScraperQueryDefinition::Json(query) => {
-                bind_json_query_proxy_handle(query, &proxy_handle)
+                bind_json_query_runtime_handles(query, &proxy_handle, &local_country)
             }
-            ScraperQueryDefinition::Static(query) => query.set_proxy_handle(proxy_handle),
+            ScraperQueryDefinition::Static(query) => {
+                query.set_runtime_handles(proxy_handle, local_country)
+            }
             ScraperQueryDefinition::Text(query) => {
-                bind_text_query_proxy_handle(query, &proxy_handle)
+                bind_text_query_runtime_handles(query, &proxy_handle, &local_country)
             }
         }
     }
@@ -496,8 +507,17 @@ impl ScraperQueryCollection {
 
     /// Rebinds all query HTTP clients to the provided shared proxy handle.
     pub fn set_proxy_handle(&mut self, proxy_handle: SharedProxyConfigHandle) {
+        self.set_runtime_handles(proxy_handle, SharedLocalCountry::new());
+    }
+
+    /// Rebinds all query HTTP clients to the provided shared runtime handles.
+    pub fn set_runtime_handles(
+        &mut self,
+        proxy_handle: SharedProxyConfigHandle,
+        local_country: SharedLocalCountry,
+    ) {
         for query in self.queries.values_mut() {
-            query.set_proxy_handle(proxy_handle.clone());
+            query.set_runtime_handles(proxy_handle.clone(), local_country.clone());
         }
     }
 
@@ -696,82 +716,92 @@ impl ScraperQueryCollection {
     }
 }
 
-fn bind_text_query_proxy_handle(
+fn bind_text_query_runtime_handles(
     query: &mut TextScraperQuery,
     proxy_handle: &SharedProxyConfigHandle,
+    local_country: &SharedLocalCountry,
 ) {
-    query.http_client = HttpClient::with_http_config_and_proxy_handle(
+    query.http_client = HttpClient::with_http_config_proxy_handle_and_local_country(
         query.http_config.clone(),
         proxy_handle.clone(),
+        local_country.clone(),
     );
 }
 
-fn bind_html_query_proxy_handle(
+fn bind_html_query_runtime_handles(
     query: &mut HtmlScraperQuery,
     proxy_handle: &SharedProxyConfigHandle,
+    local_country: &SharedLocalCountry,
 ) {
-    query.http_client = HttpClient::with_http_config_and_proxy_handle(
+    query.http_client = HttpClient::with_http_config_proxy_handle_and_local_country(
         query.http_config.clone(),
         proxy_handle.clone(),
+        local_country.clone(),
     );
 
     for sub_query in &mut query.sub_queries {
         if let Some(html_sub_query) = sub_query.as_any_mut().downcast_mut::<HtmlScraperSubQuery>() {
-            bind_html_sub_query_proxy_handle(html_sub_query, proxy_handle);
+            bind_html_sub_query_runtime_handles(html_sub_query, proxy_handle, local_country);
         } else if let Some(json_sub_query) =
             sub_query.as_any_mut().downcast_mut::<JsonScraperSubQuery>()
         {
-            bind_json_sub_query_proxy_handle(json_sub_query, proxy_handle);
+            bind_json_sub_query_runtime_handles(json_sub_query, proxy_handle, local_country);
         }
     }
 }
 
-fn bind_html_sub_query_proxy_handle(
+fn bind_html_sub_query_runtime_handles(
     query: &mut HtmlScraperSubQuery,
     proxy_handle: &SharedProxyConfigHandle,
+    local_country: &SharedLocalCountry,
 ) {
-    query.http_client = HttpClient::with_http_config_and_proxy_handle(
+    query.http_client = HttpClient::with_http_config_proxy_handle_and_local_country(
         query.http_config.clone(),
         proxy_handle.clone(),
+        local_country.clone(),
     );
 }
 
-fn bind_json_query_proxy_handle(
+fn bind_json_query_runtime_handles(
     query: &mut JsonScraperQuery,
     proxy_handle: &SharedProxyConfigHandle,
+    local_country: &SharedLocalCountry,
 ) {
-    query.http_client = HttpClient::with_http_config_and_proxy_handle(
+    query.http_client = HttpClient::with_http_config_proxy_handle_and_local_country(
         query.http_config.clone(),
         proxy_handle.clone(),
+        local_country.clone(),
     );
 
     for sub_query in &mut query.sub_queries {
         if let Some(json_sub_query) = sub_query.as_any_mut().downcast_mut::<JsonScraperSubQuery>() {
-            bind_json_sub_query_proxy_handle(json_sub_query, proxy_handle);
+            bind_json_sub_query_runtime_handles(json_sub_query, proxy_handle, local_country);
         } else if let Some(html_sub_query) =
             sub_query.as_any_mut().downcast_mut::<HtmlScraperSubQuery>()
         {
-            bind_html_sub_query_proxy_handle(html_sub_query, proxy_handle);
+            bind_html_sub_query_runtime_handles(html_sub_query, proxy_handle, local_country);
         }
     }
 }
 
-fn bind_json_sub_query_proxy_handle(
+fn bind_json_sub_query_runtime_handles(
     query: &mut JsonScraperSubQuery,
     proxy_handle: &SharedProxyConfigHandle,
+    local_country: &SharedLocalCountry,
 ) {
-    query.http_client = HttpClient::with_http_config_and_proxy_handle(
+    query.http_client = HttpClient::with_http_config_proxy_handle_and_local_country(
         query.http_config.clone(),
         proxy_handle.clone(),
+        local_country.clone(),
     );
 
     for sub_query in &mut query.sub_queries {
         if let Some(json_sub_query) = sub_query.as_any_mut().downcast_mut::<JsonScraperSubQuery>() {
-            bind_json_sub_query_proxy_handle(json_sub_query, proxy_handle);
+            bind_json_sub_query_runtime_handles(json_sub_query, proxy_handle, local_country);
         } else if let Some(html_sub_query) =
             sub_query.as_any_mut().downcast_mut::<HtmlScraperSubQuery>()
         {
-            bind_html_sub_query_proxy_handle(html_sub_query, proxy_handle);
+            bind_html_sub_query_runtime_handles(html_sub_query, proxy_handle, local_country);
         }
     }
 }
