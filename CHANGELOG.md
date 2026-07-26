@@ -5,6 +5,7 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ## Unreleased
 
 ### Added
+- **PapaDuStream v2 YAML service**: Added series home rails, search, entry metadata, season episodes, and player language listings for PapaDuStream v2.
 - **Embed4me YAML hoster**: Added `embed4me.yaml` for `lpayer.embed4me.com/#id` embeds. The resolver derives the encrypted video API endpoint from the fragment and exposes HLS, title, poster, and thumbnail VTT metadata.
 - **Generic encrypted API support**: Added `request_url_actions` for transforming resolved root query URLs and `aes_cbc_decrypt` for deterministic hexadecimal AES-128-CBC payloads.
 - **Vidsonic YAML hoster**: Added `vidsonic.yaml` for `/e/{id}` embed pages, including HLS URL extraction, title, poster, and thumbnail VTT metadata. Added the generic `hex_decode` Scrapyfy action used to decode its deterministic hexadecimal payload.
@@ -49,6 +50,8 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - `JsonScraperSubQuery::execute` / `execute_siblings` / `execute_context` / `execute_indexed_context` / `execute_indexed_sibling` / `build_row_node` — re-used through the new `JsonScraperSubQuery::execute_query_level` unified entry point (see regression fix below).
 
 ### Fixed
+- **PapaDuStream v2 deferred episode players**: Season episodes now expose deferred player links; selecting one loads its actual player rows and enables playback controls.
+- **PapaDuStream v2 seasons**: `get_season` now follows season links when called with a series entry URL, returning its episode list.
 - **VTT storyboard cue timing**: Video.js thumbnail previews now use each WebVTT cue's declared time range and crop geometry instead of an averaged interval, preserving irregular cue durations.
 - **VTT storyboard cropping**: Video.js now preserves the sprite image's intrinsic height instead of stretching it to the VTT-declared row count, preventing progressive vertical drift when trailing VTT cues exceed the image bounds.
 - **TF1+ trailer extraction**: `get_entry` now returns the TF1 video page for
@@ -346,3 +349,41 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **Frontend scraper response boundary**: `call_api` now validates and unwraps the shared envelope for REST and Tauri, logs and queues structured backend errors, and synthesizes browser-local correlation codes for transport or protocol failures.
 - **Source error notifications**: Added a route-independent, non-modal notification stack with localized source-aware summaries, copyable diagnostic codes, collapsed technical details, and Escape dismissal.
 - **Concurrent deferred loading**: Section pages now retain fulfilled source results when another concurrent source rejects; deferred banner workers continue after an independently notified technical failure.
+
+## Unreleased — Browser page fetch sessions
+
+### Added
+
+- **Reusable browser page fetch primitive**: `arachnea-http` now exposes origin-scoped browser sessions and `ArachneaHttpClient::page_fetch`, allowing supported browser engines to navigate a source page, capture an application Turnstile callback token in memory, and execute an authenticated same-page JavaScript `fetch()`.
+- **Browser page click primitive**: `ArachneaHttpClient::page_click` now invokes a CSS-selected page control and returns rendered HTML after a result selector appears, preserving site-owned CAPTCHA callbacks and same-page AJAX behavior.
+- **Browser navigation without Cloudflare clearance**: Persistent page operations now accept stable, non-interstitial HTML that does not set `cf_clearance`, allowing application-level CAPTCHA flows to run after navigation.
+- **Faster browser page interactions**: Browser operations that only need a navigable page now use a short source-stability window before clicking, while full HTML collection retains the longer stability check.
+- **Retained Chaser-CF sessions**: A retained browser page now owns its `BrowserManager`, preventing temporary configured clients from closing Chrome and breaking subsequent player resolutions.
+- **Shared configured browser clients**: Scrapyfy configurations that only differ in browser execution settings now reuse the same underlying HTTP client and Chaser-CF engine when their transport, browser profile, and proxy route match.
+- **Query-scoped browser cleanup**: Root Scrapyfy queries now always close retained origin sessions after all sub-queries complete; no YAML lifecycle option is required.
+- **chaser-cf persistent page support**: chaser-cf retains the browser page across navigation and fetch, hands browser cookies plus the observed user-agent back to the shared HTTP cache, and closes retained pages on invalidation or eviction.
+- **Structured page-fetch contracts**: Added navigation/fetch request and response types, explicit unsupported-engine behavior, configurable token-rejection classification, and unit coverage for session reuse, token insertion, and cookie/UA handoff.
+
+## Unreleased — PapaDuStream browser player resolution
+
+### Changed
+
+- **PapaDuStream v2 players**: `get_players` extracts delayed-player fields through direct HTTP, then resolves each player through the generic browser `page_click` sub-query. It invokes the site's player control, lets the site render and resolve its CAPTCHA plus AJAX request, and returns the resulting `iframe[src]` as `embed-link` while preserving player name and language.
+- **HTML sub-query request bodies**: HTML entry sub-queries now support the existing `request_body_actions` pipeline, enabling generic form-body construction without source-specific Rust code.
+
+### Added
+
+- **Frontend recoverable error on player resolution failure**: `loadDeferredPlayers` catch now shows a localized `entry.playerResolutionFailed` message instead of raw `String(error)`. Episode selection and player/lang selectors are preserved on error.
+- **getxfield HTML fixtures**: Created `server/mock_data/papadustream_v2-get_players.html` and `server/mock_data/papadustream_v2-getxfield_response.html` for future scrapyfy integration tests.
+- **Browser page-fetch mock engine variants**: Added `ConsumingPageEngine`, `RejectingPageEngine`, and `FailingPageEngine` in `arachnea-http` client tests covering token consumption, token rejection with session preservation, and non-token error triggering fresh session attempts.
+- **Browser session token-cache unit tests**: 5 new tests in `browser.rs` for the handle-level `cached_turnstile_token`, `cache_turnstile_token`, `clear_turnstile_token` lifecycle and origin isolation.
+
+## Unreleased — Domain-scoped browser token cache
+
+### Added
+
+- **Opt-in browser callback-token reuse**: `browser_token.cache_scope: domain` now retains one opaque callback token in memory for the matching origin, browser profile, and proxy route. The token is evicted on rejection, session invalidation, eviction, or closure and is never persisted or logged.
+
+### Fixed
+
+- **PapaDuStream v2 `get_entry` season fallback**: Added two fallback `seasons` entries for season-specific variant pages: `.saisontab a.th-hover` for linked seasons, and `.saisontab :not(a) > .thumb` for the current non-linked season (rendered as a plain `<div.thumb>` without an `<a>` wrapper).

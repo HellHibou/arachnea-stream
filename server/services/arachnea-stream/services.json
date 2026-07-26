@@ -46,6 +46,10 @@
     "enabled": true
   },
   {
+    "path": "dark-stream/papadustream-v2.yaml",
+    "enabled": true
+  },
+  {
     "path": "legal-stream/ln24-be.yaml",
     "enabled": true
   }

@@ -528,7 +528,7 @@ With a line like `42|Mon Film|1h30`, this produces:
 
 ## 10. Sub-queries (`sub_queries`)
 
-Sub-queries allow chaining additional HTTP requests from extracted values. They are available in `html` and `json` scrapers.
+Sub-queries allow chaining additional HTTP requests from extracted values. They are available in `html` and `json` scrapers. A sub-query attached to a field inside an object group runs separately for each extracted object, so its templates use that object's fields and its result replaces only that field's source URL.
 
 ### Common structure (`SubQueryCommon`)
 
@@ -561,6 +561,86 @@ If absent, results are merged at root level.
 ```yaml
 target: "details>episodes"
 ```
+
+### Browser page fetch
+
+HTML queries and sub-queries can use a retained browser page instead of the
+normal HTTP transport. `page_navigate` navigates a root HTML query and returns
+its stable page source. `page_click` navigates, clicks an element, and returns
+the rendered HTML once a configured selector appears. `page_fetch` navigates
+then executes an authenticated JavaScript `fetch()` for an HTML sub-query. All
+modes reuse the same browser session when origin, browser profile, and proxy
+route match. The page URL and all request body/header templates use the current
+sub-query parameter context; entry fields are also exposed with
+non-alphanumeric characters normalized to `_`.
+
+```yaml
+http:
+  execution: page_navigate
+  browser_context: origin
+```
+
+`page_navigate` is HTML-only, supports only `GET`, and uses the query URL as
+its navigation URL. It must be configured with `browser_context: origin`.
+
+```yaml
+http:
+  execution: page_click
+  browser_context: origin
+  page_url: "{episode_url}"
+  browser_click:
+    selector: '.player-list .lien[onclick*="''{player_field}''"]'
+    wait_for_selector: "#videoIframe iframe[src]"
+```
+
+`page_click` is HTML-only and available only to sub-queries. It invokes the
+selected page element, so page JavaScript can own CAPTCHA rendering, callbacks,
+and same-page requests. It then returns the page HTML after `wait_for_selector`
+appears. `browser_click.selector` and `wait_for_selector` are required CSS
+selectors and support sub-query templates.
+
+```yaml
+http:
+  mode: auto
+  execution: page_fetch
+  browser_context: origin
+  page_url: "{episode_url}"
+  browser_token:
+    source: turnstile_callback
+    placeholder: "{browser_turnstile_token}"
+    cache_scope: domain
+    retry_on_rejection: once
+    rejection_statuses: [403]
+    rejection_body_markers: ["captcha invalid"]
+```
+
+`browser_context` must be `origin`. `page_fetch` is HTML-only and is available
+only to sub-queries. The token is
+kept in memory and is never exposed to extracted data or diagnostics.
+`cache_scope: domain` explicitly reuses it only for the matching origin,
+browser profile, and proxy route; omitting it retains one-shot behavior.
+`retry_on_rejection: once` performs at most one fresh navigation and submission
+after a configured rejection signal.
+
+`http.execution` is optional and defaults to the normal direct HTTP path. When
+set to `page_navigate`, `http.browser_context: origin` is required. When set to
+`page_click`, `http.browser_context: origin`, `http.page_url`, and
+`http.browser_click` are required. When set to `page_fetch`,
+`http.browser_context: origin` and `http.page_url` are required.
+
+Scrapyfy closes origin-matching retained browser pages after every root query,
+once all of its sub-queries complete. Browser page sessions are therefore
+query-scoped and require no YAML lifecycle option.
+`page_url`, request headers, and request-body values are resolved as sub-query
+templates before the browser request is sent.
+
+`browser_token` is optional. When present, `source: turnstile_callback` and a
+literal request-body `placeholder` are required; `turnstile_callback` is the
+only supported source. `cache_scope` may be omitted or set to `domain`.
+`retry_on_rejection` defaults to `never` and may be `never` or `once`.
+`rejection_statuses` and `rejection_body_markers` both default to empty lists;
+they classify the matching response as a token rejection only when a token was
+submitted.
 
 ### HTML sub-query
 

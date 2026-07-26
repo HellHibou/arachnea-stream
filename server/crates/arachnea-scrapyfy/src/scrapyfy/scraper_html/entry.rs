@@ -172,8 +172,8 @@ pub enum HtmlScraperEntry {
         /// Sub-queries attached to this entry (recursion across scraper types).
         ///
         /// Sub-queries allow fetching additional data based on values extracted
-        /// from this entry. Currently always empty; sub-query support is planned
-        /// for future versions (step 14+).
+        /// from this entry. They run after values are extracted and replace the
+        /// source URL with the returned values.
         sub_queries: Vec<Box<dyn ScraperQuery>>,
     },
     /// A group entry that contains child entries applied to each matched element.
@@ -211,8 +211,7 @@ pub enum HtmlScraperEntry {
         /// Sub-queries attached to this entry (recursion across scraper types).
         ///
         /// Sub-queries allow fetching additional data based on values extracted
-        /// from this group. Currently always empty; sub-query support is planned
-        /// for future versions (step 14+).
+        /// from this group.
         sub_queries: Vec<Box<dyn ScraperQuery>>,
     },
 }

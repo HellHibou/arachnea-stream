@@ -1997,9 +1997,11 @@ function normalizeEntryEpisode(
   const imagePosterUrl = readFirstLink(entry, 'img/poster', ['img', 'poster'])
   const link = resolveEntryUrl(firstNonEmptyString([entry.link]), source)
   const duration = firstNonEmptyString([entry.duration])
+  const playersLink = link
   const players: Collection<EntryPlayer> = {
     entries: normalizePlayers(readRecordList(entry.players), source),
     source,
+    ...(playersLink ? { link: playersLink } : {}),
   }
   const rawTitle = firstNonEmptyString([entry.title])
   const altTitle = firstNonEmptyString([entry['title/alt']])

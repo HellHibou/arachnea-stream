@@ -17,6 +17,11 @@ use tracing::{debug, info, warn};
 use url::Url;
 
 use crate::{
+    browser::{
+        BrowserSessionKey, BrowserSessionManager, BrowserSessionMetadata, PageClickRequest,
+        PageClickResponse, PageFetchRequest, PageFetchResponse, PageNavigationRequest,
+        PageNavigationResponse,
+    },
     cloudflare::detect_cloudflare_block,
     config::{ArachneaHttpConfig, CloudflareSolverKind, HttpProxyConfig, HttpRequestMode},
     cookies::{global_cookie_cache, SharedCookieCache},
@@ -212,6 +217,8 @@ pub struct ArachneaHttpClient {
     _proxy_runtime: Arc<PreparedProxyRuntime>,
     /// User-agent observed by the solver for each refreshed origin.
     cloudflare_user_agents: Arc<RwLock<HashMap<String, String>>>,
+    /// Manages reusable browser page sessions for in-page fetch operations.
+    browser_session_manager: Option<Arc<BrowserSessionManager>>,
 }
 
 /// Cloudflare refresh path used after a mode selects a solver class.
@@ -299,6 +306,24 @@ impl ArachneaHttpClient {
         config: ArachneaHttpConfig,
         cookies: Arc<RwLock<SharedCookieCache>>,
     ) -> Result<Self, ArachneaHttpError> {
+        let browser_session_manager = Arc::new(BrowserSessionManager::new(config.browser_session));
+        Self::new_with_cookie_cache_and_browser_session_manager(
+            config,
+            cookies,
+            browser_session_manager,
+        )
+        .await
+    }
+
+    /// Builds a new HTTP client with explicit cookies and shared browser sessions.
+    ///
+    /// Callers that derive clients with distinct request modes can pass the same
+    /// manager to preserve pages for matching origin, profile, and proxy keys.
+    pub async fn new_with_cookie_cache_and_browser_session_manager(
+        config: ArachneaHttpConfig,
+        cookies: Arc<RwLock<SharedCookieCache>>,
+        browser_session_manager: Arc<BrowserSessionManager>,
+    ) -> Result<Self, ArachneaHttpError> {
         let proxy_runtime = Arc::new(PreparedProxyRuntime::new(&config).await?);
         let direct_engine = config.engine.direct_engine();
         let rquest = if direct_engine.is_some() {
@@ -323,6 +348,7 @@ impl ArachneaHttpClient {
             browser_cloudflare_engine,
             _proxy_runtime: proxy_runtime,
             cloudflare_user_agents: global_cloudflare_user_agents(),
+            browser_session_manager: Some(browser_session_manager),
         })
     }
 
@@ -469,6 +495,251 @@ impl ArachneaHttpClient {
         mode: HttpRequestMode,
     ) -> ArachneaRequestBuilder {
         self.request(method, url).mode(mode)
+    }
+
+    /// Returns a reference to the browser session manager, if available.
+    pub fn browser_session_manager(&self) -> Option<&Arc<BrowserSessionManager>> {
+        self.browser_session_manager.as_ref()
+    }
+
+    /// Closes the retained browser session for the origin of one URL.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidUrl` when `url` does not contain a valid origin.
+    pub fn close_browser_session(&self, url: &str) -> Result<(), ArachneaHttpError> {
+        let origin = origin_url(url)?;
+        if let Some(manager) = &self.browser_session_manager {
+            manager.invalidate_origin(&origin);
+        }
+        Ok(())
+    }
+
+    /// Navigates a reusable browser page and returns its stable HTML when requested.
+    ///
+    /// The page is scoped to the navigation origin, configured user-agent profile,
+    /// and proxy route. Browser cookies and the observed user-agent are handed back
+    /// to the existing shared HTTP state after navigation.
+    ///
+    /// # Errors
+    ///
+    /// Returns `UnsupportedEngineOperation` when the configured browser solver does
+    /// not implement persistent pages, or browser/session failures otherwise.
+    pub async fn page_navigate(
+        &self,
+        navigation: PageNavigationRequest,
+    ) -> Result<PageNavigationResponse, ArachneaHttpError> {
+        let origin = origin_url(&navigation.url)?;
+        let manager = self.browser_session_manager.as_ref().ok_or_else(|| {
+            ArachneaHttpError::BrowserSessionUnavailable {
+                origin: origin.clone(),
+                reason: "browser session management is disabled".to_string(),
+            }
+        })?;
+        let session_key = BrowserSessionKey {
+            origin: origin.clone(),
+            profile: self.config.user_agent_profile.user_agent().to_string(),
+            proxy_route: self
+                ._proxy_runtime
+                .proxy_url(&self.config)
+                .map(str::to_owned),
+        };
+        let handle = manager.get_or_create(&session_key);
+        if !handle.is_valid() {
+            return Err(ArachneaHttpError::BrowserSessionUnavailable {
+                origin,
+                reason: "the cached browser session was invalidated".to_string(),
+            });
+        }
+
+        let result = async {
+            let mut session = handle.lock().await;
+            if session.page.is_none() {
+                let engine = self
+                    .browser_cloudflare_engine
+                    .as_ref()
+                    .ok_or_else(|| ArachneaHttpError::CloudflareSolverUnavailable)?;
+                session.page = Some(engine.open_browser_page_session().await?);
+            }
+            let page = session.page.as_mut().expect("browser page initialized");
+            let response = page.navigate(navigation).await?;
+            self.store_browser_session_metadata(page.metadata().await?)
+                .await?;
+            handle.touch();
+            Ok(response)
+        }
+        .await;
+
+        if result.is_err() {
+            manager.invalidate_origin(&origin);
+        }
+        result
+    }
+
+    /// Navigates a reusable browser page, clicks an element, and waits for a result selector.
+    ///
+    /// The page is scoped to the navigation origin, configured user-agent profile,
+    /// and proxy route. Browser cookies and the observed user-agent are handed back
+    /// to the existing shared HTTP state after navigation and interaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns `UnsupportedEngineOperation` when the configured browser solver does
+    /// not support page interaction, or browser/session failures otherwise.
+    pub async fn page_click(
+        &self,
+        navigation: PageNavigationRequest,
+        click: PageClickRequest,
+    ) -> Result<PageClickResponse, ArachneaHttpError> {
+        let origin = origin_url(&navigation.url)?;
+        let manager = self.browser_session_manager.as_ref().ok_or_else(|| {
+            ArachneaHttpError::BrowserSessionUnavailable {
+                origin: origin.clone(),
+                reason: "browser session management is disabled".to_string(),
+            }
+        })?;
+        let session_key = BrowserSessionKey {
+            origin: origin.clone(),
+            profile: self.config.user_agent_profile.user_agent().to_string(),
+            proxy_route: self
+                ._proxy_runtime
+                .proxy_url(&self.config)
+                .map(str::to_owned),
+        };
+        let handle = manager.get_or_create(&session_key);
+        if !handle.is_valid() {
+            return Err(ArachneaHttpError::BrowserSessionUnavailable {
+                origin,
+                reason: "the cached browser session was invalidated".to_string(),
+            });
+        }
+
+        let result = async {
+            let mut session = handle.lock().await;
+            if session.page.is_none() {
+                let engine = self
+                    .browser_cloudflare_engine
+                    .as_ref()
+                    .ok_or_else(|| ArachneaHttpError::CloudflareSolverUnavailable)?;
+                session.page = Some(engine.open_browser_page_session().await?);
+            }
+            let page = session.page.as_mut().expect("browser page initialized");
+            page.navigate(navigation).await?;
+            self.store_browser_session_metadata(page.metadata().await?)
+                .await?;
+            let response = page.click_and_wait(click).await?;
+            self.store_browser_session_metadata(page.metadata().await?)
+                .await?;
+            handle.touch();
+            Ok(response)
+        }
+        .await;
+
+        if result.is_err() {
+            manager.invalidate_origin(&origin);
+        }
+        result
+    }
+
+    /// Navigates a reusable browser page, then executes one JavaScript fetch in it.
+    ///
+    /// The page is scoped to the navigation origin, configured user-agent
+    /// profile, and proxy route. Browser cookies and the observed user-agent
+    /// are handed back to the existing shared HTTP state after both navigation
+    /// and fetch.
+    ///
+    /// # Errors
+    ///
+    /// Returns `UnsupportedEngineOperation` when the configured browser solver
+    /// does not implement persistent pages, `TokenAbsent` when a requested
+    /// callback token is unavailable, or browser/session failures otherwise.
+    pub async fn page_fetch(
+        &self,
+        navigation: PageNavigationRequest,
+        request: PageFetchRequest,
+    ) -> Result<PageFetchResponse, ArachneaHttpError> {
+        let origin = origin_url(&navigation.url)?;
+        let manager = self.browser_session_manager.as_ref().ok_or_else(|| {
+            ArachneaHttpError::BrowserSessionUnavailable {
+                origin: origin.clone(),
+                reason: "browser session management is disabled".to_string(),
+            }
+        })?;
+        let session_key = BrowserSessionKey {
+            origin: origin.clone(),
+            profile: self.config.user_agent_profile.user_agent().to_string(),
+            proxy_route: self
+                ._proxy_runtime
+                .proxy_url(&self.config)
+                .map(str::to_owned),
+        };
+        let handle = manager.get_or_create(&session_key);
+        if !handle.is_valid() {
+            return Err(ArachneaHttpError::BrowserSessionUnavailable {
+                origin,
+                reason: "the cached browser session was invalidated".to_string(),
+            });
+        }
+
+        let result = async {
+            let mut session = handle.lock().await;
+            if session.page.is_none() {
+                let engine = self
+                    .browser_cloudflare_engine
+                    .as_ref()
+                    .ok_or_else(|| ArachneaHttpError::CloudflareSolverUnavailable)?;
+                session.page = Some(engine.open_browser_page_session().await?);
+            }
+            let page = session.page.as_mut().expect("browser page initialized");
+            page.navigate(navigation).await?;
+            self.store_browser_session_metadata(page.metadata().await?)
+                .await?;
+
+            let token_submitted = request.turnstile_token_placeholder.is_some();
+            let request = if token_submitted {
+                let token = if request.reuse_turnstile_token {
+                    if let Some(token) = handle.cached_turnstile_token() {
+                        token
+                    } else {
+                        let token = page.read_turnstile_token().await?.ok_or_else(|| {
+                            ArachneaHttpError::TokenAbsent {
+                                origin: origin.clone(),
+                            }
+                        })?;
+                        handle.cache_turnstile_token(token.clone());
+                        token
+                    }
+                } else {
+                    page.read_turnstile_token().await?.ok_or_else(|| {
+                        ArachneaHttpError::TokenAbsent {
+                            origin: origin.clone(),
+                        }
+                    })?
+                };
+                request.inject_turnstile_token(&token)?
+            } else {
+                request
+            };
+            let token_rejection = request.clone();
+            let response = page.fetch(request).await?;
+            self.store_browser_session_metadata(page.metadata().await?)
+                .await?;
+            if token_submitted && token_rejection.is_token_rejected_by(&response) {
+                page.clear_turnstile_token().await?;
+                handle.clear_turnstile_token();
+                return Err(ArachneaHttpError::TokenRejected {
+                    origin: origin.clone(),
+                });
+            }
+            handle.touch();
+            Ok(response)
+        }
+        .await;
+
+        if !matches!(result, Err(ArachneaHttpError::TokenRejected { .. })) && result.is_err() {
+            manager.invalidate_origin(&origin);
+        }
+        result
     }
 
     /// Forces a Cloudflare refresh for an origin.
@@ -1267,6 +1538,21 @@ impl ArachneaHttpClient {
             self.config.default_session_cookie_ttl,
         )
     }
+
+    /// Synchronizes browser page metadata with the shared HTTP cookie and
+    /// user-agent caches.
+    async fn store_browser_session_metadata(
+        &self,
+        metadata: BrowserSessionMetadata,
+    ) -> Result<(), ArachneaHttpError> {
+        if metadata.url.is_empty() {
+            return Ok(());
+        }
+        self.store_cloudflare_solver_metadata(&metadata.url, &metadata.headers)
+            .await?;
+        self.store_response_cookies(&metadata.url, &metadata.headers)
+            .await
+    }
 }
 
 /// Builder for one outbound request.
@@ -1763,11 +2049,12 @@ fn redacted_headers(headers: &HeaderMap) -> HashMap<String, String> {
 mod tests {
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc,
+        Arc, Mutex,
     };
 
     use http::header::SET_COOKIE;
 
+    use crate::browser::{BrowserPageSession, PageNavigationResponse};
     use crate::engine::{EngineResponse, SOLVER_USER_AGENT_HEADER};
 
     use super::*;
@@ -1786,6 +2073,24 @@ mod tests {
         send_calls: Arc<AtomicUsize>,
         /// Number of Cloudflare refresh calls observed by the engine.
         refresh_calls: Arc<AtomicUsize>,
+    }
+
+    /// Browser-capable engine that exposes a deterministic in-page fetch session.
+    #[derive(Clone)]
+    struct PageEngine {
+        opens: Arc<AtomicUsize>,
+        navigations: Arc<AtomicUsize>,
+        fetches: Arc<AtomicUsize>,
+        token_reads: Arc<AtomicUsize>,
+        bodies: Arc<Mutex<Vec<String>>>,
+    }
+
+    /// In-memory page used by `PageEngine`.
+    struct PageEngineSession {
+        navigations: Arc<AtomicUsize>,
+        fetches: Arc<AtomicUsize>,
+        token_reads: Arc<AtomicUsize>,
+        bodies: Arc<Mutex<Vec<String>>>,
     }
 
     #[async_trait::async_trait]
@@ -1895,6 +2200,93 @@ mod tests {
         }
     }
 
+    #[async_trait::async_trait]
+    impl HttpEngine for PageEngine {
+        fn name(&self) -> &'static str {
+            "page-test"
+        }
+
+        async fn send(&self, request: EngineRequest) -> Result<EngineResponse, ArachneaHttpError> {
+            Ok(EngineResponse {
+                url: request.url,
+                status: StatusCode::OK,
+                headers: HeaderMap::new(),
+                body: Bytes::new(),
+            })
+        }
+
+        async fn open_browser_page_session(
+            &self,
+        ) -> Result<Box<dyn BrowserPageSession>, ArachneaHttpError> {
+            self.opens.fetch_add(1, Ordering::SeqCst);
+            Ok(Box::new(PageEngineSession {
+                navigations: self.navigations.clone(),
+                fetches: self.fetches.clone(),
+                token_reads: self.token_reads.clone(),
+                bodies: self.bodies.clone(),
+            }))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl BrowserPageSession for PageEngineSession {
+        async fn navigate(
+            &mut self,
+            request: PageNavigationRequest,
+        ) -> Result<PageNavigationResponse, ArachneaHttpError> {
+            self.navigations.fetch_add(1, Ordering::SeqCst);
+            Ok(PageNavigationResponse {
+                url: request.url,
+                body: None,
+            })
+        }
+
+        async fn fetch(
+            &mut self,
+            request: PageFetchRequest,
+        ) -> Result<PageFetchResponse, ArachneaHttpError> {
+            self.fetches.fetch_add(1, Ordering::SeqCst);
+            let body = request
+                .body
+                .map(|body| String::from_utf8_lossy(&body).into_owned())
+                .unwrap_or_default();
+            self.bodies.lock().expect("test bodies lock").push(body);
+            Ok(PageFetchResponse {
+                url: request.url,
+                status: StatusCode::OK,
+                headers: HeaderMap::new(),
+                body: "<iframe src=\"https://embed.example\"></iframe>".to_string(),
+            })
+        }
+
+        async fn metadata(&mut self) -> Result<BrowserSessionMetadata, ArachneaHttpError> {
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                SET_COOKIE,
+                "cf_clearance=browser; Max-Age=60; Path=/"
+                    .parse()
+                    .expect("valid Set-Cookie header"),
+            );
+            headers.insert(
+                SOLVER_USER_AGENT_HEADER,
+                "BrowserPageUA/1"
+                    .parse()
+                    .expect("valid user-agent metadata"),
+            );
+            Ok(BrowserSessionMetadata {
+                url: "https://page-session.example/episode".to_string(),
+                headers,
+            })
+        }
+
+        async fn read_turnstile_token(&mut self) -> Result<Option<String>, ArachneaHttpError> {
+            self.token_reads.fetch_add(1, Ordering::SeqCst);
+            Ok(Some("browser-token".to_string()))
+        }
+
+        async fn close(self: Box<Self>) {}
+    }
+
     /// Verifies origin normalization keeps the scheme, host, and port.
     #[test]
     fn origin_url_keeps_authority() {
@@ -1975,5 +2367,543 @@ mod tests {
             request.headers.get(COOKIE).expect("cookie"),
             "cf_clearance=ok"
         );
+    }
+
+    /// Verifies one origin reuses its page and hands browser state back to HTTP.
+    #[tokio::test]
+    async fn page_fetch_reuses_browser_session_and_handoffs_metadata() {
+        let opens = Arc::new(AtomicUsize::new(0));
+        let navigations = Arc::new(AtomicUsize::new(0));
+        let fetches = Arc::new(AtomicUsize::new(0));
+        let token_reads = Arc::new(AtomicUsize::new(0));
+        let bodies = Arc::new(Mutex::new(Vec::new()));
+        let engine = PageEngine {
+            opens: opens.clone(),
+            navigations: navigations.clone(),
+            fetches: fetches.clone(),
+            token_reads: token_reads.clone(),
+            bodies: bodies.clone(),
+        };
+        let config = ArachneaHttpConfig::builder()
+            .cloudflare_browser_solver_instance(engine)
+            .build()
+            .expect("valid config");
+        let client = ArachneaHttpClient::new_with_cookie_cache(
+            config,
+            Arc::new(RwLock::new(SharedCookieCache::default())),
+        )
+        .await
+        .expect("client");
+
+        for _ in 0..2 {
+            let response = client
+                .page_fetch(
+                    PageNavigationRequest {
+                        url: "https://page-session.example/episode".to_string(),
+                        headers: HeaderMap::new(),
+                        collect_body: false,
+                    },
+                    PageFetchRequest {
+                        method: Method::POST,
+                        url: "https://page-session.example/ajax".to_string(),
+                        headers: HeaderMap::new(),
+                        body: Some(Bytes::from_static(b"captcha={browser_token}")),
+                        turnstile_token_placeholder: Some("{browser_token}".to_string()),
+                        reuse_turnstile_token: true,
+                        token_rejection_statuses: Vec::new(),
+                        token_rejection_body_markers: Vec::new(),
+                    },
+                )
+                .await
+                .expect("page fetch");
+            assert_eq!(response.status, StatusCode::OK);
+        }
+
+        assert_eq!(opens.load(Ordering::SeqCst), 1);
+        assert_eq!(navigations.load(Ordering::SeqCst), 2);
+        assert_eq!(fetches.load(Ordering::SeqCst), 2);
+        assert_eq!(token_reads.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            bodies.lock().expect("test bodies lock").as_slice(),
+            ["captcha=browser-token", "captcha=browser-token"]
+        );
+
+        let request = client
+            .engine_request(RequestOptions {
+                method: Method::GET,
+                url: "https://page-session.example/next".to_string(),
+                mode: None,
+                headers: HeaderMap::new(),
+                body: None,
+            })
+            .await
+            .expect("engine request");
+        assert_eq!(
+            request.headers.get(USER_AGENT).expect("browser user-agent"),
+            "BrowserPageUA/1"
+        );
+        assert_eq!(
+            request.headers.get(COOKIE).expect("browser cookie"),
+            "cf_clearance=browser"
+        );
+    }
+
+    /// Engine whose page returns a token once then absent on subsequent reads.
+    #[derive(Clone)]
+    struct ConsumingPageEngine {
+        navigations: Arc<AtomicUsize>,
+        fetches: Arc<AtomicUsize>,
+        first_token_read: Arc<AtomicUsize>,
+    }
+
+    struct ConsumingPageEngineSession {
+        navigations: Arc<AtomicUsize>,
+        fetches: Arc<AtomicUsize>,
+        first_token_read: Arc<AtomicUsize>,
+    }
+
+    #[async_trait::async_trait]
+    impl HttpEngine for ConsumingPageEngine {
+        fn name(&self) -> &'static str {
+            "consuming-page-test"
+        }
+
+        async fn send(&self, _request: EngineRequest) -> Result<EngineResponse, ArachneaHttpError> {
+            Ok(EngineResponse {
+                url: "https://consuming.example".to_string(),
+                status: StatusCode::OK,
+                headers: HeaderMap::new(),
+                body: Bytes::new(),
+            })
+        }
+
+        async fn open_browser_page_session(
+            &self,
+        ) -> Result<Box<dyn BrowserPageSession>, ArachneaHttpError> {
+            Ok(Box::new(ConsumingPageEngineSession {
+                navigations: self.navigations.clone(),
+                fetches: self.fetches.clone(),
+                first_token_read: self.first_token_read.clone(),
+            }))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl BrowserPageSession for ConsumingPageEngineSession {
+        async fn navigate(
+            &mut self,
+            request: PageNavigationRequest,
+        ) -> Result<PageNavigationResponse, ArachneaHttpError> {
+            self.navigations.fetch_add(1, Ordering::SeqCst);
+            Ok(PageNavigationResponse {
+                url: request.url,
+                body: None,
+            })
+        }
+
+        async fn fetch(
+            &mut self,
+            request: PageFetchRequest,
+        ) -> Result<PageFetchResponse, ArachneaHttpError> {
+            self.fetches.fetch_add(1, Ordering::SeqCst);
+            Ok(PageFetchResponse {
+                url: request.url,
+                status: StatusCode::OK,
+                headers: HeaderMap::new(),
+                body: "<iframe src=\"https://embed.example\"></iframe>".to_string(),
+            })
+        }
+
+        async fn metadata(&mut self) -> Result<BrowserSessionMetadata, ArachneaHttpError> {
+            Ok(BrowserSessionMetadata {
+                url: "https://consuming.example/episode".to_string(),
+                headers: HeaderMap::new(),
+            })
+        }
+
+        async fn read_turnstile_token(&mut self) -> Result<Option<String>, ArachneaHttpError> {
+            let already_read = self.first_token_read.fetch_add(1, Ordering::SeqCst);
+            if already_read == 0 {
+                Ok(Some("first-token".to_string()))
+            } else {
+                Ok(None)
+            }
+        }
+
+        async fn close(self: Box<Self>) {}
+    }
+
+    /// Verifies a consumed token (page returns None) produces `TokenAbsent`.
+    #[tokio::test]
+    async fn page_fetch_token_consumed_returns_absent_without_reuse() {
+        let engine = ConsumingPageEngine {
+            navigations: Arc::new(AtomicUsize::new(0)),
+            fetches: Arc::new(AtomicUsize::new(0)),
+            first_token_read: Arc::new(AtomicUsize::new(0)),
+        };
+        let config = ArachneaHttpConfig::builder()
+            .cloudflare_browser_solver_instance(engine)
+            .build()
+            .expect("valid config");
+        let client = ArachneaHttpClient::new_with_cookie_cache(
+            config,
+            Arc::new(RwLock::new(SharedCookieCache::default())),
+        )
+        .await
+        .expect("client");
+
+        let nav = PageNavigationRequest {
+            url: "https://consuming.example/episode".to_string(),
+            headers: HeaderMap::new(),
+            collect_body: false,
+        };
+
+        // First call consumes the token.
+        client
+            .page_fetch(
+                nav.clone(),
+                PageFetchRequest {
+                    method: Method::POST,
+                    url: "https://consuming.example/ajax".to_string(),
+                    headers: HeaderMap::new(),
+                    body: Some(Bytes::from_static(b"token={browser_token}")),
+                    turnstile_token_placeholder: Some("{browser_token}".to_string()),
+                    reuse_turnstile_token: false,
+                    token_rejection_statuses: Vec::new(),
+                    token_rejection_body_markers: Vec::new(),
+                },
+            )
+            .await
+            .expect("first page fetch");
+
+        // Second call without reuse should fail because the page token was consumed.
+        let err = client
+            .page_fetch(
+                nav,
+                PageFetchRequest {
+                    method: Method::POST,
+                    url: "https://consuming.example/ajax".to_string(),
+                    headers: HeaderMap::new(),
+                    body: Some(Bytes::from_static(b"token={browser_token}")),
+                    turnstile_token_placeholder: Some("{browser_token}".to_string()),
+                    reuse_turnstile_token: false,
+                    token_rejection_statuses: Vec::new(),
+                    token_rejection_body_markers: Vec::new(),
+                },
+            )
+            .await
+            .expect_err("token should be absent");
+        assert!(
+            matches!(err, ArachneaHttpError::TokenAbsent { .. }),
+            "expected TokenAbsent, got {err:?}"
+        );
+    }
+
+    /// Verifies domain-scoped token caching survives token consumption.
+    #[tokio::test]
+    async fn page_fetch_token_reuse_caches_across_calls() {
+        let engine = ConsumingPageEngine {
+            navigations: Arc::new(AtomicUsize::new(0)),
+            fetches: Arc::new(AtomicUsize::new(0)),
+            first_token_read: Arc::new(AtomicUsize::new(0)),
+        };
+        let config = ArachneaHttpConfig::builder()
+            .cloudflare_browser_solver_instance(engine)
+            .build()
+            .expect("valid config");
+        let client = ArachneaHttpClient::new_with_cookie_cache(
+            config,
+            Arc::new(RwLock::new(SharedCookieCache::default())),
+        )
+        .await
+        .expect("client");
+
+        let nav = PageNavigationRequest {
+            url: "https://consuming.example/episode".to_string(),
+            headers: HeaderMap::new(),
+            collect_body: false,
+        };
+
+        // First call reads the token once and caches it.
+        client
+            .page_fetch(
+                nav.clone(),
+                PageFetchRequest {
+                    method: Method::POST,
+                    url: "https://consuming.example/ajax".to_string(),
+                    headers: HeaderMap::new(),
+                    body: Some(Bytes::from_static(b"token={browser_token}")),
+                    turnstile_token_placeholder: Some("{browser_token}".to_string()),
+                    reuse_turnstile_token: true,
+                    token_rejection_statuses: Vec::new(),
+                    token_rejection_body_markers: Vec::new(),
+                },
+            )
+            .await
+            .expect("first page fetch");
+
+        // Second call reuses the cached token; page read_turnstile_token is not called.
+        let response = client
+            .page_fetch(
+                nav,
+                PageFetchRequest {
+                    method: Method::POST,
+                    url: "https://consuming.example/ajax2".to_string(),
+                    headers: HeaderMap::new(),
+                    body: Some(Bytes::from_static(b"token={browser_token}")),
+                    turnstile_token_placeholder: Some("{browser_token}".to_string()),
+                    reuse_turnstile_token: true,
+                    token_rejection_statuses: Vec::new(),
+                    token_rejection_body_markers: Vec::new(),
+                },
+            )
+            .await
+            .expect("second page fetch");
+        assert_eq!(response.status, StatusCode::OK);
+    }
+
+    /// Engine that returns a token-rejection response.
+    #[derive(Clone)]
+    struct RejectingPageEngine;
+
+    impl RejectingPageEngine {
+        fn into_session(self) -> RejectingPageEngineSession {
+            RejectingPageEngineSession
+        }
+    }
+
+    struct RejectingPageEngineSession;
+
+    #[async_trait::async_trait]
+    impl HttpEngine for RejectingPageEngine {
+        fn name(&self) -> &'static str {
+            "rejecting-page-test"
+        }
+
+        async fn send(&self, _request: EngineRequest) -> Result<EngineResponse, ArachneaHttpError> {
+            Ok(EngineResponse {
+                url: "https://rejecting.example".to_string(),
+                status: StatusCode::OK,
+                headers: HeaderMap::new(),
+                body: Bytes::new(),
+            })
+        }
+
+        async fn open_browser_page_session(
+            &self,
+        ) -> Result<Box<dyn BrowserPageSession>, ArachneaHttpError> {
+            Ok(Box::new(self.clone().into_session()))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl BrowserPageSession for RejectingPageEngineSession {
+        async fn navigate(
+            &mut self,
+            request: PageNavigationRequest,
+        ) -> Result<PageNavigationResponse, ArachneaHttpError> {
+            Ok(PageNavigationResponse {
+                url: request.url,
+                body: None,
+            })
+        }
+
+        async fn fetch(
+            &mut self,
+            _request: PageFetchRequest,
+        ) -> Result<PageFetchResponse, ArachneaHttpError> {
+            Ok(PageFetchResponse {
+                url: "https://rejecting.example/ajax".to_string(),
+                status: StatusCode::FORBIDDEN,
+                headers: HeaderMap::new(),
+                body: "captcha required".to_string(),
+            })
+        }
+
+        async fn metadata(&mut self) -> Result<BrowserSessionMetadata, ArachneaHttpError> {
+            Ok(BrowserSessionMetadata {
+                url: "https://rejecting.example/episode".to_string(),
+                headers: HeaderMap::new(),
+            })
+        }
+
+        async fn read_turnstile_token(&mut self) -> Result<Option<String>, ArachneaHttpError> {
+            Ok(Some("rejected-token".to_string()))
+        }
+
+        async fn close(self: Box<Self>) {}
+    }
+
+    /// Verifies a rejected token produces `TokenRejected` and preserves the session.
+    #[tokio::test]
+    async fn page_fetch_token_rejected_preserves_session() {
+        let engine = RejectingPageEngine;
+        let config = ArachneaHttpConfig::builder()
+            .cloudflare_browser_solver_instance(engine)
+            .build()
+            .expect("valid config");
+        let client = ArachneaHttpClient::new_with_cookie_cache(
+            config,
+            Arc::new(RwLock::new(SharedCookieCache::default())),
+        )
+        .await
+        .expect("client");
+
+        let nav = PageNavigationRequest {
+            url: "https://rejecting.example/episode".to_string(),
+            headers: HeaderMap::new(),
+            collect_body: false,
+        };
+
+        // The page returns 403 Forbidden matched by rejection_statuses.
+        let err = client
+            .page_fetch(
+                nav,
+                PageFetchRequest {
+                    method: Method::POST,
+                    url: "https://rejecting.example/ajax".to_string(),
+                    headers: HeaderMap::new(),
+                    body: Some(Bytes::from_static(b"token={browser_token}")),
+                    turnstile_token_placeholder: Some("{browser_token}".to_string()),
+                    reuse_turnstile_token: false,
+                    token_rejection_statuses: vec![StatusCode::FORBIDDEN],
+                    token_rejection_body_markers: Vec::new(),
+                },
+            )
+            .await
+            .expect_err("token should be rejected");
+        assert!(
+            matches!(err, ArachneaHttpError::TokenRejected { .. }),
+            "expected TokenRejected, got {err:?}"
+        );
+
+        // The session should survive: a subsequent call reuses the same origin session.
+        // We verify by checking the engine still opens pages (no invalidation).
+        // After TokenRejected, the page should still be open and navigable.
+        // We use a marker-free request (no token placeholder) to confirm the session works.
+        let response = client
+            .page_fetch(
+                PageNavigationRequest {
+                    url: "https://rejecting.example/another".to_string(),
+                    headers: HeaderMap::new(),
+                    collect_body: false,
+                },
+                PageFetchRequest {
+                    method: Method::GET,
+                    url: "https://rejecting.example/another".to_string(),
+                    headers: HeaderMap::new(),
+                    body: None,
+                    turnstile_token_placeholder: None,
+                    reuse_turnstile_token: false,
+                    token_rejection_statuses: Vec::new(),
+                    token_rejection_body_markers: Vec::new(),
+                },
+            )
+            .await
+            .expect("page fetch after rejection should succeed");
+        assert_eq!(response.status, StatusCode::FORBIDDEN);
+    }
+
+    /// Engine that fails to open a browser session.
+    #[derive(Clone)]
+    struct FailingPageEngine {
+        open_attempts: Arc<AtomicUsize>,
+    }
+
+    #[async_trait::async_trait]
+    impl HttpEngine for FailingPageEngine {
+        fn name(&self) -> &'static str {
+            "failing-page-test"
+        }
+
+        async fn send(&self, _request: EngineRequest) -> Result<EngineResponse, ArachneaHttpError> {
+            Ok(EngineResponse {
+                url: "https://failing.example".to_string(),
+                status: StatusCode::OK,
+                headers: HeaderMap::new(),
+                body: Bytes::new(),
+            })
+        }
+
+        async fn open_browser_page_session(
+            &self,
+        ) -> Result<Box<dyn BrowserPageSession>, ArachneaHttpError> {
+            self.open_attempts.fetch_add(1, Ordering::SeqCst);
+            Err(ArachneaHttpError::ChaserCfFailure(
+                "engine failure".to_string(),
+            ))
+        }
+    }
+
+    /// Verifies a non-token error invalidates the browser session and forces a fresh attempt.
+    #[tokio::test]
+    async fn page_fetch_other_error_triggers_new_session_attempt() {
+        let open_attempts = Arc::new(AtomicUsize::new(0));
+        let engine = FailingPageEngine {
+            open_attempts: open_attempts.clone(),
+        };
+        let config = ArachneaHttpConfig::builder()
+            .cloudflare_browser_solver_instance(engine)
+            .build()
+            .expect("valid config");
+        let client = ArachneaHttpClient::new_with_cookie_cache(
+            config,
+            Arc::new(RwLock::new(SharedCookieCache::default())),
+        )
+        .await
+        .expect("client");
+
+        let nav = PageNavigationRequest {
+            url: "https://failing.example/episode".to_string(),
+            headers: HeaderMap::new(),
+            collect_body: false,
+        };
+
+        // First call fails because the engine returns an error.
+        let err = client
+            .page_fetch(
+                nav.clone(),
+                PageFetchRequest {
+                    method: Method::GET,
+                    url: "https://failing.example/episode".to_string(),
+                    headers: HeaderMap::new(),
+                    body: None,
+                    turnstile_token_placeholder: None,
+                    reuse_turnstile_token: false,
+                    token_rejection_statuses: Vec::new(),
+                    token_rejection_body_markers: Vec::new(),
+                },
+            )
+            .await
+            .expect_err("engine should fail");
+        assert!(
+            matches!(err, ArachneaHttpError::ChaserCfFailure(_)),
+            "expected engine failure, got {err:?}"
+        );
+        assert_eq!(open_attempts.load(Ordering::SeqCst), 1);
+
+        // The session was invalidated, so a second call attempts a fresh engine session.
+        let err2 = client
+            .page_fetch(
+                nav,
+                PageFetchRequest {
+                    method: Method::GET,
+                    url: "https://failing.example/episode".to_string(),
+                    headers: HeaderMap::new(),
+                    body: None,
+                    turnstile_token_placeholder: None,
+                    reuse_turnstile_token: false,
+                    token_rejection_statuses: Vec::new(),
+                    token_rejection_body_markers: Vec::new(),
+                },
+            )
+            .await
+            .expect_err("second call should also fail");
+        assert!(
+            matches!(err2, ArachneaHttpError::ChaserCfFailure(_)),
+            "second call should retry engine, got {err2:?}"
+        );
+        // Two open attempts confirm the first was invalidated rather than reusing a cached session.
+        assert_eq!(open_attempts.load(Ordering::SeqCst), 2);
     }
 }

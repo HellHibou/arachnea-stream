@@ -7,6 +7,7 @@ use bytes::Bytes;
 use http::{HeaderMap, Method, StatusCode};
 
 use crate::{
+    browser::BrowserPageSession,
     config::{ArachneaHttpConfig, CloudflareBrowserSolverKind},
     error::ArachneaHttpError,
 };
@@ -79,6 +80,20 @@ pub trait HttpEngine: Send + Sync {
     ///
     /// Returns engine-specific failures mapped to `ArachneaHttpError`.
     async fn send(&self, request: EngineRequest) -> Result<EngineResponse, ArachneaHttpError>;
+
+    /// Opens a persistent browser page session for page-scoped JavaScript work.
+    ///
+    /// Implementations that only support normalized HTTP transport return
+    /// `UnsupportedEngineOperation`. Browser-backed engines override this to
+    /// retain one page across a source navigation and subsequent `fetch()`.
+    async fn open_browser_page_session(
+        &self,
+    ) -> Result<Box<dyn BrowserPageSession>, ArachneaHttpError> {
+        Err(ArachneaHttpError::UnsupportedEngineOperation {
+            engine: self.name(),
+            operation: "persistent browser page sessions",
+        })
+    }
 
     /// Refreshes Cloudflare state for one normalized request.
     ///

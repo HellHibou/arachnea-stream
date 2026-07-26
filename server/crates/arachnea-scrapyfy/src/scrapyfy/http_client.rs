@@ -1,12 +1,13 @@
 use anyhow::{Context, Result};
 use arachnea_http::{
     global_cookie_cache, header_map_from_strings, ArachneaHttpClient, ArachneaHttpConfig,
-    ArachneaResponse, BrowserProfile, CookieEntry, HttpProxyConfig, HttpRequestMode,
+    ArachneaResponse, BrowserProfile, BrowserSessionConfig, BrowserSessionManager, CookieEntry,
+    HttpProxyConfig, HttpRequestMode, PageClickRequest, PageFetchRequest, PageNavigationRequest,
     SharedCookieCache,
 };
 #[cfg(feature = "arachnea-proxy")]
 use arachnea_proxy::core::{ArachneaProxyCore, UsageProfile};
-use http::Method;
+use http::{HeaderMap, Method};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -129,6 +130,88 @@ pub enum ScraperHttpMode {
     CloudflareBrowser,
 }
 
+/// Execution transport for a scraper query or sub-query.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScraperHttpExecution {
+    /// Use the normal HTTP client request path.
+    Direct,
+    /// Navigate a retained browser page and return its stable HTML source.
+    PageNavigate,
+    /// Navigate a retained browser page, click an element, then return rendered HTML.
+    PageClick,
+    /// Navigate a retained browser page, then execute JavaScript `fetch()` in it.
+    PageFetch,
+}
+
+/// Scope used to reuse browser page sessions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScraperBrowserContext {
+    /// Reuse a session only when origin, browser profile, and proxy route match.
+    Origin,
+}
+
+/// Browser-side source from which one request token is captured.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScraperBrowserTokenSource {
+    /// Application token passed to `turnstile.render(... callback(token))`.
+    TurnstileCallback,
+}
+
+/// Maximum browser-token retry policy for one sub-query execution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScraperBrowserTokenRetry {
+    /// Never retry after a classified token rejection.
+    Never,
+    /// Re-navigate once, obtain a fresh token, and submit one more request.
+    Once,
+}
+
+/// Optional reuse scope for a browser callback token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScraperBrowserTokenCacheScope {
+    /// Reuse the token only in the matching origin/profile/proxy browser session.
+    Domain,
+}
+
+/// Token substitution and rejection signals for a browser page fetch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScraperBrowserTokenConfig {
+    /// Source used to capture the token in the browser page.
+    pub source: ScraperBrowserTokenSource,
+    /// Literal request-body placeholder replaced with the captured token.
+    pub placeholder: String,
+    /// Optional opt-in reuse scope for the captured token.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_scope: Option<ScraperBrowserTokenCacheScope>,
+    /// Bounded retry policy when the target rejects the captured token.
+    #[serde(default = "default_browser_token_retry")]
+    pub retry_on_rejection: ScraperBrowserTokenRetry,
+    /// HTTP status codes classified as token rejection after token submission.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rejection_statuses: Vec<u16>,
+    /// Response text fragments classified as token rejection.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rejection_body_markers: Vec<String>,
+}
+
+fn default_browser_token_retry() -> ScraperBrowserTokenRetry {
+    ScraperBrowserTokenRetry::Never
+}
+
+/// Browser-page click and DOM wait configuration for a scraper sub-query.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScraperBrowserClickConfig {
+    /// CSS selector for the page element that triggers the site workflow.
+    pub selector: String,
+    /// CSS selector that must appear before the rendered page is extracted.
+    pub wait_for_selector: String,
+}
+
 impl From<ScraperHttpMode> for HttpRequestMode {
     /// Converts the scraper-level mode into the [`HttpRequestMode`] expected by `arachnea-http`.
     fn from(mode: ScraperHttpMode) -> Self {
@@ -186,6 +269,21 @@ pub struct ScraperHttpConfig {
     pub proxy_country: Option<String>,
     /// Maximum number of redirects to follow before returning an error.
     pub max_redirects: Option<usize>,
+    /// Optional browser execution mode for a sub-query.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution: Option<ScraperHttpExecution>,
+    /// Browser session reuse scope required by browser page execution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser_context: Option<ScraperBrowserContext>,
+    /// Source page URL template navigated before an in-page fetch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_url: Option<String>,
+    /// Optional browser token configuration for the in-page request body.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser_token: Option<ScraperBrowserTokenConfig>,
+    /// Optional click and DOM wait configuration for `execution: page_click`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser_click: Option<ScraperBrowserClickConfig>,
 }
 
 impl ScraperHttpConfig {
@@ -196,6 +294,11 @@ impl ScraperHttpConfig {
             && self.user_agent.is_none()
             && self.proxy_country.is_none()
             && self.max_redirects.is_none()
+            && self.execution.is_none()
+            && self.browser_context.is_none()
+            && self.page_url.is_none()
+            && self.browser_token.is_none()
+            && self.browser_click.is_none()
     }
 
     /// Applies a child override on top of this config.
@@ -214,6 +317,19 @@ impl ScraperHttpConfig {
                 .or(self.proxy_country.as_ref())
                 .map(|value| normalize_proxy_country(value)),
             max_redirects: child.max_redirects.or(self.max_redirects),
+            execution: child.execution.or(self.execution),
+            browser_context: child.browser_context.or(self.browser_context),
+            page_url: child.page_url.as_ref().or(self.page_url.as_ref()).cloned(),
+            browser_token: child
+                .browser_token
+                .as_ref()
+                .or(self.browser_token.as_ref())
+                .cloned(),
+            browser_click: child
+                .browser_click
+                .as_ref()
+                .or(self.browser_click.as_ref())
+                .cloned(),
         }
     }
 
@@ -277,7 +393,6 @@ impl ScraperHttpConfig {
                 params,
             )?);
         }
-
         Ok(())
     }
 }
@@ -317,6 +432,7 @@ pub struct HttpClient {
     proxy_handle: SharedProxyConfigHandle,
     local_country: SharedLocalCountry,
     cookie_cache: Arc<AsyncRwLock<SharedCookieCache>>,
+    browser_session_manager: Arc<BrowserSessionManager>,
     client: Arc<AsyncRwLock<Option<CachedHttpClient>>>,
 }
 
@@ -375,6 +491,9 @@ impl HttpClient {
             proxy_handle,
             local_country,
             cookie_cache,
+            browser_session_manager: Arc::new(BrowserSessionManager::new(
+                BrowserSessionConfig::default(),
+            )),
             client: Arc::new(AsyncRwLock::new(None)),
         }
     }
@@ -398,6 +517,24 @@ impl HttpClient {
     pub fn configured(&self, http_config: ScraperHttpConfig) -> Self {
         if http_config == self.http_config {
             return self.clone();
+        }
+
+        // Browser execution settings do not alter the underlying HTTP transport.
+        // Reuse its client and engine when mode, browser fingerprint, and proxy
+        // routing remain unchanged so retained page sessions outlive sub-queries.
+        if http_config.request_mode() == self.http_config.request_mode()
+            && http_config.browser_profile() == self.http_config.browser_profile()
+            && http_config.proxy_country_hint() == self.http_config.proxy_country_hint()
+            && http_config.max_redirects == self.http_config.max_redirects
+        {
+            return Self {
+                http_config,
+                proxy_handle: self.proxy_handle.clone(),
+                local_country: self.local_country.clone(),
+                cookie_cache: self.cookie_cache.clone(),
+                browser_session_manager: self.browser_session_manager.clone(),
+                client: self.client.clone(),
+            };
         }
 
         Self::with_http_config_proxy_handle_and_cookie_cache(
@@ -518,7 +655,12 @@ impl HttpClient {
         }
         let config = builder.build()?;
         let client = Arc::new(
-            ArachneaHttpClient::new_with_cookie_cache(config, self.cookie_cache.clone()).await?,
+            ArachneaHttpClient::new_with_cookie_cache_and_browser_session_manager(
+                config,
+                self.cookie_cache.clone(),
+                self.browser_session_manager.clone(),
+            )
+            .await?,
         );
 
         let mut guard = self.client.write().await;
@@ -571,6 +713,119 @@ impl HttpClient {
         let text = response.text().await?;
         trace!("{}", text);
         Ok(text)
+    }
+
+    /// Navigates a browser page and returns its stable HTML for a scraper query.
+    ///
+    /// The browser session and cookie handoff are provided by `arachnea-http`.
+    pub async fn page_navigate_for_request(
+        &self,
+        url: &str,
+        request_headers: &HashMap<String, String>,
+    ) -> Result<String> {
+        let headers = header_map_from_strings(
+            request_headers
+                .iter()
+                .map(|(name, value)| (name.as_str(), value.as_str())),
+        )?;
+        let response = self
+            .http_client()
+            .await?
+            .page_navigate(PageNavigationRequest {
+                url: url.to_string(),
+                headers,
+                collect_body: true,
+            })
+            .await?;
+        response
+            .body
+            .ok_or_else(|| anyhow::anyhow!("browser navigation did not return page HTML"))
+    }
+
+    /// Navigates a browser page, clicks one element, and returns the rendered HTML.
+    pub async fn page_click_for_request(
+        &self,
+        page_url: &str,
+        selector: &str,
+        wait_for_selector: &str,
+    ) -> Result<String> {
+        let response = self
+            .http_client()
+            .await?
+            .page_click(
+                PageNavigationRequest {
+                    url: page_url.to_string(),
+                    headers: HeaderMap::new(),
+                    collect_body: false,
+                },
+                PageClickRequest {
+                    selector: selector.to_string(),
+                    wait_for_selector: wait_for_selector.to_string(),
+                },
+            )
+            .await?;
+        Ok(response.body)
+    }
+
+    /// Closes the retained browser session associated with one page URL.
+    pub async fn close_browser_session_for_url(&self, url: &str) -> Result<()> {
+        self.http_client().await?.close_browser_session(url)?;
+        Ok(())
+    }
+
+    /// Navigates a browser page and executes one JavaScript fetch for a scraper sub-query.
+    ///
+    /// The browser session, cookie handoff, callback token capture, and token
+    /// rejection classification are provided by `arachnea-http`.
+    pub async fn page_fetch_for_request(
+        &self,
+        page_url: &str,
+        method: Method,
+        url: &str,
+        request_headers: &HashMap<String, String>,
+        request_body: Option<&str>,
+        token: Option<&ScraperBrowserTokenConfig>,
+    ) -> Result<String> {
+        let headers = header_map_from_strings(
+            request_headers
+                .iter()
+                .map(|(name, value)| (name.as_str(), value.as_str())),
+        )?;
+        let token_rejection_statuses = token
+            .map(|config| {
+                config
+                    .rejection_statuses
+                    .iter()
+                    .filter_map(|status| http::StatusCode::from_u16(*status).ok())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let response = self
+            .http_client()
+            .await?
+            .page_fetch(
+                PageNavigationRequest {
+                    url: page_url.to_string(),
+                    headers: HeaderMap::new(),
+                    collect_body: false,
+                },
+                PageFetchRequest {
+                    method,
+                    url: url.to_string(),
+                    headers,
+                    body: request_body.map(|body| body.as_bytes().to_vec().into()),
+                    turnstile_token_placeholder: token.map(|config| config.placeholder.clone()),
+                    reuse_turnstile_token: token.is_some_and(|config| {
+                        config.cache_scope == Some(ScraperBrowserTokenCacheScope::Domain)
+                    }),
+                    token_rejection_statuses,
+                    token_rejection_body_markers: token
+                        .map(|config| config.rejection_body_markers.clone())
+                        .unwrap_or_default(),
+                },
+            )
+            .await?;
+        Ok(response.body)
     }
 
     /// Resolves the final response URL after redirects for one HTTP request definition.

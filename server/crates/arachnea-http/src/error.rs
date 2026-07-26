@@ -42,6 +42,32 @@ pub enum ArachneaHttpError {
     /// No Cloudflare-capable solver is available for a refresh request.
     #[error("no Cloudflare solver is available; inject a solver engine or enable an automatic solver feature")]
     CloudflareSolverUnavailable,
+    /// A persistent browser session is required but unavailable.
+    #[error("browser session unavailable for {origin}: {reason}")]
+    BrowserSessionUnavailable {
+        /// Origin for which the session was requested.
+        origin: String,
+        /// Reason the session could not be obtained.
+        reason: String,
+    },
+    /// A Turnstile callback token is required but was not provided by the page.
+    #[error("no Turnstile token available for {origin}")]
+    TokenAbsent {
+        /// Origin where the token was expected.
+        origin: String,
+    },
+    /// A Turnstile token was rejected by the server on submission.
+    #[error("Turnstile token rejected for {origin}")]
+    TokenRejected {
+        /// Origin where the token was rejected.
+        origin: String,
+    },
+    /// An in-page JavaScript fetch/XHR execution failed.
+    #[error("page fetch failed: {0}")]
+    PageFetchFailed(String),
+    /// A browser-page click or DOM wait failed.
+    #[error("page interaction failed: {0}")]
+    PageInteractionFailed(String),
     /// An engine cannot execute the requested normalized operation.
     #[error("engine {engine} does not support {operation}")]
     UnsupportedEngineOperation {

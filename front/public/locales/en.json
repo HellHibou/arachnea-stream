@@ -184,6 +184,7 @@
     "sourceEntryNamed": "{source} entry",
     "sourceVideo": "Source video",
     "videoUnavailable": "Video stream unavailable for this player.",
+    "playerResolutionFailed": "Unable to resolve the video player. Try selecting a different player.",
     "group": "Group",
     "contents": "Content",
     "promptTitle": "Choose content",
