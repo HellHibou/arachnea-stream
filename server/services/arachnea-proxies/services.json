@@ -1,11 +1,11 @@
 [
   {
     "path": "proxifly.yaml",
-    "enabled": true
+    "enabled": false
   },
   {
     "path": "iplocate-free-proxy-list.yaml",
-    "enabled": true
+    "enabled": false
   },{
     "path": "spysone.yaml",
     "enabled": true

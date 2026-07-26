@@ -5,9 +5,6 @@ description:
 http:
   mode: auto
 
-# ############################################################################
-# Parameters
-# ############################################################################
 parameters:
   - name: base_url
     value: https://spys.one
@@ -16,14 +13,8 @@ parameters:
     value: "xx00=&xpp=5&xf1=0&xf2=0&xf4=0&xf5=0"
     description: Form body requesting up to 500 proxies with all filters enabled.
 
-# ==========================================================
-# Queries
-# ==========================================================
 queries:
 
-  # --------------------------------------------------------------------------
-  # Load Belgian proxies
-  # --------------------------------------------------------------------------
   - name: list_proxies_for_country
     scraper_type: html
     base_url: "{base_url}"
@@ -55,7 +46,7 @@ queries:
               - type: unpack_packer
               - type: extract_variables
                 regex: "\\b([A-Za-z][A-Za-z0-9_]*)\\s*=\\s*(\\d+)\\s*;"
-                name: "@{1}"
+                name: "{1}"
                 value: "{2}"
                 on_duplicate: replace
           - name: host
@@ -74,11 +65,14 @@ queries:
               - type: regex_find_all
                 pattern: "document\\.write\\(\":\"\\+(.+?)\\)</script>"
                 format: "{1}"
+              - type: regex_replace_all
+                pattern: "([A-Z][a-z]*)"
+                replacement: "{$1}"
               - type: replace_variables
-                variable_prefix: "@"
-              - type: eval_math
-                operators: [xor, add]
-                js_string_concat: true
+              - type: regex_replace_all
+                pattern: "\\b(\\d+)\\^(\\d+)\\b"
+                replacement: "bitxor($1,$2)"
+              - type: math_formula
           - name: protocol
             type: string
             selector: "td:nth-child(2)"

@@ -738,27 +738,6 @@ Explicitly replaces dynamic placeholders in the current values. This action does
 
 Example: when `@PortPart` is `80`, the value `"({@PortPart}+1)"` becomes `"(80+1)"`. Placeholders such as `{country}` or `{@Missing}` are left unchanged.
 
-### `eval_math`
-Evaluates each current value as a deterministic integer expression. The parser accepts only positive integers, whitespace, parentheses, addition `+`, and bitwise XOR `^`.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `operators` | string[] | Declarative allow-list of operators. Accepted values: `xor`, `add` |
-| `js_string_concat` | bool | When `true`, root-level `+` terms are evaluated and concatenated as they would be after a JavaScript string prefix. Default: `false` |
-
-```yaml
-- type: eval_math
-  operators: [xor, add]
-```
-
-For a Spys.one expression extracted from `":" + (...) + (...)`, use concatenation mode:
-
-```yaml
-- type: eval_math
-  operators: [xor, add]
-  js_string_concat: true
-```
-
 ### `get_request_url`
 Adds the current request URL to the list of values.
 
@@ -860,6 +839,14 @@ Multiplies numeric values by a factor.
 ```yaml
 - type: ratio
   argument: 0.5
+```
+
+### `math_formula`
+Evaluates a math expression for each value. The `{value}` placeholder is replaced by the current value before evaluation. The output list contains one result per input.
+
+```yaml
+- type: math_formula
+  formula: "{value} * 2 + 5"
 ```
 
 ### `replace_text`

@@ -10,7 +10,6 @@ mod build_nextjs_data_url;
 mod build_url;
 mod bytes_shift;
 mod caesar_shift;
-mod eval_math;
 mod extract_field;
 mod extract_variables;
 mod format_text;
@@ -25,6 +24,7 @@ mod hex_decode;
 mod html_to_text;
 mod json_extract_text;
 mod map;
+mod math_formula;
 mod max;
 mod normalize_duration;
 mod ratio;
@@ -46,30 +46,6 @@ pub const HTTP_PROXY_PUBLIC_PATH_PARAM: &str = "__arachnea_http_proxy_public_pat
 // Re-export them so the surrounding `ScraperAction` enum can keep naming
 // `GetDateSources` directly.
 pub use get_date::{GetDateSource, GetDateSources};
-
-/// Returns the default dynamic variable prefix used by actions that resolve request-scoped variables.
-fn default_dynamic_variable_prefix() -> String {
-    crate::scrapyfy::query_helpers::DYNAMIC_TEMPLATE_VARIABLE_PREFIX.to_string()
-}
-
-/// Validates the explicit operator allow-list accepted by `eval_math`.
-fn validate_eval_math_operators(name: &str, owner: &str, operators: &[String]) -> Result<()> {
-    for operator in operators {
-        match operator.as_str() {
-            "xor" | "add" => {}
-            _ => {
-                anyhow::bail!(
-                    "{} {} has unsupported eval_math operator {}; supported operators are xor and add",
-                    owner,
-                    name,
-                    operator
-                );
-            }
-        }
-    }
-
-    Ok(())
-}
 
 /// One `ReplaceAll` post-response action attached to a URL generated through the public proxy.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -182,24 +158,6 @@ pub enum ScraperAction {
     ///
     /// * `variable_prefix` - Dynamic variable namespace to resolve. Currently only `@` is supported.
     ReplaceVariables {
-        /// Dynamic variable namespace to resolve.
-        #[serde(default = "default_dynamic_variable_prefix")]
-        variable_prefix: String,
-    },
-
-    /// Evaluates each current value as a small deterministic integer expression.
-    ///
-    /// # Fields
-    ///
-    /// * `operators` - Explicit operator allow-list. Currently accepts `xor` and `add`.
-    /// * `js_string_concat` - When true, top-level `+` terms are evaluated and concatenated.
-    EvalMath {
-        /// Explicit operator allow-list. Currently accepts `xor` and `add`.
-        #[serde(default)]
-        operators: Vec<String>,
-        /// Whether top-level `+` should concatenate evaluated terms as JavaScript would after a string prefix.
-        #[serde(default)]
-        js_string_concat: bool,
     },
 
     /// Applies a signed Caesar shift to ASCII letters in every current value.
@@ -296,6 +254,11 @@ pub enum ScraperAction {
         /// The multiplier to apply to the numeric value.
         argument: f64,
     },
+
+    /// Applies a math formula to every current value. The `{value}` placeholder
+    /// in the formula is replaced by each value before evaluation.
+    ///
+    MathFormula { },
 
     /// Replaces all occurrences of `search` with `replace` in every current value.
     ///
@@ -472,15 +435,12 @@ impl ScraperAction {
                     dynamic_variables,
                 )?
             }
-            ScraperAction::ReplaceVariables { variable_prefix } => {
+            ScraperAction::ReplaceVariables {} => {
                 let Some(dynamic_variables) = dynamic_variables else {
                     return Ok(texts);
                 };
-                replace_variables::apply(texts, variable_prefix, dynamic_variables)
+                replace_variables::apply(texts, dynamic_variables)
             }
-            ScraperAction::EvalMath {
-                js_string_concat, ..
-            } => eval_math::apply(texts, *js_string_concat)?,
             ScraperAction::CaesarShift { shift } => caesar_shift::apply(texts, *shift),
             ScraperAction::RegexReplaceAll {
                 pattern,
@@ -530,6 +490,7 @@ impl ScraperAction {
                 page_path_prefix_to_strip.as_deref(),
             ),
             ScraperAction::Ratio { argument } => ratio::apply(texts, argument),
+            ScraperAction::MathFormula {} => math_formula::apply(texts),
             ScraperAction::ReplaceText { search, replace } => {
                 replace_text::apply(texts, search, replace)
             }
@@ -580,11 +541,8 @@ impl ScraperAction {
                 extract_variables::ExtractVariablesDuplicatePolicy::parse(on_duplicate.as_deref())?;
                 extract_variables::validate(name, owner, pattern, variable_name)
             }
-            ScraperAction::ReplaceVariables { variable_prefix } => {
-                replace_variables::validate(name, owner, variable_prefix)
-            }
-            ScraperAction::EvalMath { operators, .. } => {
-                validate_eval_math_operators(name, owner, operators)
+            ScraperAction::ReplaceVariables {} => {
+                replace_variables::validate(name, owner)
             }
             ScraperAction::RegexReplaceAll { pattern, .. } => regex_replace_all::validate(pattern)
                 .map_err(|error| {

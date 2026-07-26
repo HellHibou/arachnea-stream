@@ -16,7 +16,6 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **Hybrid collection contract for banners and players**: Added `Collection<T>` type (`front/src/types/media.ts`). `HomeCatalogData.banners`, `EntryDetails.players`, and `EntryPlayableItem.players` migrated from bare arrays to `Collection<T>` with `entries`, `source`, and optional `link`. All normalizers and consumers updated without backward compatibility layer.
 - **Dynamic proxy loading analysis**: Added a French design analysis for country-based dynamic proxy loading, proxy probing, persistence, and the `arachnea-proxy`/`arachnea-scrapyfy` trait boundary.
 - **Spys.one Belgium proxy source draft**: Added an inactive `spysone-be.yaml` proxy source definition using POST form submission and dynamic port decoding.
-- **Scrapyfy dynamic template variables**: Reserved the `@` namespace for request-scoped dynamic variables, added placeholder support for `{@name}` references, introduced `extract_variables`/`replace_variables` actions for populating and explicitly resolving them, and added `eval_math` for deterministic integer `+`/XOR expressions.
 - **YAML `sub_queries` at entry level**: New `EntrySubQueryRaw` type (tagged by `scraper_type: html|json`) allows entries to declare follow-up HTTP requests seeded by the entry value. Supported in both `HtmlScraperEntryRaw` and `JsonScraperEntryRaw`. Parsed into `Box<dyn ScraperQuery>` via `EntrySubQueryRaw::into_boxed_query()`.
 - **Unified polymorphic executor**: `scraper::query_executor::execute_query_items` dispatches on `ScraperType` (Html/Json/Static) using the common `ScraperQuery` trait. Single execution path for all query types.
 - **`ScraperRequestMethod` and `ScraperRequestHeader` made public** — now visible through the `ScraperQuery` trait return types.
@@ -28,6 +27,7 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **Proxy-core geo-country bypass**: Dynamic country proxy routing now bypasses the `dynamic-country:<CODE>` proxy pool when the requested country matches the current outbound country.
 - **Geo-country bypass diagnostics**: Added structured proxy-core logs for requested country, local country source, bypass decisions, and conservative fallback when current-country detection is unavailable.
 - **Dynamic country proxy fallback**: Country-routed proxy requests now continue without a geo proxy when no usable dynamic proxy is available for the requested country.
+- **`math_formula` scraper action**: New action that evaluates a math expression per value. The `{value}` placeholder is replaced by the current text value before evaluation. Supports standard arithmetic via the `evalexpr` crate.
 
 ### Changed
 - **Module layout**: `scraper_json/query.rs` decoupled into `config.rs`, `response_parser.rs`, `pointer.rs`, `row_extractor.rs`. Same for `scraper_html/query.rs` → `config.rs`, `response_parser.rs`, `row_extractor.rs`.

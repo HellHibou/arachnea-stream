@@ -3,7 +3,7 @@ use std::sync::LazyLock;
 
 static PACKER_PREFIX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?s)eval\s*\(\s*function\s*\(\s*p\s*,\s*a\s*,\s*c\s*,\s*k\s*,\s*e\s*,\s*d\s*\)\s*\{.*?\}\s*\(",
+        r"(?s)eval\s*\(\s*function\s*\(\s*\w+\s*,\s*\w+\s*,\s*\w+\s*,\s*\w+\s*,\s*\w+\s*,\s*\w+\s*\)\s*\{.*?\}\s*\(",
     )
     .expect("Packer prefix regex is valid")
 });

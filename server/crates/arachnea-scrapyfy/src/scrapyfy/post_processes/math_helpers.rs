@@ -1,6 +1,4 @@
 use anyhow::{bail, Context, Result};
-use mathexpr::Expression;
-use std::collections::HashMap;
 
 use super::super::query_helpers;
 
@@ -15,13 +13,13 @@ use super::super::query_helpers;
 ///
 /// Ordered list of placeholder names found in `template`.
 pub(crate) fn list_template_placeholders(template: &str) -> Vec<String> {
-    let params = HashMap::<String, String>::new();
+    let params = std::collections::HashMap::<String, String>::new();
     let (_resolved, missing_keys) = query_helpers::replace_template_placeholders(template, &params);
     missing_keys
 }
 
-/// Parses, compiles, and evaluates `expression` as a math expression with no
-/// variables bound.
+/// Parses and evaluates `expression` as a math expression with no variables
+/// bound.
 ///
 /// # Arguments
 ///
@@ -29,15 +27,10 @@ pub(crate) fn list_template_placeholders(template: &str) -> Vec<String> {
 ///
 /// # Errors
 ///
-/// Returns an error when the expression fails to parse, fails to compile, or
-/// evaluates to a non-finite value (NaN, infinity).
+/// Returns an error when the expression fails to parse or evaluates to a
+/// non-finite value (NaN, infinity).
 pub(crate) fn evaluate_math_expression(expression: &str) -> Result<f64> {
-    let compiled_expression = Expression::parse(expression)
-        .with_context(|| format!("Failed to parse math expression `{}`", expression))?
-        .compile(&[] as &[&str])
-        .with_context(|| format!("Failed to compile math expression `{}`", expression))?;
-    let evaluated_value = compiled_expression
-        .eval(&[] as &[f64])
+    let evaluated_value = evalexpr::eval_number(expression)
         .with_context(|| format!("Failed to evaluate math expression `{}`", expression))?;
 
     if !evaluated_value.is_finite() {

@@ -740,27 +740,6 @@ Remplace explicitement les placeholders dynamiques dans les valeurs courantes. C
 
 Exemple : si `@PortPart` vaut `80`, la valeur `"({@PortPart}+1)"` devient `"(80+1)"`. Les placeholders comme `{country}` ou `{@Missing}` restent inchangés.
 
-### `eval_math`
-Évalue chaque valeur courante comme une expression entière déterministe. Le parseur accepte uniquement les entiers positifs, les espaces, les parenthèses, l'addition `+` et le XOR bitwise `^`.
-
-| Champ | Type | Description |
-|-------|------|-------------|
-| `operators` | string[] | Liste déclarative d'opérateurs autorisés. Valeurs acceptées : `xor`, `add` |
-| `js_string_concat` | bool | Si `true`, les termes séparés par `+` au niveau racine sont évalués puis concaténés comme après un préfixe chaîne JavaScript. Défaut : `false` |
-
-```yaml
-- type: eval_math
-  operators: [xor, add]
-```
-
-Pour une expression Spys.one issue de `":" + (...) + (...)`, utiliser le mode concaténation :
-
-```yaml
-- type: eval_math
-  operators: [xor, add]
-  js_string_concat: true
-```
-
 ### `get_request_url`
 Ajoute l'URL actuelle de la requête à la liste des valeurs.
 
@@ -862,6 +841,14 @@ Multiplie les valeurs numériques par un facteur.
 ```yaml
 - type: ratio
   argument: 0.5
+```
+
+### `math_formula`
+Évalue une expression mathématique pour chaque valeur. Le placeholder `{value}` est remplacé par la valeur courante avant évaluation. La liste de sortie contient un résultat par entrée.
+
+```yaml
+- type: math_formula
+  formula: "{value} * 2 + 5"
 ```
 
 ### `replace_text`

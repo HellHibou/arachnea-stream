@@ -167,9 +167,6 @@ Exemple conceptuel :
       regex: "document\\.write\\(\":\"\\+(.+?)\\)</script>"
       format: "{1}"
     - type: replace_variables
-      variable_prefix: "@"
-    - type: eval_math
-      operators: [xor, add]
 ```
 
 Point à sécuriser : en JavaScript, `^` signifie XOR bitwise. Si le moteur mathématique existant interprète `^` comme puissance, l'action de calcul doit soit exposer une fonction explicite `xor(a,b)`, soit accepter un mode où `^` est traité comme XOR.
@@ -247,7 +244,6 @@ queries:
                 regex: "document\\.write\\(\":\"\\+(.+?)\\)</script>"
                 format: "{1}"
               - type: replace_variables
-                variable_prefix: "@"
               - type: eval_math
                 operators: [xor, add]
           - name: protocol

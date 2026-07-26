@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use crate::scrapyfy::query_helpers::{
-    replace_template_placeholders, DynamicTemplateVariables, DYNAMIC_TEMPLATE_VARIABLE_PREFIX,
+    replace_template_placeholders, DynamicTemplateVariables,
 };
 
 /// Applies the `replace_variables` scraper action.
@@ -13,13 +13,8 @@ use crate::scrapyfy::query_helpers::{
 /// remain unchanged in the current values.
 pub(super) fn apply(
     texts: Vec<String>,
-    variable_prefix: &str,
     dynamic_variables: &Mutex<DynamicTemplateVariables>,
 ) -> Vec<String> {
-    if variable_prefix != DYNAMIC_TEMPLATE_VARIABLE_PREFIX {
-        return texts;
-    }
-
     let Ok(dynamic_variables) = dynamic_variables.lock() else {
         return texts;
     };
@@ -27,7 +22,6 @@ pub(super) fn apply(
     let params = dynamic_variables
         .as_map()
         .iter()
-        .filter(|(key, _)| key.starts_with(variable_prefix))
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect::<HashMap<_, _>>();
 
@@ -38,17 +32,7 @@ pub(super) fn apply(
 }
 
 /// Validates the configuration of a `replace_variables` action.
-pub(super) fn validate(owner_name: &str, owner: &str, variable_prefix: &str) -> Result<()> {
-    if variable_prefix != DYNAMIC_TEMPLATE_VARIABLE_PREFIX {
-        anyhow::bail!(
-            "{} {} has unsupported replace_variables variable_prefix {}; only {} is supported",
-            owner,
-            owner_name,
-            variable_prefix,
-            DYNAMIC_TEMPLATE_VARIABLE_PREFIX
-        );
-    }
-
+pub(super) fn validate(_owner_name: &str, _owner: &str) -> Result<()> {
     Ok(())
 }
 
@@ -60,15 +44,14 @@ mod tests {
     fn apply_replaces_only_dynamic_placeholders() {
         let params = HashMap::new();
         let dynamic = Mutex::new(DynamicTemplateVariables::new());
-        dynamic.lock().unwrap().insert(&params, "@A", "80").unwrap();
+        dynamic.lock().unwrap().insert(&params, "A", "80").unwrap();
 
         let values = apply(
-            vec!["{@A}:{country}:{@Missing}".to_string()],
-            DYNAMIC_TEMPLATE_VARIABLE_PREFIX,
+            vec!["{A}:{country}:{Missing}".to_string()],
             &dynamic,
         );
 
-        assert_eq!(values, vec!["80:{country}:{@Missing}".to_string()]);
+        assert_eq!(values, vec!["80:{country}:{Missing}".to_string()]);
     }
 
     #[test]
