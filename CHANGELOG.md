@@ -50,6 +50,9 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - `JsonScraperSubQuery::execute` / `execute_siblings` / `execute_context` / `execute_indexed_context` / `execute_indexed_sibling` / `build_row_node` — re-used through the new `JsonScraperSubQuery::execute_query_level` unified entry point (see regression fix below).
 
 ### Fixed
+- **Spys.one proxy ports**: The proxy scraper now unpacks the Dean Edwards
+  variable script before executing it, allowing its existing port formula to
+  resolve the values rendered by Spys.one.
 - **PapaDuStream v2 deferred episode players**: Season episodes now expose deferred player links; selecting one loads its actual player rows and enables playback controls.
 - **PapaDuStream v2 seasons**: `get_season` now follows season links when called with a series entry URL, returning its episode list.
 - **VTT storyboard cue timing**: Video.js thumbnail previews now use each WebVTT cue's declared time range and crop geometry instead of an averaged interval, preserving irregular cue durations.
@@ -387,3 +390,7 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ### Fixed
 
 - **PapaDuStream v2 `get_entry` season fallback**: Added two fallback `seasons` entries for season-specific variant pages: `.saisontab a.th-hover` for linked seasons, and `.saisontab :not(a) > .thumb` for the current non-linked season (rendered as a plain `<div.thumb>` without an `<a>` wrapper).
+
+### Added (2026-07-26)
+
+- **`exec_js` Scrapyfy action**: Added `boa_engine` 0.21 dependency and a new `exec_js` action that executes JavaScript in a sandboxed engine. Designed for Spys.one port decoding: after execution, the action returns new global numeric variables as `Name=Value` lines. Controlled by `timeout_ms` (default 500ms) with a `loop_iteration_limit` on the Boa runtime to prevent infinite loops. All 8 unit tests pass.

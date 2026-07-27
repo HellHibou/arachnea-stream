@@ -1084,6 +1084,45 @@ Generic transformations for text values.
 
 `caesar_shift` rotates ASCII letters by a signed offset. `regex_replace_all` performs a global regex replacement. `bytes_shift` applies a wrapping signed delta to every UTF-8 byte and preserves a value when the result is not valid UTF-8. `reverse` reverses Unicode scalar values. `json_extract_text` parses each current value as JSON and returns the scalar addressed by its JSON Pointer.
 
+### `exec_js`
+Executes JavaScript in an isolated sandbox (`boa_engine`) and returns new global
+numeric variables as `Name=Value` lines.
+
+The current pipeline value (`text`) is treated as JS code to execute.
+
+Three JS sources can be injected, in this order:
+1. **HTML** (`inject_html_scripts: true`) — extracts inline `<script>` blocks from
+   the HTML `response_body` and executes them
+2. **Hardcoded scripts** (`scripts`) — list of JS strings injected before the main code
+3. **Pipeline text** (`text`) — main JS code from the previous action
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `timeout_ms` | u64 | 500 | Max instruction budget via `loop_iteration_limit` |
+| `inject_html_scripts` | bool | false | When true, extracts scripts from the HTML response body and executes them first |
+| `scripts` | string[] | [] | Hardcoded JS snippets injected before the main code |
+
+```yaml
+- type: exec_js
+  timeout_ms: 500
+  inject_html_scripts: false
+  scripts:
+    - "function helper(x) { return x ^ 42; }"
+```
+
+Typical usage with Spys.one:
+```yaml
+- type: get_response_body
+- type: exec_js
+  timeout_ms: 500
+  inject_html_scripts: true
+- type: extract_variables
+  pattern: "^([A-Za-z_][A-Za-z0-9_]*)=(\\d+)$"
+  name: "{1}"
+  value: "{2}"
+  on_duplicate: replace
+```
+
 ### `unpack_packer`
 Unpacks the deterministic Dean Edwards Packer format without executing JavaScript. The action
 accepts only calls whose payload, radix, symbol count, dictionary, and `split` separator are

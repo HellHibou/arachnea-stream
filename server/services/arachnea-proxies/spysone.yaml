@@ -39,16 +39,6 @@ queries:
       - name: proxies
         type: object[]
         entries:
-          - name: _script_variables
-            type: string
-            actions:
-              - type: get_response_body
-              - type: unpack_packer
-              - type: extract_variables
-                regex: "\\b([A-Za-z][A-Za-z0-9_]*)\\s*=\\s*(\\d+)\\s*;"
-                name: "{1}"
-                value: "{2}"
-                on_duplicate: replace
           - name: host
             type: string
             selector: "td:nth-child(1)"
@@ -64,15 +54,12 @@ queries:
               - type: get_html
               - type: regex_find_all
                 pattern: "document\\.write\\(\":\"\\+(.+?)\\)</script>"
-                format: "{1}"
-              - type: regex_replace_all
-                pattern: "([A-Z][a-z]*)"
-                replacement: "{$1}"
-              - type: replace_variables
-              - type: regex_replace_all
-                pattern: "\\b(\\d+)\\^(\\d+)\\b"
-                replacement: "bitxor($1,$2)"
-              - type: math_formula
+                format: "''+{1}"
+              - type: exec_js
+                timeout_ms: 500
+                inject_html_scripts: true
+                scripts:
+                  - "var dataLayer = [];"
           - name: protocol
             type: string
             selector: "td:nth-child(2)"
@@ -92,6 +79,3 @@ queries:
             actions:
               - type: format_text
                 argument: "{country}"
-        post_build:
-          - type: remove_fields
-            fields: [_script_variables]

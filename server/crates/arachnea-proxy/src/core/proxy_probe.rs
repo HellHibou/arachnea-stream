@@ -95,14 +95,19 @@ impl ProxyProbe {
     pub async fn probe(&self, record: &mut ProxyRecord) -> Result<()> {
         record.last_checked = Some(SystemTime::now());
 
-        if let Some(ref protocol) = record.protocol {
-            let result = self
-                .probe_protocol(&record.host, record.port, protocol)
-                .await?;
-            self.apply_result(record, result);
+        let result = if let Some(ref protocol) = record.protocol {
+            self.probe_protocol(&record.host, record.port, protocol)
+                .await
         } else {
-            let result = self.detect_protocol(&record.host, record.port).await?;
-            self.apply_result(record, result);
+            self.detect_protocol(&record.host, record.port).await
+        };
+
+        match result {
+            Ok(probe_result) => self.apply_result(record, probe_result),
+            Err(_) => {
+                record.status = ProxyRuntimeStatus::Ko;
+                record.failure_count += 1;
+            }
         }
 
         Ok(())

@@ -10,6 +10,7 @@ mod build_nextjs_data_url;
 mod build_url;
 mod bytes_shift;
 mod caesar_shift;
+mod exec_js;
 mod extract_field;
 mod extract_variables;
 mod format_text;
@@ -345,6 +346,20 @@ pub enum ScraperAction {
 
     /// Unpacks literal Dean Edwards Packer blocks without executing JavaScript.
     UnpackPacker,
+    /// Executes JavaScript in a sandboxed engine and returns new global numeric
+    /// variables as `Name=Value` lines.
+    ExecJs {
+        /// Maximum execution time per script in milliseconds.
+        #[serde(default = "default_exec_js_timeout")]
+        timeout_ms: u64,
+        /// When true, inline `<script>` blocks are extracted from the HTML
+        /// response body and executed before the main JS code.
+        #[serde(default)]
+        inject_html_scripts: bool,
+        /// Hardcoded JS snippets injected and executed before the main code.
+        #[serde(default)]
+        scripts: Vec<String>,
+    },
     /// Decrypts hexadecimal AES-128-CBC values using UTF-8 key and IV strings.
     AesCbcDecrypt {
         /// 16-byte UTF-8 AES-128 key.
@@ -509,6 +524,11 @@ impl ScraperAction {
             ScraperAction::Base64Decode => base64_decode::apply(texts),
             ScraperAction::HexDecode => hex_decode::apply(texts),
             ScraperAction::UnpackPacker => unpack_packer::apply(texts),
+            ScraperAction::ExecJs {
+                timeout_ms,
+                inject_html_scripts,
+                scripts,
+            } => exec_js::apply(texts, *timeout_ms, response_body, *inject_html_scripts, scripts)?,
             ScraperAction::AesCbcDecrypt { key, iv } => aes_cbc_decrypt::apply(texts, key, iv),
         };
         Ok(values)
@@ -616,4 +636,8 @@ impl ScraperAction {
             _ => Ok(()),
         }
     }
+}
+
+fn default_exec_js_timeout() -> u64 {
+    500
 }

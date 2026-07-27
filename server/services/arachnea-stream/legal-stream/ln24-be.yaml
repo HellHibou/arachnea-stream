@@ -1,6 +1,6 @@
 id: ln24-be
 title: LN24
-logo: "{base_url}/themes/custom/ln24_theme/logo.png"
+logo: "https://www.ln24.be/wp-content/themes/rise/assets/img/static/LN24_LOGO.png"
 description:
   fr: "LN24 est la première chaîne d'information en continu 100% belge, accessible en direct et en replay sur son site web."
 http:

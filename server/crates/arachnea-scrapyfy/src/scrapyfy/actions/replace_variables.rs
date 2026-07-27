@@ -56,7 +56,7 @@ mod tests {
 
     #[test]
     fn validate_rejects_non_dynamic_prefix() {
-        let error = validate("port", "entry", "$").unwrap_err();
+        let error = validate("port", "entry").unwrap_err();
 
         assert!(error.to_string().contains("unsupported replace_variables"));
     }

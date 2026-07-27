@@ -299,7 +299,8 @@ async fn build_resolved_player_stream(
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .unwrap_or("TF1 rejected playback for this video.");
+            .map(String::from)
+            .unwrap_or(format!("TF1 rejected playback for this video (http error {}).", delivery_code));
         bail!(message.to_string());
     }
 

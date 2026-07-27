@@ -1089,6 +1089,45 @@ Transformations génériques de valeurs texte.
 
 `caesar_shift` fait pivoter les lettres ASCII d'un décalage signé. `regex_replace_all` effectue un remplacement regex global. `bytes_shift` applique un décalage signé avec retour à zéro sur chaque octet UTF-8 et conserve la valeur lorsque le résultat n'est pas un UTF-8 valide. `reverse` inverse les scalaires Unicode. `json_extract_text` parse chaque valeur courante comme JSON et retourne le scalaire ciblé par son pointeur JSON.
 
+### `exec_js`
+Exécute du JavaScript dans un sandbox isolé (moteur `boa_engine`) et retourne les
+nouvelles variables globales numériques sous forme de lignes `Nom=Valeur`.
+
+La valeur courante de la pipeline (`text`) est traitée comme du code JS à exécuter.
+
+Trois sources de JS peuvent être injectées, dans cet ordre :
+1. **HTML** (`inject_html_scripts: true`) — extrait les blocs `<script>` inline du
+   `response_body` HTML de la page et les exécute
+2. **Scripts en dur** (`scripts`) — liste de chaînes JS injectées avant le code principal
+3. **Texte pipeline** (`text`) — JS principal provenant de l'action précédente
+
+| Champ | Type | Défaut | Description |
+|---|---|---|---|
+| `timeout_ms` | u64 | 500 | Budget max d'instructions via `loop_iteration_limit` |
+| `inject_html_scripts` | bool | false | Si vrai, extrait les scripts du HTML de réponse et les exécute avant le code principal |
+| `scripts` | string[] | [] | Liste de JS en dur à injecter avant le code principal |
+
+```yaml
+- type: exec_js
+  timeout_ms: 500
+  inject_html_scripts: false
+  scripts:
+    - "function helper(x) { return x ^ 42; }"
+```
+
+Utilisation typique avec Spys.one :
+```yaml
+- type: get_response_body
+- type: exec_js
+  timeout_ms: 500
+  inject_html_scripts: true
+- type: extract_variables
+  pattern: "^([A-Za-z_][A-Za-z0-9_]*)=(\\d+)$"
+  name: "{1}"
+  value: "{2}"
+  on_duplicate: replace
+```
+
 ### `unpack_packer`
 Dépaquette le format déterministe Dean Edwards Packer sans exécuter de JavaScript. L'action
 accepte uniquement les appels dont le payload, le radix, le compteur de symboles, le dictionnaire
