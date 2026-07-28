@@ -18,8 +18,7 @@ use arachnea_scrapyfy::{
 };
 
 use crate::services::player_resolver::{
-    normalize_stream_kind, proxy_drm_today_license_request, save_drm_today_license_proxy_url,
-    PlayerResolverEndpoints, PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream,
+    Chapter, PlayerResolverEndpoints, PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream, normalize_stream_kind, proxy_drm_today_license_request, save_drm_today_license_proxy_url,
 };
 
 const RTLPLAY_SERVICE_ID: &str = "rtlplay-be";
@@ -57,6 +56,8 @@ struct ResolvedRtlPlayVideo {
     manifest_url: String,
     license_url: Option<String>,
     license_token: Option<String>,
+    storyboard_vtt_url: Option<String>,
+    chapters: Vec<Chapter>,
 }
 
 struct RtlPlayApiVersion {
@@ -220,7 +221,9 @@ fn build_resolved_player_stream(
         stream_url: vec![resolved.manifest_url],
         manifest_type: Some("mpd".to_string()),
         license_url,
+        storyboard_vtt_url: resolved.storyboard_vtt_url,
         license_headers: HashMap::new(),
+        chapters: Some(resolved.chapters),
         ..Default::default()
     })
 }
@@ -537,6 +540,17 @@ async fn resolve_final_video_url(
 fn select_dash_stream(payload: &Value) -> Option<ResolvedRtlPlayVideo> {
     let streams = payload.get("video")?.get("streams")?.as_array()?;
 
+    let storyboard_vtt_url = payload
+        .get("video")?
+        .get("thumbnails")
+        .and_then(|t| t.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|t| t.get("url"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
     for stream in streams {
         let stream_type = stream.get("type").and_then(Value::as_str)?;
         let manifest_url = stream.get("url").and_then(Value::as_str)?;
@@ -563,10 +577,50 @@ fn select_dash_stream(payload: &Value) -> Option<ResolvedRtlPlayVideo> {
             .filter(|value| !value.is_empty())
             .map(str::to_string);
 
+            let mut chapters = Vec::new(); 
+
+            if let Some(markers) = payload
+                .get("video")
+                .and_then(|v| v.get("metadata"))
+                .and_then(|v| v.get("markers"))
+                .and_then(|m| m.as_array())
+            {
+                for entry in markers.iter() {
+                    chapters.push(Chapter {
+                        chapter_type: entry
+                            .get("type")
+                            .and_then(|v| v.as_str())
+                            .map(|s| match s {
+                                "content" => "chapter",
+                                "endCredits" => "outro",
+                                _ => s,
+                            })
+                            .unwrap_or("chapter") 
+                            .to_string(), 
+
+                        start: entry
+                            .get("start")
+                            .and_then(|v| v.as_i64())
+                            .map(|v| v as f64)
+                            .unwrap_or(0.0),
+
+                        end: entry
+                            .get("end")
+                            .and_then(|v| v.as_i64())
+                            .map(|v| v as f64)
+                            .unwrap_or(0.0),
+
+                        title: None,
+                    });
+                }
+            }
+
         return Some(ResolvedRtlPlayVideo {
             manifest_url: manifest_url.to_string(),
             license_url,
             license_token,
+            storyboard_vtt_url: storyboard_vtt_url,
+            chapters
         });
     }
 

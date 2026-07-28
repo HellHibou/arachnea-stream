@@ -90,7 +90,7 @@ export function installChapterOverlay(player: VideoJsPlayer, chapters: ResolvedV
       overlay.style.width = `${tooltipRect.width}px`
     }
 
-    overlay.textContent = chapter.title || t('player.chapter.' + chapter.type)
+    overlay.textContent = chapter.title || (chapter.type === 'chapter' ? null : t('player.chapter.' + chapter.type))
     overlay.classList.add(CHAPTER_TITLE_VISIBLE_CLASS)
   }
 

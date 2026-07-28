@@ -402,7 +402,14 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       cue.width !== firstCue.width ||
       cue.height !== firstCue.height,
     )) {
-      return null
+      if (!firstCue)
+        return null;
+      
+      cues.forEach(entry => {
+        entry.width = firstCue.width;
+        entry.height = firstCue.height;
+      })
+      //return null
     }
 
     const urlArray = [...new Set(cues.map((cue) => cue.imageUrl))]

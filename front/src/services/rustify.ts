@@ -1803,29 +1803,24 @@ function normalizeResolvedPlayerStream(payload: unknown): EntryResolvedPlayerStr
     return null
   }
 
-  const streamUrlRaw = payload.stream_url ?? payload.streamUrl
+  const streamUrlRaw = payload.stream_url
   const streamUrl: string[] = Array.isArray(streamUrlRaw)
     ? streamUrlRaw.filter((url: unknown): url is string => typeof url === 'string' && url.trim().length > 0)
     : (typeof streamUrlRaw === 'string' && streamUrlRaw.trim().length > 0
         ? [streamUrlRaw.trim()]
         : [])
 
-  const manifestType = firstNonEmptyString([payload.manifest_type, payload.manifestType])
-
-  if (streamUrl.length === 0 || !manifestType) {
+  if (streamUrl.length === 0 || !payload.manifest_type) {
     return null
   }
 
   return {
     streamUrl,
-    manifestType,
+    manifestType: payload.manifest_type as string,
     imageTitleLink: firstNonEmptyString([readPath(payload, 'image/title', 'link')]),
-    licenseUrl: firstNonEmptyString([payload.license_url, payload.licenseUrl]),
+    licenseUrl: payload.license_url as string ?? null,
     licenseHeaders: readStringMap(payload.license_headers ?? payload.licenseHeaders),
-    storyboardVttUrl: firstNonEmptyString([
-      payload.storyboard_vtt_url,
-      payload.storyboardVttUrl,
-    ]),
+    storyboardVttUrl:payload.storyboard_vtt_url as string ?? null,
     storyboard: normalizeRustifyStoryboard(payload.storyboard),
     chapters: normalizeRustifyChapters(payload.chapters),
   }
