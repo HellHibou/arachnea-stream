@@ -509,6 +509,7 @@ impl ControlerService for RestControlerService {
                             headers: Self::headers_to_map(&headers),
                             body,
                             entry_point,
+                            force_buffer_response: false,
                         };
                         Ok::<RestReply, Rejection>(Self::call_and_reply_stream(&call, input).await)
                     }

@@ -519,14 +519,44 @@ impl ControlerService for TauriControlerService {
                             .collect::<std::collections::HashMap<String, String>>();
 
                         let response = tokio::task::block_in_place(|| {
-                            tauri::async_runtime::block_on(handler(ControlerStreamInput {
-                                path,
-                                query,
-                                method,
-                                headers: headers_map,
-                                body: request.body().to_vec(),
-                                entry_point,
-                            }))
+                            tauri::async_runtime::block_on(async {
+                                let mut output = handler(ControlerStreamInput {
+                                    path,
+                                    query,
+                                    method,
+                                    headers: headers_map,
+                                    body: request.body().to_vec(),
+                                    entry_point,
+                                    force_buffer_response: true,
+                                })
+                                .await?;
+
+                                // Tauri does not support native streaming responses, so we
+                                // collect the stream into memory here, inside the same async
+                                // context where the TCP connection was established. This
+                                // avoids waker-propagation issues that cause chunked body
+                                // readers to fail when polled from a nested block_in_place.
+                                if let ResponseBody::Streamed(stream) = &mut output.body {
+                                    use futures::StreamExt;
+                                    let mut body = Vec::new();
+                                    let mut stream = std::pin::pin!(stream);
+                                    while let Some(chunk) = stream.next().await {
+                                        match chunk {
+                                            Ok(bytes) => body.extend_from_slice(&bytes),
+                                            Err(e) => {
+                                                tracing::warn!(
+                                                    error = %e,
+                                                    "stream error while collecting body for Tauri response"
+                                                );
+                                                return Err(format!("Stream error: {}", e));
+                                            }
+                                        }
+                                    }
+                                    output.body = ResponseBody::Buffered(body);
+                                }
+
+                                Ok(output)
+                            })
                         });
 
                         return match response {
@@ -543,46 +573,8 @@ impl ControlerService for TauriControlerService {
                                         }
                                         bytes
                                     }
-                                    ResponseBody::Streamed(stream) => {
-                                        // Collecte le stream en mémoire pour le backend Tauri
-                                        // qui ne supporte pas encore le streaming natif.
-                                        // TODO: utiliser tauri-plugin-http pour le streaming natif
-                                        // quand le besoin de streaming Tauri se présentera.
-                                        use futures::StreamExt;
-                                        let mut body = Vec::new();
-                                        let result: Result<(), String> = tokio::task::block_in_place(|| {
-                                            tauri::async_runtime::block_on(async {
-                                                let mut stream = std::pin::pin!(stream);
-                                                while let Some(chunk) = stream.next().await {
-                                                    match chunk {
-                                                        Ok(bytes) => body.extend_from_slice(&bytes),
-                                                        Err(e) => {
-                                                            tracing::warn!(
-                                                                error = %e,
-                                                                "stream error while collecting body for Tauri response"
-                                                            );
-                                                            return Err(format!("Stream error: {}", e));
-                                                        }
-                                                    }
-                                                }
-                                                Ok(())
-                                            })
-                                        });
-                                        match result {
-                                            Ok(()) => {
-                                                if request.method() == ::tauri::http::Method::HEAD {
-                                                    body.clear();
-                                                }
-                                                body
-                                            }
-                                            Err(e) => {
-                                                return ::tauri::http::Response::builder()
-                                                    .status(::tauri::http::StatusCode::BAD_GATEWAY)
-                                                    .header("Content-Type", "text/plain; charset=utf-8")
-                                                    .body(e.into_bytes())
-                                                    .expect("Failed to build the Tauri stream error response.");
-                                            }
-                                        }
+                                    ResponseBody::Streamed(_) => {
+                                        unreachable!("streaming responses are collected inside the handler call")
                                     }
                                 };
                                 let mut builder = ::tauri::http::Response::builder()

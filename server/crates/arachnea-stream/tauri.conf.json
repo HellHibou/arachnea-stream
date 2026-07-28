@@ -17,11 +17,12 @@
     "windows": [
       {
         "label": "main",
+        "title": "Arachnéa",
         "fullscreen": false,
         "resizable": true,
-        "title": "Arachnéa",
-        "width": 800,
-        "height": 600
+        "maximized": true, 
+        "fullscreen": false,
+        "maximizable": true
       }
     ]
   },

@@ -86,6 +86,15 @@ pub struct ControlerStreamInput {
     ///
     /// This field can be used to construct absolute URLs for responses.
     pub entry_point: String,
+    /// When `true`, stream handlers should buffer the full response body
+    /// instead of returning a streaming response. This is set by controller
+    /// backends that do not support native streaming (e.g. Tauri).
+    ///
+    /// Handlers that produce `ResponseBody::Streamed` may check this flag
+    /// and force body buffering to avoid streaming-specific issues such as
+    /// strict chunked encoding parsing on the streaming path.
+    #[allow(dead_code)]
+    pub force_buffer_response: bool,
 }
 
 /// Polymorphic response body that can be either fully buffered or streamed.
