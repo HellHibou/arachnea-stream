@@ -88,3 +88,6 @@ pub use scraper_agregator::{ScraperAgregator, ScraperSourceParams};
 /// Scraper manager trait used by runtime and test harnesses.
 pub mod scraper_manager;
 pub use scraper_manager::ScraperManager;
+
+/// Serializable envelope for JSON command responses with per-source errors.
+pub mod scraper_result;

@@ -5,9 +5,10 @@
 //! the entire request. The frontend [`call_api`] adapter unpacks the envelope
 //! and routes errors to a global notification stack.
 
+use arachnea_core::error_code::ArachneaErrorCode;
 use serde::Serialize;
 
-use crate::error_code::ArachneaErrorCode;
+
 
 /// Origin of a scraper execution error.
 ///

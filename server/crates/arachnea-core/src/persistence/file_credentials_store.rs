@@ -10,7 +10,7 @@ use std::sync::Arc;
 /// in clear-text JSON format.
 pub const DEFAULT_FILE_CREDENTIALS_STORE_PATH: &str = "data/credentials.json";
 
-use crate::persistence::resources;
+use crate::application;
 
 use super::credentials_store::{
     normalize_service_id, read_file_if_exists, remove_file_if_exists, write_file_atomically,
@@ -32,7 +32,7 @@ impl Default for FileCredentialsStore {
     /// # Returns
     /// A FileCredentialsStore instance using the default credentials path.
     fn default() -> Self {
-        Self::new(resources::get_application_path(
+        Self::new(application::get_application_path(
             DEFAULT_FILE_CREDENTIALS_STORE_PATH,
         ))
     }

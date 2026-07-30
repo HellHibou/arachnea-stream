@@ -13,5 +13,5 @@ pub mod logger;
 /// Thread-safe error correlation code generator.
 pub mod error_code;
 
-/// Serializable envelope for JSON command responses with per-source errors.
-pub mod scraper_result;
+/// Various application resources (application path, ...)
+pub mod application;

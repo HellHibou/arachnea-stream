@@ -11,10 +11,9 @@ use arachnea_core::{
         ResponseBody,
     },
     persistence::{CredentialsStore, FileCredentialsStore},
-    scraper_result::ScraperAggregationResult,
 };
 use arachnea_proxy::core::{ArachneaProxyCore, ProxyConfig};
-use arachnea_scrapyfy::*;
+use arachnea_scrapyfy::{scraper_result::ScraperAggregationResult, *};
 
 use crate::services::{
     francetv_resolver::FrancetvResolver,

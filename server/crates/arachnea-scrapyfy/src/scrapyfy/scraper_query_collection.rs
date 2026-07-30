@@ -931,7 +931,7 @@ impl Serialize for ScraperQueryCollection {
 mod tests {
 
     use anyhow::Context;
-    use arachnea_core::persistence::resources;
+    use arachnea_core::application;
 
     /// Verifies that the YAML configuration can be deserialized
     /// into a query collection and serialized back as JSON.

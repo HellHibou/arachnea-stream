@@ -3,15 +3,16 @@
 
 use anyhow::{bail, Context, Result};
 use std::net::IpAddr;
-use std::{path::Path, sync::Arc};
+use std::sync::Arc;
 
 use arachnea_core::{
+    application,
     controler::{
         rest::{RestControlerConfiguration, RestControlerService},
         tauri::{TauriControlerConfiguration, TauriControlerService, TauriEmbeddedWebAssets},
         ControlerService, SharedWebAssets,
     },
-    persistence::{resources, EncryptedFileCredentialsStore},
+    persistence::EncryptedFileCredentialsStore,
 };
 use arachnea_scrapyfy::*;
 use arachnea_stream::StreamScraper;
@@ -53,22 +54,7 @@ enum CliAction {
     ExitSuccess,
 }
 
-/// Returns the executable name used in help and error messages.
-fn program_name() -> String {
-    std::env::args_os()
-        .next()
-        .and_then(|arg0| {
-            let path = Path::new(&arg0);
 
-            path.file_name()
-                .map(|file_name| file_name.to_string_lossy().into_owned())
-                .or_else(|| {
-                    let raw = arg0.to_string_lossy().into_owned();
-                    (!raw.is_empty()).then_some(raw)
-                })
-        })
-        .unwrap_or_else(|| String::from("arachnea"))
-}
 
 /// Returns the command line help in English.
 fn help_message(program_name: &str) -> String {
@@ -228,7 +214,7 @@ async fn main() -> Result<()> {
     StreamScraper::init_sub_logger_levels();
     arachnea_core::logger::init_logger();
 
-    let program_name = program_name();
+    let program_name = application::program_name();
     let options = match parse_runtime_options(&program_name) {
         Ok(CliAction::Run(options)) => options,
         Ok(CliAction::RefreshIpCountries) => {
@@ -245,7 +231,7 @@ async fn main() -> Result<()> {
     // Keep the encrypted store construction in main so the server key remains
     // initialized at bootstrap even while server mode still uses the clear JSON store.
     let _server_encrypted_store = EncryptedFileCredentialsStore::new(
-        resources::get_application_path(DEFAULT_ENCRYPTED_FILE_CREDENTIALS_STORE_PATH),
+        application::get_application_path(DEFAULT_ENCRYPTED_FILE_CREDENTIALS_STORE_PATH),
         DEFAULT_SERVER_CREDENTIALS_KEY,
     );
 

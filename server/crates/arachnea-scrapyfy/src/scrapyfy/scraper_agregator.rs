@@ -9,7 +9,7 @@ use std::path::Path;
 use std::sync::LazyLock;
 
 use arachnea_core::error_code::ErrorCodeGenerator;
-use arachnea_core::scraper_result::{
+use scraper_result::{
     ScraperAggregationResult, ScraperErrorOrigin, ScraperExecutionError,
 };
 
@@ -646,7 +646,7 @@ impl ScraperAgregator {
 mod tests {
     use super::*;
     use arachnea_core::error_code::ErrorCodeGenerator;
-    use arachnea_core::scraper_result::{
+    use scraper_result::{
         ScraperAggregationResult, ScraperErrorOrigin, ScraperExecutionError,
     };
     use std::collections::HashMap;
