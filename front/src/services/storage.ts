@@ -84,8 +84,18 @@ const HOME_SECTION_THUMBNAIL_ORIENTATION_KEY = 'home.sectionThumbnailOrientation
 const HOME_SECTION_THUMBNAIL_IMAGE_FIT_KEY = 'home.sectionThumbnailImageFit'
 /** Storage key for entry bookmarks. */
 const ENTRY_BOOKMARKS_KEY = 'entry.bookmarks'
-/** Storage key for video player preferences. */
-const VIDEO_PLAYER_PREFERENCES_KEY = 'videoPlayer.preferences'
+/** Storage key for video player volume. */
+const VIDEO_PLAYER_VOLUME_KEY = 'videoPlayer.preferences.volume'
+/** Storage key for video player muted state. */
+const VIDEO_PLAYER_MUTED_KEY = 'videoPlayer.preferences.muted'
+/** Storage key for video player quality label. */
+const VIDEO_PLAYER_QUALITY_LABEL_KEY = 'videoPlayer.preferences.qualityLabel'
+/** Storage key for video player audio track. */
+const VIDEO_PLAYER_AUDIO_TRACK_KEY = 'videoPlayer.preferences.audioTrack'
+/** Storage key for video player text track. */
+const VIDEO_PLAYER_TEXT_TRACK_KEY = 'videoPlayer.preferences.textTrack'
+/** Storage key for video player text track settings. */
+const VIDEO_PLAYER_TEXT_TRACK_SETTINGS_KEY = 'videoPlayer.preferences.textTrackSettings'
 /** Keys for text track settings that can be persisted. */
 const TEXT_TRACK_SETTINGS_KEYS = [
   'backgroundColor',
@@ -236,9 +246,35 @@ export const useStorage = defineStore('storage', () => {
     const entryBookmarks = ref<Record<string, EntryBookmark>>(
       sanitizeEntryBookmarks(getStoreItem<unknown>(ENTRY_BOOKMARKS_KEY, {})),
     )
-    const videoPlayerPreferences = ref<VideoPlayerPreferences>(
-      sanitizeVideoPlayerPreferences(
-        getStoreItem<unknown>(VIDEO_PLAYER_PREFERENCES_KEY, {}),
+    const videoPlayerVolume = ref<number>(
+      sanitizeVideoVolume(
+        getStoreItem<unknown>(VIDEO_PLAYER_VOLUME_KEY, null),
+      ),
+    )
+    const videoPlayerMuted = ref<boolean>(
+      sanitizeBoolean(
+        getStoreItem<unknown>(VIDEO_PLAYER_MUTED_KEY, null),
+        false,
+      ),
+    )
+    const videoPlayerQualityLabel = ref<string | null>(
+      sanitizeQualityPreference(
+        getStoreItem<unknown>(VIDEO_PLAYER_QUALITY_LABEL_KEY, null),
+      ),
+    )
+    const videoPlayerAudioTrack = ref<VideoJsTrackPreference | null>(
+      sanitizeTrackPreference(
+        getStoreItem<unknown>(VIDEO_PLAYER_AUDIO_TRACK_KEY, null),
+      ),
+    )
+    const videoPlayerTextTrack = ref<VideoJsTextTrackPreference>(
+      sanitizeTextTrackPreference(
+        getStoreItem<unknown>(VIDEO_PLAYER_TEXT_TRACK_KEY, null),
+      ),
+    )
+    const videoPlayerTextTrackSettings = ref<VideoJsTextTrackSettings | null>(
+      sanitizeTextTrackSettings(
+        getStoreItem<unknown>(VIDEO_PLAYER_TEXT_TRACK_SETTINGS_KEY, null),
       ),
     )
 
@@ -319,12 +355,46 @@ export const useStorage = defineStore('storage', () => {
     )
 
     watch(
-      videoPlayerPreferences,
-      (nextVideoPlayerPreferences) => {
-        setStoreItem(
-          VIDEO_PLAYER_PREFERENCES_KEY,
-          sanitizeVideoPlayerPreferences(nextVideoPlayerPreferences),
-        )
+      videoPlayerVolume,
+      (next) => {
+        setStoreItem(VIDEO_PLAYER_VOLUME_KEY, sanitizeVideoVolume(next))
+      },
+    )
+
+    watch(
+      videoPlayerMuted,
+      (next) => {
+        setStoreItem(VIDEO_PLAYER_MUTED_KEY, sanitizeBoolean(next, false))
+      },
+    )
+
+    watch(
+      videoPlayerQualityLabel,
+      (next) => {
+        setStoreItem(VIDEO_PLAYER_QUALITY_LABEL_KEY, sanitizeQualityPreference(next))
+      },
+    )
+
+    watch(
+      videoPlayerAudioTrack,
+      (next) => {
+        setStoreItem(VIDEO_PLAYER_AUDIO_TRACK_KEY, sanitizeTrackPreference(next))
+      },
+      { deep: true },
+    )
+
+    watch(
+      videoPlayerTextTrack,
+      (next) => {
+        setStoreItem(VIDEO_PLAYER_TEXT_TRACK_KEY, sanitizeTextTrackPreference(next))
+      },
+      { deep: true },
+    )
+
+    watch(
+      videoPlayerTextTrackSettings,
+      (next) => {
+        setStoreItem(VIDEO_PLAYER_TEXT_TRACK_SETTINGS_KEY, sanitizeTextTrackSettings(next))
       },
       { deep: true },
     )
@@ -452,7 +522,14 @@ export const useStorage = defineStore('storage', () => {
      * @returns Sanitized player preferences used to restore new player instances.
      */
     function getVideoPlayerPreferences(): VideoPlayerPreferences {
-        return { ...videoPlayerPreferences.value }
+        return {
+          volume: videoPlayerVolume.value,
+          muted: videoPlayerMuted.value,
+          qualityLabel: videoPlayerQualityLabel.value,
+          audioTrack: videoPlayerAudioTrack.value,
+          textTrack: videoPlayerTextTrack.value,
+          textTrackSettings: videoPlayerTextTrackSettings.value,
+        }
     }
 
     /**
@@ -461,7 +538,12 @@ export const useStorage = defineStore('storage', () => {
      * @param playerPreferences Latest durable player preferences.
      */
     function setVideoPlayerPreferences(playerPreferences: VideoPlayerPreferences): void {
-        videoPlayerPreferences.value = sanitizeVideoPlayerPreferences(playerPreferences)
+        videoPlayerVolume.value = sanitizeVideoVolume(playerPreferences.volume)
+        videoPlayerMuted.value = sanitizeBoolean(playerPreferences.muted, false)
+        videoPlayerQualityLabel.value = sanitizeQualityPreference(playerPreferences.qualityLabel)
+        videoPlayerAudioTrack.value = sanitizeTrackPreference(playerPreferences.audioTrack)
+        videoPlayerTextTrack.value = sanitizeTextTrackPreference(playerPreferences.textTrack)
+        videoPlayerTextTrackSettings.value = sanitizeTextTrackSettings(playerPreferences.textTrackSettings)
     }
 
     /**
@@ -812,34 +894,4 @@ function sanitizeTextTrackSettings(value: unknown): VideoJsTextTrackSettings | n
     });
 
     return Object.keys(settings).length ? settings : null;
-}
-
-/**
- * Returns sanitized Video.js preferences safe to persist locally.
- *
- * @param value Raw storage value to sanitize.
- * @returns Durable player preferences.
- */
-function sanitizeVideoPlayerPreferences(value: unknown): VideoPlayerPreferences {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-      return {
-        volume: 1,
-        muted: false,
-        qualityLabel: null,
-        audioTrack: null,
-        textTrack: { ...DEFAULT_TEXT_TRACK_PREFERENCE },
-        textTrackSettings: null,
-      };
-    }
-
-    const record = value as Record<string, unknown>;
-
-    return {
-      volume: sanitizeVideoVolume(record.volume),
-      muted: sanitizeBoolean(record.muted, false),
-      qualityLabel: sanitizeQualityPreference(record.qualityLabel),
-      audioTrack: sanitizeTrackPreference(record.audioTrack),
-      textTrack: sanitizeTextTrackPreference(record.textTrack),
-      textTrackSettings: sanitizeTextTrackSettings(record.textTrackSettings),
-    };
 }

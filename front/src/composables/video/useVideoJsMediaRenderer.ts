@@ -811,7 +811,8 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       clearPendingQualitySelectorCleanup()
       markVideoInitialLoadStart()
       isPosterOverlayVisible.value = shouldRenderPosterOverlay.value && !(props.autoplay || switchAutoplay)
-      let retainedQualityLabel = resolveRetainedQualityLabel(preferredQualityLabel, playerState)
+      preferredQualityLabel = resolveRetainedQualityLabel(preferredQualityLabel, playerState)
+      let retainedQualityLabel = preferredQualityLabel
       vttStoryboardGrid.value = null
       storyboardVttCues = []
 
