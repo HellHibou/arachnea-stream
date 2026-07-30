@@ -1,6 +1,6 @@
 id: coflix
 title: Coflix
-logo: "{base_url}/wp-content/uploads/2023/01/cropped-coflix.png"
+logo: "{base_url}/images/coflix-logo.png"
 description:
   fr: "Films, Séries et Animés en streaming VF/HD."
 http:
@@ -56,6 +56,8 @@ queries:
       - name: logo
         type: string
         value: "{service_logo}"
+        actions:
+          - type: resolve_url
       - name: description
         type: object
         value: "{service_description}"

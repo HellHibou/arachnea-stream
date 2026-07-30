@@ -926,7 +926,6 @@ const storyboardPreviewStyle = computed(() => {
   overflow: hidden;
 }
 
-
 .videojs-media-host :deep(.vjs-chapter-segment-divider) {
   position: absolute;
   top: 0;

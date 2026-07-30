@@ -1,4 +1,25 @@
 /**
+ * Determines the effective thumbnail orientation for a media item based on
+ * available images, falling back to the default when both types are present
+ * or when neither is available.
+ *
+ * @param item Media item with available image URLs.
+ * @param defaultOrientation Fallback orientation when both or neither type is available.
+ * @returns The effective orientation for this item.
+ */
+export function getEffectiveOrientation(
+  item: MediaItem,
+  defaultOrientation: ThumbnailOrientation,
+): ThumbnailOrientation {
+  const hasPortrait = Boolean(item.imagePosterUrl ?? item.imagePortraitUrl)
+  const hasLandscape = Boolean(item.imageLandscapeUrl)
+
+  if (hasPortrait && !hasLandscape) return 'portrait'
+  if (hasLandscape && !hasPortrait) return 'landscape'
+  return defaultOrientation
+}
+
+/**
  * Supported aspect ratios for media thumbnails.
  */
 export type ThumbnailOrientation = 'portrait' | 'landscape'

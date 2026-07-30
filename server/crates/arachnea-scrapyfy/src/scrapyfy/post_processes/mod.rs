@@ -12,6 +12,7 @@ mod derive_pagination;
 mod extract_regex_items;
 mod fetch_actions_to_field;
 mod fetch_regex_items_from_items;
+mod filter_fields;
 mod filter_items;
 mod math_helpers;
 mod node_helpers;
@@ -88,6 +89,28 @@ pub enum ScraperPostProcess {
         /// Whether to keep items that match (true) or don't match (false) the pattern.
         #[serde(default = "ScraperPostProcess::default_keep_matching")]
         keep_matching: bool,
+    },
+
+    /// Removes specific fields from items in a group when a condition field
+    /// matches (or does not match) a regex pattern.
+    ///
+    /// Unlike [`FilterItems`] which removes entire items, this variant operates
+    /// at the field level: each item stays, but the listed fields are deleted
+    /// when the condition is satisfied.
+    FilterFields {
+        /// Source field containing the items to process.
+        source: String,
+        /// Field name within each item whose value is tested against `pattern`.
+        field: String,
+        /// Regex pattern applied to the condition field value.
+        pattern: String,
+        /// When `true`, fields are removed from items whose value matches the
+        /// pattern. When `false`, fields are removed from items whose value
+        /// does **not** match.
+        #[serde(default = "ScraperPostProcess::default_keep_matching")]
+        keep_matching: bool,
+        /// `>`-delimited paths of the fields to remove from each matching item.
+        remove: Vec<String>,
     },
 
     /// Fetches one text payload per extracted item, applies a regex on each response body,
@@ -262,6 +285,9 @@ impl ScraperPostProcess {
             ScraperPostProcess::FilterItems { pattern, .. } => {
                 filter_items::validate(owner, pattern)
             }
+            ScraperPostProcess::FilterFields {
+                pattern, remove, ..
+            } => filter_fields::validate(owner, pattern, remove),
             ScraperPostProcess::PivotItemsByIndex { .. } => pivot_items_by_index::validate(),
             ScraperPostProcess::ComputeItemsField {
                 source,
@@ -375,6 +401,16 @@ impl ScraperPostProcess {
                 keep_matching,
             } => {
                 filter_items::apply(root, source, field, pattern, *keep_matching);
+                Ok(())
+            }
+            ScraperPostProcess::FilterFields {
+                source,
+                field,
+                pattern,
+                keep_matching,
+                remove,
+            } => {
+                filter_fields::apply(root, source, field, pattern, *keep_matching, remove);
                 Ok(())
             }
             ScraperPostProcess::FetchRegexItemsFromItems {

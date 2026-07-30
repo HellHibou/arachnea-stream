@@ -773,7 +773,7 @@ queries:
             select: first
             selector: "div.catalog-info > div.info-row:nth-child(2) > p.info-value"
             actions: *actions_media_type_search
-          - name: img/poster > link
+          - name: img/landscape > link
             type: string
             select: first
             selector: "img.card-image"

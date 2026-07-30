@@ -71,6 +71,30 @@ pub(super) fn set_node(root: &mut ScraperDataNode, path: &[&str], node: ScraperD
         .insert(path[path.len().saturating_sub(1)].to_string(), node);
 }
 
+/// Removes the node at `path` from `root`. A no-op when `path` is empty or
+/// does not exist.
+///
+/// # Arguments
+///
+/// * `root` - Root node whose child is removed.
+/// * `path` - `>`-delimited path of the node to remove.
+pub(super) fn remove_node(root: &mut ScraperDataNode, path: &str) {
+    let segments = split_path(path);
+    if segments.is_empty() {
+        return;
+    }
+
+    let mut current = root;
+    for segment in &segments[..segments.len().saturating_sub(1)] {
+        current = match current.children.get_mut(*segment) {
+            Some(node) => node,
+            None => return,
+        };
+    }
+
+    current.children.remove(segments[segments.len().saturating_sub(1)]);
+}
+
 /// Copies the node addressed by `source` from `source_root` into the `target`
 /// path of `target_root`.
 ///

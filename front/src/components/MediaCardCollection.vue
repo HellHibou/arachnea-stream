@@ -2,6 +2,7 @@
 import { computed, toRef, useId, useSlots, useTemplateRef } from 'vue'
 
 import type { MediaCardCollectionMode, MediaItem, ThumbnailImageFit, ThumbnailOrientation } from '@/types/media'
+import { getEffectiveOrientation } from '@/types/media'
 
 import MediaCard from './MediaCard.vue'
 import { mediaCardCollectionPreviewManager } from '@/composables/media-card-collection/mediaCardCollectionPreviewManager'
@@ -147,6 +148,18 @@ const effectiveLoadingLabel = computed(() => props.loadingLabel ?? t('catalog.lo
 const effectiveInitialLoadingMessage = computed(() =>
   props.initialLoadingMessage ?? t('catalog.loadingSection'),
 )
+
+/**
+ * Per-card effective orientation derived from available images.
+ * Cards with only one image type override the collection default.
+ */
+const cardOrientations = computed(() => {
+  const map = new Map<string, ThumbnailOrientation>()
+  for (const item of props.items) {
+    map.set(item.id, getEffectiveOrientation(item, props.thumbnailOrientation))
+  }
+  return map
+})
 </script>
 
 <template>
@@ -214,20 +227,19 @@ const effectiveInitialLoadingMessage = computed(() =>
       :class="{ 'media-card-collection__viewport--single-row': mode === 'single-row' }"
       @scroll="updateScrollState"
     >
-      <div
-        class="media-card-collection"
-        :class="[
-          `media-card-collection--${thumbnailOrientation}`,
-          `media-card-collection--${mode}`,
-        ]"
-      >
+       <div
+         class="media-card-collection"
+         :class="[
+           `media-card-collection--${mode}`,
+         ]"
+       >
          <MediaCard
-           v-for="item in items"
-           :key="item.id"
-           :item="item"
-           :layout="mode === 'list' ? 'list' : 'card'"
-           :thumbnail-orientation="thumbnailOrientation"
-           :thumbnail-image-fit="thumbnailImageFit"
+            v-for="item in items"
+            :key="item.id"
+            :item="item"
+            :layout="mode === 'list' ? 'list' : 'card'"
+            :thumbnail-orientation="cardOrientations.get(item.id) ?? thumbnailOrientation"
+            :thumbnail-image-fit="thumbnailImageFit"
            :hide-missing-thumbnail="hideMissingListThumbnails"
            :is-preview-open="openPreviewItemId === item.id"
            :show-service-logo="showServiceLogo"
@@ -400,12 +412,17 @@ const effectiveInitialLoadingMessage = computed(() =>
   gap: 22px 18px;
   align-items: start;
   overflow: visible;
+  grid-auto-flow: dense;
 }
 
-.media-card-collection--landscape {
-  /** Maximum width on landscape */
-  --media-card-collection-min-column: 240px;
-  --media-card-collection-row-width: 240px;
+@media (min-width: 380px) {
+  .media-card-collection:not(.media-card-collection--list) > .media-card--landscape {
+    grid-column: span 2;
+  }
+}
+
+.media-card-collection--single-row > .media-card--landscape {
+  --media-card-collection-row-width: 250px;
 }
 
 .media-card-collection--single-row {
@@ -525,21 +542,21 @@ const effectiveInitialLoadingMessage = computed(() =>
     gap: 16px 14px;
   }
 
-  .media-card-collection--landscape {
-    grid-template-columns: 1fr;
-  }
+   .media-card-collection:not(.media-card-collection--list) > .media-card--landscape {
+     grid-column: span 2;
+   }
 
-  .media-card-collection--single-row {
-    --media-card-collection-row-gap: 14px;
-  }
+   .media-card-collection--single-row {
+     --media-card-collection-row-gap: 14px;
+   }
 
-  .media-card-collection--single-row > * {
-    flex-basis: min(78vw, var(--media-card-collection-row-width));
-  }
+   .media-card-collection--single-row > * {
+     flex-basis: min(78vw, var(--media-card-collection-row-width));
+   }
 
-  .media-card-collection--single-row.media-card-collection--landscape > * {
-    flex-basis: min(92vw, var(--media-card-collection-row-width));
-  }
+   .media-card-collection--single-row > .media-card--landscape {
+     flex-basis: min(92vw, 240px);
+   }
 
   .media-card-collection--list {
     gap: 5px;

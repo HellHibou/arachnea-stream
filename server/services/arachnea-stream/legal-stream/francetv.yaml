@@ -1004,11 +1004,11 @@ queries:
             type: string
             select: first
             pointer: /partner/label
-          - name: img/poster > link
+          - name: img/landscape > link
             type: string
             pointer: /images/*[type=vignette_16x9]/urls/w:1024
             select: first
-          - name: img/poster > link
+          - name: img/landscape > link
             type: string
             pointer: /program/images/*[type=vignette_16x9]/urls/w:1024
             select: first

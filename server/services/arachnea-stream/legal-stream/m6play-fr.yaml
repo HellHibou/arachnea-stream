@@ -794,7 +794,7 @@ queries:
             actions:
               - type: format_text
                 argument: "{base_url}/{}/direct"
-          - name: img/poster > link
+          - name: img/landscape > link
             type: string
             select: first
             pointer: /display_image/external_key

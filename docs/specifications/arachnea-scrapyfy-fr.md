@@ -1236,6 +1236,28 @@ Filtre les items d'un groupe en testant un champ scalaire avec une regex.
   keep_matching: true
 ```
 
+### `filter_fields`
+Supprime des champs spécifiques dans les items d'un groupe quand la valeur d'un champ conditionnel match (ou ne match pas) une regex.
+
+| Champ | Type | Description |
+|-------|------|-------------|
+| `source` | string | Champ groupe source |
+| `field` | string | Champ scalaire à tester dans chaque item |
+| `pattern` | string | Regex appliquée à la valeur du champ conditionnel |
+| `keep_matching` | bool | `true` (défaut) = supprime les champs des items qui matchent, `false` = supprime des items qui ne matchent pas |
+| `remove` | string[] | Liste de chemins `>` des champs à supprimer |
+
+```yaml
+- type: filter_fields
+  source: "entries"
+  field: "resourceType"
+  pattern: "^PROGRAM$"
+  keep_matching: true
+  remove:
+    - img/landscape > link
+    - _internal_field
+```
+
 ### `fetch_regex_items_from_items`
 Pour chaque item d'un groupe, fait une requête HTTP, applique une regex sur la réponse, et ajoute les résultats au chemin cible.
 

@@ -1231,6 +1231,28 @@ Filters items in a group by testing a scalar field with a regex.
   keep_matching: true
 ```
 
+### `filter_fields`
+Removes specific fields from items in a group when a condition field value matches (or does not match) a regex pattern.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `source` | string | Source group field |
+| `field` | string | Scalar field to test in each item |
+| `pattern` | string | Regex applied to the condition field value |
+| `keep_matching` | bool | `true` (default) = remove fields from matching items, `false` = remove from non-matching items |
+| `remove` | string[] | List of `>`-delimited paths of fields to remove |
+
+```yaml
+- type: filter_fields
+  source: "entries"
+  field: "resourceType"
+  pattern: "^PROGRAM$"
+  keep_matching: true
+  remove:
+    - img/landscape > link
+    - _internal_field
+```
+
 ### `fetch_regex_items_from_items`
 For each item in a group, makes an HTTP request, applies a regex on the response, and adds results to the target path.
 

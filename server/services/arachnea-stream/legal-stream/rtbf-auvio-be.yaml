@@ -587,10 +587,41 @@ queries:
           - name: theme
             type: string[]
             pointer: /categoryLabel
+          - name: _resourceType
+            type: string
+            select: first
+            pointer: /resourceType
           - name: img/poster > link
             type: string
             select: first
             pointer: /illustration/m
+          - name: img/landscape > link
+            type: string
+            select: first
+            pointer: /illustration/m
+    post_process:
+      - type: filter_fields
+        source: entries
+        field: _resourceType
+        pattern: "^PROGRAM$"
+        keep_matching: true
+        remove:
+          - img/landscape > link
+      - type: filter_fields
+        source: entries
+        field: _resourceType
+        pattern: "^PROGRAM$"
+        keep_matching: false
+        remove:
+          - img/poster > link
+          - _resourceType
+      - type: filter_fields
+        source: entries
+        field: _resourceType
+        pattern: "^PROGRAM$"
+        keep_matching: true
+        remove:
+          - _resourceType
 
 
   # ---------------------------------------------------------------
@@ -687,7 +718,7 @@ queries:
           - name: theme
             type: string[]
             pointer: /categoryLabel
-          - name: img/poster > link
+          - name: img/landscape > link
             type: string
             select: first
             pointer: /illustration/m

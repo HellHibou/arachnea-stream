@@ -214,10 +214,10 @@ shared:
         - type: regex_find_all
           pattern: '^([0-9]+)\s+saisons?$'
           format: "{1}"
-    - name: img/poster > link
+    - name: img/logo > link
       type: string
       select: first
-      pointer: /imageUrl
+      pointer: /titleArtImageUrl
     - name: img/poster > link
       type: string
       select: first
@@ -226,10 +226,6 @@ shared:
       type: string
       select: first
       pointer: /portraitOverlayImageUrl
-    - name: img/poster > link
-      type: string
-      select: first
-      pointer: /overlayImageUrl
     - name: img/landscape > link
       type: string
       select: first
@@ -238,10 +234,104 @@ shared:
       type: string
       select: first
       pointer: /heroImageUrl
+
+    - name: img/poster > link
+      type: string
+      select: first
+      pointer: /imageUrl
+    - name: img/poster > link
+      type: string
+      select: first
+      pointer: /overlayImageUrl
+
+  teaser_entries_landscape: &teaser_entries_landscape
+    - name: title
+      type: string
+      select: first
+      pointer: /title
+    - name: title/alt
+      type: string
+      select: first
+      pointer: /name
+    - name: description
+      type: string
+      select: first
+      pointer: /description
+    - name: subtitle
+      type: string
+      select: first
+      pointer: /editorialByline
+    - name: key
+      type: string
+      select: first
+      pointer: /detailId
+    - name: link
+      type: string
+      select: first
+      pointer: /detailId
+      actions: *actions_program_link
+    - name: web-link
+      type: string
+      select: first
+      pointer: /detailId
+      actions: *actions_program_web_link
+    - name: media-type
+      type: string[]
+      actions: *actions_default_media_type
+    - name: theme
+      type: string[]
+      pointer: /genre
+    - name: genre
+      type: string[]
+      pointer: /genre
+    - name: year
+      type: number
+      pointer: /labels/*[accessibilityLabel=Année de production]/label
+      select: all
+    - name: duration
+      type: string
+      pointer: /labels/*[accessibilityLabel=Durée]/label
+      select: all
+    - name: release-date
+      type: string
+      pointer: /labels/*[accessibilityLabel=Date de diffusion]/label
+      select: all
+      actions: *actions_release_date_label
+    - name: expire
+      type: string
+      pointer: /labels/*/label
+      select: all
+      actions: *actions_expire_label
+    - name: count-season
+      type: number
+      pointer: /labels/*/label
+      select: all
+      actions:
+        - type: regex_find_all
+          pattern: '^([0-9]+)\s+saisons?$'
+          format: "{1}"
     - name: img/logo > link
       type: string
       select: first
       pointer: /titleArtImageUrl
+ 
+    - name: img/landscape > link
+      type: string
+      select: first
+      pointer: /landscapeImageUrl
+    - name: img/landscape > link
+      type: string
+      select: first
+      pointer: /heroImageUrl
+                   
+    - name: img/landscape > link
+      type: string
+      select: first
+      pointer: /imageUrl
+    - name: img/landscape > link
+      type: string
+      select: first
+      pointer: /overlayImageUrl
 
   live_entries: &live_entries
     - name: title
@@ -504,7 +594,7 @@ queries:
             type: object[]
             pointer: /teasers/*
             select: all
-            entries: *teaser_entries
+            entries: *teaser_entries_landscape
 
       - name: sections
         type: object[]
@@ -543,7 +633,6 @@ queries:
             pointer: /teasers/*
             select: all
             entries: *teaser_entries
-
 
   # ---------------------------------------------------------------
   # Category listing
@@ -688,7 +777,7 @@ queries:
             type: object[]
             pointer: /teasers/*
             select: all
-            entries: *teaser_entries
+            entries: *teaser_entries_landscape
 
       - name: sections
         type: object[]
@@ -708,7 +797,6 @@ queries:
             pointer: /teasers/*
             select: all
             entries: *teaser_entries
-
       - name: sections
         type: object[]
         pointer: /rows/*[rowType=SWIMLANE_TOP10]
@@ -846,22 +934,18 @@ queries:
               - type: regex_find_all
                 pattern: '^([0-9]+)\s+saisons?$'
                 format: "{1}"
-          - name: img/poster > link
+          - name: img/landscape > link
             type: string
             select: first
             pointer: /imageUrl
-          - name: img/poster > link
+          - name: img/landscape > link
             type: string
             select: first
             pointer: /portraitImageUrl
-          - name: img/poster > link
+          - name: img/portrait > link
             type: string
             select: first
             pointer: /portraitOverlayImageUrl
-          - name: img/poster > link
-            type: string
-            select: first
-            pointer: /overlayImageUrl
           - name: img/landscape > link
             type: string
             select: first

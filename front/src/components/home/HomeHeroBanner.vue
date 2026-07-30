@@ -910,17 +910,17 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 7px;
   flex: 0 0 auto;
-  padding: 8px 18px;
+  padding: 5px 10px;
   background: var(--bg-surface);
   border: 1px solid var(--border-color-primary);
   border-radius: 100px;
 }
 
 .home-hero-banner__dot {
-  width: 11px;
-  height: 11px;
+  width: 8px;
+  height: 8px;
   padding: 0;
   border: 0;
   border-radius: 999px;

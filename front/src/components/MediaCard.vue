@@ -103,7 +103,7 @@ const isListLayout = computed(() => props.layout === 'list')
  * Indicates whether the list layout should keep its poster column visible.
  */
 const showListPoster = computed(() =>
-  !isListLayout.value || !props.hideMissingThumbnail || Boolean(props.item.imagePosterUrl),
+  !isListLayout.value || !props.hideMissingThumbnail || Boolean(props.item.imagePosterUrl ?? props.item.imageLandscapeUrl),
 )
 
 /**

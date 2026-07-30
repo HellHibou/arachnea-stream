@@ -965,7 +965,7 @@ queries:
                 fields:
                   slug: /video/program/slug
                   channel: /video/program/mainChannel/slug
-          - name: img/poster > link
+          - name: img/landscape > link
             type: string
             select: first
             pointer: /video/decoration/image/sourcesWithScales/0/url
