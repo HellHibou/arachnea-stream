@@ -165,8 +165,8 @@ export interface VideoJsPlayerState {
   muted: boolean
   /** The current playback rate. */
   playbackRate: number
-  /** The current quality label for the video source. */
-  qualityLabel: string | null
+  /** The current quality for the video source. */
+  quality: string | null
   /** The selected audio track preference. */
   audioTrack: VideoJsTrackPreference | null
   /** The selected text track preference. */

@@ -374,15 +374,15 @@ function restoreTextTrackSettings(
  */
 export function capturePlayerState(
   player: VideoJsPlayer,
-  preferredQualityLabel: string | null,
+  preferredQuality: string | null,
 ): VideoJsPlayerState {
   const playerElement = player.el()
   const volume = player.volume()
   const muted = player.muted()
   const playbackRate = player.playbackRate()
   const isFullscreen = player.isFullscreen()
-  const qualityLabel = normalizeQualityPreferenceLabel(
-    preferredQualityLabel ?? getSelectedQualityLabel(player),
+  const quality = normalizeQualityPreferenceLabel(
+    getSelectedQualityLabel(player) ?? preferredQuality,
   )
 
   return {
@@ -392,7 +392,7 @@ export function capturePlayerState(
       typeof playbackRate === 'number' && Number.isFinite(playbackRate) && playbackRate > 0
         ? playbackRate
         : 1,
-    qualityLabel,
+    quality,
     audioTrack: captureSelectedAudioTrack(player),
     textTrack: captureSelectedTextTrack(player),
     textTrackSettings: captureTextTrackSettings(player),
@@ -404,23 +404,23 @@ export function capturePlayerState(
 }
 
 /**
- * Resolves the quality label that should survive one source switch.
+ * Resolves the quality that should survive one source switch.
  *
- * @param preferredQualityLabel Manual quality preference captured during the session.
+ * @param preferredQuality Manual quality preference captured during the session.
  * @param playerState Persisted Video.js state snapshot captured before the switch.
- * @returns Preferred quality label for the next source.
+ * @returns Preferred quality for the next source.
  */
-export function resolveRetainedQualityLabel(
-  preferredQualityLabel: string | null,
+export function resolveRetainedQuality(
+  preferredQuality: string | null,
   playerState: VideoJsPlayerState | null,
 ): string | null {
-  const normalizedPreferredQualityLabel = normalizeQualityPreferenceLabel(preferredQualityLabel)
+  const normalizedPreferredQuality = normalizeQualityPreferenceLabel(preferredQuality)
 
-  if (normalizedPreferredQualityLabel) {
-    return normalizedPreferredQualityLabel
+  if (normalizedPreferredQuality) {
+    return normalizedPreferredQuality
   }
 
-  return normalizeQualityPreferenceLabel(playerState?.qualityLabel ?? null)
+  return normalizeQualityPreferenceLabel(playerState?.quality ?? null)
 }
 
 /**

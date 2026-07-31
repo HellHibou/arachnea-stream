@@ -35,10 +35,10 @@ import {
   syncDisplayedQualityPreference,
 } from '@/composables/video/video-js-media-renderer/quality'
 import {
-  applyPersistedPlayerState,
+applyPersistedPlayerState,
   capturePlayerState,
   getPlaybackEventSourceUrl,
-  resolveRetainedQualityLabel,
+  resolveRetainedQuality,
 } from '@/composables/video/video-js-media-renderer/state'
 import type {
   UseVideoJsMediaRendererOptions,
@@ -97,8 +97,8 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
    let pendingQualitySelectorCleanup: (() => void) | null = null
    /** Sprite thumbnail plugin instance attached to the active player. */
    let spriteThumbnailsPlugin: VideoJsSpriteThumbnailsPlugin | null = null
-   /** Preferred quality label selected by the user. */
-   let preferredQualityLabel: string | null = null
+/** Preferred quality selected by the user. */
+    let preferredQuality: string | null = null
    /** Whether the video initial load complete event has been emitted. */
    let hasEmittedInitialLoadComplete = false
     /** Whether the video metadata loaded event has been emitted. */
@@ -207,7 +207,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
    * @param player Video.js player currently bound to the renderer.
    */
   function emitCurrentPlayerState(player: VideoJsPlayer) {
-    emitPlayerState(capturePlayerState(player, preferredQualityLabel))
+    emitPlayerState(capturePlayerState(player, preferredQuality))
   }
 
   /**
@@ -717,17 +717,17 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
    * Pins the VHS playlist selector to the preferred quality bucket for the current source.
    *
    * @param player Video.js player currently bound to the renderer.
-   * @param qualityLabel Preferred quality label captured from the previous video state.
+   * @param quality Preferred quality captured from the previous video state.
    * @param expectedSourceUrl Source URL that should receive the selector override.
    */
   function configureQualityPreferenceSelector(
     player: VideoJsPlayer,
-    qualityLabel: string | null,
+    quality: string | null,
     expectedSourceUrl: string,
   ) {
     clearPendingQualitySelectorCleanup()
 
-    const qualityPreferenceToken = resolveQualityPreferenceToken(qualityLabel)
+    const qualityPreferenceToken = resolveQualityPreferenceToken(quality)
 
     if (!qualityPreferenceToken) {
       return
@@ -811,8 +811,8 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       clearPendingQualitySelectorCleanup()
       markVideoInitialLoadStart()
       isPosterOverlayVisible.value = shouldRenderPosterOverlay.value && !(props.autoplay || switchAutoplay)
-      preferredQualityLabel = resolveRetainedQualityLabel(preferredQualityLabel, playerState)
-      let retainedQualityLabel = preferredQualityLabel
+      preferredQuality = resolveRetainedQuality(preferredQuality, playerState)
+      let retainedQuality = preferredQuality
       vttStoryboardGrid.value = null
       storyboardVttCues = []
 
@@ -883,7 +883,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     const syncRetainedQualityPreference = (treatMissingMenuAsUnavailable = false) => {
       const isQualityPreferenceAvailable = syncDisplayedQualityPreference(
         player,
-        retainedQualityLabel,
+        retainedQuality,
         { treatMissingMenuAsUnavailable },
       )
 
@@ -891,8 +891,8 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
         return
       }
 
-      retainedQualityLabel = null
-      preferredQualityLabel = null
+      retainedQuality = null
+      preferredQuality = null
       clearPendingQualitySelectorCleanup()
       emitCurrentPlayerState(player)
     }
@@ -942,7 +942,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       player.off('playing', handlePlaying)
     }
     player.src(buildPlayerSource(source, spriteThumbnailOptions))
-    configureQualityPreferenceSelector(player, retainedQualityLabel, source.src)
+    configureQualityPreferenceSelector(player, retainedQuality, source.src)
   }
 
   /**
@@ -1037,7 +1037,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
         }
 
         window.setTimeout(() => {
-          preferredQualityLabel = getSelectedQualityLabel(player)
+          preferredQuality = getSelectedQualityLabel(player)
           emitCurrentPlayerState(player)
         }, 0)
       }
@@ -1224,7 +1224,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       }
 
       const player = activePlayer.value
-      const playerState = capturePlayerState(player, preferredQualityLabel)
+      const playerState = capturePlayerState(player, preferredQuality)
       emitPlayerState(playerState)
 
       const currentTime = player.currentTime()

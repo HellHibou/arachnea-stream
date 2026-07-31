@@ -51,9 +51,9 @@ export interface VideoPlayerPreferences {
    */
   muted: boolean
   /**
-   * Last manually selected quality label, or `null` for Auto.
+   * Last manually selected quality, or `null` for Auto.
    */
-  qualityLabel: string | null
+  quality: string | null
   /**
    * Last selected audio track, or `null` when unavailable.
    */
@@ -88,8 +88,8 @@ const ENTRY_BOOKMARKS_KEY = 'entry.bookmarks'
 const VIDEO_PLAYER_VOLUME_KEY = 'videoPlayer.preferences.volume'
 /** Storage key for video player muted state. */
 const VIDEO_PLAYER_MUTED_KEY = 'videoPlayer.preferences.muted'
-/** Storage key for video player quality label. */
-const VIDEO_PLAYER_QUALITY_LABEL_KEY = 'videoPlayer.preferences.qualityLabel'
+/** Storage key for video player quality. */
+const VIDEO_PLAYER_QUALITY_KEY = 'videoPlayer.preferences.quality'
 /** Storage key for video player audio track. */
 const VIDEO_PLAYER_AUDIO_TRACK_KEY = 'videoPlayer.preferences.audioTrack'
 /** Storage key for video player text track. */
@@ -257,9 +257,9 @@ export const useStorage = defineStore('storage', () => {
         false,
       ),
     )
-    const videoPlayerQualityLabel = ref<string | null>(
-      sanitizeQualityPreference(
-        getStoreItem<unknown>(VIDEO_PLAYER_QUALITY_LABEL_KEY, null),
+    const videoPlayerQuality = ref<string | null>(
+      sanitizeQuality(
+        getStoreItem<unknown>(VIDEO_PLAYER_QUALITY_KEY, null),
       ),
     )
     const videoPlayerAudioTrack = ref<VideoJsTrackPreference | null>(
@@ -369,9 +369,9 @@ export const useStorage = defineStore('storage', () => {
     )
 
     watch(
-      videoPlayerQualityLabel,
+      videoPlayerQuality,
       (next) => {
-        setStoreItem(VIDEO_PLAYER_QUALITY_LABEL_KEY, sanitizeQualityPreference(next))
+        setStoreItem(VIDEO_PLAYER_QUALITY_KEY, sanitizeQuality(next))
       },
     )
 
@@ -525,7 +525,7 @@ export const useStorage = defineStore('storage', () => {
         return {
           volume: videoPlayerVolume.value,
           muted: videoPlayerMuted.value,
-          qualityLabel: videoPlayerQualityLabel.value,
+          quality: videoPlayerQuality.value,
           audioTrack: videoPlayerAudioTrack.value,
           textTrack: videoPlayerTextTrack.value,
           textTrackSettings: videoPlayerTextTrackSettings.value,
@@ -540,7 +540,11 @@ export const useStorage = defineStore('storage', () => {
     function setVideoPlayerPreferences(playerPreferences: VideoPlayerPreferences): void {
         videoPlayerVolume.value = sanitizeVideoVolume(playerPreferences.volume)
         videoPlayerMuted.value = sanitizeBoolean(playerPreferences.muted, false)
-        videoPlayerQualityLabel.value = sanitizeQualityPreference(playerPreferences.qualityLabel)
+
+        if (playerPreferences.quality !== null) {
+          videoPlayerQuality.value = sanitizeQuality(playerPreferences.quality)
+        }
+
         videoPlayerAudioTrack.value = sanitizeTrackPreference(playerPreferences.audioTrack)
         videoPlayerTextTrack.value = sanitizeTextTrackPreference(playerPreferences.textTrack)
         videoPlayerTextTrackSettings.value = sanitizeTextTrackSettings(playerPreferences.textTrackSettings)
@@ -802,7 +806,7 @@ function sanitizeVideoVolume(value: unknown): number {
  * @param value Raw storage value to sanitize.
  * @returns Trimmed manual quality label, or `null` for Auto.
  */
-function sanitizeQualityPreference(value: unknown): string | null {
+function sanitizeQuality(value: unknown): string | null {
     if (typeof value !== 'string') {
       return null;
     }

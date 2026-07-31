@@ -257,7 +257,9 @@ async fn main() -> Result<()> {
     };
 
     // controler.register_web_directory(resources::get_application_path("front"), "");
-    controler.register_embedded_web_assets(web_assets, "");
+    controler.register_embedded_web_assets(web_assets, ""
+     //   &options.entrypoint_root.unwrap_or("".to_string())
+    );
 
     manager.register_service(controler.as_mut());
     controler.launch();

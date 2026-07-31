@@ -39,7 +39,7 @@ function createInitialVideoPlayerState(
     volume: preferences.volume,
     muted: preferences.muted,
     playbackRate: 1,
-    qualityLabel: preferences.qualityLabel,
+    quality: preferences.quality,
     audioTrack: preferences.audioTrack,
     textTrack: preferences.textTrack,
     textTrackSettings: preferences.textTrackSettings,
@@ -58,7 +58,7 @@ function createVideoPlayerPreferences(playerState: VideoJsPlayerState): VideoPla
   return {
     volume: playerState.volume,
     muted: playerState.muted,
-    qualityLabel: playerState.qualityLabel,
+    quality: playerState.quality,
     audioTrack: playerState.audioTrack,
     textTrack: playerState.textTrack,
     textTrackSettings: playerState.textTrackSettings,
