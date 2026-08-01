@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use arachnea_proxy::http::proxy_service::proxied_url_with_insecure_tls;
 use arachnea_scrapyfy::*;
+use url::Url;
 
 use crate::services::player_resolver::{
     PlayerResolverEndpoints, ResolvedPlayerImageTitle, ResolvedPlayerStream, SpriteThumbnail,
@@ -294,55 +295,98 @@ impl<'a> StreamResolver<'a> {
     }
 
     /// Fetches the original embed page once for HTML-content resolver detection.
+    ///
+    /// Follows HTTP redirects (handled by the HTTP client, bounded by
+    /// `STREAM_RESOLVER_MAX_REDIRECTS`) and additionally follows a **simple** JavaScript
+    /// redirect (`window.location.href = "…"` string-literal assignment) so content-based
+    /// detection operates on the final document instead of a redirecting shim. JavaScript is
+    /// never executed: only the target of the first plain literal assignment is extracted and
+    /// re-fetched via HTTP. The number of followed JS hops is bounded and each hop is validated
+    /// like the initial fetch (success status, `text/html`, size limit).
     async fn fetch_embed_html(&self, url: &str) -> Result<String> {
         let http_config = ScraperHttpConfig {
             max_redirects: Some(STREAM_RESOLVER_MAX_REDIRECTS),
             ..ScraperHttpConfig::default()
         };
         let client = self.scraper_agregator.create_http_client(http_config);
-        let response = client
-            .send_for_request(http::Method::GET, url, &HashMap::new(), None)
-            .await
-            .with_context(|| format!("Failed to fetch embed HTML `{}`", url))?;
 
-        if !response.status().is_success() {
-            bail!(
-                "Failed to fetch embed HTML `{}`: HTTP status {}",
-                url,
-                response.status()
-            );
+        let mut current_url = url.to_string();
+        let mut visited: Vec<String> = Vec::new();
+
+        for _ in 0..=STREAM_RESOLVER_MAX_REDIRECTS {
+            if visited.iter().any(|value| value == &current_url) {
+                break;
+            }
+            visited.push(current_url.clone());
+
+            let response = client
+                .send_for_request(http::Method::GET, &current_url, &HashMap::new(), None)
+                .await
+                .with_context(|| format!("Failed to fetch embed HTML `{}`", current_url))?;
+
+            if !response.status().is_success() {
+                bail!(
+                    "Failed to fetch embed HTML `{}`: HTTP status {}",
+                    current_url,
+                    response.status()
+                );
+            }
+
+            let content_type = response
+                .headers()
+                .get(http::header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default();
+            let mime_type = content_type
+                .split(';')
+                .next()
+                .map(str::trim)
+                .unwrap_or_default();
+
+            if !mime_type.eq_ignore_ascii_case("text/html") {
+                bail!(
+                    "Failed to inspect embed HTML `{}`: unsupported Content-Type `{}`",
+                    current_url,
+                    content_type
+                );
+            }
+
+            let bytes = response.bytes().await?;
+            if bytes.len() > MAX_EMBED_HTML_BYTES {
+                bail!(
+                    "Failed to inspect embed HTML `{}`: body is {} bytes, limit is {} bytes",
+                    current_url,
+                    bytes.len(),
+                    MAX_EMBED_HTML_BYTES
+                );
+            }
+
+            let body = response
+                .text()
+                .await
+                .with_context(|| format!("Failed to read embed HTML `{}`", current_url))?;
+
+            if let Some(target) = extract_simple_js_redirect_target(&body) {
+                if let Some(resolved) = resolve_redirect_target(&current_url, &target) {
+                    if resolved != current_url {
+                        tracing::debug!(
+                            current = %current_url,
+                            redirect = %resolved,
+                            "Following simple JS window.location.href redirect while fetching embed HTML"
+                        );
+                        current_url = resolved;
+                        continue;
+                    }
+                }
+            }
+
+            return Ok(body);
         }
 
-        let content_type = response
-            .headers()
-            .get(http::header::CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or_default();
-        let mime_type = content_type
-            .split(';')
-            .next()
-            .map(str::trim)
-            .unwrap_or_default();
-
-        if !mime_type.eq_ignore_ascii_case("text/html") {
-            bail!(
-                "Failed to inspect embed HTML `{}`: unsupported Content-Type `{}`",
-                url,
-                content_type
-            );
-        }
-
-        let bytes = response.bytes().await?;
-        if bytes.len() > MAX_EMBED_HTML_BYTES {
-            bail!(
-                "Failed to inspect embed HTML `{}`: body is {} bytes, limit is {} bytes",
-                url,
-                bytes.len(),
-                MAX_EMBED_HTML_BYTES
-            );
-        }
-
-        response.text().await.map_err(Into::into)
+        bail!(
+            "Failed to fetch embed HTML `{}`: too many JS redirects",
+            url
+        );
     }
 
     /// Runs optional `can_resolve_html` on one service with `{url, html}` params.
@@ -420,6 +464,51 @@ impl<'a> StreamResolver<'a> {
         }
         params
     }
+}
+
+/// Extracts the target of the first **simple** JavaScript redirect from an HTML document.
+///
+/// Only `window.location.href = "…"` (or `'…'`) string-literal assignments are considered, so
+/// values computed at runtime (e.g. `window.location.href = currentUrl.toString();`) are skipped
+/// in favor of the next literal assignment. Returns the first non-empty literal target found, or
+/// `None` when the document contains no eligible simple redirect.
+fn extract_simple_js_redirect_target(html: &str) -> Option<String> {
+    let mut search_from = 0;
+    while let Some(start) = html[search_from..].find("window.location.href") {
+        let after = search_from + start + "window.location.href".len();
+        let after_trimmed = html[after..].trim_start_matches([' ', '\t']);
+        if let Some(after_eq) = after_trimmed.strip_prefix('=') {
+            let quote_start = after_eq.trim_start_matches([' ', '\t']);
+            let quote = quote_start.chars().next()?;
+            if quote == '\'' || quote == '"' {
+                let body = &quote_start[quote.len_utf8()..];
+                if let Some(end) = body.find(quote) {
+                    let target = body[..end].trim();
+                    if !target.is_empty() {
+                        return Some(target.to_string());
+                    }
+                }
+            }
+        }
+        search_from = after;
+    }
+    None
+}
+
+/// Resolves a JS redirect target against the page URL that emitted it.
+///
+/// Absolute `http(s)` targets are kept as-is. Relative targets are joined onto the current page
+/// URL. Returns `None` when the target cannot be resolved to an HTTP(S) URL.
+fn resolve_redirect_target(current_url: &str, target: &str) -> Option<String> {
+    if target.starts_with("http://") || target.starts_with("https://") {
+        return Some(target.to_string());
+    }
+
+    let base = Url::parse(current_url).ok()?;
+    base.join(target)
+        .ok()
+        .map(|resolved| resolved.to_string())
+        .filter(|resolved| resolved.starts_with("http://") || resolved.starts_with("https://"))
 }
 
 /// Returns whether an absolute stream URL targets one exact allowlisted host.

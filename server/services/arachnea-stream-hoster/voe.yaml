@@ -64,6 +64,9 @@ queries:
           - type: regex_find_all
             pattern: '<meta[^>]+(?:property|name)=["''](?:og:image|twitter:image)["''][^>]+content=["'']([^"'']+)["'']|<meta[^>]+content=["'']([^"'']+)["''][^>]+(?:property|name)=["''](?:og:image|twitter:image)["'']'
             format: "{1}{2}"
+          - type: replace_text
+            search:  "_storyboard_L2.jpg"
+            replace: "_storyboard_L5.jpg"
           - type: resolve_url
             proxy: true
       - name: storyboard
@@ -78,6 +81,9 @@ queries:
               - type: regex_find_all
                 pattern: '["''](?:storyboard|sprite|preview|thumbnail|poster)["'']\s*:\s*["'']([^"'']+)["'']|<meta[^>]+(?:property|name)=["''](?:og:image|twitter:image)["''][^>]+content=["'']([^"'']+)["'']|<meta[^>]+content=["'']([^"'']+)["''][^>]+(?:property|name)=["''](?:og:image|twitter:image)["'']'
                 format: "{1}{2}{3}"
+              - type: replace_text
+                search: "_storyboard_L2.jpg"
+                replace: "_storyboard_L0.jpg"
               - type: resolve_url
                 proxy: true
           - name: width

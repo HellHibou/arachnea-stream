@@ -13,28 +13,24 @@ parameters:
   - name: url
     value: ""
     description: "URL of the embed page to be resolved"
-
+  - name: html
+    value: ""
+    description: "Optional pre-fetched HTML document used for content-based resolution"
 
 # ############################################################################
 # Queries
 # ############################################################################
 queries:
-
-  # --------------------------------------------------------------------------
-  # can_resolve_url — determines whether this rule can resolve the URL
-  # --------------------------------------------------------------------------
-  - name: can_resolve_url
+  - name: can_resolve_html
     scraper_type: static
     entries:
       - name: resolver
         type: string
-        value: "{url}"
+        value: "{url}\n{html}"
         actions:
           - type: regex_find_all
-            pattern: '^https?://(?:www\.)?minochinos\.com/embed/'
+            pattern: 'href="/vidhide/'
             format: "{service_id}"
-
-
   # --------------------------------------------------------------------------
   # resolve_stream — extracts the video stream URL from the player page
   # --------------------------------------------------------------------------

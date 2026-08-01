@@ -125,6 +125,7 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **Dynamic proxy candidate selection**: country proxy selection now follows the documented eligibility order more closely by rejecting stale probes and active destination cooldowns, preserving hard KO/auth exclusions during reloads, and using deterministic latency/failure/authority ordering for equivalent candidates.
 - **Scrapyfy dynamic proxy HTTPS validation**: the default scrapyfy-backed proxy inventory now verifies HTTPS tunnelling with `https://example.com/`, and failed HTTPS probes explicitly clear source-claimed HTTPS support so HTTP-only public proxies are not selected for HTTPS sites.
 - **Dynamic proxy HTTPS CONNECT routing**: HTTP `CONNECT` targets on port 443 are now treated as HTTPS destinations for country proxy selection, so public HTTP proxies without working tunnel support are excluded before TF1-style HTTPS requests.
+- **Stream resolver follows simple JS redirects**: the HTML-content detection phase (`fetch_embed_html` in `stream_resolver.rs`) now follows a simple `window.location.href = "…"` string-literal redirect before running `can_resolve_html`. This lets content-based hosters (e.g. VOE on mirror domains fronted by a redirecting shim page) be recognized on their final player page instead of the shim. JavaScript is never executed and hops are bounded/validated like existing fetches.
 
 ## Unreleased — RTBF Auvio home banner RedBee auth simplification
 

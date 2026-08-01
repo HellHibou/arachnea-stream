@@ -27,6 +27,7 @@ tauri = { workspace = true, features = [] }
 tauri-plugin-opener.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tracing.workspace = true
+url.workspace = true
 urlencoding.workspace = true
 
 [build-dependencies]

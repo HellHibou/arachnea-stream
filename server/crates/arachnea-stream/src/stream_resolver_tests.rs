@@ -74,6 +74,43 @@ fn serve_html_once(body: &'static str) -> (String, Arc<AtomicUsize>) {
     (url, request_count)
 }
 
+/// Serves a redirecting shim (JS `window.location.href`) then the final player page,
+/// routing on the requested path (`/player` identifies the final document).
+fn serve_js_redirect_chain(
+    shim: &'static str,
+    final_body: &'static str,
+) -> (String, Arc<AtomicUsize>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("test server should bind");
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let request_count = Arc::new(AtomicUsize::new(0));
+    let request_count_for_thread = Arc::clone(&request_count);
+
+    std::thread::spawn(move || {
+        for _ in 0..2 {
+            let (mut stream, _) = listener.accept().expect("test request should arrive");
+            request_count_for_thread.fetch_add(1, Ordering::SeqCst);
+            let mut buffer = [0_u8; 1024];
+            let _ = stream.read(&mut buffer);
+            let request = String::from_utf8_lossy(&buffer).to_string();
+            let body = if request.contains("/player") {
+                final_body
+            } else {
+                shim
+            };
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream
+                .write_all(response.as_bytes())
+                .expect("test response should be written");
+        }
+    });
+
+    (url, request_count)
+}
+
 fn decode_proxy_opts(proxied_url: &str) -> serde_json::Value {
     let encoded = proxied_url
         .split("/opts_")
@@ -278,6 +315,125 @@ queries:
         ResolvedStream::Stream(_) => panic!("expected embed-link fallback"),
     }
     assert_eq!(request_count.load(Ordering::SeqCst), 1);
+
+    let _ = std::fs::remove_dir_all(temp_dir);
+}
+
+#[test]
+fn html_fallback_follows_simple_js_redirect_before_detection() {
+    let shim = r#"<html><head><title>Redirecting...</title></head><body><script>window.location.href = '/player';</script></body></html>"#;
+    let final_body = r#"<html><body>DETECTME stream=https://cdn.test/fallback.m3u8</body></html>"#;
+    let (url, request_count) = serve_js_redirect_chain(shim, final_body);
+
+    let html_resolver = r#"
+id: html-resolver
+parameters:
+  - name: url
+    value: ""
+  - name: html
+    value: ""
+queries:
+  - name: can_resolve_html
+    scraper_type: static
+    entries:
+      - name: resolver
+        type: string
+        value: "{html}"
+        actions:
+          - type: regex_find_all
+            pattern: 'DETECTME'
+            format: "{service_id}"
+  - name: resolve_stream
+    scraper_type: html
+    base_url: ""
+    query_url: ""
+    input_html: "{html}"
+    row_selector: "html"
+    entries:
+      - name: stream_url
+        type: string
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: 'stream=(https://cdn\.test/fallback\.m3u8)'
+            format: "{1}"
+      - name: stream_headers
+        type: object
+        select: first
+        entries:
+          - name: Referer
+            type: string
+            actions:
+              - type: format_text
+                argument: "https://embed.test/source"
+      - name: manifest_type
+        type: string
+        actions:
+          - type: format_text
+            argument: "hls"
+"#;
+
+    let (agregator, temp_dir) = setup_resolver_sources(&[("html", html_resolver)]);
+    let endpoints = crate::services::player_resolver::PlayerResolverEndpoints::default();
+    let resolver = StreamResolver::new(&agregator, &endpoints);
+
+    let result = block_on(resolver.get_stream(&url)).expect("HTML fallback should resolve");
+
+    match result {
+        ResolvedStream::Stream(stream) => {
+            assert_eq!(stream.manifest_type.as_deref(), Some("hls"));
+            assert_eq!(stream.stream_url, vec!["https://cdn.test/fallback.m3u8"]);
+        }
+        ResolvedStream::EmbedLink { .. } => panic!("expected stream after JS redirect"),
+    }
+    assert_eq!(
+        request_count.load(Ordering::SeqCst),
+        2,
+        "expected the shim and the final player page to be fetched"
+    );
+
+    let _ = std::fs::remove_dir_all(temp_dir);
+}
+
+#[test]
+fn html_fallback_does_not_follow_branchless_non_literal_js_assignment() {
+    let body =
+        r#"<html><script>window.location.href = getUrl();</script>UNKNOWN content here</html>"#;
+    let (url, request_count) = serve_html_once(body);
+
+    let non_matching_resolver = r#"
+id: non-matching
+parameters:
+  - name: html
+    value: ""
+queries:
+  - name: can_resolve_html
+    scraper_type: static
+    entries:
+      - name: resolver
+        type: string
+        value: "{html}"
+        actions:
+          - type: regex_find_all
+            pattern: 'NEVER_MATCH_THIS_DOCUMENT'
+            format: "{service_id}"
+"#;
+
+    let (agregator, temp_dir) = setup_resolver_sources(&[("non_matching", non_matching_resolver)]);
+    let endpoints = crate::services::player_resolver::PlayerResolverEndpoints::default();
+    let resolver = StreamResolver::new(&agregator, &endpoints);
+
+    let result = block_on(resolver.get_stream(&url)).expect("unknown HTML should fallback");
+
+    match result {
+        ResolvedStream::EmbedLink { embed_link } => assert_eq!(embed_link, url),
+        ResolvedStream::Stream(_) => panic!("expected embed-link fallback"),
+    }
+    assert_eq!(
+        request_count.load(Ordering::SeqCst),
+        1,
+        "non-literal JS assignment should not be followed"
+    );
 
     let _ = std::fs::remove_dir_all(temp_dir);
 }

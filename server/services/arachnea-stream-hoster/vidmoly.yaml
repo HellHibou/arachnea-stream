@@ -12,6 +12,9 @@ parameters:
   - name: url
     value: ""
     description: "URL of the embed page to be resolved"
+  - name: html
+    value: ""
+    description: "Optional pre-fetched HTML document used for content-based resolution"
 
 
 # ############################################################################
@@ -20,17 +23,17 @@ parameters:
 queries:
 
   # --------------------------------------------------------------------------
-  # can_resolve_url — determines whether this rule can resolve the URL
+  # can_resolve_html — determines whether this rule can resolve the HTML page
   # --------------------------------------------------------------------------
-  - name: can_resolve_url
+  - name: can_resolve_html
     scraper_type: static
     entries:
       - name: resolver
         type: string
-        value: "{url}"
+        value: "{url}\n{html}"
         actions:
           - type: regex_find_all
-            pattern: '^https?://(?:www\.)?vidmoly\.(?:to|net|biz)/'
+            pattern: '<meta\s+name=["'']description["'']\s+content=["'']VidMoly\s|<div\s+id=["'']vidmolyadblocktest["'']|<link\s+rel=["'']shortcut\s+icon["'']\s+href=["'']https://vidmoly\.'
             format: "{service_id}"
 
 
@@ -41,6 +44,7 @@ queries:
     scraper_type: html
     base_url: "{url}"
     query_url: "{url}"
+    input_html: "{html}"
     row_selector: "html"
     request_headers:
       - name: "Referer"
