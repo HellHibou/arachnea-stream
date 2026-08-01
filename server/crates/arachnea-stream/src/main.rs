@@ -17,20 +17,29 @@ use arachnea_core::{
 use arachnea_scrapyfy::*;
 use arachnea_stream::StreamScraper;
 
+
+
+#[derive(PartialEq)]
+enum ApplicationMode {
+    Desktop,
+    Server,
+}
+
+
 /// Default port used by the REST controller when no CLI override is provided.
 const DEFAULT_SERVER_PORT: u16 = 8080;
 
 /// Default runtime mode used when no CLI mode flag is provided.
 #[cfg(not(debug_assertions))] // Release mode defaults to server
-const DEFAULT_MODE_SERVER: bool = false;
+const DEFAULT_MODE_SERVER: ApplicationMode = Desktop;
 #[cfg(debug_assertions)] // Debug mode defaults.
-const DEFAULT_MODE_SERVER: bool = true;
+const DEFAULT_MODE_SERVER: ApplicationMode = ApplicationMode::Server;
 
 /// Default path used by the encrypted server credentials store.
 const DEFAULT_ENCRYPTED_FILE_CREDENTIALS_STORE_PATH: &str = "data/credentials";
 
 /// Custom URI scheme used by the desktop frontend.
-const TAURI_WEB_SCHEME: &str = "arachnea";
+const TAURI_WEB_SCHEME: &str = "arachnea-stream";
 
 /// API prefix used by the desktop binary stream routes.
 const TAURI_API_PREFIX: &str = "/api/";
@@ -38,9 +47,10 @@ const TAURI_API_PREFIX: &str = "/api/";
 /// Static AES-256-GCM key reserved for the encrypted file store.
 const DEFAULT_SERVER_CREDENTIALS_KEY: [u8; 32] = *b"hell_hibou-arachnea-key-20260422";
 
+
 /// Runtime options parsed from command line arguments.
 struct RuntimeOptions {
-    mode_server: bool,
+    application_mode: ApplicationMode,
     server_port: u16,
     entrypoint_root: Option<String>,
     entrypoint_api: Option<String>,
@@ -114,7 +124,7 @@ fn tauri_controler_service() -> TauriControlerService {
 /// its value, or when the provided port is invalid.
 fn parse_runtime_options(program_name: &str) -> Result<CliAction> {
     let mut options = RuntimeOptions {
-        mode_server: DEFAULT_MODE_SERVER,
+        application_mode: DEFAULT_MODE_SERVER,
         server_port: DEFAULT_SERVER_PORT,
         entrypoint_root: None,
         entrypoint_api: None,
@@ -124,8 +134,8 @@ fn parse_runtime_options(program_name: &str) -> Result<CliAction> {
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--desktop" => options.mode_server = false,
-            "--server" => options.mode_server = true,
+            "--desktop" => options.application_mode = ApplicationMode::Desktop,
+            "--server" => options.application_mode = ApplicationMode::Server,
             "--help" => {
                 print_help(&program_name);
                 return Ok(CliAction::ExitSuccess);
@@ -241,7 +251,9 @@ async fn main() -> Result<()> {
     }
     let web_assets = generated_embedded_web_assets();
 
-    let mut controler: Box<dyn ControlerService> = if options.mode_server {
+    let mut controler: Box<dyn ControlerService> = if options.application_mode
+        == ApplicationMode::Server
+    {
         let mut configuration =
             RestControlerConfiguration::default().server_port(options.server_port);
         if let Some(entrypoint_root) = &options.entrypoint_root {
@@ -257,9 +269,7 @@ async fn main() -> Result<()> {
     };
 
     // controler.register_web_directory(resources::get_application_path("front"), "");
-    controler.register_embedded_web_assets(web_assets, ""
-     //   &options.entrypoint_root.unwrap_or("".to_string())
-    );
+    controler.register_embedded_web_assets(web_assets, "");
 
     manager.register_service(controler.as_mut());
     controler.launch();

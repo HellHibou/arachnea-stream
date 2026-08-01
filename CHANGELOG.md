@@ -50,6 +50,11 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - `JsonScraperSubQuery::execute` / `execute_siblings` / `execute_context` / `execute_indexed_context` / `execute_indexed_sibling` / `build_row_node` — re-used through the new `JsonScraperSubQuery::execute_query_level` unified entry point (see regression fix below).
 
 ### Fixed
+- **Chunked response streaming corruption**: `ChunkedBodyReader::read_more`
+  left its zero-filled read chunk in place when the underlying stream returned
+  `Poll::Pending`, so the next poll served those zeros as body data, corrupting
+  and truncating streamed responses (e.g. partially loaded images through the
+  public `/api/proxy` route). The buffer is now truncated on the pending path.
 - **Spys.one proxy ports**: The proxy scraper now unpacks the Dean Edwards
   variable script before executing it, allowing its existing port formula to
   resolve the values rendered by Spys.one.
