@@ -3,59 +3,26 @@
 
 use anyhow::{bail, Context, Result};
 use std::net::IpAddr;
-use std::sync::Arc;
 
 use arachnea_core::{
     application,
-    controler::{
-        rest::{RestControlerConfiguration, RestControlerService},
-        tauri::{TauriControlerConfiguration, TauriControlerService, TauriEmbeddedWebAssets},
-        ControlerService, SharedWebAssets,
-    },
-    persistence::EncryptedFileCredentialsStore,
+    controler::{ApplicationMode, CoreApplicationOptions, DEFAULT_SERVER_PORT},
+    persistence::EncryptedFileCredentialsStore
 };
 use arachnea_scrapyfy::*;
 use arachnea_stream::StreamScraper;
 
-
-
-#[derive(PartialEq)]
-enum ApplicationMode {
-    Desktop,
-    Server,
+/// Runtime options parsed from command line arguments.
+struct RuntimeOptions {
+    application_option: CoreApplicationOptions,
+    current_country: Option<String>,
 }
-
-
-/// Default port used by the REST controller when no CLI override is provided.
-const DEFAULT_SERVER_PORT: u16 = 8080;
-
-/// Default runtime mode used when no CLI mode flag is provided.
-#[cfg(not(debug_assertions))] // Release mode defaults to server
-const DEFAULT_MODE_SERVER: ApplicationMode = Desktop;
-#[cfg(debug_assertions)] // Debug mode defaults.
-const DEFAULT_MODE_SERVER: ApplicationMode = ApplicationMode::Server;
 
 /// Default path used by the encrypted server credentials store.
 const DEFAULT_ENCRYPTED_FILE_CREDENTIALS_STORE_PATH: &str = "data/credentials";
 
-/// Custom URI scheme used by the desktop frontend.
-const TAURI_WEB_SCHEME: &str = "arachnea-stream";
-
-/// API prefix used by the desktop binary stream routes.
-const TAURI_API_PREFIX: &str = "/api/";
-
 /// Static AES-256-GCM key reserved for the encrypted file store.
 const DEFAULT_SERVER_CREDENTIALS_KEY: [u8; 32] = *b"hell_hibou-arachnea-key-20260422";
-
-
-/// Runtime options parsed from command line arguments.
-struct RuntimeOptions {
-    application_mode: ApplicationMode,
-    server_port: u16,
-    entrypoint_root: Option<String>,
-    entrypoint_api: Option<String>,
-    current_country: Option<String>,
-}
 
 /// Result of parsing command line arguments.
 enum CliAction {
@@ -64,47 +31,21 @@ enum CliAction {
     ExitSuccess,
 }
 
-
-
-/// Returns the command line help in English.
-fn help_message(program_name: &str) -> String {
+/// Prints the command line help in English.
+fn help_message() -> String {
+    let program_name = application::program_name();
     format!(
         "Usage: {program_name} [OPTIONS]
 
 Options:
-  --help                   Show this help message and exit
-  --desktop                Run in desktop application mode (forces mode_server to false)
-  --server                 Run in server mode (forces mode_server to true)
-  --server-port <PORT>     Override the server port (default: {DEFAULT_SERVER_PORT})
-  --entrypoint-root <PATH>
-                           Public root path used before API routes in server mode
-  --entrypoint-api <PATH>
-                           Public API path segment used in server mode
-  --current-country <ISO_CODE>
-                           Explicit local country used for geo proxy decisions
-  --refresh-ip-countries   Refresh IP-to-country geolocation data and exit"
-    )
-}
-
-/// Prints the command line help in English.
-fn print_help(program_name: &str) {
-    println!("{}", help_message(program_name));
-}
-
-fn generated_tauri_context() -> tauri::Context<tauri::Wry> {
-    tauri::generate_context!()
-}
-
-fn generated_embedded_web_assets() -> SharedWebAssets {
-    let assets: Arc<dyn tauri::Assets<tauri::Wry>> = Arc::from(generated_tauri_context().assets);
-    Arc::new(TauriEmbeddedWebAssets::new(assets))
-}
-
-fn tauri_controler_service() -> TauriControlerService {
-    TauriControlerService::with_configuration(
-        TauriControlerConfiguration::new(generated_tauri_context())
-            .web_scheme(TAURI_WEB_SCHEME)
-            .api_prefix(TAURI_API_PREFIX),
+  --help                        Show this help message and exit
+  --desktop                     Run in desktop application mode (forces mode_server to false)
+  --server                      Run in server mode (forces mode_server to true)
+  --server-port <PORT>          Override the server port (default: {DEFAULT_SERVER_PORT})
+  --entrypoint-root <PATH>      Public root path used before API routes in server mode
+  --entrypoint-api <PATH>       Public API path segment used in server mode
+  --current-country <ISO_CODE>  Explicit local country used for geo proxy decisions
+  --refresh-ip-countries        Refresh IP-to-country geolocation data and exit"
     )
 }
 
@@ -122,22 +63,22 @@ fn tauri_controler_service() -> TauriControlerService {
 /// # Errors
 /// Returns an error when an argument is unknown, when `--server-port` is missing
 /// its value, or when the provided port is invalid.
-fn parse_runtime_options(program_name: &str) -> Result<CliAction> {
+fn parse_runtime_options() -> Result<CliAction> {
+    let mut application_option = CoreApplicationOptions::default();
+    application_option.web_scheme = Some("arachnea-stream".to_string());
     let mut options = RuntimeOptions {
-        application_mode: DEFAULT_MODE_SERVER,
-        server_port: DEFAULT_SERVER_PORT,
-        entrypoint_root: None,
-        entrypoint_api: None,
+        application_option,
         current_country: None,
     };
+
     let mut args = std::env::args().skip(1);
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--desktop" => options.application_mode = ApplicationMode::Desktop,
-            "--server" => options.application_mode = ApplicationMode::Server,
+            "--desktop" => options.application_option.application_mode = Some(ApplicationMode::Desktop),
+            "--server" => options.application_option.application_mode = Some(ApplicationMode::Server),
             "--help" => {
-                print_help(&program_name);
+                println!("{}", help_message());
                 return Ok(CliAction::ExitSuccess);
             }
             "--refresh-ip-countries" => {
@@ -146,18 +87,20 @@ fn parse_runtime_options(program_name: &str) -> Result<CliAction> {
             "--server-port" => {
                 let port = args.next().context("missing value for `--server-port`")?;
 
-                options.server_port = port
-                    .parse::<u16>()
-                    .with_context(|| format!("invalid value for `--server-port`: `{port}`"))?;
+                options.application_option.server_port = Some(
+                    port.parse::<u16>().with_context(|| {
+                        format!("invalid value for `--server-port`: `{port}`")
+                    })?,
+                );
             }
             "--entrypoint-root" => {
-                options.entrypoint_root = Some(
+                options.application_option.entrypoint_root = Some(
                     args.next()
                         .context("missing value for `--entrypoint-root`")?,
                 );
             }
             "--entrypoint-api" => {
-                options.entrypoint_api = Some(
+                options.application_option.entrypoint_api = Some(
                     args.next()
                         .context("missing value for `--entrypoint-api`")?,
                 );
@@ -224,8 +167,7 @@ async fn main() -> Result<()> {
     StreamScraper::init_sub_logger_levels();
     arachnea_core::logger::init_logger();
 
-    let program_name = application::program_name();
-    let options = match parse_runtime_options(&program_name) {
+    let options = match parse_runtime_options() {
         Ok(CliAction::Run(options)) => options,
         Ok(CliAction::RefreshIpCountries) => {
             return refresh_ip_countries_cli().await;
@@ -233,7 +175,7 @@ async fn main() -> Result<()> {
         Ok(CliAction::ExitSuccess) => return Ok(()),
         Err(error) => {
             eprintln!("Error: {error}\n");
-            eprintln!("{}", help_message(&program_name));
+            eprintln!("{}", help_message());
             return Err(error);
         }
     };
@@ -249,29 +191,10 @@ async fn main() -> Result<()> {
     if let Some(current_country) = &options.current_country {
         manager.set_current_country(current_country).await;
     }
-    let web_assets = generated_embedded_web_assets();
 
-    let mut controler: Box<dyn ControlerService> = if options.application_mode
-        == ApplicationMode::Server
-    {
-        let mut configuration =
-            RestControlerConfiguration::default().server_port(options.server_port);
-        if let Some(entrypoint_root) = &options.entrypoint_root {
-            configuration = configuration.entrypoint_root(entrypoint_root);
-        }
-        if let Some(entrypoint_api) = &options.entrypoint_api {
-            configuration = configuration.entrypoint_api(entrypoint_api);
-        }
-
-        Box::new(RestControlerService::new(configuration))
-    } else {
-        Box::new(tauri_controler_service())
-    };
-
-    // controler.register_web_directory(resources::get_application_path("front"), "");
-    controler.register_embedded_web_assets(web_assets, "");
-
+    let mut controler = arachnea_core::create_application_controler!(options.application_option);
     manager.register_service(controler.as_mut());
     controler.launch();
+
     Ok(())
 }

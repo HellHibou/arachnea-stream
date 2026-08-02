@@ -275,6 +275,38 @@ fn sanitize_relative_path(path: &str) -> Result<PathBuf, String> {
     Ok(sanitized)
 }
 
+/// Literal `<base href>` marker used in `index.html`.
+///
+/// Controller backends that know the runtime mount point replace this marker
+/// with the actual base path before serving the document.
+pub(crate) const HTML_BASE_PLACEHOLDER: &str = "{base}";
+
+/// Replaces the `<base href="{base}">` marker with the supplied runtime base.
+///
+/// Only HTML documents that actually contain the exact `href="{base}"` marker
+/// are modified; every other asset is returned unchanged.
+///
+/// # Arguments
+/// * `html` - The HTML document bytes.
+/// * `base` - The runtime base path to substitute (e.g. `/entrypoint/`, `/`, or `./`).
+///
+/// # Returns
+/// The updated HTML bytes, or the original bytes when the marker is absent.
+pub(crate) fn replace_html_base(html: Vec<u8>, base: &str) -> Vec<u8> {
+    let document = match String::from_utf8(html) {
+        Ok(document) => document,
+        Err(bytes) => return bytes.into_bytes(),
+    };
+
+    let needle = format!("href=\"{HTML_BASE_PLACEHOLDER}\"");
+    let replacement = format!("href=\"{base}\"");
+    if !document.contains(&needle) {
+        return document.into_bytes();
+    }
+
+    document.replace(&needle, &replacement).into_bytes()
+}
+
 /// Determines the MIME type for a file based on its extension.
 ///
 /// # Arguments

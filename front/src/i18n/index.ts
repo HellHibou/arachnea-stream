@@ -1,6 +1,7 @@
 import { computed, readonly, shallowRef, watch } from 'vue'
 
 import { useStorage } from '@/services/storage'
+import { resolveAppPath } from '@/services/baseUrl'
 import type {
   LocaleIndex,
   LocaleIndexLanguage,
@@ -19,7 +20,7 @@ const DEFAULT_LANGUAGE = 'en'
 /** Special language code for automatic browser language detection. */
 const AUTO_LANGUAGE = 'auto'
 /** Base path for locale JSON files. */
-const LOCALE_BASE_PATH = '/locales'
+const LOCALE_BASE_PATH = resolveAppPath('locales')
 
 /** List of languages available for selection. */
 const availableLanguages = shallowRef<LocaleIndexLanguage[]>([

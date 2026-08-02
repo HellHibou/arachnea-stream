@@ -400,3 +400,10 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ### Added (2026-07-26)
 
 - **`exec_js` Scrapyfy action**: Added `boa_engine` 0.21 dependency and a new `exec_js` action that executes JavaScript in a sandboxed engine. Designed for Spys.one port decoding: after execution, the action returns new global numeric variables as `Name=Value` lines. Controlled by `timeout_ms` (default 500ms) with a `loop_iteration_limit` on the Boa runtime to prevent infinite loops. All 8 unit tests pass.
+
+## Unreleased — Sub-path frontend deployment
+
+### Changed
+
+- **`<base href>` marker replacement**: `front/index.html` now ships a `<base href="{base}">` marker. The shared `replace_html_base` helper in `arachnea-core` substitutes the marker with the runtime mount base before serving: `/{entrypoint_root}/` (or `/`) in the REST controller and `./` in the Tauri controller. The replacement is applied only to HTML assets that actually contain the exact `href="{base}"` marker, so no other asset is rewritten.
+- **Frontend base resolution**: `front/src/services/baseUrl.ts` now derives the app base from `document.baseURI` (the injected `<base>`), so the Vue Router base, REST API base, and locale paths stay consistent with asset loading on deep History-API routes and under arbitrary entry-point sub-paths. Falls back to resolving Vite's configured base when no servable `<base>` is present.

@@ -12,7 +12,8 @@ use anyhow::anyhow;
 use serde_json::Value;
 
 use super::web_assets::{
-    normalize_mount_path, strip_mount_path, EmbeddedWebAssets, SharedWebAssets, WebAssetSource,
+    normalize_mount_path, replace_html_base, strip_mount_path, EmbeddedWebAssets, SharedWebAssets,
+    WebAssetSource,
 };
 use super::{
     install_global_main_thread_dispatcher, main_thread::MainThreadHandlerStore,
@@ -27,6 +28,9 @@ const DEFAULT_TAURI_WEB_SCHEME: &str = "arachnea";
 
 /// The default API path prefix used by Tauri binary stream routes.
 const DEFAULT_TAURI_API_PREFIX: &str = "/api/";
+
+/// Relative `<base>` used when serving the desktop frontend, which lives at the scheme root.
+const TAURI_WEB_BASE: &str = "./";
 
 /// Configuration required to build a Tauri controller service.
 ///
@@ -602,10 +606,17 @@ impl ControlerService for TauriControlerService {
                 }
 
                 match web_assets.load_request(&request_path) {
-                    Ok(asset) => ::tauri::http::Response::builder()
-                        .header("Content-Type", asset.mime_type)
-                        .body(asset.bytes)
-                        .expect("Failed to build Tauri protocol response."),
+                    Ok(asset) => {
+                        let bytes = if asset.mime_type.starts_with("text/html") {
+                            replace_html_base(asset.bytes, TAURI_WEB_BASE)
+                        } else {
+                            asset.bytes
+                        };
+                        ::tauri::http::Response::builder()
+                            .header("Content-Type", asset.mime_type)
+                            .body(bytes)
+                            .expect("Failed to build Tauri protocol response.")
+                    }
                     Err(_) => ::tauri::http::Response::builder()
                         .status(404)
                         .body(Vec::new())

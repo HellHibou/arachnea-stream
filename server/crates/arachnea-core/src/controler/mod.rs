@@ -23,6 +23,20 @@ pub use main_thread::{
 };
 pub use web_assets::{EmbeddedWebAssets, SharedWebAssets};
 
+use crate::controler::rest::{RestControlerConfiguration, RestControlerService};
+use crate::controler::tauri::{
+    TauriControlerConfiguration, TauriControlerService, TauriEmbeddedWebAssets,
+};
+
+/// Default port used by the REST controller when no CLI override is provided.
+pub const DEFAULT_SERVER_PORT: u16 = 8080;
+
+/// Custom URI scheme used by the desktop frontend.
+pub const DEFAULT_TAURI_WEB_SCHEME: &str = "arachnea-core";
+
+/// API prefix used by the desktop binary stream routes.
+pub const DEFAULT_TAURI_API_PREFIX: &str = "api";
+
 /// Serialized payload received by controller backends.
 ///
 /// This enum represents the different types of input that controller functions
@@ -358,3 +372,219 @@ pub trait ControlerServiceExt: ControlerService {
 }
 
 impl<T: ControlerService + ?Sized> ControlerServiceExt for T {}
+
+
+
+/// Runtime mode the application controller runs under.
+#[derive(PartialEq)]
+pub enum ApplicationMode {
+    /// Desktop application mode backed by the Tauri controller.
+    Desktop,
+    /// Headless HTTP server mode backed by the REST controller.
+    Server,
+}
+
+/// Default runtime mode used when no CLI mode flag is provided.
+///
+/// In release builds the backend defaults to server mode; in debug builds it
+/// defaults to desktop mode.
+#[macro_export]
+macro_rules! default_application_mode {
+    () => {
+        if cfg!(debug_assertions) {
+            return ApplicationMode::Desktop;
+        } else {
+            return ApplicationMode::Server;
+        }
+    };
+}
+
+
+/// Runtime options parsed from command line arguments.
+pub struct CoreApplicationOptions {
+
+    /// Backend mode (desktop or server).
+    pub application_mode: Option<ApplicationMode>,
+   
+    /// REST server port used in server mode.
+    ///
+    /// Falls back to [`DEFAULT_SERVER_PORT`] when `None`.
+    pub server_port: Option<u16>,
+    
+    /// Optional public root path prefix for server mode.
+    pub entrypoint_root: Option<String>,
+    
+    /// Optional public API path segment for server mode.
+    pub entrypoint_api: Option<String>,
+    
+    /// Custom URI scheme used by the desktop frontend.
+    ///
+    /// Falls back to [`DEFAULT_TAURI_WEB_SCHEME`] when `None`.
+    pub web_scheme: Option<String>,
+    
+    /// API path prefix used by the desktop binary stream routes.
+    ///
+    /// Falls back to [`DEFAULT_TAURI_API_PREFIX`] when `None`.
+    pub api_prefix: Option<String>,
+}
+
+impl CoreApplicationOptions {
+    
+    /// Creates runtime options for the application controller.
+    ///
+    /// # Arguments
+    /// * `application_mode` - Backend mode (desktop or server).
+    /// * `server_port` - Optional REST server port used in server mode.
+    /// * `entrypoint_root` - Optional public root path prefix for server mode.
+    /// * `entrypoint_api` - Optional public API path segment for server mode.
+    /// * `web_scheme` - Optional custom URI scheme for the desktop frontend.
+    /// * `api_prefix` - Optional API path prefix for desktop binary stream routes.
+    pub fn new(
+        application_mode: Option<ApplicationMode>,
+        server_port: Option<u16>,
+        entrypoint_root: Option<String>,
+        entrypoint_api: Option<String>,
+        web_scheme: Option<String>,
+        api_prefix: Option<String>,
+    ) -> Self {
+        Self {
+            application_mode,
+            server_port,
+            entrypoint_root,
+            entrypoint_api,
+            web_scheme,
+            api_prefix,
+        }
+    }
+}
+
+impl Default for CoreApplicationOptions {
+    fn default() -> Self {
+        Self {
+            application_mode: None,
+            server_port: Some(DEFAULT_SERVER_PORT),
+            entrypoint_root: None,
+            entrypoint_api: Some(DEFAULT_TAURI_API_PREFIX.to_string()),
+            web_scheme: Some(DEFAULT_TAURI_WEB_SCHEME.to_string()),
+            api_prefix: None,
+        }
+    }
+}
+
+/// Configuration required to build the desktop (Tauri) controller backend.
+///
+/// This groups the application-owned pieces that only the application crate can
+/// produce: the generated Tauri context and its embedded web assets. It is kept
+/// separate from [`CoreApplicationOptions`] because it is generated for each
+/// application crate rather than parsed from runtime options.
+pub struct DesktopApplicationConfig {
+    /// The generated Tauri context owned by the application crate.
+    pub context: ::tauri::Context<::tauri::Wry>,
+    /// Embedded frontend assets backing the Tauri custom protocol.
+    pub web_assets: SharedWebAssets,
+}
+
+/// Wraps Tauri generated assets into the shared embedded web asset provider.
+///
+/// # Arguments
+/// * `context` - Generated Tauri context whose asset bundle is reused.
+///
+/// # Returns
+/// A `SharedWebAssets` provider backed by the Tauri asset bundle.
+pub fn desktop_embedded_web_assets(context: ::tauri::Context<::tauri::Wry>) -> SharedWebAssets {
+    let assets: Arc<dyn ::tauri::Assets<::tauri::Wry>> = Arc::from(context.assets);
+    Arc::new(TauriEmbeddedWebAssets::new(assets))
+}
+
+fn tauri_controler_service(
+    context: ::tauri::Context<::tauri::Wry>,
+    web_scheme: Option<String>,
+    api_prefix: Option<String>,
+) -> TauriControlerService {
+    let web_scheme = web_scheme.unwrap_or_else(|| DEFAULT_TAURI_WEB_SCHEME.to_string());
+    let api_prefix = api_prefix.unwrap_or_else(|| DEFAULT_TAURI_API_PREFIX.to_string());
+    TauriControlerService::with_configuration(
+        TauriControlerConfiguration::new(context)
+            .web_scheme(web_scheme)
+            .api_prefix(api_prefix),
+    )
+}
+
+/// Creates the application controller from explicit runtime and desktop options.
+///
+/// Desktop mode builds a Tauri controller and embeds the frontend web assets;
+/// server mode builds a REST controller and mounts the embedded assets under
+/// the optional entry point prefixes.
+///
+/// # Arguments
+/// * `options` - Runtime options selecting the backend mode, port and overrides.
+/// * `desktop` - Desktop-specific generated context and embedded assets.
+///
+/// # Returns
+/// A boxed `ControlerService` ready for `register_service` and `launch`.
+pub fn create_application_controler_from_config(
+    options: CoreApplicationOptions,
+    desktop: DesktopApplicationConfig,
+) -> Box<dyn ControlerService> {
+
+    #[cfg(not(debug_assertions))] // Release mode defaults.
+    let application_mode = options.application_mode.unwrap_or(ApplicationMode::Desktop);
+ 
+    #[cfg(debug_assertions)] // Debug mode defaults.
+    let application_mode = options.application_mode.unwrap_or(ApplicationMode::Server);
+
+    let mut controler: Box<dyn ControlerService> =
+        if application_mode == ApplicationMode::Server {
+            let server_port = options.server_port.unwrap_or(DEFAULT_SERVER_PORT);
+            let mut configuration =
+                RestControlerConfiguration::default().server_port(server_port);
+            if let Some(entrypoint_root) = &options.entrypoint_root {
+                configuration = configuration.entrypoint_root(entrypoint_root);
+            }
+            if let Some(entrypoint_api) = &options.entrypoint_api {
+                configuration = configuration.entrypoint_api(entrypoint_api);
+            }
+
+            Box::new(RestControlerService::new(configuration))
+        } else {
+            Box::new(tauri_controler_service(
+                desktop.context,
+                options.web_scheme,
+                options.api_prefix,
+            ))
+        };
+
+    controler.register_embedded_web_assets(desktop.web_assets, "");
+
+    controler
+}
+
+/// Builds the application controller from parsed runtime options.
+///
+/// This macro expands [`create_application_controler_from_config`] with a
+/// [`DesktopApplicationConfig`] generated from the caller crate's own Tauri
+/// configuration. Because `macro_rules!` expands at the call site, the embedded
+/// `::tauri::generate_context!()` is resolved inside the caller crate, where
+/// `tauri.conf.json` and `tauri-build` live. The values of `web_scheme` and
+/// `api_prefix` come from the supplied [`CoreApplicationOptions`].
+///
+/// # Arguments
+/// * `$options` - Parsed [`CoreApplicationOptions`].
+///
+/// # Returns
+/// A boxed `ControlerService` ready for `register_service` and `launch`.
+#[macro_export]
+macro_rules! create_application_controler {
+    ($options:expr) => {{
+        $crate::controler::create_application_controler_from_config(
+            $options,
+            $crate::controler::DesktopApplicationConfig {
+                context: ::tauri::generate_context!(),
+                web_assets: $crate::controler::desktop_embedded_web_assets(
+                    ::tauri::generate_context!(),
+                ),
+            },
+        )
+    }};
+}
+

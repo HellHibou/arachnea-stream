@@ -5,7 +5,10 @@
   "identifier": "hell-hibou.arachnea.app",
   "mainBinaryName": "arachnea",
   "build": {
-    "beforeBuildCommand": "cd ../../../front && npm run build",
+    "beforeBuildCommand": {
+      "script": "npm run build",
+      "cwd": "../../../front"
+    },
     "frontendDist": "../../../front/dist"
   },
   "app": {

@@ -1,5 +1,7 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 
+import { getAppBasePath } from '@/services/baseUrl'
+
 /** Application route definitions. */
 const routes: RouteRecordRaw[] = [
   {
@@ -50,7 +52,7 @@ const routes: RouteRecordRaw[] = [
 
 /** Vue Router instance with scroll behavior reset on navigation. */
 const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHistory(getAppBasePath()),
   routes,
   scrollBehavior(_to, _from, savedPosition) {
     return savedPosition ?? { top: 0, left: 0 }

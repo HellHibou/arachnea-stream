@@ -7,7 +7,7 @@ use warp::filters::BoxedFilter;
 use warp::http::StatusCode;
 use warp::{reply, Filter, Rejection, Reply};
 
-use super::web_assets::{normalize_mount_path, WebAssetSource};
+use super::web_assets::{normalize_mount_path, replace_html_base, WebAssetSource};
 use super::{
     install_global_main_thread_dispatcher, main_thread::MainThreadDispatchLoop,
     main_thread::QueuedMainThreadDispatcher, ControlerFunctionInput, ControlerService,
@@ -189,6 +189,12 @@ impl RestControlerService {
         } else {
             None
         };
+        let entrypoint_root = self.entrypoint_root.clone();
+        let web_base = if entrypoint_root.is_empty() {
+            "/".to_string()
+        } else {
+            format!("/{}/", entrypoint_root.join("/"))
+        };
         let source = Arc::new(source);
         let new_filter = self
             .make_base_filter(false, &mount_path)
@@ -196,6 +202,7 @@ impl RestControlerService {
             .and(warp::path::tail())
             .and_then(move |tail: warp::path::Tail| {
                 let reserved_api = reserved_api.clone();
+                let web_base = web_base.clone();
                 let source = Arc::clone(&source);
                 async move {
                     let request_path = tail.as_str();
@@ -208,8 +215,13 @@ impl RestControlerService {
 
                     match source.load(request_path) {
                         Ok(asset) => {
+                            let bytes = if asset.mime_type.starts_with("text/html") {
+                                replace_html_base(asset.bytes, &web_base)
+                            } else {
+                                asset.bytes
+                            };
                             let response =
-                                reply::with_header(asset.bytes, "content-type", asset.mime_type);
+                                reply::with_header(bytes, "content-type", asset.mime_type);
                             Ok::<RestReply, Rejection>((
                                 Box::new(response) as Box<dyn Reply + Send>,
                             ))

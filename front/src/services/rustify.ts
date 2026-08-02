@@ -22,6 +22,7 @@ import type {
   HomeSectionSource,
 } from '@/types/home'
 import { t, tm } from '@/i18n'
+import { resolveAppPath } from '@/services/baseUrl'
 import type { ServiceMetadata, ServiceThemeMetadata } from '@/types/serviceMetadata'
 import { enqueueErrorNotification } from '@/composables/useErrorNotifications'
 import type {
@@ -35,8 +36,8 @@ export type {
   ScraperExecutionError,
 } from '@/types/scraperError'
 
-/** Base URL for the REST API. Falls back to '/api' when not configured via environment. */
-const restApiBaseUrl = import.meta.env.VITE_RUSTIFY_API_BASE_URL ?? '/api'
+/** Base URL for the REST API. Falls back to the `api` segment under the app base when not configured via environment. */
+const restApiBaseUrl = import.meta.env.VITE_RUSTIFY_API_BASE_URL ?? resolveAppPath('api')
 
 /** Supported media type values used for filtering. */
 export const mediaTypeValues = [
