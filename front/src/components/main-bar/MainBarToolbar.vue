@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useRouter } from 'vue-router'
+
 import type { SearchFilterOption } from '@/services/rustify'
 import { useI18n } from '@/i18n'
 
@@ -83,6 +85,14 @@ const emit = defineEmits<{
 
 /** Internationalization utilities. */
 const { t } = useI18n()
+
+/** Vue Router instance used to resolve home and lives links. */
+const router = useRouter()
+
+/** Browser href for the home route. */
+const homeHref = router.resolve({ name: 'home' }).href
+/** Browser href for the lives route. */
+const livesHref = router.resolve({ name: 'lives' }).href
 </script>
 
 <template>
@@ -100,14 +110,14 @@ const { t } = useI18n()
         <v-icon icon="$NavigateBefore" size="22" aria-hidden="true" />
       </button>
 
-      <button
+      <a
         class="main-bar__home-button"
-        type="button"
+        :href="homeHref"
         :aria-label="t('toolbar.home')"
-        @click="emit('home')"
+        @click.prevent="emit('home')"
       >
         <v-icon icon="mdi-home-outline" size="20" aria-hidden="true" />
-      </button>
+      </a>
       <div>
         <img src="/logo.png" alt="" class="logo" />
         <span class="main-bar__brand">
@@ -135,14 +145,14 @@ const { t } = useI18n()
     </div>
 
     <div class="main-bar__actions">
-      <button
+      <a
         class="main-bar__lives-button"
-        type="button"
+        :href="livesHref"
         :aria-label="t('toolbar.lives')"
-        @click="emit('lives')"
+        @click.prevent="emit('lives')"
       >
         <v-icon icon="mdi-television-play" size="22" aria-hidden="true" />
-      </button>
+      </a>
 
       <button
         class="main-bar__search-toggle-button"
@@ -248,6 +258,7 @@ const { t } = useI18n()
   font-size: 0.96rem;
   font-weight: 700;
   cursor: pointer;
+  text-decoration: none;
   box-shadow:
     var(--shadow-heavy),
     var(--inset-light);

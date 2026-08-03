@@ -14,11 +14,17 @@ interface Props {
    * @default false
    */
   isList?: boolean
+  /**
+   * Internal route targeted by the action as a hyperlink, or null when unavailable.
+   * @default null
+   */
+  href?: string | null
 }
 
 /** Component props with applied defaults. */
 withDefaults(defineProps<Props>(), {
   isList: false,
+  href: null,
 })
 
 const emit = defineEmits<{
@@ -37,7 +43,20 @@ function handleSelect() {
 </script>
 
 <template>
+  <a
+    v-if="href"
+    class="media-card__action"
+    :class="[
+      { 'media-card__action--disabled': !canSelectItem },
+      { 'media-card__action--list': isList },
+    ]"
+    :href="href"
+    @click.stop.prevent="handleSelect"
+  >
+    {{ t('entry.watch') }}
+  </a>
   <button
+    v-else
     class="media-card__action"
     :class="[
       { 'media-card__action--disabled': !canSelectItem },
@@ -70,6 +89,7 @@ function handleSelect() {
   font-size: 0.96rem;
   font-weight: 700;
   cursor: pointer;
+  text-decoration: none;
   transition:
     transform var(--duration-fast) ease,
     filter var(--duration-fast) ease;

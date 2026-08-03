@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import type { MediaItem } from '@/types/media'
 import { useI18n } from '@/i18n'
 
-import MediaCardCollection from '../MediaCardCollection.vue'
+import MediaCardCollection, { type MediaCardRouteName } from '../MediaCardCollection.vue'
 
 /**
  * Props accepted by the generic selectable catalog section rendered below the metadata.
@@ -32,11 +32,17 @@ interface Props {
   emptyStateMessage?: string
   loadMoreLabel?: string
   showServiceLogo?: boolean
+  /**
+   * Route targeted by each item card action.
+   * @default 'entry-details'
+   */
+  itemRouteName?: MediaCardRouteName
 }
 
 /** Component props with applied defaults. */
 const props = withDefaults(defineProps<Props>(), {
   showServiceLogo: true,
+  itemRouteName: 'entry-details',
 })
 /** Internationalization utilities. */
 const { t } = useI18n()
@@ -174,6 +180,7 @@ function handleLoadMore() {
         thumbnail-image-fit="cover"
         :hide-missing-list-thumbnails="true"
         :show-service-logo="props.showServiceLogo"
+        :route-name="props.itemRouteName"
         @select="handleItemSelect"
       />
 

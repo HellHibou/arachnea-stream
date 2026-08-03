@@ -57,6 +57,10 @@ interface Props {
    * Indicates whether the backend service logo should be displayed on the poster.
    */
   showServiceLogo: boolean
+  /**
+   * Internal route targeted by the card action, or null when no link is available.
+   */
+  href: string | null
 }
 
 /** Component props without defaults. */
@@ -109,6 +113,7 @@ defineEmits<{
     <div class="media-card__list-action">
       <MediaCardActionButton
         :can-select-item="canSelectItem"
+        :href="href"
         is-list
         @select="$emit('select')"
       />

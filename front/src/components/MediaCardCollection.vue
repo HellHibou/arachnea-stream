@@ -4,7 +4,9 @@ import { computed, toRef, useId, useSlots, useTemplateRef } from 'vue'
 import type { MediaCardCollectionMode, MediaItem, ThumbnailImageFit, ThumbnailOrientation } from '@/types/media'
 import { getEffectiveOrientation } from '@/types/media'
 
-import MediaCard from './MediaCard.vue'
+import MediaCard, { type MediaCardRouteName } from './MediaCard.vue'
+
+export type { MediaCardRouteName }
 import { mediaCardCollectionPreviewManager } from '@/composables/media-card-collection/mediaCardCollectionPreviewManager'
 import { mediaCardCollectionScroll } from '@/composables/media-card-collection/mediaCardCollectionScroll'
 import { useI18n } from '@/i18n'
@@ -84,6 +86,11 @@ interface Props {
      * @default true
      */
     showServiceLogo?: boolean
+    /**
+     * Route targeted by each card action when a card is selected.
+     * @default 'entry-details'
+     */
+    routeName?: MediaCardRouteName
   }
 
   /** Component props with applied defaults. */
@@ -96,6 +103,7 @@ interface Props {
     loadMoreErrorMessage: null,
     onLoadMore: undefined,
     showServiceLogo: true,
+    routeName: 'entry-details',
   })
 const emit = defineEmits<{
   /** Emitted when a media item is selected. */
@@ -243,6 +251,7 @@ const cardOrientations = computed(() => {
            :hide-missing-thumbnail="hideMissingListThumbnails"
            :is-preview-open="openPreviewItemId === item.id"
            :show-service-logo="showServiceLogo"
+           :route-name="routeName"
            @select="handleSelect"
            @preview-open="handlePreviewOpen"
            @preview-close="handlePreviewClose"

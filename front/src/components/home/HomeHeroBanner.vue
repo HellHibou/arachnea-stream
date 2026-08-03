@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, shallowRef, useTemplateRef, watch } from 'vue'
+import { useRouter } from 'vue-router'
 
 import {
   resolveBackendStreamMediaSource,
@@ -8,6 +9,7 @@ import {
   type ResolvedPlayerMediaSource,
 } from '@/services/players'
 import { getStream } from '@/services/rustify'
+import { encodeEntryRoutePayload } from '@/router/routePayloads'
 import VideoPlayer from '@/components/media/VideoPlayer.vue'
 import type { VideoJsMediaDimensions } from '@/composables/video/useVideoJsMediaRenderer'
 import { useI18n } from '@/i18n'
@@ -288,6 +290,29 @@ const activeBannerTarget = computed<MediaSelectionTarget | null>(() => {
     entryUrl,
     webUrl: banner.webUrl ?? entryUrl,
   }
+})
+
+/** Vue Router instance used to resolve the banner action link. */
+const router = useRouter()
+
+/**
+ * Resolves the internal entry-details route targeted by the banner action.
+ */
+const bannerActionHref = computed(() => {
+  const target = activeBannerTarget.value
+  if (!target?.source || !target.entryUrl) {
+    return undefined
+  }
+
+  return router.resolve({
+    name: 'entry-details',
+    params: {
+      encodedEntry: encodeEntryRoutePayload({
+        source: target.source,
+        entryUrl: target.entryUrl,
+      }),
+    },
+  }).href
 })
 
 watch(
@@ -572,14 +597,14 @@ onBeforeUnmount(() => {
           </p>
         </div>
 
-        <button
+        <a
           v-if="activeBannerTarget"
           class="home-hero-banner__action"
-          type="button"
-          @click="handleSelectBanner"
+          :href="bannerActionHref"
+          @click.prevent="handleSelectBanner"
         >
           {{ t('catalog.viewDetails') }}
-        </button>
+        </a>
        </div>
      </div>
 
@@ -828,6 +853,9 @@ onBeforeUnmount(() => {
 .home-hero-banner__action {
   margin-top: auto;
   align-self: start;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: fit-content;
   min-height: var(--control-height);
   padding: 0 20px;

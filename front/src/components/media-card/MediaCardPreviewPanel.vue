@@ -32,6 +32,10 @@ interface Props {
    * Display title for the backend service attached to this item.
    */
   serviceTitle: string | null
+  /**
+   * Internal route targeted by the card action, or null when no link is available.
+   */
+  href: string | null
 }
 
 /** Component props without defaults. */
@@ -63,6 +67,7 @@ defineEmits<{
 
       <MediaCardActionButton
         :can-select-item="canSelectItem"
+        :href="href"
         @select="$emit('select')"
       />
     </div>

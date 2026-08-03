@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useRouter } from 'vue-router'
+
 import type { HomeCategory } from '@/types/home'
 
 /**
@@ -19,6 +21,22 @@ const emit = defineEmits<{
    'select-category': [category: HomeCategory]
 }>()
 
+/** Vue Router instance used to resolve category links. */
+const router = useRouter()
+
+/**
+ * Resolves the internal category route targeted by a category card.
+ *
+ * @param category Category from the strip.
+ * @returns Browser href for the category route.
+ */
+function categoryHref(category: HomeCategory): string {
+  return router.resolve({
+    name: 'category',
+    params: { categoryKey: category.mergeKey },
+  }).href
+}
+
 /**
  * Emits the selected category so the parent can load its aggregated catalog.
  *
@@ -38,13 +56,13 @@ function handleCategorySelect(category: HomeCategory) {
      </header>
 
      <div class="home-category-strip__list" role="list">
-       <button
+       <a
          v-for="category in categories"
          :key="category.id"
          class="home-category-strip__card"
-         type="button"
          role="listitem"
-         @click="handleCategorySelect(category)"
+         :href="categoryHref(category)"
+         @click.prevent="handleCategorySelect(category)"
        >
          <span
            class="home-category-strip__media"
@@ -70,7 +88,7 @@ function handleCategorySelect(category: HomeCategory) {
          <span class="home-category-strip__content">
            <span class="home-category-strip__label">{{ category.label }}</span>
          </span>
-       </button>
+       </a>
      </div>
 
    </section>
@@ -117,6 +135,7 @@ function handleCategorySelect(category: HomeCategory) {
    color: var(--text-primary);
    text-align: left;
    cursor: pointer;
+   text-decoration: none;
    box-shadow:
      var(--shadow-card),
      var(--inset-light);

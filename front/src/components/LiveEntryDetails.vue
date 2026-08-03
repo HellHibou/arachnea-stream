@@ -579,6 +579,7 @@ void loadLiveItems()
       :is-loading-more-items="false"
       :item-section-label="t('live.streams')"
       :state-eyebrow="t('live.streams')"
+      item-route-name="live-details"
       @select-item="selectLiveItem"
     />
   </EntryDetails>

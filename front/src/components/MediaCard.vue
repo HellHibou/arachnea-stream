@@ -1,14 +1,22 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 
 import { useServiceMetadata } from '@/composables/useServiceMetadata'
 import type { MediaItem, ThumbnailImageFit, ThumbnailOrientation } from '@/types/media'
+import {
+  encodeEntryRoutePayload,
+  encodeLiveRoutePayload,
+} from '@/router/routePayloads'
 
 import MediaCardCardLayout from './media-card/MediaCardCardLayout.vue'
 import MediaCardListLayout from './media-card/MediaCardListLayout.vue'
 
 /** Available layout modes for the media card. */
 type MediaCardLayout = 'card' | 'list'
+
+/** Route targeted by the card action when the card is selected. */
+export type MediaCardRouteName = 'entry-details' | 'live-details'
 
 /**
  * Props accepted by the media card component.
@@ -46,6 +54,11 @@ interface Props {
    * @default true
    */
   showServiceLogo?: boolean
+  /**
+   * Route targeted by the card action when the card is selected.
+   * @default 'entry-details'
+   */
+  routeName?: MediaCardRouteName
 }
 
 /** Component props with applied defaults. */
@@ -54,6 +67,7 @@ const props = withDefaults(defineProps<Props>(), {
   hideMissingThumbnail: false,
   isPreviewOpen: false,
   showServiceLogo: true,
+  routeName: 'entry-details',
 })
 
 const emit = defineEmits<{
@@ -114,7 +128,43 @@ const displayTitle = computed(() => props.item.title?.trim() || 'Titre indisponi
 /**
  * Indicates whether the card can request loading entry details from the backend.
  */
+/** Whether the card can request loading entry details from the backend. */
   const canSelectItem = computed(() => Boolean(props.item.source))
+
+/** Vue Router instance used to resolve the card action link. */
+const router = useRouter()
+
+/**
+ * Resolves the internal route targeted by the card action button.
+ */
+const actionHref = computed(() => {
+  if (!props.item.source || !props.item.entryUrl) {
+    return null
+  }
+
+  if (props.routeName === 'live-details') {
+    return router.resolve({
+      name: 'live-details',
+      params: {
+        encodedLive: encodeLiveRoutePayload({
+          v: 1,
+          source: props.item.source,
+          channel: props.item.entryUrl,
+        }),
+      },
+    }).href
+  }
+
+  return router.resolve({
+    name: 'entry-details',
+    params: {
+      encodedEntry: encodeEntryRoutePayload({
+        source: props.item.source,
+        entryUrl: props.item.entryUrl,
+      }),
+    },
+  }).href
+})
 
 /**
  * Formats the rating for display in the card badge.
@@ -203,6 +253,7 @@ function handlePreviewRootChange(element: HTMLElement | null) {
     :service-title="serviceTitle"
     :service-logo="serviceLogo"
     :show-service-logo="showServiceLogo"
+    :href="actionHref"
     @image-error="handleImageError"
     @service-logo-error="handleServiceLogoError"
     @select="handleSelect"
@@ -222,6 +273,7 @@ function handlePreviewRootChange(element: HTMLElement | null) {
     :service-title="serviceTitle"
     :service-logo="serviceLogo"
     :show-service-logo="showServiceLogo"
+    :href="actionHref"
     @image-error="handleImageError"
     @service-logo-error="handleServiceLogoError"
     @select="handleSelect"

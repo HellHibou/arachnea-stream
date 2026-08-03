@@ -1,4 +1,15 @@
 /**
+ * Returns whether the document base still carries the unreplaced `<base>`
+ * marker, either literal or percent-encoded (browsers encode `{`/`}`).
+ *
+ * @param base - Document base URL string.
+ * @returns True when the marker is present.
+ */
+function hasUnresolvedBaseMarker(base: string): boolean {
+  return base.includes('{base}') || base.includes('%7Bbase%7D')
+}
+
+/**
  * Absolute URL of the directory the app is served from.
  *
  * Prefers the document base URL, which reflects the `<base href>` tag injected
@@ -12,7 +23,7 @@
  */
 export function getAppBaseDir(): string {
   const documentBase = document.baseURI
-  const hasReplacedBase = documentBase && !documentBase.includes('{base}')
+  const hasReplacedBase = documentBase && !hasUnresolvedBaseMarker(documentBase)
 
   if (hasReplacedBase) {
     return new URL('.', documentBase).href

@@ -57,6 +57,10 @@ interface Props {
    * Indicates whether the backend service logo should be displayed on the poster.
    */
   showServiceLogo: boolean
+  /**
+   * Internal route targeted by the card action, or null when no link is available.
+   */
+  href: string | null
 }
 
 /** Component props without defaults. */
@@ -175,6 +179,7 @@ function handleSelect() {
       :is-preview-open="isPreviewOpen"
       :thumbnail-orientation="thumbnailOrientation"
       :service-title="serviceTitle"
+      :href="href"
       @select="handleSelect"
     />
   </article>

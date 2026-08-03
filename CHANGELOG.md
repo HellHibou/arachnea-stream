@@ -31,6 +31,7 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **`math_formula` scraper action**: New action that evaluates a math expression per value. The `{value}` placeholder is replaced by the current text value before evaluation. Supports standard arithmetic via the `evalexpr` crate.
 
 ### Changed
+- **Frontend action buttons as hyperlinks**: The "Voir la fiche" banner button, the "Regarder" media-card action, the clickable category tiles, the home button, and the lives button now render as real `<a>` links pointing to their internal routes (entry details, live details, category, home, lives screen), while keeping the existing SPA navigation on click.
 - **Module layout**: `scraper_json/query.rs` decoupled into `config.rs`, `response_parser.rs`, `pointer.rs`, `row_extractor.rs`. Same for `scraper_html/query.rs` → `config.rs`, `response_parser.rs`, `row_extractor.rs`.
 - **`ScraperManagerQuery` trait removed**: The legacy `async_trait`-based query trait and its single `impl` for `HtmlScraperQuery` are deleted. All query execution now goes through `ScraperQuery` (the unified trait).
 - **Legacy `execute_query` methods removed**: `HtmlScraperQuery::execute_query`, `JsonScraperQuery::execute_query`, `StaticScraperQuery::execute_query` — all replaced by the unified executor.
