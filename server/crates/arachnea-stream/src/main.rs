@@ -44,6 +44,7 @@ Options:
   --server-port <PORT>          Override the server port (default: {DEFAULT_SERVER_PORT})
   --entrypoint-root <PATH>      Public root path used before API routes in server mode
   --entrypoint-api <PATH>       Public API path segment used in server mode
+  --no-tray                     Disable the server tray icon even when a GUI is available
   --current-country <ISO_CODE>  Explicit local country used for geo proxy decisions
   --refresh-ip-countries        Refresh IP-to-country geolocation data and exit"
     )
@@ -105,6 +106,7 @@ fn parse_runtime_options() -> Result<CliAction> {
                         .context("missing value for `--entrypoint-api`")?,
                 );
             }
+            "--no-tray" => options.application_option.tray_enabled = false,
             "--current-country" => {
                 options.current_country = Some(
                     args.next()

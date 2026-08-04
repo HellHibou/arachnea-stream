@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "logs-window-capability",
+  "description": "Allows the dedicated log window to read the buffered backend logs.",
+  "windows": ["logs"],
+  "permissions": ["core:default"]
+}

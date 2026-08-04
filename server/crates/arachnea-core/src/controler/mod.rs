@@ -23,6 +23,12 @@ pub use main_thread::{
 };
 pub use web_assets::{EmbeddedWebAssets, SharedWebAssets};
 
+pub use rest::shutdown::ShutdownSignal;
+pub use rest::tray::{
+    gui_available, spawn_tauri_server_tray, ServerTrayConfiguration, ServerTrayFactory,
+    ServerTrayHandle,
+};
+
 use crate::controler::rest::{RestControlerConfiguration, RestControlerService};
 use crate::controler::tauri::{
     TauriControlerConfiguration, TauriControlerService, TauriEmbeddedWebAssets,
@@ -426,6 +432,18 @@ pub struct CoreApplicationOptions {
     ///
     /// Falls back to [`DEFAULT_TAURI_API_PREFIX`] when `None`.
     pub api_prefix: Option<String>,
+
+    /// Optional factory creating the server tray icon in server mode.
+    ///
+    /// When set and a GUI is available, the REST controller shows a tray icon.
+    pub server_tray_factory: Option<Arc<dyn ServerTrayFactory>>,
+
+    /// Whether a server tray icon should be shown in server mode.
+    ///
+    /// When `true` a tray factory is installed and the REST controller shows a
+    /// tray icon if a GUI is available. Set to `false` to force-disable the tray
+    /// even on a graphical environment.
+    pub tray_enabled: bool,
 }
 
 impl CoreApplicationOptions {
@@ -454,7 +472,37 @@ impl CoreApplicationOptions {
             entrypoint_api,
             web_scheme,
             api_prefix,
+            server_tray_factory: None,
+            tray_enabled: true,
         }
+    }
+
+    /// Sets the factory creating the server tray icon in server mode.
+    ///
+    /// # Arguments
+    /// * `server_tray_factory` - Application-supplied tray factory.
+    ///
+    /// # Returns
+    /// The modified options for chaining.
+    pub fn with_server_tray_factory(
+        mut self,
+        server_tray_factory: Arc<dyn ServerTrayFactory>,
+    ) -> Self {
+        self.server_tray_factory = Some(server_tray_factory);
+        self
+    }
+
+    /// Sets whether a server tray icon should be shown in server mode.
+    ///
+    /// # Arguments
+    /// * `tray_enabled` - `true` to show a tray icon when a GUI is available,
+    ///   `false` to force-disable it.
+    ///
+    /// # Returns
+    /// The modified options for chaining.
+    pub fn with_tray_enabled(mut self, tray_enabled: bool) -> Self {
+        self.tray_enabled = tray_enabled;
+        self
     }
 }
 
@@ -467,6 +515,8 @@ impl Default for CoreApplicationOptions {
             entrypoint_api: Some(DEFAULT_TAURI_API_PREFIX.to_string()),
             web_scheme: Some(DEFAULT_TAURI_WEB_SCHEME.to_string()),
             api_prefix: None,
+            server_tray_factory: None,
+            tray_enabled: true,
         }
     }
 }
@@ -544,6 +594,11 @@ pub fn create_application_controler_from_config(
             if let Some(entrypoint_api) = &options.entrypoint_api {
                 configuration = configuration.entrypoint_api(entrypoint_api);
             }
+            if let Some(tray_factory) = &options.server_tray_factory {
+                configuration = configuration
+                    .server_tray_factory(Arc::clone(tray_factory))
+                    .tray_enabled(true);
+            }
 
             Box::new(RestControlerService::new(configuration))
         } else {
@@ -568,6 +623,12 @@ pub fn create_application_controler_from_config(
 /// `tauri.conf.json` and `tauri-build` live. The values of `web_scheme` and
 /// `api_prefix` come from the supplied [`CoreApplicationOptions`].
 ///
+/// When [`CoreApplicationOptions::tray_enabled`] is true and no tray factory is
+/// already present on the options, the macro installs a
+/// [`ServerTrayIconService`] built from the caller's Tauri context. The tray
+/// icon falls back to the context's embedded default window icon (derived from
+/// `bundle.icon` in `tauri.conf.json`).
+///
 /// # Arguments
 /// * `$options` - Parsed [`CoreApplicationOptions`].
 ///
@@ -576,8 +637,16 @@ pub fn create_application_controler_from_config(
 #[macro_export]
 macro_rules! create_application_controler {
     ($options:expr) => {{
+        let mut options = $options;
+        if options.tray_enabled && options.server_tray_factory.is_none() {
+            options.server_tray_factory = Some(::std::sync::Arc::new(
+                $crate::controler::rest::tray::ServerTrayIconService::new(
+                    ::tauri::generate_context!(),
+                ),
+            ));
+        }
         $crate::controler::create_application_controler_from_config(
-            $options,
+            options,
             $crate::controler::DesktopApplicationConfig {
                 context: ::tauri::generate_context!(),
                 web_assets: $crate::controler::desktop_embedded_web_assets(

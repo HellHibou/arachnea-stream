@@ -8,6 +8,7 @@ use std::{
         atomic::{AtomicU64, Ordering},
         mpsc, Arc, Mutex, OnceLock,
     },
+    time::Duration,
 };
 
 /// Identifier returned for a registered main-thread event handler.
@@ -449,6 +450,27 @@ impl MainThreadDispatchLoop {
         while let Ok(command) = self.receiver.recv() {
             match command {
                 MainThreadCommand::Run(task) => task(&mut self.context),
+            }
+        }
+    }
+
+    /// Runs queued tasks until `should_stop` returns `true` or the sender is dropped.
+    ///
+    /// The loop periodically polls `should_stop` so an external shutdown signal
+    /// (for example triggered by the server tray) can unblock the main thread.
+    ///
+    /// # Arguments
+    /// * `should_stop` - Predicate returning `true` once the loop must exit.
+    pub fn run_until(mut self, mut should_stop: impl FnMut() -> bool) {
+        const POLL_INTERVAL: Duration = Duration::from_millis(100);
+        loop {
+            if should_stop() {
+                return;
+            }
+            match self.receiver.recv_timeout(POLL_INTERVAL) {
+                Ok(MainThreadCommand::Run(task)) => task(&mut self.context),
+                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(mpsc::RecvTimeoutError::Disconnected) => return,
             }
         }
     }

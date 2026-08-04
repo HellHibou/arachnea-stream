@@ -1,0 +1,566 @@
+//! Server tray integration points shared by the controller backends.
+//!
+//! This module defines the contract between the REST controller and a tray icon
+//! implementation (configuration, handle and factory traits, plus graphical
+//! environment detection), and also provides the concrete Tauri-based runtime
+//! used in server mode. The concrete tray runs headless (no main window) and
+//! exposes a context menu able to open the server URL, show the dedicated log
+//! window and shut the server down.
+//!
+//! The Tauri runtime is supplied entirely by the caller through the context
+//! argument of [`spawn_tauri_server_tray`] (or through the concrete
+//! [`ServerTrayIconService`], whose context is generated at the
+//! `create_application_controler!` call site); this crate never runs
+//! `tauri-build` nor embeds frontend assets, because the `tauri::Context` can
+//! only be produced by the crate that owns `tauri.conf.json` and the app icon.
+//! The tray icon falls back to the context's embedded default window icon. All
+//! the tray logic (menu, log window, browser and shutdown wiring) lives here.
+
+use std::sync::{Arc, Mutex};
+
+use tauri::{
+    menu::{MenuBuilder, MenuEvent},
+    tray::TrayIconBuilder,
+    AppHandle, Manager, Wry, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+};
+
+use crate::logger::LogCache;
+
+use super::shutdown::ShutdownSignal;
+
+/// Configuration handed to a server tray implementation when it is spawned.
+#[derive(Clone)]
+pub struct ServerTrayConfiguration {
+    /// Public URL of the running HTTP server, opened by the browser action.
+    pub server_url: String,
+    /// Shared log cache feeding the dedicated log window.
+    pub log_cache: Arc<LogCache>,
+    /// Shared shutdown signal triggered by the tray close action.
+    pub shutdown: ShutdownSignal,
+}
+
+/// Handle to a live server tray, used to trigger lifecycle actions.
+///
+/// Returned by [`ServerTrayFactory::spawn_tray`] so the REST controller can
+/// drive the tray from the server lifecycle without depending on the concrete
+/// Tauri implementation.
+pub trait ServerTrayHandle: Send + Sync + 'static {
+    /// Requests a graceful shutdown of the server application.
+    fn request_shutdown(&self);
+
+    /// Shows the dedicated log window, creating it on first use.
+    fn show_log_window(&self);
+
+    /// Opens the default browser on the configured server URL.
+    fn open_browser(&self);
+}
+
+/// Factory responsible for creating the server tray icon.
+///
+/// Implementations hold everything that is tray-specific (Tauri context, icon,
+/// menu layout) while remaining generic over the controller backend.
+pub trait ServerTrayFactory: Send + Sync + 'static {
+    /// Spawns a server tray and returns its handle.
+    ///
+    /// # Arguments
+    /// * `configuration` - Configuration for the tray to create.
+    ///
+    /// # Returns
+    /// `Some(handle)` when the tray was created successfully, `None` when the
+    /// platform refuses to expose a tray icon.
+    fn spawn_tray(&self, configuration: ServerTrayConfiguration) -> Option<Arc<dyn ServerTrayHandle>>;
+}
+
+/// Returns whether a graphical environment is available on this machine.
+///
+/// The result is used to decide whether a tray icon can be shown:
+/// - Windows and macOS always have a graphical session.
+/// - Other Unix systems (Linux/BSD) require either an X11 (`DISPLAY`) or a
+///   Wayland (`WAYLAND_DISPLAY`) display, which is absent on headless servers.
+///
+/// # Returns
+/// `true` when a GUI is available, `false` otherwise.
+pub fn gui_available() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        return true;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return true;
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let has_display = std::env::var("DISPLAY")
+            .map(|value| !value.is_empty())
+            .unwrap_or(false);
+        let has_wayland = std::env::var("WAYLAND_DISPLAY")
+            .map(|value| !value.is_empty())
+            .unwrap_or(false);
+        return has_display || has_wayland;
+    }
+    #[allow(unreachable_code)]
+    false
+}
+
+/// Custom URI scheme serving the dedicated log window page.
+const LOG_SCHEME: &str = "arachnea-log";
+
+/// Identifier of the tray icon.
+const TRAY_ID: &str = "server-tray";
+
+/// Menu item ids.
+const MENU_SHUTDOWN: &str = "shutdown";
+const MENU_SHOW_LOGS: &str = "show-logs";
+const MENU_OPEN_BROWSER: &str = "open-browser";
+
+/// Log window label.
+const LOG_WINDOW_LABEL: &str = "logs";
+
+/// Reads the buffered log records for the dedicated log window.
+///
+/// # Returns
+/// The most recent structured log records kept in the shared log cache.
+#[tauri::command]
+fn get_logs() -> Vec<crate::logger::LogRecord> {
+    crate::logger::global_log_cache().snapshot()
+}
+
+/// Subscribes the calling window to live log records via a Tauri IPC channel.
+///
+/// Each new structured log record pushed to the shared log cache is forwarded
+/// to the provided channel. Subscribers are cleared when the dedicated log
+/// window is closed (see [`ServerTrayHandleImpl::show_log_window`]).
+///
+/// # Arguments
+/// * `channel` - The IPC channel receiving the live [`crate::logger::LogRecord`]s.
+#[tauri::command]
+fn subscribe_logs(channel: tauri::ipc::Channel<crate::logger::LogRecord>) -> Result<(), String> {
+    let cache = crate::logger::global_log_cache();
+    cache.add_subscriber(move |record| {
+        let _ = channel.send(record.clone());
+    });
+    Ok(())
+}
+
+/// Self-contained HTML page displayed by the dedicated log window.
+///
+/// The page reads the buffered log records once, then subscribes to live
+/// records through a `tauri::ipc::Channel` passed to the `subscribe_logs`
+/// command. Each record is rendered as a table row (Date / Niveau / Chemin /
+/// Message); the level badge is colored via CSS, the Date and Niveau columns
+/// keep a fixed width, Chemin and Message are resizable, and a message keeps
+/// its line breaks (`\n`) without automatic wrapping. Multi-line messages show
+/// only their first line until expanded via the inline toggle icon.
+const LOG_HTML: &str = r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Logs</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #1e1e1e; color: #d4d4d4; font-family: "Segoe UI", sans-serif; overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
+    header { flex: 0 0 auto; background: #252526; padding: 6px 10px; font-size: 13px; color: #9cdcfe; }
+    .table-wrap { flex: 1 1 auto; overflow: auto; }
+    table { border-collapse: collapse; width: 100%; table-layout: auto; font-family: Consolas, "Courier New", monospace; font-size: 12px; }
+    th, td { text-align: left; padding: 3px 8px; border-bottom: 1px solid #333; vertical-align: top; }
+    thead th { position: sticky; top: 0; background: #333; color: #ccc; z-index: 1; }
+    td.time { color: #9cdcfe; white-space: nowrap; text-align: center; }
+    td.type { text-align: center; white-space: nowrap; }
+    th:first-child, th:nth-child(2) { text-align: center; }
+    td.target { color: #569cd6; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; max-width: 280px; }
+    td.msg { white-space: pre; color: #d4d4d4; }
+    .msg-text { display: inline-block; vertical-align: top; white-space: pre; }
+    .msg-toggle { background: none; border: none; color: #888; cursor: pointer; font-size: 20px; padding: 0 5px 0 0; vertical-align: top; line-height: 14px; outline: none; }
+    td.msg.expanded .msg-toggle { transform: rotate(90deg); }
+    .lvl-error { color: #f14c4c; font-weight: bold; }
+    .lvl-warn { color: #d7a700; }
+    .lvl-info { color: #3fb950; }
+    .lvl-debug { color: #6a9955; }
+    .lvl-trace { color: #808080; }
+    .resize-handle { position: absolute; top: 0; right: -1px; width: 6px; height: 100%; cursor: col-resize; z-index: 3; }
+    body.resizing, body.resizing * { cursor: col-resize !important; user-select: none; }
+  </style>
+</head>
+<body>
+  <div class="table-wrap">
+    <table>
+      <colgroup>
+        <col id="col-date" style="width: 150px;" />
+        <col id="col-level" style="width: 74px;" />
+        <col id="col-target" style="width: 280px;" />
+        <col id="col-msg" />
+      </colgroup>
+      <thead>
+        <tr>
+          <th>Timestamp</th>
+          <th>Level</th>
+          <th id="head-target">Path</th>
+          <th id="head-msg">Message</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <script>
+    const { invoke, Channel } = window.__TAURI__.core;
+    const rows = document.getElementById('rows');
+    const wrap = document.querySelector('.table-wrap');
+    const LEVEL_CLASS = { ERROR: 'lvl-error', WARN: 'lvl-warn', INFO: 'lvl-info', DEBUG: 'lvl-debug', TRACE: 'lvl-trace' };
+
+    function escapeHtml(value) {
+      return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function makeToggle(fullMessage) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'msg-toggle';
+      button.innerHTML = '&#9656;';
+      button.title = 'Expand';
+      button.addEventListener('click', () => {
+        const cell = button.parentElement;
+        const text = cell.querySelector('.msg-text');
+        const expanded = cell.classList.toggle('expanded');
+        button.title = expanded ? 'Collapse' : 'Expand';
+        text.textContent = expanded ? fullMessage : fullMessage.split('\n')[0];
+      });
+      return button;
+    }
+
+    function cell(className, content) {
+      const el = document.createElement('td');
+      el.className = className;
+      el.innerHTML = content;
+      return el;
+    }
+
+    function appendRow(record) {
+      const level = (record.level || 'INFO').toUpperCase();
+      const cls = LEVEL_CLASS[level] || 'lvl-info';
+      const tr = document.createElement('tr');
+
+      const message = record.message || '';
+      const msgText = document.createElement('span');
+      msgText.className = 'msg-text';
+      msgText.textContent = message;
+      msgText.title = message;
+      const msgCell = document.createElement('td');
+      msgCell.className = 'msg';
+      if (message.includes('\n')) {
+        msgText.textContent = message.split('\n')[0];
+        msgCell.appendChild(makeToggle(message));
+      }
+      msgCell.appendChild(msgText);
+
+      const targetCell = cell('target', escapeHtml(record.target || ''));
+      targetCell.title = record.target || '';
+
+      tr.appendChild(cell('time', escapeHtml(record.timestamp || '')));
+      tr.appendChild(cell('type', '<span class="' + cls + '">' + escapeHtml(level) + '</span>'));
+      tr.appendChild(targetCell);
+      tr.appendChild(msgCell);
+      rows.appendChild(tr);
+      wrap.scrollTop = wrap.scrollHeight;
+    }
+
+    function attachResize(header, colId) {
+      const col = document.getElementById(colId);
+      const handle = document.createElement('div');
+      handle.className = 'resize-handle';
+      header.appendChild(handle);
+      handle.addEventListener('mousedown', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const startX = event.clientX;
+        const startWidth = col.getBoundingClientRect().width;
+        const move = (ev) => {
+          const next = Math.max(60, startWidth + (ev.clientX - startX));
+          col.style.width = next + 'px';
+        };
+        const up = () => {
+          window.removeEventListener('mousemove', move);
+          window.removeEventListener('mouseup', up);
+          document.body.classList.remove('resizing');
+        };
+        document.body.classList.add('resizing');
+        window.addEventListener('mousemove', move);
+        window.addEventListener('mouseup', up);
+      });
+    }
+    attachResize(document.getElementById('head-target'), 'col-target');
+    attachResize(document.getElementById('head-msg'), 'col-msg');
+
+    async function init() {
+      try {
+        const records = await invoke('get_logs');
+        records.forEach(appendRow);
+        try {
+          const channel = new Channel();
+          channel.onmessage = (record) => appendRow(record);
+          await invoke('subscribe_logs', { channel });
+        } catch (e) { /* subscription unavailable; keep the snapshot only */ }
+      } catch (e) { /* ignore transient IPC errors */ }
+    }
+
+    init();
+  </script>
+</body>
+</html>
+"#;
+
+/// Shared handle used to drive the live tray from the REST controller.
+struct ServerTrayHandleImpl {
+    /// Public server URL opened by the browser action.
+    server_url: String,
+    /// Shared signal requesting the HTTP server to shut down gracefully.
+    shutdown: ShutdownSignal,
+    /// The running Tauri application handle.
+    app_handle: Mutex<Option<AppHandle<Wry>>>,
+    /// The dedicated log window, created on first use.
+    log_window: Mutex<Option<WebviewWindow>>,
+    /// Application window title from the calling crate's tauri.conf.json.
+    app_title: String,
+}
+
+impl ServerTrayHandleImpl {
+    /// Creates a tray handle.
+    ///
+    /// # Arguments
+    /// * `server_url` - Public URL of the running server.
+    /// * `shutdown` - Shared shutdown signal.
+    ///
+    /// # Returns
+    /// A new tray handle.
+    fn new(server_url: String, shutdown: ShutdownSignal, app_title: String) -> Self {
+        Self {
+            server_url,
+            shutdown,
+            app_handle: Mutex::new(None),
+            log_window: Mutex::new(None),
+            app_title,
+        }
+    }
+
+    /// Stores the Tauri application handle once the app is running.
+    ///
+    /// # Arguments
+    /// * `app_handle` - The Tauri application handle.
+    fn set_app_handle(&self, app_handle: AppHandle<Wry>) {
+        *self.app_handle.lock().expect("tray app handle poisoned") = Some(app_handle);
+    }
+
+    /// Dispatches a tray menu event to the matching action.
+    ///
+    /// # Arguments
+    /// * `app` - The Tauri application handle.
+    /// * `event` - The menu event received from the tray.
+    fn on_menu_event(&self, app: &AppHandle<Wry>, event: MenuEvent) {
+        match event.id().as_ref() {
+            MENU_SHUTDOWN => self.request_shutdown(),
+            MENU_SHOW_LOGS => self.show_log_window(),
+            MENU_OPEN_BROWSER => self.open_browser(),
+            _ => {
+                let _ = app;
+            }
+        }
+    }
+}
+
+impl ServerTrayHandle for ServerTrayHandleImpl {
+    fn request_shutdown(&self) {
+        self.shutdown.request();
+        if let Some(app) = self.app_handle.lock().expect("tray app handle poisoned").clone() {
+            let _ = app.exit(0);
+        }
+    }
+
+    fn show_log_window(&self) {
+        // Show only: if the window still exists, bring it to front; otherwise
+        // create it. The cached handle must not be trusted because the user may
+        // have closed the window (closing never exits the application), leaving
+        // a stale handle on which `show()` is a no-op. Query the live window
+        // from the app instead.
+        let app = match self.app_handle.lock().expect("tray app handle poisoned").clone() {
+            Some(app) => app,
+            None => return,
+        };
+
+        if let Some(window) = app.get_webview_window(LOG_WINDOW_LABEL) {
+            let _ = window.show();
+            let _ = window.set_focus();
+            return;
+        }
+
+        let url: tauri::Url = format!("{LOG_SCHEME}://localhost/").parse().unwrap();
+        let window = WebviewWindowBuilder::new(&app, LOG_WINDOW_LABEL, WebviewUrl::CustomProtocol(url))
+            .title(format!("{} - Logs", self.app_title))
+            .inner_size(720.0, 480.0)
+            .build();
+        match window {
+            Ok(window) => {
+                // Clear the global log subscribers when the (single) logs
+                // window is closed so its live channel is released; the next
+                // open re-subscribes.
+                window.on_window_event(|event| {
+                    if let tauri::WindowEvent::CloseRequested { .. } = event {
+                        crate::logger::global_log_cache().clear_subscribers();
+                    }
+                });
+                *self.log_window.lock().expect("tray log window poisoned") = Some(window);
+            }
+            Err(error) => {
+                tracing::warn!(error = %error, "failed to open the dedicated log window");
+            }
+        }
+    }
+
+    fn open_browser(&self) {
+        let _ = tauri_plugin_opener::open_url(self.server_url.clone(), None::<&str>);
+    }
+}
+
+/// Spawns the Tauri-based server tray into the given runtime context.
+///
+/// This builds a headless Tauri application bound to the provided `context`
+/// (which must be generated by the caller's crate, since only it runs
+/// `tauri-build` and owns `tauri.conf.json`), installs a tray icon with a
+/// context menu, and runs its event loop on a dedicated thread so it does not
+/// block the REST controller main loop.
+///
+/// # Arguments
+/// * `context` - Tauri context generated by the calling application crate.
+/// * `icon` - Optional application icon; falls back to the context's default
+///   window icon when `None`.
+/// * `configuration` - Configuration for the tray to create.
+///
+/// # Returns
+/// `Some(handle)` when the tray was created successfully, `None` when the
+/// platform refuses to expose a tray icon.
+pub fn spawn_tauri_server_tray(
+    context: tauri::Context<Wry>,
+    icon: Option<tauri::image::Image<'static>>,
+    configuration: ServerTrayConfiguration,
+) -> Option<Arc<dyn ServerTrayHandle>> {
+    let server_url = configuration.server_url.clone();
+    let app_title = context
+        .config()
+        .app
+        .windows
+        .first()
+        .map(|w| w.title.clone())
+        .unwrap_or_else(|| "Arachnéa".to_string());
+    let handle = Arc::new(ServerTrayHandleImpl::new(
+        configuration.server_url,
+        configuration.shutdown,
+        app_title,
+    ));
+
+    let handle_setup = Arc::clone(&handle);
+    let handle_events = Arc::clone(&handle);
+    let embedded_icon = icon;
+
+    let mut context = context;
+    context.config_mut().app.windows.clear();
+
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_opener::Builder::new().build())
+        .invoke_handler(tauri::generate_handler![get_logs, subscribe_logs])
+        .register_uri_scheme_protocol(LOG_SCHEME, move |_app, _request| {
+            tauri::http::Response::builder()
+                .header("Content-Type", "text/html; charset=utf-8")
+                .body(LOG_HTML.as_bytes().to_vec())
+                .expect("Failed to build the log window response.")
+        })
+        .setup(move |app| {
+            let menu = MenuBuilder::new(app)
+                .text(MENU_OPEN_BROWSER, format!("Open {server_url}"))
+                .text(MENU_SHOW_LOGS, "Show log")
+                .text(MENU_SHUTDOWN, "Shutdown server")
+                .build()?;
+
+            let mut tray = TrayIconBuilder::with_id(TRAY_ID)
+                .menu(&menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(move |app, event| handle_events.on_menu_event(app, event));
+            if let Some(icon) = app
+                .default_window_icon()
+                .cloned()
+                .or_else(|| embedded_icon.clone())
+            {
+                tray = tray.icon(icon);
+            }
+            tray.build(app)?;
+
+            handle_setup.set_app_handle(app.handle().clone());
+            Ok(())
+        });
+
+    // The tray runs on a dedicated thread so it does not block the REST
+    // controller main loop. On Windows and Linux the underlying event loop
+    // must be explicitly allowed to run outside the main thread.
+    #[cfg(any(windows, target_os = "linux"))]
+    let builder = builder.any_thread();
+
+    std::thread::spawn(move || {
+        match builder.build(context) {
+            Ok(app) => {
+                app.run(|_handle, event| {
+                    // Closing the dedicated log window must not exit the
+                    // tray application; only the explicit shutdown action
+                    // (via app.exit) terminates it.
+                    if let tauri::RunEvent::ExitRequested { api, .. } = event {
+                        api.prevent_exit();
+                    }
+                });
+            }
+            Err(error) => {
+                tracing::error!(error = %error, "failed to start the server tray");
+            }
+        }
+    });
+
+    Some(handle as Arc<dyn ServerTrayHandle>)
+}
+
+/// Concrete Tauri-based server tray factory supplied by `arachnea-core`.
+///
+/// The application crate generates the `tauri::Context` (only it can, because it
+/// runs `tauri-build` and owns `tauri.conf.json`) at the
+/// `create_application_controler!` call site. It is stored here so the REST
+/// controller can spawn the tray later, on its dedicated thread, without
+/// depending on the application crate for the runtime wiring. No explicit icon
+/// is supplied: the tray falls back to the context's embedded default window
+/// icon (derived from `bundle.icon` in `tauri.conf.json`).
+pub struct ServerTrayIconService {
+    /// Tauri context generated by the calling application crate.
+    context: Mutex<Option<tauri::Context<Wry>>>,
+}
+
+impl ServerTrayIconService {
+    /// Creates a server tray factory from a generated Tauri context.
+    ///
+    /// # Arguments
+    /// * `context` - Tauri context generated by the application crate.
+    ///
+    /// # Returns
+    /// A new server tray factory.
+    pub fn new(context: tauri::Context<Wry>) -> Self {
+        Self {
+            context: Mutex::new(Some(context)),
+        }
+    }
+}
+
+impl ServerTrayFactory for ServerTrayIconService {
+    fn spawn_tray(
+        &self,
+        configuration: ServerTrayConfiguration,
+    ) -> Option<Arc<dyn ServerTrayHandle>> {
+        // The REST controller spawns the tray at most once per launch, so the
+        // owned (non-cloneable) Tauri context is moved out on first use.
+        let context = self.context.lock().expect("tray context poisoned").take()?;
+        spawn_tauri_server_tray(context, None, configuration)
+    }
+}

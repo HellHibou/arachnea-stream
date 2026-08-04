@@ -10,10 +10,11 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 - Ajouter la gestion réutilisable du mode serveur et du mode application de bureau :
     - N'afficher la console que si l'application est exécutée depuis la console.
     - En mode serveur, si le mode graphique est disponible, afficher une icône de notification pour :
-        - Masquer/afficher la console (masquée par défaut si l'application n'est pas lancée depuis la ligne de commande).
-        - Redémarrer le serveur en rechargeant la configuration.
-        - Démarrer le navigateur avec l'URL du serveur.
-        - Fermer l'application.
+        - Afficher la console (fenêtre de logs dédiée `Show log`, via le log cache en mémoire). ✅
+        - Démarrer le navigateur avec l'URL du serveur (`Open <url>`). ✅
+        - Fermer l'application (`Shutdown server`, arrêt HTTP gracieux). ✅
+        - Masquer la console par défaut si l'application n'est pas lancée depuis la ligne de commande (à compléter).
+        - Redémarrer le serveur en rechargeant la configuration (à compléter).
 
 
 ## Server/DNS

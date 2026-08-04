@@ -15,12 +15,12 @@
     "withGlobalTauri": true,
     "security": {
       "csp": null,
-      "capabilities": ["main-capability", "cloudflare-solver-capability"]
+      "capabilities": ["main-capability", "cloudflare-solver-capability", "logs-window-capability"]
     },
     "windows": [
       {
         "label": "main",
-        "title": "Arachnéa",
+        "title": "Arachnéa Stream",
         "fullscreen": false,
         "resizable": true,
         "maximized": true, 
