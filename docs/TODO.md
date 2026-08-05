@@ -8,12 +8,12 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 - Utiliser obscura pour contourner Cloudflare (navigateur rust avec résolution cloudflare interne).
 - Pour le scrapper: Persistance de cookies + récupérer tout les cookies pour mieu contourner les protections (ex: crunchyroll)
 - Ajouter la gestion réutilisable du mode serveur et du mode application de bureau :
-    - N'afficher la console que si l'application est exécutée depuis la console.
+    - N'afficher la console que si l'application est exécutée depuis la console. ✅
     - En mode serveur, si le mode graphique est disponible, afficher une icône de notification pour :
         - Afficher la console (fenêtre de logs dédiée `Show log`, via le log cache en mémoire). ✅
         - Démarrer le navigateur avec l'URL du serveur (`Open <url>`). ✅
         - Fermer l'application (`Shutdown server`, arrêt HTTP gracieux). ✅
-        - Masquer la console par défaut si l'application n'est pas lancée depuis la ligne de commande (à compléter).
+        - Masquer la console par défaut si l'application n'est pas lancée depuis la ligne de commande. ✅
         - Redémarrer le serveur en rechargeant la configuration (à compléter).
 
 

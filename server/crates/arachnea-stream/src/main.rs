@@ -1,4 +1,5 @@
 #![warn(missing_docs)]
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 //! Arachnea backend executable: wires scraper sources and controller backends.
 
 use anyhow::{bail, Context, Result};
@@ -165,6 +166,7 @@ async fn refresh_ip_countries_cli() -> Result<()> {
 /// Starts the configured backend controller using command line runtime options.
 #[tokio::main]
 async fn main() -> Result<()> {
+    arachnea_core::application::application_init();
     arachnea_core::logger::set_default_log_level_debug!(INFO);
     StreamScraper::init_sub_logger_levels();
     arachnea_core::logger::init_logger();

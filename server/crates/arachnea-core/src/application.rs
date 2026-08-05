@@ -103,3 +103,76 @@ pub fn program_name() -> String {
         })
         .unwrap_or_else(|| String::from("?"))
 }
+
+/// Performs application-level initialization before the main entry point logic.
+///
+/// On Windows, when the process is launched from a console (e.g. `cmd.exe` or
+/// PowerShell), this attaches the process to the parent console and redirects
+/// the standard input, output, and error handles to it. When the process is
+/// launched without a parent console (double-click, shortcut, service), this
+/// is a no-op and no console window is created.
+///
+/// On other platforms this function does nothing.
+pub fn application_init() {
+    #[cfg(target_os = "windows")]
+    attach_parent_console_if_any();
+}
+
+/// Attaches the process to the parent console on Windows and redirects the
+/// standard handles when a parent console exists.
+///
+/// This is a no-op when the process was not launched from a console.
+#[cfg(target_os = "windows")]
+fn attach_parent_console_if_any() {
+    use windows_sys::Win32::Foundation::{
+        GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE,
+    };
+    use windows_sys::Win32::Storage::FileSystem::{
+        CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+    };
+    use windows_sys::Win32::System::Console::{
+        AttachConsole, SetStdHandle, ATTACH_PARENT_PROCESS, STD_ERROR_HANDLE, STD_INPUT_HANDLE,
+        STD_OUTPUT_HANDLE,
+    };
+    use windows_sys::core::w;
+
+    // Attach to the parent console if one exists. Fails with
+    // ERROR_INVALID_HANDLE when there is no parent console (e.g. double-click).
+    if unsafe { AttachConsole(ATTACH_PARENT_PROCESS) } == 0 {
+        // No parent console: keep the GUI behavior (no console window).
+        return;
+    }
+
+    // Redirect the standard output and error handles to the attached console.
+    let output: HANDLE = unsafe {
+        CreateFileW(
+            w!("CONOUT$"),
+            GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            std::ptr::null(),
+            OPEN_EXISTING,
+            0,
+            std::ptr::null_mut(),
+        )
+    };
+    if output != INVALID_HANDLE_VALUE {
+        unsafe { SetStdHandle(STD_OUTPUT_HANDLE, output) };
+        unsafe { SetStdHandle(STD_ERROR_HANDLE, output) };
+    }
+
+    // Redirect the standard input handle to the attached console.
+    let input: HANDLE = unsafe {
+        CreateFileW(
+            w!("CONIN$"),
+            GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            std::ptr::null(),
+            OPEN_EXISTING,
+            0,
+            std::ptr::null_mut(),
+        )
+    };
+    if input != INVALID_HANDLE_VALUE {
+        unsafe { SetStdHandle(STD_INPUT_HANDLE, input) };
+    }
+}
