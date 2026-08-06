@@ -2,8 +2,12 @@
 export interface LocaleIndexLanguage {
   /** ISO language code (e.g., 'en', 'fr'). */
   code: string
-  /** Display label for the language. */
-  label: string
+  /** Flag emoji for the language. */
+  flag: string
+  /** Localized display label for the language (in its own language). */
+  labelLocal: string
+  /** English display label for the language. */
+  labelEn: string
 }
 
 /** Locale index containing available languages and the default language. */

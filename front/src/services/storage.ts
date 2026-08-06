@@ -96,6 +96,8 @@ const VIDEO_PLAYER_AUDIO_TRACK_KEY = 'videoPlayer.preferences.audioTrack'
 const VIDEO_PLAYER_TEXT_TRACK_KEY = 'videoPlayer.preferences.textTrack'
 /** Storage key for video player text track settings. */
 const VIDEO_PLAYER_TEXT_TRACK_SETTINGS_KEY = 'videoPlayer.preferences.textTrackSettings'
+/** Storage key for the selected theme preset. */
+const THEME_KEY = 'theme.key'
 /** Keys for text track settings that can be persisted. */
 const TEXT_TRACK_SETTINGS_KEYS = [
   'backgroundColor',
@@ -158,6 +160,10 @@ export interface Parameters {
    * Preferred interface language, or `null` to follow the browser language.
    */
   language: Ref<string | null>
+  /**
+   * Selected theme preset key.
+   */
+  theme: Ref<string>
 }
 
 /**
@@ -199,6 +205,7 @@ const PARAMETERS_DEF: ParameterEntry[] = [
   { key: 'backgroundImageFit',            defaultValue: 'cover'    },
   { key: 'isEpisodeAutoplayEnabled',      defaultValue: false      },
   { key: 'language',                      defaultValue: null       },
+  { key: 'theme',                         defaultValue: 'arachnea-blue' },
 ] as const;
 
 export const useStorage = defineStore('storage', () => {

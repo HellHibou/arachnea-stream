@@ -24,7 +24,7 @@ const LOCALE_BASE_PATH = resolveAppPath('locales')
 
 /** List of languages available for selection. */
 const availableLanguages = shallowRef<LocaleIndexLanguage[]>([
-  { code: DEFAULT_LANGUAGE, label: 'English' },
+  { code: DEFAULT_LANGUAGE, flag: '🇬🇧', labelLocal: 'English', labelEn: 'English' },
 ])
 /** Reactive default language setting. */
 const defaultLanguage = shallowRef(DEFAULT_LANGUAGE)
@@ -69,7 +69,10 @@ export function useI18n() {
     resolvedLanguage: readonly(resolvedLanguage),
     languageOptions: computed(() => [
       { code: AUTO_LANGUAGE, label: t('settings.language.auto') },
-      ...availableLanguages.value,
+      ...availableLanguages.value.map((language) => ({
+        code: language.code,
+        label: `${language.flag} ${language.labelLocal} - ${language.labelEn}`,
+      })),
     ]),
     isLoading: readonly(isLoading),
     errorMessage: readonly(errorMessage),
@@ -173,7 +176,7 @@ async function loadInitialI18n(): Promise<void> {
     defaultLanguage.value = index.defaultLanguage || DEFAULT_LANGUAGE
     availableLanguages.value = index.languages.length
       ? index.languages
-      : [{ code: defaultLanguage.value, label: defaultLanguage.value }]
+      : [{ code: defaultLanguage.value, flag: '🇬🇧', labelLocal: defaultLanguage.value, labelEn: defaultLanguage.value }]
 
     fallbackMessages.value = await loadDictionary(defaultLanguage.value)
     await applyActiveLanguage(resolveLanguage(selectedLanguage.value))
@@ -393,6 +396,8 @@ function isLocaleIndex(value: unknown): value is LocaleIndex {
     (language) =>
       isRecord(language) &&
       typeof language.code === 'string' &&
-      typeof language.label === 'string',
+      typeof language.flag === 'string' &&
+      typeof language.labelLocal === 'string' &&
+      typeof language.labelEn === 'string',
   )
 }

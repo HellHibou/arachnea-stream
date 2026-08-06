@@ -2,11 +2,9 @@
 
 :root {
 
-   --h-primary: 210;   --s-primary: 100%;   --l-primary: 60%;    /* Arachnea Blue   */
-/* --h-primary: 120;   --s-primary: 100%;   --l-primary: 35%;    /* Rumble Green    */
-/* --h-primary: 23.9;  --s-primary: 90.6%;  --l-primary: 54.3%;  /* Orange Crunchy  */
-/* --h-primary: 357;   --s-primary: 92%;    --l-primary: 36%;    /* Red-flix        */
-/* --h-primary: 258.5; --s-primary: 95.4%;  --l-primary: 66.1%;  /* Purple Twitch   */
+  --h-primary: 210;
+  --s-primary: 100%;
+  --l-primary: 60%;
 
   --color-primary: hsl(var(--h-primary), var(--s-primary), var(--l-primary));
 

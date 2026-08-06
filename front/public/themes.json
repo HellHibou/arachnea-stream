@@ -1,0 +1,9 @@
+[
+  { "key": "arachnea-blue",   "label": "Arachnéa Blue",   "h": 210,   "s": "100%",  "l": "60%"    },
+  { "key": "purple-twitch",   "label": "Purple Twitch",   "h": 258.5, "s": "95.4%", "l": "66.1%"  },
+  { "key": "rumble-green",    "label": "Rumble Green",    "h": 120,   "s": "100%",  "l": "35%"    },
+  { "key": "yellow-molotov",  "label": "Yellow Molotov",  "h": 45,    "s": "100%",  "l": "51.0%"  },
+  { "key": "orange-crunchy",  "label": "Orange Crunchy",  "h": 23,    "s": "120%",  "l": "54.3%"  },
+  { "key": "pink-odysee",     "label": "Pink Odysee",     "h": 338,   "s": "89%",   "l": "35%"    },
+  { "key": "red-flix",        "label": "Red-Flix",        "h": 357,   "s": "92%",   "l": "36%"    }
+]

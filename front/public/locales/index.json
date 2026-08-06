@@ -1,7 +1,7 @@
 {
   "defaultLanguage": "en",
   "languages": [
-    { "code": "en", "label": "English" },
-    { "code": "fr", "label": "Francais" }
+    { "code": "en", "flag": "🇬🇧", "labelLocal": "English", "labelEn": "English" },
+    { "code": "fr", "flag": "🇫🇷", "labelLocal": "Français", "labelEn": "French" }
   ]
 }

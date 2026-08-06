@@ -8,9 +8,11 @@ import {
   useStorage,
 } from '@/services/storage'
 import { useI18n } from '@/i18n'
+import { useTheme } from '@/composables/useTheme'
 
 import ParameterSegmented from './parameters/ParameterSegmented.vue'
 import ParameterSwitch from './parameters/ParameterSwitch.vue'
+import ParameterThemeSelector from './parameters/ParameterThemeSelector.vue'
 import ParametersPanel from './parameters/ParametersPanel.vue'
 import ParametersSection from './parameters/ParametersSection.vue'
 
@@ -20,6 +22,8 @@ const parameters: StorageParameters = useStorage().getParameters()
 const homePreferences: HomePreferences = useStorage().getHomePreferences()
 /** Internationalization utilities and current language options. */
 const { languageOptions, selectedLanguage, setLanguage, t } = useI18n()
+/** Theme management composable for switching color presets. */
+const { currentPreset, presets, setTheme, isVisible } = useTheme()
 /** Unique component identifier for generating element IDs. */
 const componentId = useId()
 /** Unique ID for the language select element. */
@@ -42,6 +46,8 @@ const backgroundImageFitInputId = `${componentId}-background-image-fit`
 const useTrailerAsBackgroundInputId = `${componentId}-use-trailer-as-background`
 /** Unique ID for the use catalog banners as background switch. */
 const useCatalogBannersAsBackgroundInputId = `${componentId}-use-catalog-banners-as-background`
+/** Unique name for the theme segmented control. */
+const themeInputName = `${componentId}-theme`
 /** Available options for card collection mode selection. */
 const cardCollectionModeOptions = computed<Array<{ value: MediaCardCollectionMode; label: string }>>(() => [
   { value: 'grid', label: t('layout.grid') },
@@ -55,6 +61,18 @@ const searchCollectionModeOptions = computed<Array<{ value: SearchCollectionMode
   { value: 'grid', label: t('layout.grid') },
   { value: 'list', label: t('layout.list') },
 ])
+/** Available theme preset options for the theme selector. */
+const themeOptions = computed<Array<{ value: string; label: string; color: string }>>(() =>
+  presets.map((preset) => ({
+    value: preset.key,
+    label: preset.label,
+    color: `hsl(${preset.h}, ${preset.s}, ${preset.l})`,
+  })),
+)
+/** Current theme key derived from parameters. */
+const selectedTheme = computed<string>(() => parameters.theme.value)
+/** Whether the language selector should be displayed. */
+const isLanguageVisible = computed(() => languageOptions.value.length > 2)
 /** Current search collection mode derived from parameters. */
 const searchCollectionMode = computed<SearchCollectionMode>(() =>
   parameters.collectionMode.value === 'list' ? 'list' : 'grid',
@@ -146,21 +164,30 @@ function handleUseCatalogBannersAsBackgroundUpdate(checked: boolean) {
 }
 
 /**
- * Persists the selected interface language.
- *
- * @param event Change event fired by the language select.
- */
-function handleLanguageUpdate(event: Event) {
-  const target = event.target as HTMLSelectElement
-  void setLanguage(target.value)
-}
+   * Persists the selected interface language.
+   *
+   * @param event Change event fired by the language select.
+   */
+  function handleLanguageUpdate(event: Event) {
+    const target = event.target as HTMLSelectElement
+    void setLanguage(target.value)
+  }
+
+  /**
+   * Switches the active theme preset.
+   *
+   * @param key Theme preset key selected by the user.
+   */
+  function handleThemeUpdate(key: string) {
+    setTheme(key)
+  }
 </script>
 
 <template>
   <section class="parameters" :aria-label="t('settings.ariaLabel')">
     <ParametersSection :title="t('settings.general')">
       <div class="parameters__grid">
-        <ParametersPanel :title="t('settings.language.panel')">
+        <ParametersPanel v-if="isLanguageVisible" :title="t('settings.language.panel')">
           <label class="parameters__select-field" :for="languageInputId">
             <span class="parameters__select-label">{{ t('settings.language.label') }}</span>
             <select
@@ -178,6 +205,15 @@ function handleLanguageUpdate(event: Event) {
               </option>
             </select>
           </label>
+        </ParametersPanel>
+
+        <ParametersPanel v-if="isVisible" :title="t('settings.colorTheme')">
+          <ParameterThemeSelector
+            :input-name="themeInputName"
+            :model-value="selectedTheme"
+            :options="themeOptions"
+            @update:model-value="handleThemeUpdate"
+          />
         </ParametersPanel>
 
         <ParametersPanel :title="t('settings.thumbnailFormat')">
@@ -240,54 +276,54 @@ function handleLanguageUpdate(event: Event) {
       </div>
     </ParametersSection>
 
-    <ParametersSection :title="t('settings.background')">
+<ParametersSection :title="t('settings.background')">
       <div class="parameters__grid">
-        <ParametersPanel :title="t('settings.backgroundImage')">
-          <ParameterSwitch
-            :input-id="useCatalogBannersAsBackgroundInputId"
-            :leading-label="t('settings.inactive')"
-            :trailing-label="t('settings.active')"
-            :checked="parameters.useCatalogBannersAsBackground.value"
-            @update:checked="handleUseCatalogBannersAsBackgroundUpdate"
-          />
-        </ParametersPanel>
+         <ParametersPanel :title="t('settings.backgroundImage')">
+           <ParameterSwitch
+             :input-id="useCatalogBannersAsBackgroundInputId"
+             :leading-label="t('settings.inactive')"
+             :trailing-label="t('settings.active')"
+             :checked="parameters.useCatalogBannersAsBackground.value"
+             @update:checked="handleUseCatalogBannersAsBackgroundUpdate"
+           />
+         </ParametersPanel>
 
-        <ParametersPanel :title="t('settings.backgroundAnimation')" :disabled="!parameters.useCatalogBannersAsBackground.value">
-          <ParameterSwitch
-            :input-id="backgroundAnimationInputId"
-            :leading-label="t('settings.fixed')"
-            :trailing-label="t('settings.animated')"
-            :checked="parameters.isBackgroundAnimated.value"
-            :disabled="!parameters.useCatalogBannersAsBackground.value"
-            @update:checked="handleBackgroundAnimationUpdate"
-          />
-        </ParametersPanel>
+         <ParametersPanel :title="t('settings.backgroundAnimation')" :disabled="!parameters.useCatalogBannersAsBackground.value">
+           <ParameterSwitch
+             :input-id="backgroundAnimationInputId"
+             :leading-label="t('settings.fixed')"
+             :trailing-label="t('settings.animated')"
+             :checked="parameters.isBackgroundAnimated.value"
+             :disabled="!parameters.useCatalogBannersAsBackground.value"
+             @update:checked="handleBackgroundAnimationUpdate"
+           />
+         </ParametersPanel>
 
-        <ParametersPanel
-          :title="t('settings.imageDisplay')"
-          :disabled="parameters.isBackgroundAnimated.value || !parameters.useCatalogBannersAsBackground.value"
-        >
-          <ParameterSwitch
-            :input-id="backgroundImageFitInputId"
-            :leading-label="t('settings.cropped')"
-            :trailing-label="t('settings.complete')"
-            :checked="parameters.backgroundImageFit.value === 'contain'"
-            :disabled="parameters.isBackgroundAnimated.value || !parameters.useCatalogBannersAsBackground.value"
-            @update:checked="handleBackgroundImageFitUpdate"
-          />
-        </ParametersPanel>
+         <ParametersPanel
+           :title="t('settings.imageDisplay')"
+           :disabled="parameters.isBackgroundAnimated.value || !parameters.useCatalogBannersAsBackground.value"
+         >
+           <ParameterSwitch
+             :input-id="backgroundImageFitInputId"
+             :leading-label="t('settings.cropped')"
+             :trailing-label="t('settings.complete')"
+             :checked="parameters.backgroundImageFit.value === 'contain'"
+             :disabled="parameters.isBackgroundAnimated.value || !parameters.useCatalogBannersAsBackground.value"
+             @update:checked="handleBackgroundImageFitUpdate"
+           />
+         </ParametersPanel>
 
-        <ParametersPanel :title="t('settings.trailerUsage')">
-          <ParameterSwitch
-            :input-id="useTrailerAsBackgroundInputId"
-            :leading-label="t('settings.image')"
-            :trailing-label="t('settings.trailer')"
-            :checked="parameters.useTrailerAsBackground.value"
-            @update:checked="handleUseTrailerAsBackgroundUpdate"
-          />
-        </ParametersPanel>
-      </div>
-    </ParametersSection>
+         <ParametersPanel :title="t('settings.trailerUsage')">
+           <ParameterSwitch
+             :input-id="useTrailerAsBackgroundInputId"
+             :leading-label="t('settings.image')"
+             :trailing-label="t('settings.trailer')"
+             :checked="parameters.useTrailerAsBackground.value"
+             @update:checked="handleUseTrailerAsBackgroundUpdate"
+           />
+         </ParametersPanel>
+       </div>
+     </ParametersSection>
   </section>
 </template>
 

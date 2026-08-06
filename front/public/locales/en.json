@@ -17,7 +17,7 @@
     "images/webtoon": "Webtoon book",
     "audio/show": "Audio show",
     "audio/show/serie": "Audio series",
-    "audio/other": "Other audio" ,
+    "audio/other": "Other audio",
     "audio/ost": "OST"
   },
   "themes": {
@@ -128,7 +128,9 @@
     "animated": "Animated",
     "trailerUsage": "Trailer usage",
     "image": "Image",
-    "trailer": "Trailer"
+    "trailer": "Trailer",
+    "theme": "Theme",
+    "colorTheme": "Color theme"
   },
   "layout": {
     "grid": "Grid",
@@ -193,7 +195,7 @@
     "episodes": "Episodes",
     "loadingSeasonMessage": "{season} episodes are loading from the backend.",
     "seasonPromptMessage": "Select a season to load its episodes.",
-    "video": "Video", 
+    "video": "Video",
     "trailer": "Trailer",
     "seasonCountSingular": "{count} season",
     "seasonCountPlural": "{count} seasons"
@@ -201,12 +203,12 @@
   "player": {
     "undefined": "Not defined",
     "defaultLabel": "Player {index}",
-    "enableAutoplay":"Enable autoplay of the next episode", 
-    "disableAutoplay":"Disable autoplay of the next episode",
-    "showElapsedTime" :  "Show elapsed time",
-    "showRemainingTime" : "Show remaining time",
-    "defaultDisplayTitle" : "this content", 
-    "trailerTitle" : "Trailer for {title}", 
+    "enableAutoplay": "Enable autoplay of the next episode",
+    "disableAutoplay": "Disable autoplay of the next episode",
+    "showElapsedTime": "Show elapsed time",
+    "showRemainingTime": "Show remaining time",
+    "defaultDisplayTitle": "this content",
+    "trailerTitle": "Trailer for {title}",
     "videoTitle": "Embedded player for {title}",
     "chapter": {
       "intro": "Intro",
@@ -248,12 +250,12 @@
     "score": "Score",
     "releaseDate": "Release date",
     "availableUntil": "Available until",
-    "theme": "Theme", 
-    "year": "Year", 
-    "contentAdvisor": "Report", 
-    "audioLanguage": "Audio", 
-    "subtitleLanguage": "Subtitles", 
-    "cast": "Casting", 
+    "theme": "Theme",
+    "year": "Year",
+    "contentAdvisor": "Report",
+    "audioLanguage": "Audio",
+    "subtitleLanguage": "Subtitles",
+    "cast": "Casting",
     "director": "Production"
   },
   "errors": {
@@ -267,7 +269,7 @@
     "loadingSectionFailed": "Loading section failed.",
     "videoNotSupported": "This video stream cannot be played in the built-in player.",
     "restCallFailed": "REST call {function} failed with status {status}.",
-    "unexpectedSearchResponse":"Unexpected search response format returned by the backend.",
+    "unexpectedSearchResponse": "Unexpected search response format returned by the backend.",
     "unexpectedMetadataResponse": "Unexpected service metadata response format returned by the backend.",
     "categoryMissingBackendSourceDescriptors": "The selected category is missing its backend source descriptors.",
     "unexpectedEntryResponseFormat": "Unexpected entry response format returned by the backend.",

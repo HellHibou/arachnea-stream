@@ -10,6 +10,8 @@ import { createPinia } from 'pinia'
 import router from './router'
 import { useServiceMetadata } from './composables/useServiceMetadata'
 import { initializeI18n } from './i18n'
+import { useStorage } from '@/services/storage'
+import { findThemePreset, loadThemes, applyTheme } from '@/services/theme'
 
 
 /** The Vuetify instance with configured icon sets and aliases. */
@@ -43,10 +45,15 @@ app
  * @returns Promise that resolves when the application is fully bootstrapped.
  */
 async function bootstrap(): Promise<void> {
-  await initializeI18n()
-  void useServiceMetadata().load()
+   await initializeI18n()
+   void useServiceMetadata().load()
 
-  app.mount('#app')
-}
+   await loadThemes()
+
+   const storage = useStorage()
+   applyTheme(findThemePreset(storage.getParameters().theme.value))
+
+   app.mount('#app')
+ }
 
 void bootstrap()
