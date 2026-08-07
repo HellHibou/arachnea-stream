@@ -88,7 +88,6 @@ function handleChange(event: Event) {
   gap: 8px;
   width: min(100%, var(--parameters-control-width));
   padding: 6px 10px;
-  border: 1px solid var(--border-color-primary);
   border-radius: 999px;
   background: var(--bg-transparent);
   box-sizing: border-box;
@@ -107,7 +106,7 @@ function handleChange(event: Event) {
 }
 
 .parameters-switch__text {
-  color: var(--text-disabled);
+  color: var(--text-primary);
   font-size: 0.95rem;
   font-weight: 600;
   transition: color var(--duration-fast) ease;

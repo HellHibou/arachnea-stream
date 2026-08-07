@@ -34,8 +34,6 @@ const thumbnailOrientationInputId = `${componentId}-thumbnail-orientation`
 const thumbnailImageFitInputId = `${componentId}-thumbnail-image-fit`
 /** Unique name for the collection mode segmented control. */
 const collectionModeInputName = `${componentId}-collection-mode`
-/** Unique name for the favorite collection mode segmented control. */
-const favoriteCollectionModeInputName = `${componentId}-favorite-collection-mode`
 /** Unique ID for the show section editing buttons switch. */
 const showSectionEditingButtonsInputId = `${componentId}-show-section-editing-buttons`
 /** Unique ID for the background animation switch. */
@@ -48,18 +46,32 @@ const useTrailerAsBackgroundInputId = `${componentId}-use-trailer-as-background`
 const useCatalogBannersAsBackgroundInputId = `${componentId}-use-catalog-banners-as-background`
 /** Unique name for the theme segmented control. */
 const themeInputName = `${componentId}-theme`
-/** Available options for card collection mode selection. */
-const cardCollectionModeOptions = computed<Array<{ value: MediaCardCollectionMode; label: string }>>(() => [
-  { value: 'grid', label: t('layout.grid') },
-  { value: 'single-row', label: t('layout.row') },
-  { value: 'list', label: t('layout.list') },
-])
 /** Collection mode type excluding single-row for search. */
 type SearchCollectionMode = Exclude<MediaCardCollectionMode, 'single-row'>
 /** Available options for search collection mode selection. */
 const searchCollectionModeOptions = computed<Array<{ value: SearchCollectionMode; label: string }>>(() => [
   { value: 'grid', label: t('layout.grid') },
   { value: 'list', label: t('layout.list') },
+])
+/** Available thumbnail orientation options for the segmented control. */
+const thumbnailOrientationOptions = computed<Array<{ value: 'portrait' | 'landscape'; label: string }>>(() => [
+  { value: 'portrait', label: t('settings.portrait') },
+  { value: 'landscape', label: t('settings.landscape') },
+])
+/** Available thumbnail image fit options for the segmented control. */
+const thumbnailImageFitOptions = computed<Array<{ value: 'cover' | 'contain'; label: string }>>(() => [
+  { value: 'cover', label: t('settings.cropped') },
+  { value: 'contain', label: t('settings.complete') },
+])
+/** Available background animation options for the segmented control. */
+const backgroundAnimationOptions = computed<Array<{ value: boolean; label: string }>>(() => [
+  { value: false, label: t('settings.fixed') },
+  { value: true, label: t('settings.animated') },
+])
+/** Available background image fit options for the segmented control. */
+const backgroundImageFitOptions = computed<Array<{ value: 'cover' | 'contain'; label: string }>>(() => [
+  { value: 'cover', label: t('settings.cropped') },
+  { value: 'contain', label: t('settings.complete') },
 ])
 /** Available theme preset options for the theme selector. */
 const themeOptions = computed<Array<{ value: string; label: string; color: string }>>(() =>
@@ -79,21 +91,21 @@ const searchCollectionMode = computed<SearchCollectionMode>(() =>
 )
 
 /**
- * Forwards the thumbnail orientation selected by the switch.
+ * Forwards the thumbnail orientation selected by the segmented control.
  *
- * @param checked Checked state reported by the reusable switch component.
+ * @param value Newly selected thumbnail orientation.
  */
-function handleThumbnailOrientationUpdate(checked: boolean) {
-  parameters.thumbnailOrientation.value = checked ? 'landscape' : 'portrait'
+function handleThumbnailOrientationUpdate(value: string | number | boolean) {
+  parameters.thumbnailOrientation.value = value as 'portrait' | 'landscape'
 }
 
 /**
- * Forwards the thumbnail fit mode selected by the switch.
+ * Forwards the thumbnail fit mode selected by the segmented control.
  *
- * @param checked Checked state reported by the reusable switch component.
+ * @param value Newly selected thumbnail fit mode.
  */
-function handleThumbnailImageFitUpdate(checked: boolean) {
-  parameters.thumbnailImageFit.value = checked ? 'contain' : 'cover'
+function handleThumbnailImageFitUpdate(value: string | number | boolean) {
+  parameters.thumbnailImageFit.value = value as 'cover' | 'contain'
 }
 
 /**
@@ -101,21 +113,12 @@ function handleThumbnailImageFitUpdate(checked: boolean) {
  *
  * @param value Newly selected collection mode.
  */
-function handleCollectionModeUpdate(value: string) {
+function handleCollectionModeUpdate(value: string | number | boolean) {
   if (value !== 'grid' && value !== 'list') {
     return
   }
 
-  parameters.collectionMode.value = value
-}
-
-/**
- * Forwards the pinned home section layout selected by the segmented control.
- *
- * @param value Newly selected collection mode.
- */
-function handleFavoriteCollectionModeUpdate(value: string) {
-  homePreferences.favoriteCollectionMode.value = value as MediaCardCollectionMode
+  parameters.collectionMode.value = value as 'grid' | 'list'
 }
 
 /**
@@ -128,30 +131,30 @@ function handleShowSectionEditingButtonsUpdate(checked: boolean) {
 }
 
 /**
- * Forwards the background animation preference selected by the switch.
+ * Forwards the background animation preference selected by the segmented control.
  *
- * @param checked Checked state reported by the reusable switch component.
+ * @param value Newly selected background animation state.
  */
-function handleBackgroundAnimationUpdate(checked: boolean) {
-  parameters.isBackgroundAnimated.value = checked
+function handleBackgroundAnimationUpdate(value: string | number | boolean) {
+  parameters.isBackgroundAnimated.value = value as boolean
 }
 
 /**
- * Forwards the background image fit preference selected by the switch.
+ * Forwards the background image fit preference selected by the segmented control.
  *
- * @param checked Checked state reported by the reusable switch component.
+ * @param value Newly selected background image fit mode.
  */
-function handleBackgroundImageFitUpdate(checked: boolean) {
-  parameters.backgroundImageFit.value = checked ? 'contain' : 'cover'
+function handleBackgroundImageFitUpdate(value: string | number | boolean) {
+  parameters.backgroundImageFit.value = value as 'cover' | 'contain'
 }
 
 /**
- * Forwards the trailer background preference selected by the switch.
+ * Forwards the trailer background preference selected by the segmented control.
  *
- * @param checked Checked state reported by the reusable switch component.
+ * @param value Newly selected trailer usage state.
  */
-function handleUseTrailerAsBackgroundUpdate(checked: boolean) {
-  parameters.useTrailerAsBackground.value = checked
+function handleUseTrailerAsBackgroundUpdate(value: string | number | boolean) {
+  parameters.useTrailerAsBackground.value = value as boolean
 }
 
 /**
@@ -164,23 +167,23 @@ function handleUseCatalogBannersAsBackgroundUpdate(checked: boolean) {
 }
 
 /**
-   * Persists the selected interface language.
-   *
-   * @param event Change event fired by the language select.
-   */
-  function handleLanguageUpdate(event: Event) {
-    const target = event.target as HTMLSelectElement
-    void setLanguage(target.value)
-  }
+ * Persists the selected interface language.
+ *
+ * @param event Change event fired by the language select.
+ */
+function handleLanguageUpdate(event: Event) {
+  const target = event.target as HTMLSelectElement
+  void setLanguage(target.value)
+}
 
-  /**
-   * Switches the active theme preset.
-   *
-   * @param key Theme preset key selected by the user.
-   */
-  function handleThemeUpdate(key: string) {
-    setTheme(key)
-  }
+/**
+ * Switches the active theme preset.
+ *
+ * @param key Theme preset key selected by the user.
+ */
+function handleThemeUpdate(key: string) {
+  setTheme(key)
+}
 </script>
 
 <template>
@@ -217,22 +220,22 @@ function handleUseCatalogBannersAsBackgroundUpdate(checked: boolean) {
         </ParametersPanel>
 
         <ParametersPanel :title="t('settings.thumbnailFormat')">
-          <ParameterSwitch
-            :input-id="thumbnailOrientationInputId"
-            :leading-label="t('settings.portrait')"
-            :trailing-label="t('settings.landscape')"
-            :checked="parameters.thumbnailOrientation.value === 'landscape'"
-            @update:checked="handleThumbnailOrientationUpdate"
+          <ParameterSegmented
+            :input-name="thumbnailOrientationInputId"
+            :label="t('settings.thumbnailFormat')"
+            :model-value="parameters.thumbnailOrientation.value"
+            :options="thumbnailOrientationOptions"
+            @update:model-value="handleThumbnailOrientationUpdate"
           />
         </ParametersPanel>
 
         <ParametersPanel :title="t('settings.imageDisplay')">
-          <ParameterSwitch
-            :input-id="thumbnailImageFitInputId"
-            :leading-label="t('settings.cropped')"
-            :trailing-label="t('settings.complete')"
-            :checked="parameters.thumbnailImageFit.value === 'contain'"
-            @update:checked="handleThumbnailImageFitUpdate"
+          <ParameterSegmented
+            :input-name="thumbnailImageFitInputId"
+            :label="t('settings.imageDisplay')"
+            :model-value="parameters.thumbnailImageFit.value"
+            :options="thumbnailImageFitOptions"
+            @update:model-value="handleThumbnailImageFitUpdate"
           />
         </ParametersPanel>
       </div>
@@ -247,16 +250,6 @@ function handleUseCatalogBannersAsBackgroundUpdate(checked: boolean) {
             :trailing-label="t('settings.visible')"
             :checked="homePreferences.showSectionEditingButtons.value"
             @update:checked="handleShowSectionEditingButtonsUpdate"
-          />
-        </ParametersPanel>
-
-        <ParametersPanel :title="t('settings.favoriteCardLayout')">
-          <ParameterSegmented
-            :input-name="favoriteCollectionModeInputName"
-            :label="t('settings.favoriteCardLayout')"
-            :model-value="homePreferences.favoriteCollectionMode.value"
-            :options="cardCollectionModeOptions"
-            @update:model-value="handleFavoriteCollectionModeUpdate"
           />
         </ParametersPanel>
       </div>
@@ -276,7 +269,7 @@ function handleUseCatalogBannersAsBackgroundUpdate(checked: boolean) {
       </div>
     </ParametersSection>
 
-<ParametersSection :title="t('settings.background')">
+    <ParametersSection :title="t('settings.background')">
       <div class="parameters__grid">
          <ParametersPanel :title="t('settings.backgroundImage')">
            <ParameterSwitch
@@ -289,13 +282,13 @@ function handleUseCatalogBannersAsBackgroundUpdate(checked: boolean) {
          </ParametersPanel>
 
          <ParametersPanel :title="t('settings.backgroundAnimation')" :disabled="!parameters.useCatalogBannersAsBackground.value">
-           <ParameterSwitch
-             :input-id="backgroundAnimationInputId"
-             :leading-label="t('settings.fixed')"
-             :trailing-label="t('settings.animated')"
-             :checked="parameters.isBackgroundAnimated.value"
+           <ParameterSegmented
+             :input-name="backgroundAnimationInputId"
+             :label="t('settings.backgroundAnimation')"
+             :model-value="parameters.isBackgroundAnimated.value"
+             :options="backgroundAnimationOptions"
              :disabled="!parameters.useCatalogBannersAsBackground.value"
-             @update:checked="handleBackgroundAnimationUpdate"
+             @update:model-value="handleBackgroundAnimationUpdate"
            />
          </ParametersPanel>
 
@@ -303,21 +296,21 @@ function handleUseCatalogBannersAsBackgroundUpdate(checked: boolean) {
            :title="t('settings.imageDisplay')"
            :disabled="parameters.isBackgroundAnimated.value || !parameters.useCatalogBannersAsBackground.value"
          >
-           <ParameterSwitch
-             :input-id="backgroundImageFitInputId"
-             :leading-label="t('settings.cropped')"
-             :trailing-label="t('settings.complete')"
-             :checked="parameters.backgroundImageFit.value === 'contain'"
+           <ParameterSegmented
+             :input-name="backgroundImageFitInputId"
+             :label="t('settings.imageDisplay')"
+             :model-value="parameters.backgroundImageFit.value"
+             :options="backgroundImageFitOptions"
              :disabled="parameters.isBackgroundAnimated.value || !parameters.useCatalogBannersAsBackground.value"
-             @update:checked="handleBackgroundImageFitUpdate"
+             @update:model-value="handleBackgroundImageFitUpdate"
            />
          </ParametersPanel>
 
          <ParametersPanel :title="t('settings.trailerUsage')">
            <ParameterSwitch
              :input-id="useTrailerAsBackgroundInputId"
-             :leading-label="t('settings.image')"
-             :trailing-label="t('settings.trailer')"
+             :leading-label="t('settings.inactive')"
+             :trailing-label="t('settings.active')"
              :checked="parameters.useTrailerAsBackground.value"
              @update:checked="handleUseTrailerAsBackgroundUpdate"
            />
@@ -349,7 +342,7 @@ function handleUseCatalogBannersAsBackgroundUpdate(checked: boolean) {
   position: absolute;
   width: 1px;
   height: 1px;
-  margin: -1px;
+  margin: 0px;
   padding: 0;
   overflow: hidden;
   clip: rect(0, 0, 0, 0);

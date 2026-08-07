@@ -29,11 +29,13 @@ defineProps<Props>()
   --parameters-control-width: 272px;
   display: grid;
   gap: 8px;
-  padding: 14px 16px;
+  padding: 8px 16px 2px;
   border: 1px solid var(--border-color-primary);
   border-radius: var(--radius);
   background: var(--bg-surface);
   box-shadow: var(--inset-light);
+  margin-top: 2px;
+  margin-bottom: 2px;
 }
 
 .parameters__group-header {

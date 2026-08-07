@@ -122,7 +122,7 @@ watch(
 .main-bar__parameters {
   position: relative;
   z-index: 1;
-  width: min(100%, 620px);
+  width: min(100%, 520px);
   max-width: calc(100vw - 32px);
   margin-left: auto;
   padding: 6px 8px 8px;

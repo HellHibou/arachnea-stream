@@ -98,21 +98,6 @@ onBeforeUnmount(() => {
 
     <p class="error-notification__message">{{ summary }}</p>
 
-    <button
-      class="error-notification__code"
-      type="button"
-      :aria-label="t('errors.notifications.copyCode', { code: error.code })"
-      @click="copyCode"
-    >
-      <span>{{ t('errors.notifications.code') }}</span>
-      <span class="error-notification__code-value">
-        <code>{{ error.code }}</code>
-        <span v-if="codeCopied" class="error-notification__code-copied" aria-live="polite">
-          {{ t('errors.notifications.codeCopied') }}
-        </span>
-      </span>
-    </button>
-
     <details class="error-notification__details">
       <summary>{{ t('errors.notifications.technicalDetails') }}</summary>
       <dl class="error-notification__diagnostics">
@@ -124,6 +109,24 @@ onBeforeUnmount(() => {
           <dt>{{ t('errors.notifications.message') }}</dt>
           <dd>{{ error.message }}</dd>
         </div>
+        <div>
+          <dt>{{ t('errors.notifications.code') }}</dt>
+          <dd>
+            <button
+              class="error-notification__code"
+              type="button"
+              :aria-label="t('errors.notifications.copyCode', { code: error.code })"
+              @click="copyCode"
+            >
+              <span class="error-notification__code-value">
+                <code>{{ error.code }}</code>
+                <span v-if="codeCopied" class="error-notification__code-copied" aria-live="polite">
+                  {{ t('errors.notifications.codeCopied') }}
+                </span>
+              </span>
+            </button>
+          </dd>
+        </div>
       </dl>
     </details>
   </article>
@@ -132,7 +135,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .error-notification {
   position: relative;
-  width: min(390px, calc(100vw - 32px));
+  width: min(480px, calc(100vw - 32px));
   padding: 14px;
   border: 1px solid color-mix(in srgb, #ff8e72 52%, var(--border-color-primary));
   border-radius: var(--radius);
@@ -193,12 +196,11 @@ onBeforeUnmount(() => {
 }
 
 .error-notification__code {
-  display: flex;
-  width: 100%;
+  display: inline-flex;
+  max-width: 100%;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 10px;
+  gap: 6px;
+  padding: 6px 10px;
   border: 1px solid rgb(255 255 255 / 13%);
   border-radius: calc(var(--radius) * 0.7);
   color: var(--text-color-primary);
@@ -211,12 +213,6 @@ onBeforeUnmount(() => {
 .error-notification__code:focus-visible {
   border-color: rgb(255 177 153 / 75%);
   outline: none;
-}
-
-.error-notification__code span {
-  color: var(--text-color-secondary);
-  font-size: 0.72rem;
-  text-transform: uppercase;
 }
 
 .error-notification__code-value {

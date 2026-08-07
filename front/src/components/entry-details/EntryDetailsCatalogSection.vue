@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
 import type { MediaItem } from '@/types/media'
 import { useI18n } from '@/i18n'
 
@@ -106,6 +106,52 @@ function handleItemSelect(item: MediaItem) {
 function handleLoadMore() {
   emit('load-more')
 }
+
+/** Template reference to the pagination button. */
+const paginationButtonRef = useTemplateRef<HTMLButtonElement>('paginationButtonRef')
+/** Whether the pagination button is currently visible in the viewport. */
+const isPaginationButtonVisible = ref(false)
+/** Intersection observer used to detect pagination button visibility. */
+let paginationObserver: IntersectionObserver | null = null
+
+onMounted(() => {
+  paginationObserver = new IntersectionObserver(
+    (entries) => {
+      isPaginationButtonVisible.value = entries.some((entry) => entry.isIntersecting)
+    },
+    { rootMargin: '200px 0px' },
+  )
+})
+
+onBeforeUnmount(() => {
+  paginationObserver?.disconnect()
+  paginationObserver = null
+})
+
+watch(
+  paginationButtonRef,
+  (button) => {
+    if (!paginationObserver) {
+      return
+    }
+
+    if (button) {
+      paginationObserver.observe(button)
+    } else {
+      isPaginationButtonVisible.value = false
+    }
+  },
+  { flush: 'post', immediate: true },
+)
+
+watch(
+  [isPaginationButtonVisible, () => props.showLoadMoreItems, () => props.isLoadingMoreItems],
+  ([visible, showLoadMoreItems, isLoadingMoreItems]) => {
+    if (visible && showLoadMoreItems && !isLoadingMoreItems) {
+      handleLoadMore()
+    }
+  },
+)
 </script>
 
 <template>
@@ -186,6 +232,7 @@ function handleLoadMore() {
 
       <div v-if="props.showLoadMoreItems" class="entry-details__pagination">
         <button
+          ref="paginationButtonRef"
           :class="
             props.isLoadingMoreItems
               ? 'entry-details__pagination-loading'

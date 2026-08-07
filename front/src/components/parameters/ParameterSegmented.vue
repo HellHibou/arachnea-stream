@@ -3,7 +3,7 @@
  * One option rendered by the reusable segmented control.
  */
 interface ParameterSegmentedOption {
-  value: string
+  value: string | number | boolean
   label: string
 }
 
@@ -22,7 +22,7 @@ interface Props {
   /**
    * Currently selected option value.
    */
-  modelValue: string
+  modelValue: string | number | boolean
   /**
    * Available options rendered by the control.
    */
@@ -34,7 +34,7 @@ defineProps<Props>()
 
 const emit = defineEmits<{
   /** Emitted when the selected option changes. */
-  'update:modelValue': [value: string]
+  'update:modelValue': [value: string | number | boolean]
 }>()
 
 /**
@@ -42,7 +42,7 @@ const emit = defineEmits<{
  *
  * @param value Newly selected segmented option value.
  */
-function handleChange(value: string) {
+function handleChange(value: string | number | boolean) {
   emit('update:modelValue', value)
 }
 </script>
@@ -77,7 +77,6 @@ function handleChange(value: string) {
   gap: 8px;
   width: min(100%, var(--parameters-control-width));
   padding: 6px;
-  border: 1px solid var(--border-color-primary);
   border-radius: 999px;
   background: var(--bg-transparent);
   box-sizing: border-box;
@@ -101,7 +100,7 @@ function handleChange(value: string) {
   min-height: 38px;
   padding: 0 16px;
   border-radius: 999px;
-  color: var(--text-disabled);
+  color: var(--text-primary);
   font-size: 0.95rem;
   font-weight: 600;
   cursor: pointer;

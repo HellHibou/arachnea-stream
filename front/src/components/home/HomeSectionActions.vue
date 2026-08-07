@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import { computed, useId } from 'vue'
+
 import type { HomeSection } from '@/types/home'
-import type { ThumbnailImageFit, ThumbnailOrientation } from '@/types/media'
+import type { MediaCardCollectionMode, ThumbnailImageFit, ThumbnailOrientation } from '@/types/media'
 import { useI18n } from '@/i18n'
+import ParameterSegmented from '@/components/parameters/ParameterSegmented.vue'
 
 /**
  * Props accepted by the home section action toolbar.
@@ -31,6 +34,10 @@ interface Props {
    * Current thumbnail image fit for the section.
    */
   thumbnailImageFit: ThumbnailImageFit
+  /**
+   * Current collection mode for the section.
+   */
+  collectionMode: MediaCardCollectionMode
 }
 
 /** Component props without defaults. */
@@ -45,10 +52,28 @@ const emit = defineEmits<{
   'update-thumbnail-orientation': [sectionPreferenceKey: string, orientation: ThumbnailOrientation | null]
   /** Emitted when a section thumbnail image fit should be updated. */
   'update-thumbnail-image-fit': [sectionPreferenceKey: string, imageFit: ThumbnailImageFit | null]
+  /** Emitted when a section collection mode should be updated. */
+  'update-collection-mode': [sectionPreferenceKey: string, mode: MediaCardCollectionMode | null]
 }>()
 
+/** Unique component identifier for generating element IDs. */
+const componentId = useId()
 /** Internationalization utilities. */
 const { t } = useI18n()
+/** Available options for card collection mode selection. */
+const collectionModeOptions = computed<Array<{ value: MediaCardCollectionMode; label: string }>>(() => [
+  { value: 'grid', label: t('layout.grid') },
+  { value: 'single-row', label: t('layout.row') },
+  { value: 'list', label: t('layout.list') },
+])
+const thumbnailOrientationOptions = computed<Array<{ value: ThumbnailOrientation; label: string }>>(() => [
+  { value: 'landscape', label: t('settings.landscape') },
+  { value: 'portrait', label: t('settings.portrait') },
+])
+const thumbnailImageFitOptions = computed<Array<{ value: ThumbnailImageFit; label: string }>>(() => [
+  { value: 'contain', label: t('settings.complete') },
+  { value: 'cover', label: t('settings.cropped') },
+])
 </script>
 
 <template>
@@ -97,7 +122,8 @@ const { t } = useI18n()
       :close-on-content-click="false"
       :nudge-right="40"
       offset-y
-      min-width="200px"
+      min-width="320px"
+      max-width="400px"
     >
       <template #activator="{ props: activatorProps }">
         <button
@@ -113,32 +139,45 @@ const { t } = useI18n()
 
       <v-list class="home-section-actions__menu-list">
         <v-list-item-title class="home-section-actions__menu-title">
+          {{ t('settings.cardLayout') }}
+        </v-list-item-title>
+        <ParameterSegmented
+          :input-name="`${componentId}-collection-mode`"
+          :label="t('settings.cardLayout')"
+          :model-value="props.collectionMode"
+          :options="collectionModeOptions"
+          @update:model-value="(value: string | number | boolean) => emit('update-collection-mode', props.section.preferenceKey, value as MediaCardCollectionMode)"
+        />
+
+        <v-divider class="home-section-actions__divider" />
+
+        <v-list-item-title class="home-section-actions__menu-title">
           {{ t('settings.thumbnailFormat') }}
         </v-list-item-title>
-        <v-radio-group
-          class="home-section-actions__radio-group"
-          :model-value="props.thumbnailOrientation"
-          mandatory
-          @update:model-value="(value: ThumbnailOrientation | null) => emit('update-thumbnail-orientation', props.section.preferenceKey, value)"
-        >
-          <v-radio value="portrait" :label="t('settings.portrait')" />
-          <v-radio value="landscape" :label="t('settings.landscape')" />
-        </v-radio-group>
+        <div class="home-section-actions__segmented">
+          <ParameterSegmented
+            :input-name="`${componentId}-thumbnail-orientation`"
+            :label="t('settings.thumbnailFormat')"
+            :model-value="props.thumbnailOrientation"
+            :options="thumbnailOrientationOptions"
+            @update:model-value="(value: string | number | boolean) => emit('update-thumbnail-orientation', props.section.preferenceKey, value as ThumbnailOrientation | null)"
+          />
+        </div>
 
         <v-divider class="home-section-actions__divider" />
 
         <v-list-item-title class="home-section-actions__menu-title">
           {{ t('settings.imageDisplay') }}
         </v-list-item-title>
-        <v-radio-group
-          class="home-section-actions__radio-group"
-          :model-value="props.thumbnailImageFit"
-          mandatory
-          @update:model-value="(value: ThumbnailImageFit | null) => emit('update-thumbnail-image-fit', props.section.preferenceKey, value)"
-        >
-          <v-radio value="cover" :label="t('settings.cropped')" />
-          <v-radio value="contain" :label="t('settings.complete')" />
-        </v-radio-group>
+        <div class="home-section-actions__segmented">
+          <ParameterSegmented
+            :input-name="`${componentId}-thumbnail-image-fit`"
+            :label="t('settings.imageDisplay')"
+            :model-value="props.thumbnailImageFit"
+            :options="thumbnailImageFitOptions"
+            @update:model-value="(value: string | number | boolean) => emit('update-thumbnail-image-fit', props.section.preferenceKey, value as ThumbnailImageFit | null)"
+          />
+        </div>
       </v-list>
     </v-menu>
   </div>
@@ -199,16 +238,29 @@ const { t } = useI18n()
 .home-section-actions__menu-list {
   gap: 0 !important;
   padding: 4px 0 !important;
-  background: var(--bg-transparent) !important;
-  backdrop-filter: var(--backdrop-filter-strong) !important;
+  background: var(--bg-surface-strong);
+  backdrop-filter: var(--backdrop-filter-soft);
   box-shadow: var(--shadow-heavy), var(--inset-light) !important;
 }
 
 .home-section-actions__menu-title {
+  position: relative;
   margin-bottom: 2px !important;
   padding: 0 12px !important;
   font-size: 0.85rem !important;
   font-weight: 600 !important;
+}
+
+.home-section-actions__menu-title::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 4px;
+  width: 4px;
+  height: 18px;
+  border-radius: 999px;
+  transform: translateY(-50%);
+  background: var(--bg-accent-marker-primary);
 }
 
 .home-section-actions__radio-group {

@@ -76,8 +76,8 @@ const PARAM_PREFIX = "param."
 const HOME_PINNED_SECTION_ORDER_KEY = 'home.pinnedSectionOrder'
 /** Storage key for home section editing buttons visibility. */
 const HOME_SHOW_SECTION_EDITING_BUTTONS_KEY = 'home.showSectionEditingButtons'
-/** Storage key for home favorite collection mode. */
-const HOME_FAVORITE_COLLECTION_MODE_KEY = 'home.favoriteCollectionMode'
+/** Storage key for home section collection mode overrides. */
+const HOME_SECTION_COLLECTION_MODE_KEY = 'home.sectionCollectionMode'
 /** Storage key for home section thumbnail orientation. */
 const HOME_SECTION_THUMBNAIL_ORIENTATION_KEY = 'home.sectionThumbnailOrientation'
 /** Storage key for home section thumbnail image fit. */
@@ -179,9 +179,10 @@ export interface HomePreferences {
    */
   showSectionEditingButtons: Ref<boolean>
   /**
-   * Layout mode applied to pinned home sections.
+   * Per-section collection mode overrides.
+   * Key: section preferenceKey, Value: collection mode
    */
-  favoriteCollectionMode: Ref<MediaCardCollectionMode>
+  sectionCollectionMode: Ref<Record<string, MediaCardCollectionMode>>
   /**
    * Per-section thumbnail orientation overrides.
    * Key: section preferenceKey, Value: orientation
@@ -222,23 +223,22 @@ export const useStorage = defineStore('storage', () => {
         })
     });
 
-     const homePreferences: HomePreferences = {
-       pinnedSectionOrder: ref(
-         sanitizeStringArray(getStoreItem<unknown>(HOME_PINNED_SECTION_ORDER_KEY, [])),
-       ),
-       showSectionEditingButtons: ref(
-         sanitizeBoolean(
-           getStoreItem<unknown>(HOME_SHOW_SECTION_EDITING_BUTTONS_KEY, true),
-           true,
-         ),
-       ),
-       favoriteCollectionMode: ref(
-         sanitizeMediaCardCollectionMode(
-           getStoreItem<unknown>(HOME_FAVORITE_COLLECTION_MODE_KEY, 'single-row'),
-           'single-row',
-         ),
-       ),
-       sectionThumbnailOrientation: ref(
+      const homePreferences: HomePreferences = {
+        pinnedSectionOrder: ref(
+          sanitizeStringArray(getStoreItem<unknown>(HOME_PINNED_SECTION_ORDER_KEY, [])),
+        ),
+        showSectionEditingButtons: ref(
+          sanitizeBoolean(
+            getStoreItem<unknown>(HOME_SHOW_SECTION_EDITING_BUTTONS_KEY, true),
+            true,
+          ),
+        ),
+        sectionCollectionMode: ref(
+          sanitizeSectionCollectionMode(
+            getStoreItem<unknown>(HOME_SECTION_COLLECTION_MODE_KEY, {}),
+          ),
+        ),
+        sectionThumbnailOrientation: ref(
          sanitizeSectionThumbnailOrientation(
            getStoreItem<unknown>(HOME_SECTION_THUMBNAIL_ORIENTATION_KEY, {}),
          ),
@@ -321,20 +321,11 @@ export const useStorage = defineStore('storage', () => {
     )
 
      watch(
-       homePreferences.favoriteCollectionMode,
-       (nextFavoriteCollectionMode) => {
-         const sanitizedFavoriteCollectionMode = sanitizeMediaCardCollectionMode(
-           nextFavoriteCollectionMode,
-           'single-row',
-         )
-
-         if (nextFavoriteCollectionMode !== sanitizedFavoriteCollectionMode) {
-           homePreferences.favoriteCollectionMode.value = sanitizedFavoriteCollectionMode
-           return
-         }
-
-         setStoreItem(HOME_FAVORITE_COLLECTION_MODE_KEY, sanitizedFavoriteCollectionMode)
+       homePreferences.sectionCollectionMode,
+       (nextSectionCollectionMode) => {
+         setStoreItem(HOME_SECTION_COLLECTION_MODE_KEY, nextSectionCollectionMode)
        },
+       { deep: true },
      )
 
      watch(
@@ -668,6 +659,27 @@ function sanitizeMediaCardCollectionMode(
 }
 
 /**
+ * Returns a sanitized record of section collection mode overrides.
+ *
+ * @param value Raw storage value to sanitize.
+ * @returns Sanitized record mapping section keys to collection modes.
+ */
+function sanitizeSectionCollectionMode(value: unknown): Record<string, MediaCardCollectionMode> {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        return {};
+    }
+
+    const sanitized: Record<string, MediaCardCollectionMode> = {};
+    for (const [key, val] of Object.entries(value)) {
+        if (typeof key === 'string' && (val === 'grid' || val === 'single-row' || val === 'list')) {
+            sanitized[key] = val;
+        }
+    }
+
+    return sanitized;
+}
+
+/**
  * Returns a sanitized record of section thumbnail orientations.
  *
  * @param value Raw storage value to sanitize.
@@ -855,7 +867,7 @@ function sanitizeTrackPreference(value: unknown): VideoJsTrackPreference | null 
  * Returns a sanitized subtitle track preference.
  *
  * @param value Raw storage value to sanitize.
- * @returns Subtitle preference, defaulting to disabled when invalid.
+ * @returns Track preference or `null` when no stable track identity exists.
  */
 function sanitizeTextTrackPreference(value: unknown): VideoJsTextTrackPreference {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {

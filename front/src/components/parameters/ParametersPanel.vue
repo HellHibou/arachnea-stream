@@ -41,7 +41,7 @@ withDefaults(defineProps<Props>(), {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 4px 0;
+  padding: 1px 0;
 }
 
 .parameters__panel--disabled {

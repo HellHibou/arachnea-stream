@@ -9,6 +9,7 @@ import ScrollToTopButton from '@/components/ScrollToTopButton.vue'
 import { useHomeCatalog } from '@/composables/home/useHomeCatalog'
 import { useScrollToTop } from '@/composables/useScrollToTop'
 import { useI18n } from '@/i18n'
+import { useStorage } from '@/services/storage'
 import type { HomeCategory } from '@/types/home'
 import type {
   MediaCardCollectionMode,
@@ -23,6 +24,18 @@ import type {
 const homeCollectionMode: MediaCardCollectionMode = 'single-row'
 /** Collection mode for category page media card displays. */
 const categoryCollectionMode: MediaCardCollectionMode = 'grid'
+/** Update section collection mode in preferences. */
+function updateSectionCollectionMode(sectionPreferenceKey: string, mode: MediaCardCollectionMode | null): void {
+  if (!mode) {
+    return
+  }
+
+  const homePreferences = useStorage().getHomePreferences()
+  homePreferences.sectionCollectionMode.value = {
+    ...homePreferences.sectionCollectionMode.value,
+    [sectionPreferenceKey]: mode,
+  }
+}
 
 /**
  * Props accepted by the home and category catalog screen.
@@ -85,8 +98,6 @@ const {
   hasContent,
   /** Whether the current mode is home. */
   isHomeMode,
-  /** Collection mode for pinned sections. */
-  pinnedSectionCollectionMode,
   /** List of pinned sections. */
   pinnedSections,
   /** List of non-pinned sections. */
@@ -97,6 +108,8 @@ const {
   getSectionThumbnailOrientation,
   /** Function to get thumbnail image fit for a section. */
   getSectionThumbnailImageFit,
+  /** Function to get collection mode for a section. */
+  getSectionCollectionMode,
   /** Function to set section element reference. */
   setSectionElementRef,
   /** Function to check if a section is currently loading. */
@@ -210,7 +223,7 @@ function handleSelectCollectionItem(item: MediaItem) {
               <MediaCardCollection
                 :items="section.items"
                 :label="section.label ?? undefined"
-                :mode="pinnedSectionCollectionMode"
+                :mode="getSectionCollectionMode(section)"
                 :thumbnail-orientation="getSectionThumbnailOrientation(section) ?? props.thumbnailOrientation"
                 :thumbnail-image-fit="getSectionThumbnailImageFit(section) ?? props.thumbnailImageFit"
                 :show-header-actions="showSectionEditingButtons"
@@ -229,10 +242,12 @@ function handleSelectCollectionItem(item: MediaItem) {
                     :can-move-down="canMovePinnedSection(section, 'down')"
                     :thumbnail-orientation="getSectionThumbnailOrientation(section) ?? props.thumbnailOrientation"
                     :thumbnail-image-fit="getSectionThumbnailImageFit(section) ?? props.thumbnailImageFit"
+                    :collection-mode="getSectionCollectionMode(section)"
                     @toggle-pinned="toggleSectionPinned"
                     @move-pinned="movePinnedSection"
                     @update-thumbnail-orientation="updateSectionThumbnailOrientation"
                     @update-thumbnail-image-fit="updateSectionThumbnailImageFit"
+                    @update-collection-mode="updateSectionCollectionMode"
                   />
                 </template>
               </MediaCardCollection>
@@ -277,10 +292,12 @@ function handleSelectCollectionItem(item: MediaItem) {
                     :can-move-down="canMovePinnedSection(section, 'down')"
                     :thumbnail-orientation="getSectionThumbnailOrientation(section) ?? props.thumbnailOrientation"
                     :thumbnail-image-fit="getSectionThumbnailImageFit(section) ?? props.thumbnailImageFit"
+                    :collection-mode="getSectionCollectionMode(section)"
                     @toggle-pinned="toggleSectionPinned"
                     @move-pinned="movePinnedSection"
                     @update-thumbnail-orientation="updateSectionThumbnailOrientation"
                     @update-thumbnail-image-fit="updateSectionThumbnailImageFit"
+                    @update-collection-mode="updateSectionCollectionMode"
                   />
                 </template>
               </MediaCardCollection>

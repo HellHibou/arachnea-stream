@@ -51,6 +51,10 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **M6Play MPD initialization URLs**: M6 proxied manifests now rewrite `/m6web/` initialization paths to the proxied Bedrock CDN URL so segment initialization requests stay on the controller proxy route.
 - **Stream YAML output standardization**: Dark-stream home sections now emit `entries` instead of `items`, selected media metadata fields now use typed arrays/numbers, m6play category descriptions were removed from YAML and the frontend category model, and TF1 category request descriptors no longer carry the redundant `channel_label` parameter.
 - **YAML stream hoster group rename**: Renamed the YAML stream resolver service group and directory to `arachnea-stream-hoster`.
+- **Search automatic load-more**: `MediaCardCollection` now supports an `autoLoadMore` prop that automatically loads the next page when the load-more button scrolls into view. The media search screen enables it so additional search results load without a manual click.
+- **Single-row card size**: Cards in `single-row` collections are now 50% larger (width scaled by 1.5), so posters scale up automatically via their aspect-ratio.
+- **Entry details automatic load-more**: The season episode list in entry details now loads the next page automatically when the load-more button scrolls into view.
+- **Poster shade removed**: The dark bottom gradient overlay on media card posters is removed so thumbnails display their image without the dark shade.
 
 ### Removed
 - Dead helpers: `process_root`, `parse_html_rows`, `collect_ordered_results`, `matches` (response_parser), `resolve_request_headers`/`resolve_request_body`/`execution_options` (JsonScraperQuery), `split_static_path`, `render_static_value`, `render_yaml_value`, `render_yaml_values` (StaticScraperQuery).
@@ -422,3 +426,11 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **Structured log cache**: `arachnea-core` log capture no longer mirrors free-form ANSI text into the shared cache. `LogCache` now stores structured `LogRecord`s (`timestamp`, `level`, `target`, `message`) built by a dedicated `LogCaptureLayer`; the console `fmt` layer keeps its original colored text output on `stdout`. The old `LogCacheWriter`/`LogCacheMakeWriter` ANSI duplication was removed.
 - **`get_logs` structured contract**: The `get_logs` Tauri command now returns `Vec<LogRecord>` instead of `Vec<String>`.
 - **Structured log window rendering**: The dedicated `Show log` window now renders the records as a table (`Date`, `Niveau`, `Chemin`, `Message`) with CSS-colored level badges (ERROR/WARN/INFO/DEBUG/TRACE) and no visible ANSI codes. The page reads the snapshot once, then receives live records through the new `subscribe_logs` Tauri command (a `tauri::ipc::Channel`), replacing the 1 s polling. Subscribers are cleared when the log window closes (`on_window_event`).
+
+## Unreleased — Frontend player language persistence and error notification
+
+### Changed
+
+- **Player language preserved across video changes**: The entry video player now restores the preferred language (and the preferred player within that language) when switching playable items, matching the existing player-selection persistence. The language falls back to the preferred player's language when no explicit language preference exists.
+- **Error notification code moved into technical details**: The correlation-code copy button now lives inside the collapsed "Détail technique" disclosure instead of the notification body.
+- **Error notification width**: The error notification popup is now wider (`480px` instead of `390px`).

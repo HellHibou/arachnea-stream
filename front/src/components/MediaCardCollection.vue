@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, toRef, useId, useSlots, useTemplateRef } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, toRef, useId, useSlots, useTemplateRef, watch } from 'vue'
 
 import type { MediaCardCollectionMode, MediaItem, ThumbnailImageFit, ThumbnailOrientation } from '@/types/media'
 import { getEffectiveOrientation } from '@/types/media'
@@ -66,6 +66,11 @@ interface Props {
      */
     onLoadMore?: () => void | Promise<void>
     /**
+     * Automatically invokes onLoadMore when the load-more button becomes visible.
+     * @default false
+     */
+    autoLoadMore?: boolean
+    /**
      * Label for the load-more button when idle.
      * @default 'Charger plus...'
      */
@@ -102,6 +107,7 @@ interface Props {
     haveMore: false,
     loadMoreErrorMessage: null,
     onLoadMore: undefined,
+    autoLoadMore: false,
     showServiceLogo: true,
     routeName: 'entry-details',
   })
@@ -168,6 +174,58 @@ const cardOrientations = computed(() => {
   }
   return map
 })
+
+/** Template reference to the load-more button (grid/list modes). */
+const loadMoreButtonRef = useTemplateRef<HTMLButtonElement>('loadMoreButtonRef')
+/** Whether the load-more button is currently visible in the viewport. */
+const isLoadMoreButtonVisible = ref(false)
+/** Intersection observer used to detect load-more button visibility. */
+let loadMoreObserver: IntersectionObserver | null = null
+
+onMounted(() => {
+  loadMoreObserver = new IntersectionObserver(
+    (entries) => {
+      isLoadMoreButtonVisible.value = entries.some((entry) => entry.isIntersecting)
+    },
+    { rootMargin: '200px 0px' },
+  )
+})
+
+onBeforeUnmount(() => {
+  loadMoreObserver?.disconnect()
+  loadMoreObserver = null
+})
+
+watch(
+  loadMoreButtonRef,
+  (button) => {
+    if (!loadMoreObserver) {
+      return
+    }
+
+    if (button) {
+      loadMoreObserver.observe(button)
+    } else {
+      isLoadMoreButtonVisible.value = false
+    }
+  },
+  { flush: 'post', immediate: true },
+)
+
+watch(
+  [
+    isLoadMoreButtonVisible,
+    () => props.autoLoadMore,
+    () => props.isLoadingMore,
+    () => props.haveMore,
+    () => props.loadMoreErrorMessage,
+  ],
+  ([visible, autoLoadMore, isLoadingMore, haveMore, loadMoreErrorMessage]) => {
+    if (visible && autoLoadMore && !isLoadingMore && haveMore && !loadMoreErrorMessage) {
+      void props.onLoadMore?.()
+    }
+  },
+)
 </script>
 
 <template>
@@ -285,6 +343,7 @@ const cardOrientations = computed(() => {
 
     <!-- Load-more button (grid/list modes only) -->
     <button
+      ref="loadMoreButtonRef"
       v-if="(haveMore || isLoadingMore) && mode !== 'single-row'"
       :class="[
         'media-card-collection__load-more',
@@ -440,8 +499,9 @@ const cardOrientations = computed(() => {
   gap: var(--media-card-collection-row-gap);
 }
 
+/* Single-row cards are 50% larger, so posters scale up automatically via their aspect-ratio. */
 .media-card-collection--single-row > * {
-  flex: 0 0 min(100%, var(--media-card-collection-row-width));
+  flex: 0 0 min(100%, calc(var(--media-card-collection-row-width) * 1.5));
   min-width: 0;
   scroll-snap-align: start;
 }
@@ -560,11 +620,11 @@ const cardOrientations = computed(() => {
    }
 
    .media-card-collection--single-row > * {
-     flex-basis: min(78vw, var(--media-card-collection-row-width));
+     flex-basis: min(78vw, calc(var(--media-card-collection-row-width) * 1.5));
    }
 
    .media-card-collection--single-row > .media-card--landscape {
-     flex-basis: min(92vw, 240px);
+     flex-basis: min(92vw, 360px);
    }
 
   .media-card-collection--list {

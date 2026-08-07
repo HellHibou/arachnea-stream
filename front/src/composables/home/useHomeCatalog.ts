@@ -66,10 +66,15 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
     category,
   })
 
-  /** The collection mode for pinned sections, from user preferences. */
-  const pinnedSectionCollectionMode = computed<MediaCardCollectionMode>(
-    () => homePreferences.favoriteCollectionMode.value,
-  )
+  /**
+   * Returns the collection mode override for one section.
+   *
+   * @param section - Section displayed in the current catalog.
+   * @returns The collection mode for this section.
+   */
+  function getSectionCollectionMode(section: HomeSection): MediaCardCollectionMode {
+    return homePreferences.sectionCollectionMode.value[section.preferenceKey] ?? 'single-row'
+  }
   /** Whether section editing buttons should be shown, from user preferences. */
   const showSectionEditingButtons = computed(
     () => homePreferences.showSectionEditingButtons.value,
@@ -527,12 +532,12 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
     currentCatalog,
     hasContent,
     isHomeMode,
-    pinnedSectionCollectionMode,
     pinnedSections,
     otherSections,
     showSectionEditingButtons,
     getSectionThumbnailOrientation,
     getSectionThumbnailImageFit,
+    getSectionCollectionMode,
     setSectionElementRef,
     isSectionLoading,
     getSectionLoadError,

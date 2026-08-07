@@ -777,16 +777,30 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
 
       if (previousPlayableItemId !== nextPlayableItemId) {
         const selectedItemPlayers = options.selectedPlayableItem.value?.players.entries ?? []
-        const preferredPlayer = preferredPlayerKey.value
+        const nextLanguageOptions = buildEntryPlayerLanguageOptions(selectedItemPlayers)
+        const preferredPlayerInAnyLanguage = preferredPlayerKey.value
           ? selectedItemPlayers.find(
               (player) => getPlayerPreferenceKey(player) === preferredPlayerKey.value,
             )
           : null
+        const nextLanguageKey =
+          preferredLanguageKey.value &&
+          nextLanguageOptions.some((language) => language.key === preferredLanguageKey.value)
+            ? preferredLanguageKey.value
+            : (preferredPlayerInAnyLanguage
+                ? getPlayerLanguageKey(preferredPlayerInAnyLanguage)
+                : nextLanguageOptions[0]?.key ?? null)
+        const playersInSelectedLanguage = selectedItemPlayers.filter(
+          (player) => getPlayerLanguageKey(player) === nextLanguageKey,
+        )
+        const preferredPlayer = preferredPlayerKey.value
+          ? playersInSelectedLanguage.find(
+              (player) => getPlayerPreferenceKey(player) === preferredPlayerKey.value,
+            )
+          : null
 
-        selectedPlayableLanguageKey.value = preferredPlayer
-          ? getPlayerLanguageKey(preferredPlayer)
-          : preferredLanguageKey.value
-        selectedPlayablePlayerId.value = preferredPlayer?.id ?? null
+        selectedPlayableLanguageKey.value = nextLanguageKey
+        selectedPlayablePlayerId.value = preferredPlayer?.id ?? playersInSelectedLanguage[0]?.id ?? null
         activeVideoMode.value = 'media'
       }
     },

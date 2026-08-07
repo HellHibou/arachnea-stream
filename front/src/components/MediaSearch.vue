@@ -164,6 +164,7 @@ const { t } = useI18n()
            :have-more="haveMore"
            :load-more-error-message="loadMoreErrorMessage"
            :on-load-more="loadMore"
+           :auto-load-more="true"
            @select="handleSelectItem"
          />
        </section>

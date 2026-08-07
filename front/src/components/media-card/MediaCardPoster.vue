@@ -128,8 +128,6 @@ defineEmits<{
       <span>{{ displayTitle }}</span>
     </div>
 
-    <div class="media-card__shade" />
-
     <div
       v-if="serviceLogo || (showBadges && audioLabel)"
       class="media-card__top-right-badges"
@@ -226,15 +224,6 @@ defineEmits<{
   font-size: 1.2rem;
   font-weight: 700;
   text-overflow: ellipsis;
-}
-
-.media-card__shade {
-  position: absolute;
-  inset: auto 0 0;
-  z-index: 2;
-  height: 38%;
-  background: var(--bg-overlay-media-card-shade);
-  pointer-events: none;
 }
 
 .media-card__preview-source-logo {
