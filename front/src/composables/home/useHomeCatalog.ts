@@ -50,8 +50,10 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
   const mode = toRef(options.mode)
   /** Reactive reference to the selected category. */
   const category = toRef(options.category)
+  /** Storage service instance. */
+  const storage = useStorage()
   /** Home preferences from storage. */
-  const homePreferences: HomePreferences = useStorage().getHomePreferences()
+  const homePreferences: HomePreferences = storage.getHomePreferences()
   /** Map of section preference keys to their rendered DOM elements. */
   const sectionElementRefs = new Map<string, HTMLElement>()
   /** Set of section keys currently loading data. */
@@ -309,18 +311,7 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
       return
     }
 
-    if (isSectionPinned(section)) {
-      homePreferences.pinnedSectionOrder.value = homePreferences.pinnedSectionOrder.value.filter(
-        (preferenceKey) => preferenceKey !== section.preferenceKey,
-      )
-      removeSectionDisplayPreferences(section.preferenceKey)
-      return
-    }
-
-    homePreferences.pinnedSectionOrder.value = [
-      ...homePreferences.pinnedSectionOrder.value,
-      section.preferenceKey,
-    ]
+    void storage.toggleSectionPinned(section.preferenceKey)
   }
 
   /**
@@ -330,25 +321,7 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
    * @param direction - Direction requested by the user.
    */
   function movePinnedSection(section: HomeSection, direction: 'up' | 'down'): void {
-    const currentVisibleIndex = pinnedSectionKeys.value.indexOf(section.preferenceKey)
-    const targetVisibleIndex = direction === 'up' ? currentVisibleIndex - 1 : currentVisibleIndex + 1
-    const targetPreferenceKey = pinnedSectionKeys.value[targetVisibleIndex]
-
-    if (currentVisibleIndex < 0 || !targetPreferenceKey) {
-      return
-    }
-
-    const nextOrder = [...homePreferences.pinnedSectionOrder.value]
-    const currentOrderIndex = nextOrder.indexOf(section.preferenceKey)
-    const targetOrderIndex = nextOrder.indexOf(targetPreferenceKey)
-
-    if (currentOrderIndex < 0 || targetOrderIndex < 0) {
-      return
-    }
-
-    nextOrder[currentOrderIndex] = targetPreferenceKey
-    nextOrder[targetOrderIndex] = section.preferenceKey
-    homePreferences.pinnedSectionOrder.value = nextOrder
+    void storage.movePinnedSection(section.preferenceKey, direction)
   }
 
   /**
@@ -365,10 +338,7 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
       return
     }
 
-    homePreferences.sectionThumbnailOrientation.value = {
-      ...homePreferences.sectionThumbnailOrientation.value,
-      [sectionPreferenceKey]: orientation,
-    }
+    void storage.updateSectionThumbnailOrientation(sectionPreferenceKey, orientation)
   }
 
   /**
@@ -385,10 +355,7 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
       return
     }
 
-    homePreferences.sectionThumbnailImageFit.value = {
-      ...homePreferences.sectionThumbnailImageFit.value,
-      [sectionPreferenceKey]: imageFit,
-    }
+    void storage.updateSectionThumbnailImageFit(sectionPreferenceKey, imageFit)
   }
 
   /**
@@ -465,21 +432,6 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
         sectionObserver.observe(element)
       }
     }
-  }
-
-  /**
-   * Removes persisted display overrides for one section.
-   *
-   * @param sectionPreferenceKey - Preference key of the unpinned section.
-   */
-  function removeSectionDisplayPreferences(sectionPreferenceKey: string): void {
-    const { [sectionPreferenceKey]: _orientation, ...nextOrientations } =
-      homePreferences.sectionThumbnailOrientation.value
-    const { [sectionPreferenceKey]: _imageFit, ...nextImageFits } =
-      homePreferences.sectionThumbnailImageFit.value
-
-    homePreferences.sectionThumbnailOrientation.value = nextOrientations
-    homePreferences.sectionThumbnailImageFit.value = nextImageFits
   }
 
   onMounted(() => {

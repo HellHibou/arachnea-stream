@@ -24,17 +24,15 @@ import type {
 const homeCollectionMode: MediaCardCollectionMode = 'single-row'
 /** Collection mode for category page media card displays. */
 const categoryCollectionMode: MediaCardCollectionMode = 'grid'
+/** Storage service instance. */
+const storage = useStorage()
 /** Update section collection mode in preferences. */
 function updateSectionCollectionMode(sectionPreferenceKey: string, mode: MediaCardCollectionMode | null): void {
   if (!mode) {
     return
   }
 
-  const homePreferences = useStorage().getHomePreferences()
-  homePreferences.sectionCollectionMode.value = {
-    ...homePreferences.sectionCollectionMode.value,
-    [sectionPreferenceKey]: mode,
-  }
+  void storage.updateSectionCollectionMode(sectionPreferenceKey, mode)
 }
 
 /**

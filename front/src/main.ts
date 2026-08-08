@@ -51,6 +51,7 @@ async function bootstrap(): Promise<void> {
    await loadThemes()
 
    const storage = useStorage()
+   await storage.initStorage()
    applyTheme(findThemePreset(storage.getParameters().theme.value))
 
    app.mount('#app')
