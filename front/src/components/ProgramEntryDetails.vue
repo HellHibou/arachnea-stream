@@ -74,6 +74,8 @@ const storage = useStorage()
 const parameters = storage.getParameters()
 /** Latest playback time from the media player. */
 const latestPlaybackTime = shallowRef<number | null>(null)
+/** Latest playback duration in seconds reported by the media player. */
+const latestPlaybackDuration = shallowRef<number | null>(null)
 /** Key to track restored episode bookmark state. */
 const restoredEpisodeBookmarkKey = shallowRef<string | null>(null)
 /** Whether episode autoplay is pending. */
@@ -289,6 +291,7 @@ const {
 /** Resets entry state when source, entry, or webUrl props change. */
 watch([source, entry, webUrl], () => {
   latestPlaybackTime.value = null
+  latestPlaybackDuration.value = null
   restoredEpisodeBookmarkKey.value = null
   cancelPendingEpisodeNavigation()
   resetSelectedEpisode()
@@ -441,7 +444,42 @@ function saveEntryBookmark(bookmark: EntryBookmark) {
 }
 
 /**
- * Stores the bookmark using the current selection state.
+ * Tolerance in seconds applied when detecting that playback reached the end of an episode.
+ */
+const PLAYBACK_END_TOLERANCE_SECONDS = 1
+
+/**
+ * Indicates whether the current playback position has reached the end of the episode.
+ */
+const isCurrentEpisodeAtEnd = computed(() => {
+  const playbackTime = latestPlaybackTime.value
+  const duration = latestPlaybackDuration.value
+
+  return (
+    playbackTime !== null &&
+    duration !== null &&
+    duration > 0 &&
+    playbackTime >= duration - PLAYBACK_END_TOLERANCE_SECONDS
+  )
+})
+
+/**
+ * Exposes the 1-based number of the selected episode within the displayed list.
+ */
+const selectedEpisodeNumber = computed(() => {
+  if (!selectedEpisodeId.value) {
+    return null
+  }
+
+  const index = displayedEpisodes.value.findIndex(
+    (episode) => episode.id === selectedEpisodeId.value,
+  )
+
+  return index >= 0 ? index + 1 : null
+})
+
+/**
+ * Stores the bookmark using the current selection state and entry details snapshot.
  *
  * @param playbackTime Playback position in seconds to persist for the active entry.
  */
@@ -450,6 +488,15 @@ function saveCurrentBookmark(playbackTime: number | null = latestPlaybackTime.va
     groupId: selectedSeasonId.value,
     selectedItemId: selectedEpisodeId.value,
     playbackTime,
+    title: details.value?.title ?? null,
+    alternativeTitleLabel: details.value?.alternativeTitleLabel ?? null,
+    imagePosterUrl: details.value?.imagePosterUrl ?? null,
+    imageLandscapeUrl: details.value?.imageLandscapeUrl ?? null,
+    description: details.value?.description ?? null,
+    mediaTypeLabel: null,
+    seasonLabel: selectedSeasonLabel.value ?? null,
+    episodeNumber: selectedEpisodeNumber.value,
+    isFullyWatched: !hasNextEpisode.value && isCurrentEpisodeAtEnd.value,
   })
 }
 
@@ -483,6 +530,7 @@ function applyEpisodeSelectionEffects(autoplay: boolean) {
   beginEpisodeSelectionTransition(autoplay)
   activateMediaPlayer()
   latestPlaybackTime.value = null
+  latestPlaybackDuration.value = null
 
   if (!isBookmarked.value) {
     return
@@ -658,16 +706,27 @@ async function selectNextPlayableEpisode(autoplay: boolean): Promise<boolean> {
 function handleSeasonSelect(item: MediaItem) {
   cancelPendingEpisodeNavigation()
   latestPlaybackTime.value = null
+  latestPlaybackDuration.value = null
   void handleDataSeasonSelect(item)
 
   if (!isBookmarked.value) {
     return
   }
 
+  const previousBookmark = currentEntryBookmark.value
   saveEntryBookmark({
     groupId: item.id,
     selectedItemId: null,
     playbackTime: null,
+    title: previousBookmark?.title ?? null,
+    alternativeTitleLabel: previousBookmark?.alternativeTitleLabel ?? null,
+    imagePosterUrl: previousBookmark?.imagePosterUrl ?? null,
+    imageLandscapeUrl: previousBookmark?.imageLandscapeUrl ?? null,
+    description: previousBookmark?.description ?? null,
+    mediaTypeLabel: previousBookmark?.mediaTypeLabel ?? null,
+    seasonLabel: item.title?.trim() || null,
+    episodeNumber: null,
+    isFullyWatched: false,
   })
 }
 
@@ -784,12 +843,15 @@ function handleBookmarkToggle() {
 }
 
 /**
- * Stores the latest playback position emitted by the integrated Video.js renderer.
+ * Stores the latest playback position and duration emitted by the integrated
+ * Video.js renderer, then persists the bookmark for the active entry.
  *
  * @param playbackTime Playback position in seconds, or `null` when it should be cleared.
+ * @param duration Total media duration in seconds, or `null` when unavailable.
  */
-function handlePlaybackProgressUpdate(playbackTime: number | null) {
+function handlePlaybackProgressUpdate(playbackTime: number | null, duration: number | null) {
   latestPlaybackTime.value = playbackTime
+  latestPlaybackDuration.value = duration
 
   if (!isBookmarked.value) {
     return
@@ -818,9 +880,14 @@ function handleMediaPlaybackStarted(playbackSourceUrl: string | null) {
 }
 
 /**
- * Starts the next playable episode automatically when the preference is enabled.
+ * Marks the bookmark as fully watched when the last playable episode ends,
+ * then starts the next playable episode automatically when the preference is enabled.
  */
 async function handleMediaPlaybackEnded() {
+  if (isBookmarked.value && !hasNextEpisode.value) {
+    saveCurrentBookmark(latestPlaybackTime.value)
+  }
+
   if (!parameters.isEpisodeAutoplayEnabled.value) {
     return
   }

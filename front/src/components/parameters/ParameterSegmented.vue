@@ -50,8 +50,8 @@ function handleChange(value: string | number | boolean) {
 <template>
   <div class="parameters-segmented" role="radiogroup" :aria-label="label">
     <label
-      v-for="option in options"
-      :key="option.value"
+      v-for="(option, index) in options"
+      :key="index"
       class="parameters-segmented__option"
     >
       <input

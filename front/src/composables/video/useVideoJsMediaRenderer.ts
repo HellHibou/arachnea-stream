@@ -154,17 +154,22 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
   )
 
   /**
-   * Emits one sanitized playback position to the parent controller.
+   * Emits one sanitized playback position and duration to the parent controller.
    *
    * @param value Playback position in seconds, or `null` when the stored progress should be cleared.
+   * @param duration Total media duration in seconds, or `null` when unavailable.
    */
-  function emitPlaybackProgress(value: number | null) {
+  function emitPlaybackProgress(value: number | null, duration: number | null = null) {
     const sanitizedPlaybackTime =
       typeof value === 'number' && Number.isFinite(value) && value > 0
         ? value
         : null
+    const sanitizedDuration =
+      typeof duration === 'number' && Number.isFinite(duration) && duration > 0
+        ? duration
+        : null
 
-    emit('update:playback-progress', sanitizedPlaybackTime)
+    emit('update:playback-progress', sanitizedPlaybackTime, sanitizedDuration)
   }
 
   /**
@@ -1147,12 +1152,12 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
         }
 
         lastSavedPlaybackStep = playbackStep
-        emitPlaybackProgress(currentTime)
+        emitPlaybackProgress(currentTime, player.duration() ?? null)
       })
 
       player.on('pause', () => {
         const currentTime = player.currentTime()
-        emitPlaybackProgress(typeof currentTime === 'number' ? currentTime : null)
+        emitPlaybackProgress(typeof currentTime === 'number' ? currentTime : null, player.duration() ?? null)
       })
 
       player.on('volumechange', () => {

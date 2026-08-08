@@ -38,10 +38,17 @@ interface Props {
    * Current collection mode for the section.
    */
   collectionMode: MediaCardCollectionMode
+  /**
+   * Whether the pin toggle button should be hidden (always-pinned sections).
+   * @default false
+   */
+  hidePinButton?: boolean
 }
 
-/** Component props without defaults. */
-const props = defineProps<Props>()
+/** Component props with applied defaults. */
+const props = withDefaults(defineProps<Props>(), {
+  hidePinButton: false,
+})
 
 const emit = defineEmits<{
   /** Emitted when a section pinned state should be toggled. */
@@ -79,6 +86,7 @@ const thumbnailImageFitOptions = computed<Array<{ value: ThumbnailImageFit; labe
 <template>
   <div class="home-section-actions">
     <button
+      v-if="!props.hidePinButton"
       class="home-section-actions__button"
       :aria-label="props.isPinned ? t('catalog.unpin') : t('catalog.pin')"
       :aria-pressed="props.isPinned"

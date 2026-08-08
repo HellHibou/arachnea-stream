@@ -10,11 +10,16 @@ import {
 } from 'vue'
 
 import { loadHomeSectionPage } from '@/services/rustify'
+import {
+  BOOKMARKS_SECTION_PREFERENCE_KEY,
+  type EntryBookmarkRecord,
+} from '@/services/entryBookmarks'
 import { useStorage, type HomePreferences } from '@/services/storage'
 import type { HomeCatalogData, HomeCategory, HomeSection } from '@/types/home'
 import type {
   BackgroundMediaCandidate,
   MediaCardCollectionMode,
+  MediaItem,
   ThumbnailImageFit,
   ThumbnailOrientation,
 } from '@/types/media'
@@ -37,6 +42,44 @@ interface UseHomeCatalogOptions {
    * @param mediaItems - Array of background media candidates from banners.
    */
   onBackgroundMediaItemsChange?: (mediaItems: BackgroundMediaCandidate[]) => void
+}
+
+/**
+ * Maps one bookmark record to the media card shape rendered by the bookmarks section.
+ *
+ * @param record Bookmark record persisted in IndexedDB.
+ * @returns Media item compatible with the existing card collection.
+ */
+function toBookmarkMediaItem(record: EntryBookmarkRecord): MediaItem {
+  const seasonEpisodeLabel = [
+    record.seasonLabel,
+    record.episodeNumber !== null ? `E${record.episodeNumber}` : null,
+  ]
+    .filter((part) => Boolean(part))
+    .join(' · ') || null
+
+  return {
+    id: record.key,
+    title: record.title,
+    alternativeTitleLabel: record.alternativeTitleLabel,
+    imagePosterUrl: record.imagePosterUrl,
+    imagePortraitUrl: null,
+    imageLandscapeUrl: record.imageLandscapeUrl,
+    source: record.source,
+    entryUrl: record.entry,
+    webUrl: null,
+    mediaTypeLabel: record.mediaTypeLabel,
+    mediaTypeValues: [],
+    themeLabels: [],
+    audioLabel: null,
+    durationLabel: null,
+    rating: null,
+    overview: record.description,
+    episodeLabel: seasonEpisodeLabel,
+    releaseDateLabel: null,
+    expireLabel: null,
+    metaLine: record.isFullyWatched ? t('bookmarks.watchedBadge') : null,
+  }
 }
 
 /**
@@ -121,6 +164,28 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
   })
   /** Whether the current mode is 'home' (as opposed to 'category'). */
   const isHomeMode = computed(() => mode.value === 'home')
+  /**
+   * Local bookmarks section built from the persisted bookmark records.
+   *
+   * Always considered pinned, hidden when empty or outside home mode. Items are
+   * already sorted by last modification (most recent first) by the storage cache.
+   */
+  const bookmarksSection = computed<HomeSection | null>(() => {
+    if (!isHomeMode.value || storage.entryBookmarks.length === 0) {
+      return null
+    }
+
+    return {
+      id: BOOKMARKS_SECTION_PREFERENCE_KEY,
+      label: t('home.bookmarksSection'),
+      preferenceKey: BOOKMARKS_SECTION_PREFERENCE_KEY,
+      items: storage.entryBookmarks.map(toBookmarkMediaItem),
+      sourceOrder: [],
+      sources: [],
+      currentPage: 1,
+      haveMore: false,
+    }
+  })
   /** Sections that can be pinned, filtered from the current catalog. */
   const pinnableSections = computed(() =>
     currentCatalog.value.sections.filter((section) => isSectionPinnable(section)),
@@ -140,12 +205,24 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
       pinnableSections.value.map((section) => section.preferenceKey),
     )
 
-    return homePreferences.pinnedSectionOrder.value.filter((key) =>
-      visiblePinnableSectionKeys.has(key),
+    const orderedKeys = homePreferences.pinnedSectionOrder.value.filter(
+      (key) =>
+        visiblePinnableSectionKeys.has(key) ||
+        key === BOOKMARKS_SECTION_PREFERENCE_KEY,
     )
+
+    // The local bookmarks section is always pinned: it keeps its persisted
+    // position when the user moved it, and defaults to the first position.
+    if (bookmarksSection.value && !orderedKeys.includes(BOOKMARKS_SECTION_PREFERENCE_KEY)) {
+      orderedKeys.unshift(BOOKMARKS_SECTION_PREFERENCE_KEY)
+    }
+
+    return orderedKeys
   })
   /**
    * Pinned sections in the order specified by user preferences.
+   *
+   * The local bookmarks section is injected according to its pinned position.
    *
    * @returns Array of pinned home sections.
    */
@@ -157,6 +234,10 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
     const sectionsByPreferenceKey = new Map(
       pinnableSections.value.map((section) => [section.preferenceKey, section] as const),
     )
+
+    if (bookmarksSection.value) {
+      sectionsByPreferenceKey.set(BOOKMARKS_SECTION_PREFERENCE_KEY, bookmarksSection.value)
+    }
 
     return pinnedSectionKeys.value.flatMap((preferenceKey) => {
       const section = sectionsByPreferenceKey.get(preferenceKey)
@@ -484,6 +565,7 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
     currentCatalog,
     hasContent,
     isHomeMode,
+    bookmarksSection,
     pinnedSections,
     otherSections,
     showSectionEditingButtons,

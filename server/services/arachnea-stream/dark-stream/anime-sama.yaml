@@ -838,7 +838,7 @@ queries:
         selector: "h2#titreAlter"
         actions:
           - type: get_text
-      - name: img/poster > link
+      - name: img/landscape > link
         type: string
         select: first
         selector: "meta[property=\"og:image\"]"

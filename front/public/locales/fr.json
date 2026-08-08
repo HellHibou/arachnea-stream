@@ -161,6 +161,12 @@
     "contentLogo": "Logo du contenu",
     "viewDetails": "Voir la fiche"
   },
+  "home": {
+    "bookmarksSection": "Favoris"
+  },
+  "bookmarks": {
+    "watchedBadge": "Termine"
+  },
   "entry": {
     "unavailableTitle": "Fiche indisponible",
     "unavailableMessage": "Cette fiche ne peut pas etre ouverte.",

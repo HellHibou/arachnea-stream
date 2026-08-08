@@ -1,3 +1,4 @@
+import { encodeEntryRoutePayload } from '@/router/routePayloads'
 import { initDB, getAllRecordsDB, loadRecordDB, saveRecordDB, deleteRecordDB } from '@/services/indexDB'
 import type { EntryBookmark } from '@/services/storage'
 
@@ -7,12 +8,25 @@ const STORE_NAME = 'entry_bookmarks'
 const KEY_PATH = 'key'
 
 /**
+ * Reserved preference key of the local bookmarks home section.
+ *
+ * The `local:` prefix guarantees no collision with backend-provided section keys.
+ */
+export const BOOKMARKS_SECTION_PREFERENCE_KEY = 'local:bookmarks'
+
+/**
  * Record persisted for one entry bookmark.
  * Extends EntryBookmark with a composite primary key derived from source and entry.
  */
 export type EntryBookmarkRecord = EntryBookmark & {
-  /** Primary key derived from source + entry (e.g. JSON.stringify([source, entry])). */
+  /** Primary key, the base64url route token derived from source + entry. */
   key: string
+  /** Backend source identifying the entry provider. */
+  source: string
+  /** Absolute entry URL passed to `get_entry`. */
+  entry: string
+  /** Timestamp (ms epoch) of the last record modification. */
+  modifiedAt: number
 }
 
 /**
@@ -27,12 +41,18 @@ export async function initEntryBookmarksDB(): Promise<IDBDatabase> {
 /**
  * Builds the storage key used for one entry bookmark.
  *
+ * The key is the base64url route token for the entry details page, identical
+ * to the `encodedEntry` segment of the `/entry/:encodedEntry` route.
+ *
  * @param source - Backend source identifying the entry provider.
  * @param entry - Absolute entry URL passed to `get_entry`.
  * @returns Stable bookmark key used in IndexedDB.
  */
 export function buildBookmarkKey(source: string, entry: string): string {
-  return JSON.stringify([source.trim(), entry.trim()])
+  return encodeEntryRoutePayload({
+    source: source.trim(),
+    entryUrl: entry.trim(),
+  })
 }
 
 /**
@@ -66,15 +86,24 @@ export async function getBookmark(
  * @param source - Backend source identifying the entry provider.
  * @param entry - Absolute entry URL passed to `get_entry`.
  * @param bookmark - Bookmark payload to persist.
+ * @param modifiedAt - Timestamp (ms epoch) of the modification, shared with the reactive cache.
  * @returns A promise resolved once the write has completed.
  */
 export async function setBookmark(
   source: string,
   entry: string,
   bookmark: EntryBookmark,
+  modifiedAt: number,
 ): Promise<void> {
   const key = buildBookmarkKey(source, entry)
-  return saveRecordDB(STORE_NAME, { key, ...bookmark } as EntryBookmarkRecord)
+  const record: EntryBookmarkRecord = {
+    key,
+    source: source.trim(),
+    entry: entry.trim(),
+    modifiedAt,
+    ...bookmark,
+  }
+  return saveRecordDB(STORE_NAME, record)
 }
 
 /**

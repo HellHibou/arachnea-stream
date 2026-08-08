@@ -24,6 +24,12 @@ interface Props {
    */
   label?: string
   /**
+   * Optional Material Design Icon displayed immediately before the title.
+   * @example 'mdi-bookmark'
+   * @default undefined
+   */
+  labelIcon?: string
+  /**
    * Layout used to display the cards.
    * @default 'grid'
    */
@@ -241,6 +247,13 @@ watch(
       :class="{ 'media-card-collection__header--controls-only': !label && !hasHeaderActions }"
     >
       <div v-if="label || hasHeaderActions" class="media-card-collection__heading">
+        <v-icon
+          v-if="label && labelIcon"
+          :icon="labelIcon"
+          size="22"
+          class="media-card-collection__title-icon"
+          aria-hidden="true"
+        />
         <h2 v-if="label" :id="labelId" class="media-card-collection__title">
           {{ label }}
         </h2>
@@ -393,6 +406,11 @@ watch(
   font-size: clamp(1.25rem, 1.12rem + 0.5vw, 1.6rem);
   font-weight: 700;
   letter-spacing: 0.01em;
+}
+
+.media-card-collection__title-icon {
+  flex: 0 0 auto;
+  color: var(--text-primary);
 }
 
 .media-card-collection__header-actions {

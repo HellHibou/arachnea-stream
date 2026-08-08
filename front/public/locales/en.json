@@ -161,6 +161,12 @@
     "contentLogo": "Content logo",
     "viewDetails": "View details"
   },
+  "home": {
+    "bookmarksSection": "Bookmarks"
+  },
+  "bookmarks": {
+    "watchedBadge": "Watched"
+  },
   "entry": {
     "unavailableTitle": "Entry unavailable",
     "unavailableMessage": "This entry cannot be opened.",

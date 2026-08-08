@@ -206,7 +206,7 @@ const emit = defineEmits<{
   /** Emitted to remember the current player selection. */
   'remember-current-player': []
   /** Emitted when playback progress updates. */
-  'update:playback-progress': [value: number | null]
+  'update:playback-progress': [value: number | null, duration: number | null]
   /** Emitted when autoplay enabled state changes. */
   'update:is-autoplay-enabled': [value: boolean]
   /** Emitted when media playback starts. */
@@ -308,7 +308,7 @@ const emit = defineEmits<{
              @remember-current-language="emit('remember-current-language')"
              @update:active-player-id="emit('update:active-player-id', $event)"
              @remember-current-player="emit('remember-current-player')"
-             @update:playback-progress="emit('update:playback-progress', $event)"
+             @update:playback-progress="(value: number | null, duration: number | null) => emit('update:playback-progress', value, duration)"
              @update:is-autoplay-enabled="emit('update:is-autoplay-enabled', $event)"
              @playback-started="emit('playback-started', $event)"
              @playback-ended="emit('playback-ended')"

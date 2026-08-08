@@ -9,6 +9,7 @@ import ScrollToTopButton from '@/components/ScrollToTopButton.vue'
 import { useHomeCatalog } from '@/composables/home/useHomeCatalog'
 import { useScrollToTop } from '@/composables/useScrollToTop'
 import { useI18n } from '@/i18n'
+import { BOOKMARKS_SECTION_PREFERENCE_KEY } from '@/services/entryBookmarks'
 import { useStorage } from '@/services/storage'
 import type { HomeCategory } from '@/types/home'
 import type {
@@ -221,6 +222,7 @@ function handleSelectCollectionItem(item: MediaItem) {
               <MediaCardCollection
                 :items="section.items"
                 :label="section.label ?? undefined"
+                :label-icon="section.preferenceKey === BOOKMARKS_SECTION_PREFERENCE_KEY ? 'mdi-bookmark' : undefined"
                 :mode="getSectionCollectionMode(section)"
                 :thumbnail-orientation="getSectionThumbnailOrientation(section) ?? props.thumbnailOrientation"
                 :thumbnail-image-fit="getSectionThumbnailImageFit(section) ?? props.thumbnailImageFit"
@@ -236,6 +238,7 @@ function handleSelectCollectionItem(item: MediaItem) {
                     v-if="showSectionEditingButtons"
                     :section="section"
                     :is-pinned="isSectionPinned(section)"
+                    :hide-pin-button="section.preferenceKey === BOOKMARKS_SECTION_PREFERENCE_KEY"
                     :can-move-up="canMovePinnedSection(section, 'up')"
                     :can-move-down="canMovePinnedSection(section, 'down')"
                     :thumbnail-orientation="getSectionThumbnailOrientation(section) ?? props.thumbnailOrientation"

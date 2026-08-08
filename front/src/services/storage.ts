@@ -22,6 +22,7 @@ import {
   setBookmark as setBookmarkInDB,
   removeBookmark as removeBookmarkFromDB,
   buildBookmarkKey,
+  BOOKMARKS_SECTION_PREFERENCE_KEY,
   type EntryBookmarkRecord,
 } from '@/services/entryBookmarks'
 
@@ -51,6 +52,43 @@ export interface EntryBookmark {
    * Last known playback position in seconds for Video.js media.
    */
   playbackTime: number | null
+  /**
+   * Primary display title snapshot from `get_entry`.
+   */
+  title: string | null
+  /**
+   * Alternative title label snapshot from `get_entry`.
+   */
+  alternativeTitleLabel: string | null
+  /**
+   * Poster image URL snapshot from `get_entry`.
+   */
+  imagePosterUrl: string | null
+  /**
+   * Landscape image URL snapshot from `get_entry`.
+   */
+  imageLandscapeUrl: string | null
+  /**
+   * Description snapshot from `get_entry`.
+   */
+  description: string | null
+  /**
+   * Media type label snapshot from `get_entry`.
+   */
+  mediaTypeLabel: string | null
+  /**
+   * Display label of the currently selected season or group.
+   */
+  seasonLabel: string | null
+  /**
+   * Number of the current or last watched episode (1-based within the displayed
+   * episode list), or `null` when outside an episode context.
+   */
+  episodeNumber: number | null
+  /**
+   * Whether the current episode reached its end and no episode follows it.
+   */
+  isFullyWatched: boolean
 }
 
 /**
@@ -283,10 +321,30 @@ export const useStorage = defineStore('storage', () => {
     const entryBookmarkLookup = computed<Record<string, EntryBookmark>>(() => {
       const map: Record<string, EntryBookmark> = {}
       for (const record of bookmarkRecords.value) {
-        map[record.key] = { groupId: record.groupId, selectedItemId: record.selectedItemId, playbackTime: record.playbackTime }
+        map[record.key] = {
+          groupId: record.groupId,
+          selectedItemId: record.selectedItemId,
+          playbackTime: record.playbackTime,
+          title: record.title,
+          alternativeTitleLabel: record.alternativeTitleLabel,
+          imagePosterUrl: record.imagePosterUrl,
+          imageLandscapeUrl: record.imageLandscapeUrl,
+          description: record.description,
+          mediaTypeLabel: record.mediaTypeLabel,
+          seasonLabel: record.seasonLabel,
+          episodeNumber: record.episodeNumber,
+          isFullyWatched: record.isFullyWatched,
+        }
       }
       return map
     })
+
+    /**
+     * Lists all cached bookmark records sorted by last modification, most recent first.
+     */
+    const entryBookmarks = computed<EntryBookmarkRecord[]>(() =>
+      [...bookmarkRecords.value].sort((a, b) => b.modifiedAt - a.modifiedAt),
+    )
 
     const homePreferences: HomePreferences = {
       pinnedSectionOrder,
@@ -399,6 +457,22 @@ export const useStorage = defineStore('storage', () => {
     )
 
     /**
+     * Reloads the cached section and bookmark records from IndexedDB.
+     *
+     * Used to keep the in-memory cache in sync with writes performed by
+     * another tab, typically when the tab becomes visible again.
+     */
+    async function refreshCachedRecords(): Promise<void> {
+      const [sections, bookmarks] = await Promise.all([
+        getAllSections(),
+        getAllBookmarks(),
+      ])
+
+      sectionRecords.value = sections
+      bookmarkRecords.value = bookmarks
+    }
+
+    /**
      * Initializes the IndexedDB stores and loads cached data.
      *
      * Must be called once before the store is used, typically from the app bootstrap.
@@ -409,13 +483,18 @@ export const useStorage = defineStore('storage', () => {
         initEntryBookmarksDB(),
       ])
 
-      const [sections, bookmarks] = await Promise.all([
-        getAllSections(),
-        getAllBookmarks(),
-      ])
+      await refreshCachedRecords()
 
-      sectionRecords.value = sections
-      bookmarkRecords.value = bookmarks
+      // Resynchronize the cache whenever the tab becomes visible again,
+      // so changes made from another tab are reflected in this one.
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          void refreshCachedRecords()
+        }
+      })
+      window.addEventListener('focus', () => {
+        void refreshCachedRecords()
+      })
     }
 
     /**
@@ -427,6 +506,11 @@ export const useStorage = defineStore('storage', () => {
      * @param sectionKey - Preference key of the section.
      */
     async function toggleSectionPinned(sectionKey: string): Promise<void> {
+      // The local bookmarks section is always pinned and cannot be unpinned.
+      if (sectionKey === BOOKMARKS_SECTION_PREFERENCE_KEY) {
+        return
+      }
+
       const existing = sectionRecords.value.find((r) => r.name === sectionKey)
 
       if (existing) {
@@ -448,12 +532,47 @@ export const useStorage = defineStore('storage', () => {
     }
 
     /**
+     * Ensures a section record exists in the cache (and IndexedDB), creating it
+     * with default pinned display configuration when missing.
+     *
+     * Used by always-pinned local sections (e.g. bookmarks) so configure and
+     * move actions work before their lazy record creation completes.
+     *
+     * @param sectionKey - Preference key of the section.
+     * @returns The existing or newly created record, or `null` on write failure.
+     */
+    async function ensureSectionRecord(sectionKey: string): Promise<HomeSectionRecord | null> {
+      const existing = sectionRecords.value.find((r) => r.name === sectionKey)
+
+      if (existing) {
+        return existing
+      }
+
+      const record: HomeSectionRecord = {
+        name: sectionKey,
+        order: sectionRecords.value.length,
+        collectionMode: 'single-row',
+        thumbnailOrientation: 'portrait',
+        thumbnailImageFit: 'cover',
+      }
+      sectionRecords.value = [...sectionRecords.value, record]
+      await saveSection(record)
+      return record
+    }
+
+    /**
      * Moves one pinned section within the ordered pinned subset.
+     *
+     * Materializes a missing record with default display configuration before
+     * swapping, so always-pinned local sections (e.g. bookmarks) are movable
+     * even on first mount before their lazy record creation completes.
      *
      * @param sectionKey - Preference key of the section to move.
      * @param direction - Direction to move the section.
      */
     async function movePinnedSection(sectionKey: string, direction: 'up' | 'down'): Promise<void> {
+      await ensureSectionRecord(sectionKey)
+
       const ordered = [...sectionRecords.value].sort((a, b) => a.order - b.order)
       const currentIndex = ordered.findIndex((r) => r.name === sectionKey)
 
@@ -497,7 +616,7 @@ export const useStorage = defineStore('storage', () => {
      * @param mode - New collection mode.
      */
     async function updateSectionCollectionMode(sectionKey: string, mode: MediaCardCollectionMode): Promise<void> {
-      const record = sectionRecords.value.find((r) => r.name === sectionKey)
+      const record = await ensureSectionRecord(sectionKey)
       if (!record) {
         return
       }
@@ -518,7 +637,7 @@ export const useStorage = defineStore('storage', () => {
      * @param orientation - New thumbnail orientation.
      */
     async function updateSectionThumbnailOrientation(sectionKey: string, orientation: ThumbnailOrientation): Promise<void> {
-      const record = sectionRecords.value.find((r) => r.name === sectionKey)
+      const record = await ensureSectionRecord(sectionKey)
       if (!record) {
         return
       }
@@ -539,7 +658,7 @@ export const useStorage = defineStore('storage', () => {
      * @param imageFit - New thumbnail image fit.
      */
     async function updateSectionThumbnailImageFit(sectionKey: string, imageFit: ThumbnailImageFit): Promise<void> {
-      const record = sectionRecords.value.find((r) => r.name === sectionKey)
+      const record = await ensureSectionRecord(sectionKey)
       if (!record) {
         return
       }
@@ -645,14 +764,21 @@ export const useStorage = defineStore('storage', () => {
     function setEntryBookmark(source: string, entry: string, bookmark: EntryBookmark): void {
         const key = buildBookmarkKey(source, entry)
         const sanitized = sanitizeEntryBookmark(bookmark)
+        const modifiedAt = Date.now()
 
         // Update cache
         const nextRecords = bookmarkRecords.value.filter((r) => r.key !== key)
-        nextRecords.push({ key, ...sanitized } as EntryBookmarkRecord)
+        nextRecords.push({
+          key,
+          source: source.trim(),
+          entry: entry.trim(),
+          modifiedAt,
+          ...sanitized,
+        })
         bookmarkRecords.value = nextRecords
 
-        // Persist to IndexedDB
-        void setBookmarkInDB(source, entry, sanitized)
+        // Persist to IndexedDB with the same modification timestamp as the cache
+        void setBookmarkInDB(source, entry, sanitized, modifiedAt)
     }
 
     /**
@@ -739,6 +865,7 @@ export const useStorage = defineStore('storage', () => {
 
     return {
       initStorage,
+      refreshCachedRecords,
       toggleSectionPinned,
       movePinnedSection,
       updateSectionCollectionMode,
@@ -749,6 +876,7 @@ export const useStorage = defineStore('storage', () => {
       getEntryBookmark,
       setEntryBookmark,
       removeEntryBookmark,
+      entryBookmarks,
       getVideoPlayerPreferences,
       setVideoPlayerPreferences,
     }
@@ -766,6 +894,15 @@ function sanitizeEntryBookmark(value: unknown): EntryBookmark {
         groupId: null,
         selectedItemId: null,
         playbackTime: null,
+        title: null,
+        alternativeTitleLabel: null,
+        imagePosterUrl: null,
+        imageLandscapeUrl: null,
+        description: null,
+        mediaTypeLabel: null,
+        seasonLabel: null,
+        episodeNumber: null,
+        isFullyWatched: false,
       };
     }
 
@@ -775,6 +912,15 @@ function sanitizeEntryBookmark(value: unknown): EntryBookmark {
       groupId: sanitizeNullableString(record.groupId ?? record.seasonId),
       selectedItemId: sanitizeNullableString(record.selectedItemId ?? record.episodeId),
       playbackTime: sanitizeNullablePlaybackTime(record.playbackTime),
+      title: sanitizeNullableString(record.title),
+      alternativeTitleLabel: sanitizeNullableString(record.alternativeTitleLabel),
+      imagePosterUrl: sanitizeNullableString(record.imagePosterUrl),
+      imageLandscapeUrl: sanitizeNullableString(record.imageLandscapeUrl),
+      description: sanitizeNullableString(record.description),
+      mediaTypeLabel: sanitizeNullableString(record.mediaTypeLabel),
+      seasonLabel: sanitizeNullableString(record.seasonLabel),
+      episodeNumber: sanitizeNullableEpisodeNumber(record.episodeNumber),
+      isFullyWatched: sanitizeBoolean(record.isFullyWatched, false),
     };
 }
 
@@ -812,6 +958,18 @@ function sanitizeNullableString(value: unknown): string | null {
  */
 function sanitizeNullablePlaybackTime(value: unknown): number | null {
     return typeof value === 'number' && Number.isFinite(value) && value > 0
+      ? value
+      : null;
+}
+
+/**
+ * Returns a sanitized 1-based episode number.
+ *
+ * @param value Raw storage value to sanitize.
+ * @returns Positive integer episode number or `null` when invalid.
+ */
+function sanitizeNullableEpisodeNumber(value: unknown): number | null {
+    return typeof value === 'number' && Number.isInteger(value) && value > 0
       ? value
       : null;
 }

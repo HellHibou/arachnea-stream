@@ -132,7 +132,7 @@ export interface VideoJsMediaRendererProps {
  * Emits accepted by the shared Video.js renderer.
  */
 export interface VideoJsMediaRendererEmits {
-  (evt: 'update:playback-progress', value: number | null): void
+  (evt: 'update:playback-progress', value: number | null, duration: number | null): void
   (evt: 'playback-started', sourceUrl: string | null): void
   (evt: 'playback-ended'): void
   (evt: 'update:is-episode-autoplay-enabled', value: boolean): void

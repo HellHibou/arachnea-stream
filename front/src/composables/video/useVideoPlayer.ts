@@ -285,7 +285,7 @@ interface VideoPlayerEmits {
   /** Emitted when the current player should be remembered for future use. */
   (evt: 'remember-current-player'): void
   /** Emitted when playback progress updates. */
-  (evt: 'update:playback-progress', value: number | null): void
+  (evt: 'update:playback-progress', value: number | null, duration: number | null): void
   /** Emitted when the episode autoplay enabled state changes. */
   (evt: 'update:is-episode-autoplay-enabled', value: boolean): void
   /** Emitted when playback starts. */
@@ -945,12 +945,13 @@ const handlePlayerChange = (event: Event): void => {
 }
 
 /**
- * Forwards the current Video.js playback position to the entry details controller.
+ * Forwards the current Video.js playback position and duration to the entry details controller.
  *
  * @param value - Playback position in seconds, or `null` when it should be cleared.
+ * @param duration - Total media duration in seconds, or `null` when unavailable.
  */
-const handlePlaybackProgressUpdate = (value: number | null): void => {
-  emit('update:playback-progress', value)
+const handlePlaybackProgressUpdate = (value: number | null, duration: number | null): void => {
+  emit('update:playback-progress', value, duration)
 }
 
 /**
@@ -982,13 +983,14 @@ const handleEpisodeAutoplayEnabledUpdate = (value: boolean): void => {
  * Forwards the active Video.js playback progress only when the current surface is a primary video.
  *
  * @param value - Playback position in seconds, or `null` when it should be cleared.
+ * @param duration - Total media duration in seconds, or `null` when unavailable.
  */
-const handleActiveVideoPlaybackProgressUpdate = (value: number | null): void => {
+const handleActiveVideoPlaybackProgressUpdate = (value: number | null, duration: number | null): void => {
   if (!shouldForwardPrimaryVideoEvents.value) {
     return
   }
 
-  handlePlaybackProgressUpdate(value)
+  handlePlaybackProgressUpdate(value, duration)
 }
 
 /**

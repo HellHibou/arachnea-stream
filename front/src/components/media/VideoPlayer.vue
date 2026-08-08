@@ -263,7 +263,7 @@ const emit = defineEmits<{
   /** Emitted to remember the current player selection. */
   'remember-current-player': []
   /** Emitted when playback progress updates. */
-  'update:playback-progress': [value: number | null]
+  'update:playback-progress': [value: number | null, duration: number | null]
   /** Emitted when episode autoplay enabled state changes. */
   'update:is-episode-autoplay-enabled': [value: boolean]
   /** Emitted when media playback starts. */
