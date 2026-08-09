@@ -38,6 +38,11 @@ interface Props {
     */
    thumbnailImageFit?: ThumbnailImageFit
    /**
+    * Size multiplier applied to media card thumbnails.
+    * @default 1
+    */
+   thumbnailSizeMultiplier?: number
+   /**
     * Layout mode used by the media card collection.
     * @default 'grid'
     */
@@ -64,6 +69,7 @@ const props = withDefaults(defineProps<Props>(), {
    searchRequestId: 0,
    thumbnailOrientation: 'portrait',
    thumbnailImageFit: 'cover',
+   thumbnailSizeMultiplier: 1,
    collectionMode: 'grid',
    submittedMediaTypes: () => [],
    submittedThemes: () => [],
@@ -160,6 +166,7 @@ const { t } = useI18n()
            :mode="props.collectionMode"
            :thumbnail-orientation="props.thumbnailOrientation"
            :thumbnail-image-fit="props.thumbnailImageFit"
+           :thumbnail-size-multiplier="props.thumbnailSizeMultiplier"
            :is-loading-more="isLoadingMore"
            :have-more="haveMore"
            :load-more-error-message="loadMoreErrorMessage"

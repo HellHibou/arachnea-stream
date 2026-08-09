@@ -43,6 +43,11 @@ interface Props {
    */
   thumbnailImageFit: ThumbnailImageFit
   /**
+   * Size multiplier applied to media card thumbnails in grid and single-row modes.
+   * @default 1
+   */
+  thumbnailSizeMultiplier?: number
+  /**
      * Hides list thumbnails when an item does not expose any poster.
      * @default false
      */
@@ -107,6 +112,7 @@ interface Props {
   /** Component props with applied defaults. */
   const props = withDefaults(defineProps<Props>(), {
     mode: 'grid',
+    thumbnailSizeMultiplier: 1,
     hideMissingListThumbnails: false,
     showHeaderActions: true,
     isLoadingMore: false,
@@ -142,6 +148,7 @@ const { canScrollLeft, canScrollRight, showScrollControls, updateScrollState, sc
     itemsLength,
     thumbnailOrientation: toRef(props, 'thumbnailOrientation'),
     thumbnailImageFit: toRef(props, 'thumbnailImageFit'),
+    thumbnailSizeMultiplier: toRef(props, 'thumbnailSizeMultiplier'),
     viewportRef,
   })
 
@@ -306,12 +313,13 @@ watch(
       :class="{ 'media-card-collection__viewport--single-row': mode === 'single-row' }"
       @scroll="updateScrollState"
     >
-       <div
-         class="media-card-collection"
-         :class="[
-           `media-card-collection--${mode}`,
-         ]"
-       >
+         <div
+           class="media-card-collection"
+           :class="[
+             `media-card-collection--${mode}`,
+           ]"
+           :style="{ '--media-card-collection-size-multiplier': thumbnailSizeMultiplier }"
+         >
          <MediaCard
             v-for="item in items"
             :key="item.id"
@@ -490,8 +498,9 @@ watch(
 }
 
 .media-card-collection {
-  --media-card-collection-min-column: 176px;
-  --media-card-collection-row-width: 176px;
+  --media-card-collection-size-multiplier: 1;
+  --media-card-collection-min-column: calc(176px * var(--media-card-collection-size-multiplier));
+  --media-card-collection-row-width: calc(176px * var(--media-card-collection-size-multiplier));
   --media-card-collection-row-gap: 18px;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(var(--media-card-collection-min-column), 1fr));
@@ -508,7 +517,8 @@ watch(
 }
 
 .media-card-collection--single-row > .media-card--landscape {
-  --media-card-collection-row-width: 250px;
+  /* Matches grid layout: two base columns plus the column gap. */
+  --media-card-collection-row-width: calc(352px * var(--media-card-collection-size-multiplier) + var(--media-card-collection-row-gap));
 }
 
 .media-card-collection--single-row {
@@ -517,9 +527,9 @@ watch(
   gap: var(--media-card-collection-row-gap);
 }
 
-/* Single-row cards are 50% larger, so posters scale up automatically via their aspect-ratio. */
+/* Single-row cards share the same base width as grid cards, scaled by the size multiplier. */
 .media-card-collection--single-row > * {
-  flex: 0 0 min(100%, calc(var(--media-card-collection-row-width) * 1.5));
+  flex: 0 0 min(100%, var(--media-card-collection-row-width));
   min-width: 0;
   scroll-snap-align: start;
 }
@@ -638,11 +648,11 @@ watch(
    }
 
    .media-card-collection--single-row > * {
-     flex-basis: min(78vw, calc(var(--media-card-collection-row-width) * 1.5));
+     flex-basis: min(78vw, var(--media-card-collection-row-width));
    }
 
    .media-card-collection--single-row > .media-card--landscape {
-     flex-basis: min(92vw, 360px);
+     flex-basis: min(92vw, var(--media-card-collection-row-width));
    }
 
   .media-card-collection--list {

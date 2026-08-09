@@ -441,3 +441,13 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ### Changed
 
 - **Entry bookmark keys now use the base64url route token**: `buildBookmarkKey` in `front/src/services/entryBookmarks.ts` now derives the IndexedDB primary key from `encodeEntryRoutePayload({ source, entryUrl })` instead of `JSON.stringify([source, entry])`. The bookmark key is therefore identical to the `encodedEntry` segment of the `/entry/:encodedEntry` route, so the card click token matches the stored record key. No migration is performed for previously persisted bookmarks.
+
+## Unreleased — Uniform thumbnail sizing across grid and single-row modes
+
+### Added
+
+- **Configurable thumbnail size multiplier**: Added a persisted `thumbnailSizeMultiplier` parameter (default `1`, range `0.25`–`1.5`, step `0.05`) exposed via a new slider control in the display settings panel.
+
+### Changed
+
+- **Grid and single-row widths now share a common base**: Media card collections apply `--media-card-collection-size-multiplier` to the base column width (`176px`) for portrait cards and the landscape width (`370px`, derived from two grid columns plus the gap). The single-row layout no longer inflates card width by a hardcoded `×1.5` factor, so portrait and landscape cards match the grid mode at the same multiplier.

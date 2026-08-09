@@ -60,6 +60,11 @@ interface Props {
    * @default 'cover'
    */
   thumbnailImageFit?: ThumbnailImageFit
+  /**
+   * Size multiplier applied to media card thumbnails.
+   * @default 1
+   */
+  thumbnailSizeMultiplier?: number
 }
 
 /** Component props with applied defaults. */
@@ -68,6 +73,7 @@ const props = withDefaults(defineProps<Props>(), {
   category: null,
   thumbnailOrientation: 'portrait',
   thumbnailImageFit: 'cover',
+  thumbnailSizeMultiplier: 1,
 })
 
 const emit = defineEmits<{
@@ -226,6 +232,7 @@ function handleSelectCollectionItem(item: MediaItem) {
                 :mode="getSectionCollectionMode(section)"
                 :thumbnail-orientation="getSectionThumbnailOrientation(section) ?? props.thumbnailOrientation"
                 :thumbnail-image-fit="getSectionThumbnailImageFit(section) ?? props.thumbnailImageFit"
+                :thumbnail-size-multiplier="props.thumbnailSizeMultiplier"
                 :show-header-actions="showSectionEditingButtons"
                 :is-loading-more="isSectionLoading(section)"
                 :have-more="section.haveMore"
@@ -277,6 +284,7 @@ function handleSelectCollectionItem(item: MediaItem) {
                 :mode="homeCollectionMode"
                 :thumbnail-orientation="getSectionThumbnailOrientation(section) ?? props.thumbnailOrientation"
                 :thumbnail-image-fit="getSectionThumbnailImageFit(section) ?? props.thumbnailImageFit"
+                :thumbnail-size-multiplier="props.thumbnailSizeMultiplier"
                 :show-header-actions="showSectionEditingButtons"
                 :is-loading-more="isSectionLoading(section)"
                 :have-more="section.haveMore"
@@ -318,6 +326,7 @@ function handleSelectCollectionItem(item: MediaItem) {
                 :mode="categoryCollectionMode"
                 :thumbnail-orientation="props.thumbnailOrientation"
                 :thumbnail-image-fit="props.thumbnailImageFit"
+                :thumbnail-size-multiplier="props.thumbnailSizeMultiplier"
                 :is-loading-more="isSectionLoading(section)"
                 :have-more="section.haveMore"
                 :load-more-error-message="getSectionLoadError(section)"

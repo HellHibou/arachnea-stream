@@ -11,6 +11,7 @@ import { useI18n } from '@/i18n'
 import { useTheme } from '@/composables/useTheme'
 
 import ParameterSegmented from './parameters/ParameterSegmented.vue'
+import ParameterSlider from './parameters/ParameterSlider.vue'
 import ParameterSwitch from './parameters/ParameterSwitch.vue'
 import ParameterThemeSelector from './parameters/ParameterThemeSelector.vue'
 import ParametersPanel from './parameters/ParametersPanel.vue'
@@ -106,6 +107,15 @@ function handleThumbnailOrientationUpdate(value: string | number | boolean) {
  */
 function handleThumbnailImageFitUpdate(value: string | number | boolean) {
   parameters.thumbnailImageFit.value = value as 'cover' | 'contain'
+}
+
+/**
+ * Forwards the thumbnail size multiplier selected by the slider.
+ *
+ * @param value Newly selected thumbnail size multiplier.
+ */
+function handleThumbnailSizeMultiplierUpdate(value: number) {
+  parameters.thumbnailSizeMultiplier.value = value
 }
 
 /**
@@ -226,6 +236,18 @@ function handleThemeUpdate(key: string) {
             :model-value="parameters.thumbnailOrientation.value"
             :options="thumbnailOrientationOptions"
             @update:model-value="handleThumbnailOrientationUpdate"
+          />
+        </ParametersPanel>
+   
+        <ParametersPanel :title="t('settings.thumbnailSize')">
+          <ParameterSlider
+            :label="t('settings.thumbnailSize')"
+            :model-value="parameters.thumbnailSizeMultiplier.value"
+            :min="0.5"
+            :max="1.5"
+            :step="0.10"
+            :value-suffix="'×'"
+            @update:model-value="handleThumbnailSizeMultiplierUpdate"
           />
         </ParametersPanel>
 

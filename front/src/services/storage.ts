@@ -176,6 +176,10 @@ export interface Parameters {
    */
   thumbnailImageFit: Ref<ThumbnailImageFit>
   /**
+   * Size multiplier applied to media card thumbnails in grid and single-row modes.
+   */
+  thumbnailSizeMultiplier: Ref<number>
+  /**
    * Layout mode applied to the result collection.
    */
   collectionMode: Ref<MediaCardCollectionMode>
@@ -242,6 +246,7 @@ export interface HomePreferences {
 const PARAMETERS_DEF: ParameterEntry[] = [
   { key: 'thumbnailOrientation',          defaultValue: 'landscape'},
   { key: 'thumbnailImageFit',             defaultValue: 'contain'  },
+  { key: 'thumbnailSizeMultiplier',       defaultValue: 1          },
   { key: 'collectionMode',                defaultValue: 'grid'     },
   { key: 'useTrailerAsBackground',        defaultValue: true       },
   { key: 'useCatalogBannersAsBackground', defaultValue: true       },

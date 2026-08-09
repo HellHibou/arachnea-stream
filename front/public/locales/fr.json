@@ -109,6 +109,7 @@
     "thumbnailFormat": "Format des vignettes",
     "portrait": "Portrait",
     "landscape": "Paysage",
+    "thumbnailSize": "Taille des vignettes",
     "imageDisplay": "Affichage des images",
     "cropped": "Recadree",
     "complete": "Complete",

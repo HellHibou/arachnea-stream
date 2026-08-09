@@ -65,6 +65,8 @@ function handleSelect(value: string) {
   gap: 8px;
   width: min(100%, var(--parameters-control-width));
   margin-right: 0px;
+  margin-top: 5px;
+  margin-bottom: 3px;
 }
 
 .theme-selector__swatch {

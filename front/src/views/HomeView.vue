@@ -25,6 +25,7 @@ const emit = defineEmits<{
     mode="home"
     :thumbnail-orientation="parameters.thumbnailOrientation.value"
     :thumbnail-image-fit="parameters.thumbnailImageFit.value"
+    :thumbnail-size-multiplier="parameters.thumbnailSizeMultiplier.value"
     @select-item="emit('select-item', $event)"
     @select-category="emit('select-category', $event)"
     @update:background-media-items="emit('update:background-media-items', $event)"

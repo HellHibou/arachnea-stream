@@ -109,6 +109,7 @@
     "thumbnailFormat": "Thumbnail format",
     "portrait": "Portrait",
     "landscape": "Landscape",
+    "thumbnailSize": "Thumbnail size",
     "imageDisplay": "Image display",
     "cropped": "Cropped",
     "complete": "Complete",

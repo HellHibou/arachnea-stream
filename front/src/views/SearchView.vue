@@ -44,6 +44,7 @@ watch(
     :search-request-id="searchRequestId"
     :thumbnail-orientation="parameters.thumbnailOrientation.value"
     :thumbnail-image-fit="parameters.thumbnailImageFit.value"
+    :thumbnail-size-multiplier="parameters.thumbnailSizeMultiplier.value"
     :collection-mode="searchCollectionMode"
     :submitted-media-types="routeSearchState.mediaTypes"
     :submitted-themes="routeSearchState.themes"

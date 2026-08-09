@@ -35,6 +35,10 @@ interface UseMediaCardCollectionScrollOptions {
    */
   thumbnailImageFit: Ref<ThumbnailImageFit>
   /**
+   * Reactive reference to the size multiplier applied to media card thumbnails.
+   */
+  thumbnailSizeMultiplier: Ref<number>
+  /**
    * Reactive reference to the scroll viewport element used by the one-line layout.
    */
   viewportRef: Ref<HTMLDivElement | null>
@@ -133,6 +137,7 @@ export function mediaCardCollectionScroll(options: UseMediaCardCollectionScrollO
       options.itemsLength.value,
       options.thumbnailOrientation.value,
       options.thumbnailImageFit.value,
+      options.thumbnailSizeMultiplier.value,
     ],
     () => {
       void syncScrollStateAfterLayoutChange()
