@@ -87,9 +87,9 @@
   --bg-rating-good: linear-gradient(180deg, #13c261 0%, #0ca24f 100%);
   --bg-rating-average: linear-gradient(180deg, #ff8a2b 0%, #f06a0d 100%);
   --bg-rating-low: linear-gradient(180deg, #ff5b5b 0%, #d53e3e 100%);
+
   --bg-accent-marker-primary: linear-gradient(
     180deg,
-    /* Départ : #46a3ff (Luminosité +3.7%) */
     hsl(var(--h-primary), var(--s-primary), calc(var(--l-primary) + 3.7%)) 0%,
     hsl(
       var(--h-primary),
@@ -103,6 +103,11 @@
   --bg-overlay-media-card-preview:
     linear-gradient(180deg, rgba(12, 15, 21, 0.52), rgba(12, 15, 21, 0.88)),
     linear-gradient(145deg, rgba(36, 91, 148, 0.22), rgba(213, 127, 49, 0.14));
+
+  /** Card Background */
+  --bg-card-opacity: 0.6;
+  --bg-card-background: var(--bg-accent-primary); /* Basic color */
+  /* --bg-card-background: var(--bg-surface); */ /* No color contrast */
 }
 
 @media (max-width: 960px), (prefers-reduced-motion: reduce) {

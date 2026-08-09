@@ -36,14 +36,15 @@ export function initDB(
     }
 
     // Start from the database's existing version (if any), so a page reload
-    // does not try to open a lower version than stored.
+    // does not try to open a lower version than stored. A fresh browser has
+    // no database yet: open version 1 (IndexedDB rejects version 0).
     let currentVersion: number
     if (typeof indexedDB.databases === 'function') {
       const existingDatabases = await indexedDB.databases()
       const existing = existingDatabases.find((db) => db.name === DB_NAME)
-      currentVersion = existing?.version ?? 0
+      currentVersion = existing?.version ?? 1
     } else {
-      currentVersion = 0
+      currentVersion = 1
     }
 
     const currentDb = await openDB(currentVersion)

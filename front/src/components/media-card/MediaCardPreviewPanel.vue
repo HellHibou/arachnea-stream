@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import type { MediaItem, ThumbnailOrientation } from '@/types/media'
+import { toRef, useTemplateRef, watch } from 'vue'
 
-import MediaCardActionButton from './MediaCardActionButton.vue'
+import type { MediaItem, ThumbnailOrientation } from '@/types/media'
+import { useMediaCardPreviewPosition } from '@/composables/media-card/useMediaCardPreviewPosition'
+
 import MediaCardDetailsContent from './MediaCardDetailsContent.vue'
 
 /**
- * Props accepted by the interactive preview panel rendered over one card layout.
+ * Props accepted by the interactive preview popup rendered next to one card layout.
  */
 interface Props {
   /**
@@ -16,10 +18,6 @@ interface Props {
    * Stable title shown when the backend title is missing.
    */
   displayTitle: string
-  /**
-   * Indicates whether the card can request the detailed entry.
-   */
-  canSelectItem: boolean
   /**
    * Indicates whether the preview should currently be visible.
    */
@@ -33,94 +31,145 @@ interface Props {
    */
   serviceTitle: string | null
   /**
-   * Internal route targeted by the card action, or null when no link is available.
+   * Root element of the card used as the popup anchor.
    */
-  href: string | null
+  anchorRef: HTMLElement | null
 }
 
 /** Component props without defaults. */
-defineProps<Props>()
+const props = defineProps<Props>()
 
-defineEmits<{
-  /** Emitted when the action button is clicked. */
-  select: []
+const emit = defineEmits<{
+  /** Emitted when the popup root element changes. */
+  popupRootChange: [element: HTMLElement | null]
 }>()
+
+/** Template reference to the popup root element. */
+const popupRef = useTemplateRef<HTMLElement>('popup')
+
+// Keep the collection manager informed about the popup root element.
+watch(popupRef, (element) => {
+  emit('popupRootChange', element)
+}, { immediate: true })
+
+/** Reactive reference to the anchor card element. */
+const anchor = toRef(props, 'anchorRef')
+
+/** Popup position state computed from the anchor and popup measurements. */
+const { position } = useMediaCardPreviewPosition({
+  anchorRef: anchor,
+  popupRef,
+  isOpen: () => props.isPreviewOpen,
+})
 </script>
 
 <template>
-  <aside
-    class="media-card__preview"
-    :class="{ 'media-card__preview--open': isPreviewOpen }"
-    :aria-hidden="!isPreviewOpen"
-  >
+  <Teleport to="body">
     <div
-      class="media-card__preview-copy"
-      :class="{ 'media-card__preview-copy--landscape': thumbnailOrientation === 'landscape' }"
+      v-if="isPreviewOpen"
+      ref="popup"
+      class="media-card-preview-popup"
+      :class="`media-card-preview-popup--${position.placement}`"
+      :style="{
+        left: `${position.left ?? 0}px`,
+        top: `${position.top ?? 0}px`,
+        visibility: position.visible ? 'visible' : 'hidden',
+      }"
+      role="tooltip"
     >
-      <div class="media-card__preview-body">
-        <h3 class="media-card__preview-title">
+      <!-- Small arrow pointing back to the anchor card. -->
+      <span class="media-card-preview-popup__arrow" aria-hidden="true" />
+      <div
+        class="media-card-preview-popup__copy"
+        :class="{ 'media-card-preview-popup__copy--landscape': thumbnailOrientation === 'landscape' }"
+      >
+        <h3 class="media-card-preview-popup__title">
           {{ displayTitle }}
         </h3>
 
         <MediaCardDetailsContent :item="item" :service-title="serviceTitle" />
       </div>
-
-      <MediaCardActionButton
-        :can-select-item="canSelectItem"
-        :href="href"
-        @select="$emit('select')"
-      />
     </div>
-  </aside>
+  </Teleport>
 </template>
 
 <style scoped>
-.media-card__preview {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  display: flex;
-  opacity: 0;
+.media-card-preview-popup {
+  position: fixed;
+  z-index: 50;
+  width: fit-content;
+  max-width: min(640px, calc(100vw - 16px));
+  max-height: min(480px, calc(100vh - 16px));
+  overflow: auto;
+  overscroll-behavior: contain;
+  /* Keep internal scrolling available but hide both scrollbars. */
+  scrollbar-width: none;
+  /* The popup is display-only: it must not keep itself open nor intercept card interactions. */
   pointer-events: none;
-  transform: scale(0.985);
-  transition:
-    opacity 170ms ease,
-    transform 170ms ease;
-  background: var(--bg-overlay-media-card-preview);
+  border: 1px solid var(--border-color-primary);
+  border-radius: var(--radius);
+  background: var(--bg-surface-strong);
+  box-shadow: var(--shadow-heavy);
   backdrop-filter: var(--backdrop-filter-medium);
+  color: var(--text-primary);
 }
 
-.media-card__preview--open {
-  opacity: 1;
-  pointer-events: auto;
-  transform: scale(1);
+.media-card-preview-popup::-webkit-scrollbar {
+  display: none;
 }
 
-.media-card__preview-copy {
+.media-card-preview-popup__copy {
   display: flex;
   flex-direction: column;
-  width: 100%;
-  height: 100%;
   gap: 12px;
   padding: 15px 14px 14px;
 }
 
-.media-card__preview-copy--landscape {
+.media-card-preview-popup__copy--landscape {
   padding: 18px 18px 16px;
 }
 
-.media-card__preview-body {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  flex-direction: column;
-  gap: 8px;
-  justify-content: flex-start;
-  overflow: auto;
-  overscroll-behavior: contain;
+/* Tooltip arrow centered on the edge facing the anchor card. */
+.media-card-preview-popup__arrow {
+  position: absolute;
+  display: block;
+  width: 10px;
+  height: 10px;
+  background: inherit;
+  border: inherit;
+  border-top: 0;
+  border-right: 0;
 }
 
-.media-card__preview-title {
+.media-card-preview-popup--top .media-card-preview-popup__arrow {
+  bottom: -5px;
+  left: 50%;
+  margin-left: -5px;
+  transform: rotate(-45deg);
+}
+
+.media-card-preview-popup--bottom .media-card-preview-popup__arrow {
+  top: -5px;
+  left: 50%;
+  margin-left: -5px;
+  transform: rotate(135deg);
+}
+
+.media-card-preview-popup--left .media-card-preview-popup__arrow {
+  top: 50%;
+  right: -5px;
+  margin-top: -5px;
+  transform: rotate(-135deg);
+}
+
+.media-card-preview-popup--right .media-card-preview-popup__arrow {
+  top: 50%;
+  left: -5px;
+  margin-top: -5px;
+  transform: rotate(45deg);
+}
+
+.media-card-preview-popup__title {
   display: block;
   overflow: visible;
   color: var(--text-primary);

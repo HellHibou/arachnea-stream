@@ -153,7 +153,7 @@ const { canScrollLeft, canScrollRight, showScrollControls, updateScrollState, sc
   })
 
 /** Preview management utilities. */
-const { openPreviewItemId, handlePreviewOpen, handlePreviewClose, handlePreviewRootChange } =
+const { openPreviewItemId, handlePreviewOpen, handlePreviewClose, handlePreviewRootChange, handlePreviewPopupRootChange } =
   mediaCardCollectionPreviewManager({
     mode: toRef(props, 'mode'),
   })
@@ -332,10 +332,11 @@ watch(
            :show-service-logo="showServiceLogo"
            :route-name="routeName"
            @select="handleSelect"
-           @preview-open="handlePreviewOpen"
-           @preview-close="handlePreviewClose"
-           @preview-root-change="handlePreviewRootChange"
-         />
+            @preview-open="handlePreviewOpen"
+            @preview-close="handlePreviewClose"
+            @preview-root-change="handlePreviewRootChange"
+            @preview-popup-root-change="handlePreviewPopupRootChange"
+          />
 
          <!-- Load-more button inline for single-row mode (scrollable area) -->
          <button

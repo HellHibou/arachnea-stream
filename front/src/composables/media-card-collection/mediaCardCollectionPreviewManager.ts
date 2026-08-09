@@ -34,6 +34,10 @@ interface MediaCardCollectionPreviewController {
    * Map of card item identifiers to their root elements currently rendered by the collection.
    */
   previewRootElements: Map<string, HTMLElement>
+  /**
+   * Map of card item identifiers to their popup root elements currently rendered by the collection.
+   */
+  previewPopupRootElements: Map<string, HTMLElement>
 }
 
 /** Set of all registered preview controllers for media card collections. */
@@ -54,8 +58,9 @@ function handleDocumentPointerDown(event: PointerEvent): void {
     }
 
     const rootElement = controller.previewRootElements.get(controller.openPreviewItemId.value)
+    const popupElement = controller.previewPopupRootElements.get(controller.openPreviewItemId.value)
 
-    if (target && rootElement?.contains(target)) {
+    if (target && (rootElement?.contains(target) || popupElement?.contains(target))) {
       continue
     }
 
@@ -127,10 +132,13 @@ export function mediaCardCollectionPreviewManager(
   const openPreviewItemId = shallowRef<string | null>(null)
   /** Map of card item identifiers to their root elements. */
   const previewRootElements = new Map<string, HTMLElement>()
+  /** Map of card item identifiers to their popup root elements. */
+  const previewPopupRootElements = new Map<string, HTMLElement>()
   const controller: MediaCardCollectionPreviewController = {
     mode: options.mode,
     openPreviewItemId,
     previewRootElements,
+    previewPopupRootElements,
   }
 
   /**
@@ -178,6 +186,20 @@ export function mediaCardCollectionPreviewManager(
     }
   }
 
+  /**
+   * Keeps track of the popup root elements so events inside the popup do not close the preview.
+   *
+   * @param payload - Card identifier and current popup root element.
+   */
+  function handlePreviewPopupRootChange(payload: { itemId: string; element: HTMLElement | null }): void {
+    if (payload.element) {
+      previewPopupRootElements.set(payload.itemId, payload.element)
+      return
+    }
+
+    previewPopupRootElements.delete(payload.itemId)
+  }
+
   onMounted(() => {
     registerPreviewController(controller)
   })
@@ -185,6 +207,7 @@ export function mediaCardCollectionPreviewManager(
   onBeforeUnmount(() => {
     unregisterPreviewController(controller)
     previewRootElements.clear()
+    previewPopupRootElements.clear()
   })
 
   watch(options.mode, (mode) => {
@@ -198,5 +221,6 @@ export function mediaCardCollectionPreviewManager(
     handlePreviewOpen,
     handlePreviewClose,
     handlePreviewRootChange,
+    handlePreviewPopupRootChange,
   }
 }

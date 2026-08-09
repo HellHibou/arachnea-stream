@@ -46,7 +46,7 @@ export function mediaCardPreview(options: UseMediaCardPreviewOptions) {
   }
 
   /**
-   * Closes the hover and focus preview for the current card.
+   * Closes the hover preview as soon as the pointer leaves the card.
    */
   function closePreview(): void {
     options.onClose()
@@ -64,7 +64,7 @@ export function mediaCardPreview(options: UseMediaCardPreviewOptions) {
       return
     }
 
-    closePreview()
+    options.onClose()
   }
 
   return {

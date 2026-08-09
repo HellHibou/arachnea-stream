@@ -108,7 +108,7 @@ function handleInput(event: Event) {
 .parameters-slider__input::-webkit-slider-runnable-track {
   height: 4px;
   border-radius: 2px;
-  background: color-mix(in srgb, var(--color-primary) 30%, transparent);
+  background: color-mix(in srgb, var(--text-disabled) 50%, transparent);
 }
 
 .parameters-slider__input::-webkit-slider-thumb {
@@ -128,7 +128,7 @@ function handleInput(event: Event) {
 .parameters-slider__input::-moz-range-track {
   height: 8px;
   border-radius: 4px;
-  background: color-mix(in srgb, var(--color-primary) 30%, transparent);
+  background: color-mix(in srgb, var(--text-disabled) 50%, transparent);
   border: none;
 }
 

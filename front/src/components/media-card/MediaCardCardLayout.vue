@@ -1,9 +1,12 @@
 <script setup lang="ts">
+import { ref, watch } from 'vue'
+
 import type { MediaItem, ThumbnailImageFit, ThumbnailOrientation } from '@/types/media'
+
+import { mediaCardPreview } from '@/composables/media-card/mediaCardPreview'
 
 import MediaCardPoster from './MediaCardPoster.vue'
 import MediaCardPreviewPanel from './MediaCardPreviewPanel.vue'
-import { mediaCardPreview } from '@/composables/media-card/mediaCardPreview'
 
 /**
  * Props accepted by the interactive card layout.
@@ -79,6 +82,8 @@ const emit = defineEmits<{
   closePreview: []
   /** Emitted when the root element changes. */
   rootChange: [element: HTMLElement | null]
+  /** Emitted when the popup root element changes. */
+  popupRootChange: [element: HTMLElement | null]
 }>()
 
 /** Media card preview composable results. */
@@ -103,6 +108,14 @@ const {
   },
 })
 
+/** Anchor element passed to the preview popup, kept in sync after mounting. */
+const anchorElement = ref<HTMLElement | null>(null)
+
+// Sync the anchor element with the card reference once available (after mount).
+watch(cardRef, (element) => {
+  anchorElement.value = element
+}, { immediate: true })
+
 /**
  * Emits the current selection when the card action is available.
  */
@@ -112,6 +125,22 @@ function handleSelect() {
   }
 
   emit('select')
+}
+
+/**
+ * Handles the click on the card thumbnail.
+ *
+ * @param event Click event emitted by the card root.
+ */
+function handleCardClick(event: MouseEvent): void {
+  if (!props.canSelectItem) {
+    event.preventDefault()
+    return
+  }
+
+  // Prevent the native link navigation and emit the selection for the SPA router.
+  event.preventDefault()
+  handleSelect()
 }
 </script>
 
@@ -124,7 +153,7 @@ function handleSelect() {
       { 'media-card--preview-open': isPreviewOpen },
     ]"
     tabindex="0"
-    @click="openPreview"
+    @keydown.enter.prevent="handleSelect"
     @focusin="openPreview"
     @focusout="handleFocusOut"
     @mouseenter="openPreview"
@@ -172,15 +201,25 @@ function handleSelect() {
       </div>
     </div>
 
+    <!-- Stretched native link covering the whole card: right-click / open-in-new-tab stays native while the left click is intercepted for SPA navigation. -->
+    <a
+      v-if="href"
+      class="media-card__link"
+      :href="href"
+      :aria-label="displayTitle"
+      tabindex="-1"
+      aria-hidden="true"
+      @click="handleCardClick"
+    />
+
     <MediaCardPreviewPanel
       :item="item"
       :display-title="displayTitle"
-      :can-select-item="canSelectItem"
       :is-preview-open="isPreviewOpen"
       :thumbnail-orientation="thumbnailOrientation"
       :service-title="serviceTitle"
-      :href="href"
-      @select="handleSelect"
+      :anchor-ref="anchorElement"
+      @popup-root-change="(element) => emit('popupRootChange', element)"
     />
   </article>
 </template>
@@ -193,8 +232,7 @@ function handleSelect() {
   border: 1px solid var(--border-color-primary);
   border-radius: var(--radius);
   outline: none;
-  background: var(--bg-surface);
-  backdrop-filter: var(--backdrop-filter-strong);
+  backdrop-filter: var(--backdrop-filter-soft);
 }
 
 .media-card:focus-visible {
@@ -203,8 +241,34 @@ function handleSelect() {
     0 18px 30px var(--shadow-color);
 }
 
+/* The link is stretched over the whole card so the entire thumbnail is clickable. */
+.media-card__link {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  -webkit-touch-callout: none;
+}
+
 .media-card__content {
+  position: relative;
   padding: 12px 12px 14px;
+}
+
+.media-card__content::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  background: var(--bg-card-background);
+  opacity: var(--bg-card-opacity);
+  pointer-events: none;
+}
+
+.media-card__content > * {
+  position: relative;
+  z-index: 1;
 }
 
 .media-card--landscape .media-card__content {
@@ -295,23 +359,9 @@ function handleSelect() {
   -webkit-line-clamp: 3;
 }
 
-.media-card--preview-open :deep(.media-card__poster),
-.media-card--preview-open .media-card__content {
-  filter: var(--filter-media-card-preview-open);
-  transform: scale(1.01);
-}
-
 @media (max-width: 820px) {
   .media-card--landscape .media-card__content {
     padding: 16px 16px 18px;
-  }
-}
-
-@media (hover: none), (pointer: coarse), (max-width: 960px) {
-  .media-card--preview-open :deep(.media-card__poster),
-  .media-card--preview-open .media-card__content {
-    filter: none;
-    transform: none;
   }
 }
 </style>

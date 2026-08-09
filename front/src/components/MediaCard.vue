@@ -79,6 +79,8 @@ const emit = defineEmits<{
   previewClose: [itemId: string]
   /** Emitted when the preview root element changes. */
   previewRootChange: [payload: { itemId: string; element: HTMLElement | null }]
+  /** Emitted when the popup root element changes. */
+  previewPopupRootChange: [payload: { itemId: string; element: HTMLElement | null }]
 }>()
 
 /** Whether the main image is available for display. */
@@ -236,6 +238,18 @@ function handlePreviewRootChange(element: HTMLElement | null) {
     element,
   })
 }
+
+/**
+ * Forwards the popup root element to the parent collection preview controller.
+ *
+ * @param element Current popup root element rendered by the preview panel.
+ */
+function handlePopupRootChange(element: HTMLElement | null) {
+  emit('previewPopupRootChange', {
+    itemId: props.item.id,
+    element,
+  })
+}
 </script>
 
 <template>
@@ -280,5 +294,6 @@ function handlePreviewRootChange(element: HTMLElement | null) {
     @open-preview="handlePreviewOpen"
     @close-preview="handlePreviewClose"
     @root-change="handlePreviewRootChange"
+    @popup-root-change="handlePopupRootChange"
   />
 </template>
