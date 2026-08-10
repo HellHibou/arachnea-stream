@@ -187,15 +187,7 @@ function handleCardClick(event: MouseEvent): void {
         {{ item.title }}
       </h2>
 
-      <div v-if="formattedRating != null || item.episodeLabel" class="media-card__meta-row">
-        <span
-          v-if="formattedRating != null"
-          class="media-card__content-rating"
-          :class="ratingClass"
-        >
-          {{ formattedRating }}
-        </span>
-
+      <div v-if="item.episodeLabel" class="media-card__meta-row">
         <p v-if="item.episodeLabel" class="media-card__episode">
           {{ item.episodeLabel }}
         </p>
@@ -253,7 +245,7 @@ function handleCardClick(event: MouseEvent): void {
 
 .media-card__content {
   position: relative;
-  padding: 12px 12px 14px;
+  padding: 4px 10px 4px;
 }
 
 .media-card__content::before {
@@ -273,7 +265,7 @@ function handleCardClick(event: MouseEvent): void {
 }
 
 .media-card--landscape .media-card__content {
-  padding: 18px 18px 20px;
+  padding: 4px 10px 4px;
 }
 
 .media-card__release-date {
@@ -362,7 +354,7 @@ function handleCardClick(event: MouseEvent): void {
 
 @media (max-width: 820px) {
   .media-card--landscape .media-card__content {
-    padding: 16px 16px 18px;
+    padding: 4px 10px 4px;
   }
 }
 </style>

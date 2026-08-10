@@ -188,7 +188,7 @@ export interface Parameters {
    */
   useTrailerAsBackground: Ref<boolean>
   /**
-   * Indicates whether home/category banner images should be reused as the page background.
+   * Indicates whether home/category banner and thumbnail images should be reused as the page background.
    */
   useCatalogBannersAsBackground: Ref<boolean>
   /**

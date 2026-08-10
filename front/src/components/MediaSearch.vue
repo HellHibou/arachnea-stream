@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { toRef } from 'vue'
+import { toRef, watch } from 'vue'
 
-import type { MediaCardCollectionMode, MediaItem, ThumbnailImageFit, ThumbnailOrientation } from '@/types/media'
+import type { BackgroundMediaCandidate, MediaCardCollectionMode, MediaItem, ThumbnailImageFit, ThumbnailOrientation } from '@/types/media'
 
 import MediaCardCollection from './MediaCardCollection.vue'
 import ScrollToTopButton from '@/components/ScrollToTopButton.vue'
+import { mediaSearchBackground } from '@/composables/media-search/mediaSearchBackground'
 import { mediaSearchCollections } from '@/composables/media-search/mediaSearchCollections'
 import { mediaSearchResults } from '@/composables/media-search/mediaSearchResults'
 import { useScrollToTop } from '@/composables/useScrollToTop'
@@ -77,6 +78,8 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
   /** Emitted when a media item is selected. */
    'select-item': [item: MediaItem]
+  /** Emitted when the background media candidates exposed by the search results change. */
+   'update:background-media-items': [mediaItems: BackgroundMediaCandidate[]]
 }>()
 
 /** Search results state and actions. */
@@ -103,6 +106,19 @@ const {
    selectedMediaTypes: toRef(props, 'submittedMediaTypes'),
    selectedThemes: toRef(props, 'submittedThemes'),
 })
+
+/** Background media candidates derived from the current search result thumbnails. */
+const { backgroundMediaItems } = mediaSearchBackground({
+   mediaItems,
+})
+
+watch(
+   backgroundMediaItems,
+   (mediaItems) => {
+      emit('update:background-media-items', mediaItems)
+   },
+   { immediate: true },
+)
 
 /** Organized collections from search results. */
 const { visibleCollections } = mediaSearchCollections({

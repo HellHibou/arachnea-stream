@@ -26,6 +26,20 @@ import type {
 import { homeCatalogData } from '@/composables/home/homeCatalogData'
 import { t } from '@/i18n'
 
+/** Maximum number of background media candidates exposed to the background layer. */
+const BACKGROUND_MEDIA_ITEMS_LIMIT = 10
+
+/**
+ * Returns the first available thumbnail image URL for one media item.
+ * Prefers landscape images for the full-page background, then falls back to the generic and poster URLs.
+ *
+ * @param item Media item rendered in a catalog section.
+ * @returns Trimmed image URL, or null when no image is available.
+ */
+function toBackgroundThumbnailImageUrl(item: MediaItem): string | null {
+  return item.imageLandscapeUrl?.trim() || item.imageUrl?.trim() || item.imagePosterUrl?.trim() || null
+}
+
 interface UseHomeCatalogOptions {
   /**
    * Active catalog mode.
@@ -37,9 +51,9 @@ interface UseHomeCatalogOptions {
   category: MaybeRefOrGetter<HomeCategory | null>
   /**
    * Callback invoked when background media items change.
-   * Receives the ordered banner background image candidates whenever the current catalog changes.
+   * Receives the ordered background image candidates whenever the current catalog changes.
    *
-   * @param mediaItems - Array of background media candidates from banners.
+   * @param mediaItems - Array of background media candidates from banners and section thumbnails.
    */
   onBackgroundMediaItemsChange?: (mediaItems: BackgroundMediaCandidate[]) => void
 }
@@ -96,6 +110,8 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
   const category = toRef(options.category)
   /** Storage service instance. */
   const storage = useStorage()
+  /** Application parameters from storage. */
+  const parameters = storage.getParameters()
   /** Home preferences from storage. */
   const homePreferences: HomePreferences = storage.getHomePreferences()
   /** Map of section preference keys to their rendered DOM elements. */
@@ -137,12 +153,17 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
       currentCatalog.value.sections.length > 0,
   )
   /**
-   * Background media candidates derived from banner images.
-   * Deduplicates banner image URLs for the background media component.
+   * Background media candidates derived from banner images, completed with section thumbnail images
+   * up to {@link BACKGROUND_MEDIA_ITEMS_LIMIT} entries.
+   * Deduplicates image URLs for the background media component.
    *
-   * @returns Array of background media candidates from banners.
+   * @returns Array of background media candidates from banners and section thumbnails.
    */
   const backgroundMediaItems = computed<BackgroundMediaCandidate[]>(() => {
+    if (!parameters.useCatalogBannersAsBackground.value) {
+      return []
+    }
+
     const items: BackgroundMediaCandidate[] = []
     const uniqueImageUrls = new Set<string>()
 
@@ -160,6 +181,27 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
       uniqueImageUrls.add(imageUrl)
       items.push({ imageUrl, videoUrl: null })
     })
+
+    if (items.length >= BACKGROUND_MEDIA_ITEMS_LIMIT) {
+      return items.slice(0, BACKGROUND_MEDIA_ITEMS_LIMIT)
+    }
+
+    for (const section of currentCatalog.value.sections) {
+      for (const mediaItem of section.items) {
+        if (items.length >= BACKGROUND_MEDIA_ITEMS_LIMIT) {
+          return items
+        }
+
+        const imageUrl = toBackgroundThumbnailImageUrl(mediaItem)
+
+        if (!imageUrl || uniqueImageUrls.has(imageUrl)) {
+          continue
+        }
+
+        uniqueImageUrls.add(imageUrl)
+        items.push({ imageUrl, videoUrl: null })
+      }
+    }
 
     return items
   })

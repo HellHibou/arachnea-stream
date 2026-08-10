@@ -5,7 +5,7 @@ import { useRoute } from 'vue-router'
 import MediaSearch from '@/components/MediaSearch.vue'
 import { readSearchRouteQuery } from '@/router/searchQuery'
 import { useStorage } from '@/services/storage'
-import type { MediaCardCollectionMode, MediaItem } from '@/types/media'
+import type { BackgroundMediaCandidate, MediaCardCollectionMode, MediaItem } from '@/types/media'
 
 /** Vue Router current route. */
 const route = useRoute()
@@ -24,6 +24,8 @@ const searchCollectionMode = computed<Exclude<MediaCardCollectionMode, 'single-r
 const emit = defineEmits<{
   /** Emitted when a media item is selected from search results. */
   'select-item': [item: MediaItem]
+  /** Emitted when the background media candidates exposed by the search screen change. */
+  'update:background-media-items': [mediaItems: BackgroundMediaCandidate[]]
 }>()
 
 /** Search state extracted from the current route query parameters. */
@@ -50,5 +52,6 @@ watch(
     :submitted-themes="routeSearchState.themes"
     collection-label="Resultat de recherche"
     @select-item="emit('select-item', $event)"
+    @update:background-media-items="emit('update:background-media-items', $event)"
   />
 </template>

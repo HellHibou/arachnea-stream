@@ -110,14 +110,14 @@ function toggleSearch() {
 }
 
 /**
- * Returns the background images that should be shown behind catalog screens.
+ * Returns the background images that should be shown behind catalog and search screens.
  */
 const catalogScreenBackgroundMediaItems = computed(() => {
   if (!parameters.useCatalogBannersAsBackground.value) {
     return []
   }
 
-  if (route.name !== 'home' && route.name !== 'category') {
+  if (route.name !== 'home' && route.name !== 'category' && route.name !== 'search') {
     return []
   }
 
@@ -125,9 +125,9 @@ const catalogScreenBackgroundMediaItems = computed(() => {
 })
 
 /**
- * Stores the current banner background image candidates exposed by catalog screens.
+ * Stores the current background image candidates exposed by catalog and search screens.
  *
- * @param mediaItems Banner background image candidates collected from the active catalog payload.
+ * @param mediaItems Background image candidates collected from the active catalog or search payload.
  */
 function handleCatalogBackgroundMediaItemsUpdate(mediaItems: BackgroundMediaCandidate[]) {
   catalogBackgroundMediaItems.value = mediaItems
