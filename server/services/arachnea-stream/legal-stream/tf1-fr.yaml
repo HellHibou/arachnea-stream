@@ -56,7 +56,7 @@ parameters:
     value: 120
     description: Number of programs fetched for the TF1 home payload.
   - name: page_size
-    value: 10
+    value: 50
     description: Default TF1 page size for paged program and season requests.
   - name: search_program_limit
     value: 50
@@ -1119,7 +1119,7 @@ queries:
           - name: players
             type: object[]
             entries:
-              - name: embed-link
+              - name: web-link
                 type: string
                 actions:
                   - type: build_url
@@ -1159,7 +1159,7 @@ queries:
           - name: players
             type: object[]
             entries:
-              - name: embed-link
+              - name: web-link
                 type: string
                 actions:
                   - type: build_url
@@ -1266,7 +1266,7 @@ queries:
           - name: players
             type: object[]
             entries:
-              - name: embed-link
+              - name: web-link
                 type: string
                 actions:
                   - type: build_url

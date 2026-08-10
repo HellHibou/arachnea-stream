@@ -676,6 +676,10 @@ const activeIframeReferrerPolicy = computed<MediaIframeReferrerPolicy | null>(()
     if (!isEntryDetailsMode.value) {
       return props.videoAriaLabel
     }
+
+    if (detailTitle.value) {
+      return detailTitle.value
+    }
     
     if (entryDetailsSurfaceMode.value === 'trailer') {
       return t('player.trailerTitle', { title: detailTitle.value }) 

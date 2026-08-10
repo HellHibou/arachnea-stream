@@ -51,7 +51,7 @@ queries:
       - web-link
       - img/logo > link
       - img/poster > link
-      - players > embed-link
+      - players > web-link
       - count-season
     fields_optional:
       - director

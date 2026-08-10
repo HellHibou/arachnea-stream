@@ -803,6 +803,14 @@ queries:
                 type: string
                 select: first
                 pointer: /data/content/0/assetId
+          - name: web-link  
+            type: string
+            select: first
+            pointer: /meta/soe/embedUrl
+          - name: web-link  
+            type: string
+            select: first
+            pointer: /meta/seo/canonical
       - name: web-link
         type: string
         select: first
@@ -1066,6 +1074,13 @@ queries:
           - name: players
             type: object[]
             entries:
+              - name: web-link  
+                type: string
+                select: first
+                pointer: /path
+                actions:
+                    - type: format_text
+                      argument: "https://auvio.rtbf.be/{}"
               - name: resolver
                 type: object
                 select: first

@@ -104,6 +104,7 @@ function createBannerPlayer(banner: HomeBanner): EntryPlayer | null {
     id: `${banner.id}-banner`,
     label: banner.title ?? banner.id,
     directLink: null,
+    webLink: null,
     name: null,
     lang: null,
     resolver: banner.player,

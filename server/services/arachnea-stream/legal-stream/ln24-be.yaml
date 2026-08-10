@@ -246,7 +246,7 @@ queries:
                 actions:
                   - type: get_attribut
                     argument: data-description
-              - name: img/poster > link
+              - name: img/landscape > link
                 type: string
                 actions:
                   - type: get_attribut

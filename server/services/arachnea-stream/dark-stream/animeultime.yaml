@@ -138,7 +138,7 @@ queries:
             actions:
               - type: format_text
                 argument: "Animés"
-          - name: link
+          - name: request > query_url
             type: string
             actions:
               - type: format_text
@@ -156,7 +156,7 @@ queries:
             actions:
               - type: format_text
                 argument: "Dramas"
-          - name: link
+          - name: request > query_url
             type: string
             actions:
               - type: format_text
@@ -174,7 +174,7 @@ queries:
             actions:
               - type: format_text
                 argument: "Tokusatsu"
-          - name: link
+          - name: request > query_url
             type: string
             actions:
               - type: format_text

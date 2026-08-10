@@ -136,6 +136,8 @@ export interface EntryPlayer {
   label: string
   /** The direct URL to the media. */
   directLink: string | null
+  /** The public web URL opened externally when the direct link is not suitable. */
+  webLink: string | null
   /** The name of the player. */
   name: string | null
   /** The language code for this player's content. */

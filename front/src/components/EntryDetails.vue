@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onUnmounted, watch } from 'vue'
 import Background from './Background.vue'
 import EntryDetailsHeroContent from './entry-details/EntryDetailsHeroContent.vue'
 import EntryDetailsMetadata from './entry-details/EntryDetailsMetadata.vue'
 import EntryDetailsPosterPanel from './entry-details/EntryDetailsPosterPanel.vue'
 import ScrollToTopButton from '@/components/ScrollToTopButton.vue'
 import { useScrollToTop } from '@/composables/useScrollToTop'
+import { APP_TITLE } from '@/constants'
 import { useI18n } from '@/i18n'
 
 import type { EntryPlayer } from '@/types/entry'
@@ -168,6 +169,32 @@ const { t } = useI18n()
 const loadingTitle = computed(() => props.loadingTitle ?? t('entry.loadingTitle'))
 /** Resolved loading description with fallback to translated default. */
 const loadingDescription = computed(() => props.loadingDescription ?? t('entry.loadingMessage'))
+
+/**
+ * Builds the browser tab title from the entry title, the selected playable title
+ * when available, and the application title.
+ */
+const pageTitle = computed(() => {
+  let parts = props.displayTitle
+
+  const selectedPlayableTitle = props.selectedPlayableTitle?.trim()
+  if (selectedPlayableTitle && selectedPlayableTitle !== props.displayTitle) {
+    parts += ' - ' + selectedPlayableTitle;
+  }
+
+  parts += ' - ' + APP_TITLE;
+  return parts;
+})
+
+/** Updates the browser tab title whenever the page title changes. */
+watch(pageTitle, (title) => {
+  document.title = title
+}, { immediate: true })
+
+/** Restores the default application title when the component is unmounted. */
+onUnmounted(() => {
+  document.title = APP_TITLE
+})
 
 /** Whether the autoplay toggle should be shown based on props. */
 const resolvedShowAutoplayToggle = computed(() =>

@@ -576,6 +576,11 @@ queries:
             select: first
             pointer: /target/storefront
             actions: *actions_storefront_link
+          - name: request > query_url
+            type: string
+            select: first
+            pointer: /target/storefront
+            actions: *actions_storefront_link
 
       - name: sections
         type: object[]
@@ -736,6 +741,11 @@ queries:
             pointer: /target/rowId
             actions: *actions_row_detail_link
           - name: link
+            type: string
+            select: first
+            pointer: /target/storefront
+            actions: *actions_storefront_link
+          - name: request > query_url
             type: string
             select: first
             pointer: /target/storefront
@@ -1004,6 +1014,13 @@ queries:
         actions:
           - type: format_text
             argument: "{base_url}/rtlplay/~{}"
+      - name: players > web-link
+        type: string
+        select: first
+        pointer: /id
+        actions:
+          - type: format_text
+            argument: "{base_url}/rtlplay/player/{}"           
       - name: img/poster > link
         type: string
         select: first
@@ -1206,6 +1223,13 @@ queries:
             type: string
             select: first
             pointer: /id
+          - name: players > web-link
+            type: string
+            select: first
+            pointer: /id
+            actions:
+              - type: format_text
+                argument: "{base_url}/rtlplay/player/{}"                 
           - name: img/preview > link
             type: string
             select: first

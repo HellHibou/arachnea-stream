@@ -715,7 +715,7 @@ queries:
                 fields:
                   prg: /code
                   cid: /clips/0/id
-          - name: players > embed-link
+          - name: players > web-link
             type: string
             actions:
               - type: build_url
@@ -825,7 +825,7 @@ queries:
       - name: players
         type: object[]
         entries:
-          - name: embed-link
+          - name: web-link
             type: string
             select: first
             pointer: /live/channel/code_url

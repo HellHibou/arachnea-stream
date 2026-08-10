@@ -8,6 +8,7 @@ import { createVuetify } from 'vuetify'
 import { aliases as mdiAliases, mdi } from 'vuetify/iconsets/mdi'
 import { createPinia } from 'pinia'
 import router from './router'
+import { APP_TITLE } from './constants'
 import { useServiceMetadata } from './composables/useServiceMetadata'
 import { initializeI18n } from './i18n'
 import { useStorage } from '@/services/storage'
@@ -45,6 +46,7 @@ app
  * @returns Promise that resolves when the application is fully bootstrapped.
  */
 async function bootstrap(): Promise<void> {
+   document.title = APP_TITLE
    await initializeI18n()
    void useServiceMetadata().load()
 

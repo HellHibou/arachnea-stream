@@ -1486,7 +1486,7 @@ function normalizeMediaItem(
   const record = isJsonRecord(entry) ? entry : {}
   const source = firstNonEmptyString([record.source, readPath(record, 'source', 'name'), inheritedSource])
   const link = firstNonEmptyString([record.link])
-  const webLink = firstNonEmptyString([record['web-link'], record.webLink, record.link])
+  const webLink = firstNonEmptyString([record['web-link'], record.webLink])
   const rawTitle = firstNonEmptyString([record.title])
   const altTitle = firstNonEmptyString([record['title/alt']])
   const title = firstNonEmptyString([rawTitle, altTitle, record.label])
@@ -1653,6 +1653,10 @@ function normalizeEntryPlayer(
     firstNonEmptyString([entry['direct-link'], entry.directLink]),
     source,
   )
+  const webLink = resolveEntryUrl(
+    firstNonEmptyString([entry['web-link'], entry.webLink]),
+    source,
+  )
   const resolver = normalizeEntryPlayerResolver(entry) ?? (embedLink
     ? { kind: 'stream-resolver', targetId: embedLink }
     : null)
@@ -1670,6 +1674,7 @@ function normalizeEntryPlayer(
       id: buildMediaId(index, resolver?.targetId ?? null, label, source),
       label,
       directLink: null,
+      webLink,
       name,
       lang,
       resolver,
@@ -1681,6 +1686,7 @@ function normalizeEntryPlayer(
     id: buildMediaId(index, directLink ?? embedLink, label, source),
     label,
     directLink,
+    webLink,
     name,
     lang,
     resolver,

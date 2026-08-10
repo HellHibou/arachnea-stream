@@ -192,7 +192,7 @@ queries:
             actions:
               - type: format_text
                 argument: "Animés VF"
-          - name: link
+          - name: request > query_url
             type: string
             actions:
               - type: format_text
@@ -211,7 +211,7 @@ queries:
             actions:
               - type: format_text
                 argument: "Animés VOSTFR"
-          - name: link
+          - name: request > query_url
             type: string
             actions:
               - type: format_text
@@ -230,7 +230,7 @@ queries:
             actions:
               - type: format_text
                 argument: "Films Animés"
-          - name: link
+          - name: request > query_url
             type: string
             actions:
               - type: format_text

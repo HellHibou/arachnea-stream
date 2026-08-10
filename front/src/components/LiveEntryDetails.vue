@@ -280,7 +280,7 @@ async function resolveSelectedLiveMedia(player: EntryPlayer | null) {
   resolvedLiveMediaSource.value = null
   resolvedLiveStream.value = null
   activeResolvedLiveStreamIndex.value = 0
-  resolvedLiveMediaOpenUrl.value = player?.directLink ?? player?.resolver?.targetId ?? null
+  resolvedLiveMediaOpenUrl.value = player?.directLink ?? player?.webLink ?? null
   resolvedLiveMediaErrorMessage.value = null
 
   if (!selectedLiveItem.value?.source || !player) {

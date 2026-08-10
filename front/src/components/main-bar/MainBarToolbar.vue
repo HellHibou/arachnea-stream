@@ -5,6 +5,8 @@ import type { SearchFilterOption } from '@/services/rustify'
 import { useI18n } from '@/i18n'
 
 import SearchBar from '../SearchBar.vue'
+import { APP_TITLE } from '../../constants'
+
 
 /**
  * Props accepted by the main toolbar row rendered above the current screen.
@@ -121,7 +123,7 @@ const livesHref = router.resolve({ name: 'lives' }).href
       <div>
         <img src="/logo.png" alt="" class="logo" />
         <span class="main-bar__brand">
-          Arachnéa
+          {{APP_TITLE}}
         </span>
       </div>
     </div>

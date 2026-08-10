@@ -462,10 +462,15 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
   /**
    * Exposes the public player URL that can still be opened externally when available.
    *
-   * @returns The direct or embed link URL, or null.
+   * Prefers the player web link when present, then falls back to the direct link,
+   * and finally to the resolver target.
+   *
+   * @returns The web, direct, or resolver target URL, or null.
    */
   const mediaOpenUrl = computed(() =>
-    selectedPlayer.value?.directLink ?? selectedPlayer.value?.resolver?.targetId ?? null
+    selectedPlayer.value?.webLink ??
+    selectedPlayer.value?.directLink ??
+    null
   )
 
   /**
