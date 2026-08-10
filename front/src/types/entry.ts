@@ -202,6 +202,8 @@ export interface EntryDetails {
   imagePortraitUrl: string | null
   /** The URL for the landscape-oriented thumbnail. */
   imageLandscapeUrl: string | null
+  /** Generic image URL used when no oriented image is available. */
+  imageUrl: string | null
   /** The URL for the logo image. */
   logoUrl: string | null
   /** The URL for the hero banner image. */

@@ -32,6 +32,10 @@ interface UseBackgroundMediaOptions {
    */
   imageLandscapeUrl: Ref<string | null>
   /**
+   * Optional un-oriented image used when no oriented image is available.
+   */
+  imageFallbackUrl?: Ref<string | null>
+  /**
    * Optional images rendered behind the whole page.
    */
   imageUrls: Ref<string[]>
@@ -121,18 +125,19 @@ export function backgroundMedia(options: UseBackgroundMediaOptions) {
   const selectedOrientationImageUrl = computed(() => {
     const portraitUrl = options.imagePortraitUrl.value
     const landscapeUrl = options.imageLandscapeUrl.value
+    const fallbackUrl = options.imageFallbackUrl?.value ?? null
 
     if (typeof window === 'undefined') {
-      return portraitUrl ?? landscapeUrl
+      return portraitUrl ?? landscapeUrl ?? fallbackUrl
     }
 
     const isLandscapeViewport = window.innerWidth > window.innerHeight
 
     if (isLandscapeViewport) {
-      return landscapeUrl ?? portraitUrl
+      return landscapeUrl ?? portraitUrl ?? fallbackUrl
     }
 
-    return portraitUrl ?? landscapeUrl
+    return portraitUrl ?? landscapeUrl ?? fallbackUrl
   })
 
   /**

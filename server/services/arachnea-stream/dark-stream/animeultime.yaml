@@ -68,9 +68,9 @@ shared:
           argument: href
         - type: format_text
           argument: "{base_url}/{}"
-    - name: img/poster > link
+    - name: img > link
       type: string
-      actions: *actions_poster_from_onmouseover
+      actions: *actions_poster_from_onmouseover   
     - name: source
       type: string
       actions:
@@ -227,7 +227,7 @@ queries:
                     argument: href
                   - type: format_text
                     argument: "{base_url}/{}"
-              - name: img/poster > link
+              - name: img > link
                 type: string
                 select: first
                 selector: "td + td a"
@@ -368,7 +368,7 @@ queries:
                   argument: href
                 - type: format_text
                   argument: "{base_url}/{}"
-            - name: img/poster > link
+            - name: img > link
               type: string
               selector: "td > a"
               select: first
@@ -379,7 +379,7 @@ queries:
                   pattern: "img=([^\"'\\s]+)"
                   format: "{1}"
                 - type: format_text
-                  argument: "{base_url}/img_resize.php?img={}"
+                  argument: "{base_url}/img_resize.php?img={}"       
             - name: media-type
               type: string[]
               selector: "td:nth-child(3)"
@@ -445,7 +445,7 @@ queries:
                 argument: href
               - type: format_text
                 argument: "{base_url}/{}"
-          - name: img/poster > link
+          - name: img > link
             type: string
             select: first
             selector: "a"
@@ -523,7 +523,7 @@ queries:
           - type: regex_find_all
             pattern: "^([\\s\\S]*?)\n[ \\t]*Date\n"
             format: "{1}"
-      - name: img/poster > link
+      - name: img > link
         type: string
         actions:
           - type: get_response_body

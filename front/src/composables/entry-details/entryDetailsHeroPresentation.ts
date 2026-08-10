@@ -60,12 +60,13 @@ export function entryDetailsHeroPresentation(options: UseEntryDetailsHeroPresent
         details?.logoUrl ??
         details?.imageLandscapeUrl ??
         details?.imagePosterUrl ??
+        details?.imageUrl ??
         details?.heroImageUrl ??
         null,
       posterFrameUsesContain: Boolean(details?.logoUrl),
-      heroBackgroundUrl: details?.imagePortraitUrl ?? details?.imagePosterUrl ?? details?.heroImageUrl ?? null,
-      heroBackgroundPortraitUrl: details?.imagePortraitUrl ?? details?.imagePosterUrl ?? null,
-      heroBackgroundLandscapeUrl: details?.imageLandscapeUrl ?? null,
+      heroBackgroundUrl: details?.imagePortraitUrl ?? details?.imagePosterUrl ?? details?.heroImageUrl ?? details?.imageUrl ?? null,
+      heroBackgroundPortraitUrl: details?.imagePortraitUrl ?? details?.imagePosterUrl ?? details?.imageUrl ?? null,
+      heroBackgroundLandscapeUrl: details?.imageLandscapeUrl ?? details?.imageUrl ?? null,
       releaseDateLabel: selectedEpisode?.releaseDateLabel ?? details?.releaseDateLabel ?? null,
       expireLabel: selectedEpisode?.expireLabel ?? details?.expireLabel ?? null,
       durationLabel: selectedEpisode?.durationLabel ?? details?.durationLabel ?? null,

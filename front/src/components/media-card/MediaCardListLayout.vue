@@ -90,6 +90,7 @@ defineEmits<{
         :display-title="displayTitle"
         :image-poster-url="item.imagePosterUrl"
         :image-landscape-url="item.imageLandscapeUrl"
+        :image-url="item.imageUrl"
         :thumbnail-orientation="thumbnailOrientation"
         :thumbnail-image-fit="thumbnailImageFit"
         :image-available="imageAvailable"

@@ -159,7 +159,7 @@ const selectedPlayableItem = computed<EntryPlayableItem | null>(() => {
     releaseDateLabel: liveItem.releaseDateLabel,
     expireLabel: liveItem.expireLabel,
     durationLabel: liveItem.durationLabel,
-    previewUrl: liveItem.imagePosterUrl ?? liveItem.imageLandscapeUrl,
+    previewUrl: liveItem.imagePosterUrl ?? liveItem.imageLandscapeUrl ?? liveItem.imageUrl,
   }
 })
 
@@ -183,8 +183,9 @@ const details = computed<EntryDetailsModel | null>(() => {
     imagePosterUrl: liveItem.imagePosterUrl,
     imagePortraitUrl: liveItem.imagePortraitUrl,
     imageLandscapeUrl: liveItem.imageLandscapeUrl,
+    imageUrl: liveItem.imageUrl,
     logoUrl: null,
-    heroImageUrl: liveItem.imageLandscapeUrl ?? liveItem.imagePosterUrl,
+    heroImageUrl: liveItem.imageLandscapeUrl ?? liveItem.imagePosterUrl ?? liveItem.imageUrl,
     yearLabel: null,
     releaseDateLabel: liveItem.releaseDateLabel,
     expireLabel: liveItem.expireLabel,
@@ -240,28 +241,28 @@ const shouldShowMediaPlayer = computed(
  * Exposes the poster used by the shared player shell.
  */
 const mediaPosterUrl = computed(() =>
-  selectedLiveItem.value?.imagePosterUrl ?? selectedLiveItem.value?.imageLandscapeUrl ?? null,
+  selectedLiveItem.value?.imagePosterUrl ?? selectedLiveItem.value?.imageLandscapeUrl ?? selectedLiveItem.value?.imageUrl ?? null,
 )
 
 /**
  * Exposes the background image reused by the shared details shell.
  */
 const heroBackgroundUrl = computed(() =>
-  selectedLiveItem.value?.imagePortraitUrl ?? selectedLiveItem.value?.imagePosterUrl ?? null,
+  selectedLiveItem.value?.imagePortraitUrl ?? selectedLiveItem.value?.imagePosterUrl ?? selectedLiveItem.value?.imageUrl ?? null,
 )
 
 /**
  * Exposes the portrait-oriented background image for portrait viewport.
  */
 const heroBackgroundPortraitUrl = computed(() =>
-  selectedLiveItem.value?.imagePortraitUrl ?? selectedLiveItem.value?.imagePosterUrl ?? null,
+  selectedLiveItem.value?.imagePortraitUrl ?? selectedLiveItem.value?.imagePosterUrl ?? selectedLiveItem.value?.imageUrl ?? null,
 )
 
 /**
  * Exposes the landscape-oriented background image for landscape viewport.
  */
 const heroBackgroundLandscapeUrl = computed(() =>
-  selectedLiveItem.value?.imageLandscapeUrl ?? null,
+  selectedLiveItem.value?.imageLandscapeUrl ?? selectedLiveItem.value?.imageUrl ?? null,
 )
 
 /**

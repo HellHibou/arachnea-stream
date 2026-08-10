@@ -19,6 +19,10 @@ interface Props {
    */
   imageLandscapeUrl: string | null
   /**
+   * Generic image used when no oriented poster is available.
+   */
+  imageUrl: string | null
+  /**
    * Thumbnail orientation applied to the poster frame.
    */
   thumbnailOrientation: ThumbnailOrientation
@@ -83,9 +87,9 @@ const props = withDefaults(defineProps<Props>(), {
  */
 const imageSource = computed(() => {
   if (props.thumbnailOrientation === 'landscape') {
-    return props.imageLandscapeUrl ?? props.imagePosterUrl
+    return props.imageLandscapeUrl ?? props.imagePosterUrl ?? props.imageUrl
   } else {
-    return props.imagePosterUrl ?? props.imageLandscapeUrl
+    return props.imagePosterUrl ?? props.imageLandscapeUrl ?? props.imageUrl
   }
 })
 

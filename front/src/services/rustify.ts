@@ -1504,6 +1504,10 @@ function normalizeMediaItem(
     readFirstLink(record, 'img/landscape', ['img', 'landscape']),
     source,
   )
+  const imageUrl = resolveAssetUrl(
+    readFirstLink(record, 'img/url', ['img', 'url']) ?? readFirstLink(record, 'img', ['img']),
+    source,
+  )
   const entryUrl = resolveEntryUrl(link, source)
   const webUrl = resolveEntryUrl(webLink, source)
   const mediaTypeValues = dedupeDisplayStrings(readStringList(record['media-type']))
@@ -1525,6 +1529,7 @@ return {
      imagePosterUrl,
      imagePortraitUrl,
      imageLandscapeUrl,
+     imageUrl,
      source,
     entryUrl,
     webUrl,
@@ -1560,6 +1565,10 @@ function normalizeEntryDetails(entry: unknown, source: string, entryUrl: string)
   const imagePosterUrl = resolveAssetUrl(readFirstLink(record, 'img/poster', ['img', 'poster']), source)
   const imagePortraitUrl = resolveAssetUrl(readFirstLink(record, 'img/portrait', ['img', 'portrait']), source)
   const imageLandscapeUrl = resolveAssetUrl(readFirstLink(record, 'img/landscape', ['img', 'landscape']), source)
+  const imageUrl = resolveAssetUrl(
+    readFirstLink(record, 'img/url', ['img', 'url']) ?? readFirstLink(record, 'img', ['img']),
+    source,
+  )
   const trailerUrl = firstNonEmptyString([record['video/trailer']])
   const webLink = resolveEntryUrl(
     firstNonEmptyString([record['web-link'], record.webLink, record.web_url, record.webUrl]),
@@ -1577,8 +1586,9 @@ function normalizeEntryDetails(entry: unknown, source: string, entryUrl: string)
     imagePosterUrl,
     imagePortraitUrl,
     imageLandscapeUrl,
+    imageUrl,
     logoUrl: resolveAssetUrl(readFirstLink(record, 'img/logo', ['img', 'logo']), source),
-    heroImageUrl: imagePortraitUrl ?? imagePosterUrl,
+    heroImageUrl: imagePortraitUrl ?? imagePosterUrl ?? imageUrl,
     yearLabel: formatNumberLabel(firstNumber(record.year)),
     releaseDateLabel: formatReleaseDateLabel(firstNonEmptyString([record['release-date']])),
     expireLabel: formatReleaseDateLabel(firstNonEmptyString([record.expire])),
@@ -2731,7 +2741,7 @@ function buildMediaDeduplicationKey(item: MediaItem): string {
   }
 
   const normalizedTitle = normalizeString(item.title ?? '')
-  const normalizedPosterUrl = normalizeString(item.imagePosterUrl ?? '')
+  const normalizedPosterUrl = normalizeString(item.imagePosterUrl ?? item.imageUrl ?? '')
   if (normalizedSource && normalizedTitle && normalizedPosterUrl) {
     return `poster:${normalizedSource}:${normalizedTitle.toLocaleLowerCase()}:${normalizedPosterUrl}`
   }

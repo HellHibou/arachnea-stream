@@ -72,6 +72,8 @@ export interface MediaItem extends MediaSelectionTarget {
   imagePortraitUrl: string | null
   /** URL for the landscape-oriented thumbnail image. */
   imageLandscapeUrl: string | null
+  /** Generic thumbnail URL used when no oriented image is available. */
+  imageUrl: string | null
   /** Display label for the media type. */
   mediaTypeLabel: string | null
   /** Raw media type values for categorization. */

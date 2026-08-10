@@ -65,6 +65,7 @@ function toBookmarkMediaItem(record: EntryBookmarkRecord): MediaItem {
     imagePosterUrl: record.imagePosterUrl,
     imagePortraitUrl: null,
     imageLandscapeUrl: record.imageLandscapeUrl,
+    imageUrl: null,
     source: record.source,
     entryUrl: record.entry,
     webUrl: null,
