@@ -1,0 +1,126 @@
+id: savefiles
+title: SaveFiles
+description:
+  en: "Resolver for savefiles.com embed pages"
+http:
+  mode: auto
+
+
+# ############################################################################
+# Parameters
+# ############################################################################
+parameters:
+  - name: url
+    value: ""
+    description: "URL of the embed page to be resolved"
+
+
+# ############################################################################
+# Queries
+# ############################################################################
+queries:
+
+  # --------------------------------------------------------------------------
+  # can_resolve_url — determines whether this rule can resolve the URL
+  # --------------------------------------------------------------------------
+  - name: can_resolve_url
+    scraper_type: static
+    entries:
+      - name: resolver
+        type: string
+        value: "{url}"
+        actions:
+          - type: regex_find_all
+            pattern: '^https?://(?:www\.)?savefiles\.com/e/'
+            format: "{service_id}"
+
+
+  # --------------------------------------------------------------------------
+  # resolve_stream — POST /dl then extract JWPlayer HLS from the player page
+  # --------------------------------------------------------------------------
+  - name: resolve_stream
+    scraper_type: html
+    base_url: "https://savefiles.com"
+    query_url: "{base_url}/dl"
+    request_method: post
+    request_body_pointer: "/url"
+    request_body_select: first
+    request_body_actions:
+      - type: regex_find_all
+        pattern: '^https?://(?:www\.)?savefiles\.com/e/(?:[^/?#]+-)?([^/?#-]+)/?(?:\?.*)?$'
+        format: "{1}"
+      - type: format_text
+        argument: "op=embed&file_code={}&auto=1&referer="
+    request_headers:
+      - name: "Content-Type"
+        actions:
+          - type: format_text
+            argument: "application/x-www-form-urlencoded"
+      - name: "Referer"
+        actions:
+          - type: format_text
+            argument: "{url}"
+      - name: "User-Agent"
+        actions:
+          - type: format_text
+            argument: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+    row_selector: "html"
+    entries:
+      - name: stream_url
+        type: string[]
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: 'sources:\s*\[\{file:"((?:https?://)[^"]+\.m3u8[^"]*)"'
+            format: "{1}"
+          - type: resolve_url
+            proxy: true
+            proxy_headers:
+              User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+              Referer: "{url}"
+              Origin: "{request_origin}"
+            proxy_replace_all:
+              - pattern: '(?m)^(https?://[^\r\n]+)'
+                replacement: '{proxy_inherited}/$1'
+                content_types:
+                  - application/vnd.apple.mpegurl
+      - name: stream_headers
+        type: object
+        select: first
+        entries:
+          - name: Referer
+            type: string
+            actions:
+              - type: format_text
+                argument: "{url}"
+      - name: manifest_type
+        type: string
+        actions:
+          - type: format_text
+            argument: "hls"
+      - name: image/title > link
+        type: string
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: 'image:\s*"((?:https?://)[^"]+)"'
+            format: "{1}"
+          - type: replace_text
+            search: "_xt"
+            replace: ""
+          - type: resolve_url
+            proxy: true
+      - name: storyboard_vtt_url
+        type: string
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: 'tracks:\s*\[\{file:\s*"((?:https?://)[^"]+\.vtt)"'
+            format: "{1}"
+          - type: resolve_url
+            proxy: true
+            proxy_replace_all:
+              - pattern: '(?m)^(https?://[^\r\n]+)'
+                replacement: '{proxy_inherited}/$1'
+                content_types:
+                  - text/vtt

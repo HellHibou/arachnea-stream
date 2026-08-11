@@ -42,5 +42,9 @@
   {
     "path": "embed4me.yaml",
     "enabled": true
+  },
+  {
+    "path": "savefiles.yaml",
+    "enabled": true
   }
 ]

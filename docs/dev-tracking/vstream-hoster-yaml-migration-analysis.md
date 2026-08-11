@@ -364,7 +364,7 @@ reste portée par le YAML du hoster concerné.
 | `flashx.py` | ⚠️ À qualifier — mécanisme impératif détecté | ⬜ À auditer | ⬜ À auditer | — |
 | `flix555.py` | ⚠️ À qualifier — mécanisme impératif détecté | ⬜ À auditer | ⬜ À auditer | — |
 | `frenchvid.py` | ⚠️ À qualifier — mécanisme impératif détecté | ⬜ À auditer | ⬜ À auditer | — |
-| `fsvid.py` | ⚠️ À qualifier — mécanisme impératif détecté | ⬜ À auditer | ⬜ À auditer | — |
+| `fsvid.py` | ✅ Migré par `savefiles.yaml` ; POST `/dl` avec `file_code`, extraction JWPlayer HLS, poster `image:` et VTT `tracks` | ✅ VTT `tracks` thumbnails proxifié | ✅ `image:` JWPlayer → `image/title > link` avec proxy | — |
 | `giga.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |
 | `gofile.py` | ⚠️ À qualifier — mécanisme impératif détecté | ⬜ À auditer | ⬜ À auditer | — |
 | `googledrive.py` | ⬜ À qualifier — extraction/domaines à relever | ⬜ À auditer | ⬜ À auditer | — |

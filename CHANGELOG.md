@@ -7,6 +7,7 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ### Added
 - **PapaDuStream v2 YAML service**: Added series home rails, search, entry metadata, season episodes, and player language listings for PapaDuStream v2.
 - **Embed4me YAML hoster**: Added `embed4me.yaml` for `lpayer.embed4me.com/#id` embeds. The resolver derives the encrypted video API endpoint from the fragment and exposes HLS, title, poster, and thumbnail VTT metadata.
+- **SaveFiles YAML hoster**: Added `savefiles.yaml` for `savefiles.com/e/{id}` embeds. The resolver POSTs to `/dl`, then extracts JWPlayer HLS, poster, and thumbnail VTT metadata from the player page.
 - **Generic encrypted API support**: Added `request_url_actions` for transforming resolved root query URLs and `aes_cbc_decrypt` for deterministic hexadecimal AES-128-CBC payloads.
 - **Vidsonic YAML hoster**: Added `vidsonic.yaml` for `/e/{id}` embed pages, including HLS URL extraction, title, poster, and thumbnail VTT metadata. Added the generic `hex_decode` Scrapyfy action used to decode its deterministic hexadecimal payload.
 - **TF1 intro chapters**: TF1 player resolution now maps `inGD`/`outGD`
