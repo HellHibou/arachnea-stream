@@ -8,7 +8,7 @@ http:
 
 parameters:
   - name: base_url
-    value: https://papadustream.recipes
+    value: https://papadustream.town
     description: "Base URL — update on domain change"
 
 shared:
@@ -21,9 +21,9 @@ shared:
     - type: resolve_url
 
   link_actions: &link_actions
-                  - type: get_attribut
-                    argument: href
-                  - type: resolve_url
+    - type: get_attribut
+      argument: href
+    - type: resolve_url
 
   catalog_card: &catalog_card
     - name: source

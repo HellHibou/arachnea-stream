@@ -611,7 +611,7 @@ const renderedMediaSource = (computed as any)(() => {
    *
    * @returns True when the entry details mode is 'safe' and an iframe source is active.
    */
-  const shouldBlockIframe = computed(() =>
+  const shouldBlockIframe = computed(() => 
     isEntryDetailsMode.value &&
     Boolean(activeIframeSource.value) &&
     props.securityMode === 'safe',
@@ -623,8 +623,8 @@ const renderedMediaSource = (computed as any)(() => {
    * @returns True when the entry details mode is 'safe' and an iframe source is active.
    */
   const shouldHideSourceVideoAction = computed(() =>
-    isEntryDetailsMode.value &&
-    Boolean(activeIframeSource.value) &&
+    (isEntryDetailsMode.value &&
+    Boolean(activeIframeSource.value)) ||
     props.securityMode === 'safe',
   )
 

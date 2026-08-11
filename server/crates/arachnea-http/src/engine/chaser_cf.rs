@@ -50,13 +50,16 @@ const DEFAULT_SESSION_CACHE_FILE_NAME: &str = "chaser-cf-sessions.json";
 const DEFAULT_SOURCE_POLL_INTERVAL: Duration = Duration::from_millis(1_000);
 
 /// Time the page source must remain unchanged before it is returned.
-const DEFAULT_SOURCE_STABILITY: Duration = Duration::from_millis(2_500);
+const DEFAULT_SOURCE_STABILITY: Duration = Duration::from_millis(5_000);
 
 /// Short stability window used before an in-page interaction.
 const INTERACTION_SOURCE_STABILITY: Duration = Duration::from_millis(400);
 
 /// Sampling interval used before an in-page interaction.
 const INTERACTION_SOURCE_POLL_INTERVAL: Duration = Duration::from_millis(200);
+
+/// Headless mode: Must be false
+const HEADLESS: bool = false;
 
 /// `chaser-cf` engine adapter for browser-backed Cloudflare solving.
 pub struct ChaserCfEngine {
@@ -182,6 +185,7 @@ impl ChaserCfEngine {
     /// failures are reported by request execution methods.
     pub fn new(config: &ArachneaHttpConfig) -> Result<Self, ArachneaHttpError> {
         let chaser_config = ChaserConfig::from_env()
+            .with_headless(HEADLESS)
             .with_timeout(config.request_timeout)
             .with_lazy_init(true);
         Ok(Self {
