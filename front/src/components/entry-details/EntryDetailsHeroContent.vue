@@ -44,6 +44,7 @@ interface Props {
   preferPersistedMediaSurface: boolean
   showAutoplayToggle: boolean
   isAutoplayEnabled: boolean
+  securityMode: 'unsafe' | 'confirmation' | 'safe'
 }
 
 /**
@@ -165,6 +166,7 @@ function handleAutoplayStep(offset: -1 | 1) {
         :prefer-persisted-media-surface="preferPersistedMediaSurface"
         :show-episode-autoplay-toggle="showAutoplayToggle"
         :is-episode-autoplay-enabled="isAutoplayEnabled"
+        :security-mode="props.securityMode"
         :show-video-navigation-controls="showAdjacentNavigation"
         :has-previous-video="hasPreviousPlayable"
         :has-next-video="hasNextPlayable"

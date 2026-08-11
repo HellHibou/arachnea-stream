@@ -42,6 +42,8 @@ import type { ThumbnailImageFit } from '@/types/media'
     backgroundImageFit?: ThumbnailImageFit
     /** Whether to use catalog banners as the background source. */
     useCatalogBannersAsBackground?: boolean
+    /** Mode used to render embedded iframe players. */
+    securityMode?: 'unsafe' | 'confirmation' | 'safe'
     /** Primary title to display for the entry. */
     displayTitle: string
     /** URL of the poster frame image to display. */
@@ -161,6 +163,7 @@ const props = withDefaults(defineProps<Props>(), {
    heroBackgroundPortraitUrl: null,
    heroBackgroundLandscapeUrl: null,
    useCatalogBannersAsBackground: true,
+   securityMode: 'confirmation',
   })
 /** Internationalization utilities. */
 const { t } = useI18n()
@@ -288,6 +291,7 @@ const emit = defineEmits<{
            :trailer-action-label="props.trailerActionLabel"
            :entry-url="props.entryUrl"
            :source="props.source"
+           :show-source-entry-action="props.securityMode !== 'safe'"
            @toggle-trailer="emit('toggle-trailer')"
          />
 
@@ -295,51 +299,52 @@ const emit = defineEmits<{
            v-if="!props.isFullWidthContent"
            class="entry-details__body"
          >
-           <EntryDetailsHeroContent
-             ref="playerSectionRef"
-             :display-title="props.displayTitle"
-             :alternative-title-label="props.alternativeTitleLabel"
-             :selected-playable-title="props.selectedPlayableTitle"
-             :show-adjacent-navigation="props.showAdjacentNavigation"
-             :has-previous-playable="props.hasPreviousPlayable"
-             :has-next-playable="props.hasNextPlayable"
-             :show-bookmark-action="props.showBookmarkAction"
-             :is-bookmarked="props.isBookmarked"
-             :show-trailer-player="props.showTrailerPlayer"
-             :show-media-player="props.showMediaPlayer"
-             :trailer-media-source="props.trailerMediaSource"
-             :media-source="props.mediaSource"
-             :media-open-url="props.mediaOpenUrl"
-             :is-media-player-loading="props.isMediaPlayerLoading"
-             :media-player-error-message="props.mediaPlayerErrorMessage"
-             :show-player-controls="props.showPlayerControls"
-             :show-language-selector="props.showLanguageSelector"
-             :show-player-selector="props.showPlayerSelector"
-             :available-languages="props.availableLanguages"
-             :active-language-key="props.activeLanguageKey"
-             :filtered-players="props.filteredPlayers"
-             :active-player-id="props.activePlayerId"
-             :media-poster-url="props.mediaPosterUrl"
-             :trailer-poster-url="props.trailerPosterUrl"
-             :media-overlay-logo-url="props.mediaOverlayLogoUrl"
-             :display-description="props.displayDescription"
-             :initial-playback-time="props.initialPlaybackTime"
-             :media-autoplay="props.mediaAutoplay"
-             :prefer-persisted-media-surface="props.preferPersistedMediaSurface"
+            <EntryDetailsHeroContent
+              ref="playerSectionRef"
+              :display-title="props.displayTitle"
+              :alternative-title-label="props.alternativeTitleLabel"
+              :selected-playable-title="props.selectedPlayableTitle"
+              :show-adjacent-navigation="props.showAdjacentNavigation"
+              :has-previous-playable="props.hasPreviousPlayable"
+              :has-next-playable="props.hasNextPlayable"
+              :show-bookmark-action="props.showBookmarkAction"
+              :is-bookmarked="props.isBookmarked"
+              :show-trailer-player="props.showTrailerPlayer"
+              :show-media-player="props.showMediaPlayer"
+              :trailer-media-source="props.trailerMediaSource"
+              :media-source="props.mediaSource"
+              :media-open-url="props.mediaOpenUrl"
+              :is-media-player-loading="props.isMediaPlayerLoading"
+              :media-player-error-message="props.mediaPlayerErrorMessage"
+              :show-player-controls="props.showPlayerControls"
+              :show-language-selector="props.showLanguageSelector"
+              :show-player-selector="props.showPlayerSelector"
+              :available-languages="props.availableLanguages"
+              :active-language-key="props.activeLanguageKey"
+              :filtered-players="props.filteredPlayers"
+              :active-player-id="props.activePlayerId"
+              :media-poster-url="props.mediaPosterUrl"
+              :trailer-poster-url="props.trailerPosterUrl"
+              :media-overlay-logo-url="props.mediaOverlayLogoUrl"
+              :security-mode="props.securityMode"
+              :display-description="props.displayDescription"
+              :initial-playback-time="props.initialPlaybackTime"
+              :media-autoplay="props.mediaAutoplay"
+              :prefer-persisted-media-surface="props.preferPersistedMediaSurface"
               :show-autoplay-toggle="resolvedShowAutoplayToggle"
               :is-autoplay-enabled="props.isAutoplayEnabled"
               @step-playable="emit('step-playable', $event)"
               @step-playable-autoplay="emit('step-playable-autoplay', $event)"
-             @toggle-bookmark="emit('toggle-bookmark')"
-             @update:active-language-key="emit('update:active-language-key', $event)"
-             @remember-current-language="emit('remember-current-language')"
-             @update:active-player-id="emit('update:active-player-id', $event)"
-             @remember-current-player="emit('remember-current-player')"
-             @update:playback-progress="(value: number | null, duration: number | null) => emit('update:playback-progress', value, duration)"
-             @update:is-autoplay-enabled="emit('update:is-autoplay-enabled', $event)"
-             @playback-started="emit('playback-started', $event)"
-             @playback-ended="emit('playback-ended')"
-             @source-error="emit('source-error')"
+              @toggle-bookmark="emit('toggle-bookmark')"
+              @update:active-language-key="emit('update:active-language-key', $event)"
+              @remember-current-language="emit('remember-current-language')"
+              @update:active-player-id="emit('update:active-player-id', $event)"
+              @remember-current-player="emit('remember-current-player')"
+              @update:playback-progress="(value: number | null, duration: number | null) => emit('update:playback-progress', value, duration)"
+              @update:is-autoplay-enabled="emit('update:is-autoplay-enabled', $event)"
+              @playback-started="emit('playback-started', $event)"
+              @playback-ended="emit('playback-ended')"
+              @source-error="emit('source-error')"
            />
 
            <EntryDetailsMetadata

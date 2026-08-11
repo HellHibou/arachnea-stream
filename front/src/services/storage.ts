@@ -204,6 +204,13 @@ export interface Parameters {
    */
   isEpisodeAutoplayEnabled: Ref<boolean>
   /**
+   * Mode used to render embedded iframe players.
+   * - 'unsafe' : loads the iframe immediately.
+   * - 'confirmation' : shows the episode image and a switch before loading the iframe.
+   * - 'safe' : blocks embedded players and hides source buttons.
+   */
+  securityMode: Ref<'unsafe' | 'confirmation' | 'safe'>
+  /**
    * Preferred interface language, or `null` to follow the browser language.
    */
   language: Ref<string | null>
@@ -253,6 +260,7 @@ const PARAMETERS_DEF: ParameterEntry[] = [
   { key: 'isBackgroundAnimated',          defaultValue: true       },
   { key: 'backgroundImageFit',            defaultValue: 'cover'    },
   { key: 'isEpisodeAutoplayEnabled',      defaultValue: false      },
+  { key: 'securityMode',            defaultValue: 'confirmation' },
   { key: 'language',                      defaultValue: null       },
   { key: 'theme',                         defaultValue: 'arachnea-blue' },
 ] as const;

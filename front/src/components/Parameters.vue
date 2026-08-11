@@ -47,6 +47,8 @@ const useTrailerAsBackgroundInputId = `${componentId}-use-trailer-as-background`
 const useCatalogBannersAsBackgroundInputId = `${componentId}-use-catalog-banners-as-background`
 /** Unique name for the theme segmented control. */
 const themeInputName = `${componentId}-theme`
+/** Unique ID for the embedded player mode select. */
+const embeddedPlayerModeInputId = `${componentId}-embedded-player-mode`
 /** Collection mode type excluding single-row for search. */
 type SearchCollectionMode = Exclude<MediaCardCollectionMode, 'single-row'>
 /** Available options for search collection mode selection. */
@@ -84,6 +86,7 @@ const themeOptions = computed<Array<{ value: string; label: string; color: strin
 )
 /** Current theme key derived from parameters. */
 const selectedTheme = computed<string>(() => parameters.theme.value)
+
 /** Whether the language selector should be displayed. */
 const isLanguageVisible = computed(() => languageOptions.value.length > 2)
 /** Current search collection mode derived from parameters. */
@@ -194,6 +197,16 @@ function handleLanguageUpdate(event: Event) {
 function handleThemeUpdate(key: string) {
   setTheme(key)
 }
+
+/**
+ * Persists the embedded player mode selected by the user.
+ *
+ * @param event Change event fired by the embedded player mode select.
+ */
+function handleEmbeddedPlayerModeUpdate(event: Event) {
+  const target = event.target as HTMLSelectElement
+  parameters.securityMode.value = target.value as 'unsafe' | 'confirmation' | 'safe'
+}
 </script>
 
 <template>
@@ -260,6 +273,16 @@ function handleThemeUpdate(key: string) {
             @update:model-value="handleThumbnailImageFitUpdate"
           />
         </ParametersPanel>
+
+        <ParametersPanel :title="t('settings.cardLayout')">
+          <ParameterSegmented
+            :input-name="collectionModeInputName"
+            :label="t('settings.cardLayout')"
+            :model-value="searchCollectionMode"
+            :options="searchCollectionModeOptions"
+            @update:model-value="handleCollectionModeUpdate"
+          />
+        </ParametersPanel>
       </div>
     </ParametersSection>
 
@@ -277,16 +300,26 @@ function handleThemeUpdate(key: string) {
       </div>
     </ParametersSection>
 
-    <ParametersSection :title="t('settings.searchDisplay')">
+    <ParametersSection :title="t('settings.player')">
       <div class="parameters__grid">
-        <ParametersPanel :title="t('settings.cardLayout')">
-          <ParameterSegmented
-            :input-name="collectionModeInputName"
-            :label="t('settings.cardLayout')"
-            :model-value="searchCollectionMode"
-            :options="searchCollectionModeOptions"
-            @update:model-value="handleCollectionModeUpdate"
-          />
+        <ParametersPanel :title="t('settings.securityMode')">
+          <label class="parameters__select-field" :for="embeddedPlayerModeInputId">
+            <span class="parameters__select-label">{{ t('settings.securityMode') }}</span>
+            <select
+              :id="embeddedPlayerModeInputId"
+              class="parameters__select"
+              :value="parameters.securityMode.value"
+              @change="handleEmbeddedPlayerModeUpdate"
+            >
+              <option
+                v-for="mode in ['safe', 'confirmation', 'unsafe']"
+                :key="mode"
+                :value="mode"
+              >
+                {{ t(`settings.${mode}`) }}
+              </option>
+            </select>
+          </label>
         </ParametersPanel>
       </div>
     </ParametersSection>

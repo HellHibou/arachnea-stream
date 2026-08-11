@@ -118,7 +118,7 @@
     "hidden": "Hidden",
     "visible": "Visible",
     "searchDisplay": "Search display settings",
-    "cardLayout": "Card layout",
+    "cardLayout": "Search layout",
     "background": "Background",
     "backgroundImage": "Background image",
     "inactive": "Inactive",
@@ -130,7 +130,12 @@
     "image": "Image",
     "trailer": "Trailer",
     "theme": "Theme",
-    "colorTheme": "Color theme"
+    "colorTheme": "Color theme",
+    "player": "Player",
+    "securityMode": "Security mode",
+    "unsafe": "Unsafe",
+    "confirmation": "Confirmation",
+    "safe": "Safe"
   },
   "layout": {
     "grid": "Grid",
@@ -216,6 +221,8 @@
     "defaultDisplayTitle": "this content",
     "trailerTitle": "Trailer for {title}",
     "videoTitle": "Embedded player for {title}",
+    "loadEmbeddedPlayer": "Load player",
+    "embeddedBlocked": "Embedded playback blocked by safe mode.",
     "chapter": {
       "intro": "Intro",
       "skipIntro": "Skip Intro",

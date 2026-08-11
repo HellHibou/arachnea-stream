@@ -213,6 +213,11 @@ const props = withDefaults(defineProps<{
    * @default false
    */
   hasNextVideo?: boolean
+  /**
+   * Mode used to render embedded iframe players.
+   * @default 'confirmation'
+   */
+  securityMode?: 'unsafe' | 'confirmation' | 'safe'
 }>(), {
   source: null,
   iframeTitle: null,
@@ -251,6 +256,7 @@ const props = withDefaults(defineProps<{
   preferPersistedMediaSurface: false,
   showEpisodeAutoplayToggle: false,
   isEpisodeAutoplayEnabled: false,
+  securityMode: 'confirmation',
 })
 
 const emit = defineEmits<{
@@ -380,6 +386,18 @@ const {
   activeVideoHasNextVideo,
   /** Function to handle video navigation. */
   handleActiveVideoVideoNavigation,
+  /** Whether the iframe confirmation should be shown. */
+  shouldShowIframeConfirmation,
+  /** Whether the embedded iframe should be blocked. */
+  shouldBlockIframe,
+  /** Whether the source video action should be hidden. */
+  shouldHideSourceVideoAction,
+  /** Whether the iframe should be rendered. */
+  shouldRenderIframe,
+  /** Whether the iframe confirmation has been accepted. */
+  isIframeConfirmationAccepted,
+  /** Function to accept the iframe confirmation. */
+  handleIframeConfirmationAccept,
 } = useVideoPlayer(props, emit)
 </script>
 
@@ -403,7 +421,7 @@ const {
     </div>
 
     <iframe
-      v-if="activeIframeSource"
+      v-if="activeIframeSource && shouldRenderIframe"
       v-bind="standaloneRendererAttrs"
       :key="activeSurfaceRendererKey"
       :class="activeIframeClass"
@@ -416,6 +434,32 @@ const {
       :aria-hidden="activeIframeAriaHidden || undefined"
       :tabindex="activeIframeTabIndex ?? undefined"
     />
+
+    <div
+      v-if="shouldShowIframeConfirmation"
+      class="entry-details__player-state entry-details__player-state--confirmation"
+    >
+      <img
+        v-if="mediaPosterUrl"
+        class="entry-details__player-confirmation-image"
+        :src="mediaPosterUrl"
+        :alt="displayTitle ?? undefined"
+      />
+      <button
+        type="button"
+        class="entry-details__player-confirmation-button"
+        @click="handleIframeConfirmationAccept"
+      >
+        {{ t('player.loadEmbeddedPlayer') }}
+      </button>
+    </div>
+
+    <div
+      v-if="shouldBlockIframe"
+      class="entry-details__player-state entry-details__player-state--blocked"
+    >
+      {{ t('player.embeddedBlocked') }}
+    </div>
 
 <VideoJsMediaRenderer
       v-if="activeVideoSource"
@@ -504,7 +548,7 @@ const {
           </select>
         </div>
 
-        <div v-if="props.mediaOpenUrl" class="entry-details__player-picker-group">
+        <div v-if="props.mediaOpenUrl && !shouldHideSourceVideoAction" class="entry-details__player-picker-group">
           <a
             :href="props.mediaOpenUrl"
             target="_blank"
@@ -626,6 +670,58 @@ const {
   inset: 0;
   z-index: 10;
   min-height: 0;
+  background: var(--bg-surface);
+}
+
+.entry-details__player-state--confirmation {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: var(--bg-surface);
+}
+
+.entry-details__player-confirmation-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.entry-details__player-confirmation-button {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-height);
+  padding: 0 24px;
+  border: 1px solid var(--border-color-primary);
+  border-radius: 999px;
+  background: var(--bg-accent-red);
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--box-shadow-elevated);
+  transition: transform var(--duration-fast) ease, filter var(--duration-fast) ease;
+}
+
+.entry-details__player-confirmation-button:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.06);
+}
+
+.entry-details__player-confirmation-button:focus-visible {
+  outline: var(--common-focus-ring);
+  outline-offset: 2px;
+}
+
+.entry-details__player-state--blocked {
+  aspect-ratio: 16 / 9;
   background: var(--bg-surface);
 }
 

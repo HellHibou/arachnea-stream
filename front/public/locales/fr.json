@@ -118,7 +118,7 @@
     "hidden": "Caches",
     "visible": "Visibles",
     "searchDisplay": "Parametres d'affichage de recherche",
-    "cardLayout": "Disposition des cartes",
+    "cardLayout": "Disposition recherche",
     "background": "Fond d'ecran",
     "backgroundImage": "Image de fond",
     "inactive": "Inactif",
@@ -130,7 +130,12 @@
     "image": "Image",
     "trailer": "Trailer",
     "theme": "Theme",
-    "colorTheme": "Theme couleur"
+    "colorTheme": "Theme couleur",
+    "player": "Lecteur",
+    "securityMode": "Mode de sécurité",
+    "unsafe": "Non sécurisé",
+    "confirmation": "Confirmation",
+    "safe": "Sécurisé"
   },
   "layout": {
     "grid": "Grille",
@@ -216,6 +221,8 @@
     "defaultDisplayTitle": "ce contenu",
     "trailerTitle": "Bande-annonce de {title}",
     "videoTitle": "Lecteur intégré de {title}",
+    "loadEmbeddedPlayer": "Charger le lecteur",
+    "embeddedBlocked": "Lecture embeded bloquée par le mode sécurisé.",
     "chapter": {
       "intro": "Introduction",
       "skipIntro": "Passer l’introduction",

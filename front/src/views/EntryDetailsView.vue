@@ -43,5 +43,6 @@ const entryPayload = computed(() => decodeEntryRoutePayload(props.encodedEntry))
     :is-background-animated="parameters.isBackgroundAnimated.value"
     :background-image-fit="parameters.backgroundImageFit.value"
     :use-catalog-banners-as-background="parameters.useCatalogBannersAsBackground.value"
+    :security-mode="parameters.securityMode.value"
   />
 </template>

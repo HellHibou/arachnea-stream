@@ -36,10 +36,17 @@ interface Props {
    * Backend source id used to resolve display metadata.
    */
   source: string | null
+  /**
+   * Indicates whether the source entry action should be visible.
+   * @default true
+   */
+  showSourceEntryAction?: boolean
 }
 
 /** Component props without defaults. */
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), {
+  showSourceEntryAction: true,
+})
 const emit = defineEmits<{
   /** Emitted when the trailer toggle is clicked. */
   'toggle-trailer': []
@@ -124,6 +131,7 @@ function handleSourceLogoError() {
       </button>
 
       <a
+        v-if="showSourceEntryAction"
         class="entry-details__primary-action"
         :href="entryUrl"
         target="_blank"

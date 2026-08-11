@@ -50,6 +50,11 @@ interface Props {
    * @default true
    */
   useCatalogBannersAsBackground?: boolean
+  /**
+   * Mode used to render embedded iframe players.
+   * @default 'confirmation'
+   */
+  securityMode?: 'unsafe' | 'confirmation' | 'safe'
 }
 
 /** Component props with applied defaults. */
@@ -58,6 +63,7 @@ const props = withDefaults(defineProps<Props>(), {
   isBackgroundAnimated: false,
   backgroundImageFit: 'contain',
   useCatalogBannersAsBackground: true,
+  securityMode: 'confirmation',
 })
 /** Internationalization utilities. */
 const { t } = useI18n()
@@ -909,6 +915,7 @@ async function handleMediaPlaybackEnded() {
     :is-background-animated="props.isBackgroundAnimated"
     :background-image-fit="props.backgroundImageFit"
     :use-catalog-banners-as-background="props.useCatalogBannersAsBackground"
+    :security-mode="props.securityMode"
     :display-title="displayTitle"
     :poster-frame-image-url="posterFrameImageUrl"
     :poster-frame-uses-contain="posterFrameUsesContain"

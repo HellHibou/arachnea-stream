@@ -270,6 +270,11 @@ interface VideoPlayerProps {
     * @default false
     */
    hasNextVideo?: boolean
+   /**
+    * Mode used to render embedded iframe players.
+    * @default 'confirmation'
+    */
+   securityMode?: 'unsafe' | 'confirmation' | 'safe'
  }
 
 /**
@@ -561,6 +566,74 @@ const renderedMediaSource = (computed as any)(() => {
       ? activeSurfaceSource.value
       : null,
   )
+
+  /**
+   * Whether the user accepted loading the embedded iframe in confirmation mode.
+   */
+  const isIframeConfirmationAccepted = ref(false)
+
+  watch(
+    activeIframeSource,
+    (nextSource) => {
+      if (nextSource) {
+        isIframeConfirmationAccepted.value = false
+      }
+    },
+  )
+
+  /**
+   * Indicates whether the embedded iframe should be rendered immediately.
+   *
+   * Standalone surfaces always render iframes; restrictions apply only to entry details mode.
+   *
+   * @returns True for standalone mode, or when the mode is 'unsafe', or when the confirmation has been accepted.
+   */
+  const shouldRenderIframe = computed(() =>
+    !isEntryDetailsMode.value ||
+    props.securityMode === 'unsafe' ||
+    (props.securityMode === 'confirmation' && isIframeConfirmationAccepted.value),
+  )
+
+  /**
+   * Indicates whether the embedded iframe should be shown as a confirmation placeholder.
+   *
+   * @returns True when the entry details mode is 'confirmation' and the confirmation has not been accepted.
+   */
+  const shouldShowIframeConfirmation = computed(() =>
+    isEntryDetailsMode.value &&
+    Boolean(activeIframeSource.value) &&
+    props.securityMode === 'confirmation' &&
+    !isIframeConfirmationAccepted.value,
+  )
+
+  /**
+   * Indicates whether the embedded iframe should be blocked entirely.
+   *
+   * @returns True when the entry details mode is 'safe' and an iframe source is active.
+   */
+  const shouldBlockIframe = computed(() =>
+    isEntryDetailsMode.value &&
+    Boolean(activeIframeSource.value) &&
+    props.securityMode === 'safe',
+  )
+
+  /**
+   * Indicates whether the source video action should be hidden.
+   *
+   * @returns True when the entry details mode is 'safe' and an iframe source is active.
+   */
+  const shouldHideSourceVideoAction = computed(() =>
+    isEntryDetailsMode.value &&
+    Boolean(activeIframeSource.value) &&
+    props.securityMode === 'safe',
+  )
+
+  /**
+   * Handles the iframe confirmation acceptance by the user.
+   */
+  function handleIframeConfirmationAccept() {
+    isIframeConfirmationAccepted.value = true
+  }
 
   /**
    * Exposes the Video.js variant of the current surface source when selected.
@@ -1055,6 +1128,11 @@ const handleActiveVideoVideoNavigation = (direction: -1 | 1): void => {
      isEntryDetailsMode,
      detailTitle,
      showDetailsPlayerControls,
+     shouldShowIframeConfirmation,
+     shouldBlockIframe,
+     shouldHideSourceVideoAction,
+     shouldRenderIframe,
+     isIframeConfirmationAccepted,
      shouldKeepMediaSurfaceMountedDuringTransition,
      renderedMediaSource,
      shouldRenderMediaSurface,
@@ -1105,6 +1183,7 @@ const handleActiveVideoVideoNavigation = (direction: -1 | 1): void => {
      playerModel,
 
      // Functions
+     handleIframeConfirmationAccept,
      handlePlayerStateUpdate,
      handleLanguageChange,
      handlePlayerChange,
