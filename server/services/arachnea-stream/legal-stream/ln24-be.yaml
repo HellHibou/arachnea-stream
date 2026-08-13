@@ -443,33 +443,88 @@ queries:
   # List live channels
   # --------------------------------------------------------------------------
   - name: list_lives
-    scraper_type: static
+    scraper_type: html
+    base_url: "{base_url}"
+    query_url: "{base_url}/en-direct"
     media_types:
       - video/live
+    row_selector: "html"
+    result_item_field: entries
     entries:
       - name: source
         type: string
         actions:
           - type: format_text
             argument: "{source}"
-      - name: entries
-        type: object[]
-        items:
-          - key: "ln24"
-            title: "LN24 Live"
-            media-type: "video/live"
-            link: "ln24"
-            web-link: "{base_url}/live"
-            channel: "LN24"
-
-
+      - name: "title/alt"
+        type: string
+        select: first
+        selector: .show-name-fallback
+        actions:
+          - type: get_text
+      - name: img/landscape > link
+        type: string
+        select: first   
+        selector: .current-show
+        actions:
+          - type: get_attribut
+            argument: style     
+          - type: regex_find_all
+            pattern: 'url\(([^)]+)\)'
+            format: "{1}"
+      - name: key
+        type: string
+        actions:
+          - type: format_text
+            argument: "ln24"
+      - name: title
+        type: string
+        actions:
+          - type: format_text
+            argument: "LN24"
+      - name: media-type
+        type: string
+        actions:
+          - type: format_text
+            argument: "video/live"
+      - name: link
+        type: string
+        actions:
+          - type: format_text
+            argument: "ln24"
+      - name: web-link
+        type: string
+        actions:
+          - type: format_text
+            argument: "{base_url}/en-direct"
+      - name: channel
+        type: string
+        actions:
+          - type: format_text
+            argument: "LN24"
+      - name: release-date
+        type: string
+        selector: .current-slot
+        actions:
+          - type: get_text
+          - type: regex_find_all
+            pattern: '(\d+h\d+) / (\d+h\d+)'
+            format: "{1}"
+      - name: expire
+        type: string
+        selector: .current-slot
+        actions:
+          - type: get_text
+          - type: regex_find_all
+            pattern: '(\d+h\d+) / (\d+h\d+)'
+            format: "{2}"
   # --------------------------------------------------------------------------
   # Get live stream
   # --------------------------------------------------------------------------
   - name: get_live
     scraper_type: html
     base_url: "{base_url}"
-    query_url: "{base_url}/live"
+    query_url: "{base_url}/rise-api/videoplayers/live.php"
     media_types:
       - video/live
     row_selector: "html"
@@ -483,7 +538,7 @@ queries:
         type: string
         actions:
           - type: format_text
-            argument: "LN24 Live"
+            argument: "LN24"
       - name: players
         type: object[]
         entries:
@@ -492,8 +547,11 @@ queries:
             actions:
               - type: format_text
                 argument: "LN24"
-          - name: embed-link
+          - name: direct-link
             type: string
+            select: first
+            selector: "video > source"
             actions:
-              - type: format_text
-                argument: "{base_url}/live"
+              - type: get_attribut
+                argument: src
+              - type: resolve_url
