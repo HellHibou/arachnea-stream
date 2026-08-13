@@ -12,7 +12,7 @@ use chaser_cf::{ChaserCF, ChaserConfig, Cookie as ChaserCookie, ProxyConfig, Waf
 use http::{header::SET_COOKIE, HeaderMap, HeaderValue, Method, StatusCode};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
-use tracing::warn;
+use tracing::{debug, warn};
 use url::Url;
 
 use crate::{
@@ -104,14 +104,18 @@ impl ChaserCfEngine {
             .with_headless(false)
             .with_timeout(config.request_timeout)
             .with_lazy_init(true);
-        Ok(Self {
+        let engine = Self {
             config: chaser_config,
             chaser: Arc::new(RwLock::new(None)),
             proxy: chaser_proxy_from_url(proxy_url)?,
             session_cache: None,
+        };
+        if uses_dynamic_arachnea_proxy(config) {
+            return Ok(engine);
         }
-        .with_default_session_cache()
-        .with_session_cache_refresh_margin(config.cookie_refresh_margin))
+        Ok(engine
+            .with_default_session_cache()
+            .with_session_cache_refresh_margin(config.cookie_refresh_margin))
     }
 
     /// Creates an engine from native chaser-cf configuration.
@@ -196,6 +200,12 @@ impl ChaserCfEngine {
                 name: "cf_clearance".to_string(),
             });
         }
+        debug!(
+            origin = %url,
+            cookie_names = ?session.cookies.iter().map(|cookie| cookie.name.as_str()).collect::<Vec<_>>(),
+            has_solver_user_agent = session.headers.get("user-agent").is_some_and(|value| !value.trim().is_empty()),
+            "chaser-cf resolved Cloudflare session"
+        );
         Ok(session)
     }
 
@@ -294,6 +304,19 @@ impl ChaserCfEngine {
             body: Bytes::new(),
         })
     }
+}
+
+/// Returns whether a session cache would be unsafe because the effective egress
+/// can vary independently from the origin.
+#[cfg(feature = "arachnea-proxy")]
+fn uses_dynamic_arachnea_proxy(config: &ArachneaHttpConfig) -> bool {
+    matches!(&config.proxy, crate::config::HttpProxyConfig::Arachnea(_))
+}
+
+/// Returns false when the dynamic Arachnea proxy integration is unavailable.
+#[cfg(not(feature = "arachnea-proxy"))]
+fn uses_dynamic_arachnea_proxy(_config: &ArachneaHttpConfig) -> bool {
+    false
 }
 
 #[async_trait]

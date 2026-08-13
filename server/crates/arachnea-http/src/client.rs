@@ -85,6 +85,10 @@ fn global_cloudflare_user_agents() -> Arc<RwLock<HashMap<String, String>>> {
 struct PreparedProxyRuntime {
     #[cfg(feature = "arachnea-proxy")]
     loopback_proxy: Option<Arc<ArachneaRquestLoopback>>,
+    /// Parameter-bound loopback proxy for browser clients that cannot attach
+    /// request-level proxy headers to CONNECT requests.
+    #[cfg(feature = "arachnea-proxy")]
+    chaser_cf_loopback_proxy: Option<Arc<ArachneaRquestLoopback>>,
 }
 
 impl PreparedProxyRuntime {
@@ -117,7 +121,28 @@ impl PreparedProxyRuntime {
                 )),
                 _ => None,
             };
-            return Ok(Self { loopback_proxy });
+            let chaser_cf_loopback_proxy = match &config.proxy {
+                HttpProxyConfig::Arachnea(core) => Some(Arc::new(
+                    ArachneaRquestLoopback::start_with_parameters(
+                        core.clone(),
+                        config
+                            .proxy_parameters
+                            .iter()
+                            .map(|(name, value)| (name.as_str(), value.as_str())),
+                    )
+                    .await
+                    .map_err(|err| {
+                        ArachneaHttpError::Proxy(format!(
+                            "failed to start chaser-cf parameterized loopback helper: {err}"
+                        ))
+                    })?,
+                )),
+                _ => None,
+            };
+            return Ok(Self {
+                loopback_proxy,
+                chaser_cf_loopback_proxy,
+            });
         }
 
         #[cfg(not(feature = "arachnea-proxy"))]
@@ -143,6 +168,20 @@ impl PreparedProxyRuntime {
             #[cfg(feature = "arachnea-proxy")]
             HttpProxyConfig::Arachnea(_) => self
                 .loopback_proxy
+                .as_deref()
+                .map(|loopback| loopback.proxy_url()),
+            HttpProxyConfig::Disabled => None,
+        }
+    }
+
+    /// Returns the proxy URL for chaser-cf, binding configured proxy parameters
+    /// into the dedicated loopback listener when Chrome cannot send them.
+    fn chaser_cf_proxy_url<'a>(&'a self, config: &'a ArachneaHttpConfig) -> Option<&'a str> {
+        match &config.proxy {
+            HttpProxyConfig::Network(url) => Some(url.as_str()),
+            #[cfg(feature = "arachnea-proxy")]
+            HttpProxyConfig::Arachnea(_) => self
+                .chaser_cf_loopback_proxy
                 .as_deref()
                 .map(|loopback| loopback.proxy_url()),
             HttpProxyConfig::Disabled => None,
@@ -340,7 +379,7 @@ impl ArachneaHttpClient {
         let browser_cloudflare_engine = build_browser_cloudflare_solver(
             &config,
             &config.cloudflare_browser_solver,
-            proxy_runtime.proxy_url(&config),
+            proxy_runtime.chaser_cf_proxy_url(&config),
         )
         .await?;
         Ok(Self {
@@ -1299,6 +1338,14 @@ impl ArachneaHttpClient {
     ) -> Result<EngineRequest, ArachneaHttpError> {
         let cookie = self.cookies.write().await.cookie_header_for(&options.url)?;
         let user_agent = self.cloudflare_user_agent_for_url(&options.url).await?;
+        debug!(
+            origin = %origin_url(&options.url)?,
+            has_cf_clearance = cookie
+                .as_deref()
+                .is_some_and(|value| value.split(';').any(|part| part.trim_start().starts_with("cf_clearance="))),
+            has_solver_user_agent = user_agent.is_some(),
+            "building rquest request from Cloudflare session state"
+        );
         let mut headers = self.base_headers(cookie, user_agent.as_deref())?;
         headers.extend(options.headers);
         debug!("headers:{:?}", redacted_headers(&headers));

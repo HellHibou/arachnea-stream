@@ -39,7 +39,7 @@
   }, 
   {
     "path": "dark-stream/coflix.yaml",
-    "enabled": true
+    "enabled": false
   },
   {
     "path": "dark-stream/frenchanimes.yaml",

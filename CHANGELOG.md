@@ -6,6 +6,7 @@ All notable changes to the server workspace are recorded here. Add new entries a
 
 ### Added
 - **Chaser-CF session handoff**: The chaser-cf engine now delegates Cloudflare challenge handling to its public `ChaserCF::solve_waf_session` API and returns only clearance cookies plus the browser-observed user-agent. The shared client cache hands those values to `rquest`, which performs the actual HTML request and redirect handling.
+- **Chaser-CF parameter-bound loopback**: Browser Cloudflare solves now use a dedicated Arachnea loopback proxy with routing parameters bound server-side, allowing Chrome CONNECT requests and `rquest` to share country-based proxy routing without exposing custom proxy headers to Chrome.
 - **PapaDuStream v2 YAML service**: Added series home rails, search, entry metadata, season episodes, and player language listings for PapaDuStream v2.
 - **Embed4me YAML hoster**: Added `embed4me.yaml` for `lpayer.embed4me.com/#id` embeds. The resolver derives the encrypted video API endpoint from the fragment and exposes HLS, title, poster, and thumbnail VTT metadata.
 - **SaveFiles YAML hoster**: Added `savefiles.yaml` for `savefiles.com/e/{id}` embeds. The resolver POSTs to `/dl`, then extracts JWPlayer HLS, poster, and thumbnail VTT metadata from the player page.

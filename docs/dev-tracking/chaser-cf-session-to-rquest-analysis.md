@@ -1,180 +1,143 @@
-5 000
-# Analyse : transfert de session `chaser-cf` à `rquest`
+# Analyse : transfert de session `chaser-cf` vers `rquest`
 
-Dates : 2026-08-13
+Date : 2026-08-13
 
-## Portée révisée
+## Scope retenu
 
-Le moteur `chaser-cf` ne doit avoir qu'une seule responsabilité :
+`chaser-cf` résout le challenge Cloudflare avec son API publique
+`ChaserCF::solve_waf_session`. Il ne récupère pas le HTML applicatif. Il retourne :
 
-1. appelez l'API publique `chaser_cf::ChaserCF::solve_waf_session` ;
-2. renvoie un ensemble de cookies `cf_clearance` valide et l'agent utilisateur observé par le navigateur ;
-3. laissez le client Arachnea existant transmettre ces valeurs au cookie partagé et 
-caches d'agent utilisateur.
+- les cookies de la session, dont `cf_clearance` ;
+- le `User-Agent` observé dans le navigateur.
 
-`rquest` doit alors effectuer la requête HTTP réelle et obtenir le code HTML. Le
-le moteur du navigateur ne doit plus renvoyer la page HTML, réessayez une navigation dans le navigateur pour
-HTML, ou implémentez Cloudflare/Turnstile en attendant et en cliquant localement.
+`arachnea-http` enregistre ensuite ces données dans ses caches partagés. `rquest`
+effectue la requête HTTP réelle, suit les redirections via la façade existante et
+récupère le HTML. Un échec du transfert après les reprises bornées reste un
+`CloudflareBlocked`; aucun repli HTML navigateur ne doit être réintroduit
+implicitement.
 
-## État actuel
-
-Le client dispose déjà de la plupart des mécanismes de transfert souhaités :
-
-```texte
-actualisation du solveur de navigateur 
--> EngineResponse (Set-Cookie, x-arachnea-solver-user-agent) 
--> store_response_cookies / store_cloudflare_solver_metadata 
--> Cache de cookies partagé + cache d'agent utilisateur limité à l'origine 
--> requête_moteur 
--> requête avec Cookie et User-Agent 
--> Réponse HTML
+```text
+chaser-cf solve_waf_session
+  -> Set-Cookie + User-Agent
+  -> caches partagés Arachnea
+  -> rquest (Cookie + User-Agent)
+  -> HTML ou CloudflareBlocked
 ```
 
-`ArachneaHttpClient::engine_request` obtient les cookies correspondants du partage
-cache de cookies et recherche l'agent utilisateur du solveur stocké pour l'origine de la demande.
-`base_headers` installe à la fois en tant que `Cookie` et `User-Agent`, et `RquestEngine`
-envoie tous les en-têtes normalisés inchangés. La gestion de la redirection est déjà effectuée
-par la façade et stocke les cookies de réponse à chaque saut.
+## État de l'implémentation
 
-Par conséquent, `HttpRequestMode::CloudflareBrowser` est déjà proche du nouveau
-comportement cible : il s'actualise en cas de besoin, puis appelle `rquest`.
+Le moteur `ChaserCfEngine` utilise désormais la façade publique `ChaserCF` et
+transforme le `WafSession` en en-têtes `Set-Cookie` et en métadonnée interne
+`x-arachnea-solver-user-agent`. Son corps de réponse est volontairement vide.
+`send` est non pris en charge : le moteur n'est plus un transport HTML ni un
+moteur de pages persistantes.
 
-Deux voies entrent en conflit avec le champ d’application révisé :
+`ArachneaHttpClient` stocke les cookies puis associe le `User-Agent` du solveur
+à l'origine. `engine_request` réinjecte ces valeurs dans les requêtes `rquest`.
+Le chemin Auto tente d'abord `rquest`, lance la résolution à la détection d'un
+blocage Cloudflare, puis retente `rquest`.
 
-- `ChaserCfEngine::send` ouvre sa propre page de navigateur, implémente le défi local 
-interroger/cliquer et renvoie un corps collecté par le navigateur ; et
-- après l'échec d'un transfert `rquest`, `ArachneaHttpClient` essaie 
-`execute_with_browser_cloudflare_engine`, qui appelle `engine.send` pour récupérer 
-HTML dans un navigateur.
+## Symptômes observés pendant les essais
 
-Le « ChaserCfEngine » actuel possède également « BrowserManager » directement plutôt que
-la façade publique « ChaserCF ». Cela contourne la limite de dépendance prévue.
+Le CAPTCHA se résout correctement, mais deux erreurs peuvent encore apparaître :
 
-## Architecture cible
+1. `CONNECT brunhild.challenges.cloudflare.com:443` échoue avec l'erreur DNS
+   Windows `11004` ;
+2. le CAPTCHA est résolu, mais la requête HTML suivante reçoit toujours une page
+   Cloudflare et se termine par `CloudflareBlocked`.
 
-```texte
-demande en mode Auto ou CloudflareBrowser 
--> demande (tentative initiale, Auto uniquement) 
--> Blocage Cloudflare ou autorisation manquante/périmée 
--> ChaserCF :: solve_waf_session (url, proxy) 
--> EngineResponse (Set-Cookie + user-agent solveur ; corps vide) 
--> Caches partagées Arachnea 
--> requête (Cookie + User-Agent solveur exact) 
--> HTML / redirections / gestion des réponses ordinaires
+Les fermetures Windows `10054` sont généralement une conséquence du navigateur
+qui abandonne les connexions de ressources après l'échec d'un `CONNECT`. Elles
+ne constituent pas la cause initiale.
+
+## Analyse du proxy loopback
+
+### Cause
+
+Le coeur `arachnea-proxy` choisit un proxy dynamique avec le contexte client,
+notamment le paramètre `country`. `rquest` envoie ce paramètre au proxy loopback
+par l'en-tête `Arachnea-Proxy-Country`. Chrome, lancé par `chaser-cf`, ne connaît
+qu'une URL de proxy et ne peut pas ajouter cet en-tête à ses requêtes `CONNECT`.
+
+Partager une simple URL `http://127.0.0.1:<port>` n'assure donc pas que Chrome
+et `rquest` emploient la même route. Chrome atteignait le listener sans contexte
+de pays et pouvait prendre une route directe ou une sélection dynamique
+différente. L'échec DNS vers le sous-domaine de challenge est ainsi un symptôme
+de route incorrecte, pas un échec de la résolution du CAPTCHA.
+
+### Correctif implémenté
+
+Deux listeners loopback sont nécessaires :
+
+```text
+rquest  -> listener normal + paramètres dans les en-têtes de chaque requête
+chaser  -> listener dédié + ClientContext fixé au démarrage
 ```
 
-Le résultat d’une opération de poursuite réussie est une session, pas un document. Un
-Le corps vide de `EngineResponse` est intentionnel à la fois pour `refresh_cloudflare` et
-`refresh_cloudflare_fresh`.
+`ArachneaRquestLoopback::start_with_parameters` construit un `ClientContext`
+avec les définitions de paramètres du coeur proxy. Le nouveau handler
+`handle_with_client_context` transmet ce contexte aux requêtes `CONNECT` et aux
+requêtes HTTP absolues. Les en-têtes éventuels de la requête gardent priorité
+sur le contexte fixé. Chrome peut ainsi utiliser la route de pays demandée sans
+connaître le protocole d'en-têtes interne.
 
-Si la requête « rquest » de post-résolution est toujours bloquée par Cloudflare, le client doit
-renvoie « CloudflareBlocked » après sa politique d'actualisation limitée existante. Il faut
-ne pas recourir à une requête HTML du navigateur. Cela entraîne un échec de transfert de cookie
-visible au lieu de le masquer avec un transport différent.
+Cette correction doit être compilée et le service doit être entièrement
+redémarré. Des traces montrant encore un `CONNECT` sans route pays peuvent venir
+d'un exécutable non reconstruit ou d'une requête sans `proxy_country` configuré.
 
-## Avantages
+## Limite fondamentale du transfert Chrome vers `rquest`
 
-- `chaser-cf` possède sa propre logique de timing de défi et d'interaction.
-- Arachnea ne duplique plus la traversée du Turnstile CDP ou une boucle de clic.
-- Un transport (`rquest`) possède le HTML normal, les redirections et la demande d'application 
-sémantique.
-- Le cache existant et le transfert de l'agent utilisateur à l'origine sont réutilisés à la place de 
-introduire un autre format de session.
-- L'échec est déterministe : un transfert d'autorisation accepté conduit à une "demande" 
-HTML ; un transfert rejeté reste un échec Cloudflare signalé.
+Transmettre `cf_clearance` et le `User-Agent` est nécessaire, mais n'est pas une
+garantie que Cloudflare acceptera `rquest`. La version publique 0.2.1 de
+`chaser-cf` ne fournit que les cookies et `navigator.userAgent`; elle ne fournit
+ni un contexte Chrome réutilisable, ni l'ensemble des en-têtes de navigation.
 
-## Contraintes et risques
+Cloudflare peut également lier une clearance à d'autres propriétés : IP de
+sortie, empreinte TLS/JA3, réglages HTTP/2, ordre des en-têtes, Client Hints ou
+comportement navigateur. `rquest` conserve le cookie et le `User-Agent`, mais
+ne devient pas Chrome. Un `CloudflareBlocked` après une résolution réussie —
+notamment sur PapaDuStream — peut donc signaler une incompatibilité d'empreinte
+et non pas l'absence du cookie dans le cache.
 
-### La parité des empreintes digitales du navigateur n'est pas complète
+Le point déterminant est d'abord l'IP : le solveur et `rquest` doivent employer
+la même route proxy effective. Avec un pool dynamique, cette identité doit aussi
+rester stable entre la résolution et la requête HTML.
 
-Passer `cf_clearance` et l'agent utilisateur exact du navigateur est nécessaire mais peut
-ne sera pas suffisant. Cloudflare peut lier l'autorisation à d'autres empreintes digitales et
-propriétés du réseau. `rquest` doit utiliser la même route proxy/IP sortante que le
-résolution du navigateur ; sinon, le transfert devrait échouer. Même avec le même
-route, certaines cibles peuvent rejeter une empreinte digitale TLS/indice client non-navigateur.
+## Cache de sessions et proxy dynamique
 
-Il s'agit d'une limitation opérationnelle attendue de la conception révisée, et non d'une raison
-pour réintroduire la solution de secours HTML du navigateur. Il devrait être présenté comme
-`CloudflareBlocked` sans valeurs de cookie dans les journaux.
+Le cache persistant actuel est indexé uniquement par origine. C'est risqué avec
+un pool de proxys dynamique : une clearance obtenue depuis une IP peut être
+réutilisée plus tard depuis une autre IP. Cette réutilisation peut provoquer un
+blocage qui ressemble à une défaillance de `rquest`.
 
-### La gestion du proxy nécessite une implémentation explicite
+Le cache doit donc être isolé par identité de route effective, ou désactivé pour
+le routage dynamique tant qu'il n'existe pas de clé de route stable. La simple
+URL du listener loopback n'est pas suffisante : elle change par client et ne
+représente pas le proxy dynamique réellement sélectionné.
 
-`RquestEngine` applique déjà la route proxy configurée. Le courant
-`ChaserCfEngine` crée chaque contexte de navigateur avec `Aucun`, donc il ne passe pas
-le proxy du réseau Arachnea vers `chaser-cf` aujourd'hui. La migration doit cartographier un
-URL `HttpProxyConfig::Network` prise en charge vers `chaser_cf::ProxyConfig` et utilisez-la
-pour `solve_waf_session`, ou rejetez la configuration comme non prise en charge.
+## Diagnostics requis
 
-`HttpProxyConfig::Arachnea` nécessite également une décision délibérée de compatibilité.
-Les deux requêtes ne peuvent partager l'identité requise que si Chaser-cf peut utiliser le
-même itinéraire de bouclage géré. Il ne doit pas être résolu directement et récupéré via
-un mandataire.
+Les journaux ne doivent jamais contenir les valeurs de cookie. Ils doivent
+permettre de vérifier les faits suivants :
 
+- origine demandée ;
+- type de proxy et noms des paramètres liés au listener `chaser-cf` ;
+- présence (sans valeur) de `cf_clearance` et du `User-Agent` mémorisé ;
+- route/selection proxy utilisée pour le `CONNECT` navigateur et pour `rquest` ;
+- raison compacte de détection Cloudflare après la reprise.
 
-### Modification des en-têtes de navigation du solveur personnalisé
+## Étapes de validation
 
-L'API publique `solve_waf_session` accepte uniquement les URL et les proxy. Il ne peut pas porter
-les en-têtes de navigation arbitraires actuels ou le référent explicite. Dans ce cadre,
-les en-têtes s'appliquent uniquement à la requête `rquest` suivante. Si une cible nécessite
-un référent spécifique lors du challenge Cloudflare lui-même, c'est-à-dire un référent en amont
-Lacune de l'API `chaser-cf` et devrait produire une limitation claire plutôt qu'une restauration
-le solveur du navigateur local.
-
-### Les sessions de pages de navigateur persistantes sortent du nouveau champ d'application de ce moteur
-
-`BrowserPageSession` est utilisé pour les récupérations JavaScript à l'échelle d'une page et
-jetons de rappel Turnstile au niveau de l’application. Le public `chaser-cf` 0.2.1 n'a pas
-API de page persistante. Par conséquent `ChaserCfEngine::open_browser_page_session`
-ne peut pas rester pris en charge après cette migration.
-
-Tous les workflows nécessitant une page persistante doivent utiliser un autre navigateur explicite
-moteur (par exemple le moteur Tauri/Wry existant, le cas échéant), ou être
-refactorisé séparément. Il s'agit d'un changement de comportement contractuel que les appelants doivent
-être informé.
-
-## Approche de mise en œuvre
-
-1. Remplacez la propriété `BrowserManager` dans `ChaserCfEngine` par un paresseusement 
-Instance `ChaserCF` initialisée à l'aide du `ChaserConfig` existant.
-2. Implémentez une petite méthode d'adaptateur qui appelle public 
-`solve_waf_session(url, proxy)`, mappe les erreurs à `ChaserCfFailure`, valide 
-`cf_clearance`, et convertit la `WafSession` renvoyée en en-têtes de réponse.
-3. Conservez le cache de session persistant : il ne met en cache que les en-têtes de cookies synthétisés 
-et le couple utilisateur-agent, qui reste valable pour cette conception.
-4. Faites en sorte que `refresh_cloudflare` et `refresh_cloudflare_fresh` utilisent cet adaptateur. 
-Les deux renvoient « StatusCode :: OK » et un corps vide.
-5. Faites en sorte que `ChaserCfEngine::send` renvoie `UnsupportedEngineOperation` (ou supprimez 
-son remplacement si le contrat de trait est ajusté) car ce moteur n'est pas 
-plus un transport HTML.
-6. Faites en sorte que `open_browser_page_session` renvoie `UnsupportedEngineOperation` pour 
-`chaser-cf` ; supprimez `ChaserCfPageSession` et ses assistants réservés au navigateur.
-7. Supprimez `execute_with_browser_cloudflare_engine` de `Auto` et 
-Chemins d'échec de « CloudflareBrowser », y compris sa réponse finale du navigateur 
-repli. Conservez l'actualisation/nouvelle tentative limitée existante via `rquest`.
-8. Mettez à jour le README, `CHANGELOG.md` et `docs/TODO.md` pour indiquer que Chaser-cf 
-est un solveur de session uniquement et que les sessions de page de navigateur nécessitent un autre 
-moteur.
-
-## Plan de validation
-
-Utilisez uniquement une cible autorisée et supprimez toutes les valeurs des cookies.
-
-1. Vérifiez qu'une requête CloudflareBrowser sans autorisation mise en cache appelle 
-`solve_waf_session` une fois, stocke `cf_clearance` et l'agent utilisateur du solveur, puis 
-obtient le HTML via `rquest`.
-2. Vérifiez que la requête `rquest` générée contient le `Cookie` correspondant et 
-valeurs exactes du solveur `User-Agent`, sans enregistrer le cookie.
-3. Vérifiez que « Auto » commence par « rquest », s'actualise uniquement sur une petite annonce. 
-Blocage Cloudflare, puis nouvelle tentative via « rquest ».
-4. Vérifiez qu'un transfert rejeté se termine par « CloudflareBlocked » et ne déclenche pas de 
-Interaction GET du navigateur ou défi CDP local.
-5. Vérifiez que le mode direct ne lance jamais le solveur ; vérifier la réutilisation des sessions mises en cache, 
-expiration et rafraîchissement forcé.
-6. Vérifiez que l'identité du proxy est la même pour la résolution et la récupération, ou qu'un 
-la configuration du proxy est rejetée avant l'envoi du trafic.
-
-## Décision de portée requise avant la mise en œuvre
-
-Cela supprime le repli direct HTML du navigateur et le persistant `chaser-cf`
-capacité de la page, ce qui modifie le comportement du public. Une confirmation est requise
-avant la mise en œuvre selon les règles du référentiel.
+1. Recompiler puis redémarrer complètement le service avec le listener
+   paramétré.
+2. Effectuer une requête protégée avec `proxy_country: BE` et vérifier que les
+   `CONNECT` de Chrome et les requêtes `rquest` utilisent la même route BE.
+3. Vérifier que `cf_clearance` et le `User-Agent` sont présents dans la requête
+   `rquest` sans en exposer les valeurs dans les logs.
+4. Faire un second appel sur la même origine : il ne doit pas réutiliser une
+   clearance appartenant à une autre route dynamique.
+5. Si route, cookie et `User-Agent` sont corrects mais que la cible renvoie
+   toujours Cloudflare, qualifier l'échec comme incompatibilité d'empreinte
+   transport. Les options sont alors une émulation TLS/HTTP2 Chrome dans
+   `rquest` ou un moteur navigateur explicitement choisi pour le HTML ; cette
+   dernière option est hors du scope validé pour `chaser-cf`.

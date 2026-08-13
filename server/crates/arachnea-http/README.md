@@ -53,7 +53,7 @@ Cloudflare detection should require supporting signals such as `server: cloudfla
 When `Auto` reaches the browser fallback after an active Cloudflare block, the browser solver is asked for a fresh solve instead of reusing an engine-specific session cache.
 The chaser-cf integration is a session solver only: it delegates challenge handling to `ChaserCF::solve_waf_session`, then returns `cf_clearance` cookies and the browser-observed user-agent to the shared caches. `rquest` always performs the subsequent HTML request, redirects, and response handling.
 If the rquest handoff remains blocked, the client returns `CloudflareBlocked` after its bounded refresh policy; it does not retrieve HTML through the browser as a fallback. The solver and rquest must use the same proxy route, and clearance portability is target-dependent.
-If the browser solve succeeds but the `rquest` cookie handoff is still blocked, the client falls back to the browser solver response for engines that can return page content.
+If the browser solve succeeds but the `rquest` cookie handoff is still blocked, the client returns `CloudflareBlocked` after its bounded refresh attempts. Chaser-CF is a session solver only and never returns HTML.
 Callers can force the browser solver with `ArachneaHttpConfig::builder().cloudflare_browser_solver(...)` or provide an engine instance with `cloudflare_browser_solver_instance(...)`.
 Injected custom engines keep full control over their own transport setup; the facade-level proxy configuration applies to built-in engines only.
 
@@ -81,7 +81,7 @@ let config = ArachneaHttpConfig::builder()
     .build()?;
 ```
 
-Current upstream client APIs still expose proxy URLs rather than a stable public transport replacement hook, so the built-in `rquest` and Ghostwire engines both use the managed loopback compatibility helper when `proxy_core(...)` is selected.
+Current upstream client APIs still expose proxy URLs rather than a stable public transport replacement hook, so the built-in `rquest` and Ghostwire engines both use the managed loopback compatibility helper when `proxy_core(...)` is selected. Chaser-CF receives a separate parameter-bound loopback listener so Chrome CONNECT requests use the same Arachnea proxy routing context as `rquest`.
 
 Use `.mode(...)` on a request builder to override the configured default for one call:
 
