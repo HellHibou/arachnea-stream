@@ -51,9 +51,8 @@ This crate is intended for authorized traffic only. Callers must respect target 
 
 Cloudflare detection should require supporting signals such as `server: cloudflare`, `cf-ray`, `cf-mitigated`, `cf-` or `__cf` headers/cookies, or known challenge markers. A plain `403` is not enough by itself.
 When `Auto` reaches the browser fallback after an active Cloudflare block, the browser solver is asked for a fresh solve instead of reusing an engine-specific session cache.
-The chaser-cf browser solver keeps one browser tab alive while it clears Cloudflare, attempts Turnstile clicks through CDP, and samples the DOM until the HTML is stable.
-When chaser-cf is used to fetch page content directly, it forwards per-request HTTP headers before navigation. The Cloudflare refresh path now reuses the blocked request headers as well. `Referer` is passed through Chrome's native navigation API, so normal browser referrer policy still applies.
-When a `Referer` is expected, chaser-cf also emits one runtime log line with the `observed_referer` reported by Chrome for the outbound navigation request.
+The chaser-cf integration is a session solver only: it delegates challenge handling to `ChaserCF::solve_waf_session`, then returns `cf_clearance` cookies and the browser-observed user-agent to the shared caches. `rquest` always performs the subsequent HTML request, redirects, and response handling.
+If the rquest handoff remains blocked, the client returns `CloudflareBlocked` after its bounded refresh policy; it does not retrieve HTML through the browser as a fallback. The solver and rquest must use the same proxy route, and clearance portability is target-dependent.
 If the browser solve succeeds but the `rquest` cookie handoff is still blocked, the client falls back to the browser solver response for engines that can return page content.
 Callers can force the browser solver with `ArachneaHttpConfig::builder().cloudflare_browser_solver(...)` or provide an engine instance with `cloudflare_browser_solver_instance(...)`.
 Injected custom engines keep full control over their own transport setup; the facade-level proxy configuration applies to built-in engines only.
@@ -146,8 +145,8 @@ let config = ArachneaHttpConfig::builder()
 
 ### Engine support
 
-- The `chaser-cf` engine supports persistent page sessions.
-- A retained chaser-cf page holds its browser manager, so temporary configured clients cannot close Chrome while the session remains valid.
+- The `chaser-cf` engine is a Cloudflare session solver and does not support persistent page sessions.
+- Use another explicit browser engine for page-scoped JavaScript work, callbacks, or DOM interactions.
 - Engines without this capability return `UnsupportedEngineOperation` rather than silently falling back to direct HTTP.
 - `BrowserPageSession::clear_turnstile_token()` has a default no-op implementation.
 - Browser contexts are resource-intensive. Keep `max_sessions` small and invalidate an origin when its session is known to be invalid.
