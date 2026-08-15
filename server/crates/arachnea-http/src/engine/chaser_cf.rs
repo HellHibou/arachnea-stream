@@ -8,7 +8,7 @@ use std::{
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use chaser_cf::{ChaserCF, ChaserConfig, Cookie as ChaserCookie, ProxyConfig, WafSession};
+use chaser_cf::{ChaserCF, ChaserConfig, Cookie as ChaserCookie, Profile, ProxyConfig, WafSession};
 use http::{header::SET_COOKIE, HeaderMap, HeaderValue, Method, StatusCode};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
@@ -29,6 +29,15 @@ const DEFAULT_SESSION_CACHE_REFRESH_MARGIN: Duration = Duration::from_secs(300);
 
 /// File name used by the default persistent chaser-cf session cache.
 const DEFAULT_SESSION_CACHE_FILE_NAME: &str = "chaser-cf-sessions.json";
+
+/// Dedicated timeout for chaser-cf browser challenge solving, kept independent
+/// from the HTTP request timeout because solving a captcha (including browser
+/// startup with lazy init) can take far longer than a regular request.
+const CHASER_SOLVE_TIMEOUT: Duration = Duration::from_secs(180);
+
+/// Upper bound for a cached session whose expiration could not be determined,
+/// matching the typical Cloudflare `cf_clearance` lifetime.
+const CACHE_TTL_NO_EXPIRY: Duration = Duration::from_secs(1_800);
 
 /// chaser-cf adapter that resolves Cloudflare sessions for the rquest transport.
 ///
@@ -102,8 +111,16 @@ impl ChaserCfEngine {
     ) -> Result<Self, ArachneaHttpError> {
         let chaser_config = ChaserConfig::from_env()
             .with_headless(false)
-            .with_timeout(config.request_timeout)
-            .with_lazy_init(true);
+            .with_timeout(CHASER_SOLVE_TIMEOUT)
+            .with_lazy_init(true)
+            .with_profile(Profile::Windows)
+            .with_extra_args([
+                 "--disable-blink-features=AutomationControlled",
+                 "--disable-infobars",
+                 "--no-first-run",
+                 "--no-default-browser-check",
+             ]);
+
         let engine = Self {
             config: chaser_config,
             chaser: Arc::new(RwLock::new(None)),
@@ -202,8 +219,8 @@ impl ChaserCfEngine {
         }
         debug!(
             origin = %url,
-            cookie_names = ?session.cookies.iter().map(|cookie| cookie.name.as_str()).collect::<Vec<_>>(),
-            has_solver_user_agent = session.headers.get("user-agent").is_some_and(|value| !value.trim().is_empty()),
+            user_agent = ?session.headers.get("user-agent"),
+            cookies = ?session.cookies.iter().map(set_cookie_header).collect::<Vec<_>>(),
             "chaser-cf resolved Cloudflare session"
         );
         Ok(session)
@@ -427,11 +444,15 @@ impl CachedChaserSession {
     }
 
     fn is_usable(&self, refresh_margin: Duration) -> bool {
-        self.clearance_expires_at
-            .map(|expires_at| {
+        match self.clearance_expires_at {
+            Some(expires_at) => {
                 expires_at > unix_timestamp().saturating_add(refresh_margin.as_secs())
-            })
-            .unwrap_or(true)
+            }
+            None => self
+                .stored_at
+                .saturating_add(CACHE_TTL_NO_EXPIRY.as_secs())
+                > unix_timestamp(),
+        }
     }
 }
 
@@ -538,9 +559,9 @@ fn expires_http_date(expires: Option<f64>) -> Option<String> {
     if !expires.is_finite() || expires < 0.0 {
         return None;
     }
-    Some(httpdate::fmt_http_date(
-        UNIX_EPOCH + Duration::from_secs_f64(expires),
-    ))
+    let duration = Duration::try_from_secs_f64(expires).ok()?;
+    let instant = UNIX_EPOCH.checked_add(duration)?;
+    Some(httpdate::fmt_http_date(instant))
 }
 
 fn default_session_cache_path() -> PathBuf {
