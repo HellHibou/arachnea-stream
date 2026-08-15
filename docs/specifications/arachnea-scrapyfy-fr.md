@@ -377,12 +377,16 @@ Le système de pointeurs JSON supporte :
 | `/data/*` | Tous les éléments d'un tableau ou toutes les valeurs d'un objet |
 | `/data/0` | Index numérique dans un tableau |
 | `/data/*[role=mea]` | Filtre : éléments du tableau dont `role` = `"mea"` |
+| `/data/*[content/0/idType=8]` | Filtre avec chemin imbriqué : éléments dont `content[0].idType` = `8` |
 | `/data/0[status=active]` | Filtre sur un index spécifique |
 | `/data/*/external_key` | Descend dans tous les sous-éléments |
 
 ```yaml
 # Exemple : filtrer par role=cover
 row_pointer: "/images/*[role=cover]"
+
+# Exemple : filtrer par un champ imbriqué dans un objet du tableau
+row_pointer: "/*[content/0/idType=8]"
 ```
 
 ### Entrées JSON (`entries`)

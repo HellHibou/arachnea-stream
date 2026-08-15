@@ -52,5 +52,9 @@
   {
     "path": "legal-stream/ln24-be.yaml",
     "enabled": true
+  },
+  {
+    "path": "legal-stream/antennereunion-fr.yaml",
+    "enabled": false
   }
 ]

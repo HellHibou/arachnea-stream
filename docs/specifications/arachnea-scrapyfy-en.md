@@ -375,12 +375,16 @@ The JSON pointer system supports:
 | `/data/*` | All elements of an array or all values of an object |
 | `/data/0` | Numeric index in an array |
 | `/data/*[role=mea]` | Filter: array elements where `role` = `"mea"` |
+| `/data/*[content/0/idType=8]` | Filter with nested path: elements where `content[0].idType` = `8` |
 | `/data/0[status=active]` | Filter on a specific index |
 | `/data/*/external_key` | Descend into all sub-elements |
 
 ```yaml
 # Example: filter by role=cover
 row_pointer: "/images/*[role=cover]"
+
+# Example: filter by a nested field in an array object
+row_pointer: "/*[content/0/idType=8]"
 ```
 
 ### JSON entries (`entries`)

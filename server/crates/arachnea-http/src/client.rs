@@ -1412,6 +1412,7 @@ impl ArachneaHttpClient {
         headers.extend(options.headers);
         debug!("headers:{:?}", redacted_headers(&headers));
         debug!("cookies:{:?}", self.cookies);
+        debug!("body:{:?}",  options.body);
         Ok(EngineRequest {
             method: options.method,
             url: options.url,

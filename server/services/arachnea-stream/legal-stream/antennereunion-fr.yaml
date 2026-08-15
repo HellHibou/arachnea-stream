@@ -1,0 +1,631 @@
+id: antennereunion-fr
+title: "Antenne Réunion"
+logo: "https://antennereunion-production.eu-west-3.ancdn.tv/configuration/HadCogoctandsxEDEsdufOcagidOad/data/images/b6f24743b9bda84965732853163e52b0979129872630db4b3940689e003fe512.png"
+description:
+  fr: "Plateforme de streaming légale de la chaîne de télévision régionale Antenne Réunion (La Réunion) : replay, séries, films et chaînes en direct."
+  en: "Legal streaming platform of the regional TV channel Antenne Réunion (La Réunion): catch-up TV, series, movies and live channels."
+
+http:
+  mode: direct
+  user_agent_profile: firefox
+
+parameters:
+  - name: base_url
+    value: "https://proxies.antennereunion-production.eu-west-3.alphanetworks.tv"
+  - name: cdn_base_url
+    value: "https://antennereunion-production.eu-west-3.ancdn.tv"
+  - name: identity_key
+    value: "HadCogoctandsxEDEsdufOcagidOad"
+  - name: language_id
+    value: "fra"
+  - name: include_root
+    value: "true"
+  - name: epg_hours
+    value: "72"
+
+shared:
+  media_types_antennereunion: &media_types_antennereunion
+    - video/movie
+    - video/show/serie
+    - video/show/documentary
+    - video/show/sport
+    - video/show/kids
+    - video/show/other
+    - video/news
+    - video/live
+    - video/other
+
+  request_identity_header: &request_identity_header
+    - name: "X-AN-WebService-IdentityKey"
+      select: first
+      actions:
+        - type: format_text
+          argument: "{identity_key}"
+
+  # Headers for JSON POST calls: identity key + JSON content type.
+  request_headers_json: &request_headers_json
+    - name: "X-AN-WebService-IdentityKey"
+      select: first
+      actions:
+        - type: format_text
+          argument: "{identity_key}"
+    - name: "content-type"
+      select: first
+      actions:
+        - type: format_text
+          argument: "application/x-www-form-urlencoded"
+
+  request_body_language: &request_body_language
+    - type: format_text
+      argument: 'type=anonymous&languageId={language_id}'
+
+  actions_image_to_url: &actions_image_to_url
+    - type: build_url
+      base: "{cdn_base_url}/proxy/imgdata?type=image&objectId={id}&languageId={language_id}"
+      fields:
+        id: /content/0/tags/imageId
+
+  actions_channel_image_to_url: &actions_channel_image_to_url
+    - type: build_url
+      base: "{cdn_base_url}/proxy/imgdata?type=channel_taui&objectId={id}&languageId={language_id}"
+      fields:
+        id: /idChannel
+
+  entries_media_item_home: &entries_media_item_home
+    - name: title
+      type: string
+      pointer: /content/0/content/name
+    - name: label
+      type: string
+      pointer: /content/0/content/directMetadata/AD_ASSTITLE
+    - name: description
+      type: string
+      pointer: /content/0/content/synopsis
+    - name: media-type
+      type: string
+      actions:
+        - type: format_text
+          argument: "video/show/other"
+    - name: link
+      type: string
+      pointer: /content/0/content/idCatalog
+    - name: rating
+      type: number
+      pointer: /content/0/content/directMetadata/AD_SCORPUBL
+    - name: morality
+      type: number
+      pointer: /content/0/content/moralityLevel
+    - name: img/poster > link
+      type: string
+      actions: *actions_image_to_url
+
+  entries_media_item_asset: &entries_media_item_asset
+    - name: title
+      type: string
+      pointer: /directMetadata/AD_ASSTITLE
+    - name: title/alt
+      type: string
+      pointer: /directMetadata/AD_ORITITLE
+    - name: description
+      type: string
+      pointer: /directMetadata/AD_SYNO600C
+    - name: media-type
+      type: string
+      actions:
+        - type: format_text
+          argument: "video/show/other"
+    - name: link
+      type: string
+      pointer: /idAsset
+    - name: duration
+      type: number
+      pointer: /directMetadata/TS_DURATION
+      actions:
+        - type: ratio
+          argument: 60
+    - name: release-date
+      type: string
+      pointer: /directMetadata/TS_STARTUTC
+      actions:
+        - type: get_date
+          format: yyyy_mm_dd_hh_mm_ss
+    - name: expire
+      type: string
+      pointer: /directMetadata/TS_ENDUTC
+      actions:
+        - type: get_date
+          format: yyyy_mm_dd_hh_mm_ss
+    - name: theme
+      type: string[]
+      pointer: /directMetadata/AD_LIGENRES
+    - name: rating
+      type: number
+      pointer: /directMetadata/AD_SCORPUBL
+    - name: morality
+      type: number
+      pointer: /moralityLevel
+
+  entries_episode: &entries_episode
+    - name: title
+      type: string
+      pointer: /directMetadata/AD_ASSTITLE
+    - name: title/alt
+      type: string
+      pointer: /directMetadata/AD_SUBTITLE
+    - name: description
+      type: string
+      pointer: /directMetadata/AD_SYNO600C
+    - name: duration
+      type: number
+      pointer: /directMetadata/TS_DURATION
+      actions:
+        - type: ratio
+          argument: 60
+    - name: release-date
+      type: string
+      pointer: /directMetadata/TS_STARTUTC
+      actions:
+        - type: get_date
+          format: yyyy_mm_dd_hh_mm_ss
+    - name: expire
+      type: string
+      pointer: /directMetadata/TS_ENDUTC
+      actions:
+        - type: get_date
+          format: yyyy_mm_dd_hh_mm_ss
+    - name: link
+      type: string
+      pointer: /idAsset
+    - name: season-name
+      type: string
+      pointer: /directMetadata/AD_SERIESEA
+      actions:
+        - type: format_text
+          argument: "Saison {}"
+    - name: episode-number
+      type: string
+      pointer: /directMetadata/AD_SERIESEP
+    - name: season
+      type: string
+      pointer: /directMetadata/AD_SERIESEA
+      actions:
+        - type: format_text
+          argument: "Saison {}"
+    - name: morality
+      type: number
+      pointer: /moralityLevel
+
+queries:
+  - name: service_stream_metadata
+    scraper_type: static
+    entries:
+      - name: id
+        type: string
+        value: "{service_id}"
+      - name: title
+        type: string
+        value: "{service_title}"
+      - name: logo
+        type: string
+        value: "{service_logo}"
+      - name: description
+        type: object
+        value: "{service_description}"
+      - name: search_themes
+        type: string[]
+        value:
+          - "Séries"
+          - "Films"
+          - "Magazines"
+          - "Divertissement"
+          - "Sport"
+          - "Jeunesse"
+          - "Infos"
+          - "Documentaire"
+
+  - name: load_home
+    scraper_type: json
+    request_method: post
+    base_url: "{base_url}"
+    query_url: "{base_url}/proxy/homeContent"
+    request_body_pointer: /status
+    request_body_select: first
+    request_body_actions:
+      - type: format_text
+        argument: 'type=anonymous&languageId={language_id}'
+    request_headers: *request_headers_json
+    media_types: *media_types_antennereunion
+    row_pointer: /result/homecontent
+    entries:
+      - name: categories
+        type: object[]
+        pointer: "/*[content/0/idType=7]"
+        select: all
+        entries:
+          - name: key
+            type: string
+            pointer: /content/0/content/url
+          - name: label
+            type: string
+            pointer: /content/0/content/url
+          - name: link
+            type: string
+            pointer: /content/0/content/url
+          - name: request > query_url
+            type: string
+            pointer: /content/0/content/url
+
+      - name: banners
+        type: object[]
+        pointer: "/*[content/0/tags/designMode/0=fullscreen]"
+        select: all
+        entries:
+          - name: key
+            type: string
+            pointer: /content/0/idItem
+          - name: title
+            type: string
+            pointer: /content/0/content/directMetadata/AD_ASSTITLE
+          - name: title
+            type: string
+            pointer: /content/0/content/name
+          - name: description
+            type: string
+            pointer: /content/0/content/directMetadata/AD_SYNO600C
+          - name: description
+            type: string
+            pointer: /content/0/content/synopsis
+          - name: image
+            type: string
+            actions: *actions_image_to_url
+          - name: link
+            type: string
+            pointer: /content/0/content/idCatalog
+
+      - name: sections
+        type: object[]
+        entries:
+          - name: label
+            type: string
+            select: first
+            actions:
+              - type: format_text
+                argument: "À la une"
+          - name: entries
+            type: object[]
+            pointer: "/*[content/0/idType=8]"
+            select: all
+            entries: *entries_media_item_home
+
+  - name: get_category
+    scraper_type: json
+    request_method: post
+    base_url: "{base_url}"
+    query_url: "{base_url}/proxy/listContent"
+    request_body_actions:
+      - type: format_text
+        argument: 'id={category_id}&includeRoot={include_root}&languageId={language_id}'
+    request_headers: *request_headers_json
+    media_types: *media_types_antennereunion
+    row_pointer: /result/items/0/payload
+    entries:
+      - name: categories
+        type: object[]
+        pointer: /categories/*
+        select: all
+        entries:
+          - name: key
+            type: string
+            pointer: /idCatalog
+          - name: label
+            type: string
+            pointer: /name
+          - name: link
+            type: string
+            pointer: /idCatalog
+          - name: request > query_url
+            type: string
+            actions:
+              - type: format_text
+                argument: "{base_url}/proxy/listContent"
+      - name: sections
+        type: object[]
+        entries:
+          - name: label
+            type: string
+            pointer: /name
+          - name: link
+            type: string
+            pointer: /idCatalog
+          - name: current_page
+            type: number
+            actions:
+              - type: format_text
+                argument: "{page}"
+          - name: have_more
+            type: boolean
+            actions:
+              - type: format_text
+                argument: "false"
+          - name: total_pages
+            type: number
+            actions:
+              - type: format_text
+                argument: "1"
+          - name: page_size
+            type: number
+            pointer: /absolute_asset_number
+          - name: total
+            type: number
+            pointer: /absolute_asset_number
+          - name: entries
+            type: object[]
+            pointer: /assets/*
+            select: all
+            entries: *entries_media_item_asset
+
+  - name: get_section
+    scraper_type: json
+    request_method: post
+    base_url: "{base_url}"
+    query_url: "{base_url}/proxy/listContent"
+    request_body_actions:
+      - type: format_text
+        argument: 'id={section_id}&includeRoot={include_root}&languageId={language_id}'
+    request_headers: *request_headers_json
+    media_types: *media_types_antennereunion
+    row_pointer: /result/items/0/payload
+    entries:
+      - name: current_page
+        type: number
+        actions:
+          - type: format_text
+            argument: "{page}"
+      - name: total_pages
+        type: number
+        actions:
+          - type: format_text
+            argument: "1"
+      - name: page_size
+        type: number
+        pointer: /absolute_asset_number
+      - name: entries
+        type: object[]
+        pointer: /assets/*
+        select: all
+        entries: *entries_media_item_asset
+    post_process:
+      - type: derive_pagination
+        total_pages_field: total_pages
+        page_size_field: page_size
+        remove_fields:
+          - total_pages
+          - page_size
+
+  - name: search
+    scraper_type: json
+    request_method: get
+    base_url: "{base_url}"
+    query_url: "{base_url}/cms/search?languageId={language_id}&fts={search_terms}"
+    request_headers: *request_identity_header
+    media_types: *media_types_antennereunion
+    row_pointer: /result/data
+    entries:
+      - name: current_page
+        type: number
+        actions:
+          - type: format_text
+            argument: "{page}"
+      - name: total_pages
+        type: number
+        actions:
+          - type: format_text
+            argument: "1"
+      - name: entries
+        type: object[]
+        pointer: "/*/item"
+        select: all
+        entries:
+          - name: title
+            type: string
+            pointer: /payload/title
+          - name: description
+            type: string
+            pointer: /payload/synopsis
+          - name: media-type
+            type: string
+            pointer: /type
+            actions:
+              - type: map
+                default: "video/show/other"
+                argument:
+                  "asset": video/show/other
+                  "series": video/show/serie
+          - name: year
+            type: number
+            pointer: /payload/metadata/tv.alphanetworks.tucano.releaseYear
+          - name: theme
+            type: string[]
+            pointer: /payload/genre
+          - name: morality
+            type: number
+            pointer: /payload/moralityLevel
+    post_process:
+      - type: derive_pagination
+        total_pages_field: total_pages
+        remove_fields:
+          - total_pages
+
+  - name: get_entry
+    scraper_type: json
+    request_method: post
+    base_url: "{base_url}"
+    query_url: "{base_url}/proxy/listContent"
+    request_body_actions:
+      - type: format_text
+        argument: 'id={entry_id}&includeRoot={include_root}&languageId={language_id}'
+    request_headers: *request_headers_json
+    media_types: *media_types_antennereunion
+    row_pointer: /result/items/0/payload
+    entries:
+      - name: title
+        type: string
+        pointer: /name
+      - name: description
+        type: string
+        pointer: /synopsis
+      - name: media-type
+        type: string
+        pointer: /serie
+        actions:
+          - type: map
+            default: "video/show/other"
+            argument:
+              "true": video/show/serie
+      - name: link
+        type: string
+        pointer: /idCatalog
+      - name: rating
+        type: number
+        pointer: /directMetadata/AD_SCORPUBL
+      - name: morality
+        type: number
+        pointer: /moralityLevel
+      - name: seasons
+        type: object[]
+        pointer: /categories/*
+        select: all
+        entries:
+          - name: label
+            type: string
+            pointer: /name
+          - name: link
+            type: string
+            pointer: /idCatalog
+
+  - name: get_season
+    scraper_type: json
+    request_method: post
+    base_url: "{base_url}"
+    query_url: "{base_url}/proxy/listContent"
+    request_body_actions:
+      - type: format_text
+        argument: 'id={season_id}&includeRoot={include_root}&languageId={language_id}'
+    request_headers: *request_headers_json
+    media_types: *media_types_antennereunion
+    row_pointer: /result/items/0/payload
+    entries:
+      - name: current_page
+        type: number
+        actions:
+          - type: format_text
+            argument: "{page}"
+      - name: have_more
+        type: boolean
+        actions:
+          - type: format_text
+            argument: "false"
+      - name: episodes
+        type: object[]
+        pointer: /assets/*
+        select: all
+        entries: *entries_episode
+
+  - name: list_lives
+    scraper_type: json
+    request_method: post
+    base_url: "{base_url}"
+    query_url: "{base_url}/proxy/listChannels"
+    request_body_actions: *request_body_language
+    request_headers: *request_headers_json
+    media_types:
+      - video/live
+    row_pointer: /result/channels/*
+    entries:
+      - name: key
+        type: string
+        pointer: /idChannel
+      - name: title
+        type: string
+        pointer: /name
+      - name: media-type
+        type: string
+        actions:
+          - type: format_text
+            argument: "video/live"
+      - name: link
+        type: string
+        pointer: /idChannel
+      - name: channel
+        type: string
+        pointer: /name
+      - name: tags
+        type: string[]
+        pointer: /tags
+      - name: img/poster > link
+        type: string
+        actions: *actions_channel_image_to_url
+      - name: img/portrait > link
+        type: string
+        actions: *actions_channel_image_to_url
+      - name: img/landscape > link
+        type: string
+        actions: *actions_channel_image_to_url
+
+  - name: get_live
+    scraper_type: json
+    request_method: post
+    base_url: "{base_url}"
+    query_url: "{base_url}/proxy/epg"
+    request_body_actions:
+      - type: format_text
+        argument: 'languageId={language_id}&midnight={midnight}&startHour=0&endHour={epg_hours}&channelIds={channel_id}'
+    request_headers: *request_headers_json
+    media_types:
+      - video/live
+    row_pointer: /result/epg/*/*
+    entries:
+      - name: key
+        type: string
+        actions:
+          - type: format_text
+            argument: "{channel_id}"
+      - name: title
+        type: string
+        pointer: /title
+      - name: description
+        type: string
+        pointer: /synopsis
+      - name: release-date
+        type: number
+        pointer: /startutc
+      - name: expire
+        type: number
+        pointer: /endutc
+      - name: genre
+        type: string
+        pointer: /genre
+      - name: rating
+        type: number
+        pointer: /rating
+      - name: players
+        type: object[]
+        entries:
+          - name: name
+            type: string
+            actions:
+              - type: format_text
+                argument: "Antenne Réunion"
+          - name: resolver
+            type: object
+            entries:
+              - name: kind
+                type: string
+                actions:
+                  - type: format_text
+                    argument: "antennereunion-live"
+              - name: target_id
+                type: string
+                actions:
+                  - type: format_text
+                    argument: "{channel_id}"

@@ -500,12 +500,12 @@ fn select_json_values_all<'a>(root: &'a Value, pointer: Option<&str>) -> Vec<&'a
     };
 
     let mut current = vec![root];
-    for token in pointer.trim_start_matches('/').split('/') {
+    for token in split_pointer_tokens(pointer) {
         if token.is_empty() {
             continue;
         }
 
-        let token = decode_pointer_token(token);
+        let token = decode_pointer_token(&token);
         let mut next = Vec::new();
 
         for value in current {
@@ -573,6 +573,55 @@ fn decode_pointer_token(token: &str) -> String {
     token.replace("~1", "/").replace("~0", "~")
 }
 
+/// Splits a pointer path on `/` while keeping `[...]` filter blocks intact.
+///
+/// A filter block such as `*[content/0/idType=8]` contains slashes that would
+/// otherwise be treated as token separators. Brackets protect the whole block
+/// so the array selector and its nested filter path stay one token.
+///
+/// # Arguments
+///
+/// * `pointer` - Slash-separated pointer, optionally starting with `/`.
+///
+/// # Returns
+///
+/// The pointer tokens with empty leading and trailing segments removed.
+///
+/// # Examples
+///
+/// - `/*[content/0/idType=8]` → `["*[content/0/idType=8]"]`
+/// - `/data/*/external_key` → `["data", "*", "external_key"]`
+fn split_pointer_tokens(pointer: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut bracket_depth = 0usize;
+
+    for character in pointer.chars() {
+        match character {
+            '[' => {
+                bracket_depth += 1;
+                current.push(character);
+            }
+            ']' => {
+                bracket_depth = bracket_depth.saturating_sub(1);
+                current.push(character);
+            }
+            '/' if bracket_depth == 0 => {
+                if !current.is_empty() {
+                    tokens.push(std::mem::take(&mut current));
+                }
+            }
+            _ => current.push(character),
+        }
+    }
+
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+
+    tokens
+}
+
 /// Parses a token that may contain array filtering syntax like `*[role=mea]`
 /// or `0[status=active]`.
 ///
@@ -598,11 +647,15 @@ fn parse_array_filter(token: &str) -> Option<(String, String)> {
     None
 }
 
-/// Checks if a JSON value matches a filter condition like `"role=mea"`.
+/// Checks if a JSON value matches a filter condition like `"role=mea"` or
+/// `"content/0/idType=8"`.
+///
+/// The field part of the condition may be a nested pointer path. Matching uses
+/// the same pointer navigation as regular extraction.
 ///
 /// # Arguments
 ///
-/// * `value` - JSON object to test against the filter.
+/// * `value` - JSON value to test against the filter.
 /// * `filter` - Condition string in `field=expected` format.
 ///
 /// # Returns
@@ -610,16 +663,14 @@ fn parse_array_filter(token: &str) -> Option<(String, String)> {
 /// `true` if the value matches the filter condition, `false` otherwise.
 fn matches_filter(value: &Value, filter: &str) -> bool {
     if let Some((field, expected)) = parse_filter_condition(filter) {
-        if let Some(obj) = value.as_object() {
-            if let Some(actual_value) = obj.get(&field) {
-                match actual_value {
-                    Value::String(s) => return s == &expected,
-                    Value::Number(n) => return n.to_string() == expected,
-                    Value::Bool(b) => return b.to_string() == expected,
-                    _ => return false,
-                }
-            }
-        }
+        return select_json_values(value, Some(field.as_str()), HtmlScraperSelectMode::All)
+            .into_iter()
+            .any(|item| match item {
+                Value::String(s) => s == &expected,
+                Value::Number(n) => n.to_string() == expected,
+                Value::Bool(b) => b.to_string() == expected,
+                _ => false,
+            });
     }
     false
 }
@@ -790,5 +841,47 @@ mod tests {
             .collect();
 
         assert_eq!(strings, vec!["key1", "key2"]);
+    }
+
+    #[test]
+    fn test_select_json_values_with_nested_filter() {
+        let data = json!([
+            {"content": [{"idType": 7, "content": {"name": "Cat A"}}]},
+            {"content": [{"idType": 8, "content": {"name": "Film B"}}]},
+            {"content": [{"idType": 8, "content": {"name": "Film C"}}]}
+        ]);
+
+        let results = select_json_values(
+            &data,
+            Some("/*[content/0/idType=8]/content/0/content/name"),
+            HtmlScraperSelectMode::All,
+        );
+        let strings: Vec<String> = results
+            .into_iter()
+            .flat_map(json_value_to_strings)
+            .collect();
+
+        assert_eq!(strings, vec!["Film B", "Film C"]);
+    }
+
+    #[test]
+    fn test_select_json_values_with_nested_filter_preserves_brackets() {
+        let data = json!({
+            "result": {
+                "homecontent": [
+                    {"content": [{"idType": 7}]},
+                    {"content": [{"idType": 8}]},
+                    {"content": [{"idType": 8}]}
+                ]
+            }
+        });
+
+        let results = select_json_values(
+            &data,
+            Some("/result/homecontent/*[content/0/idType=8]"),
+            HtmlScraperSelectMode::All,
+        );
+
+        assert_eq!(results.len(), 2);
     }
 }
