@@ -4,8 +4,12 @@ Date : 2026-08-13
 
 ## Scope retenu
 
-`chaser-cf` résout le challenge Cloudflare avec son API publique
-`ChaserCF::solve_waf_session`. Il ne récupère pas le HTML applicatif. Il retourne :
+`chaser-cf` a désormais deux usages complémentaires dans `arachnea-http` :
+
+### 1. Résolution de session Cloudflare (transfert vers `rquest`)
+
+L'API publique `ChaserCF::solve_waf_session` résout le challenge Cloudflare et
+retourne :
 
 - les cookies de la session, dont `cf_clearance` ;
 - le `User-Agent` observé dans le navigateur.
@@ -13,8 +17,8 @@ Date : 2026-08-13
 `arachnea-http` enregistre ensuite ces données dans ses caches partagés. `rquest`
 effectue la requête HTTP réelle, suit les redirections via la façade existante et
 récupère le HTML. Un échec du transfert après les reprises bornées reste un
-`CloudflareBlocked`; aucun repli HTML navigateur ne doit être réintroduit
-implicitement.
+`CloudflareBlocked`; aucun repli HTML navigateur implicite n'est réintroduit sur
+ce chemin.
 
 ```text
 chaser-cf solve_waf_session
@@ -24,18 +28,61 @@ chaser-cf solve_waf_session
   -> HTML ou CloudflareBlocked
 ```
 
+### 2. Session de page persistante (`BrowserPageSession`)
+
+`open_browser_page_session` est de nouveau supporté par le moteur `chaser-cf`. Il
+retourne une `ChaserCfPageSession` conservant un navigateur Chrome dédié pour les
+workflows qui ont besoin d'une vraie page : navigation, `fetch` same-page,
+clic puis attente d'un sélecteur, et lecture du jeton Turnstile.
+
+La page persistante **ne résout jamais elle-même** un challenge Cloudflare :
+chaque navigation résout d'abord une session fraîche via la façade publique
+`ChaserCF::solve_waf_session`, puis rejoue le `User-Agent` observé et les cookies
+de clearance sur cette page retenue avant d'exécuter la navigation. Aucune
+logique de défi (`wait_for_clearance`, clic CDP, stabilité du DOM) n'est
+réimplémentée dans `arachnea-http`.
+
 ## État de l'implémentation
 
-Le moteur `ChaserCfEngine` utilise désormais la façade publique `ChaserCF` et
-transforme le `WafSession` en en-têtes `Set-Cookie` et en métadonnée interne
-`x-arachnea-solver-user-agent`. Son corps de réponse est volontairement vide.
-`send` est non pris en charge : le moteur n'est plus un transport HTML ni un
-moteur de pages persistantes.
+### Moteur `ChaserCfEngine`
 
-`ArachneaHttpClient` stocke les cookies puis associe le `User-Agent` du solveur
-à l'origine. `engine_request` réinjecte ces valeurs dans les requêtes `rquest`.
-Le chemin Auto tente d'abord `rquest`, lance la résolution à la détection d'un
-blocage Cloudflare, puis retente `rquest`.
+Le moteur utilise la façade publique `ChaserCF` et transforme le `WafSession` en
+en-têtes `Set-Cookie` et en métadonnée interne
+`x-arachnea-solver-user-agent`. Le chemin `send` assemble une réponse HTML
+directe pour `GET`/`HEAD` via `get_source` (transport direct optionnel).
+
+### Session de page persistante
+
+Un navigateur lazy dédié (`page_browser`) est créé pour les sessions de page,
+distinct du navigateur de la façade. Chaque `open_browser_page_session` :
+
+1. obtient le `BrowserManager` dédié ;
+2. crée un contexte de navigation avec le proxy de l'engine
+   (`create_context(self.proxy.as_ref())`) pour partager la route proxy avec le
+   handoff `rquest` ;
+3. ouvre une page `about:blank` (`new_page`) ;
+4. installe le hook Turnstile sur les nouveaux documents.
+
+Le plan de `ChaserCfPageSession::navigate` est :
+
+1. résoudre une session fraîche via `ChaserCF::solve_waf_session` ;
+2. vérifier que la session contient bien un cookie `cf_clearance` ;
+3. appliquer le `User-Agent` observé via CDP (`EmulationSetUserAgentOverride`) ;
+4. injecter les cookies de la session via CDP (`SetCookiesParams` /
+   `CookieParam`) ;
+5. appliquer les en-têtes de requête personnalisés (le `Referer` passe par le
+   champ natif de navigation de Chrome) ;
+6. naviguer et retourner l'URL finale et, si demandé, le corps HTML.
+
+`fetch` exécute un `fetch` natif same-origin dans la page via l'évaluation JS.
+`click_and_wait` sonde le DOM jusqu'à l'apparition du sélecteur cible, borné par
+le timeout du moteur. `metadata` rend les cookies observés et le `User-Agent`
+au cache partagé. La lecture du jeton Turnstile utilise la variable globale
+capturée par le hook installé à l'ouverture.
+
+La session retenue garde son `BrowserManager` vivant tant qu'elle existe, de
+sorte qu'un client configuré temporairement ne peut pas fermer Chrome pendant la
+validité de la session.
 
 ## Symptômes observés pendant les essais
 
@@ -101,7 +148,9 @@ et non pas l'absence du cookie dans le cache.
 
 Le point déterminant est d'abord l'IP : le solveur et `rquest` doivent employer
 la même route proxy effective. Avec un pool dynamique, cette identité doit aussi
-rester stable entre la résolution et la requête HTML.
+rester stable entre la résolution et la requête HTML. La session de page
+persistante hérite de la même exigence : son contexte de navigation est créé
+avec le proxy de l'engine pour rester sur la même route que le solveur.
 
 ## Cache de sessions et proxy dynamique
 
@@ -136,7 +185,10 @@ permettre de vérifier les faits suivants :
    `rquest` sans en exposer les valeurs dans les logs.
 4. Faire un second appel sur la même origine : il ne doit pas réutiliser une
    clearance appartenant à une autre route dynamique.
-5. Si route, cookie et `User-Agent` sont corrects mais que la cible renvoie
+5. Ouvrir une session de page persistante (`page_fetch` / `page_click`) et
+   vérifier que la navigation rejoue la session fraîche, injecte cookies et
+   `User-Agent` via CDP, et conserve la route proxy de l'engine.
+6. Si route, cookie et `User-Agent` sont corrects mais que la cible renvoie
    toujours Cloudflare, qualifier l'échec comme incompatibilité d'empreinte
    transport. Les options sont alors une émulation TLS/HTTP2 Chrome dans
    `rquest` ou un moteur navigateur explicitement choisi pour le HTML ; cette

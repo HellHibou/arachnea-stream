@@ -3,19 +3,31 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use chaser_cf::{ChaserCF, ChaserConfig, Cookie as ChaserCookie, Profile, ProxyConfig, WafSession};
-use http::{header::SET_COOKIE, HeaderMap, HeaderValue, Method, StatusCode};
+use chaser_cf::core::BrowserManager;
+use chaser_cf::{
+    ChaserCF, ChaserConfig, Cookie as ChaserCookie, Profile, ProxyConfig, WafSession,
+};
+use chaser_oxide::auth::Credentials;
+use chaser_oxide::{ChaserPage, Page};
+use http::{
+    header::{CONTENT_TYPE, HeaderName, SET_COOKIE},
+    HeaderMap, HeaderValue, Method, StatusCode,
+};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tracing::{debug, warn};
 use url::Url;
 
 use crate::{
+    browser::{
+        BrowserPageSession, BrowserSessionMetadata, PageClickRequest, PageClickResponse,
+        PageFetchRequest, PageFetchResponse, PageNavigationRequest, PageNavigationResponse,
+    },
     config::ArachneaHttpConfig,
     engine::{EngineRequest, EngineResponse, HttpEngine, SOLVER_USER_AGENT_HEADER},
     error::ArachneaHttpError,
@@ -35,15 +47,26 @@ const DEFAULT_SESSION_CACHE_FILE_NAME: &str = "chaser-cf-sessions.json";
 /// startup with lazy init) can take far longer than a regular request.
 const CHASER_SOLVE_TIMEOUT: Duration = Duration::from_secs(180);
 
+/// How long a retained interactive page waits for the target selector after a
+/// programmatic click before giving up.
+const CLICK_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// How long `read_turnstile_token` polls while the operator resolves a
+/// Cloudflare captcha manually before returning `None`.
+const TURNSTILE_WAIT_TIMEOUT: Duration = Duration::from_secs(300);
+
 /// Upper bound for a cached session whose expiration could not be determined,
 /// matching the typical Cloudflare `cf_clearance` lifetime.
 const CACHE_TTL_NO_EXPIRY: Duration = Duration::from_secs(1_800);
 
-/// chaser-cf adapter that resolves Cloudflare sessions for the rquest transport.
+/// chaser-cf adapter that resolves Cloudflare sessions and, for direct
+/// requests, returns the cleared page content.
 ///
-/// This engine deliberately delegates all challenge interaction to chaser-cf's
-/// public `ChaserCF::solve_waf_session` API. It returns only cookies and the
-/// browser user-agent; `ArachneaHttpClient` uses rquest to retrieve HTML.
+/// All challenge interaction is delegated to chaser-cf's public API:
+/// `ChaserCF::solve_waf_session` produces the clearance cookies and the
+/// browser user-agent, and `ChaserCF::get_source` returns the page HTML.
+/// Refresh flows still hand the cookies and user-agent to
+/// `ArachneaHttpClient` for the rquest transport.
 pub struct ChaserCfEngine {
     /// Native chaser-cf configuration used to lazily build the public facade.
     config: ChaserConfig,
@@ -219,8 +242,8 @@ impl ChaserCfEngine {
         }
         debug!(
             origin = %url,
-            user_agent = ?session.headers.get("user-agent"),
-            cookies = ?session.cookies.iter().map(set_cookie_header).collect::<Vec<_>>(),
+            cookie_names = ?session.cookies.iter().map(|cookie| cookie.name.as_str()).collect::<Vec<_>>(),
+            has_solver_user_agent = session.headers.get("user-agent").is_some_and(|value| !value.trim().is_empty()),
             "chaser-cf resolved Cloudflare session"
         );
         Ok(session)
@@ -342,11 +365,53 @@ impl HttpEngine for ChaserCfEngine {
         ENGINE_NAME
     }
 
-    /// This engine is a session solver only; rquest performs document requests.
-    async fn send(&self, _request: EngineRequest) -> Result<EngineResponse, ArachneaHttpError> {
-        Err(ArachneaHttpError::UnsupportedEngineOperation {
-            engine: self.name(),
-            operation: "HTML requests; use rquest after refresh_cloudflare",
+    /// Executes a GET/HEAD request through chaser-cf's public solver.
+    ///
+    /// Challenge handling is fully delegated to chaser-cf: `solve_waf_session`
+    /// produces the clearance cookies and browser user-agent, and `get_source`
+    /// returns the page HTML. This engine only assembles the response headers
+    /// and body, so no chaser-cf challenge logic is reimplemented here.
+    ///
+    /// # Context note
+    ///
+    /// Each chaser-cf public call runs in its own browser context. Without a
+    /// proxy, both calls share the default context and reuse the solved
+    /// `cf_clearance`. With a proxy, chaser-cf uses a fresh incognito context
+    /// per call, so the HTML fetch can require its own challenge solve.
+    async fn send(&self, request: EngineRequest) -> Result<EngineResponse, ArachneaHttpError> {
+        if request.method != Method::GET && request.method != Method::HEAD {
+            return Err(ArachneaHttpError::UnsupportedEngineOperation {
+                engine: self.name(),
+                operation: "non-GET/HEAD HTTP requests",
+            });
+        }
+
+        let session = self.solve_waf_session(&request.url).await?;
+        let mut headers = Self::response_headers(&session.cookies)?;
+        Self::insert_solver_user_agent(&mut headers, &session)?;
+        self.store_session_cache(&request.url, &session);
+
+        let body = if request.method == Method::GET {
+            let html = self
+                .chaser()
+                .await?
+                .get_source(&request.url, self.proxy.clone())
+                .await
+                .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
+            headers.insert(
+                CONTENT_TYPE,
+                HeaderValue::from_static("text/html; charset=utf-8"),
+            );
+            Bytes::from(html)
+        } else {
+            Bytes::new()
+        };
+
+        Ok(EngineResponse {
+            url: request.url,
+            status: StatusCode::OK,
+            headers,
+            body,
         })
     }
 
@@ -365,6 +430,318 @@ impl HttpEngine for ChaserCfEngine {
         self.refresh_cloudflare_with_cache_policy(request, false)
             .await
     }
+
+    /// Opens an interactive page session on a dedicated, single Chrome window.
+    ///
+    /// A `BrowserManager` is created directly from the shared `ChaserConfig` —
+    /// the crate publicly re-exports it — and one page is retained for the whole
+    /// session. Nothing is auto-solved here: the operator loads the page, the
+    /// session clicks the button that injects the Cloudflare captcha, the
+    /// operator solves it manually in the same window, and `read_turnstile_token`
+    /// then polls for the resulting token. No second window is ever launched
+    /// while this session is the only chaser-cf activity.
+    async fn open_browser_page_session(
+        &self,
+    ) -> Result<Box<dyn BrowserPageSession>, ArachneaHttpError> {
+        let manager = BrowserManager::new(&self.config)
+            .await
+            .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
+        let ctx_id = match manager.create_context(self.proxy.as_ref()).await {
+            Ok(ctx_id) => ctx_id,
+            Err(err) => {
+                manager.shutdown().await;
+                return Err(ArachneaHttpError::ChaserCfFailure(err.to_string()));
+            }
+        };
+        let (page, chaser) = match manager.new_page(ctx_id, "about:blank").await {
+            Ok(pair) => pair,
+            Err(err) => {
+                manager.shutdown().await;
+                return Err(ArachneaHttpError::ChaserCfFailure(err.to_string()));
+            }
+        };
+        if let Some(proxy) = &self.proxy {
+            if let (Some(username), Some(password)) = (&proxy.username, &proxy.password) {
+                if let Err(err) = page
+                    .authenticate(Credentials {
+                        username: username.clone(),
+                        password: password.clone(),
+                    })
+                    .await
+                {
+                    manager.shutdown().await;
+                    return Err(ArachneaHttpError::ChaserCfFailure(err.to_string()));
+                }
+            }
+        }
+        Ok(Box::new(ChaserCfPageSession {
+            browser: manager,
+            page,
+            chaser,
+        }))
+    }
+}
+
+/// Interactive chaser-cf page session on a single dedicated Chrome window.
+///
+/// The session owns its own `BrowserManager` (built from the shared
+/// `ChaserConfig`), so it does not rely on the facade's internal window and no
+/// second window appears while this session is the only chaser-cf activity. The
+/// page is retained for the session lifetime, which is what makes the manual
+/// Cloudflare flow possible in one window:
+///
+/// 1. `navigate` loads the target page.
+/// 2. `click_and_wait` clicks the button that dynamically injects the
+///    Cloudflare captcha.
+/// 3. The operator solves the captcha by hand in the visible window while
+///    `read_turnstile_token` polls for the token.
+/// 4. Once resolved, `metadata` exposes the resulting cookies and user-agent
+///    and the captcha-driven iframe can be read through `fetch`.
+struct ChaserCfPageSession {
+    /// Browser manager owning the single interactive Chrome window.
+    browser: BrowserManager,
+    /// Retained CDP page handle.
+    page: Page,
+    /// Retained JavaScript evaluation helper over `page`.
+    chaser: ChaserPage,
+}
+
+#[async_trait]
+impl BrowserPageSession for ChaserCfPageSession {
+    async fn navigate(
+        &mut self,
+        request: PageNavigationRequest,
+    ) -> Result<PageNavigationResponse, ArachneaHttpError> {
+        self.chaser
+            .goto(&request.url)
+            .await
+            .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
+        let url = self
+            .page
+            .url()
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or(request.url);
+        let body = if request.collect_body {
+            let html = self
+                .chaser
+                .content()
+                .await
+                .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
+            Some(html)
+        } else {
+            None
+        };
+        Ok(PageNavigationResponse { url, body })
+    }
+
+    async fn fetch(
+        &mut self,
+        request: PageFetchRequest,
+    ) -> Result<PageFetchResponse, ArachneaHttpError> {
+        let mut headers = HashMap::new();
+        for (name, value) in &request.headers {
+            let value = value
+                .to_str()
+                .map_err(|err| ArachneaHttpError::InvalidHeader(err.to_string()))?;
+            headers.insert(name.as_str().to_string(), value.to_string());
+        }
+        let body = request
+            .body
+            .map(|body| {
+                String::from_utf8(body.to_vec()).map_err(|_| {
+                    ArachneaHttpError::PageFetchFailed(
+                        "in-page fetch currently requires a UTF-8 request body".to_string(),
+                    )
+                })
+            })
+            .transpose()?;
+        let payload = serde_json::json!({
+            "method": request.method.as_str(),
+            "url": request.url,
+            "headers": headers,
+            "body": body,
+        });
+        let script = format!(
+            "async function() {{ const input = {}; const response = await fetch(input.url, {{ method: input.method, headers: input.headers, body: input.body, credentials: 'same-origin' }}); const headers = {{}}; response.headers.forEach((value, name) => {{ headers[name] = value; }}); return {{ url: response.url, status: response.status, headers, body: await response.text() }}; }}",
+            serde_json::to_string(&payload)
+                .map_err(|err| ArachneaHttpError::PageFetchFailed(err.to_string()))?
+        );
+        let result = self
+            .page
+            .evaluate_function(script)
+            .await
+            .map_err(|err| ArachneaHttpError::PageFetchFailed(err.to_string()))?
+            .into_value::<InPageFetchResult>()
+            .map_err(|err| ArachneaHttpError::PageFetchFailed(err.to_string()))?;
+        let mut response_headers = HeaderMap::new();
+        for (name, value) in result.headers {
+            let name = HeaderName::from_bytes(name.as_bytes())
+                .map_err(|err| ArachneaHttpError::PageFetchFailed(err.to_string()))?;
+            let value = HeaderValue::from_str(&value)
+                .map_err(|err| ArachneaHttpError::PageFetchFailed(err.to_string()))?;
+            response_headers.append(name, value);
+        }
+        Ok(PageFetchResponse {
+            url: result.url,
+            status: StatusCode::from_u16(result.status).map_err(|err| {
+                ArachneaHttpError::PageFetchFailed(format!("invalid browser fetch status: {err}"))
+            })?,
+            headers: response_headers,
+            body: result.body,
+        })
+    }
+
+    async fn click_and_wait(
+        &mut self,
+        request: PageClickRequest,
+    ) -> Result<PageClickResponse, ArachneaHttpError> {
+        let selector = serde_json::to_string(&request.selector)
+            .map_err(|err| ArachneaHttpError::PageInteractionFailed(err.to_string()))?;
+        let click_script = format!(
+            "(() => {{ const element = document.querySelector({selector}); if (!element) throw new Error('click target was not found'); element.click(); return true; }})()"
+        );
+        self.chaser
+            .evaluate(&click_script)
+            .await
+            .map_err(|err| ArachneaHttpError::PageInteractionFailed(err.to_string()))?;
+
+        let wait_script = format!(
+            "(() => document.querySelector({selector}) !== null)()",
+            selector = serde_json::to_string(&request.wait_for_selector)
+                .map_err(|err| ArachneaHttpError::PageInteractionFailed(err.to_string()))?
+        );
+        let started = Instant::now();
+        loop {
+            let found = self
+                .chaser
+                .evaluate(&wait_script)
+                .await
+                .map_err(|err| ArachneaHttpError::PageInteractionFailed(err.to_string()))?
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            if found {
+                let body = self
+                    .chaser
+                    .content()
+                    .await
+                    .map_err(|err| ArachneaHttpError::PageInteractionFailed(err.to_string()))?;
+                return Ok(PageClickResponse { body });
+            }
+            if started.elapsed() >= CLICK_WAIT_TIMEOUT {
+                return Err(ArachneaHttpError::PageInteractionFailed(
+                    "timed out waiting for the page action result".to_string(),
+                ));
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    }
+
+    async fn metadata(&mut self) -> Result<BrowserSessionMetadata, ArachneaHttpError> {
+        let cookies = self
+            .page
+            .get_cookies()
+            .await
+            .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
+        let mut headers = HeaderMap::new();
+        for cookie in cookies {
+            let chaser_cookie = ChaserCookie {
+                name: cookie.name,
+                value: cookie.value,
+                domain: Some(cookie.domain),
+                path: Some(cookie.path),
+                expires: Some(cookie.expires),
+                http_only: Some(cookie.http_only),
+                secure: Some(cookie.secure),
+                same_site: cookie.same_site.map(|value| format!("{value:?}")),
+            };
+            headers.append(
+                SET_COOKIE,
+                HeaderValue::from_str(&set_cookie_header(&chaser_cookie))
+                    .map_err(|err| ArachneaHttpError::InvalidHeader(err.to_string()))?,
+            );
+        }
+        if let Some(user_agent) = self
+            .chaser
+            .evaluate("navigator.userAgent")
+            .await
+            .ok()
+            .and_then(|value| value?.as_str().map(str::to_owned))
+            .filter(|value| !value.is_empty())
+        {
+            headers.insert(
+                SOLVER_USER_AGENT_HEADER,
+                HeaderValue::from_str(&user_agent)
+                    .map_err(|err| ArachneaHttpError::InvalidHeader(err.to_string()))?,
+            );
+        }
+        let url = self
+            .page
+            .url()
+            .await
+            .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?
+            .unwrap_or_default();
+        Ok(BrowserSessionMetadata { url, headers })
+    }
+
+    async fn read_turnstile_token(&mut self) -> Result<Option<String>, ArachneaHttpError> {
+        let script = r#"(function() {
+            if (window.turnstile && typeof window.turnstile.getResponse === 'function') {
+                var t = window.turnstile.getResponse();
+                if (t && t.length > 10) return t;
+            }
+            var el = document.querySelector('[name="cf-response"]');
+            if (el && el.value && el.value.length > 10) return el.value;
+            return null;
+        })()"#;
+        let started = Instant::now();
+        loop {
+            let token = self
+                .chaser
+                .evaluate(script)
+                .await
+                .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?
+                .and_then(|value| value.as_str().map(str::to_owned));
+            if let Some(token) = token {
+                return Ok(Some(token));
+            }
+            if started.elapsed() >= TURNSTILE_WAIT_TIMEOUT {
+                return Ok(None);
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+    }
+
+    async fn clear_turnstile_token(&mut self) -> Result<(), ArachneaHttpError> {
+        let script = r#"(function() {
+            if (window.turnstile && typeof window.turnstile.reset === 'function') {
+                try { window.turnstile.reset(); } catch (e) {}
+            }
+            var el = document.querySelector('[name="cf-response"]');
+            if (el) { el.value = ''; }
+            return true;
+        })()"#;
+        self.chaser
+            .evaluate(script)
+            .await
+            .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
+        Ok(())
+    }
+
+    async fn close(self: Box<Self>) {
+        let ChaserCfPageSession { browser, .. } = *self;
+        browser.shutdown().await;
+    }
+}
+
+/// Serializable shape of the object returned by the in-page `fetch` helper.
+#[derive(Deserialize)]
+struct InPageFetchResult {
+    url: String,
+    status: u16,
+    headers: HashMap<String, String>,
+    body: String,
 }
 
 impl ChaserSessionCache {

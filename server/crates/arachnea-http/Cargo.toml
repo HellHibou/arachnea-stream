@@ -9,7 +9,7 @@ autoexamples = false
 default = []
 arachnea-proxy = ["dep:arachnea-proxy", "arachnea-proxy/rquest"]
 ghostwire = ["dep:ghostwire"]
-chaser-cf = ["dep:chaser-cf"]
+chaser-cf = ["dep:chaser-cf", "dep:chaser-oxide"]
 tauri-cloudflare-solver = ["dep:cookie", "dep:tao", "dep:tauri", "dep:wry"]
 tauri-cloudflare-solver-devtools = ["tauri-cloudflare-solver", "wry/devtools"]
 
@@ -20,6 +20,7 @@ anyhow.workspace = true
 async-trait.workspace = true
 bytes.workspace = true
 chaser-cf = { workspace = true, optional = true }
+chaser-oxide = { workspace = true, optional = true }
 cookie = { workspace = true, optional = true }
 futures.workspace = true
 ghostwire = { workspace = true, optional = true }
