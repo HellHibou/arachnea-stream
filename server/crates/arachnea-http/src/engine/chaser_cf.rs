@@ -581,6 +581,42 @@ impl HttpEngine for ChaserCfEngine {
                 }
             }
         }
+        // The site may call window.open() (player popup / ad) once the
+        // captcha is solved. A new tab would steal focus from the solver
+        // window: background tabs get their timers throttled, which stalls
+        // Turnstile's proof-of-work until the tab is foregrounded again. The
+        // init script runs in every frame before the page scripts, so the
+        // popup is never opened and the solver tab keeps the focus.
+        const POPUP_BLOCK_SCRIPT: &str = r#"
+(() => {
+    const record = (url) => {
+        try {
+            sessionStorage.setItem('chaser-cf-blocked-popup', String(url || '').slice(0, 512));
+        } catch (_) {}
+    };
+    const original = window.open;
+    if (typeof original === 'function') {
+        window.open = function (url, target, features) {
+            record(url);
+            return null;
+        };
+    }
+    document.addEventListener('click', (event) => {
+        const anchor = event.target && event.target.closest ? event.target.closest('a') : null;
+        if (anchor && anchor.target === '_blank') {
+            record(anchor.href);
+            event.preventDefault();
+            event.stopPropagation();
+        }
+    }, true);
+})();
+"#;
+        if let Err(err) = page.add_init_script(POPUP_BLOCK_SCRIPT).await {
+            warn!(
+                error = %err,
+                "chaser-cf: failed to install popup blocker init script"
+            );
+        }
         info!(
             proxy = self.proxy.is_some(),
             "chaser-cf browser session opened"
@@ -720,7 +756,15 @@ impl BrowserPageSession for ChaserCfPageSession {
         let started = Instant::now();
         let mut deadline = started + CLICK_WAIT_TIMEOUT;
         let mut solve_started = false;
+        let mut last_front = started - Duration::from_secs(1);
         loop {
+            // If a popup still manages to open, the solver tab falls in the
+            // background and its timers get throttled, stalling the captcha.
+            // Re-activating the tab periodically counteracts that.
+            if last_front.elapsed() >= Duration::from_millis(500) {
+                self.page.bring_to_front().await.ok();
+                last_front = Instant::now();
+            }
             if !solve_started && challenge_is_present(&self.chaser).await {
                 // The clicked button injected a Cloudflare captcha into the
                 // page. Solve it automatically (wait for `cf_clearance` or a
@@ -733,7 +777,7 @@ impl BrowserPageSession for ChaserCfPageSession {
                     selector = %request.wait_for_selector,
                     "chaser-cf: captcha detected after page action click, solving"
                 );
-                wait_for_injected_captcha(&self.chaser, CLICK_SOLVE_TIMEOUT).await;
+                wait_for_injected_captcha(&self.page, &self.chaser, CLICK_SOLVE_TIMEOUT).await;
                 info!("chaser-cf: captcha solve finished");
             }
 
@@ -1047,9 +1091,10 @@ async fn has_turnstile_token(chaser: &ChaserPage) -> bool {
 /// which would short-circuit the wait without ever solving the injected
 /// widget. While waiting, the challenge is clicked automatically (see
 /// [`wait_for_clearance`] for the passive window).
-async fn wait_for_injected_captcha(chaser: &ChaserPage, timeout: Duration) {
+async fn wait_for_injected_captcha(page: &Page, chaser: &ChaserPage, timeout: Duration) {
     let started = Instant::now();
     let mut last_click = started - Duration::from_secs(30);
+    let mut last_front = started - Duration::from_secs(1);
     let mut absent_since: Option<Instant> = None;
 
     loop {
@@ -1075,6 +1120,10 @@ async fn wait_for_injected_captcha(chaser: &ChaserPage, timeout: Duration) {
             return;
         }
 
+        if last_front.elapsed() >= Duration::from_millis(500) {
+            page.bring_to_front().await.ok();
+            last_front = Instant::now();
+        }
         if started.elapsed().as_millis() as u64 >= CLEARANCE_PASSIVE_WAIT_MS
             && last_click.elapsed().as_millis() as u64 >= CLEARANCE_CLICK_INTERVAL_MS
         {
