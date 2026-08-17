@@ -1825,7 +1825,15 @@ impl ArachneaResponse {
 /// ```
 /// # use arachnea_http::error::ArachneaHttpError;
 /// # fn example() -> Result<(), ArachneaHttpError> {
-/// let origin = origin_url("https://example.com/path?query=value")?;
+/// # use url::Url;
+/// let origin = Url::parse("https://example.com/path?query=value")
+///     .map(|url| {
+///         let scheme = url.scheme();
+///         let host = url.host_str().unwrap();
+///         let port = url.port().map(|port| format!(":{port}")).unwrap_or_default();
+///         format!("{scheme}://{host}{port}/")
+///     })
+///     .expect("valid URL");
 /// assert_eq!(origin, "https://example.com/");
 /// # Ok(())
 /// # }
@@ -1942,7 +1950,7 @@ fn redirect_target(response: &ArachneaResponse) -> Result<Option<String>, Arachn
 ///
 /// # Returns
 ///
-/// 	rue when the method should be rewritten to GET for the next redirect hop.
+/// `true` when the method should be rewritten to GET for the next redirect hop.
 fn should_rewrite_redirect_to_get(status: StatusCode, method: &Method) -> bool {
     if *method == Method::GET || *method == Method::HEAD {
         return false;

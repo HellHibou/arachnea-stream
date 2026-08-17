@@ -27,6 +27,7 @@ ghostwire = { workspace = true, optional = true }
 encoding_rs = "0.8"
 http.workspace = true
 httpdate.workspace = true
+rand.workspace = true
 rquest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -40,6 +40,7 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 
 ## Server/HTTP
 
+- Valider en conditions réelles la réimplémentation `chaser-cf` sur un unique `BrowserManager` process-wide : le solveur WAF et les sessions de page partagent désormais le même Chrome, éliminant le conflit de verrouillage `user-data-dir` entre les deux usages. Voir `docs/dev-tracking/chaser-cf-browser-lifecycle-analysis.md`.
 - Finish any source-specific or caller-reported invalidation hooks for reusable origin-scoped browser sessions. The HTTP primitive, Scrapyfy page-fetch sub-query, bounded retry policy, domain-scoped in-memory callback-token cache, Cloudflare cookie handoff, explicit invalidation, frontend recoverable error, and mock-engine tests are implemented. Chaser-CF is now limited to Cloudflare session solving; persistent page workflows require another browser engine. See `docs/dev-tracking/papadustream-browser-getxfield-analysis.md` and `docs/dev-tracking/chaser-cf-session-to-rquest-analysis.md`.
 - Décider si `arachnea-http` doit exposer une API `tower::Service` en plus du constructeur de requêtes fluide.
 - Ajouter des garde-fous optionnels d'usage responsable, comme de la limitation de débit, des délais entre requêtes, des reprises bornées, des vérifications de masquage des cookies et un support optionnel de `robots.txt` si le crate évolue vers du crawling.
