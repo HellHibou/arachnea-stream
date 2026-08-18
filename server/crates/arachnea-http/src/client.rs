@@ -85,6 +85,10 @@ fn global_cloudflare_user_agents() -> Arc<RwLock<HashMap<String, String>>> {
 struct PreparedProxyRuntime {
     #[cfg(feature = "arachnea-proxy")]
     loopback_proxy: Option<Arc<ArachneaRquestLoopback>>,
+    /// Parameter-bound loopback proxy for browser clients that cannot attach
+    /// request-level proxy headers to CONNECT requests.
+    #[cfg(feature = "arachnea-proxy")]
+    chaser_cf_loopback_proxy: Option<Arc<ArachneaRquestLoopback>>,
 }
 
 impl PreparedProxyRuntime {
@@ -117,7 +121,28 @@ impl PreparedProxyRuntime {
                 )),
                 _ => None,
             };
-            return Ok(Self { loopback_proxy });
+            let chaser_cf_loopback_proxy = match &config.proxy {
+                HttpProxyConfig::Arachnea(core) => Some(Arc::new(
+                    ArachneaRquestLoopback::start_with_parameters(
+                        core.clone(),
+                        config
+                            .proxy_parameters
+                            .iter()
+                            .map(|(name, value)| (name.as_str(), value.as_str())),
+                    )
+                    .await
+                    .map_err(|err| {
+                        ArachneaHttpError::Proxy(format!(
+                            "failed to start chaser-cf parameterized loopback helper: {err}"
+                        ))
+                    })?,
+                )),
+                _ => None,
+            };
+            return Ok(Self {
+                loopback_proxy,
+                chaser_cf_loopback_proxy,
+            });
         }
 
         #[cfg(not(feature = "arachnea-proxy"))]
@@ -143,6 +168,20 @@ impl PreparedProxyRuntime {
             #[cfg(feature = "arachnea-proxy")]
             HttpProxyConfig::Arachnea(_) => self
                 .loopback_proxy
+                .as_deref()
+                .map(|loopback| loopback.proxy_url()),
+            HttpProxyConfig::Disabled => None,
+        }
+    }
+
+    /// Returns the proxy URL for chaser-cf, binding configured proxy parameters
+    /// into the dedicated loopback listener when Chrome cannot send them.
+    fn chaser_cf_proxy_url<'a>(&'a self, config: &'a ArachneaHttpConfig) -> Option<&'a str> {
+        match &config.proxy {
+            HttpProxyConfig::Network(url) => Some(url.as_str()),
+            #[cfg(feature = "arachnea-proxy")]
+            HttpProxyConfig::Arachnea(_) => self
+                .chaser_cf_loopback_proxy
                 .as_deref()
                 .map(|loopback| loopback.proxy_url()),
             HttpProxyConfig::Disabled => None,
@@ -337,8 +376,12 @@ impl ArachneaHttpClient {
         };
         let smart_cloudflare_engine =
             Self::build_smart_cloudflare_engine(&config, proxy_runtime.as_ref()).await?;
-        let browser_cloudflare_engine =
-            build_browser_cloudflare_solver(&config, &config.cloudflare_browser_solver).await?;
+        let browser_cloudflare_engine = build_browser_cloudflare_solver(
+            &config,
+            &config.cloudflare_browser_solver,
+            proxy_runtime.chaser_cf_proxy_url(&config),
+        )
+        .await?;
         Ok(Self {
             config,
             cookies,
@@ -992,32 +1035,6 @@ impl ArachneaHttpClient {
             if !retry_detection.detected {
                 return Ok(response);
             }
-            info!(
-                origin = %origin,
-                reason = %retry_detection.reason,
-                "Cloudflare block still present after browser solver rquest handoff; retrying with browser solver response"
-            );
-            match self
-                .execute_with_browser_cloudflare_engine(options.clone())
-                .await
-            {
-                Ok(browser_response) => {
-                    let browser_detection = detect_cloudflare_block(
-                        browser_response.status,
-                        &browser_response.headers,
-                        browser_response.preview_body(),
-                    );
-                    if !browser_detection.detected {
-                        return Ok(browser_response);
-                    }
-                    return Err(ArachneaHttpError::CloudflareBlocked {
-                        origin,
-                        reason: browser_detection.reason,
-                    });
-                }
-                Err(ArachneaHttpError::UnsupportedEngineOperation { .. }) => {}
-                Err(err) => return Err(err),
-            }
             return Err(ArachneaHttpError::CloudflareBlocked {
                 origin,
                 reason: retry_detection.reason,
@@ -1143,97 +1160,10 @@ impl ArachneaHttpClient {
             block_reason = retry_detection.reason;
         }
 
-        if matches!(strategy, CloudflareRefreshStrategy::Browser) {
-            warn!(
-                origin = %origin,
-                reason = %block_reason,
-                "Cloudflare block still present after browser refresh; retrying with browser solver response"
-            );
-            match self
-                .execute_with_browser_cloudflare_engine(options.clone())
-                .await
-            {
-                Ok(browser_response) => {
-                    let browser_detection = detect_cloudflare_block(
-                        browser_response.status,
-                        &browser_response.headers,
-                        browser_response.preview_body(),
-                    );
-                    if !browser_detection.detected {
-                        return Ok(browser_response);
-                    }
-                    return Err(ArachneaHttpError::CloudflareBlocked {
-                        origin: origin.to_string(),
-                        reason: browser_detection.reason,
-                    });
-                }
-                Err(ArachneaHttpError::UnsupportedEngineOperation { .. }) => {}
-                Err(err) => return Err(err),
-            }
-        }
-
         Err(ArachneaHttpError::CloudflareBlocked {
             origin: origin.to_string(),
             reason: block_reason,
         })
-    }
-
-    /// Executes one request through the browser-backed Cloudflare solver.
-    ///
-    /// This is used as a last-resort browser response path when the solver
-    /// succeeds but the cookie handoff back to `rquest` is still rejected.
-    ///
-    /// # Parameters
-    ///
-    /// - `options`: Prepared request options.
-    ///
-    /// # Returns
-    ///
-    /// A materialized response from the browser-backed solver.
-    ///
-    /// # Errors
-    ///
-    /// Returns solver, redirect, cookie storage, or unsupported operation errors.
-    async fn execute_with_browser_cloudflare_engine(
-        &self,
-        options: RequestOptions,
-    ) -> Result<ArachneaResponse, ArachneaHttpError> {
-        self.execute_with_redirects(options, "browser-cloudflare", |options| async move {
-            self.execute_one_with_browser_cloudflare_engine(options)
-                .await
-        })
-        .await
-    }
-
-    /// Executes one request through the browser-backed Cloudflare solver without following redirects.
-    ///
-    /// # Parameters
-    ///
-    /// - `options`: Prepared request options.
-    ///
-    /// # Returns
-    ///
-    /// One materialized browser-backed solver response.
-    ///
-    /// # Errors
-    ///
-    /// Returns solver execution or cookie storage errors.
-    async fn execute_one_with_browser_cloudflare_engine(
-        &self,
-        options: RequestOptions,
-    ) -> Result<ArachneaResponse, ArachneaHttpError> {
-        let engine = self
-            .browser_cloudflare_engine
-            .as_ref()
-            .ok_or(ArachneaHttpError::CloudflareSolverUnavailable)?;
-        info!(engine = engine.name(), method = %options.method, url = %options.url, "sending request");
-        let request = self.engine_request(options).await?;
-        let response = engine.send(request).await?;
-        self.store_cloudflare_solver_metadata(&response.url, &response.headers)
-            .await?;
-        self.store_response_cookies(&response.url, &response.headers)
-            .await?;
-        Ok(ArachneaResponse::from_engine(response))
     }
 
     /// Executes one request through rquest.
@@ -1408,6 +1338,14 @@ impl ArachneaHttpClient {
     ) -> Result<EngineRequest, ArachneaHttpError> {
         let cookie = self.cookies.write().await.cookie_header_for(&options.url)?;
         let user_agent = self.cloudflare_user_agent_for_url(&options.url).await?;
+        debug!(
+            origin = %origin_url(&options.url)?,
+            has_cf_clearance = cookie
+                .as_deref()
+                .is_some_and(|value| value.split(';').any(|part| part.trim_start().starts_with("cf_clearance="))),
+            has_solver_user_agent = user_agent.is_some(),
+            "building rquest request from Cloudflare session state"
+        );
         let mut headers = self.base_headers(cookie, user_agent.as_deref())?;
         headers.extend(options.headers);
         debug!("headers:{:?}", redacted_headers(&headers));
@@ -1888,7 +1826,15 @@ impl ArachneaResponse {
 /// ```
 /// # use arachnea_http::error::ArachneaHttpError;
 /// # fn example() -> Result<(), ArachneaHttpError> {
-/// let origin = origin_url("https://example.com/path?query=value")?;
+/// # use url::Url;
+/// let origin = Url::parse("https://example.com/path?query=value")
+///     .map(|url| {
+///         let scheme = url.scheme();
+///         let host = url.host_str().unwrap();
+///         let port = url.port().map(|port| format!(":{port}")).unwrap_or_default();
+///         format!("{scheme}://{host}{port}/")
+///     })
+///     .expect("valid URL");
 /// assert_eq!(origin, "https://example.com/");
 /// # Ok(())
 /// # }
@@ -2005,7 +1951,7 @@ fn redirect_target(response: &ArachneaResponse) -> Result<Option<String>, Arachn
 ///
 /// # Returns
 ///
-/// 	rue when the method should be rewritten to GET for the next redirect hop.
+/// `true` when the method should be rewritten to GET for the next redirect hop.
 fn should_rewrite_redirect_to_get(status: StatusCode, method: &Method) -> bool {
     if *method == Method::GET || *method == Method::HEAD {
         return false;

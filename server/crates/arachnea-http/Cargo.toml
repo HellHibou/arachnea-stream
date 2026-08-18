@@ -9,7 +9,7 @@ autoexamples = false
 default = []
 arachnea-proxy = ["dep:arachnea-proxy", "arachnea-proxy/rquest"]
 ghostwire = ["dep:ghostwire"]
-chaser-cf = ["dep:chaser-cf", "dep:chaser-oxide", "dep:rand"]
+chaser-cf = ["dep:chaser-cf", "dep:chaser-oxide"]
 tauri-cloudflare-solver = ["dep:cookie", "dep:tao", "dep:tauri", "dep:wry"]
 tauri-cloudflare-solver-devtools = ["tauri-cloudflare-solver", "wry/devtools"]
 
@@ -27,7 +27,7 @@ ghostwire = { workspace = true, optional = true }
 encoding_rs = "0.8"
 http.workspace = true
 httpdate.workspace = true
-rand = { workspace = true, optional = true }
+rand.workspace = true
 rquest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

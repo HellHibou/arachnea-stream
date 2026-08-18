@@ -16,7 +16,9 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
 #[cfg(feature = "rquest")]
-use crate::core::{ArachneaProxyCore, ParameterDefinition};
+use crate::core::{
+    context_from_parameter_pairs, ArachneaProxyCore, ClientContext, ParameterDefinition,
+};
 #[cfg(feature = "rquest")]
 use crate::server::{handlers, NetworkConfig, ProxyAuthConfig, ServerConfig};
 #[cfg(feature = "rquest")]
@@ -54,8 +56,40 @@ impl ArachneaRquestLoopback {
     /// Returns an error when the loopback listener cannot bind.
     pub async fn start(core: ArachneaProxyCore) -> Result<Self> {
         let parameter_definitions = core.parameter_definitions();
+        Self::start_with_client_context(core, parameter_definitions, ClientContext::new()).await
+    }
+
+    /// Starts a loopback listener with fixed routing parameters for every connection.
+    ///
+    /// This is intended for clients such as Chrome that cannot attach custom
+    /// headers to HTTP proxy CONNECT requests.
+    pub async fn start_with_parameters<'a>(
+        core: ArachneaProxyCore,
+        parameters: impl IntoIterator<Item = (&'a str, &'a str)>,
+    ) -> Result<Self> {
+        let parameter_definitions = core.parameter_definitions();
+        let context = context_from_parameter_pairs(parameters, &parameter_definitions);
+        Self::start_with_client_context(core, parameter_definitions, context).await
+    }
+
+    /// Starts a loopback listener with one client context applied to every connection.
+    async fn start_with_client_context(
+        core: ArachneaProxyCore,
+        parameter_definitions: Vec<ParameterDefinition>,
+        client_context: ClientContext,
+    ) -> Result<Self> {
         let listener = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).await?;
         let addr = listener.local_addr()?;
+        let context_parameter_names = client_context
+            .parameters
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        tracing::debug!(
+            proxy_url = %format!("http://{addr}"),
+            context_parameter_names = ?context_parameter_names,
+            "started rquest loopback proxy"
+        );
         let config = Arc::new(ServerConfig {
             listen_http: Some(addr),
             listen_socks: None,
@@ -76,9 +110,16 @@ impl ArachneaRquestLoopback {
                 };
                 let conn_config = Arc::clone(&config);
                 let conn_core = core.clone();
+                let conn_context = client_context.clone();
                 tokio::spawn(async move {
-                    if let Err(error) =
-                        handlers::http::handle(stream, peer, conn_config, conn_core).await
+                    if let Err(error) = handlers::http::handle_with_client_context(
+                        stream,
+                        peer,
+                        conn_config,
+                        conn_core,
+                        conn_context,
+                    )
+                    .await
                     {
                         tracing::warn!(
                             peer = %peer,

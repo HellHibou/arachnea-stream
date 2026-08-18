@@ -13,10 +13,28 @@ use crate::server::{validate_http_basic_header, ProxyCredentials, ServerConfig};
 
 /// Handles one HTTP proxy connection.
 pub async fn handle<S>(
+    client: S,
+    peer: SocketAddr,
+    config: Arc<ServerConfig>,
+    core: ArachneaProxyCore,
+) -> Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    handle_with_client_context(client, peer, config, core, ClientContext::new()).await
+}
+
+/// Handles one HTTP proxy connection with a listener-scoped client context.
+///
+/// Request parameter headers override matching values in `client_context`.
+/// This allows loopback clients that cannot inject HTTP CONNECT headers, such
+/// as Chrome, to use the same parameterized route as other clients.
+pub async fn handle_with_client_context<S>(
     mut client: S,
     _peer: SocketAddr,
     config: Arc<ServerConfig>,
     core: ArachneaProxyCore,
+    client_context: ClientContext,
 ) -> Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
@@ -35,9 +53,9 @@ where
         }
     }
     if request.method.eq_ignore_ascii_case("CONNECT") {
-        handle_connect(client, request, core).await
+        handle_connect(client, request, core, client_context).await
     } else {
-        handle_absolute_request(client, request, core).await
+        handle_absolute_request(client, request, core, client_context).await
     }
 }
 
@@ -74,6 +92,7 @@ async fn handle_connect<S>(
     mut client: S,
     request: HttpRequestHead,
     core: ArachneaProxyCore,
+    client_context: ClientContext,
 ) -> Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -85,7 +104,14 @@ where
         "http proxy request received"
     );
     let parameter_definitions = core.parameter_definitions();
-    let context = context_from_headers(&request.headers, &parameter_definitions);
+    let context = context_from_headers(&request.headers, &parameter_definitions, client_context);
+    let context_parameter_names = context.parameters.keys().cloned().collect::<Vec<_>>();
+    tracing::debug!(
+        method = "CONNECT",
+        target = %request.target,
+        context_parameter_names = ?context_parameter_names,
+        "http proxy CONNECT route context resolved"
+    );
     let mut upstream = match core
         .connect_request(ConnectRequest::new(destination).with_client_context(context))
         .await
@@ -125,6 +151,7 @@ async fn handle_absolute_request<S>(
     mut client: S,
     request: HttpRequestHead,
     core: ArachneaProxyCore,
+    client_context: ClientContext,
 ) -> Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -154,7 +181,14 @@ where
         "http proxy absolute request received"
     );
     let parameter_definitions = core.parameter_definitions();
-    let context = context_from_headers(&request.headers, &parameter_definitions);
+    let context = context_from_headers(&request.headers, &parameter_definitions, client_context);
+    let context_parameter_names = context.parameters.keys().cloned().collect::<Vec<_>>();
+    tracing::debug!(
+        method = %request.method,
+        host = %host,
+        context_parameter_names = ?context_parameter_names,
+        "http proxy absolute request route context resolved"
+    );
     let mut outbound = match core
         .connect_http_request(ConnectRequest::new(destination).with_client_context(context))
         .await
@@ -345,8 +379,11 @@ fn parse_http_request(data: &[u8]) -> Result<HttpRequestHead> {
 /// # Returns
 ///
 /// Client context populated with recognized routing parameters.
-fn context_from_headers(headers: &[Header], definitions: &[ParameterDefinition]) -> ClientContext {
-    let mut context = ClientContext::new();
+fn context_from_headers(
+    headers: &[Header],
+    definitions: &[ParameterDefinition],
+    mut context: ClientContext,
+) -> ClientContext {
     for header in headers {
         if let Some(definition) = definitions
             .iter()
@@ -427,7 +464,7 @@ mod tests {
             false,
         )];
 
-        let context = context_from_headers(&headers, &definitions);
+        let context = context_from_headers(&headers, &definitions, ClientContext::new());
 
         assert_eq!(context.get_string(PROXY_PARAMETER_COUNTRY), Some("BE"));
     }

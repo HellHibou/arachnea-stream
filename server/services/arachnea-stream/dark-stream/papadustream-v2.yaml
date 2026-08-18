@@ -8,7 +8,7 @@ http:
 
 parameters:
   - name: base_url
-    value: https://papadustream.town
+    value: https://papadustream.boo
     description: "Base URL — update on domain change"
 
 shared:
