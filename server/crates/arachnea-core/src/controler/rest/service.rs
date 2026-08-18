@@ -503,20 +503,70 @@ impl ControlerService for RestControlerService {
         // environment is available (e.g. not a headless Linux server) and an
         // application-supplied tray factory is present. The tray receives the
         // shared shutdown signal so its "close" action can stop the HTTP server.
-        if self.tray_enabled && gui_available() {
-            if let Some(factory) = &self.tray_factory {
+        let tray = if self.tray_enabled && gui_available() {
+            self.tray_factory.as_ref().map(|factory| {
                 let configuration = ServerTrayConfiguration {
                     server_url: build_public_url(self.socket_addr, &self.entrypoint_root),
                     log_cache: crate::logger::global_log_cache(),
                     shutdown: shutdown.clone(),
                 };
-                let _handle = factory.spawn_tray(configuration);
+                (Arc::clone(factory), configuration)
+            })
+        } else {
+            None
+        };
+
+        // On macOS the Tauri event loop must run on the process main thread, so
+        // this (main) thread hosts the tray while the HTTP server and the
+        // logical main-thread loop run on their own threads. The tray blocks
+        // this thread until the user closes the server; its "shutdown" action
+        // then unblocks the server and the logical main-thread loop.
+        #[cfg(target_os = "macos")]
+        {
+            let loop_shutdown = shutdown.clone();
+            let main_thread_thread = std::thread::spawn(move || {
+                main_thread_loop.run_until(|| loop_shutdown.is_requested());
+            });
+
+            if let Some((factory, configuration)) = tray {
+                let _handle = factory.run_on_main_thread(configuration);
+            } else {
+                // No tray: keep the main thread alive (the logical main-thread
+                // loop runs on its own thread) until the server shuts down.
+                wait_for_shutdown(&shutdown);
             }
+
+            let _ = main_thread_thread.join();
+            let _ = server_thread.join();
+            return;
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        if let Some((factory, configuration)) = tray {
+            let _handle = factory.spawn_tray(configuration);
         }
 
         // Block until the server is requested to shut down, then wait for the
         // HTTP server to finish its graceful shutdown before returning.
-        main_thread_loop.run_until(|| shutdown.is_requested());
-        let _ = server_thread.join();
+        #[cfg(not(target_os = "macos"))]
+        {
+            main_thread_loop.run_until(|| shutdown.is_requested());
+            let _ = server_thread.join();
+        }
     }
 }
+
+/// Blocks the calling thread until shutdown is requested.
+///
+/// Used on macOS when no server tray is present: the logical main-thread loop
+/// runs on its own thread, and this keeps the process main thread alive until
+/// the server shuts down (mirroring `MainThreadDispatchLoop::run_until`'s
+/// blocking behaviour on the other platforms).
+#[cfg(target_os = "macos")]
+fn wait_for_shutdown(shutdown: &ShutdownSignal) {
+    const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
+    while !shutdown.is_requested() {
+        std::thread::sleep(POLL_INTERVAL);
+    }
+}
+

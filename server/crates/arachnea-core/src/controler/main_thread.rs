@@ -377,14 +377,21 @@ enum MainThreadCommand {
     Run(MainThreadTask),
 }
 
-/// Dispatcher backed by a command queue consumed by the process main thread.
+/// Dispatcher backed by a command queue consumed by the logical main thread.
+///
+/// "Main thread" here is a logical serialization context: the matching
+/// [`MainThreadDispatchLoop`] is normally run on the process main thread, except
+/// on macOS where the Tauri server tray needs the real main thread and the loop
+/// is therefore run on its own dedicated thread.
 pub struct QueuedMainThreadDispatcher {
     sender: mpsc::Sender<MainThreadCommand>,
     handlers: Arc<MainThreadHandlerStore>,
 }
 
 impl QueuedMainThreadDispatcher {
-    /// Creates a queued dispatcher and the loop that must run on the main thread.
+    /// Creates a queued dispatcher and the loop that must run on the logical
+    /// main thread (the process main thread, or a dedicated thread on macOS
+    /// when the Tauri tray owns the real main thread).
     pub fn new_pair() -> (Arc<Self>, MainThreadDispatchLoop) {
         let (sender, receiver) = mpsc::channel();
         let handlers = Arc::new(MainThreadHandlerStore::default());

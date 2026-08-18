@@ -528,21 +528,65 @@ impl Default for CoreApplicationOptions {
 /// separate from [`CoreApplicationOptions`] because it is generated for each
 /// application crate rather than parsed from runtime options.
 pub struct DesktopApplicationConfig {
-    /// The generated Tauri context owned by the application crate.
-    pub context: ::tauri::Context<::tauri::Wry>,
+    /// The generated Tauri context routed to the desktop backend in desktop
+    /// mode. `None` in server mode, where the context is owned by the server
+    /// tray instead and this backend never builds a desktop app.
+    pub context: Option<::tauri::Context<::tauri::Wry>>,
     /// Embedded frontend assets backing the Tauri custom protocol.
     pub web_assets: SharedWebAssets,
 }
 
+/// Empty Tauri asset provider placed inside the generated context once its real
+/// assets are moved into the shared web asset provider.
+///
+/// The Tauri context is generated exactly once per binary (macOS embeds the
+/// `Info.plist` as a single `_EMBED_INFO_PLIST` symbol, so `generate_context!`
+/// cannot be expanded more than once). The desktop app serves the frontend
+/// through a custom protocol backed by the shared assets and the server tray is
+/// headless, so neither reads assets through this placeholder.
+struct EmptyTauriAssets;
+
+impl ::tauri::Assets<::tauri::Wry> for EmptyTauriAssets {
+    fn get(
+        &self,
+        _key: &::tauri::utils::assets::AssetKey,
+    ) -> Option<std::borrow::Cow<'_, [u8]>> {
+        None
+    }
+
+    fn iter(&self) -> Box<::tauri::utils::assets::AssetsIter<'_>> {
+        Box::new(
+            std::iter::empty::<(
+                std::borrow::Cow<'static, str>,
+                std::borrow::Cow<'static, [u8]>,
+            )>(),
+        )
+    }
+
+    fn csp_hashes(
+        &self,
+        _html_path: &::tauri::utils::assets::AssetKey,
+    ) -> Box<dyn Iterator<Item = ::tauri::utils::assets::CspHash<'_>> + '_> {
+        Box::new(std::iter::empty())
+    }
+}
+
 /// Wraps Tauri generated assets into the shared embedded web asset provider.
 ///
+/// The real embedded assets are extracted out of the supplied context (which is
+/// generated only once, see [`EmptyTauriAssets`]) so they can be shared by
+/// value, leaving an empty placeholder behind for the context's own copy.
+///
 /// # Arguments
-/// * `context` - Generated Tauri context whose asset bundle is reused.
+/// * `context` - Generated Tauri context whose asset bundle is extracted.
 ///
 /// # Returns
 /// A `SharedWebAssets` provider backed by the Tauri asset bundle.
-pub fn desktop_embedded_web_assets(context: ::tauri::Context<::tauri::Wry>) -> SharedWebAssets {
-    let assets: Arc<dyn ::tauri::Assets<::tauri::Wry>> = Arc::from(context.assets);
+pub fn desktop_embedded_web_assets(
+    context: &mut ::tauri::Context<::tauri::Wry>,
+) -> SharedWebAssets {
+    let original_assets = context.set_assets(Box::new(EmptyTauriAssets));
+    let assets: Arc<dyn ::tauri::Assets<::tauri::Wry>> = Arc::from(original_assets);
     Arc::new(TauriEmbeddedWebAssets::new(assets))
 }
 
@@ -602,8 +646,11 @@ pub fn create_application_controler_from_config(
 
             Box::new(RestControlerService::new(configuration))
         } else {
+            let context = desktop.context.expect(
+                "desktop mode requires the Tauri context routed by the application crate",
+            );
             Box::new(tauri_controler_service(
-                desktop.context,
+                context,
                 options.web_scheme,
                 options.api_prefix,
             ))
@@ -623,6 +670,14 @@ pub fn create_application_controler_from_config(
 /// `tauri.conf.json` and `tauri-build` live. The values of `web_scheme` and
 /// `api_prefix` come from the supplied [`CoreApplicationOptions`].
 ///
+/// The Tauri context is generated **exactly once** per binary: on macOS the
+/// embedded `Info.plist` is exposed as a single `_EMBED_INFO_PLIST` symbol, so
+/// `tauri::generate_context!()` cannot be expanded more than once. The real
+/// assets are extracted into the shared web asset provider and the context is
+/// routed to the single runtime consumer of the effective application mode:
+/// the server tray in [`ApplicationMode::Server`] or the Tauri controller in
+/// [`ApplicationMode::Desktop`].
+///
 /// When [`CoreApplicationOptions::tray_enabled`] is true and no tray factory is
 /// already present on the options, the macro installs a
 /// [`ServerTrayIconService`] built from the caller's Tauri context. The tray
@@ -638,20 +693,48 @@ pub fn create_application_controler_from_config(
 macro_rules! create_application_controler {
     ($options:expr) => {{
         let mut options = $options;
-        if options.tray_enabled && options.server_tray_factory.is_none() {
-            options.server_tray_factory = Some(::std::sync::Arc::new(
-                $crate::controler::rest::tray::ServerTrayIconService::new(
-                    ::tauri::generate_context!(),
-                ),
-            ));
-        }
+
+        // Resolve the effective application mode with the same defaults as
+        // `create_application_controler_from_config`, so the single generated
+        // Tauri context is handed to the one component that will consume it.
+        let is_server = match &options.application_mode {
+            ::std::option::Option::Some(mode) => {
+                ::core::matches!(mode, $crate::controler::ApplicationMode::Server)
+            }
+            ::std::option::Option::None => {
+                #[cfg(not(debug_assertions))]
+                {
+                    false // Release default: desktop.
+                }
+                #[cfg(debug_assertions)]
+                {
+                    true // Debug default: server.
+                }
+            }
+        };
+
+        let mut context = ::tauri::generate_context!();
+        let web_assets = $crate::controler::desktop_embedded_web_assets(&mut context);
+
+        let desktop_context = if is_server {
+            if options.tray_enabled && options.server_tray_factory.is_none() {
+                options.server_tray_factory = Some(::std::sync::Arc::new(
+                    $crate::controler::rest::tray::ServerTrayIconService::new(context),
+                ));
+            }
+            // In server mode the context is owned by the server tray; the
+            // desktop backend is never built so it receives no context.
+            ::std::option::Option::None
+        } else {
+            // In desktop mode the Tauri controller owns the whole context.
+            ::std::option::Option::Some(context)
+        };
+
         $crate::controler::create_application_controler_from_config(
             options,
             $crate::controler::DesktopApplicationConfig {
-                context: ::tauri::generate_context!(),
-                web_assets: $crate::controler::desktop_embedded_web_assets(
-                    ::tauri::generate_context!(),
-                ),
+                context: desktop_context,
+                web_assets,
             },
         )
     }};
