@@ -432,6 +432,11 @@ queries:
               - type: regex_find_all
                 pattern: '^(\d+)(https?://[^/]+(?:/[^/]+)*?)/(?:\d+-saison/\d+-episode\.html)$'
                 format: "{2}/{1}-saison.html"
+    post_process:
+      - type: sort_items
+        source: seasons
+        field: label
+        method: asc
 
   - name: get_season
     scraper_type: html
@@ -483,6 +488,11 @@ queries:
               - type: get_attribut
                 argument: href
               - type: resolve_url
+    post_process:
+      - type: sort_items
+        source: episodes
+        field: episode-number
+        method: reverse
 
   - name: get_episode
     scraper_type: html

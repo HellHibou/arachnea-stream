@@ -19,6 +19,7 @@ mod node_helpers;
 mod pivot_items_by_index;
 mod regex_helpers;
 mod set_nested_fields;
+mod sort_items;
 mod types;
 
 // Re-export the shared building blocks so the rest of the crate keeps
@@ -27,6 +28,7 @@ mod types;
 pub(crate) use math_helpers::{
     evaluate_math_expression, format_math_result, list_template_placeholders,
 };
+pub use sort_items::ScraperSortMethod;
 pub use types::{
     ScraperComputedFieldVariable, ScraperComputedFieldVariableScope, ScraperFieldMapping,
     ScraperGeneratedField, ScraperNestedFieldDefinition, ScraperPostProcessContext,
@@ -240,6 +242,16 @@ pub enum ScraperPostProcess {
         /// Field definitions to apply on each nested item.
         fields: Vec<ScraperNestedFieldDefinition>,
     },
+
+    /// Sorts the items of a group by one scalar field value.
+    SortItems {
+        /// `>`-delimited path of the group whose items are sorted.
+        source: String,
+        /// Scalar field read from each item when `method` is `asc` or `desc`.
+        field: String,
+        /// Sorting strategy: `reverse`, `asc`, or `desc`.
+        method: ScraperSortMethod,
+    },
 }
 
 impl ScraperPostProcess {
@@ -338,6 +350,9 @@ impl ScraperPostProcess {
                 nested_source,
                 fields,
             } => set_nested_fields::validate(owner, source, nested_source, fields),
+            ScraperPostProcess::SortItems {
+                source, field, ..
+            } => sort_items::validate(owner, source, field),
         }
     }
 
@@ -522,6 +537,14 @@ impl ScraperPostProcess {
                 fields,
             } => {
                 set_nested_fields::apply(root, source, nested_source, fields);
+                Ok(())
+            }
+            ScraperPostProcess::SortItems {
+                source,
+                field,
+                method,
+            } => {
+                sort_items::apply(root, source, field, *method);
                 Ok(())
             }
         }
