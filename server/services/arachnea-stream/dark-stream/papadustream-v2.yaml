@@ -658,7 +658,7 @@ queries:
                 http:
                   mode: direct
                   execution: page_click
-                  browser_context: origin
+                  browser_context: isolated
                   page_url: "{query_url}"
                   browser_click:
                     selector: '.player-list .lien[onclick*="''{player_field}''"]'

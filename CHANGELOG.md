@@ -5,6 +5,10 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ## Unreleased
 
 ### Added
+- **Parallel isolated page clicks**: Entry-level HTML `page_click` sub-queries
+  can now use `browser_context: isolated`. The scraper opens dedicated browser
+  pages and executes up to four independent clicks concurrently while preserving
+  input order. PapaDuStream v2 uses this mode when resolving player embeds.
 - **Generic grouped-field copying**: Scrapyfy now provides `copy_item_fields`
   to clone fields within every item of a root group. PapaDuStream v2 uses it to
   expose the page-click result as both `embed-link` and `web-link` without a

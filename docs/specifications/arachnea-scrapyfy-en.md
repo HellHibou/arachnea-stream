@@ -572,9 +572,12 @@ HTML queries and sub-queries can use a retained browser page instead of the
 normal HTTP transport. `page_navigate` navigates a root HTML query and returns
 its stable page source. `page_click` navigates, clicks an element, and returns
 the rendered HTML once a configured selector appears. `page_fetch` navigates
-then executes an authenticated JavaScript `fetch()` for an HTML sub-query. All
-modes reuse the same browser session when origin, browser profile, and proxy
-route match. The page URL and all request body/header templates use the current
+then executes an authenticated JavaScript `fetch()` for an HTML sub-query.
+`browser_context: origin` reuses the same browser session when origin, browser
+profile, and proxy route match. `browser_context: isolated` is available only
+to entry-level `page_click` sub-queries: it opens one page per input value and
+runs up to four independent clicks concurrently. The page URL and all request
+body/header templates use the current
 sub-query parameter context; entry fields are also exposed with
 non-alphanumeric characters normalized to `_`.
 
@@ -601,7 +604,10 @@ http:
 selected page element, so page JavaScript can own CAPTCHA rendering, callbacks,
 and same-page requests. It then returns the page HTML after `wait_for_selector`
 appears. `browser_click.selector` and `wait_for_selector` are required CSS
-selectors and support sub-query templates.
+selectors and support sub-query templates. Use `browser_context: isolated` on
+an entry-level sub-query when each click is independent and should use a
+dedicated browser page; results retain their input order. Dynamic template
+variables must not be used to communicate between concurrent isolated clicks.
 
 ```yaml
 http:
@@ -628,7 +634,7 @@ after a configured rejection signal.
 
 `http.execution` is optional and defaults to the normal direct HTTP path. When
 set to `page_navigate`, `http.browser_context: origin` is required. When set to
-`page_click`, `http.browser_context: origin`, `http.page_url`, and
+`page_click`, `http.browser_context: origin` or `isolated`, `http.page_url`, and
 `http.browser_click` are required. When set to `page_fetch`,
 `http.browser_context: origin` and `http.page_url` are required.
 

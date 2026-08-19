@@ -94,6 +94,24 @@ pub struct QueryContext<'a> {
 /// sub-query execution.
 const DEFAULT_FETCH_CONCURRENCY: usize = 8;
 
+/// Maximum number of isolated browser pages opened for one entry sub-query.
+///
+/// Browser pages are substantially more expensive than direct HTTP requests,
+/// so this limit is intentionally lower than [`DEFAULT_FETCH_CONCURRENCY`].
+const DEFAULT_ISOLATED_PAGE_CLICK_CONCURRENCY: usize = 4;
+
+/// Returns whether entries contain an isolated page-click sub-query at any depth.
+fn entries_contain_isolated_page_click(entries: &[&dyn ScraperEntrySpec]) -> bool {
+    entries.iter().any(|entry| {
+        entry.sub_queries().iter().any(|sub_query| {
+            matches!(
+                sub_query.http_config().execution,
+                Some(ScraperHttpExecution::PageClick)
+            ) && sub_query.http_config().browser_context == Some(ScraperBrowserContext::Isolated)
+        }) || entries_contain_isolated_page_click(&entry.sub_entries())
+    })
+}
+
 /// Fetches a single URL using the configured HTTP method, headers, and body.
 ///
 /// Dispatches on `extract_next_data` for JSON queries; HTML always returns
@@ -1280,25 +1298,62 @@ async fn execute_entry_sub_queries_for_entries(
                     // Skip empty URLs, URLs with unresolved placeholders ({}),
                     // and URLs with empty query parameter values (e.g. ?assetId=)
                     // to avoid sending invalid requests to remote servers.
+                    let valid_urls: Vec<(usize, String)> = parent_urls
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(index, url)| {
+                            let trimmed = url.trim();
+                            (!trimmed.is_empty()
+                                && !trimmed.contains("{}")
+                                && is_valid_fetch_url(trimmed))
+                            .then(|| (index, url.clone()))
+                        })
+                        .collect();
+                    let isolated_page_click = matches!(
+                        sub_query.http_config().execution,
+                        Some(ScraperHttpExecution::PageClick)
+                    ) && sub_query.http_config().browser_context
+                        == Some(ScraperBrowserContext::Isolated);
                     let mut merged = ScraperDataNode::default();
-                    for url in &parent_urls {
-                        let trimmed = url.trim();
-                        if trimmed.is_empty()
-                            || trimmed.contains("{}")
-                            || !is_valid_fetch_url(trimmed)
-                        {
-                            continue;
+                    if isolated_page_click {
+                        let jobs = valid_urls.into_iter().map(|(index, url)| {
+                            let params = sub_query_params.clone();
+                            async move {
+                                let mut item_clone = ScraperDataNode::default();
+                                fetch_and_extract_for_entry_sub_query(
+                                    sub_query,
+                                    &url,
+                                    &mut item_clone,
+                                    context,
+                                    &params,
+                                )
+                                .await?;
+                                Ok::<(usize, ScraperDataNode), anyhow::Error>((index, item_clone))
+                            }
+                        });
+                        let mut results: Vec<(usize, ScraperDataNode)> = stream::iter(jobs)
+                            .buffer_unordered(DEFAULT_ISOLATED_PAGE_CLICK_CONCURRENCY)
+                            .collect::<Vec<Result<(usize, ScraperDataNode)>>>()
+                            .await
+                            .into_iter()
+                            .collect::<Result<_>>()?;
+                        results.sort_by_key(|(index, _)| *index);
+                        for (_, item_clone) in results {
+                            merged.merge(item_clone);
                         }
-                        let mut item_clone = ScraperDataNode::default();
-                        let _ = fetch_and_extract_for_entry_sub_query(
-                            sub_query,
-                            url,
-                            &mut item_clone,
-                            context,
-                            &sub_query_params,
-                        )
-                        .await?;
-                        merged.merge(item_clone);
+                    } else {
+                        for (_, url) in valid_urls {
+                            let mut item_clone = ScraperDataNode::default();
+                            fetch_and_extract_for_entry_sub_query(
+                                sub_query,
+                                &url,
+                                &mut item_clone,
+                                context,
+                                &sub_query_params,
+                            )
+                            .await?;
+                            merged.merge(item_clone);
+                        }
                     }
                     // Clear the parent entry's values before merging the
                     // sub-query result — the sub-query *replaces* the URL
@@ -1525,14 +1580,45 @@ async fn execute_entry_sub_queries_for_entries(
         let Some(group) = get_node_mut(item, &path) else {
             continue;
         };
-        for group_item in &mut group.items {
-            Box::pin(execute_entry_sub_queries_for_entries(
-                &child_entries,
-                group_item,
-                request_url,
-                context,
-            ))
-            .await?;
+        if entries_contain_isolated_page_click(&child_entries) {
+            let group_items = std::mem::take(&mut group.items);
+            let jobs = group_items
+                .into_iter()
+                .enumerate()
+                .map(|(index, mut group_item)| {
+                    let child_entries = child_entries.clone();
+                    async move {
+                        Box::pin(execute_entry_sub_queries_for_entries(
+                            &child_entries,
+                            &mut group_item,
+                            request_url,
+                            context,
+                        ))
+                        .await?;
+                        Ok::<(usize, ScraperDataNode), anyhow::Error>((index, group_item))
+                    }
+                });
+            let mut results: Vec<(usize, ScraperDataNode)> = stream::iter(jobs)
+                .buffer_unordered(DEFAULT_ISOLATED_PAGE_CLICK_CONCURRENCY)
+                .collect::<Vec<Result<(usize, ScraperDataNode)>>>()
+                .await
+                .into_iter()
+                .collect::<Result<_>>()?;
+            results.sort_by_key(|(index, _)| *index);
+            group.items = results
+                .into_iter()
+                .map(|(_, group_item)| group_item)
+                .collect();
+        } else {
+            for group_item in &mut group.items {
+                Box::pin(execute_entry_sub_queries_for_entries(
+                    &child_entries,
+                    group_item,
+                    request_url,
+                    context,
+                ))
+                .await?;
+            }
         }
     }
     Ok(())
@@ -1718,8 +1804,12 @@ async fn fetch_and_extract_for_entry_sub_query(
         if sub_query.scraper_type() != ScraperType::Html {
             anyhow::bail!("page_click is only supported by HTML sub-queries");
         }
-        if sub_query.http_config().browser_context != Some(ScraperBrowserContext::Origin) {
-            anyhow::bail!("page_click requires http.browser_context: origin");
+        let browser_context = sub_query.http_config().browser_context;
+        if !matches!(
+            browser_context,
+            Some(ScraperBrowserContext::Origin | ScraperBrowserContext::Isolated)
+        ) {
+            anyhow::bail!("page_click requires http.browser_context: origin or isolated");
         }
         let page_url_template = sub_query
             .http_config()
@@ -1740,11 +1830,16 @@ async fn fetch_and_extract_for_entry_sub_query(
             &click.wait_for_selector,
             params,
         )?;
-        FetchedResponse::Html(
+        let html = if browser_context == Some(ScraperBrowserContext::Isolated) {
+            client
+                .page_click_isolated_for_request(&page_url, &selector, &wait_for_selector)
+                .await?
+        } else {
             client
                 .page_click_for_request(&page_url, &selector, &wait_for_selector)
-                .await?,
-        )
+                .await?
+        };
+        FetchedResponse::Html(html)
     } else {
         fetch_single(
             &client,

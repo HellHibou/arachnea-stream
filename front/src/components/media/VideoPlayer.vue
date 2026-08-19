@@ -667,7 +667,10 @@ const {
 
 .entry-details__player-state--overlay {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  aspect-ratio: 16 / 9;
   z-index: 10;
   min-height: 0;
   background: var(--bg-surface);

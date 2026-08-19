@@ -575,8 +575,11 @@ conservée au lieu du transport HTTP normal. `page_navigate` navigue une requêt
 HTML racine et retourne son HTML stable. `page_click` navigue, clique un élément
 et retourne le HTML rendu lorsqu'un sélecteur configuré apparaît. `page_fetch`
 navigue puis exécute un `fetch()` JavaScript authentifié pour une sous-requête
-HTML. Ces modes réutilisent la même session navigateur lorsque l'origine, le
-profil navigateur et la route proxy correspondent. Les templates de l'URL de
+HTML. `browser_context: origin` réutilise la même session navigateur lorsque
+l'origine, le profil navigateur et la route proxy correspondent.
+`browser_context: isolated` est réservé aux sous-requêtes d'entrée `page_click` :
+il ouvre une page par valeur d'entrée et exécute jusqu'à quatre clics indépendants
+en parallèle. Les templates de l'URL de
 page, des en-têtes et du corps utilisent le contexte de paramètres de la
 sous-requête ; les champs d'entrée sont aussi disponibles avec les caractères
 non alphanumériques remplacés par `_`.
@@ -606,7 +609,11 @@ sélectionné : le JavaScript de la page garde alors la maîtrise du rendu CAPTC
 des callbacks et des requêtes de même origine. Il retourne ensuite le HTML de
 la page lorsque `wait_for_selector` apparaît. `browser_click.selector` et
 `wait_for_selector` sont obligatoires, utilisent des sélecteurs CSS et prennent
-en charge les templates de sous-requête.
+en charge les templates de sous-requête. Sur une sous-requête d'entrée, utiliser
+`browser_context: isolated` lorsque chaque clic est indépendant et doit disposer
+d'une page dédiée ; l'ordre des résultats reste celui des valeurs d'entrée. Les
+variables de template dynamiques ne doivent pas servir à communiquer entre les
+clics isolés concurrents.
 
 ```yaml
 http:
@@ -632,7 +639,7 @@ au maximum une nouvelle navigation et soumission après un signal de rejet confi
 
 `http.execution` est facultatif et utilise par défaut le chemin HTTP direct.
 Avec `page_navigate`, `http.browser_context: origin` est obligatoire. Avec
-`page_click`, `http.browser_context: origin`, `http.page_url` et
+`page_click`, `http.browser_context: origin` ou `isolated`, `http.page_url` et
 `http.browser_click` sont obligatoires. Avec `page_fetch`,
 `http.browser_context: origin` et `http.page_url` sont obligatoires. `page_url`,
 les en-têtes et les valeurs du corps de requête sont résolus comme templates de

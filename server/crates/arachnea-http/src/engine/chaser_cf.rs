@@ -70,10 +70,10 @@ const TURNSTILE_WAIT_TIMEOUT: Duration = Duration::from_secs(300);
 const CACHE_TTL_NO_EXPIRY: Duration = Duration::from_secs(1_800);
 
 /// Passive wait before Cloudflare's invisible challenge JS starts its PoW.
-const CLEARANCE_PASSIVE_WAIT_MS: u64 = 6_000;
+const CLEARANCE_PASSIVE_WAIT_MS: u64 = 2_000;
 
 /// Minimum interval between automated Turnstile challenge clicks.
-const CLEARANCE_CLICK_INTERVAL_MS: u64 = 1_200;
+const CLEARANCE_CLICK_INTERVAL_MS: u64 = 1_000;
 
 /// Process-wide shared chaser-cf browser manager.
 ///
@@ -170,6 +170,7 @@ impl ChaserCfEngine {
                 "--disable-infobars",
                 "--no-first-run",
                 "--no-default-browser-check",
+                "--no-startup-window",
                 // Turnstile's proof-of-work and fingerprinting rely on WebGPU /
                 // WebGL. In GPU-less environments (VMs, RDP sessions, software
                 // rendering) `navigator.gpu.requestAdapter()` otherwise returns
@@ -281,7 +282,12 @@ impl ChaserCfEngine {
             .new_page(ctx_id, "about:blank")
             .await
             .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
-        setup_proxy_auth(&page, proxy).await?;
+        if let Err(err) = setup_proxy_auth(&page, proxy).await {
+            if let Err(close_err) = page.close().await {
+                warn!(error = %close_err, "failed to close chaser-cf page after proxy authentication failure");
+            }
+            return Err(err);
+        }
         Ok((page, chaser))
     }
 
@@ -292,63 +298,68 @@ impl ChaserCfEngine {
             .acquire_permit()
             .await
             .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
-        let (page, chaser) = self
-            .open_solver_page(&manager, self.proxy.as_ref())
-            .await?;
+        let (page, chaser) = self.open_solver_page(&manager, self.proxy.as_ref()).await?;
+        let result = async {
+            chaser
+                .goto(url)
+                .await
+                .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
 
-        chaser
-            .goto(url)
-            .await
-            .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
+            wait_for_clearance(&page, &chaser, 90).await;
 
-        wait_for_clearance(&page, &chaser, 90).await;
+            let raw_cookies = page
+                .get_cookies()
+                .await
+                .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
+            let cookies = raw_cookies
+                .into_iter()
+                .map(|c| ChaserCookie {
+                    name: c.name,
+                    value: c.value,
+                    domain: Some(c.domain),
+                    path: Some(c.path),
+                    expires: Some(c.expires),
+                    http_only: Some(c.http_only),
+                    secure: Some(c.secure),
+                    same_site: c.same_site.map(|s| format!("{s:?}")),
+                })
+                .collect();
 
-        let raw_cookies = page
-            .get_cookies()
-            .await
-            .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
-        let cookies = raw_cookies
-            .into_iter()
-            .map(|c| ChaserCookie {
-                name: c.name,
-                value: c.value,
-                domain: Some(c.domain),
-                path: Some(c.path),
-                expires: Some(c.expires),
-                http_only: Some(c.http_only),
-                secure: Some(c.secure),
-                same_site: c.same_site.map(|s| format!("{s:?}")),
-            })
-            .collect();
+            let user_agent = chaser
+                .evaluate("navigator.userAgent")
+                .await
+                .ok()
+                .and_then(|v| v?.as_str().map(str::to_owned))
+                .unwrap_or_default();
 
-        let user_agent = chaser
-            .evaluate("navigator.userAgent")
-            .await
-            .ok()
-            .and_then(|v| v?.as_str().map(str::to_owned))
-            .unwrap_or_default();
+            let mut headers = HashMap::new();
+            headers.insert("user-agent".to_string(), user_agent);
 
-        let mut headers = HashMap::new();
-        headers.insert("user-agent".to_string(), user_agent);
-
-        let session = WafSession::new(cookies, headers);
-        if !session
-            .cookies
-            .iter()
-            .any(|cookie| cookie.name == "cf_clearance")
-        {
-            return Err(ArachneaHttpError::CookieAbsent {
-                origin: url.to_string(),
-                name: "cf_clearance".to_string(),
-            });
+            let session = WafSession::new(cookies, headers);
+            if !session
+                .cookies
+                .iter()
+                .any(|cookie| cookie.name == "cf_clearance")
+            {
+                return Err(ArachneaHttpError::CookieAbsent {
+                    origin: url.to_string(),
+                    name: "cf_clearance".to_string(),
+                });
+            }
+            debug!(
+                origin = %url,
+                cookie_names = ?session.cookies.iter().map(|cookie| cookie.name.as_str()).collect::<Vec<_>>(),
+                has_solver_user_agent = session.headers.get("user-agent").is_some_and(|value| !value.trim().is_empty()),
+                "chaser-cf resolved Cloudflare session"
+            );
+            Ok(session)
         }
-        debug!(
-            origin = %url,
-            cookie_names = ?session.cookies.iter().map(|cookie| cookie.name.as_str()).collect::<Vec<_>>(),
-            has_solver_user_agent = session.headers.get("user-agent").is_some_and(|value| !value.trim().is_empty()),
-            "chaser-cf resolved Cloudflare session"
-        );
-        Ok(session)
+        .await;
+
+        if let Err(err) = page.close().await {
+            warn!(error = %err, "failed to close chaser-cf solver page");
+        }
+        result
     }
 
     /// Fetches the page HTML directly on the shared browser.
@@ -358,21 +369,26 @@ impl ChaserCfEngine {
             .acquire_permit()
             .await
             .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
-        let (page, chaser) = self
-            .open_solver_page(&manager, self.proxy.as_ref())
-            .await?;
+        let (page, chaser) = self.open_solver_page(&manager, self.proxy.as_ref()).await?;
+        let result = async {
+            chaser
+                .goto(url)
+                .await
+                .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
 
-        chaser
-            .goto(url)
-            .await
-            .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
+            wait_for_clearance(&page, &chaser, 30).await;
 
-        wait_for_clearance(&page, &chaser, 30).await;
+            chaser
+                .content()
+                .await
+                .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))
+        }
+        .await;
 
-        chaser
-            .content()
-            .await
-            .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))
+        if let Err(err) = page.close().await {
+            warn!(error = %err, "failed to close chaser-cf source page");
+        }
+        result
     }
 
     /// Builds response headers containing cookies extracted by chaser-cf.
@@ -904,7 +920,11 @@ impl BrowserPageSession for ChaserCfPageSession {
 
     async fn close(self: Box<Self>) {
         // The browser manager is shared process-wide and stays alive; dropping
-        // the page releases its CDP resources for subsequent sessions.
+        // the page alone does not close its Chrome tab.
+        let ChaserCfPageSession { page, chaser: _ } = *self;
+        if let Err(err) = page.close().await {
+            warn!(error = %err, "failed to close chaser-cf browser session page");
+        }
     }
 }
 

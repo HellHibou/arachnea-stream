@@ -684,6 +684,34 @@ impl ArachneaHttpClient {
         result
     }
 
+    /// Opens a dedicated browser page, clicks an element, and closes the page.
+    ///
+    /// This is intended for independent interactions that may run concurrently.
+    /// It deliberately does not enter the origin-scoped retained-session cache.
+    pub async fn page_click_isolated(
+        &self,
+        navigation: PageNavigationRequest,
+        click: PageClickRequest,
+    ) -> Result<PageClickResponse, ArachneaHttpError> {
+        let engine = self
+            .browser_cloudflare_engine
+            .as_ref()
+            .ok_or_else(|| ArachneaHttpError::CloudflareSolverUnavailable)?;
+        let mut page = engine.open_browser_page_session().await?;
+        let result = async {
+            page.navigate(navigation).await?;
+            self.store_browser_session_metadata(page.metadata().await?)
+                .await?;
+            let response = page.click_and_wait(click).await?;
+            self.store_browser_session_metadata(page.metadata().await?)
+                .await?;
+            Ok(response)
+        }
+        .await;
+        page.close().await;
+        result
+    }
+
     /// Navigates a reusable browser page, then executes one JavaScript fetch in it.
     ///
     /// The page is scoped to the navigation origin, configured user-agent

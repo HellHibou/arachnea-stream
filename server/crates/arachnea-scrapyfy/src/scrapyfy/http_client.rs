@@ -150,6 +150,8 @@ pub enum ScraperHttpExecution {
 pub enum ScraperBrowserContext {
     /// Reuse a session only when origin, browser profile, and proxy route match.
     Origin,
+    /// Open a dedicated page for one `page_click` sub-query execution.
+    Isolated,
 }
 
 /// Browser-side source from which one request token is captured.
@@ -753,6 +755,34 @@ impl HttpClient {
             .http_client()
             .await?
             .page_click(
+                PageNavigationRequest {
+                    url: page_url.to_string(),
+                    headers: HeaderMap::new(),
+                    collect_body: false,
+                },
+                PageClickRequest {
+                    selector: selector.to_string(),
+                    wait_for_selector: wait_for_selector.to_string(),
+                },
+            )
+            .await?;
+        Ok(response.body)
+    }
+
+    /// Opens an isolated browser page, clicks an element, and returns the rendered HTML.
+    ///
+    /// Unlike [`Self::page_click_for_request`], this operation does not reuse the
+    /// origin-scoped page session, so independent clicks can run concurrently.
+    pub async fn page_click_isolated_for_request(
+        &self,
+        page_url: &str,
+        selector: &str,
+        wait_for_selector: &str,
+    ) -> Result<String> {
+        let response = self
+            .http_client()
+            .await?
+            .page_click_isolated(
                 PageNavigationRequest {
                     url: page_url.to_string(),
                     headers: HeaderMap::new(),
