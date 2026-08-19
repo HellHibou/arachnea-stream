@@ -8,6 +8,7 @@ use super::scraper_data_node::{ScraperDataNode, ScraperOutputType};
 mod append_static_items;
 mod apply_actions_to_field;
 mod compute_items_field;
+mod copy_item_fields;
 mod derive_pagination;
 mod extract_regex_items;
 mod fetch_actions_to_field;
@@ -50,6 +51,14 @@ pub enum ScraperPostProcess {
         output_type: Option<ScraperOutputType>,
         /// Ordered generic actions applied to the source values.
         actions: Vec<ScraperAction>,
+    },
+
+    /// Copies fields within every item of one root group.
+    CopyItemFields {
+        /// Root group containing the items to update.
+        source: String,
+        /// Field paths to clone from and to within each item.
+        fields: Vec<ScraperFieldMapping>,
     },
 
     /// Fetches URLs from one root field and applies actions to each response.
@@ -278,6 +287,9 @@ impl ScraperPostProcess {
                 actions,
                 ..
             } => apply_actions_to_field::validate(owner, source, target, actions),
+            ScraperPostProcess::CopyItemFields { source, fields } => {
+                copy_item_fields::validate(owner, source, fields)
+            }
             ScraperPostProcess::FetchActionsToField {
                 source,
                 target,
@@ -399,6 +411,10 @@ impl ScraperPostProcess {
                     actions,
                 )
                 .await
+            }
+            ScraperPostProcess::CopyItemFields { source, fields } => {
+                copy_item_fields::apply(root, source, fields);
+                Ok(())
             }
             ScraperPostProcess::ExtractRegexItems {
                 source,

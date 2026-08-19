@@ -670,7 +670,9 @@ queries:
                     actions:
                       - type: get_attribut
                         argument: src
-          - name: web-link
-            type: string
-            actions:
-              - type: get_request_url
+    post_process:
+      - type: copy_item_fields
+        source: players
+        fields:
+          - source: embed-link
+            target: web-link

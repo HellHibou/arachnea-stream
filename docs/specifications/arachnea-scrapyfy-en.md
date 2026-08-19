@@ -1180,6 +1180,24 @@ Fetches every URL in a root scalar field, then applies an action pipeline to eac
 | `request_actions` | array (opt.) | Actions applied to URLs before fetching |
 | `actions` | array | Non-empty action pipeline applied to response bodies |
 
+### `copy_item_fields`
+
+Copies fields between every item of a root group. Source nodes are cloned, so
+their values, output types, and nested structure are preserved.
+
+| Field | Type | Description |
+|---|---|---|
+| `source` | string | Root group containing the items to update |
+| `fields` | array | Non-empty list of source/target field mappings |
+
+```yaml
+- type: copy_item_fields
+  source: players
+  fields:
+    - source: embed-link
+      target: web-link
+```
+
 
 ### `extract_regex_items`
 Builds group items from repeated regex matches in a text field.

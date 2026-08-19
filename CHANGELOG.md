@@ -5,6 +5,10 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ## Unreleased
 
 ### Added
+- **Generic grouped-field copying**: Scrapyfy now provides `copy_item_fields`
+  to clone fields within every item of a root group. PapaDuStream v2 uses it to
+  expose the page-click result as both `embed-link` and `web-link` without a
+  duplicate browser sub-query.
 - **DoodStream HTML recognition**: The resolver now identifies DoodStream-compatible
   players from their `doodcdn.io` markup rather than from a Playmogo-specific URL.
 - **DoodStream sprite storyboards**: The DoodStream resolver exposes Dood's single 6 × 6

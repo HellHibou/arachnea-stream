@@ -1185,6 +1185,24 @@ Récupère chaque URL d'un champ scalaire racine, puis applique une pipeline d'a
 | `request_actions` | array (opt.) | Actions appliquées aux URL avant la requête |
 | `actions` | array | Pipeline non vide appliquée aux corps de réponse |
 
+### `copy_item_fields`
+
+Copie des champs dans chaque item d'un groupe racine. Les nœuds sources sont
+clonés : leurs valeurs, types de sortie et structure imbriquée sont conservés.
+
+| Champ | Type | Description |
+|---|---|---|
+| `source` | string | Groupe racine contenant les items à modifier |
+| `fields` | array | Liste non vide de correspondances source/cible |
+
+```yaml
+- type: copy_item_fields
+  source: players
+  fields:
+    - source: embed-link
+      target: web-link
+```
+
 
 ### `extract_regex_items`
 Construit des items de groupe à partir de correspondances regex répétées dans un champ texte.
