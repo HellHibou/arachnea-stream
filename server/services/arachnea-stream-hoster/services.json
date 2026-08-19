@@ -46,5 +46,9 @@
   {
     "path": "savefiles.yaml",
     "enabled": true
+  },
+  {
+    "path": "doodstream.yaml",
+    "enabled": true
   }
 ]

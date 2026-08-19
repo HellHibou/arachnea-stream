@@ -446,6 +446,20 @@ export function resolveBackendStreamMediaSource(
     }
   }
 
+  if (normalizedManifestType === 'mp4') {
+    return {
+      renderer: 'video',
+      src: normalizedStreamUrl,
+      mimeType: 'video/mp4',
+      transport: 'file',
+      licenseUrl: null,
+      licenseHeaders: {},
+      storyboard: null,
+      chapters,
+      storyboardVttUrl: resolveAbsoluteUrl(storyboardVttUrl),
+    }
+  }
+
   return resolvePlayerMediaSource(streamUrl)
 }
 

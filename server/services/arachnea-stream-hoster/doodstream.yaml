@@ -1,0 +1,138 @@
+id: doodstream
+title: DoodStream
+description:
+  en: "Resolver for DoodStream-compatible embed pages"
+http:
+  mode: auto
+
+parameters:
+  - name: url
+    value: ""
+    description: "URL of the embed page to be resolved"
+  - name: html
+    value: ""
+    description: "Optional pre-fetched HTML document used for content-based resolution"
+
+queries:
+  # --------------------------------------------------------------------------
+  # can_resolve_html — detects the DoodStream player from the embed page markup
+  # --------------------------------------------------------------------------
+  - name: can_resolve_html
+    scraper_type: static
+    entries:
+      - name: resolver
+        type: string
+        value: "{html}"
+        actions:
+          - type: regex_find_all
+            pattern: '(?i)(?:https?:)?//(?:static|i)\.doodcdn\.io/(?:js/embed3\.js|get_slides/)'
+            format: "{service_id}"
+
+  # --------------------------------------------------------------------------
+  # resolve_stream — retrieve the CDN media URL through the pass_md5 endpoint
+  #
+  # The player page embeds a `$.get('/pass_md5/<file_id>-<num>-<hash>-<md5>/<token>')`
+  # call whose response is the CDN base URL. The endpoint requires the embed
+  # page Referer, otherwise Cloudflare returns 403. The entry-level sub-query
+  # below fetches that endpoint with the Referer header and replaces the
+  # extracted URL with the proxied CDN media URL.
+  # --------------------------------------------------------------------------
+  - name: resolve_stream
+    scraper_type: html
+    base_url: "{url}"
+    query_url: "{url}"
+    input_html: "{html}"
+    row_selector: "html"
+    entries:
+      # Extract the /pass_md5/... endpoint from the inline player script, then
+      # fetch it through the entry sub-query with the embed page Referer. The
+      # endpoint returns only the CDN base URL; Dood requires a random suffix,
+      # token, and expiry timestamp to form the actual media URL.
+      - name: stream_url
+        type: string
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: "'(/pass_md5/[^']+)"
+            format: "{1}"
+          - type: resolve_url
+        sub_queries:
+          - scraper_type: html
+            row_selector: "html"
+            request_headers:
+              - name: Referer
+                actions:
+                  - type: format_text
+                    argument: "{url}"
+            entries:
+              - name: stream_url
+                type: string
+                actions:
+                  - type: get_response_body
+                  - type: format_text
+                    argument: >-
+                      var base = '{}'; var token = '{request_url}'.split('/').pop(); var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'; var suffix = ''; for (var i = 0; i < 10; i++) { suffix += chars.charAt(Math.floor(Math.random() * chars.length)); } base + suffix + '?token=' + token + '&expiry=' + Date.now();
+                  - type: exec_js
+                  - type: resolve_url
+                    proxy: true
+                    proxy_headers:
+                      Referer: "https://playmogo.com/"
+                      User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+      - name: manifest_type
+        type: string
+        actions:
+          - type: format_text
+            argument: "mp4"
+      - name: title
+        type: string
+        select: first
+        selector: "title"
+        actions:
+          - type: get_text
+      - name: image/title > link
+        type: string
+        select: first
+        selector: "meta[name='og:image']"
+        actions:
+          - type: get_attribut
+            argument: content
+          - type: resolve_url
+            proxy: true
+      - name: storyboard
+        type: object
+        select: first
+        entries:
+          - name: url
+            type: string
+            actions:
+              - type: get_response_body
+              - type: regex_find_all
+                pattern: 'thumbnails:\s*\{\s*vtt:\s*[''"](?:https?:)?//i\.doodcdn\.io/get_slides/\d+/([^''"]+)'
+                format: "https://dodoimg.com/slides/{1}"
+              - type: resolve_url
+                proxy: true
+          - name: width
+            type: number
+            actions:
+              - type: format_text
+                argument: "200"
+          - name: height
+            type: number
+            actions:
+              - type: format_text
+                argument: "112"
+          - name: columns
+            type: number
+            actions:
+              - type: format_text
+                argument: "6"
+          - name: rows
+            type: number
+            actions:
+              - type: format_text
+                argument: "6"
+          - name: first_page_index
+            type: number
+            actions:
+              - type: format_text
+                argument: "0"

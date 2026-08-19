@@ -5,6 +5,11 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ## Unreleased
 
 ### Added
+- **DoodStream HTML recognition**: The resolver now identifies DoodStream-compatible
+  players from their `doodcdn.io` markup rather than from a Playmogo-specific URL.
+- **DoodStream sprite storyboards**: The DoodStream resolver exposes Dood's single 6 × 6
+  preview sprite through the common `storyboard` contract instead of treating
+  the misleading `get_slides/*.jpg` WebVTT endpoint as an image.
 - **Chaser-CF session handoff**: The chaser-cf engine now delegates Cloudflare challenge handling to its public `ChaserCF::solve_waf_session` API and returns only clearance cookies plus the browser-observed user-agent. The shared client cache hands those values to `rquest`, which performs the actual HTML request and redirect handling.
 - **Chaser-CF parameter-bound loopback**: Browser Cloudflare solves now use a dedicated Arachnea loopback proxy with routing parameters bound server-side, allowing Chrome CONNECT requests and `rquest` to share country-based proxy routing without exposing custom proxy headers to Chrome.
 - **Chaser-CF persistent page sessions**: `open_browser_page_session` is supported again and returns a `ChaserCfPageSession` that retains a dedicated Chrome page for navigation, same-page fetch, click-and-wait, and Turnstile token reads. The page never solves the challenge itself: each navigation resolves a fresh session through the public `ChaserCF::solve_waf_session` facade, then replays the browser user-agent and clearance cookies via CDP before navigating. Logs expose cookie names but never cookie values.
@@ -71,6 +76,12 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - `JsonScraperSubQuery::execute` / `execute_siblings` / `execute_context` / `execute_indexed_context` / `execute_indexed_sibling` / `build_row_node` — re-used through the new `JsonScraperSubQuery::execute_query_level` unified entry point (see regression fix below).
 
 ### Fixed
+- **Playmogo DoodStream hoster**: The YAML resolver now turns the `pass_md5`
+  CDN base URL into the required signed media URL by adding the random suffix,
+  token, and expiry timestamp before proxying it. It also declares the direct
+  stream as MP4; frontend player source resolution now honors that declared
+  MP4 type even when the proxied URL has no file extension. The direct MP4 no
+  longer configures a body-rewrite action, allowing the proxy to stream it.
 - **Chunked response streaming corruption**: `ChunkedBodyReader::read_more`
   left its zero-filled read chunk in place when the underlying stream returned
   `Poll::Pending`, so the next poll served those zeros as body data, corrupting
