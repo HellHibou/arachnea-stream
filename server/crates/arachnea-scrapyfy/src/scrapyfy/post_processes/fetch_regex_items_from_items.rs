@@ -1,14 +1,16 @@
 use anyhow::{Context, Result};
 use futures::stream::{self, StreamExt};
-use http::Method;
 use regex::Regex;
 use std::collections::HashSet;
 
 use super::super::actions::ScraperAction;
 use super::super::scraper_data_node::ScraperDataNode;
-use super::node_helpers::{get_node, prepare_copy_fields, set_node, split_path};
+use super::node_helpers::{get_node, get_node_mut, prepare_copy_fields, set_node, split_path};
 use super::regex_helpers::build_regex_items;
 use super::types::{ScraperFieldMapping, ScraperPostProcessContext, ScraperRegexItemEntry};
+use crate::scrapyfy::scraper::config::ScraperRequestMethod;
+use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
+use crate::scrapyfy::scraper_json::entry::{json_value_to_strings, select_json_values};
 
 /// Maximum number of in-flight HTTP requests issued by a single
 /// `fetch_regex_items_from_items` post-process step.
@@ -98,12 +100,16 @@ pub(super) async fn apply(
     source: &str,
     request_field: &str,
     request_actions: &[ScraperAction],
+    request_method: ScraperRequestMethod,
+    response_pointer: Option<&str>,
     target: &str,
+    target_per_source: bool,
     pattern: &str,
     entries: &[ScraperRegexItemEntry],
     copy_item_fields: &[ScraperFieldMapping],
 ) -> Result<()> {
     struct FetchRegexItemsJob {
+        source_index: usize,
         request_url: String,
         prepared_copy_fields: Vec<(String, ScraperDataNode)>,
     }
@@ -122,7 +128,7 @@ pub(super) async fn apply(
             return Ok(());
         }
 
-        for source_item in &source_node.items {
+        for (source_index, source_item) in source_node.items.iter().enumerate() {
             let Some(request_values) =
                 get_node(source_item, request_field).map(|node| node.values.clone())
             else {
@@ -151,6 +157,7 @@ pub(super) async fn apply(
                 }
 
                 fetch_jobs.push(FetchRegexItemsJob {
+                    source_index,
                     request_url,
                     prepared_copy_fields: prepare_copy_fields(source_item, copy_item_fields),
                 });
@@ -161,7 +168,7 @@ pub(super) async fn apply(
     let fetch_results = stream::iter(fetch_jobs.into_iter().map(|job| async move {
         let response_body = context
             .http_client
-            .query_http(Method::GET, &job.request_url)
+            .query_http(request_method.as_http_method(), &job.request_url)
             .await
             .with_context(|| format!("Failed to fetch post-process request {}", job.request_url))?;
 
@@ -173,21 +180,53 @@ pub(super) async fn apply(
 
     for fetch_result in fetch_results {
         let (job, response_body) = fetch_result?;
+        let response_texts = if let Some(pointer) = response_pointer {
+            let response_json: serde_json::Value = serde_json::from_str(&response_body)
+                .with_context(|| {
+                    format!("Invalid JSON post-process response {}", job.request_url)
+                })?;
+            select_json_values(&response_json, Some(pointer), HtmlScraperSelectMode::All)
+                .into_iter()
+                .flat_map(json_value_to_strings)
+                .collect()
+        } else {
+            vec![response_body.clone()]
+        };
 
-        for mut item in build_regex_items(
-            &response_body,
-            pattern,
-            entries,
-            context.params,
-            &job.request_url,
-            Some(&response_body),
-        ) {
-            for (target, node) in &job.prepared_copy_fields {
-                set_node(&mut item, &split_path(target), node.clone());
+        for response_text in response_texts {
+            for mut item in build_regex_items(
+                &response_text,
+                pattern,
+                entries,
+                context.params,
+                &job.request_url,
+                Some(&response_body),
+            ) {
+                for (target, node) in &job.prepared_copy_fields {
+                    set_node(&mut item, &split_path(target), node.clone());
+                }
+
+                if target_per_source {
+                    let Some(source_node) = get_node_mut(root, source) else {
+                        continue;
+                    };
+                    let Some(source_item) = source_node.items.get_mut(job.source_index) else {
+                        continue;
+                    };
+                    source_item.push_node_typed(
+                        &target_path,
+                        item,
+                        crate::scrapyfy::ScraperOutputType::ObjectArray,
+                    );
+                } else {
+                    extracted_items.push(item);
+                }
             }
-
-            extracted_items.push(item);
         }
+    }
+
+    if target_per_source {
+        return Ok(());
     }
 
     root.set_output_type(

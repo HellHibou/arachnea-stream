@@ -625,164 +625,146 @@ queries:
         select: all
         actions:
           - type: get_text
-      - name: seasons > label
-        type: string
+      - name: lang/audio
+        type: string[]
         actions:
           - type: get_response_body
           - type: regex_find_all
-            pattern: 'type\s*:\s*"Series"'
-            format: "Saison"
-      - name: seasons > link
-        type: string
-        actions:
-          - type: get_response_body
-          - type: regex_find_all
-            pattern: 'movie\s*=\s*\{[^}]*?id\s*:\s*"(\d+)"[^}]*?type\s*:\s*"Series"'
-            format: "{base_url}/wp-json/apiflix/v1/series/{1}"
+            pattern: 'Version:</span>\s*([^<\s]+)'
+            format: "{1}"
+          - type: map
+            argument:
+              VF: vf
+              VOSTFR: vostfr
+      - name: episode-requests
+        type: object[]
+        entries:
+          - name: link
+            type: string
+            actions:
+              - type: get_response_body
+              - type: regex_find_all
+                pattern: 'movie\s*=\s*\{[\s\S]*?id\s*:\s*"(\d+)"'
+                format: "{base_url}/ajax/episode/list-episode?movieId={1}"
+          - name: lang
+            type: string[]
+            actions:
+              - type: get_response_body
+              - type: regex_find_all
+                pattern: 'Version:</span>\s*([^<\s]+)'
+                format: "{1}"
+              - type: map
+                argument:
+                  VF: vf
+                  VOSTFR: vostfr
       - name: players
         type: object[]
         actions:
           - type: get_response_body
           - type: regex_find_all
-            pattern: 'episode_play\.id\s*=\s*"(\d+)"'
-            format: "{base_url}/wp-json/apiflix/v1/playerepisode?post_id={1}"
+            pattern: 'episode_play\s*=\s*\{[\s\S]*?id\s*:\s*"(\d+)"'
+            format: "{base_url}/ajax/episode/player?episode_id={1}"
         sub_queries:
           - scraper_type: json
-            row_pointer: "/"
+            request_method: post
+            row_pointer: "/message/*"
             request_headers:
               - name: "Referer"
                 actions:
                   - type: format_text
                     argument: "{base_url}"
             entries:
-              - name: resolver
+              - name: resolver > kind
                 type: string
                 actions:
                   - type: format_text
                     argument: "stream-resolver"
-              - name: target
+              - name: resolver > target_id
                 type: string
+                select: first
+                pointer: "/server_link"
+              - name: web-link
+                type: string
+                select: first
+                pointer: "/server_link"
+              - name: name
+                type: string
+                select: first
+                pointer: "/server_link"
                 actions:
-                  - type: get_response_body
-                  - type: regex_find_all
-                    pattern: '"link":"([^"]+)"'
-                    format: "{1}"
-                sub_queries:
-                  - scraper_type: html
-                    row_selector: "html"
-                    request_headers:
-                      - name: "Referer"
-                        actions:
-                          - type: format_text
-                            argument: "{base_url}"
-                    entries:
-                      - name: target
-                        type: string
-                        actions:
-                          - type: get_response_body
-                          - type: regex_find_all
-                            pattern: "showVideo\\(\\s*['\"]([A-Za-z0-9+/=]+)['\"]"
-                            format: "{1}"
-                          - type: base64_decode
-                      - name: name
-                        type: string
-                        actions:
-                          - type: get_response_body
-                          - type: regex_find_all
-                            pattern: "showVideo\\(\\s*['\"]([A-Za-z0-9+/=]+)['\"]"
-                            format: "{1}"
-                          - type: base64_decode
-                          - type: get_url_host
-
-  # ---------------------------------------------------------------
-  # Season
-  # ---------------------------------------------------------------
-  - name: get_season
-    scraper_type: json
-    base_url: "{base_url}"
-    query_url: "{query_url}"
-    media_types:
-      - video/show/series
-      - video/show/anime
-    row_pointer: "/"
-    entries:
-      - name: current_page
-        type: number
-        actions:
-          - type: format_text
-            argument: "1"
-      - name: have_more
-        type: boolean
-        actions:
-          - type: format_text
-            argument: "false"
-    sub_queries:
-      - scraper_type: json
-        context_pointer: "/episodes/*"
-        target: episodes
-        request_pointer: "/id"
-        request_actions:
-          - type: format_text
-            argument: "{base_url}/wp-json/apiflix/v1/playerepisode?post_id={}"
-        row_pointer: "/"
-        context_entries:
-          - name: id
+                  - type: get_url_host
+              - name: lang
+                type: string[]
+                select: first
+                pointer: "/version"
+                actions:
+                  - type: map
+                    argument:
+                      VF: vf
+                      VOSTFR: vostfr
+    post_process:
+      - type: fetch_regex_items_from_items
+        source: episode-requests
+        request_field: link
+        response_pointer: /html
+        target: seasons > episodes
+        pattern: '<a class="ep-item" href="([^"]+)" data-num="(\d+)" data-id="(\d+)">\s*<div class="title">([^<]+)'
+        entries:
+          - name: link
             type: string
-            select: first
-            pointer: "/id"
-          - name: title
-            type: string
-            select: first
-            pointer: "/title"
+            capture_group: 1
           - name: episode-number
             type: number
-            select: first
-            pointer: "/number"
-          - name: img/preview > link
+            capture_group: 2
+          - name: id
             type: string
-            select: first
-            pointer: "/image"
-            actions: *actions_img_html_to_url
-        entries:
-          - name: players
-            type: object[]
+            capture_group: 3
+          - name: title
+            type: string
+            capture_group: 4
+          - name: player-request
+            type: string
+            capture_group: 3
             actions:
-              - type: get_response_body
-              - type: regex_find_all
-                pattern: '"link":"([^"]+)"'
-                format: "{1}"
-            sub_queries:
-              - scraper_type: html
-                row_selector: "html"
-                request_headers:
-                  - name: "Referer"
-                    actions:
-                      - type: format_text
-                        argument: "{base_url}"
-                entries:
-                  - name: resolver
-                    type: string
-                    actions:
-                      - type: format_text
-                        argument: "stream-resolver"
-                  - name: target
-                    type: string
-                    actions:
-                      - type: get_response_body
-                      - type: regex_find_all
-                        pattern: "showVideo\\(\\s*['\"]([A-Za-z0-9+/=]+)['\"]"
-                        format: "{1}"
-                      - type: base64_decode
-                  - name: name
-                    type: string
-                    actions:
-                      - type: get_response_body
-                      - type: regex_find_all
-                        pattern: "showVideo\\(\\s*['\"]([A-Za-z0-9+/=]+)['\"]"
-                        format: "{1}"
-                      - type: base64_decode
-                      - type: get_url_host
-          - name: release-date
+              - type: format_text
+                argument: "{base_url}/ajax/episode/player?episode_id={}"
+        copy_item_fields:
+          - source: lang
+            target: lang
+      - type: fetch_regex_items_from_items
+        source: seasons > episodes
+        request_field: player-request
+        request_method: post
+        response_pointer: /message/*/server_link
+        target: players
+        target_per_source: true
+        pattern: '^(.+)$'
+        entries:
+          - name: web-link
             type: string
-            pointer: "/links/online/*/date"
-            select: first
+            capture_group: 1
+          - name: resolver > kind
+            type: string
+            actions:
+              - type: format_text
+                argument: "stream-resolver"
+          - name: resolver > target_id
+            type: string
+            capture_group: 1
+          - name: name
+            type: string
+            capture_group: 1
+            actions:
+              - type: get_url_host
+        copy_item_fields:
+          - source: lang
+            target: lang
+      - type: filter_fields
+        source: seasons > episodes
+        field: id
+        pattern: '.+'
+        remove:
+          - player-request
+      - type: remove_fields
+        fields:
+          - episode-requests

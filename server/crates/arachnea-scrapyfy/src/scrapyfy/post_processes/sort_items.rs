@@ -63,14 +63,14 @@ pub(super) fn apply(
     match method {
         ScraperSortMethod::Reverse => source_node.items.reverse(),
         ScraperSortMethod::Asc => {
-            source_node.items.sort_by(|left, right| {
-                compare_items(left, right, field)
-            });
+            source_node
+                .items
+                .sort_by(|left, right| compare_items(left, right, field));
         }
         ScraperSortMethod::Desc => {
-            source_node.items.sort_by(|left, right| {
-                compare_items(right, left, field)
-            });
+            source_node
+                .items
+                .sort_by(|left, right| compare_items(right, left, field));
         }
     }
 }
@@ -79,7 +79,11 @@ pub(super) fn apply(
 ///
 /// Uses numeric comparison when both values parse as integers, otherwise
 /// falls back to lexicographic comparison. Items with no value compare equal.
-fn compare_items(left: &ScraperDataNode, right: &ScraperDataNode, field: &str) -> std::cmp::Ordering {
+fn compare_items(
+    left: &ScraperDataNode,
+    right: &ScraperDataNode,
+    field: &str,
+) -> std::cmp::Ordering {
     let left_value = get_node(left, field)
         .and_then(|node| node.values.first())
         .map(String::as_str)

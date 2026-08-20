@@ -311,7 +311,7 @@ queries:
     let result = block_on(resolver.get_stream(&url)).expect("unknown HTML should fallback");
 
     match result {
-        ResolvedStream::EmbedLink { embed_link } => assert_eq!(embed_link, url),
+        ResolvedStream::EmbedLink { embed_link, .. } => assert_eq!(embed_link, url),
         ResolvedStream::Stream(_) => panic!("expected embed-link fallback"),
     }
     assert_eq!(request_count.load(Ordering::SeqCst), 1);
@@ -426,7 +426,7 @@ queries:
     let result = block_on(resolver.get_stream(&url)).expect("unknown HTML should fallback");
 
     match result {
-        ResolvedStream::EmbedLink { embed_link } => assert_eq!(embed_link, url),
+        ResolvedStream::EmbedLink { embed_link, .. } => assert_eq!(embed_link, url),
         ResolvedStream::Stream(_) => panic!("expected embed-link fallback"),
     }
     assert_eq!(

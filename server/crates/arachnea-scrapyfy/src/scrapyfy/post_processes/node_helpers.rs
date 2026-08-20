@@ -92,7 +92,9 @@ pub(super) fn remove_node(root: &mut ScraperDataNode, path: &str) {
         };
     }
 
-    current.children.remove(segments[segments.len().saturating_sub(1)]);
+    current
+        .children
+        .remove(segments[segments.len().saturating_sub(1)]);
 }
 
 /// Copies the node addressed by `source` from `source_root` into the `target`

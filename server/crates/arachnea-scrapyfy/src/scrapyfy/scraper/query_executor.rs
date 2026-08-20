@@ -1438,27 +1438,26 @@ async fn execute_entry_sub_queries_for_entries(
                                 // Partition children: those matching the
                                 // cardinality are zipped; others are left
                                 // as individual items.
-                                let mut common: Vec<(&String, &Vec<String>)> = Vec::new();
+                                let mut common: Vec<(&String, &ScraperDataNode)> = Vec::new();
                                 let mut leftover: Vec<(&String, &ScraperDataNode)> = Vec::new();
                                 for (name, child) in &merged.children {
-                                    if child.values.len() == cardinality {
-                                        common.push((name, &child.values));
+                                    if child.values.len() == cardinality
+                                        || !child.children.is_empty()
+                                    {
+                                        common.push((name, child));
                                     } else if !child.values.is_empty() {
                                         leftover.push((name, child));
                                     }
                                 }
                                 if common.len() >= 2 {
-                                    // Zip common fields by index.
+                                    // Zip scalar fields and recursively rebuild nested objects.
                                     for i in 0..cardinality {
                                         let mut item_node = ScraperDataNode::default();
-                                        for (name, values) in &common {
-                                            item_node.children.insert(
-                                                (*name).clone(),
-                                                scalar_node_from_source_value(
-                                                    values[i].clone(),
-                                                    merged.children.get(*name).unwrap(),
-                                                ),
-                                            );
+                                        for (name, child) in &common {
+                                            if let Some(node) = node_at_index(child, i, cardinality)
+                                            {
+                                                item_node.children.insert((*name).clone(), node);
+                                            }
                                         }
                                         target.items.push(item_node);
                                     }
@@ -2080,6 +2079,37 @@ fn scalar_output_type_from_source(source: &ScraperDataNode) -> ScraperOutputType
 
 fn scalar_node_from_source_value(value: String, source: &ScraperDataNode) -> ScraperDataNode {
     ScraperDataNode::from_values_typed(vec![value], scalar_output_type_from_source(source))
+}
+
+/// Rebuilds one field from a merged sub-query result at the specified row index.
+///
+/// Scalar fields are converted to their element type, while object fields recurse
+/// through their children so descriptors such as `resolver > target_id` remain
+/// attached to the same array item as their sibling scalar fields.
+fn node_at_index(
+    source: &ScraperDataNode,
+    index: usize,
+    cardinality: usize,
+) -> Option<ScraperDataNode> {
+    if source.children.is_empty() {
+        return (source.values.len() == cardinality)
+            .then(|| scalar_node_from_source_value(source.values[index].clone(), source));
+    }
+
+    let mut node = ScraperDataNode {
+        output_type: source.output_type,
+        values: Vec::new(),
+        children: HashMap::new(),
+        items: Vec::new(),
+    };
+
+    for (name, child) in &source.children {
+        if let Some(child_node) = node_at_index(child, index, cardinality) {
+            node.children.insert(name.clone(), child_node);
+        }
+    }
+
+    (!node.children.is_empty()).then_some(node)
 }
 
 // ---------------------------------------------------------------------------

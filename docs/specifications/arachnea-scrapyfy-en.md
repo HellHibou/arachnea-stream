@@ -1289,7 +1289,10 @@ For each item in a group, makes an HTTP request, applies a regex on the response
 | `source` | string | Source group field |
 | `request_field` | string | Item field containing the URL to fetch |
 | `request_actions` | array | Actions applied to the URL before the request |
+| `request_method` | `get` or `post` (opt.) | HTTP method; defaults to `get` |
+| `response_pointer` | string (opt.) | JSON pointer selecting response text before regex extraction |
 | `target` | string | Target path for extracted items |
+| `target_per_source` | boolean (opt.) | Append items below each source item instead of the root target |
 | `pattern` | string | Regex applied to the response body |
 | `entries` | array | Field definitions for extracted items |
 | `copy_item_fields` | array | Fields to copy from source item to target item |

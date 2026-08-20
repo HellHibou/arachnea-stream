@@ -1295,7 +1295,10 @@ Pour chaque item d'un groupe, fait une requête HTTP, applique une regex sur la 
 | `source` | string | Champ groupe source |
 | `request_field` | string | Champ de l'item contenant l'URL à fetch |
 | `request_actions` | array | Actions appliquées à l'URL avant la requête |
+| `request_method` | `get` ou `post` (opt.) | Méthode HTTP ; `get` par défaut |
+| `response_pointer` | string (opt.) | Pointeur JSON sélectionnant le texte de réponse avant l'extraction regex |
 | `target` | string | Chemin cible pour les items extraits |
+| `target_per_source` | boolean (opt.) | Ajoute les items sous chaque item source plutôt qu'à la racine |
 | `pattern` | string | Regex appliquée sur le corps de la réponse |
 | `entries` | array | Définition des champs extraits |
 | `copy_item_fields` | array | Champs à copier de l'item source vers l'item cible |

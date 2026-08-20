@@ -9,7 +9,10 @@ pub(super) fn validate(owner: &str, pattern: &str, remove: &[String]) -> Result<
     Regex::new(pattern).with_context(|| format!("Invalid post-process regex for {}", owner))?;
     for field in remove {
         if field.trim().is_empty() {
-            anyhow::bail!("Empty field path in filter_fields post-process for {}", owner);
+            anyhow::bail!(
+                "Empty field path in filter_fields post-process for {}",
+                owner
+            );
         }
     }
     Ok(())

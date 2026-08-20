@@ -657,13 +657,9 @@ const renderedMediaSource = (computed as any)(() => {
   /**
    * Indicates whether the source video action should be hidden.
    *
-   * @returns True when the entry details mode is 'safe' and an iframe source is active.
+   * @returns True when the security mode is 'safe'.
    */
-  const shouldHideSourceVideoAction = computed(() =>
-    (isEntryDetailsMode.value &&
-    Boolean(activeIframeSource.value)) ||
-    props.securityMode === 'safe',
-  )
+  const shouldHideSourceVideoAction = computed(() => props.securityMode === 'safe')
 
   /**
    * Handles the iframe confirmation acceptance by the user.

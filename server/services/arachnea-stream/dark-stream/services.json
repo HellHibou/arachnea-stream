@@ -15,7 +15,7 @@
   },
   {
     "path": "coflix.yaml",
-    "enabled": false
+    "enabled": true
   },
   {
     "path": "frenchanimes.yaml",

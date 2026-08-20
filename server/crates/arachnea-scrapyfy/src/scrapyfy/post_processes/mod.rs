@@ -123,6 +123,11 @@ pub enum ScraperPostProcess {
         /// `>`-delimited paths of the fields to remove from each matching item.
         remove: Vec<String>,
     },
+    /// Removes fields from the current result node.
+    RemoveFields {
+        /// `>`-delimited paths to remove.
+        fields: Vec<String>,
+    },
 
     /// Fetches one text payload per extracted item, applies a regex on each response body,
     /// then appends the extracted items to the requested target path.
@@ -134,8 +139,17 @@ pub enum ScraperPostProcess {
         /// Optional actions to apply to the request field before fetching.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         request_actions: Vec<ScraperAction>,
+        /// HTTP method used for each request.
+        #[serde(default)]
+        request_method: crate::scrapyfy::scraper::config::ScraperRequestMethod,
+        /// Optional JSON pointer selecting text to scan from a JSON response.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        response_pointer: Option<String>,
         /// Target field where extracted items will be stored.
         target: String,
+        /// When true, append extracted items beneath each source item instead of the root.
+        #[serde(default)]
+        target_per_source: bool,
         /// Regex pattern used to extract items from fetched content.
         pattern: String,
         /// List of field mappings for extracted regex groups.
@@ -312,6 +326,12 @@ impl ScraperPostProcess {
             ScraperPostProcess::FilterFields {
                 pattern, remove, ..
             } => filter_fields::validate(owner, pattern, remove),
+            ScraperPostProcess::RemoveFields { fields } => {
+                if fields.iter().any(|field| field.trim().is_empty()) {
+                    anyhow::bail!("remove_fields for {} contains an empty field path", owner);
+                }
+                Ok(())
+            }
             ScraperPostProcess::PivotItemsByIndex { .. } => pivot_items_by_index::validate(),
             ScraperPostProcess::ComputeItemsField {
                 source,
@@ -362,9 +382,9 @@ impl ScraperPostProcess {
                 nested_source,
                 fields,
             } => set_nested_fields::validate(owner, source, nested_source, fields),
-            ScraperPostProcess::SortItems {
-                source, field, ..
-            } => sort_items::validate(owner, source, field),
+            ScraperPostProcess::SortItems { source, field, .. } => {
+                sort_items::validate(owner, source, field)
+            }
         }
     }
 
@@ -444,11 +464,20 @@ impl ScraperPostProcess {
                 filter_fields::apply(root, source, field, pattern, *keep_matching, remove);
                 Ok(())
             }
+            ScraperPostProcess::RemoveFields { fields } => {
+                for field in fields {
+                    node_helpers::remove_node(root, field);
+                }
+                Ok(())
+            }
             ScraperPostProcess::FetchRegexItemsFromItems {
                 source,
                 request_field,
                 request_actions,
+                request_method,
+                response_pointer,
                 target,
+                target_per_source,
                 pattern,
                 entries,
                 copy_item_fields,
@@ -459,7 +488,10 @@ impl ScraperPostProcess {
                     source,
                     request_field,
                     request_actions,
+                    *request_method,
+                    response_pointer.as_deref(),
                     target,
+                    *target_per_source,
                     pattern,
                     entries,
                     copy_item_fields,

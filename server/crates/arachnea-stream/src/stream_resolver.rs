@@ -52,6 +52,9 @@ pub(crate) enum ResolvedStream {
         /// The iframe URL to render.
         #[serde(rename = "embed-link")]
         embed_link: String,
+        /// Original player URL exposed to clients.
+        #[serde(rename = "web-link")]
+        web_link: String,
     },
 }
 
@@ -174,6 +177,7 @@ impl<'a> StreamResolver<'a> {
         );
         Ok(ResolvedStream::EmbedLink {
             embed_link: url.to_string(),
+            web_link: url.to_string(),
         })
     }
 

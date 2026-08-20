@@ -410,10 +410,13 @@ impl StreamScraper {
             )
             .await;
 
-        Ok(ScraperAggregationResult::new(
-            result.data.into_iter().next().unwrap_or_default(),
-            result.errors,
-        ))
+        let mut root = ScraperDataNode {
+            children: result.data.into_iter().next().unwrap_or_default(),
+            ..Default::default()
+        };
+        populate_stream_resolver_web_links(&mut root);
+
+        Ok(ScraperAggregationResult::new(root.children, result.errors))
     }
 
     /// Convenience helper for the `get_season` query using the provided absolute season URL.
@@ -804,6 +807,7 @@ impl StreamScraper {
             });
         }
         root.keep_first_values();
+        populate_stream_resolver_web_links(&mut root);
 
         Ok(ScraperAggregationResult::new(root.children, result.errors))
     }
@@ -903,6 +907,46 @@ fn player_resolver_for_id(resolver_id: &str) -> Option<&'static dyn PlayerStream
     ]
     .into_iter()
     .find(|resolver| resolver.resolver_ids().contains(&resolver_id))
+}
+
+/// Adds the original resolver target as `web-link` for generic stream-resolver players.
+///
+/// Scrapers may emit only a resolver descriptor for an embedded player. Keeping a
+/// web link alongside it lets all API consumers open the original player page.
+fn populate_stream_resolver_web_links(node: &mut ScraperDataNode) {
+    for child in node.children.values_mut() {
+        populate_stream_resolver_web_links(child);
+    }
+
+    for item in &mut node.items {
+        populate_stream_resolver_web_links(item);
+
+        let resolver = item.children.get("resolver");
+        let kind = resolver
+            .and_then(|resolver| resolver.children.get("kind"))
+            .and_then(ScraperDataNode::value_as_string);
+        let target_id = resolver
+            .and_then(|resolver| resolver.children.get("target_id"))
+            .and_then(ScraperDataNode::value_as_string)
+            .map(str::to_string);
+        let has_web_link = item
+            .children
+            .get("web-link")
+            .and_then(ScraperDataNode::value_as_string)
+            .is_some_and(|link| !link.trim().is_empty());
+
+        if kind == Some(GENERIC_STREAM_RESOLVER_ID) && !has_web_link {
+            if let Some(target_id) = target_id {
+                item.children.insert(
+                    "web-link".to_string(),
+                    ScraperDataNode::from_values_typed(
+                        vec![target_id],
+                        ScraperOutputType::String,
+                    ),
+                );
+            }
+        }
+    }
 }
 
 impl ScraperManager for StreamScraper {
