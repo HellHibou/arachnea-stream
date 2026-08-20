@@ -19,6 +19,8 @@ interface Props {
   showAdjacentNavigation: boolean
   hasPreviousPlayable: boolean
   hasNextPlayable: boolean
+  previousPlayableTitle: string | null
+  nextPlayableTitle: string | null
   showBookmarkAction: boolean
   isBookmarked: boolean
   showTrailerPlayer: boolean
@@ -134,10 +136,12 @@ function handleAutoplayStep(offset: -1 | 1) {
         :display-title="displayTitle"
         :alternative-title-label="alternativeTitleLabel"
         :selected-playable-title="selectedPlayableTitle"
-        :show-adjacent-navigation="showPlayableNavigation"
-        :has-previous-playable="hasPreviousPlayable"
-        :has-next-playable="hasNextPlayable"
-        :show-bookmark-action="showBookmarkAction"
+         :show-adjacent-navigation="showPlayableNavigation"
+         :has-previous-playable="hasPreviousPlayable"
+         :has-next-playable="hasNextPlayable"
+         :previous-playable-title="previousPlayableTitle"
+         :next-playable-title="nextPlayableTitle"
+         :show-bookmark-action="showBookmarkAction"
         :is-bookmarked="isBookmarked"
         @step-playable="handlePlayableStep"
         @toggle-bookmark="handleBookmarkToggle"
@@ -170,6 +174,8 @@ function handleAutoplayStep(offset: -1 | 1) {
         :show-video-navigation-controls="showAdjacentNavigation"
         :has-previous-video="hasPreviousPlayable"
         :has-next-video="hasNextPlayable"
+        :previous-video-title="previousPlayableTitle"
+        :next-video-title="nextPlayableTitle"
         @update:active-language-key="emit('update:active-language-key', $event)"
         @remember-current-language="emit('remember-current-language')"
         @update:active-player-id="emit('update:active-player-id', $event)"

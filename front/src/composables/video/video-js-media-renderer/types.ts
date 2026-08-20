@@ -125,7 +125,11 @@ export interface VideoJsMediaRendererProps {
    * Indicates whether there is a next video available to navigate to.
    * @default false
    */
-  hasNextVideo?: boolean
+   hasNextVideo?: boolean
+   /** Title displayed when hovering the previous-video control. */
+   previousVideoTitle?: string | null
+   /** Title displayed when hovering the next-video control. */
+   nextVideoTitle?: string | null
 }
 
 /**

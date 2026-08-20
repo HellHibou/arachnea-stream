@@ -100,6 +100,16 @@ export function entryEpisodeSelection(options: UseEntryEpisodeSelectionOptions) 
     selectedNavigableEpisodeIndex.value < navigableEpisodes.value.length - 1,
   )
 
+  /** Playable episode immediately preceding the current selection. */
+  const previousNavigableEpisode = computed<EntryEpisode | null>(() =>
+    navigableEpisodes.value[selectedNavigableEpisodeIndex.value - 1] ?? null,
+  )
+
+  /** Playable episode immediately following the current selection. */
+  const nextNavigableEpisode = computed<EntryEpisode | null>(() =>
+    navigableEpisodes.value[selectedNavigableEpisodeIndex.value + 1] ?? null,
+  )
+
   /**
    * Clears the currently selected episode.
    */
@@ -188,10 +198,12 @@ export function entryEpisodeSelection(options: UseEntryEpisodeSelectionOptions) 
    return {
      selectedEpisodeId,
      displayedEpisodes,
-     selectedEpisode,
-     hasPreviousEpisode,
-     hasNextEpisode,
-     resetSelectedEpisode,
+      selectedEpisode,
+      hasPreviousEpisode,
+      hasNextEpisode,
+      previousNavigableEpisode,
+      nextNavigableEpisode,
+      resetSelectedEpisode,
      selectEpisode,
      selectEpisodeById,
      handleEpisodeSelect,

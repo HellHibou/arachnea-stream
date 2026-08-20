@@ -631,8 +631,10 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
        controls: props.controls ?? false,
        showPrevVideoControl: props.showVideoNavigationControls ?? false,
        showNextVideoControl: props.showVideoNavigationControls ?? false,
-       hasPreviousVideo: props.hasPreviousVideo ?? false,
-       hasNextVideo: props.hasNextVideo ?? false,
+        hasPreviousVideo: props.hasPreviousVideo ?? false,
+        hasNextVideo: props.hasNextVideo ?? false,
+        previousVideoTitle: props.previousVideoTitle ?? null,
+        nextVideoTitle: props.nextVideoTitle ?? null,
        onPrevVideo: () => {
          emit('navigate-video', -1)
        },
@@ -1303,6 +1305,8 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       () => props.showVideoNavigationControls,
       () => props.hasPreviousVideo,
       () => props.hasNextVideo,
+      () => props.previousVideoTitle,
+      () => props.nextVideoTitle,
     ],
     () => {
       if (!activePlayer.value) {

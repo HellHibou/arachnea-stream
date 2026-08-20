@@ -11,6 +11,8 @@ interface Props {
   showAdjacentNavigation: boolean
   hasPreviousPlayable: boolean
   hasNextPlayable: boolean
+  previousPlayableTitle: string | null
+  nextPlayableTitle: string | null
   showBookmarkAction: boolean
   isBookmarked: boolean
 }
@@ -80,9 +82,10 @@ function handleBookmarkToggle() {
          class="entry-details__episode-nav-button"
          :class="{ 'entry-details__episode-nav-button--hidden': !hasPreviousPlayable }"
          type="button"
-         :disabled="!hasPreviousPlayable"
-         :aria-label="t('entry.previousContent')"
-         @click="handlePlayableStep(-1)"
+          :disabled="!hasPreviousPlayable"
+          :aria-label="t('entry.previousContent')"
+          :title="previousPlayableTitle ?? t('entry.previousContent')"
+          @click="handlePlayableStep(-1)"
        >
          <v-icon icon="mdi-chevron-left" size="20" aria-hidden="true" />
        </button>
@@ -95,9 +98,10 @@ function handleBookmarkToggle() {
          class="entry-details__episode-nav-button"
          :class="{ 'entry-details__episode-nav-button--hidden': !hasNextPlayable }"
          type="button"
-         :disabled="!hasNextPlayable"
-         :aria-label="t('entry.nextContent')"
-         @click="handlePlayableStep(1)"
+          :disabled="!hasNextPlayable"
+          :aria-label="t('entry.nextContent')"
+          :title="nextPlayableTitle ?? t('entry.nextContent')"
+          @click="handlePlayableStep(1)"
        >
          <v-icon icon="mdi-chevron-right" size="20" aria-hidden="true" />
        </button>

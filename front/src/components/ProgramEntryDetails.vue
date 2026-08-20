@@ -162,8 +162,12 @@ const {
   selectedEpisode,
   /** Whether there is a previous episode available. */
   hasPreviousEpisode,
-  /** Whether there is a next episode available in the current season. */
-  hasNextEpisode: hasNextEpisodeInSeason,
+   /** Whether there is a next episode available in the current season. */
+   hasNextEpisode: hasNextEpisodeInSeason,
+   /** Playable episode immediately preceding the current selection. */
+   previousNavigableEpisode,
+   /** Playable episode immediately following the current selection. */
+   nextNavigableEpisode,
   /** Function to reset the selected episode. */
   resetSelectedEpisode,
   /** Function to select an episode by ID. */
@@ -929,6 +933,8 @@ async function handleMediaPlaybackEnded() {
     show-adjacent-navigation
     :has-previous-playable="hasPreviousEpisode"
     :has-next-playable="hasNextEpisode"
+    :previous-playable-title="previousNavigableEpisode?.title ?? null"
+    :next-playable-title="nextNavigableEpisode?.title ?? null"
     :is-bookmarked="isBookmarked"
     :show-trailer-player="showTrailerPlayer"
     :show-media-player="showMediaPlayer"

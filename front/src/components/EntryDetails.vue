@@ -68,6 +68,10 @@ import type { ThumbnailImageFit } from '@/types/media'
     hasPreviousPlayable?: boolean
     /** Whether there is a next playable item. */
     hasNextPlayable?: boolean
+    /** Title of the previous playable item. */
+    previousPlayableTitle?: string | null
+    /** Title of the next playable item. */
+    nextPlayableTitle?: string | null
     /** Whether to show the bookmark action button. */
     showBookmarkAction?: boolean
     /** Whether the entry is currently bookmarked. */
@@ -155,6 +159,8 @@ const props = withDefaults(defineProps<Props>(), {
    showAdjacentNavigation: false,
    hasPreviousPlayable: false,
    hasNextPlayable: false,
+   previousPlayableTitle: null,
+   nextPlayableTitle: null,
    showBookmarkAction: true,
    isBookmarked: false,
    showAutoplayToggle: false,
@@ -305,8 +311,10 @@ const emit = defineEmits<{
               :alternative-title-label="props.alternativeTitleLabel"
               :selected-playable-title="props.selectedPlayableTitle"
               :show-adjacent-navigation="props.showAdjacentNavigation"
-              :has-previous-playable="props.hasPreviousPlayable"
-              :has-next-playable="props.hasNextPlayable"
+               :has-previous-playable="props.hasPreviousPlayable"
+               :has-next-playable="props.hasNextPlayable"
+               :previous-playable-title="props.previousPlayableTitle"
+               :next-playable-title="props.nextPlayableTitle"
               :show-bookmark-action="props.showBookmarkAction"
               :is-bookmarked="props.isBookmarked"
               :show-trailer-player="props.showTrailerPlayer"

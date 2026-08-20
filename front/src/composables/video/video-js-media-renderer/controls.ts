@@ -256,6 +256,10 @@ interface SyncPrevNextVideoControlsOptions {
   hasPreviousVideo: boolean
   /** Whether the next video control is disabled. */
   hasNextVideo: boolean
+  /** Title displayed when hovering the previous video control. */
+  previousVideoTitle: string | null
+  /** Title displayed when hovering the next video control. */
+  nextVideoTitle: string | null
   /** Callback invoked when the previous video button is clicked. */
   onPrevVideo: () => void
   /** Callback invoked when the next video button is clicked. */
@@ -273,6 +277,7 @@ function syncPrevNextVideoControlState(
   button: HTMLButtonElement | null,
   isHidden: boolean,
   labelKey: string,
+  videoTitle: string | null,
 ) {
   if (!button) {
     return
@@ -281,6 +286,7 @@ function syncPrevNextVideoControlState(
   button.classList.toggle('vjs-prev-video-control--hidden', isHidden && button.classList.contains('vjs-prev-video-control'))
   button.classList.toggle('vjs-next-video-control--hidden', isHidden && button.classList.contains('vjs-next-video-control'))
   button.setAttribute('aria-label', t(labelKey))
+  button.title = videoTitle?.trim() || t(labelKey)
 }
 
 /**
@@ -325,7 +331,8 @@ export function syncPrevNextVideoControls(
   }
 
   // Handle previous video control
-  const prevButton = getPrevVideoControlElement(player)
+  let prevButton = getPrevVideoControlElement(player)
+  let createdPreviousControl = false
 
   if (!options.showPrevVideoControl) {
     prevButton?.remove()
@@ -352,17 +359,21 @@ export function syncPrevNextVideoControls(
           controlBarElement.append(prevBtn)
         }
       }
-    } else {
-      syncPrevNextVideoControlState(
-        prevButton,
-        !options.hasPreviousVideo,
-        'entry.previousContent',
-      )
+      prevButton = prevBtn
+      createdPreviousControl = true
     }
+
+    syncPrevNextVideoControlState(
+      prevButton,
+      !options.hasPreviousVideo,
+      'entry.previousContent',
+      options.previousVideoTitle,
+    )
   }
 
   // Handle next video control
-  const nextButton = getNextVideoControlElement(player)
+  let nextButton = getNextVideoControlElement(player)
+  let createdNextControl = false
 
   if (!options.showNextVideoControl) {
     nextButton?.remove()
@@ -395,13 +406,25 @@ export function syncPrevNextVideoControls(
           }
         }
       }
-    } else {
-      syncPrevNextVideoControlState(
-        nextButton,
-        !options.hasNextVideo,
-        'entry.nextContent',
-      )
+      nextButton = nextBtn
+      createdNextControl = true
     }
+
+    syncPrevNextVideoControlState(
+      nextButton,
+      !options.hasNextVideo,
+      'entry.nextContent',
+      options.nextVideoTitle,
+    )
+  }
+
+  if (import.meta.env.DEV && (createdPreviousControl || createdNextControl)) {
+    console.debug('[Video.js] Initialized episode navigation controls', {
+      hasPreviousVideo: options.hasPreviousVideo,
+      hasNextVideo: options.hasNextVideo,
+      createdPreviousControl,
+      createdNextControl,
+    })
   }
 }
 

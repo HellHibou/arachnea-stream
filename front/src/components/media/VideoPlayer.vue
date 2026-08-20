@@ -213,6 +213,10 @@ const props = withDefaults(defineProps<{
    * @default false
    */
   hasNextVideo?: boolean
+  /** Title displayed when hovering the previous-video control. */
+  previousVideoTitle?: string | null
+  /** Title displayed when hovering the next-video control. */
+  nextVideoTitle?: string | null
   /**
    * Mode used to render embedded iframe players.
     * @default 'safe'
@@ -256,6 +260,8 @@ const props = withDefaults(defineProps<{
   preferPersistedMediaSurface: false,
   showEpisodeAutoplayToggle: false,
   isEpisodeAutoplayEnabled: false,
+  previousVideoTitle: null,
+  nextVideoTitle: null,
   securityMode: 'safe',
 })
 
@@ -485,8 +491,10 @@ const {
       :is-external-loading="shouldRenderSurfaceLoadingState"
       :show-big-play-button="activeVideoShowBigPlayButton"
       :show-video-navigation-controls="activeVideoShowVideoNavigationControls"
-      :has-previous-video="activeVideoHasPreviousVideo"
-      :has-next-video="activeVideoHasNextVideo"
+       :has-previous-video="activeVideoHasPreviousVideo"
+       :has-next-video="activeVideoHasNextVideo"
+       :previous-video-title="props.previousVideoTitle"
+       :next-video-title="props.nextVideoTitle"
       v-bind="standaloneRendererAttrs"
       @update:playback-progress="handleActiveVideoPlaybackProgressUpdate"
       @update:player-state="handlePlayerStateUpdate"
