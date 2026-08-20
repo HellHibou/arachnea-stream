@@ -260,7 +260,7 @@ const PARAMETERS_DEF: ParameterEntry[] = [
   { key: 'isBackgroundAnimated',          defaultValue: true       },
   { key: 'backgroundImageFit',            defaultValue: 'cover'    },
   { key: 'isEpisodeAutoplayEnabled',      defaultValue: false      },
-  { key: 'securityMode',            defaultValue: 'confirmation' },
+  { key: 'securityMode',            defaultValue: 'safe'         },
   { key: 'language',                      defaultValue: null       },
   { key: 'theme',                         defaultValue: 'arachnea-blue' },
 ] as const;

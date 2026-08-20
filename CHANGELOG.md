@@ -9,6 +9,16 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **Cloudflare session persistence**: `ChaserCfEngine` now persists structured Cloudflare sessions (cookies, user-agent, expiration) through the shared `PersistenceStore` instead of the temporary JSON file. The first browser-strategy refresh may consume a persisted session before requesting a fresh solve; retries after a block stay fresh.
 - **Persistence store propagation**: `StreamScraper::new_with_persistence_store`, `ScraperAgregator::new_with_persistence_store`, `HttpClient::with_http_config_proxy_handle_and_local_country_and_persistence_store`, and `ArachneaHttpClient::new_with_cookie_cache_browser_session_manager_and_persistence_store` now accept a shared `Arc<dyn PersistenceStore>`. `StreamScraper::new` uses the durable file backend; lower-level compatibility constructors retain the in-memory backend.
 
+- **Frontend video source allowlist**: Added a central allowlist at
+  `front/public/video-sources-whitelist.json`, loaded at startup by
+  `loadVideoSourceAllowlist()` in `front/src/services/videoSourceAllowlist.ts`.
+  The allowlist now gates embedded players and trailers (iframe surfaces): in
+  `confirmation` mode an allowlisted source (seeded with YouTube) renders
+  directly while a non-allowlisted source keeps the confirmation placeholder; in
+  `safe` mode only allowlisted sources render and everything else is blocked;
+  `unsafe` renders every embed. Native video streams resolved by the backend
+  players (HLS/DASH) remain always playable and are not subject to the
+  allowlist.
 ### Changed
 - **Chaser-CF session cache**: Replaced the file-backed `ChaserSessionCache` with an asynchronous adapter over `PersistenceStore`. Removed `DEFAULT_SESSION_CACHE_FILE_NAME`, `default_session_cache_path`, the private JSON document, and `std::fs` I/O from `chaser_cf.rs`. Sessions now store structured cookies instead of reconstructed `Set-Cookie` strings and are scoped only by normalized origin, including when routed through the dynamic Arachnea proxy.
 

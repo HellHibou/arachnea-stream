@@ -8,6 +8,7 @@ import type {
   ResolvedVideoMediaSource,
 } from '@/services/players'
 import { useStorage, type VideoPlayerPreferences } from '@/services/storage'
+import { isUrlAllowlisted } from '@/services/videoSourceAllowlist'
 import type { VideoJsPlayerState } from '@/types/media'
 import { t } from '@/i18n'
 
@@ -272,7 +273,7 @@ interface VideoPlayerProps {
    hasNextVideo?: boolean
    /**
     * Mode used to render embedded iframe players.
-    * @default 'confirmation'
+     * @default 'safe'
     */
    securityMode?: 'unsafe' | 'confirmation' | 'safe'
  }
@@ -494,13 +495,34 @@ const renderedMediaSource = (computed as any)(() => {
   })
 
   /**
+   * Whether the active surface source URL is covered by the allowlist.
+   *
+   * The allowlist decides whether an embedded player or trailer may render
+   * without going through the security-mode confirmation flow.
+   *
+   * @returns True when the active source URL matches a whitelisted entry.
+   */
+  const isActiveSourceAllowlisted = computed(() =>
+    isUrlAllowlisted(activeSurfaceSource.value?.src ?? null),
+  )
+
+  /**
    * Indicates whether the shared surface wrapper should be rendered.
+   *
+   * A blocked trailer does not expose an empty player area in `safe` mode.
+   * Other blocked embeds retain their dedicated security placeholder.
    *
    * @returns True when a surface should be rendered.
    */
   const shouldRenderSurface = computed(() =>
     isEntryDetailsMode.value
-      ? entryDetailsSurfaceMode.value !== null
+      ? entryDetailsSurfaceMode.value !== null &&
+        !(
+          entryDetailsSurfaceMode.value === 'trailer' &&
+          activeSurfaceSource.value?.renderer === 'iframe' &&
+          props.securityMode === 'safe' &&
+          !isActiveSourceAllowlisted.value
+        )
       : Boolean(props.source),
   )
 
@@ -584,37 +606,48 @@ const renderedMediaSource = (computed as any)(() => {
   /**
    * Indicates whether the embedded iframe should be rendered immediately.
    *
-   * Standalone surfaces always render iframes; restrictions apply only to entry details mode.
+   * Standalone surfaces always render iframes; restrictions apply only to
+   * entry details mode. In `unsafe` mode every embed renders, in `confirmation`
+   * mode an allowlisted or accepted source renders, and in `safe` mode only
+   * allowlisted sources render.
    *
-   * @returns True for standalone mode, or when the mode is 'unsafe', or when the confirmation has been accepted.
+   * @returns True when the active iframe may be rendered.
    */
   const shouldRenderIframe = computed(() =>
     !isEntryDetailsMode.value ||
     props.securityMode === 'unsafe' ||
-    (props.securityMode === 'confirmation' && isIframeConfirmationAccepted.value),
+    (props.securityMode === 'confirmation' &&
+      (isIframeConfirmationAccepted.value || isActiveSourceAllowlisted.value)) ||
+    (props.securityMode === 'safe' && isActiveSourceAllowlisted.value),
   )
 
   /**
    * Indicates whether the embedded iframe should be shown as a confirmation placeholder.
    *
-   * @returns True when the entry details mode is 'confirmation' and the confirmation has not been accepted.
+   * @returns True when the entry details mode is 'confirmation', the confirmation
+   * has not been accepted, and the source is not allowed by the allowlist.
    */
   const shouldShowIframeConfirmation = computed(() =>
     isEntryDetailsMode.value &&
     Boolean(activeIframeSource.value) &&
     props.securityMode === 'confirmation' &&
-    !isIframeConfirmationAccepted.value,
+    !isIframeConfirmationAccepted.value &&
+    !isActiveSourceAllowlisted.value,
   )
 
   /**
    * Indicates whether the embedded iframe should be blocked entirely.
    *
-   * @returns True when the entry details mode is 'safe' and an iframe source is active.
+   * In `safe` mode a blocked embed renders a placeholder only when its source is
+   * not allowlisted; allowlisted sources stay playable.
+   *
+   * @returns True when the entry details mode is 'safe' and the iframe source is not allowlisted.
    */
-  const shouldBlockIframe = computed(() => 
+  const shouldBlockIframe = computed(() =>
     isEntryDetailsMode.value &&
     Boolean(activeIframeSource.value) &&
-    props.securityMode === 'safe',
+    props.securityMode === 'safe' &&
+    !isActiveSourceAllowlisted.value,
   )
 
   /**

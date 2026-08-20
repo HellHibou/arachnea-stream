@@ -1,0 +1,19 @@
+{
+  "sources": [
+    {
+      "label": "YouTube",
+      "url": "https://www.youtube.com/",
+      "description": "Allows YouTube embeds and watch links."
+    },
+    {
+      "label": "YouTube short links",
+      "url": "https://youtu.be/",
+      "description": "Allows youtube.com/embed/* videos referenced through short links."
+    },
+    {
+      "label": "YouTube no-cookie",
+      "url": "https://www.youtube-nocookie.com/",
+      "description": "Allows privacy-enhanced YouTube embeds."
+    }
+  ]
+}

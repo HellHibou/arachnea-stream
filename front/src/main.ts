@@ -13,6 +13,7 @@ import { useServiceMetadata } from './composables/useServiceMetadata'
 import { initializeI18n } from './i18n'
 import { useStorage } from '@/services/storage'
 import { findThemePreset, loadThemes, applyTheme } from '@/services/theme'
+import { loadVideoSourceAllowlist } from '@/services/videoSourceAllowlist'
 
 
 /** The Vuetify instance with configured icon sets and aliases. */
@@ -51,6 +52,7 @@ async function bootstrap(): Promise<void> {
    void useServiceMetadata().load()
 
    await loadThemes()
+   await loadVideoSourceAllowlist()
 
    const storage = useStorage()
    await storage.initStorage()

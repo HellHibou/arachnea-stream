@@ -9,6 +9,8 @@ import {
   type ResolvedPlayerMediaSource,
 } from '@/services/players'
 import { getStream } from '@/services/rustify'
+import { useStorage } from '@/services/storage'
+import { isMediaSourceAllowedBySecurity } from '@/services/videoSourceAllowlist'
 import { encodeEntryRoutePayload } from '@/router/routePayloads'
 import VideoPlayer from '@/components/media/VideoPlayer.vue'
 import type { VideoJsMediaDimensions } from '@/composables/video/useVideoJsMediaRenderer'
@@ -184,6 +186,22 @@ const activeBannerPlayableVideoSource = computed<ResolvedPlayerMediaSource | nul
     return source
   }
 })
+
+/** Current security mode ref used to gate decorative banner embeds. */
+const bannerSecurityMode = useStorage().getParameters().securityMode
+
+/**
+ * Returns whether the active banner video may render under the security mode.
+ *
+ * Only embedded iframe sources are constrained: they play in `unsafe` mode or
+ * when allowlisted. Native banner videos always play.
+ */
+const activeBannerVideoAllowed = computed(() =>
+  isMediaSourceAllowedBySecurity(
+    activeBannerPlayableVideoSource.value,
+    bannerSecurityMode.value,
+  ),
+)
 
 /**
  * Returns a stable key that forces the active banner media element to remount when it changes.
@@ -519,7 +537,7 @@ onBeforeUnmount(() => {
     :aria-label="activeBanner.title ?? t('catalog.featuredContent')"
   >
       <img
-      v-if="activeBanner.imageUrl && !activeBannerVideoSource"
+      v-if="activeBanner.imageUrl && (!activeBannerVideoSource || !activeBannerVideoAllowed)"
         class="home-hero-banner__image"
         :src="activeBanner.imageUrl"
         alt=""
@@ -527,7 +545,7 @@ onBeforeUnmount(() => {
       >
 
     <VideoPlayer
-      v-if="activeBannerPlayableVideoSource"
+      v-if="activeBannerPlayableVideoSource && activeBannerVideoAllowed"
       :key="activeBannerMediaKey ?? undefined"
       :source="activeBannerPlayableVideoSource"
       :class="[
@@ -550,7 +568,7 @@ onBeforeUnmount(() => {
       />
 
     <button
-      v-if="activeBannerPlayableVideoSource"
+      v-if="activeBannerPlayableVideoSource && activeBannerVideoAllowed"
       class="home-hero-banner__sound-toggle"
       type="button"
       :aria-label="bannerVideoSoundLabel"

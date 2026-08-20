@@ -4,6 +4,11 @@ import {
   resolveBackgroundMediaSource,
   type ResolvedPlayerMediaSource,
 } from '@/services/players'
+import {
+  isMediaSourceAllowedBySecurity,
+  type SecurityConstrainedMediaSource,
+} from '@/services/videoSourceAllowlist'
+import { useStorage } from '@/services/storage'
 import type { BackgroundMediaCandidate, ThumbnailImageFit } from '@/types/media'
 
 /** Union type representing a resolved background media item, either an image with a source URL or a video with a resolved media source. */
@@ -162,12 +167,31 @@ export function backgroundMedia(options: UseBackgroundMediaOptions) {
     ]
     const uniqueKeys = new Set<string>()
     const items: ResolvedBackgroundMediaItem[] = []
+    const securityMode = useStorage().getParameters().securityMode.value
 
     candidates.forEach((candidate) => {
-      const item = resolveBackgroundCandidate(candidate)
+      let item = resolveBackgroundCandidate(candidate)
 
       if (!item) {
         return
+      }
+
+      // Videos rendered behind the whole page must honor the security-mode
+      // allowlist. When a video is blocked, retain its paired image rather than
+      // falling through to the empty aurora background.
+      if (
+        item.type === 'video' &&
+        !isMediaSourceAllowedBySecurity(
+          item.source as SecurityConstrainedMediaSource,
+          securityMode,
+        )
+      ) {
+        const fallbackImageUrl = normalizeBackgroundUrl(candidate.imageUrl)
+        if (!fallbackImageUrl) {
+          return
+        }
+
+        item = { type: 'image', src: fallbackImageUrl }
       }
 
       const key = createBackgroundMediaKey(item)

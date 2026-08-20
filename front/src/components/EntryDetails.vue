@@ -163,7 +163,7 @@ const props = withDefaults(defineProps<Props>(), {
    heroBackgroundPortraitUrl: null,
    heroBackgroundLandscapeUrl: null,
    useCatalogBannersAsBackground: true,
-   securityMode: 'confirmation',
+    securityMode: 'safe',
   })
 /** Internationalization utilities. */
 const { t } = useI18n()

@@ -215,7 +215,7 @@ const props = withDefaults(defineProps<{
   hasNextVideo?: boolean
   /**
    * Mode used to render embedded iframe players.
-   * @default 'confirmation'
+    * @default 'safe'
    */
   securityMode?: 'unsafe' | 'confirmation' | 'safe'
 }>(), {
@@ -256,7 +256,7 @@ const props = withDefaults(defineProps<{
   preferPersistedMediaSurface: false,
   showEpisodeAutoplayToggle: false,
   isEpisodeAutoplayEnabled: false,
-  securityMode: 'confirmation',
+  securityMode: 'safe',
 })
 
 const emit = defineEmits<{

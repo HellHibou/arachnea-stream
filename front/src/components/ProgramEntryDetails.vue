@@ -52,7 +52,7 @@ interface Props {
   useCatalogBannersAsBackground?: boolean
   /**
    * Mode used to render embedded iframe players.
-   * @default 'confirmation'
+    * @default 'safe'
    */
   securityMode?: 'unsafe' | 'confirmation' | 'safe'
 }
@@ -63,7 +63,7 @@ const props = withDefaults(defineProps<Props>(), {
   isBackgroundAnimated: false,
   backgroundImageFit: 'contain',
   useCatalogBannersAsBackground: true,
-  securityMode: 'confirmation',
+  securityMode: 'safe',
 })
 /** Internationalization utilities. */
 const { t } = useI18n()
@@ -229,6 +229,7 @@ const {
 } = entryVideoPlayer({
   details,
   selectedPlayableItem: selectedEpisode,
+  securityMode: toRef(props, 'securityMode'),
 })
 
 /** Entry details presentation composable results. */

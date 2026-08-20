@@ -10,6 +10,7 @@ import {
   type ResolvedVideoSpriteThumbnails,
 } from '@/services/players'
 import { getPlayers, getStream, normalizePlayersResponse } from '@/services/rustify'
+import { isMediaSourceAllowedBySecurity } from '@/services/videoSourceAllowlist'
 import type { EntryDetails, EntryPlayableItem, EntryPlayer, EntryResolvedPlayerStream } from '@/types/entry'
 
 /** Sentinel value used for players without a language code. */
@@ -27,6 +28,8 @@ interface UseEntryVideoPlayerOptions {
    * Playable item currently selected in the built-in player.
    */
   selectedPlayableItem: Ref<EntryPlayableItem | null>
+  /** Security mode used to gate embedded trailer sources. */
+  securityMode: Ref<'unsafe' | 'confirmation' | 'safe'>
 }
 
 /**
@@ -219,6 +222,20 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
    * @returns True if a trailer media source is available.
    */
   const hasTrailer = computed(() => Boolean(trailerMediaSource.value))
+
+  /**
+   * Indicates whether the trailer iframe is blocked without a confirmation path.
+   *
+   * @returns True for a non-allowlisted trailer iframe in `safe` mode.
+   */
+  const isTrailerBlocked = computed(() =>
+    options.securityMode.value === 'safe' &&
+    trailerMediaSource.value?.renderer === 'iframe' &&
+    !isMediaSourceAllowedBySecurity(
+      trailerMediaSource.value,
+      options.securityMode.value,
+    ),
+  )
 
   /**
    * Exposes the embedded players returned by the backend entry payload.
@@ -504,6 +521,7 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
    */
   const showTrailerPlayer = computed(() =>
     hasTrailer.value &&
+    !isTrailerBlocked.value &&
     (activeVideoMode.value === 'trailer' || !mediaSource.value),
   )
 
@@ -525,9 +543,11 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
   /**
    * Exposes whether the trailer toggle action should be shown below the cover.
    *
-   * @returns True when a trailer is available.
+   * @returns True when a trailer is available and not blocked in `safe` mode.
    */
-  const showTrailerAction = computed(() => hasTrailer.value)
+  const showTrailerAction = computed(() =>
+    hasTrailer.value && !isTrailerBlocked.value,
+  )
 
   /**
    * Exposes the trailer action label depending on the current player mode.
