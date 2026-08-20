@@ -1,7 +1,7 @@
 id: vidara
 title: Vidara
 description:
-  en: "Resolver for vidara.to"
+  en: "Resolver for Vidara-compatible embed pages"
 http:
   mode: auto
 
@@ -12,6 +12,12 @@ parameters:
   - name: url
     value: ""
     description: "URL of the embed page to be resolved"
+  - name: html
+    value: ""
+    description: "Optional pre-fetched HTML document used for content-based resolution"
+  - name: origine
+    value: ""
+    description: "Origin of the final embed URL after redirects"
 
 
 # ############################################################################
@@ -20,33 +26,34 @@ parameters:
 queries:
 
   # --------------------------------------------------------------------------
-  # can_resolve_url — determines whether this rule can resolve the URL
+  # can_resolve_html — identifies the Vidara player implementation independently
+  # of the domain that hosts it.
   # --------------------------------------------------------------------------
-  - name: can_resolve_url
+  - name: can_resolve_html
     scraper_type: static
     entries:
       - name: resolver
         type: string
-        value: "{url}"
+        value: "{html}"
         actions:
           - type: regex_find_all
-            pattern: '^https?://(?:www\.)?vidara\.to/e/'
+            pattern: '(?s)fetch\(apiURL,\{method:"POST",headers:\{"Content-Type":"application/json"\},body:JSON\.stringify\(\{filecode:filecode,device:detectDevice\(\)\}\)\}\).*?abouttext:"Vidara"'
             format: "{service_id}"
 
 
   # --------------------------------------------------------------------------
   # resolve_stream — extracts the video stream URL from the player page
-  #   Uses the internal JSON API at POST /api/stream
+  #   Uses the internal JSON API at POST /api/stream on the resolved embed origin.
   # --------------------------------------------------------------------------
   - name: resolve_stream
     scraper_type: json
-    base_url: "https://vidara.to"
-    query_url: "{base_url}/api/stream"
+    base_url: "{origine}"
+    query_url: "{origine}/api/stream"
     request_method: post
     request_body_pointer: "/url"
     request_body_actions:
       - type: regex_find_all
-        pattern: '^https?://(?:www\.)?vidara\.to/e/([^/?#]+)'
+        pattern: '^https?://[^/]+/e/([^/?#]+)'
         format: "{1}"
       - type: format_text
         argument: '{"filecode":"{}","device":"web"}'

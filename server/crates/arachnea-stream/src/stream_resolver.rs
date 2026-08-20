@@ -14,6 +14,14 @@ use crate::services::player_resolver::{
 const MAX_EMBED_HTML_BYTES: usize = 1_048_576;
 const STREAM_RESOLVER_MAX_REDIRECTS: usize = 16;
 
+/// HTML fetched for content-based resolver recognition and its final URL after redirects.
+struct FetchedEmbedHtml {
+    /// Final HTTP(S) URL that delivered the document.
+    url: String,
+    /// Document body used by `can_resolve_html` and HTML resolvers.
+    html: String,
+}
+
 /// Group name used by the stream hoster configuration.
 pub const STREAM_RESOLVER_GROUP_NAME: &str = "arachnea-stream-hoster";
 
@@ -257,28 +265,33 @@ impl<'a> StreamResolver<'a> {
         url: &str,
         source_names: &[String],
     ) -> Result<Option<ResolvedPlayerStream>> {
-        let html = self.fetch_embed_html(url).await?;
+        let fetched = self.fetch_embed_html(url).await?;
 
         for name in source_names {
-            match self.can_resolve_html(name, url, &html).await {
+            match self
+                .can_resolve_html(name, &fetched.url, &fetched.html)
+                .await
+            {
                 Ok(true) => {
                     tracing::debug!(
                         service = %name,
-                        url = %url,
+                        url = %fetched.url,
                         "HTML content recognized by YAML resolver"
                     );
 
-                    return match self.try_resolve_stream(name, url, Some(&html)).await {
+                    return match self
+                        .try_resolve_stream(name, &fetched.url, Some(&fetched.html))
+                        .await
+                    {
                         Ok(Some(stream)) => Ok(Some(stream)),
                         Ok(None) => bail!(
                             "HTML resolver `{}` recognized URL `{}` but produced no stream",
-                            name,
-                            url
+                            name, fetched.url
                         ),
                         Err(error) => Err(error).with_context(|| {
                             format!(
                                 "HTML resolver `{}` recognized URL `{}` but failed to extract stream",
-                                name, url
+                                name, fetched.url
                             )
                         }),
                     };
@@ -298,7 +311,10 @@ impl<'a> StreamResolver<'a> {
         Ok(None)
     }
 
-    /// Fetches the original embed page once for HTML-content resolver detection.
+    /// Fetches an embed page once for HTML-content resolver detection.
+    ///
+    /// The returned URL is the final HTTP redirect target, or the final simple JavaScript
+    /// redirect target when one was followed.
     ///
     /// Follows HTTP redirects (handled by the HTTP client, bounded by
     /// `STREAM_RESOLVER_MAX_REDIRECTS`) and additionally follows a **simple** JavaScript
@@ -307,7 +323,7 @@ impl<'a> StreamResolver<'a> {
     /// never executed: only the target of the first plain literal assignment is extracted and
     /// re-fetched via HTTP. The number of followed JS hops is bounded and each hop is validated
     /// like the initial fetch (success status, `text/html`, size limit).
-    async fn fetch_embed_html(&self, url: &str) -> Result<String> {
+    async fn fetch_embed_html(&self, url: &str) -> Result<FetchedEmbedHtml> {
         let http_config = ScraperHttpConfig {
             max_redirects: Some(STREAM_RESOLVER_MAX_REDIRECTS),
             ..ScraperHttpConfig::default()
@@ -327,6 +343,7 @@ impl<'a> StreamResolver<'a> {
                 .send_for_request(http::Method::GET, &current_url, &HashMap::new(), None)
                 .await
                 .with_context(|| format!("Failed to fetch embed HTML `{}`", current_url))?;
+            let response_url = response.url().to_string();
 
             if !response.status().is_success() {
                 bail!(
@@ -371,10 +388,10 @@ impl<'a> StreamResolver<'a> {
                 .with_context(|| format!("Failed to read embed HTML `{}`", current_url))?;
 
             if let Some(target) = extract_simple_js_redirect_target(&body) {
-                if let Some(resolved) = resolve_redirect_target(&current_url, &target) {
-                    if resolved != current_url {
+                if let Some(resolved) = resolve_redirect_target(&response_url, &target) {
+                    if resolved != response_url {
                         tracing::debug!(
-                            current = %current_url,
+                            current = %response_url,
                             redirect = %resolved,
                             "Following simple JS window.location.href redirect while fetching embed HTML"
                         );
@@ -384,7 +401,10 @@ impl<'a> StreamResolver<'a> {
                 }
             }
 
-            return Ok(body);
+            return Ok(FetchedEmbedHtml {
+                url: response_url,
+                html: body,
+            });
         }
 
         bail!(
@@ -451,6 +471,12 @@ impl<'a> StreamResolver<'a> {
     fn build_resolver_params(&self, url: &str, html: Option<&str>) -> HashMap<String, String> {
         let mut params = HashMap::new();
         params.insert("url".to_string(), url.to_string());
+        if let Ok(parsed_url) = Url::parse(url) {
+            params.insert(
+                "origine".to_string(),
+                parsed_url.origin().ascii_serialization(),
+            );
+        }
         if let Some(html) = html {
             params.insert("html".to_string(), html.to_string());
         }

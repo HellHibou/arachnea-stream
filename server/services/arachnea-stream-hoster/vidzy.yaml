@@ -1,0 +1,96 @@
+id: vidzy
+title: Vidzy
+description:
+  en: "Resolver for Vidzy embed pages"
+http:
+  mode: auto
+
+parameters:
+  - name: url
+    value: ""
+    description: "URL of the Vidzy embed page to be resolved"
+
+queries:
+  - name: can_resolve_url
+    scraper_type: static
+    entries:
+      - name: resolver
+        type: string
+        value: "{url}"
+        actions:
+          - type: regex_find_all
+            pattern: '^https?://vidzy\.cc/embed-[A-Za-z0-9]+\.html(?:[?#].*)?$'
+            format: "{service_id}"
+
+  - name: resolve_stream
+    scraper_type: html
+    base_url: "{url}"
+    query_url: "{url}"
+    row_selector: "html"
+    entries:
+      - name: stream_url
+        type: string[]
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: 'sources:\s*\[\{src:\s*\(function\(s\)\{[\s\S]*?\}\)\("([^"]+)"\)'
+            format: "{1}"
+          - type: format_text
+            argument: >-
+              var s='{}',t='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/',h='vidzy.cc',H=0,b='',a='',r='';for(var j=0;j<h.length;j++)H=(H+h.charCodeAt(j))&255;for(var i=0;i<s.length;i+=4){var c1=t.indexOf(s.charAt(i)),c2=t.indexOf(s.charAt(i+1)),c3=t.indexOf(s.charAt(i+2)),c4=t.indexOf(s.charAt(i+3));b+=String.fromCharCode((c1<<2)|(c2>>4));if(c3>=0)b+=String.fromCharCode(((c2&15)<<4)|(c3>>2));if(c4>=0)b+=String.fromCharCode(((c3&3)<<6)|c4);}a=b.split('').reverse().join('');for(var k=0;k<a.length;k++)r+=String.fromCharCode(a.charCodeAt(k)^((61+k*89+H)&255));r;
+          - type: exec_js
+          - type: resolve_url
+            proxy: true
+            proxy_headers:
+              Referer: "{url}"
+              Origin: "https://vidzy.cc"
+              User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+            proxy_replace_all:
+              - pattern: '(?m)^(https?://[^\r\n]+)'
+                replacement: '{proxy_inherited}/$1'
+                content_types:
+                  - application/vnd.apple.mpegurl
+              - pattern: '(?m)^([^#/\r\n][^\r\n]*)$'
+                replacement: '{proxy_inherited}/{base_url}{path_base}$1'
+                content_types:
+                  - application/vnd.apple.mpegurl
+      - name: stream_headers
+        type: object
+        select: first
+        entries:
+          - name: Referer
+            type: string
+            actions:
+              - type: format_text
+                argument: "{url}"
+          - name: Origin
+            type: string
+            actions:
+              - type: format_text
+                argument: "https://vidzy.cc"
+          - name: User-Agent
+            type: string
+            actions:
+              - type: format_text
+                argument: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+      - name: manifest_type
+        type: string
+        actions:
+          - type: format_text
+            argument: "hls"
+      - name: title
+        type: string
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: 'title:\s*"([^"]+)"'
+            format: "{1}"
+      - name: image/title > link
+        type: string
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: 'metaThumbnail:\s*"([^"]+)"'
+            format: "{1}"
+          - type: resolve_url
+            proxy: true

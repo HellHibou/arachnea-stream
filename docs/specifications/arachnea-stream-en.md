@@ -587,14 +587,14 @@ used to avoid unnecessary network fetches or to identify a page that has already
 | Query | Type | Description |
 |---|---|---|
 | `can_resolve_url` | `static` | Optional prefilter before direct resolution; a positive result allows `resolve_stream` to fetch the URL |
-| `can_resolve_html` | `static` / `html` | Optional recognition of pre-fetched HTML with `{url, html}` runtime parameters |
+| `can_resolve_html` | `static` / `html` | Optional recognition of pre-fetched HTML with `{url, origine, html}` runtime parameters; `{origine}` is the scheme, host, and optional port of the final URL after redirects |
 | `resolve_stream` | `html` / `json` / `text` | Extracts the media stream and optional `title`, `image/title > link`, `stream_headers`, `storyboard_vtt_url`, and `storyboard` metadata |
 
 `StreamResolver` walks active YAML services in `services.json` order. On the direct path, it
 calls `can_resolve_url` when present; only services with a positive result then run
 `resolve_stream` with a network fetch. If no direct stream is found, the resolver fetches the
 page once, requires an HTML `Content-Type` and a body below 1 MiB, then calls `can_resolve_html`
-with `{url, html}`. The first recognized service runs `resolve_stream` with the same in-memory
+with `{url, origine, html}`. The first recognized service runs `resolve_stream` with the same in-memory
 HTML through `input_html`, without a second embed-page GET. When no service matches, `get_stream`
 returns `{ "embed-link": "<url>" }`.
 

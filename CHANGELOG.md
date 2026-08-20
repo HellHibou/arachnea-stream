@@ -499,3 +499,15 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ### Changed
 
 - **Grid and single-row widths now share a common base**: Media card collections apply `--media-card-collection-size-multiplier` to the base column width (`176px`) for portrait cards and the landscape width (`370px`, derived from two grid columns plus the gap). The single-row layout no longer inflates card width by a hardcoded `×1.5` factor, so portrait and landscape cards match the grid mode at the same multiplier.
+
+## Unreleased — Vidzy YAML hoster
+
+### Added
+
+- **Vidzy YAML hoster**: Added `vidzy.yaml` for `vidzy.cc/embed-<id>.html` pages. The resolver recognizes the Vidzy URL, decodes its deterministic inline HLS payload, and exposes the proxied stream with its title and thumbnail.
+
+## Unreleased — Generic Vidara hoster
+
+### Changed
+
+- **Generic Vidara resolver**: `vidara.yaml` now recognizes the Vidara player markup independently of its hosting domain and calls `/api/stream` on `{origine}`, the final redirected embed origin. The redundant Merivo resolver was removed; Merivo and Kokoflix redirect targets are now handled by Vidara.

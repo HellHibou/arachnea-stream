@@ -50,5 +50,9 @@
   {
     "path": "doodstream.yaml",
     "enabled": true
+  },
+  {
+    "path": "vidzy.yaml",
+    "enabled": true
   }
 ]
