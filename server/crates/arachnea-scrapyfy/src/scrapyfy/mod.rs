@@ -83,7 +83,7 @@ pub use ip_country_provider::{
 
 /// Multi-source query aggregator.
 pub mod scraper_agregator;
-pub use scraper_agregator::{ScraperAgregator, ScraperSourceParams};
+pub use scraper_agregator::{resolve_manifest_sources, ScraperAgregator, ScraperSourceParams};
 
 /// Scraper manager trait used by runtime and test harnesses.
 pub mod scraper_manager;

@@ -5,7 +5,7 @@ use serde_json;
 use std::collections::HashMap;
 use std::fs;
 use std::io::BufReader;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
 use arachnea_core::error_code::ErrorCodeGenerator;
@@ -38,6 +38,27 @@ pub struct ScraperAggregatorSourceEntry {
 /// Returns `true` — the default enabled state for a source entry.
 fn default_enabled() -> bool {
     true
+}
+
+/// Declares a recursive JSON manifest import relative to the declaring manifest.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScraperAggregatorImport {
+    /// JSON manifest to import, relative to the current manifest directory.
+    pub import: String,
+}
+
+/// One entry in a scraper-aggregator services manifest, either a local YAML
+/// source or a recursive import of another JSON manifest.
+///
+/// The `untagged` representation keeps existing flat manifests valid while
+/// letting an entry reference another manifest through `{"import": ...}`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ScraperAggregatorConfigEntry {
+    /// A local YAML source, resolved relative to the declaring manifest.
+    Source(ScraperAggregatorSourceEntry),
+    /// A recursive import of another JSON manifest.
+    Import(ScraperAggregatorImport),
 }
 
 /// Aggregates the same query across several configured sources.
@@ -239,19 +260,7 @@ impl ScraperAgregator {
             config_path = %config_path.display(),
             "loading scraper query collection config"
         );
-        let config_file = fs::File::open(config_path).map_err(|error| {
-            anyhow::anyhow!(
-                "Failed to open config file: {}: {error}",
-                config_path.display()
-            )
-        })?;
-        let sources: Vec<ScraperAggregatorSourceEntry> =
-            serde_json::from_reader(BufReader::new(config_file)).map_err(|error| {
-                anyhow::anyhow!(
-                    "Failed to parse config file: {}: {error}",
-                    config_path.display()
-                )
-            })?;
+        let sources = resolve_manifest_sources(config_path)?;
 
         let config_dir = config_path.parent().unwrap_or(Path::new(""));
         let collections = self
@@ -288,12 +297,27 @@ impl ScraperAgregator {
                 source_parameter_overrides = source.parameters.len(),
                 "loading scraper query collection source"
             );
-            let file = fs::File::open(&source_path).map_err(|error| {
-                anyhow::anyhow!(
-                    "Failed to open source file: {}: {error}",
-                    source_path.display()
-                )
-            })?;
+            // A missing YAML source is skipped with a warning so the remaining
+            // entries keep loading; other open errors stay fatal.
+            let file = match fs::File::open(&source_path) {
+                Ok(found) => found,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    tracing::warn!(
+                        group_name,
+                        source_index,
+                        source_path = %source_path.display(),
+                        error = %error,
+                        "skipping missing scraper query collection source file"
+                    );
+                    continue;
+                }
+                Err(error) => {
+                    return Err(anyhow::anyhow!(
+                        "Failed to open source file: {}: {error}",
+                        source_path.display()
+                    ));
+                }
+            };
             let reader = BufReader::new(file);
             let mut raw: ScraperQueryCollectionRaw = parse(reader).map_err(|error| {
                 anyhow::anyhow!(
@@ -684,6 +708,147 @@ impl ScraperAgregator {
     }
 }
 
+/// Resolves every source declared by a services manifest into a flattened list,
+/// following recursive imports in depth-first declaration order.
+///
+/// # Arguments
+///
+/// * `config_path` - Path to the top-level JSON manifest.
+///
+/// # Returns
+///
+/// The flattened [`ScraperAggregatorSourceEntry`] list. Each entry keeps its
+/// `enabled` state and parameters, and its `path` is resolved relative to the
+/// directory containing `config_path`.
+///
+/// # Errors
+///
+/// Returns an error when the manifest itself, an imported JSON manifest, or
+/// their content is missing or invalid. Error messages name the parent manifest
+/// and the offending entry or import path.
+pub fn resolve_manifest_sources(
+    config_path: impl AsRef<Path>,
+) -> Result<Vec<ScraperAggregatorSourceEntry>> {
+    let config_path = config_path.as_ref();
+    let mut resolved: Vec<ScraperAggregatorSourceEntry> = Vec::new();
+    let mut visited: Vec<String> = Vec::new();
+    let mut import_chain: Vec<String> = Vec::new();
+    import_chain.push(format!("{}", config_path.display()));
+
+    let empty_rel_dir = PathBuf::new();
+    resolve_manifest_sources_recursive(
+        config_path,
+        &empty_rel_dir,
+        &mut visited,
+        &mut import_chain,
+        &mut resolved,
+    )?;
+
+    Ok(resolved)
+}
+
+fn resolve_manifest_sources_recursive(
+    config_path: &Path,
+    manifest_rel_dir: &PathBuf,
+    visited: &mut Vec<String>,
+    import_chain: &mut Vec<String>,
+    resolved: &mut Vec<ScraperAggregatorSourceEntry>,
+) -> Result<()> {
+    // A manifest already imported by another branch, or a cycle back onto the
+    // current import chain, is skipped with a warning so resolution terminates.
+    let manifest_identity = format!("{}", config_path.display());
+    if visited.iter().any(|seen| *seen == manifest_identity) {
+        tracing::warn!(
+            config_path = %config_path.display(),
+            import_chain = %import_chain.join(" -> "),
+            "skipping already-imported or cyclic services manifest"
+        );
+        return Ok(());
+    }
+    visited.push(manifest_identity);
+
+    let manifest_dir = config_path.parent().unwrap_or(Path::new(""));
+    let config_file = fs::File::open(config_path).map_err(|error| {
+        anyhow::anyhow!(
+            "Failed to open manifest file: {}: {error}",
+            config_path.display()
+        )
+    })?;
+    let raw_entries: Vec<serde_json::Value> =
+        serde_json::from_reader(BufReader::new(config_file)).map_err(|error| {
+            anyhow::anyhow!(
+                "Failed to parse manifest file: {}: {error}",
+                config_path.display()
+            )
+        })?;
+
+    for (entry_index, raw) in raw_entries.into_iter().enumerate() {
+        let object = match &raw {
+            serde_json::Value::Object(entries) => entries,
+            _ => anyhow::bail!(
+                "Manifest entry must be a JSON object: {}: entry {}",
+                config_path.display(),
+                entry_index
+            ),
+        };
+
+        // Reject entries declaring both or neither of `path`/`import` explicitly,
+        // since `untagged` would otherwise silently pick the first variant.
+        let has_path = object.get("path").is_some();
+        let has_import = object.get("import").is_some();
+        if has_path == has_import {
+            anyhow::bail!(
+                "Manifest entry must declare exactly one of `path` or `import`: {}: entry {}",
+                config_path.display(),
+                entry_index
+            );
+        }
+
+        let entry: ScraperAggregatorConfigEntry =
+            serde_json::from_value(raw).map_err(|error| {
+                anyhow::anyhow!(
+                    "Failed to parse manifest entry: {}: entry {}: {error}",
+                    config_path.display(),
+                    entry_index
+                )
+            })?;
+
+        match entry {
+            ScraperAggregatorConfigEntry::Source(source) => {
+                let resolved_path = manifest_rel_dir.join(Path::new(&source.path));
+                resolved.push(ScraperAggregatorSourceEntry {
+                    path: format!("{}", resolved_path.display()),
+                    enabled: source.enabled,
+                    parameters: source.parameters,
+                });
+            }
+            ScraperAggregatorConfigEntry::Import(import) => {
+                let child_rel_dir = manifest_rel_dir
+                    .join(Path::new(&import.import).parent().unwrap_or(Path::new("")));
+                let child_path = manifest_dir.join(&import.import);
+                import_chain.push(import.import.clone());
+                let imported = resolve_manifest_sources_recursive(
+                    &child_path,
+                    &child_rel_dir,
+                    visited,
+                    import_chain,
+                    resolved,
+                );
+                import_chain.pop();
+                if let Err(error) = imported {
+                    return Err(anyhow::anyhow!(
+                        "Failed to import `{}` from {}: {error:#}",
+                        import.import,
+                        config_path.display()
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -706,6 +871,133 @@ mod tests {
             "arachnea-scrapyfy-aggregator-test-{}-{nanos}-{sequence}",
             std::process::id()
         ))
+    }
+
+    #[test]
+    fn resolve_manifest_sources_expands_recursive_imports_in_depth_first_order() {
+        let dir = unique_temp_dir();
+        std::fs::create_dir_all(dir.join("dark-stream")).expect("dark stream dir should exist");
+        std::fs::create_dir_all(dir.join("legal-stream")).expect("legal stream dir should exist");
+
+        std::fs::write(
+            dir.join("dark-stream/services.json"),
+            r#"[
+                {"path": "anime-sama.yaml", "enabled": true},
+                {"path": "coflix.yaml", "enabled": false}
+            ]"#,
+        )
+        .expect("dark-stream manifest should be written");
+        std::fs::write(
+            dir.join("legal-stream/services.json"),
+            r#"[
+                {"path": "rtlplay-be.yaml", "enabled": true}
+            ]"#,
+        )
+        .expect("legal-stream manifest should be written");
+        std::fs::write(
+            dir.join("services.json"),
+            r#"[
+                {"import": "dark-stream/services.json"},
+                {"import": "legal-stream/services.json"},
+                {"path": "local.yaml", "enabled": true}
+            ]"#,
+        )
+        .expect("root manifest should be written");
+
+        let resolved = resolve_manifest_sources(dir.join("services.json"))
+            .expect("manifest with imports should resolve");
+        let paths: Vec<String> = resolved.iter().map(|s| s.path.to_string()).collect();
+        let expected: Vec<String> = vec![
+            "dark-stream/anime-sama.yaml",
+            "dark-stream/coflix.yaml",
+            "legal-stream/rtlplay-be.yaml",
+            "local.yaml",
+        ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(paths, expected);
+        assert!(resolved[0].enabled);
+        assert!(!resolved[1].enabled);
+
+        std::fs::remove_dir_all(dir).expect("test service directory should be removed");
+    }
+
+    #[test]
+    fn resolve_manifest_sources_skips_cyclic_imports() {
+        let dir = unique_temp_dir();
+        std::fs::write(
+            dir.join("a.json"),
+            r#"[
+                {"path": "a.yaml", "enabled": true},
+                {"import": "b.json"}
+            ]"#,
+        )
+        .expect("a manifest should be written");
+        std::fs::write(
+            dir.join("b.json"),
+            r#"[
+                {"import": "a.json"},
+                {"path": "b.yaml", "enabled": true}
+            ]"#,
+        )
+        .expect("b manifest should be written");
+
+        let resolved = resolve_manifest_sources(dir.join("a.json"))
+            .expect("cyclic manifest should still resolve without infinite recursion");
+        let paths: Vec<String> = resolved
+            .iter()
+            .map(|s| s.path.to_string())
+            .collect();
+        assert_eq!(paths, vec!["a.yaml".to_string(), "b.yaml".to_string()]);
+
+        std::fs::remove_dir_all(dir).expect("test service directory should be removed");
+    }
+
+    #[test]
+    fn resolve_manifest_sources_rejects_ambiguous_entries() {
+        let dir = unique_temp_dir();
+        std::fs::write(
+            dir.join("services.json"),
+            r#"[
+                {"path": "a.yaml", "import": "b.json", "enabled": true}
+            ]"#,
+        )
+        .expect("manifest should be written");
+
+        match resolve_manifest_sources(dir.join("services.json")) {
+            Ok(_) => panic!("ambiguous entry should be rejected"),
+            Err(error) => {
+                let message = format!("{error:#}");
+                assert!(message.contains("exactly one"));
+                assert!(message.contains("services.json"));
+            }
+        }
+
+        std::fs::remove_dir_all(dir).expect("test service directory should be removed");
+    }
+
+    #[test]
+    fn resolve_manifest_sources_fails_on_missing_import() {
+        let dir = unique_temp_dir();
+        std::fs::write(
+            dir.join("services.json"),
+            r#"[
+                {"import": "missing/services.json"}
+            ]"#,
+        )
+        .expect("manifest should be written");
+
+        match resolve_manifest_sources(dir.join("services.json")) {
+            Ok(_) => panic!("missing import should be an error"),
+            Err(error) => {
+                let message = format!("{error:#}");
+                assert!(message.contains("import"));
+                assert!(message.contains("missing/services.json"));
+            }
+        }
+
+        std::fs::remove_dir_all(dir).expect("test service directory should be removed");
     }
 
     fn setup_aggregator_sources(sources: &[(&str, &str)]) -> (ScraperAgregator, PathBuf) {

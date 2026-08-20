@@ -6,22 +6,12 @@ use arachnea_core::application;
 use arachnea_scrapyfy::scrapyfy::scraper_data_node::ScraperDataNode;
 use arachnea_scrapyfy::scrapyfy::scraper_manager::tests::assert_query_succeeds;
 use arachnea_scrapyfy::scrapyfy::scraper_manager::tests::test_query;
+use arachnea_scrapyfy::scrapyfy::scraper_agregator::resolve_manifest_sources;
 use arachnea_scrapyfy::scrapyfy::scraper_manager::tests::TestParams;
-use serde::Deserialize;
-use std::collections::HashMap;
-use std::fs;
 use std::path::Path;
 
 static DEFAULT_SEARCH_TERM: &str = "inf";
 static DEFAULT_QUERY_SOURCE: &str = "arachnea-stream/dark-stream/anime-sama.yaml";
-
-#[derive(Deserialize)]
-struct ServiceConfig {
-    path: String,
-    enabled: bool,
-    #[allow(dead_code)]
-    parameters: Option<Vec<HashMap<String, String>>>,
-}
 
 fn test_params() -> TestParams {
     TestParams {
@@ -265,11 +255,8 @@ fn load_enabled_services() -> Vec<String> {
         DEFAULT_SERVICES_CONFIG_PATH
     );
     let services_json_path = Path::new(config_file.as_str());
-    let content =
-        fs::read_to_string(services_json_path).expect("Failed to read services.json file");
-
-    let services: Vec<ServiceConfig> =
-        serde_json::from_str(&content).expect("Failed to parse services.json file");
+    let services = resolve_manifest_sources(services_json_path)
+        .expect("Failed to resolve services.json manifest");
 
     services
         .into_iter()

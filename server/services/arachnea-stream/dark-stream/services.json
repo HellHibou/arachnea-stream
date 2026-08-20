@@ -1,0 +1,28 @@
+[
+  {
+    "path": "anime-sama.yaml",
+    "enabled": true,
+    "parameters": [
+      {
+        "name": "base_url",
+        "value": "https://anime-sama.to"
+      }
+    ]
+  },
+  {
+    "path": "animeultime.yaml",
+    "enabled": true
+  },
+  {
+    "path": "coflix.yaml",
+    "enabled": false
+  },
+  {
+    "path": "frenchanimes.yaml",
+    "enabled": true
+  },
+  {
+    "path": "papadustream-v2.yaml",
+    "enabled": true
+  }
+]
