@@ -240,7 +240,7 @@ pub async fn execute_query_items(
     context: &QueryContext<'_>,
 ) -> Result<Vec<HashMap<String, ScraperDataNode>>> {
     let result = execute_query_internal(query, context).await;
-    if let Some(url) = resolve_request_urls(query, context).into_iter().next() {
+    if let Some(url) = resolve_request_urls(query, context)?.into_iter().next() {
         context
             .http_client
             .close_browser_session_for_url(&url)
@@ -313,19 +313,25 @@ async fn execute_query_internal(
     }
 
     // 2. Resolve request URL(s).
-    let request_urls = resolve_request_urls(query, context);
+    let request_urls = resolve_request_urls(query, context)?;
 
     // 2a. Check for input_html mode: when the query provides an input_html
     //     template that resolves to a non-empty string, use it as the response
     //     body instead of fetching.
-    let input_html_resolved: Option<String> = query.input_html().and_then(|template| {
-        if template.is_empty() {
-            return None;
+    let input_html_resolved = match query.input_html() {
+        Some(template) if !template.is_empty() => {
+            query_helpers::format_query_template(query.base_url(), template, context.params)
+                .map_err(|error| {
+                    anyhow::anyhow!(
+                        "Failed to resolve input_html for query `{}`: {error}",
+                        query.name()
+                    )
+                })
+                .map(Some)?
+                .filter(|value| !value.is_empty())
         }
-        query_helpers::format_query_template(query.base_url(), template, context.params)
-            .ok()
-            .filter(|s| !s.is_empty())
-    });
+        _ => None,
+    };
     let has_input_html = input_html_resolved.is_some();
 
     if request_urls.is_empty() && !has_input_html {
@@ -717,7 +723,10 @@ fn json_row_filters(query: &dyn ScraperQuery) -> Option<&HashMap<String, Vec<Str
 ///
 /// A vector containing the resolved URL(s). Returns empty vector for sub-queries
 /// without a query_url template when response/context is not provided.
-fn resolve_request_urls(query: &dyn ScraperQuery, context: &QueryContext<'_>) -> Vec<String> {
+fn resolve_request_urls(
+    query: &dyn ScraperQuery,
+    context: &QueryContext<'_>,
+) -> Result<Vec<String>> {
     // First, try to resolve from query_url template (root queries)
     if !query.query_url().is_empty() {
         let url = query_helpers::format_query_template(
@@ -725,12 +734,17 @@ fn resolve_request_urls(query: &dyn ScraperQuery, context: &QueryContext<'_>) ->
             query.query_url(),
             context.params,
         )
-        .unwrap_or_else(|_| query.query_url().to_string());
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "Failed to resolve request URL for query `{}`: {error}",
+                query.name()
+            )
+        })?;
         let mut urls = vec![url];
         for action in query.request_url_actions() {
             urls = action.apply(&None, urls, context.params, context.request_url, None, None);
         }
-        return urls;
+        return Ok(urls);
     }
 
     if let Some(parent_response) = context.parent_response {
@@ -759,7 +773,7 @@ fn resolve_request_urls(query: &dyn ScraperQuery, context: &QueryContext<'_>) ->
                             resolved_urls.push(url);
                         }
                     }
-                    return resolved_urls;
+                    return Ok(resolved_urls);
                 }
             }
         } else if !query.request_actions().is_empty() {
@@ -793,11 +807,11 @@ fn resolve_request_urls(query: &dyn ScraperQuery, context: &QueryContext<'_>) ->
                         }
                     }
                 }
-                return resolved_urls;
+                return Ok(resolved_urls);
             }
         }
     }
-    vec![]
+    Ok(vec![])
 }
 
 /// Resolves request headers from the query's configured header list.

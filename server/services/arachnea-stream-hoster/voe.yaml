@@ -6,16 +6,8 @@ http:
   mode: auto
   max_redirects: 16
 
-parameters:
-  - name: url
-    value: ""
-    description: "URL of the VOE embed page to resolve"
-  - name: html
-    value: ""
-    description: "Optional pre-fetched HTML document used for content-based resolution"
 
 queries:
-
   - name: can_resolve_html
     scraper_type: static
     entries:

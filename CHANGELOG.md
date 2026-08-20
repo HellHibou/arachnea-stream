@@ -511,3 +511,4 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ### Changed
 
 - **Generic Vidara resolver**: `vidara.yaml` now recognizes the Vidara player markup independently of its hosting domain and calls `/api/stream` on `{origine}`, the final redirected embed origin. The redundant Merivo resolver was removed; Merivo and Kokoflix redirect targets are now handled by Vidara.
+- **Deferred scraper placeholders**: Scrapyfy now preserves undeclared placeholders while loading YAML collections and reports missing request parameters only when the relevant query executes. This permits resolver context such as `{origine}` without declaring a dummy collection parameter.

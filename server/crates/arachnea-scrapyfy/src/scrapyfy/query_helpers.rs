@@ -241,7 +241,7 @@ pub fn build_template_params(
     resolved
 }
 
-/// Resolves one template field against collection-level parameters.
+/// Resolves one template field against collection-level parameters available at load time.
 ///
 /// # Arguments
 ///
@@ -251,9 +251,8 @@ pub fn build_template_params(
 /// * `template` - Template string containing `{placeholders}`.
 /// * `params` - Collection-level parameters available to the template.
 ///
-/// # Errors
-///
-/// Returns an error if one or more placeholders are missing from `params`.
+/// Placeholders absent from `params` are preserved for runtime resolution. This lets a
+/// collection declare templates whose values are supplied only by the caller.
 pub fn resolve_required_template(
     owner_kind: &str,
     owner_name: &str,
@@ -261,18 +260,8 @@ pub fn resolve_required_template(
     template: &str,
     params: &HashMap<String, String>,
 ) -> Result<String> {
-    let (resolved, missing_keys) = replace_template_placeholders(template, params);
-
-    if !missing_keys.is_empty() {
-        anyhow::bail!(
-            "Missing collection params for {} {} {}: {}",
-            owner_kind,
-            owner_name,
-            field_name,
-            missing_keys.join(", ")
-        );
-    }
-
+    let (resolved, _missing_keys) = replace_template_placeholders(template, params);
+    let _ = (owner_kind, owner_name, field_name);
     Ok(resolved)
 }
 

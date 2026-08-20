@@ -6,12 +6,6 @@ http:
   mode: auto
 proxy_insecure_tls_hosts:
   - sfy-01-fr.vidsonic.net
-# This exception is limited by the server-side exact-host allowlist.
-
-parameters:
-  - name: url
-    value: ""
-    description: "URL of the embed page to be resolved"
 
 queries:
   - name: can_resolve_url

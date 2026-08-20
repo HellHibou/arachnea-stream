@@ -5,11 +5,6 @@ description:
 http:
   mode: auto
 
-parameters:
-  - name: url
-    value: ""
-    description: "URL of the embed page to be resolved"
-
 queries:
   - name: can_resolve_url
     scraper_type: static

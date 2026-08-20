@@ -74,6 +74,8 @@ List of default collection parameters. Each parameter has:
 
 Parameters are resolved sequentially in YAML declaration order. A parameter can reference previous parameters via `{placeholder}`.
 
+Undeclared placeholders are preserved while loading the collection so callers can provide them at execution time. A required placeholder that remains absent then produces a contextual error while resolving the request, rather than while loading the YAML.
+
 The `@` prefix is reserved for dynamic variables produced while a request is extracted. These variables are not collection parameters and are referenced with the `{@name}` syntax. Standard parameters must not use names starting with `@`.
 
 ```yaml

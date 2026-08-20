@@ -5,20 +5,6 @@ description:
 http:
   mode: auto
 
-# ############################################################################
-# Parameters
-# ############################################################################ 
-parameters:
-  - name: url
-    value: ""
-    description: "URL of the embed page to be resolved"
-  - name: html
-    value: ""
-    description: "Optional pre-fetched HTML document used for content-based resolution"
-  - name: origine
-    value: ""
-    description: "Origin of the final embed URL after redirects"
-
 
 # ############################################################################
 # Queries

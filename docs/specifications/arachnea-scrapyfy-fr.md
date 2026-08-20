@@ -74,6 +74,8 @@ Liste de paramètres par défaut de la collection. Chaque paramètre a :
 
 Les paramètres sont résolus séquentiellement dans l'ordre de déclaration YAML. Un paramètre peut référencer les paramètres précédents via `{placeholder}`.
 
+Les placeholders non déclarés sont préservés au chargement de la collection afin d'être fournis par l'appelant à l'exécution. Un placeholder requis mais absent provoque alors une erreur contextuelle lors de la résolution de la requête, et non au chargement du YAML.
+
 Le préfixe `@` est réservé aux variables dynamiques produites pendant l'extraction d'une requête. Ces variables ne sont pas des paramètres de collection et se référencent avec la syntaxe `{@nom}`. Les paramètres standards ne doivent pas utiliser de nom commençant par `@`.
 
 ```yaml
