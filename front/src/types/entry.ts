@@ -53,10 +53,10 @@ export interface EntryPlayerResolver {
 export interface EntryPlayerStoryboard {
   /** The URL to the sprite thumbnail image. */
   url: string
-  /** The width of each thumbnail in the sprite. */
-  width: number
-  /** The height of each thumbnail in the sprite. */
-  height: number
+  /** The width of each thumbnail in the sprite, inferred from the image when omitted. */
+  width?: number
+  /** The height of each thumbnail in the sprite, inferred from the image when omitted. */
+  height?: number
   /** The number of columns in the sprite image. */
   columns: number
   /** The number of thumbnail rows in each sprite image. */

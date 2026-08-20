@@ -1,13 +1,13 @@
 use arachnea_scrapyfy::{ScraperAgregator, SharedProxyConfigHandle};
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::{ResolvedStream, StreamResolver, STREAM_RESOLVER_GROUP_NAME};
+use super::{ResolvedStream, STREAM_RESOLVER_GROUP_NAME, StreamResolver};
 
 fn block_on<F: std::future::Future>(future: F) -> F::Output {
     tokio::runtime::Runtime::new()

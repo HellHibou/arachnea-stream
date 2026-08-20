@@ -290,20 +290,150 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
   }
 
   /**
-   * Builds sprite thumbnail plugin options from declared storyboard metadata.
+   * Preloads the first sprite image and derives one cell's dimensions from its declared grid.
+   *
+   * @param url Sprite image URL, which may contain an `{index}` placeholder.
+   * @param firstPageIndex First index used by a sequential sprite URL.
+   * @param columns Number of sprite columns.
+   * @param rows Number of sprite rows.
+   * @returns Derived cell dimensions and a normalized sprite URL, or `null` when the grid is invalid.
+   */
+  function resolveSpriteThumbnailDimensions(
+    url: string,
+    firstPageIndex: number,
+    columns: number,
+    rows: number,
+  ): Promise<{ url: string, width: number, height: number } | null> {
+    const firstSpriteUrl = url.replace('{index}', String(firstPageIndex))
+
+    return new Promise((resolve) => {
+      const image = new Image()
+      image.onload = () => {
+        const horizontalGap = findSpriteGridGap(image.naturalWidth, columns)
+        const verticalGap = findSpriteGridGap(image.naturalHeight, rows)
+
+        if (horizontalGap === null || verticalGap === null) {
+          console.warn('[Storyboard] Sprite image dimensions are incompatible with its declared grid.', {
+            url: firstSpriteUrl,
+            naturalWidth: image.naturalWidth,
+            naturalHeight: image.naturalHeight,
+            columns,
+            rows,
+          })
+          resolve(null)
+          return
+        }
+
+        const width = (image.naturalWidth - horizontalGap * (columns - 1)) / columns
+        const height = (image.naturalHeight - verticalGap * (rows - 1)) / rows
+
+        if (horizontalGap === 0 && verticalGap === 0) {
+          resolve({ url, width, height })
+          return
+        }
+
+        if (url.includes('{index}')) {
+          console.warn('[Storyboard] Cannot normalize grid separators in sequential sprite images.', {
+            url: firstSpriteUrl,
+          })
+          resolve(null)
+          return
+        }
+
+        try {
+          const canvas = document.createElement('canvas')
+          canvas.width = width * columns
+          canvas.height = height * rows
+          const context = canvas.getContext('2d')
+          if (!context) {
+            resolve(null)
+            return
+          }
+
+          for (let row = 0; row < rows; row += 1) {
+            for (let column = 0; column < columns; column += 1) {
+              context.drawImage(
+                image,
+                column * (width + horizontalGap),
+                row * (height + verticalGap),
+                width,
+                height,
+                column * width,
+                row * height,
+                width,
+                height,
+              )
+            }
+          }
+
+          resolve({ url: canvas.toDataURL('image/jpeg', 0.92), width, height })
+        } catch (error) {
+          console.warn('[Storyboard] Unable to normalize sprite image grid separators.', {
+            url: firstSpriteUrl,
+            error,
+          })
+          resolve(null)
+        }
+      }
+      image.onerror = () => {
+        console.warn('[Storyboard] Unable to preload sprite image for dimension inference.', {
+          url: firstSpriteUrl,
+        })
+        resolve(null)
+      }
+      image.src = firstSpriteUrl
+    })
+  }
+
+  /**
+   * Finds the smallest uniform gap between cells in one sprite axis.
+   *
+   * @param size Natural image width or height.
+   * @param cells Number of cells along that axis.
+   * @returns Gap size in pixels, or `null` when no regular grid fits the image.
+   */
+  function findSpriteGridGap(size: number, cells: number): number | null {
+    for (let gap = 0; gap <= 32; gap += 1) {
+      const cellSize = size - gap * (cells - 1)
+      if (cellSize > 0 && cellSize % cells === 0) {
+        return gap
+      }
+    }
+
+    return null
+  }
+
+  /**
+   * Builds sprite thumbnail plugin options from storyboard metadata.
+   *
+   * Missing cell dimensions are inferred by preloading the first sprite image.
    *
    * @param source Resolved source selected for playback.
    * @returns Sprite thumbnail plugin configuration.
    */
-  function buildSpriteThumbnailOptions(source: ResolvedVideoMediaSource): Record<string, unknown> {
+  async function buildSpriteThumbnailOptions(source: ResolvedVideoMediaSource): Promise<Record<string, unknown>> {
     if (!source.storyboard) {
       return {}
     }
 
-    const { firstPageIndex, interval, ...spriteThumbnails } = source.storyboard
+    const { firstPageIndex, interval, width, height, ...spriteThumbnails } = source.storyboard
+    const resolvedSprite = width && height
+      ? { url: source.storyboard.url, width, height }
+      : await resolveSpriteThumbnailDimensions(
+        source.storyboard.url,
+        firstPageIndex,
+        source.storyboard.columns,
+        source.storyboard.rows,
+      )
+
+    if (!resolvedSprite) {
+      return {}
+    }
+
+    const resolvedSpriteThumbnails = { ...spriteThumbnails, ...resolvedSprite }
     const options = interval === null
-      ? spriteThumbnails
-      : { ...spriteThumbnails, interval }
+      ? resolvedSpriteThumbnails
+      : { ...resolvedSpriteThumbnails, interval }
 
     return firstPageIndex > 0
       ? { ...options, idxTag: (index: number) => index + firstPageIndex }
@@ -463,7 +593,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     source: ResolvedVideoMediaSource,
   ): Promise<ResolvedSpriteThumbnailOptions> {
     if (!source.storyboardVttUrl) {
-      return { options: buildSpriteThumbnailOptions(source), cues: [] }
+      return { options: await buildSpriteThumbnailOptions(source), cues: [] }
     }
 
     const controller = new AbortController()
@@ -472,13 +602,13 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     try {
       const response = await fetch(source.storyboardVttUrl, { signal: controller.signal })
       if (!response.ok) {
-        return { options: buildSpriteThumbnailOptions(source), cues: [] }
+        return { options: await buildSpriteThumbnailOptions(source), cues: [] }
       }
 
       return parseStoryboardVttOptions(await response.text(), source.storyboardVttUrl)
-        ?? { options: buildSpriteThumbnailOptions(source), cues: [] }
+        ?? { options: await buildSpriteThumbnailOptions(source), cues: [] }
     } catch {
-      return { options: buildSpriteThumbnailOptions(source), cues: [] }
+      return { options: await buildSpriteThumbnailOptions(source), cues: [] }
     } finally {
       window.clearTimeout(timeout)
     }

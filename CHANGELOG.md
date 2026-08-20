@@ -20,6 +20,10 @@ All notable changes to the server workspace are recorded here. Add new entries a
   players (HLS/DASH) remain always playable and are not subject to the
   allowlist.
 ### Changed
+- **Optional sprite storyboard dimensions**: Resolver storyboards may now omit `width` and
+  `height`. The frontend preloads the first sprite image and derives its cell dimensions from the
+  image's natural size and declared grid. Uniform cell separators are removed before rendering,
+  allowing LuluStream's variable-size sprites to display correctly.
 - **Chaser-CF session cache**: Replaced the file-backed `ChaserSessionCache` with an asynchronous adapter over `PersistenceStore`. Removed `DEFAULT_SESSION_CACHE_FILE_NAME`, `default_session_cache_path`, the private JSON document, and `std::fs` I/O from `chaser_cf.rs`. Sessions now store structured cookies instead of reconstructed `Set-Cookie` strings and are scoped only by normalized origin, including when routed through the dynamic Arachnea proxy.
 
 ### Added
@@ -512,3 +516,19 @@ All notable changes to the server workspace are recorded here. Add new entries a
 
 - **Generic Vidara resolver**: `vidara.yaml` now recognizes the Vidara player markup independently of its hosting domain and calls `/api/stream` on `{origine}`, the final redirected embed origin. The redundant Merivo resolver was removed; Merivo and Kokoflix redirect targets are now handled by Vidara.
 - **Deferred scraper placeholders**: Scrapyfy now preserves undeclared placeholders while loading YAML collections and reports missing request parameters only when the relevant query executes. This permits resolver context such as `{origine}` without declaring a dummy collection parameter.
+
+## Unreleased — LuluStream mirror detection
+
+### Changed
+
+- **LuluStream resolver detection**: Identify LuluStream-compatible embeds from their
+  player-page title rather than a fixed domain allowlist, supporting mirror domains
+  such as `livavid.sbs`.
+- **LuluStream HLS proxy headers**: Send the compatible Firefox user-agent and
+  origin-root referer when proxying manifests, avoiding the CDN's 403 response.
+- **LuluStream player request headers**: Match the manifest's Firefox request profile
+  while loading the player page so signed HLS URLs are not issued to a mismatched
+  client fingerprint.
+- **LuluStream signed manifests**: Reload the player page while resolving a stream so
+  the Firefox-profile request obtains a fresh, query-signed HLS URL instead of
+  reusing the discovery HTML.

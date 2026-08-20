@@ -1787,7 +1787,7 @@ function normalizeEntryPlayerStoryboard(
   const firstPageIndex = toNonNegativeInteger(firstNumber(readPath(entry, 'storyboard', 'first_page_index'))) ?? 0
   const configuredInterval = firstNumber(readPath(entry, 'storyboard', 'interval'))
 
-  if (!url || !width || !height || !columns) {
+  if (!url || !columns) {
     return null
   }
 
@@ -1798,8 +1798,8 @@ function normalizeEntryPlayerStoryboard(
 
   return {
     url,
-    width,
-    height,
+    width: width ?? undefined,
+    height: height ?? undefined,
     columns,
     rows,
     firstPageIndex,
@@ -1897,14 +1897,14 @@ function normalizeRustifyStoryboard(value: unknown): EntryPlayerStoryboard | nul
   const firstPageIndex = toNonNegativeInteger(firstNumber(value.first_page_index ?? value.firstPageIndex)) ?? 0
   const interval = firstNumber(value.interval)
 
-  if (!url || !width || !height || !columns) {
+  if (!url || !columns) {
     return null
   }
 
   return {
     url,
-    width,
-    height,
+    width: width ?? undefined,
+    height: height ?? undefined,
     columns,
     rows,
     firstPageIndex,

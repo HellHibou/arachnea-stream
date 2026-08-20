@@ -40,10 +40,12 @@ pub(crate) struct Chapter {
 pub(crate) struct SpriteThumbnail {
     /// The URL to the sprite thumbnail image.
     pub url: String,
-    /// The width of each thumbnail in the sprite.
-    pub width: u32,
-    /// The height of each thumbnail in the sprite.
-    pub height: u32,
+    /// Optional width of each thumbnail in the sprite.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    /// Optional height of each thumbnail in the sprite.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
     /// The number of columns in the sprite image.
     pub columns: u32,
     /// The number of thumbnail rows in each sprite image.

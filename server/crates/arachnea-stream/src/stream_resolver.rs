@@ -693,7 +693,7 @@ fn extract_string_map(
 }
 
 /// Extracts an optional `SpriteThumbnail` from a scraper data entry field.
-/// Reads `url`/`link`, dimensions, and interval from child nodes.
+/// Reads `url`/`link`, optional dimensions, grid metadata, and interval from child nodes.
 fn extract_storyboard(entry: &HashMap<String, ScraperDataNode>) -> Option<SpriteThumbnail> {
     let storyboard = entry.get("storyboard")?;
     let url =
@@ -703,12 +703,9 @@ fn extract_storyboard(entry: &HashMap<String, ScraperDataNode>) -> Option<Sprite
         return None;
     }
 
-    let width = first_child_value(storyboard, "width")?
-        .parse::<u32>()
-        .ok()?;
-    let height = first_child_value(storyboard, "height")?
-        .parse::<u32>()
-        .ok()?;
+    let width = first_child_value(storyboard, "width").and_then(|value| value.parse::<u32>().ok());
+    let height =
+        first_child_value(storyboard, "height").and_then(|value| value.parse::<u32>().ok());
     let columns = first_child_value(storyboard, "columns")?
         .parse::<u32>()
         .ok()?;
@@ -718,8 +715,8 @@ fn extract_storyboard(entry: &HashMap<String, ScraperDataNode>) -> Option<Sprite
     let interval =
         first_child_value(storyboard, "interval").and_then(|value| value.parse::<f64>().ok());
 
-    if width == 0
-        || height == 0
+    if width.is_some_and(|value| value == 0)
+        || height.is_some_and(|value| value == 0)
         || columns == 0
         || rows == 0
         || interval.is_some_and(|value| value <= 0.0)

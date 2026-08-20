@@ -575,8 +575,8 @@ fn extract_storyboard_from_video_payload(video_payload: &Value) -> Option<Sprite
 
     Some(SpriteThumbnail {
         url,
-        width: STORYBOARD_WIDTH,
-        height: STORYBOARD_HEIGHT,
+        width: Some(STORYBOARD_WIDTH),
+        height: Some(STORYBOARD_HEIGHT),
         columns: STORYBOARD_COLUMNS,
         rows: STORYBOARD_ROWS,
         first_page_index: None,

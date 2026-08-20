@@ -11,17 +11,18 @@ http:
 queries:
 
   # --------------------------------------------------------------------------
-  # can_resolve_url — determines whether this rule can resolve the URL
+  # can_resolve_html — identifies LuluStream-compatible player pages independently
+  # of the mirror domain.
   # --------------------------------------------------------------------------
-  - name: can_resolve_url
+  - name: can_resolve_html
     scraper_type: static
     entries:
       - name: resolver
         type: string
-        value: "{url}"
+        value: "{html}"
         actions:
           - type: regex_find_all
-            pattern: '^https?://(?:www\.)?(?:luluvdo\.(?:com|net)|lulustream\.(?:com|to))/'
+            pattern: '(?i)<title>[^<]*\s-\s*LuluStream</title>'
             format: "{service_id}"
 
 
@@ -37,35 +38,35 @@ queries:
       - name: "User-Agent"
         actions:
           - type: format_text
-            argument: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+            argument: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:153.0) Gecko/20100101 Firefox/153.0"
       - name: "Accept"
         actions:
           - type: format_text
-            argument: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+            argument: "*/*"
       - name: "Accept-Language"
         actions:
           - type: format_text
-            argument: "fr-FR,fr;q=0.9"
+            argument: "fr,fr-FR;q=0.9,en-US;q=0.8,en;q=0.7"
       - name: "Sec-Fetch-Dest"
         actions:
           - type: format_text
-            argument: "document"
+            argument: "empty"
       - name: "Sec-Fetch-Mode"
         actions:
           - type: format_text
-            argument: "navigate"
+            argument: "cors"
       - name: "Sec-Fetch-Site"
         actions:
           - type: format_text
-            argument: "none"
-      - name: "Sec-Fetch-User"
-        actions:
-          - type: format_text
-            argument: "?1"
+            argument: "cross-site"
       - name: "Referer"
         actions:
           - type: format_text
-            argument: "{url}"
+            argument: "{request_origin}/"
+      - name: "Origin"
+        actions:
+          - type: format_text
+            argument: "{request_origin}"
     entries:
       - name: stream_url
         type: string[]
@@ -78,17 +79,14 @@ queries:
           - type: resolve_url
             proxy: true
             proxy_headers:
-              User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
-              Referer: "{url}"
+              User-Agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:153.0) Gecko/20100101 Firefox/153.0"
+              Referer: "{request_origin}/"
               Origin: "{request_origin}"
               Accept: "*/*"
-              Accept-Language: "fr-FR,fr;q=0.9"
+              Accept-Language: "fr,fr-FR;q=0.9,en-US;q=0.8,en;q=0.7"
               Sec-Fetch-Dest: "empty"
               Sec-Fetch-Mode: "cors"
               Sec-Fetch-Site: "cross-site"
-              sec-ch-ua: '"Chromium";v="138", "Google Chrome";v="138", "Not(A:Brand";v="8"'
-              sec-ch-ua-mobile: "?0"
-              sec-ch-ua-platform: '"Windows"'
             proxy_replace_all:
               - pattern: '(?m)^(https?://[^\r\n]+)'
                 replacement: '{proxy_inherited}/$1'
@@ -130,16 +128,6 @@ queries:
                 argument: content
               - type: resolve_url
                 proxy: true
-          - name: width
-            type: number
-            actions:
-              - type: format_text
-                argument: "300"
-          - name: height
-            type: number
-            actions:
-              - type: format_text
-                argument: "170"
           - name: columns
             type: number
             actions:

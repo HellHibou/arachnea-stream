@@ -553,8 +553,8 @@ Le champ `storyboard` contient :
 | Champ | Type | Description |
 |---|---|---|
 | `url` | `string` | URL de l'image sprite ; peut contenir le placeholder littéral `{index}` |
-| `width` | `number` | Largeur d'une vignette |
-| `height` | `number` | Hauteur d'une vignette |
+| `width` | `number` | Largeur optionnelle d'une vignette ; déduite de la première image sprite lorsqu'elle est absente |
+| `height` | `number` | Hauteur optionnelle d'une vignette ; déduite de la première image sprite lorsqu'elle est absente |
 | `columns` | `number` | Nombre de colonnes dans le sprite |
 | `rows` | `number` | Nombre de lignes de vignettes par image sprite |
 | `first_page_index` | `number` | Index optionnel de la première image d'un modèle URL `{index}` ; vaut `0` par défaut |
@@ -562,6 +562,10 @@ Le champ `storyboard` contient :
 
 Par exemple, un storyboard à douze colonnes, six lignes et `first_page_index: 1` remplace `{index}`
 par `1` pour charger sa première image. Un sprite unique déclare tout de même `rows: 1`.
+Lorsque les dimensions sont absentes, le frontend précharge cette première image et calcule la taille
+d'une cellule à partir de sa largeur naturelle divisée par `columns` et de sa hauteur naturelle
+divisée par `rows`. Pour un sprite à image unique, les lignes de séparation homogènes entre les
+cellules sont retirées avant le rendu des vignettes.
 
 ### 5.9.2 Proxy de licence DRM — `get_drm_license`
 
