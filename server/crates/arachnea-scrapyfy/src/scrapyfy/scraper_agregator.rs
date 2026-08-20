@@ -6,12 +6,11 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::BufReader;
 use std::path::Path;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 use arachnea_core::error_code::ErrorCodeGenerator;
-use scraper_result::{
-    ScraperAggregationResult, ScraperErrorOrigin, ScraperExecutionError,
-};
+use arachnea_core::persistence::{MemoryPersistenceStore, PersistenceStore};
+use scraper_result::{ScraperAggregationResult, ScraperErrorOrigin, ScraperExecutionError};
 
 static ERROR_CODE_GEN: LazyLock<ErrorCodeGenerator> = LazyLock::new(ErrorCodeGenerator::new);
 
@@ -46,6 +45,7 @@ pub struct ScraperAgregator {
     queries_collection: HashMap<String, Vec<ScraperQueryCollection>>,
     proxy_handle: SharedProxyConfigHandle,
     local_country: SharedLocalCountry,
+    persistence_store: Arc<dyn PersistenceStore>,
     #[cfg(feature = "arachnea-proxy")]
     proxy_core: Option<ArachneaProxyCore>,
 }
@@ -57,6 +57,16 @@ impl ScraperAgregator {
     /// and tries to create a dynamic proxy core backed by the scrapyfy proxy
     /// provider for country-based routing.
     pub fn new() -> Self {
+        Self::new_with_persistence_store(Arc::new(MemoryPersistenceStore::new()))
+    }
+
+    /// Creates an empty aggregator with default proxy setup and a shared
+    /// persistence store.
+    ///
+    /// # Arguments
+    ///
+    /// * `persistence_store` - Shared persistence store used by created HTTP clients.
+    pub fn new_with_persistence_store(persistence_store: Arc<dyn PersistenceStore>) -> Self {
         let proxy_handle = SharedProxyConfigHandle::new();
 
         #[cfg(feature = "arachnea-proxy")]
@@ -73,6 +83,7 @@ impl ScraperAgregator {
             queries_collection: HashMap::new(),
             proxy_handle,
             local_country: SharedLocalCountry::new(),
+            persistence_store,
             #[cfg(feature = "arachnea-proxy")]
             proxy_core: None,
         }
@@ -108,10 +119,31 @@ impl ScraperAgregator {
     /// This constructor does not attempt any default proxy setup. Use it when
     /// the caller wants full control over the proxy configuration.
     pub fn new_with_proxy_handle(proxy_handle: SharedProxyConfigHandle) -> Self {
+        Self::new_with_proxy_handle_and_persistence_store(
+            proxy_handle,
+            Arc::new(MemoryPersistenceStore::new()),
+        )
+    }
+
+    /// Creates an empty aggregator bound to one shared proxy handle and a
+    /// shared persistence store.
+    ///
+    /// This constructor does not attempt any default proxy setup. Use it when
+    /// the caller wants full control over the proxy configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `proxy_handle` - Shared proxy handle used by this aggregator.
+    /// * `persistence_store` - Shared persistence store used by created HTTP clients.
+    pub fn new_with_proxy_handle_and_persistence_store(
+        proxy_handle: SharedProxyConfigHandle,
+        persistence_store: Arc<dyn PersistenceStore>,
+    ) -> Self {
         ScraperAgregator {
             queries_collection: HashMap::new(),
             proxy_handle,
             local_country: SharedLocalCountry::new(),
+            persistence_store,
             #[cfg(feature = "arachnea-proxy")]
             proxy_core: None,
         }
@@ -163,17 +195,19 @@ impl ScraperAgregator {
         if let Some(proxy_core) = &self.proxy_core {
             let handle = SharedProxyConfigHandle::new();
             handle.set_proxy(HttpProxyConfig::Arachnea(proxy_core.clone()));
-            return HttpClient::with_http_config_proxy_handle_and_local_country(
+            return HttpClient::with_http_config_proxy_handle_and_local_country_and_persistence_store(
                 http_config,
                 handle,
                 self.local_country.clone(),
+                self.persistence_store.clone(),
             );
         }
 
-        HttpClient::with_http_config_proxy_handle_and_local_country(
+        HttpClient::with_http_config_proxy_handle_and_local_country_and_persistence_store(
             http_config,
             self.proxy_handle.clone(),
             self.local_country.clone(),
+            self.persistence_store.clone(),
         )
     }
 
@@ -306,7 +340,11 @@ impl ScraperAgregator {
                     source_path.display()
                 )
             })?;
-            collection.set_runtime_handles(self.proxy_handle.clone(), self.local_country.clone());
+            collection.set_runtime_handles_with_persistence_store(
+                self.proxy_handle.clone(),
+                self.local_country.clone(),
+                self.persistence_store.clone(),
+            );
 
             collections.push(collection);
             tracing::debug!(
@@ -356,7 +394,11 @@ impl ScraperAgregator {
         for path in paths {
             let mut collection =
                 ScraperQueryCollection::from_file_with(path, |reader| parse(reader))?;
-            collection.set_runtime_handles(self.proxy_handle.clone(), self.local_country.clone());
+            collection.set_runtime_handles_with_persistence_store(
+                self.proxy_handle.clone(),
+                self.local_country.clone(),
+                self.persistence_store.clone(),
+            );
             collections.push(collection);
         }
 
@@ -646,9 +688,7 @@ impl ScraperAgregator {
 mod tests {
     use super::*;
     use arachnea_core::error_code::ErrorCodeGenerator;
-    use scraper_result::{
-        ScraperAggregationResult, ScraperErrorOrigin, ScraperExecutionError,
-    };
+    use scraper_result::{ScraperAggregationResult, ScraperErrorOrigin, ScraperExecutionError};
     use std::collections::HashMap;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};

@@ -5,6 +5,14 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ## Unreleased
 
 ### Added
+- **Generic persistence store**: Added `PersistenceStore`, `PersistenceKey`, `PersistedRecord`, `MemoryPersistenceStore`, and `FilePersistenceStore` in `arachnea-core::persistence`. The file backend stores one document per namespace with atomic writes and expired-record pruning on read; JSON remains the default codec, while callers can supply a codec and extension.
+- **Cloudflare session persistence**: `ChaserCfEngine` now persists structured Cloudflare sessions (cookies, user-agent, expiration) through the shared `PersistenceStore` instead of the temporary JSON file. The first browser-strategy refresh may consume a persisted session before requesting a fresh solve; retries after a block stay fresh.
+- **Persistence store propagation**: `StreamScraper::new_with_persistence_store`, `ScraperAgregator::new_with_persistence_store`, `HttpClient::with_http_config_proxy_handle_and_local_country_and_persistence_store`, and `ArachneaHttpClient::new_with_cookie_cache_browser_session_manager_and_persistence_store` now accept a shared `Arc<dyn PersistenceStore>`. `StreamScraper::new` uses the durable file backend; lower-level compatibility constructors retain the in-memory backend.
+
+### Changed
+- **Chaser-CF session cache**: Replaced the file-backed `ChaserSessionCache` with an asynchronous adapter over `PersistenceStore`. Removed `DEFAULT_SESSION_CACHE_FILE_NAME`, `default_session_cache_path`, the private JSON document, and `std::fs` I/O from `chaser_cf.rs`. Sessions now store structured cookies instead of reconstructed `Set-Cookie` strings and are scoped only by normalized origin, including when routed through the dynamic Arachnea proxy.
+
+### Added
 - **Parallel isolated page clicks**: Entry-level HTML `page_click` sub-queries
   can now use `browser_context: isolated`. The scraper opens dedicated browser
   pages and executes up to four independent clicks concurrently while preserving

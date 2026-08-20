@@ -1,9 +1,11 @@
 use anyhow::{Context, Result};
+use arachnea_core::persistence::PersistenceStore;
 use serde::{Deserialize, Serialize, Serializer};
 use std::collections::HashMap;
 use std::fs;
 use std::io::{BufReader, Read};
 use std::path::Path;
+use std::sync::Arc;
 
 use super::*;
 use crate::scrapyfy::query_helpers::replace_template_placeholders;
@@ -283,19 +285,46 @@ impl ScraperQueryDefinition {
         proxy_handle: SharedProxyConfigHandle,
         local_country: SharedLocalCountry,
     ) {
+        self.set_runtime_handles_with_persistence_store(
+            proxy_handle,
+            local_country,
+            Arc::new(arachnea_core::persistence::MemoryPersistenceStore::new()),
+        );
+    }
+
+    /// Rebinds all embedded HTTP clients to the provided shared runtime handles
+    /// and persistence store.
+    pub fn set_runtime_handles_with_persistence_store(
+        &mut self,
+        proxy_handle: SharedProxyConfigHandle,
+        local_country: SharedLocalCountry,
+        persistence_store: Arc<dyn PersistenceStore>,
+    ) {
         match self {
-            ScraperQueryDefinition::Html(query) => {
-                bind_html_query_runtime_handles(query, &proxy_handle, &local_country)
-            }
-            ScraperQueryDefinition::Json(query) => {
-                bind_json_query_runtime_handles(query, &proxy_handle, &local_country)
-            }
-            ScraperQueryDefinition::Static(query) => {
-                query.set_runtime_handles(proxy_handle, local_country)
-            }
-            ScraperQueryDefinition::Text(query) => {
-                bind_text_query_runtime_handles(query, &proxy_handle, &local_country)
-            }
+            ScraperQueryDefinition::Html(query) => bind_html_query_runtime_handles(
+                query,
+                &proxy_handle,
+                &local_country,
+                &persistence_store,
+            ),
+            ScraperQueryDefinition::Json(query) => bind_json_query_runtime_handles(
+                query,
+                &proxy_handle,
+                &local_country,
+                &persistence_store,
+            ),
+            ScraperQueryDefinition::Static(query) => query
+                .set_runtime_handles_with_persistence_store(
+                    proxy_handle,
+                    local_country,
+                    persistence_store,
+                ),
+            ScraperQueryDefinition::Text(query) => bind_text_query_runtime_handles(
+                query,
+                &proxy_handle,
+                &local_country,
+                &persistence_store,
+            ),
         }
     }
 }
@@ -519,8 +548,27 @@ impl ScraperQueryCollection {
         proxy_handle: SharedProxyConfigHandle,
         local_country: SharedLocalCountry,
     ) {
+        self.set_runtime_handles_with_persistence_store(
+            proxy_handle,
+            local_country,
+            Arc::new(arachnea_core::persistence::MemoryPersistenceStore::new()),
+        );
+    }
+
+    /// Rebinds all query HTTP clients to the provided shared runtime handles
+    /// and persistence store.
+    pub fn set_runtime_handles_with_persistence_store(
+        &mut self,
+        proxy_handle: SharedProxyConfigHandle,
+        local_country: SharedLocalCountry,
+        persistence_store: Arc<dyn PersistenceStore>,
+    ) {
         for query in self.queries.values_mut() {
-            query.set_runtime_handles(proxy_handle.clone(), local_country.clone());
+            query.set_runtime_handles_with_persistence_store(
+                proxy_handle.clone(),
+                local_country.clone(),
+                persistence_store.clone(),
+            );
         }
     }
 
@@ -723,32 +771,48 @@ fn bind_text_query_runtime_handles(
     query: &mut TextScraperQuery,
     proxy_handle: &SharedProxyConfigHandle,
     local_country: &SharedLocalCountry,
+    persistence_store: &Arc<dyn PersistenceStore>,
 ) {
-    query.http_client = HttpClient::with_http_config_proxy_handle_and_local_country(
-        query.http_config.clone(),
-        proxy_handle.clone(),
-        local_country.clone(),
-    );
+    query.http_client =
+        HttpClient::with_http_config_proxy_handle_and_local_country_and_persistence_store(
+            query.http_config.clone(),
+            proxy_handle.clone(),
+            local_country.clone(),
+            persistence_store.clone(),
+        );
 }
 
 fn bind_html_query_runtime_handles(
     query: &mut HtmlScraperQuery,
     proxy_handle: &SharedProxyConfigHandle,
     local_country: &SharedLocalCountry,
+    persistence_store: &Arc<dyn PersistenceStore>,
 ) {
-    query.http_client = HttpClient::with_http_config_proxy_handle_and_local_country(
-        query.http_config.clone(),
-        proxy_handle.clone(),
-        local_country.clone(),
-    );
+    query.http_client =
+        HttpClient::with_http_config_proxy_handle_and_local_country_and_persistence_store(
+            query.http_config.clone(),
+            proxy_handle.clone(),
+            local_country.clone(),
+            persistence_store.clone(),
+        );
 
     for sub_query in &mut query.sub_queries {
         if let Some(html_sub_query) = sub_query.as_any_mut().downcast_mut::<HtmlScraperSubQuery>() {
-            bind_html_sub_query_runtime_handles(html_sub_query, proxy_handle, local_country);
+            bind_html_sub_query_runtime_handles(
+                html_sub_query,
+                proxy_handle,
+                local_country,
+                persistence_store,
+            );
         } else if let Some(json_sub_query) =
             sub_query.as_any_mut().downcast_mut::<JsonScraperSubQuery>()
         {
-            bind_json_sub_query_runtime_handles(json_sub_query, proxy_handle, local_country);
+            bind_json_sub_query_runtime_handles(
+                json_sub_query,
+                proxy_handle,
+                local_country,
+                persistence_store,
+            );
         }
     }
 }
@@ -757,32 +821,48 @@ fn bind_html_sub_query_runtime_handles(
     query: &mut HtmlScraperSubQuery,
     proxy_handle: &SharedProxyConfigHandle,
     local_country: &SharedLocalCountry,
+    persistence_store: &Arc<dyn PersistenceStore>,
 ) {
-    query.http_client = HttpClient::with_http_config_proxy_handle_and_local_country(
-        query.http_config.clone(),
-        proxy_handle.clone(),
-        local_country.clone(),
-    );
+    query.http_client =
+        HttpClient::with_http_config_proxy_handle_and_local_country_and_persistence_store(
+            query.http_config.clone(),
+            proxy_handle.clone(),
+            local_country.clone(),
+            persistence_store.clone(),
+        );
 }
 
 fn bind_json_query_runtime_handles(
     query: &mut JsonScraperQuery,
     proxy_handle: &SharedProxyConfigHandle,
     local_country: &SharedLocalCountry,
+    persistence_store: &Arc<dyn PersistenceStore>,
 ) {
-    query.http_client = HttpClient::with_http_config_proxy_handle_and_local_country(
-        query.http_config.clone(),
-        proxy_handle.clone(),
-        local_country.clone(),
-    );
+    query.http_client =
+        HttpClient::with_http_config_proxy_handle_and_local_country_and_persistence_store(
+            query.http_config.clone(),
+            proxy_handle.clone(),
+            local_country.clone(),
+            persistence_store.clone(),
+        );
 
     for sub_query in &mut query.sub_queries {
         if let Some(json_sub_query) = sub_query.as_any_mut().downcast_mut::<JsonScraperSubQuery>() {
-            bind_json_sub_query_runtime_handles(json_sub_query, proxy_handle, local_country);
+            bind_json_sub_query_runtime_handles(
+                json_sub_query,
+                proxy_handle,
+                local_country,
+                persistence_store,
+            );
         } else if let Some(html_sub_query) =
             sub_query.as_any_mut().downcast_mut::<HtmlScraperSubQuery>()
         {
-            bind_html_sub_query_runtime_handles(html_sub_query, proxy_handle, local_country);
+            bind_html_sub_query_runtime_handles(
+                html_sub_query,
+                proxy_handle,
+                local_country,
+                persistence_store,
+            );
         }
     }
 }
@@ -791,20 +871,33 @@ fn bind_json_sub_query_runtime_handles(
     query: &mut JsonScraperSubQuery,
     proxy_handle: &SharedProxyConfigHandle,
     local_country: &SharedLocalCountry,
+    persistence_store: &Arc<dyn PersistenceStore>,
 ) {
-    query.http_client = HttpClient::with_http_config_proxy_handle_and_local_country(
-        query.http_config.clone(),
-        proxy_handle.clone(),
-        local_country.clone(),
-    );
+    query.http_client =
+        HttpClient::with_http_config_proxy_handle_and_local_country_and_persistence_store(
+            query.http_config.clone(),
+            proxy_handle.clone(),
+            local_country.clone(),
+            persistence_store.clone(),
+        );
 
     for sub_query in &mut query.sub_queries {
         if let Some(json_sub_query) = sub_query.as_any_mut().downcast_mut::<JsonScraperSubQuery>() {
-            bind_json_sub_query_runtime_handles(json_sub_query, proxy_handle, local_country);
+            bind_json_sub_query_runtime_handles(
+                json_sub_query,
+                proxy_handle,
+                local_country,
+                persistence_store,
+            );
         } else if let Some(html_sub_query) =
             sub_query.as_any_mut().downcast_mut::<HtmlScraperSubQuery>()
         {
-            bind_html_sub_query_runtime_handles(html_sub_query, proxy_handle, local_country);
+            bind_html_sub_query_runtime_handles(
+                html_sub_query,
+                proxy_handle,
+                local_country,
+                persistence_store,
+            );
         }
     }
 }

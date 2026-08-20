@@ -22,7 +22,7 @@ static APP_ROOT: OnceLock<PathBuf> = OnceLock::new();
 /// # Examples
 ///
 /// ```
-/// let root = arachnea_core::applicatio::get_application_root();
+/// let root = arachnea_core::application::get_application_root();
 /// println!("Application root: {}", root);
 /// ```
 pub fn get_application_root() -> &'static str {

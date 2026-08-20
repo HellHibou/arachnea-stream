@@ -128,10 +128,10 @@ impl WebAssetSource {
 ///
 /// # Examples
 ///
-/// ```
+/// ```text
 /// assert_eq!(normalize_mount_path("/api/"), "api");
 /// assert_eq!(normalize_mount_path("static"), "static");
-/// ```
+/// ```text
 pub(crate) fn normalize_mount_path(path: &str) -> String {
     path.trim_matches('/').to_string()
 }
@@ -148,10 +148,10 @@ pub(crate) fn normalize_mount_path(path: &str) -> String {
 ///
 /// # Examples
 ///
-/// ```
+/// ```text
 /// assert_eq!(strip_mount_path("/api/assets/style.css", "api"), Some("assets/style.css".to_string()));
 /// assert_eq!(strip_mount_path("/assets/style.css", "api"), None);
-/// ```
+/// ```text
 pub(crate) fn strip_mount_path(request_path: &str, mount_path: &str) -> Option<String> {
     let request_path = request_path.trim_start_matches('/');
     let mount_path = normalize_mount_path(mount_path);
@@ -199,7 +199,7 @@ fn decode_request_path(request_path: &str) -> Result<String, String> {
 ///
 /// # Examples
 ///
-/// ```
+/// ```text
 /// let candidates = asset_candidates("about");
 /// assert_eq!(candidates, vec!["about", "about.html", "about/index.html", "index.html"]);
 /// ```
@@ -255,7 +255,7 @@ fn load_directory_asset(directory_path: &Path, candidate: &str) -> Result<Option
 ///
 /// # Examples
 ///
-/// ```
+/// ```text
 /// let sanitized = sanitize_relative_path("assets/../config");
 /// assert!(sanitized.is_err()); // Contains ParentDir
 /// ```
@@ -317,7 +317,7 @@ pub(crate) fn replace_html_base(html: Vec<u8>, base: &str) -> Vec<u8> {
 ///
 /// # Examples
 ///
-/// ```
+/// ```text
 /// assert_eq!(mime_type_for_path("style.css"), "text/css; charset=utf-8");
 /// assert_eq!(mime_type_for_path("image.png"), "image/png");
 /// assert_eq!(mime_type_for_path("unknown.xyz"), "application/octet-stream");

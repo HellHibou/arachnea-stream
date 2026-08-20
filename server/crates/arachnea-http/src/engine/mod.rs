@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use arachnea_core::persistence::PersistenceStore;
 use async_trait::async_trait;
 use bytes::Bytes;
 use http::{HeaderMap, Method, StatusCode};
@@ -209,13 +210,16 @@ pub(crate) async fn build_browser_cloudflare_solver(
     config: &ArachneaHttpConfig,
     solver: &CloudflareBrowserSolverKind,
     proxy_url: Option<&str>,
+    persistence_store: Arc<dyn PersistenceStore>,
 ) -> Result<Option<DynHttpEngine>, ArachneaHttpError> {
     match solver {
         CloudflareBrowserSolverKind::Disabled => Ok(None),
         CloudflareBrowserSolverKind::Engine(engine) => Ok(Some(engine.clone())),
-        CloudflareBrowserSolverKind::Auto => get_default_cloudflare_solver(config, proxy_url).await,
+        CloudflareBrowserSolverKind::Auto => {
+            get_default_cloudflare_solver(config, proxy_url, persistence_store).await
+        }
         CloudflareBrowserSolverKind::ChaserCf => {
-            build_explicit_chaser_cf_engine(config, proxy_url).await
+            build_explicit_chaser_cf_engine(config, proxy_url, persistence_store).await
         }
         CloudflareBrowserSolverKind::TauriCloudflareSolver => {
             build_explicit_tauri_cloudflare_engine(config).await
@@ -239,22 +243,27 @@ pub(crate) async fn build_browser_cloudflare_solver(
 pub(crate) async fn get_default_cloudflare_solver(
     config: &ArachneaHttpConfig,
     proxy_url: Option<&str>,
+    persistence_store: Arc<dyn PersistenceStore>,
 ) -> Result<Option<DynHttpEngine>, ArachneaHttpError> {
     #[cfg(feature = "tauri-cloudflare-solver")]
     {
         let _ = proxy_url;
+        let _ = persistence_store;
         return build_tauri_cloudflare_engine(config).await.map(Some);
     }
 
     #[cfg(all(not(feature = "tauri-cloudflare-solver"), feature = "chaser-cf"))]
     {
-        return build_chaser_cf_engine(config, proxy_url).await.map(Some);
+        return build_chaser_cf_engine(config, proxy_url, persistence_store)
+            .await
+            .map(Some);
     }
 
     #[cfg(not(any(feature = "chaser-cf", feature = "tauri-cloudflare-solver")))]
     {
         let _ = config;
         let _ = proxy_url;
+        let _ = persistence_store;
         Ok(None)
     }
 }
@@ -276,16 +285,20 @@ pub(crate) async fn get_default_cloudflare_solver(
 async fn build_explicit_chaser_cf_engine(
     config: &ArachneaHttpConfig,
     proxy_url: Option<&str>,
+    persistence_store: Arc<dyn PersistenceStore>,
 ) -> Result<Option<DynHttpEngine>, ArachneaHttpError> {
     #[cfg(feature = "chaser-cf")]
     {
-        return build_chaser_cf_engine(config, proxy_url).await.map(Some);
+        return build_chaser_cf_engine(config, proxy_url, persistence_store)
+            .await
+            .map(Some);
     }
 
     #[cfg(not(feature = "chaser-cf"))]
     {
         let _ = config;
         let _ = proxy_url;
+        let _ = persistence_store;
         Err(ArachneaHttpError::CloudflareSolverUnavailable)
     }
 }
@@ -360,9 +373,10 @@ pub(crate) async fn build_ghostwire_engine(
 pub(crate) async fn build_chaser_cf_engine(
     config: &ArachneaHttpConfig,
     proxy_url: Option<&str>,
+    persistence_store: Arc<dyn PersistenceStore>,
 ) -> Result<DynHttpEngine, ArachneaHttpError> {
     Ok(Arc::new(chaser_cf::ChaserCfEngine::new_with_proxy_url(
-        config, proxy_url,
+        config, proxy_url, persistence_store,
     )?))
 }
 

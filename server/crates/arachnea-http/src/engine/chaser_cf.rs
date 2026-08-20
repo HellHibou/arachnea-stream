@@ -1,17 +1,14 @@
 use std::{
     collections::HashMap,
-    fs,
-    path::{Path, PathBuf},
-    sync::{Arc, Mutex, OnceLock},
+    sync::{Arc, OnceLock},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+use arachnea_core::persistence::{PersistedRecord, PersistenceKey, PersistenceStore};
 use async_trait::async_trait;
 use bytes::Bytes;
 use chaser_cf::core::BrowserManager;
-use chaser_cf::{
-    ChaserConfig, Cookie as ChaserCookie, Profile, ProxyConfig, WafSession,
-};
+use chaser_cf::{ChaserConfig, Cookie as ChaserCookie, Profile, ProxyConfig, WafSession};
 use chaser_oxide::auth::Credentials;
 use chaser_oxide::cdp::browser_protocol::dom::{
     GetBoxModelParams, GetDocumentParams, Node, NodeId,
@@ -20,7 +17,7 @@ use chaser_oxide::cdp::js_protocol::runtime::EvaluateParams;
 use chaser_oxide::layout::Point;
 use chaser_oxide::{ChaserPage, Page};
 use http::{
-    header::{CONTENT_TYPE, HeaderName, SET_COOKIE},
+    header::{HeaderName, CONTENT_TYPE, SET_COOKIE},
     HeaderMap, HeaderValue, Method, StatusCode,
 };
 use rand::Rng as _;
@@ -45,8 +42,11 @@ pub const ENGINE_NAME: &str = "chaser-cf";
 /// Default margin before a cached Cloudflare session is considered stale.
 const DEFAULT_SESSION_CACHE_REFRESH_MARGIN: Duration = Duration::from_secs(300);
 
-/// File name used by the default persistent chaser-cf session cache.
-const DEFAULT_SESSION_CACHE_FILE_NAME: &str = "chaser-cf-sessions.json";
+/// Namespace used for persisted Cloudflare sessions.
+const CLOUDFLARE_SESSION_NAMESPACE: &str = "cloudflare-session";
+
+/// Format version of the persisted Cloudflare session payload.
+const CLOUDFLARE_SESSION_FORMAT_VERSION: u32 = 1;
 
 /// Dedicated timeout for chaser-cf browser challenge solving, kept independent
 /// from the HTTP request timeout because solving a captcha (including browser
@@ -106,18 +106,11 @@ pub struct ChaserCfEngine {
     session_cache: Option<ChaserSessionCache>,
 }
 
-/// Persistent Cloudflare sessions indexed by normalized origin.
-#[derive(Debug, Default, Serialize, Deserialize)]
-struct ChaserSessionCacheFile {
-    /// Cached sessions keyed by origin URL.
-    sessions: HashMap<String, CachedChaserSession>,
-}
-
 /// Serialized Cloudflare session extracted from the shared browser.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CachedChaserSession {
-    /// Serialized `Set-Cookie` headers produced from browser cookies.
-    set_cookie_headers: Vec<String>,
+    /// Structured cookies produced from browser cookies.
+    cookies: Vec<StructuredCookie>,
     /// Browser user-agent observed by the solver.
     user_agent: Option<String>,
     /// Unix timestamp for `cf_clearance` expiration when available.
@@ -126,14 +119,34 @@ struct CachedChaserSession {
     stored_at: u64,
 }
 
-/// File-backed cache for chaser-cf Cloudflare sessions.
+/// Structured cookie representation persisted in the session record.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct StructuredCookie {
+    /// Cookie name.
+    name: String,
+    /// Cookie value.
+    value: String,
+    /// Cookie domain.
+    domain: Option<String>,
+    /// Cookie path.
+    path: Option<String>,
+    /// Cookie expiration as Unix timestamp.
+    expires: Option<f64>,
+    /// Whether the cookie is HTTP-only.
+    http_only: Option<bool>,
+    /// Whether the cookie is secure.
+    secure: Option<bool>,
+    /// SameSite attribute.
+    same_site: Option<String>,
+}
+
+/// Asynchronous cache for chaser-cf Cloudflare sessions backed by a
+/// [`PersistenceStore`].
 struct ChaserSessionCache {
-    /// JSON cache file path.
-    path: PathBuf,
+    /// Shared persistence store.
+    store: Arc<dyn PersistenceStore>,
     /// Proactive refresh margin before `cf_clearance` expiry.
     refresh_margin: Duration,
-    /// In-memory cache loaded from disk.
-    entries: Mutex<ChaserSessionCacheFile>,
 }
 
 impl Default for ChaserCfEngine {
@@ -151,14 +164,19 @@ impl ChaserCfEngine {
     /// Returns an error when the configured proxy cannot be shared with
     /// chaser-cf and rquest.
     pub fn new(config: &ArachneaHttpConfig) -> Result<Self, ArachneaHttpError> {
-        Self::new_with_proxy_url(config, config.proxy.network_url())
+        Self::new_with_proxy_url(
+            config,
+            config.proxy.network_url(),
+            Arc::new(arachnea_core::persistence::MemoryPersistenceStore::new()),
+        )
     }
 
     /// Creates a configured chaser-cf session solver using the effective proxy
-    /// URL selected by the HTTP client runtime.
+    /// URL selected by the HTTP client runtime and a shared persistence store.
     pub(crate) fn new_with_proxy_url(
         config: &ArachneaHttpConfig,
         proxy_url: Option<&str>,
+        persistence_store: Arc<dyn PersistenceStore>,
     ) -> Result<Self, ArachneaHttpError> {
         let chaser_config = ChaserConfig::from_env()
             .with_headless(false)
@@ -185,11 +203,8 @@ impl ChaserCfEngine {
             proxy: chaser_proxy_from_url(proxy_url)?,
             session_cache: None,
         };
-        if uses_dynamic_arachnea_proxy(config) {
-            return Ok(engine);
-        }
         Ok(engine
-            .with_default_session_cache()
+            .with_session_cache(persistence_store)
             .with_session_cache_refresh_margin(config.cookie_refresh_margin))
     }
 
@@ -219,17 +234,12 @@ impl ChaserCfEngine {
         })
     }
 
-    /// Enables a persistent session cache at the default cache path.
-    pub fn with_default_session_cache(self) -> Self {
-        self.with_session_cache_path(default_session_cache_path())
-    }
-
-    /// Enables a persistent session cache at `path`.
-    pub fn with_session_cache_path(mut self, path: impl Into<PathBuf>) -> Self {
-        self.session_cache = Some(ChaserSessionCache::new(
-            path.into(),
-            DEFAULT_SESSION_CACHE_REFRESH_MARGIN,
-        ));
+    /// Enables a persistent session cache backed by the provided store.
+    pub fn with_session_cache(mut self, store: Arc<dyn PersistenceStore>) -> Self {
+        self.session_cache = Some(ChaserSessionCache {
+            store,
+            refresh_margin: DEFAULT_SESSION_CACHE_REFRESH_MARGIN,
+        });
         self
     }
 
@@ -431,9 +441,9 @@ impl ChaserCfEngine {
     }
 
     /// Returns cached headers for a still-valid Cloudflare session.
-    fn cached_session_headers(&self, url: &str) -> Option<HeaderMap> {
+    async fn cached_session_headers(&self, url: &str) -> Option<HeaderMap> {
         let cache = self.session_cache.as_ref()?;
-        match cache.headers_for_url(url) {
+        match cache.headers_for_url(url).await {
             Ok(headers) => headers,
             Err(err) => {
                 warn!(error = %err, "failed to read chaser-cf session cache");
@@ -443,11 +453,11 @@ impl ChaserCfEngine {
     }
 
     /// Stores a newly solved Cloudflare session in the optional cache.
-    fn store_session_cache(&self, url: &str, session: &WafSession) {
+    async fn store_session_cache(&self, url: &str, session: &WafSession) {
         let Some(cache) = &self.session_cache else {
             return;
         };
-        if let Err(err) = cache.store_session(url, session) {
+        if let Err(err) = cache.store_session(url, session).await {
             warn!(error = %err, "failed to write chaser-cf session cache");
         }
     }
@@ -465,7 +475,7 @@ impl ChaserCfEngine {
             });
         }
         if use_session_cache {
-            if let Some(headers) = self.cached_session_headers(&request.url) {
+            if let Some(headers) = self.cached_session_headers(&request.url).await {
                 return Ok(EngineResponse {
                     url: request.url,
                     status: StatusCode::OK,
@@ -478,7 +488,7 @@ impl ChaserCfEngine {
         let session = self.solve_waf_session(&request.url).await?;
         let mut headers = Self::response_headers(&session.cookies)?;
         Self::insert_solver_user_agent(&mut headers, &session)?;
-        self.store_session_cache(&request.url, &session);
+        self.store_session_cache(&request.url, &session).await;
         Ok(EngineResponse {
             url: request.url,
             status: StatusCode::OK,
@@ -486,19 +496,6 @@ impl ChaserCfEngine {
             body: Bytes::new(),
         })
     }
-}
-
-/// Returns whether a session cache would be unsafe because the effective egress
-/// can vary independently from the origin.
-#[cfg(feature = "arachnea-proxy")]
-fn uses_dynamic_arachnea_proxy(config: &ArachneaHttpConfig) -> bool {
-    matches!(&config.proxy, crate::config::HttpProxyConfig::Arachnea(_))
-}
-
-/// Returns false when the dynamic Arachnea proxy integration is unavailable.
-#[cfg(not(feature = "arachnea-proxy"))]
-fn uses_dynamic_arachnea_proxy(_config: &ArachneaHttpConfig) -> bool {
-    false
 }
 
 #[async_trait]
@@ -524,7 +521,7 @@ impl HttpEngine for ChaserCfEngine {
         let session = self.solve_waf_session(&request.url).await?;
         let mut headers = Self::response_headers(&session.cookies)?;
         Self::insert_solver_user_agent(&mut headers, &session)?;
-        self.store_session_cache(&request.url, &session);
+        self.store_session_cache(&request.url, &session).await;
 
         let body = if request.method == Method::GET {
             let html = self.fetch_page_source(&request.url).await?;
@@ -637,10 +634,7 @@ impl HttpEngine for ChaserCfEngine {
             proxy = self.proxy.is_some(),
             "chaser-cf browser session opened"
         );
-        Ok(Box::new(ChaserCfPageSession {
-            page,
-            chaser,
-        }))
+        Ok(Box::new(ChaserCfPageSession { page, chaser }))
     }
 }
 
@@ -672,13 +666,7 @@ impl BrowserPageSession for ChaserCfPageSession {
             .goto(&request.url)
             .await
             .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
-        let url = self
-            .page
-            .url()
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or(request.url);
+        let url = self.page.url().await.ok().flatten().unwrap_or(request.url);
         let body = if request.collect_body {
             let html = self
                 .chaser
@@ -957,9 +945,7 @@ async fn setup_proxy_auth(
                 password: password.clone(),
             })
             .await
-            .map_err(|err| {
-                ArachneaHttpError::ChaserCfFailure(format!("proxy auth: {err}"))
-            })?;
+            .map_err(|err| ArachneaHttpError::ChaserCfFailure(format!("proxy auth: {err}")))?;
         }
     }
     Ok(())
@@ -972,11 +958,7 @@ async fn setup_proxy_auth(
 /// Polling the DOM during that phase causes timing anomalies that raise the bot
 /// score. After the passive window a Turnstile widget, if present, is clicked
 /// through its closed shadow root.
-async fn wait_for_clearance(
-    page: &Page,
-    chaser: &ChaserPage,
-    timeout_seconds: u64,
-) {
+async fn wait_for_clearance(page: &Page, chaser: &ChaserPage, timeout_seconds: u64) {
     let started = Instant::now();
     let timeout = Duration::from_secs(timeout_seconds);
     let mut last_click = started - Duration::from_secs(30);
@@ -1043,7 +1025,11 @@ async fn debug_dump(chaser: &ChaserPage, stage: &str) {
 fn collect_iframes(node: &Node, out: &mut Vec<String>) {
     if node.node_name.eq_ignore_ascii_case("iframe") {
         let src = attr_value(node, "src").unwrap_or("(none)");
-        let content = if node.content_document.is_some() { "exposed" } else { "not-exposed" };
+        let content = if node.content_document.is_some() {
+            "exposed"
+        } else {
+            "not-exposed"
+        };
         let doc_url = node.document_url.as_deref().unwrap_or("(none)");
         out.push(format!(
             "src={src:?} content_doc={content} doc_url={doc_url:?} frame_id={:?}",
@@ -1319,7 +1305,11 @@ async fn click_challenge_frame(page: &Page, frame_node: &Node) {
 /// its center relative to the frame's viewport.
 async fn challenge_checkbox_point(page: &Page, frame_node: &Node) -> Option<(f64, f64)> {
     let frame_id = frame_node.frame_id.clone()?;
-    let context_id = page.frame_execution_context(frame_id).await.ok().flatten()?;
+    let context_id = page
+        .frame_execution_context(frame_id)
+        .await
+        .ok()
+        .flatten()?;
 
     let script = r#"(function() {
         var candidates = [
@@ -1468,14 +1458,10 @@ async fn human_click(page: &Page, tx: f64, ty: f64) {
         // Ghost-cursor style cubic Bezier from a random off-screen origin.
         let p0x = tx + rng.random_range(-200.0..=-60.0_f64);
         let p0y = ty + rng.random_range(-120.0..=120.0_f64);
-        let p1x =
-            p0x + (tx - p0x) * rng.random_range(0.2..0.5_f64) + rng.random_range(-30.0..30.0);
-        let p1y =
-            p0y + (ty - p0y) * rng.random_range(0.1..0.4_f64) + rng.random_range(-40.0..40.0);
-        let p2x =
-            p0x + (tx - p0x) * rng.random_range(0.5..0.8_f64) + rng.random_range(-20.0..20.0);
-        let p2y =
-            p0y + (ty - p0y) * rng.random_range(0.5..0.9_f64) + rng.random_range(-20.0..20.0);
+        let p1x = p0x + (tx - p0x) * rng.random_range(0.2..0.5_f64) + rng.random_range(-30.0..30.0);
+        let p1y = p0y + (ty - p0y) * rng.random_range(0.1..0.4_f64) + rng.random_range(-40.0..40.0);
+        let p2x = p0x + (tx - p0x) * rng.random_range(0.5..0.8_f64) + rng.random_range(-20.0..20.0);
+        let p2y = p0y + (ty - p0y) * rng.random_range(0.5..0.9_f64) + rng.random_range(-20.0..20.0);
 
         let steps: u8 = rng.random_range(12..22);
         let mut points: Vec<(f64, f64, u64)> = Vec::with_capacity(steps as usize);
@@ -1647,8 +1633,7 @@ fn checkbox_node_in_subtree(node: &Node) -> Option<NodeId> {
 
 /// Returns whether the node is the Turnstile checkbox surface.
 fn is_checkbox_node(node: &Node) -> bool {
-    if node.node_name.eq_ignore_ascii_case("input")
-        && attr_value(node, "type") == Some("checkbox")
+    if node.node_name.eq_ignore_ascii_case("input") && attr_value(node, "type") == Some("checkbox")
     {
         return true;
     }
@@ -1659,8 +1644,7 @@ fn is_checkbox_node(node: &Node) -> bool {
 
 /// Returns whether the node is a `<style>` or `<link>` element.
 fn is_style_element(node: &Node) -> bool {
-    node.node_name.eq_ignore_ascii_case("style")
-        || node.node_name.eq_ignore_ascii_case("link")
+    node.node_name.eq_ignore_ascii_case("style") || node.node_name.eq_ignore_ascii_case("link")
 }
 
 /// Returns whether the node is hidden via an inline `display: none` style.
@@ -1673,57 +1657,84 @@ fn is_hidden_node(node: &Node) -> bool {
 }
 
 impl ChaserSessionCache {
-    fn new(path: PathBuf, refresh_margin: Duration) -> Self {
-        let entries = load_session_cache(&path).unwrap_or_else(|err| {
-            warn!(path = %path.display(), error = %err, "failed to load chaser-cf session cache");
-            ChaserSessionCacheFile::default()
-        });
-        Self {
-            path,
-            refresh_margin,
-            entries: Mutex::new(entries),
-        }
+    /// Returns the persistence key for a session URL.
+    fn key_for_url(&self, url: &str) -> Result<PersistenceKey, ArachneaHttpError> {
+        let origin = cache_origin_key(url)?;
+        Ok(PersistenceKey {
+            namespace: CLOUDFLARE_SESSION_NAMESPACE.to_string(),
+            key: origin,
+        })
     }
 
-    fn headers_for_url(&self, url: &str) -> Result<Option<HeaderMap>, ArachneaHttpError> {
-        let origin = cache_origin_key(url)?;
-        let mut entries = self.entries.lock().map_err(|_| {
-            ArachneaHttpError::ChaserCfFailure(
-                "chaser-cf session cache lock was poisoned".to_string(),
-            )
-        })?;
-        let Some(session) = entries.sessions.get(&origin) else {
+    /// Returns cached headers for a still-valid Cloudflare session.
+    async fn headers_for_url(&self, url: &str) -> Result<Option<HeaderMap>, ArachneaHttpError> {
+        let key = self.key_for_url(url)?;
+        let record = self
+            .store
+            .get(&key)
+            .await
+            .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
+        let Some(record) = record else {
             return Ok(None);
         };
-        if !session.is_usable(self.refresh_margin) {
-            entries.sessions.remove(&origin);
-            if let Err(err) = self.persist_entries(&entries) {
-                warn!(path = %self.path.display(), error = %err, "failed to prune chaser-cf session cache");
-            }
+        if record.format_version != CLOUDFLARE_SESSION_FORMAT_VERSION {
             return Ok(None);
         }
-        cached_session_headers(session).map(Some)
+        let session: CachedChaserSession = record
+            .fields
+            .map(|fields| serde_json::from_value(serde_json::Value::Object(fields)))
+            .unwrap_or_else(|| serde_json::from_slice(&record.payload))
+            .map_err(|err| {
+                ArachneaHttpError::ChaserCfFailure(format!(
+                    "failed to deserialize chaser-cf session: {err}"
+                ))
+            })?;
+        if !session.is_usable(self.refresh_margin) {
+            self.store
+                .delete(&key)
+                .await
+                .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
+            return Ok(None);
+        }
+        cached_session_headers(&session).map(Some)
     }
 
-    fn store_session(&self, url: &str, session: &WafSession) -> Result<(), String> {
-        let origin = cache_origin_key(url).map_err(|err| err.to_string())?;
+    /// Stores a newly solved Cloudflare session.
+    async fn store_session(
+        &self,
+        url: &str,
+        session: &WafSession,
+    ) -> Result<(), ArachneaHttpError> {
+        let key = self.key_for_url(url)?;
         let Some(session) = CachedChaserSession::from_waf_session(session) else {
             return Ok(());
         };
-        let mut entries = self
-            .entries
-            .lock()
-            .map_err(|_| "chaser-cf session cache lock was poisoned".to_string())?;
-        entries.sessions.insert(origin, session);
-        self.persist_entries(&entries)
-    }
-
-    fn persist_entries(&self, entries: &ChaserSessionCacheFile) -> Result<(), String> {
-        if let Some(parent) = self.path.parent() {
-            fs::create_dir_all(parent).map_err(|err| err.to_string())?;
-        }
-        let payload = serde_json::to_vec_pretty(entries).map_err(|err| err.to_string())?;
-        fs::write(&self.path, payload).map_err(|err| err.to_string())
+        let fields = serde_json::to_value(&session)
+            .map_err(|err| {
+                ArachneaHttpError::ChaserCfFailure(format!(
+                    "failed to serialize chaser-cf session: {err}"
+                ))
+            })?
+            .as_object()
+            .cloned()
+            .ok_or_else(|| {
+                ArachneaHttpError::ChaserCfFailure(
+                    "failed to serialize chaser-cf session fields".to_string(),
+                )
+            })?;
+        let record = PersistedRecord {
+            format_version: CLOUDFLARE_SESSION_FORMAT_VERSION,
+            payload: Vec::new(),
+            fields: Some(fields),
+            expires_at: session
+                .clearance_expires_at
+                .map(|expires_at| UNIX_EPOCH + Duration::from_secs(expires_at)),
+            updated_at: SystemTime::now(),
+        };
+        self.store
+            .put(key, record)
+            .await
+            .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))
     }
 }
 
@@ -1737,7 +1748,20 @@ impl CachedChaserSession {
             return None;
         }
         Some(Self {
-            set_cookie_headers: session.cookies.iter().map(set_cookie_header).collect(),
+            cookies: session
+                .cookies
+                .iter()
+                .map(|cookie| StructuredCookie {
+                    name: cookie.name.clone(),
+                    value: cookie.value.clone(),
+                    domain: cookie.domain.clone(),
+                    path: cookie.path.clone(),
+                    expires: cookie.expires,
+                    http_only: cookie.http_only,
+                    secure: cookie.secure,
+                    same_site: cookie.same_site.clone(),
+                })
+                .collect(),
             user_agent: session
                 .headers
                 .get("user-agent")
@@ -1753,10 +1777,7 @@ impl CachedChaserSession {
             Some(expires_at) => {
                 expires_at > unix_timestamp().saturating_add(refresh_margin.as_secs())
             }
-            None => self
-                .stored_at
-                .saturating_add(CACHE_TTL_NO_EXPIRY.as_secs())
-                > unix_timestamp(),
+            None => self.stored_at.saturating_add(CACHE_TTL_NO_EXPIRY.as_secs()) > unix_timestamp(),
         }
     }
 }
@@ -1794,22 +1815,22 @@ fn chaser_proxy_from_url(
     Ok(Some(config))
 }
 
-fn load_session_cache(path: &Path) -> Result<ChaserSessionCacheFile, String> {
-    match fs::read_to_string(path) {
-        Ok(payload) => serde_json::from_str(&payload).map_err(|err| err.to_string()),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            Ok(ChaserSessionCacheFile::default())
-        }
-        Err(err) => Err(err.to_string()),
-    }
-}
-
 fn cached_session_headers(session: &CachedChaserSession) -> Result<HeaderMap, ArachneaHttpError> {
     let mut headers = HeaderMap::new();
-    for value in &session.set_cookie_headers {
+    for cookie in &session.cookies {
+        let chaser_cookie = ChaserCookie {
+            name: cookie.name.clone(),
+            value: cookie.value.clone(),
+            domain: cookie.domain.clone(),
+            path: cookie.path.clone(),
+            expires: cookie.expires,
+            http_only: cookie.http_only,
+            secure: cookie.secure,
+            same_site: cookie.same_site.clone(),
+        };
         headers.append(
             SET_COOKIE,
-            HeaderValue::from_str(value)
+            HeaderValue::from_str(&set_cookie_header(&chaser_cookie))
                 .map_err(|err| ArachneaHttpError::InvalidHeader(err.to_string()))?,
         );
     }
@@ -1869,12 +1890,6 @@ fn expires_http_date(expires: Option<f64>) -> Option<String> {
     Some(httpdate::fmt_http_date(instant))
 }
 
-fn default_session_cache_path() -> PathBuf {
-    std::env::temp_dir()
-        .join("arachnea-http")
-        .join(DEFAULT_SESSION_CACHE_FILE_NAME)
-}
-
 fn cache_origin_key(value: &str) -> Result<String, ArachneaHttpError> {
     let url = Url::parse(value).map_err(|err| ArachneaHttpError::InvalidUrl(err.to_string()))?;
     let host = url
@@ -1897,17 +1912,7 @@ fn unix_timestamp() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn cache_path(name: &str) -> PathBuf {
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock is after Unix epoch")
-            .as_nanos();
-        std::env::temp_dir().join(format!(
-            "arachnea-http-{name}-{}-{stamp}.json",
-            std::process::id()
-        ))
-    }
+    use arachnea_core::persistence::MemoryPersistenceStore;
 
     fn waf_session(expires_at: u64) -> WafSession {
         let mut headers = HashMap::new();
@@ -1927,18 +1932,24 @@ mod tests {
         )
     }
 
-    #[test]
-    fn persistent_session_cache_returns_headers_for_valid_clearance() {
-        let cache = ChaserSessionCache::new(cache_path("valid"), Duration::from_secs(300));
+    #[tokio::test]
+    async fn persistent_session_cache_returns_headers_for_valid_clearance() {
+        let store = Arc::new(MemoryPersistenceStore::new());
+        let cache = ChaserSessionCache {
+            store,
+            refresh_margin: Duration::from_secs(300),
+        };
         cache
             .store_session(
                 "https://example.com/search",
                 &waf_session(unix_timestamp() + 3_600),
             )
+            .await
             .expect("session stores");
 
         let headers = cache
             .headers_for_url("https://example.com/other")
+            .await
             .expect("cache lookup succeeds")
             .expect("session exists");
         assert!(headers.get_all(SET_COOKIE).iter().any(|value| value
@@ -1952,18 +1963,24 @@ mod tests {
         );
     }
 
-    #[test]
-    fn persistent_session_cache_ignores_expiring_clearance() {
-        let cache = ChaserSessionCache::new(cache_path("expiring"), Duration::from_secs(300));
+    #[tokio::test]
+    async fn persistent_session_cache_ignores_expiring_clearance() {
+        let store = Arc::new(MemoryPersistenceStore::new());
+        let cache = ChaserSessionCache {
+            store,
+            refresh_margin: Duration::from_secs(300),
+        };
         cache
             .store_session(
                 "https://example.com/search",
                 &waf_session(unix_timestamp() + 30),
             )
+            .await
             .expect("session stores");
 
         assert!(cache
             .headers_for_url("https://example.com/other")
+            .await
             .expect("cache lookup succeeds")
             .is_none());
     }

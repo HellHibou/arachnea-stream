@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
+use arachnea_core::persistence::{MemoryPersistenceStore, PersistenceStore};
 #[cfg(feature = "arachnea-proxy")]
 use arachnea_proxy::connectors::ArachneaRquestLoopback;
 use bytes::Bytes;
@@ -363,6 +364,26 @@ impl ArachneaHttpClient {
         cookies: Arc<RwLock<SharedCookieCache>>,
         browser_session_manager: Arc<BrowserSessionManager>,
     ) -> Result<Self, ArachneaHttpError> {
+        Self::new_with_cookie_cache_browser_session_manager_and_persistence_store(
+            config,
+            cookies,
+            browser_session_manager,
+            Arc::new(MemoryPersistenceStore::new()),
+        )
+        .await
+    }
+
+    /// Builds a new HTTP client with explicit cookies, shared browser sessions,
+    /// and a shared persistence store.
+    ///
+    /// Callers that derive clients with distinct request modes can pass the same
+    /// manager to preserve pages for matching origin, profile, and proxy keys.
+    pub async fn new_with_cookie_cache_browser_session_manager_and_persistence_store(
+        config: ArachneaHttpConfig,
+        cookies: Arc<RwLock<SharedCookieCache>>,
+        browser_session_manager: Arc<BrowserSessionManager>,
+        persistence_store: Arc<dyn PersistenceStore>,
+    ) -> Result<Self, ArachneaHttpError> {
         let proxy_runtime = Arc::new(PreparedProxyRuntime::new(&config).await?);
         let direct_engine = config.engine.direct_engine();
         let rquest = if direct_engine.is_some() {
@@ -380,6 +401,7 @@ impl ArachneaHttpClient {
             &config,
             &config.cloudflare_browser_solver,
             proxy_runtime.chaser_cf_proxy_url(&config),
+            persistence_store,
         )
         .await?;
         Ok(Self {
@@ -1050,6 +1072,22 @@ impl ArachneaHttpClient {
             self.refresh_cloudflare_for_url_with_strategy(
                 &options.url,
                 CloudflareRefreshStrategy::Browser,
+                false,
+                Some(&options.headers),
+            )
+            .await?;
+            response = self.execute_with_rquest(options.clone()).await?;
+            let retry_detection = detect_cloudflare_block(
+                response.status,
+                &response.headers,
+                response.preview_body(),
+            );
+            if !retry_detection.detected {
+                return Ok(response);
+            }
+            self.refresh_cloudflare_for_url_with_strategy(
+                &options.url,
+                CloudflareRefreshStrategy::Browser,
                 true,
                 Some(&options.headers),
             )
@@ -1107,7 +1145,10 @@ impl ArachneaHttpClient {
             .await
             .needs_refresh(&origin, self.config.cookie_refresh_margin)?
         {
-            let fresh = matches!(strategy, CloudflareRefreshStrategy::Browser);
+            // The first browser-strategy refresh may consume a persisted
+            // session from the store. Retries after a block stay fresh so a
+            // rejected session is never reused.
+            let fresh = false;
             self.refresh_cloudflare_for_url_with_strategy(
                 &options.url,
                 strategy,
@@ -1378,7 +1419,7 @@ impl ArachneaHttpClient {
         headers.extend(options.headers);
         debug!("headers:{:?}", redacted_headers(&headers));
         debug!("cookies:{:?}", self.cookies);
-        debug!("body:{:?}",  options.body);
+        debug!("body:{:?}", options.body);
         Ok(EngineRequest {
             method: options.method,
             url: options.url,
@@ -2360,6 +2401,7 @@ mod tests {
             bodies: bodies.clone(),
         };
         let config = ArachneaHttpConfig::builder()
+            .engine_instance(engine.clone())
             .cloudflare_browser_solver_instance(engine)
             .build()
             .expect("valid config");
@@ -2517,6 +2559,7 @@ mod tests {
             first_token_read: Arc::new(AtomicUsize::new(0)),
         };
         let config = ArachneaHttpConfig::builder()
+            .engine_instance(engine.clone())
             .cloudflare_browser_solver_instance(engine)
             .build()
             .expect("valid config");
@@ -2583,6 +2626,7 @@ mod tests {
             first_token_read: Arc::new(AtomicUsize::new(0)),
         };
         let config = ArachneaHttpConfig::builder()
+            .engine_instance(engine.clone())
             .cloudflare_browser_solver_instance(engine)
             .build()
             .expect("valid config");
@@ -2714,6 +2758,7 @@ mod tests {
     async fn page_fetch_token_rejected_preserves_session() {
         let engine = RejectingPageEngine;
         let config = ArachneaHttpConfig::builder()
+            .engine_instance(engine.clone())
             .cloudflare_browser_solver_instance(engine)
             .build()
             .expect("valid config");
@@ -2818,6 +2863,7 @@ mod tests {
             open_attempts: open_attempts.clone(),
         };
         let config = ArachneaHttpConfig::builder()
+            .engine_instance(engine.clone())
             .cloudflare_browser_solver_instance(engine)
             .build()
             .expect("valid config");

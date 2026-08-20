@@ -1,7 +1,8 @@
 use std::any::Any;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
+use arachnea_core::persistence::PersistenceStore;
 use serde::{Deserialize, Serialize, Serializer};
 use serde_yaml::Value;
 use std::collections::HashMap;
@@ -183,16 +184,34 @@ impl StaticScraperQuery {
     }
 
     /// Rebinds the placeholder HTTP client to shared runtime handles.
+    #[allow(dead_code)]
     pub(crate) fn set_runtime_handles(
         &mut self,
         proxy_handle: SharedProxyConfigHandle,
         local_country: SharedLocalCountry,
     ) {
-        self.http_client = HttpClient::with_http_config_proxy_handle_and_local_country(
-            self.http_config.clone(),
+        self.set_runtime_handles_with_persistence_store(
             proxy_handle,
             local_country,
+            Arc::new(arachnea_core::persistence::MemoryPersistenceStore::new()),
         );
+    }
+
+    /// Rebinds the placeholder HTTP client to shared runtime handles and a
+    /// persistence store.
+    pub(crate) fn set_runtime_handles_with_persistence_store(
+        &mut self,
+        proxy_handle: SharedProxyConfigHandle,
+        local_country: SharedLocalCountry,
+        persistence_store: Arc<dyn PersistenceStore>,
+    ) {
+        self.http_client =
+            HttpClient::with_http_config_proxy_handle_and_local_country_and_persistence_store(
+                self.http_config.clone(),
+                proxy_handle,
+                local_country,
+                persistence_store,
+            );
     }
 
     /// Returns whether the query matches at least one requested media type.

@@ -16,6 +16,7 @@ use super::credentials_store::{
     normalize_service_id, read_file_if_exists, remove_file_if_exists, write_file_atomically,
     CredentialsDocument, CredentialsStore, StoredCredentials,
 };
+use super::{JsonPersistenceFileCodec, PersistenceFileCodec};
 
 /// JSON-backed credentials store kept in clear text on disk.
 ///
@@ -24,6 +25,8 @@ use super::credentials_store::{
 pub struct FileCredentialsStore {
     /// The path to the JSON credentials file.
     path: PathBuf,
+    /// JSON codec used for the credentials document.
+    codec: JsonPersistenceFileCodec,
 }
 
 impl Default for FileCredentialsStore {
@@ -49,6 +52,7 @@ impl FileCredentialsStore {
     pub fn new(path: impl AsRef<Path>) -> Self {
         Self {
             path: path.as_ref().to_path_buf(),
+            codec: JsonPersistenceFileCodec,
         }
     }
 
@@ -74,7 +78,7 @@ impl FileCredentialsStore {
         };
 
         let mut document: CredentialsDocument =
-            serde_json::from_slice(&bytes).with_context(|| {
+            self.codec.deserialize(&bytes).with_context(|| {
                 format!(
                     "Failed to parse JSON credentials store `{}`.",
                     self.path.display()
@@ -96,7 +100,7 @@ impl FileCredentialsStore {
     /// `Ok(())` on successful write.
     /// `Err(anyhow::Error)` if the document cannot be serialized or written.
     fn write_document(&self, document: &CredentialsDocument) -> Result<()> {
-        let bytes = serde_json::to_vec_pretty(document).with_context(|| {
+        let bytes = self.codec.serialize(document).with_context(|| {
             format!(
                 "Failed to serialize JSON credentials store `{}`.",
                 self.path.display()

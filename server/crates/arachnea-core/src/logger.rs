@@ -511,7 +511,7 @@ pub fn init_logger() {
 /// ```
 /// use tracing::Level;
 ///
-/// logger::set_logger_level(
+/// arachnea_core::logger::set_logger_level(
 ///     "my_crate",
 ///     Level::INFO
 /// );
@@ -535,7 +535,7 @@ pub fn set_logger_level(target: impl Into<String>, level: Level) {
 /// ```
 /// use tracing::Level;
 ///
-/// logger::set_logger_levels(
+/// arachnea_core::logger::set_logger_levels(
 ///     "my_crate",
 ///     Level::ERROR,
 ///     Level::WARN,

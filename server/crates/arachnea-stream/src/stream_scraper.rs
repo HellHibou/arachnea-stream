@@ -10,7 +10,7 @@ use arachnea_core::{
         ControlerService, ControlerServiceExt, ControlerStreamInput, ControlerStreamOutput,
         ResponseBody,
     },
-    persistence::{CredentialsStore, FileCredentialsStore},
+    persistence::{CredentialsStore, FileCredentialsStore, FilePersistenceStore, PersistenceStore},
 };
 use arachnea_proxy::core::{ArachneaProxyCore, ProxyConfig};
 use arachnea_scrapyfy::{scraper_result::ScraperAggregationResult, *};
@@ -183,7 +183,35 @@ impl StreamScraper {
     /// Returns an error if the configuration file cannot be loaded or parsed.
     #[allow(clippy::too_many_arguments)]
     pub fn new(credentials_store: Arc<dyn CredentialsStore>) -> Self {
-        let mut agregator = Box::new(ScraperAgregator::new());
+        Self::new_with_persistence_store(
+            credentials_store,
+            Arc::new(FilePersistenceStore::default_data_dir()),
+        )
+    }
+
+    /// Creates a scraper facade backed by the provided credentials store and
+    /// a shared persistence store.
+    ///
+    /// # Arguments
+    ///
+    /// * `credentials_store` - Shared credentials persistence used by service resolvers.
+    /// * `persistence_store` - Shared persistence store used by created HTTP clients.
+    ///
+    /// # Returns
+    ///
+    /// A configured scraper facade.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the configuration file cannot be loaded or parsed.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_persistence_store(
+        credentials_store: Arc<dyn CredentialsStore>,
+        persistence_store: Arc<dyn PersistenceStore>,
+    ) -> Self {
+        let mut agregator = Box::new(ScraperAgregator::new_with_persistence_store(
+            persistence_store.clone(),
+        ));
         agregator.ensure_proxy_core();
         let proxy_handle = agregator.get_proxy_handle();
         let proxy_http_core = agregator.proxy_core().cloned();
