@@ -17,7 +17,7 @@ queries:
         value: "{html}"
         actions:
           - type: regex_find_all
-            pattern: '(?i)(?:https?:)?//(?:static|i)\.doodcdn\.io/(?:js/embed3\.js|get_slides/)'
+            pattern: '(?i)(?:https?:)?//(?:static|i)\.doodcdn\.io/(?:js/embed3\.js|get_slides/|ads/ad\.js|img/no_video_3\.svg)'
             format: "{service_id}"
 
   # --------------------------------------------------------------------------
@@ -70,6 +70,32 @@ queries:
                     proxy_headers:
                       Referer: "https://playmogo.com/"
                       User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+      # DoodStream checks encoding asynchronously. Its initial HTML only starts
+      # the request with `encStatus('<id>', 1)`; `/dood?op=enc_status&id=<id>`
+      # returns JavaScript that writes the terminal player message into #enc_pp.
+      - name: error_message
+        type: string
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: "encStatus\\('([0-9]+)',\\s*1\\)"
+            format: "{origine}/dood?op=enc_status&id={1}"
+        sub_queries:
+          - scraper_type: html
+            row_selector: "html"
+            request_headers:
+              - name: Referer
+                actions:
+                  - type: format_text
+                    argument: "{url}"
+            entries:
+              - name: error_message
+                type: string
+                actions:
+                  - type: get_response_body
+                  - type: regex_find_all
+                    pattern: "\\$\\('#enc_pp'\\)\\.html\\('([^']+)'\\)"
+                    format: "{1}"
       - name: manifest_type
         type: string
         actions:

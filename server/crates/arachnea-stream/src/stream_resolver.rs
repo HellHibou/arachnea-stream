@@ -22,6 +22,22 @@ struct FetchedEmbedHtml {
     html: String,
 }
 
+/// Functional result of one `resolve_stream` attempt for a single service.
+///
+/// The previous binary outcome (`Some(stream)` / `None`) conflated "this service
+/// produced no stream" with "this service reported an explicit business error on
+/// an HTTP 200 page". Distinguishing them lets the search stop early when a
+/// hoster reports a final `error_message` instead of trying other services.
+enum ResolveAttemptResult {
+    /// No stream was produced; the search may continue with the next service.
+    NoStream,
+    /// A playable stream was produced for the requested URL.
+    Stream(ResolvedPlayerStream),
+    /// The hoster reported a business error that must stop the search.
+    /// The message is the normalized `error_message` value from the YAML entry.
+    TerminalError(String),
+}
+
 /// Group name used by the stream hoster configuration.
 pub const STREAM_RESOLVER_GROUP_NAME: &str = "arachnea-stream-hoster";
 
@@ -98,8 +114,8 @@ impl<'a> StreamResolver<'a> {
     /// Uses optional `can_resolve_url` queries as a cheap prefilter for direct
     /// `resolve_stream` attempts, then falls back to one shared HTML fetch and
     /// optional `can_resolve_html` recognition. Stops at the first service that
-    /// produces a valid stream. When no service matches, returns an `EmbedLink`
-    /// fallback.
+    /// produces a valid stream or reports a terminal `error_message`. When no
+    /// service matches, returns an `EmbedLink` fallback.
     ///
     /// # Arguments
     ///
@@ -112,10 +128,9 @@ impl<'a> StreamResolver<'a> {
     ///
     /// # Errors
     ///
-    /// Returns an error when all services have been tried and none produced a
-    /// valid stream, but the fallback has already been applied as `EmbedLink`.
-    /// Errors from individual services (timeout, DNS, HTTP failure) are logged
-    /// and do not abort the search.
+    /// Returns an error when a selected YAML resolver returns a non-empty
+    /// `error_message`. Technical failures from individual services (timeout,
+    /// DNS, HTTP failure) are logged and do not abort the search.
     pub async fn get_stream(&self, url: &str) -> Result<ResolvedStream> {
         // Validate the URL is HTTP(S)
         if !url.starts_with("http://") && !url.starts_with("https://") {
@@ -149,7 +164,7 @@ impl<'a> StreamResolver<'a> {
             }
 
             match self.try_resolve_stream(name, url, None).await {
-                Ok(Some(stream)) => {
+                Ok(ResolveAttemptResult::Stream(stream)) => {
                     tracing::debug!(
                         service = %name,
                         url = %url,
@@ -157,12 +172,25 @@ impl<'a> StreamResolver<'a> {
                     );
                     return Ok(ResolvedStream::Stream(stream));
                 }
-                Ok(None) => {
+                Ok(ResolveAttemptResult::NoStream) => {
                     tracing::debug!(
                         service = %name,
                         url = %url,
                         "Service did not resolve the stream"
                     );
+                }
+                Ok(ResolveAttemptResult::TerminalError(message)) => {
+                    tracing::debug!(
+                        service = %name,
+                        url = %url,
+                        "Hoster reported a terminal error message, stopping the search"
+                    );
+                    return Err(anyhow::anyhow!(
+                        "Stream hoster `{}` reported an error for URL `{}`: {}",
+                        name,
+                        url,
+                        message
+                    ));
                 }
                 Err(error) => {
                     tracing::warn!(
@@ -191,15 +219,19 @@ impl<'a> StreamResolver<'a> {
 
     /// Attempts to resolve a stream for the given service and URL.
     ///
-    /// Returns `Ok(Some(stream))` on success, `Ok(None)` when the service does
-    /// not have a `resolve_stream` query or its response contains no stream
-    /// URL, and `Err` when the query execution itself fails.
+    /// Returns `ResolveAttemptResult::Stream` on success,
+    /// `ResolveAttemptResult::NoStream` when the service does not have a
+    /// `resolve_stream` query or its response contains neither a `stream_url`
+    /// nor an `error_message`, and `ResolveAttemptResult::TerminalError` when the
+    /// hoster reported an explicit business error in `error_message`. Returns
+    /// `Err` when the query execution itself fails (network, timeout, DNS, or
+    /// Scrapyfy runtime error); these technical failures remain non-terminal.
     async fn try_resolve_stream(
         &self,
         service_name: &str,
         url: &str,
         html: Option<&str>,
-    ) -> Result<Option<ResolvedPlayerStream>> {
+    ) -> Result<ResolveAttemptResult> {
         let params = self.build_resolver_params(url, html);
 
         let results = self
@@ -220,12 +252,19 @@ impl<'a> StreamResolver<'a> {
 
         let entry = match results.into_iter().next() {
             Some(entry) => entry,
-            None => return Ok(None),
+            None => return Ok(ResolveAttemptResult::NoStream),
         };
+
+        // A non-empty normalized `error_message` is terminal: it stops the
+        // search before any `stream_url` conversion and is never treated as a
+        // technical failure to skip.
+        if let Some(error_message) = extract_error_message(&entry) {
+            return Ok(ResolveAttemptResult::TerminalError(error_message));
+        }
 
         let mut stream = match convert_resolver_entry_to_stream(&entry, url) {
             Ok(stream) => stream,
-            Err(_) => return Ok(None),
+            Err(_) => return Ok(ResolveAttemptResult::NoStream),
         };
 
         // Proxy stream URLs through the HTTP proxy with embedded headers.
@@ -256,7 +295,7 @@ impl<'a> StreamResolver<'a> {
                 .collect();
         }
 
-        Ok(Some(stream))
+        Ok(ResolveAttemptResult::Stream(stream))
     }
 
     /// Runs the HTML-content fallback phase after every direct resolver attempt fails.
@@ -283,11 +322,19 @@ impl<'a> StreamResolver<'a> {
                         .try_resolve_stream(name, &fetched.url, Some(&fetched.html))
                         .await
                     {
-                        Ok(Some(stream)) => Ok(Some(stream)),
-                        Ok(None) => bail!(
+                        Ok(ResolveAttemptResult::Stream(stream)) => Ok(Some(stream)),
+                        Ok(ResolveAttemptResult::NoStream) => bail!(
                             "HTML resolver `{}` recognized URL `{}` but produced no stream",
                             name, fetched.url
                         ),
+                        Ok(ResolveAttemptResult::TerminalError(message)) => {
+                            tracing::debug!(
+                                service = %name,
+                                url = %fetched.url,
+                                "Hoster reported a terminal error message"
+                            );
+                            bail!("{}", message)
+                        }
                         Err(error) => Err(error).with_context(|| {
                             format!(
                                 "HTML resolver `{}` recognized URL `{}` but failed to extract stream",
@@ -670,6 +717,14 @@ fn extract_first_string(entry: &HashMap<String, ScraperDataNode>, key: &str) -> 
         .and_then(|node| node.value_as_string())
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+/// Extracts the non-empty normalized `error_message` from a resolver response entry.
+///
+/// Reuses `extract_first_string` so surrounding whitespace is trimmed and blank
+/// values are ignored. `None` means the entry carries no business error.
+fn extract_error_message(entry: &HashMap<String, ScraperDataNode>) -> Option<String> {
+    extract_first_string(entry, "error_message")
 }
 
 /// Extracts a string-to-string map from a scraper data entry field.

@@ -83,3 +83,25 @@ queries:
         actions:
           - type: resolve_url
             proxy: true
+
+      - name: storyboard
+        type: object
+        select: first
+        entries:
+          - name: url
+            type: string
+            select: first
+            pointer: "/thumbnail"
+            actions:
+              - type: resolve_url
+                proxy: true
+          - name: columns
+            type: number
+            actions:
+              - type: format_text
+                argument: "3"
+          - name: rows
+            type: number
+            actions:
+              - type: format_text
+                argument: "3"

@@ -591,7 +591,7 @@ used to avoid unnecessary network fetches or to identify a page that has already
 |---|---|---|
 | `can_resolve_url` | `static` | Optional prefilter before direct resolution; a positive result allows `resolve_stream` to fetch the URL |
 | `can_resolve_html` | `static` / `html` | Optional recognition of pre-fetched HTML with `{url, origine, html}` runtime parameters; `{origine}` is the scheme, host, and optional port of the final URL after redirects |
-| `resolve_stream` | `html` / `json` / `text` | Extracts the media stream and optional `title`, `image/title > link`, `stream_headers`, `storyboard_vtt_url`, and `storyboard` metadata |
+| `resolve_stream` | `html` / `json` / `text` | Extracts the media stream and optional `title`, `image/title > link`, `stream_headers`, `storyboard_vtt_url`, and `storyboard` metadata. An optional non-empty `error_message` output signals a terminal business error. |
 
 `StreamResolver` walks active YAML services in `services.json` order. On the direct path, it
 calls `can_resolve_url` when present; only services with a positive result then run
@@ -600,6 +600,11 @@ page once, requires an HTML `Content-Type` and a body below 1 MiB, then calls `c
 with `{url, origine, html}`. The first recognized service runs `resolve_stream` with the same in-memory
 HTML through `input_html`, without a second embed-page GET. When no service matches, `get_stream`
 returns `{ "embed-link": "<url>" }`.
+
+When the first `resolve_stream` entry contains a non-empty `error_message`, its value is returned
+as the `get_stream` error. It takes precedence over `stream_url`: resolution stops immediately,
+without trying another service or returning the iframe fallback. An absent or blank field preserves
+the normal behavior of continuing the search.
 
 `stream_headers` are resolver-internal request metadata. They are used when constructing proxy
 URLs and are therefore deliberately omitted from the `get_stream` JSON response.

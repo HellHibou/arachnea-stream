@@ -24,6 +24,21 @@ queries:
             pattern: '^https?://(?:www\.)?vk\.com/video'
             format: "{service_id}"
 
+  # --------------------------------------------------------------------------
+  # can_resolve_html — identifies VK's standalone embed error page after an
+  # embed URL redirects to video_ext.php.
+  # --------------------------------------------------------------------------
+  - name: can_resolve_html
+    scraper_type: static
+    entries:
+      - name: resolver
+        type: string
+        value: "{html}"
+        actions:
+          - type: regex_find_all
+            pattern: '(?is)<div\s+id=["'']video_ext_msg["'']>'
+            format: "{service_id}"
+
 
   # --------------------------------------------------------------------------
   # resolve_stream — extracts the video stream URL from the player page
@@ -43,6 +58,16 @@ queries:
           - type: format_text
             argument: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     entries:
+      - name: error_message
+        type: string
+        select: first
+        selector: "#video_ext_msg"
+        actions:
+          - type: get_text
+          - type: map
+            default: "{}"
+            argument:
+              "Видеофайл не найден.": "Video file not found"
       - name: stream_url
         type: string[]
         actions:

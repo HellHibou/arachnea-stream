@@ -533,3 +533,18 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **LuluStream signed manifests**: Reload the player page while resolving a stream so
   the Firefox-profile request obtains a fresh, query-signed HLS URL instead of
   reusing the discovery HTML.
+
+## Unreleased — Terminal YAML hoster errors
+
+### Added
+
+- **Terminal resolver error messages**: YAML `resolve_stream` responses can now return a non-empty
+  `error_message`. The generic resolver stops immediately and returns that business error instead
+  of probing additional hosters or falling back to an iframe, including when the player page itself
+  answered HTTP 200.
+- **DoodStream encoding-status errors**: The DoodStream resolver now follows the player page's
+  `encStatus` request and returns its terminal `#enc_pp` message, such as `Video encoding error.`,
+  through `error_message`.
+- **VK video error messages**: The VK resolver now returns the `#video_ext_msg` player error. The
+  known Russian message for a missing video file is normalized to `Video file not found`; other
+  messages are preserved as returned by VK.

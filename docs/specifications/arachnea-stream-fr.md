@@ -584,7 +584,7 @@ par YAML pour les hébergeurs externes. Chaque fichier YAML déclare au minimum
 |---|---|---|
 | `can_resolve_url` | `static` | Préfiltre optionnel avant tentative directe ; un résultat positif autorise `resolve_stream` à charger l'URL |
 | `can_resolve_html` | `static` / `html` | Reconnaissance optionnelle d'un HTML déjà téléchargé avec les paramètres `{url, origine, html}` ; `{origine}` est le schéma, l'hôte et le port éventuel de l'URL finale après redirections |
-| `resolve_stream` | `html` / `json` / `text` | Extrait le flux média et les métadonnées optionnelles `title`, `image/title > link`, `stream_headers`, `storyboard_vtt_url` et `storyboard` |
+| `resolve_stream` | `html` / `json` / `text` | Extrait le flux média et les métadonnées optionnelles `title`, `image/title > link`, `stream_headers`, `storyboard_vtt_url` et `storyboard`. Une sortie optionnelle non vide `error_message` signale une erreur métier terminale. |
 
 La façade `StreamResolver` parcourt les YAML actifs dans l'ordre de `services.json`.
 Pour le chemin direct, elle appelle `can_resolve_url` quand la requête existe ; seuls les
@@ -594,6 +594,11 @@ un `Content-Type` HTML et une taille maximale de 1 Mio, puis appelle `can_resolv
 avec `{url, origine, html}`. Le premier service reconnu relance `resolve_stream` avec ce même
 HTML en mémoire via `input_html`, sans deuxième GET sur la page d'embed. En l'absence de
 service compatible, `get_stream` retourne `{ "embed-link": "<url>" }`.
+
+Lorsque la première entrée d'un `resolve_stream` contient un `error_message` non vide, cette
+valeur est renvoyée comme erreur de `get_stream`. Elle est prioritaire sur `stream_url` : la
+recherche s'arrête immédiatement, sans essayer un autre service ni retourner le fallback iframe.
+Un champ absent ou vide conserve le comportement habituel de poursuite de la recherche.
 
 `stream_headers` est une métadonnée interne du résolveur : elle sert à construire les URLs proxy
 et n'est donc volontairement pas sérialisée dans la réponse JSON de `get_stream`.

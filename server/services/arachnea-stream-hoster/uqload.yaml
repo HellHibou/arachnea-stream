@@ -21,7 +21,7 @@ queries:
         value: "{url}"
         actions:
           - type: regex_find_all
-            pattern: '^https?://(?:www\.)?(?:uqload\.(?:is|com|to|ws|co))/'
+            pattern: '^https?://(?:www\.)?(?:uqload\.(?:is|com|to|ws|co|vc))/'
             format: "{service_id}"
 
 
