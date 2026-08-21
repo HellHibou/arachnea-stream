@@ -6,6 +6,7 @@ import {
   type VideoJsMediaRendererEmits,
   type VideoJsMediaRendererProps,
 } from '@/composables/video/useVideoJsMediaRenderer'
+import { markImageUrlFailed } from '@/composables/media/useFailedImageUrls'
 
 /** Display size of a storyboard preview frame. */
 const STORYBOARD_PREVIEW_SIZE = 15
@@ -125,11 +126,19 @@ const storyboardPreviewStyle = computed(() => {
     return undefined
   }
 
+  // Fit the cell preview into the fixed 16:9 frame with a uniform scale so the
+  // source aspect ratio is preserved (an independent x/y scale would stretch
+  // off-ratio cells and deform the thumbnail).
+  const fitScale = Math.min(
+    STORYBOARD_PREVIEW_WIDTH / cellWidth,
+    STORYBOARD_PREVIEW_HEIGHT / cellHeight,
+  )
+
   const cols = vttSize?.columns ?? storyboard?.columns
   return {
-    '--storyboard-preview-scale-x': String(STORYBOARD_PREVIEW_WIDTH / cellWidth),
-    '--storyboard-preview-scale-y': String(STORYBOARD_PREVIEW_HEIGHT / cellHeight),
-    '--storyboard-preview-text-scale': String(cellWidth / STORYBOARD_PREVIEW_WIDTH),
+    '--storyboard-preview-scale-x': String(fitScale),
+    '--storyboard-preview-scale-y': String(fitScale),
+    '--storyboard-preview-text-scale': String(1 / fitScale),
     ...(cols ? {
       '--sb-bg-src-w': String(cellWidth * cols),
     } : {}),
@@ -159,6 +168,7 @@ const storyboardPreviewStyle = computed(() => {
         class="videojs-media-overlay__logo"
         :src="props.overlayLogoUrl"
         alt=""
+        @error="markImageUrlFailed(props.overlayLogoUrl)"
       >
     </div>
   </div>
@@ -248,7 +258,7 @@ const storyboardPreviewStyle = computed(() => {
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-poster img) {
-  object-fit: cover;
+  object-fit: contain;
   object-position: center;
 }
 

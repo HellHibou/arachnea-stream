@@ -13,6 +13,7 @@ import { entryDetailsPresentation } from '@/composables/entry-details/entryDetai
 import { entryVideoPlayer } from '@/composables/entry-details/entryVideoPlayer'
 import { getSeasonEpisodes } from '@/services/rustify'
 import { type EntryBookmark, useStorage } from '@/services/storage'
+import { resolveImageUrl } from '@/composables/media/useFailedImageUrls'
 
 /**
   * Props accepted by the featured entry details component.
@@ -376,26 +377,28 @@ const initialPlaybackTime = computed(() => {
 
 /**
  * Exposes the selected player title image, falling back to episode or entry imagery.
+ *
+ * Failed image URLs behave exactly like a `null` candidate: the fallback chain
+ * advances to the next available image.
  */
 const mediaPosterUrl = computed(() =>
-  resolvedPlayerPosterUrl.value ??
-  selectedEpisode.value?.previewUrl ??
-  details.value?.imageLandscapeUrl ??
-  details.value?.imagePosterUrl ??
-  null,
+  resolveImageUrl([
+    resolvedPlayerPosterUrl.value,
+    selectedEpisode.value?.previewUrl,
+    details.value?.imageLandscapeUrl,
+    details.value?.imagePosterUrl,
+  ]),
 )
 
 /**
  * Exposes the entry poster used as the initial poster for trailers in the integrated Video.js player.
  */
-const trailerPosterUrl = computed(() => details.value?.imagePosterUrl ?? null)
+const trailerPosterUrl = computed(() => resolveImageUrl([details.value?.imagePosterUrl]))
 
 /**
  * Exposes the logo overlaid on top of the media poster in the integrated Video.js player.
  */
-const mediaOverlayLogoUrl = computed(() =>
-  details.value?.logoUrl ?? null,
-)
+const mediaOverlayLogoUrl = computed(() => resolveImageUrl([details.value?.logoUrl]))
 
 /**
  * Indicates whether another season could provide a playable next episode.

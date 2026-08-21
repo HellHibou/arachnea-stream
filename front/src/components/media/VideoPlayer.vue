@@ -5,6 +5,7 @@ import LoadingSpinner from '@/components/icons/LoadingSpinner.vue'
 import { useI18n } from '@/i18n'
 import type { ResolvedVideoMediaSource } from '@/services/players'
 import type { VideoJsMediaDimensions } from '@/composables/video/useVideoJsMediaRenderer'
+import { markImageUrlFailed } from '@/composables/media/useFailedImageUrls'
 
 defineOptions({
   inheritAttrs: false,
@@ -450,6 +451,7 @@ const {
         class="entry-details__player-confirmation-image"
         :src="mediaPosterUrl"
         :alt="displayTitle ?? undefined"
+        @error="markImageUrlFailed(mediaPosterUrl)"
       />
       <button
         type="button"
@@ -699,7 +701,7 @@ const {
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .entry-details__player-confirmation-button {

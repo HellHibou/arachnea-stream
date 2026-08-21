@@ -50,6 +50,7 @@ import type {
   VideoJsTechHandle,
 } from '@/composables/video/video-js-media-renderer/types'
 import { t } from '@/i18n'
+import { markImageUrlFailed } from '@/composables/media/useFailedImageUrls'
 
 const STORYBOARD_VTT_REQUEST_TIMEOUT_MS = 5_000
 
@@ -287,6 +288,45 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     } else {
       element.tabIndex = props.tabIndex
     }
+  }
+
+  /**
+   * Hides the Video.js poster image when its source fails to load and advances
+   * any poster fallback chain.
+   *
+   * Video.js renders the poster as an `<img>` inside `.vjs-poster` and does not
+   * hide it automatically when the image cannot be fetched. The failed URL is also
+   * recorded so page-level poster resolvers skip it like a `null` candidate and
+   * fall back to the next available image.
+   *
+   * @param player Video.js player currently bound to the renderer.
+   */
+  function installPosterImageErrorHandler(player: VideoJsPlayer) {
+    const install = () => {
+      const playerElement = player.el()
+      const posterImage = playerElement?.querySelector<HTMLImageElement>('.vjs-poster img')
+
+      if (!posterImage) {
+        return
+      }
+
+      if (posterImage.dataset.posterErrorHandlerInstalled === 'true') {
+        return
+      }
+      posterImage.dataset.posterErrorHandlerInstalled = 'true'
+
+      posterImage.addEventListener('error', () => {
+        markImageUrlFailed(props.poster)
+        const posterElement = player.el()?.querySelector<HTMLElement>('.vjs-poster')
+        posterElement?.setAttribute('hidden', 'true')
+        player.poster('')
+      })
+    }
+
+    // Video.js (re)creates the `<img>` whenever the poster source changes, so the
+    // handler must be (re)attached when the poster-change event surfaces the element.
+    install()
+    player.on('posterchange', install)
   }
 
   /**
@@ -824,6 +864,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     }
 
     player.poster(props.poster ?? '')
+    installPosterImageErrorHandler(player)
     player.controls(props.controls ?? false)
     player.loop(props.loop ?? false)
     syncEpisodeAutoplayControl(player)

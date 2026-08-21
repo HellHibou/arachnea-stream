@@ -18,6 +18,7 @@ import { useI18n } from '@/i18n'
 import type { EntryDetails as EntryDetailsModel, EntryPlayableItem, EntryPlayer, EntryResolvedPlayerStream } from '@/types/entry'
 import type { MediaItem, ThumbnailImageFit } from '@/types/media'
 import { MSG_LIVE_TV, MSG_LIVE, MSG_LIVE_PLAYING } from '@/i18n/index.ts';
+import { resolveImageUrl } from '@/composables/media/useFailedImageUrls'
 
 /**
   * Props accepted by the live details page.
@@ -241,7 +242,11 @@ const shouldShowMediaPlayer = computed(
  * Exposes the poster used by the shared player shell.
  */
 const mediaPosterUrl = computed(() =>
-  selectedLiveItem.value?.imagePosterUrl ?? selectedLiveItem.value?.imageLandscapeUrl ?? selectedLiveItem.value?.imageUrl ?? null,
+  resolveImageUrl([
+    selectedLiveItem.value?.imagePosterUrl,
+    selectedLiveItem.value?.imageLandscapeUrl,
+    selectedLiveItem.value?.imageUrl,
+  ]),
 )
 
 /**
