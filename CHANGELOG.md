@@ -29,6 +29,15 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **Chaser-CF session cache**: Replaced the file-backed `ChaserSessionCache` with an asynchronous adapter over `PersistenceStore`. Removed `DEFAULT_SESSION_CACHE_FILE_NAME`, `default_session_cache_path`, the private JSON document, and `std::fs` I/O from `chaser_cf.rs`. Sessions now store structured cookies instead of reconstructed `Set-Cookie` strings and are scoped only by normalized origin, including when routed through the dynamic Arachnea proxy.
 - **Player image fit and error fallback**: Native video posters, media confirmation posters, and media overlay logos in the frontend now use `object-fit: contain` so the whole image stays visible without distortion. Storyboard hover thumbnails now fit their 16:9 preview frame with a uniform scale that preserves the source cell aspect ratio (previously an independent x/y scale deformed off-ratio cells). When a poster or logo image cannot be loaded, its URL is recorded as failed so it behaves exactly like a `null` candidate: the poster resolvers skip it and advance to the next available fallback image (`resolvedPlayerPosterUrl` → episode preview → landscape → portrait for programs, equivalent chains for live), instead of showing a broken-image icon or hiding the surface outright.
 
+### Fixed
+- **Proxy redirect Location host**: The generic HTTP proxy now rewrites redirect
+  `Location` headers as root-relative proxy paths (`/api/proxy/opts_.../https://host/...`)
+  when the controller entry point is an http/https URL. Previously the rewritten
+  Location embedded the server bind address, producing unusable URLs such as
+  `http://0.0.0.0:8080/api/proxy/...` when the server was bound to an unspecified
+  address and reached through another hostname or IP. Custom scheme entry points
+  (Tauri `arachnea://api/proxy`) keep their absolute form.
+
 ### Added
 - **Parallel isolated page clicks**: Entry-level HTML `page_click` sub-queries
   can now use `browser_context: isolated`. The scraper opens dedicated browser

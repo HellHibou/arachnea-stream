@@ -381,6 +381,11 @@ fn build_target_url(
 }
 
 /// Encodes a proxied URL path back into the proxy path format.
+///
+/// When `api_prefix` starts with `/`, the result is a root-relative proxy path
+/// so HTTP clients resolve it against the host they actually used. Otherwise
+/// the prefix is kept verbatim (e.g. custom scheme entry points such as
+/// `arachnea://api/proxy`).
 fn encode_proxy_path(api_prefix: &str, resolved_url: &Url, opts_encoded: &str) -> String {
     let api = api_prefix.trim_matches('/');
     let protocol = resolved_url.scheme();
@@ -403,7 +408,39 @@ fn encode_proxy_path(api_prefix: &str, resolved_url: &Url, opts_encoded: &str) -
         format!("opts_{}/", opts_encoded)
     };
 
-    format!("{api}/{opts_segment}{protocol}://{host}{port_segment}/{path}{query}")
+    // Root-relative prefixes keep their leading slash so clients resolve the
+    // rewritten Location against the request host instead of the bind address.
+    let prefix = if !api.is_empty() && api_prefix.starts_with('/') {
+        format!("/{api}/")
+    } else {
+        format!("{api}/")
+    };
+
+    format!("{prefix}{opts_segment}{protocol}://{host}{port_segment}/{path}{query}")
+}
+
+/// Reduces an entry-point URL to its public path for Location rewriting.
+///
+/// http/https entry points are reduced to a root-relative path so redirect
+/// Locations resolve against the host the client actually used rather than
+/// the server bind address (which may be unspecified, e.g. `0.0.0.0`).
+/// Custom scheme entry points (e.g. `arachnea://api/proxy`) are returned
+/// unchanged so the rewritten Location stays an absolute custom-scheme URL.
+fn entry_point_location_prefix(entry_point: &str) -> String {
+    let normalized = entry_point.trim().trim_end_matches('/');
+    let Ok(url) = Url::parse(normalized) else {
+        return normalized.to_string();
+    };
+    if url.scheme() != "http" && url.scheme() != "https" {
+        return normalized.to_string();
+    }
+
+    let path = url.path().trim_matches('/');
+    if path.is_empty() {
+        String::new()
+    } else {
+        format!("/{path}")
+    }
 }
 
 fn encode_proxy_opts(opts: &ProxyHttpOpts) -> String {
@@ -482,7 +519,8 @@ fn rewrite_location_header(
     let resolved_url = Url::parse(&resolved_url_str)
         .map_err(|e| format!("Failed to parse resolved URL: {}", e))?;
 
-    let new_location = encode_proxy_path(api_prefix, &resolved_url, current_opts_encoded);
+    let location_prefix = entry_point_location_prefix(api_prefix);
+    let new_location = encode_proxy_path(&location_prefix, &resolved_url, current_opts_encoded);
 
     if let Some(key) = headers
         .keys()
@@ -1132,6 +1170,7 @@ mod tests {
             ],
             cookies: HashMap::new(),
             proxy: serde_json::Value::Null,
+            insecure_tls: false,
         };
         let encoded = encode_proxy_opts(&opts);
         let redirect_actions = vec![ProxyHttpRedirectActionConfig::RemoveHeader(
@@ -1157,11 +1196,43 @@ mod tests {
     }
 
     #[test]
+    fn encode_proxy_path_http_entry_point_is_root_relative() {
+        let url = Url::parse("https://th2-edge-02.cdn.test/m6web/a.mpd").unwrap();
+        assert_eq!(
+            encode_proxy_path("/api/proxy", &url, "ABCD"),
+            "/api/proxy/opts_ABCD/https://th2-edge-02.cdn.test/m6web/a.mpd"
+        );
+        assert_eq!(
+            encode_proxy_path("/api/proxy", &url, ""),
+            "/api/proxy/https://th2-edge-02.cdn.test/m6web/a.mpd"
+        );
+    }
+
+    #[test]
+    fn entry_point_location_prefix_reduces_http_to_path() {
+        assert_eq!(
+            entry_point_location_prefix("http://0.0.0.0:8080/api/proxy"),
+            "/api/proxy"
+        );
+        assert_eq!(
+            entry_point_location_prefix("http://192.168.178.34:8080/api/proxy"),
+            "/api/proxy"
+        );
+        assert_eq!(entry_point_location_prefix("http://host:8080"), "");
+        // Custom scheme entry points stay absolute.
+        assert_eq!(
+            entry_point_location_prefix("arachnea://api/proxy"),
+            "arachnea://api/proxy"
+        );
+    }
+
+    #[test]
     fn remove_header_keeps_redirect_opts_for_non_302() {
         let opts = ProxyHttpOpts {
             headers: vec![("Arachnea-Proxy-Country".to_string(), "fr".to_string())],
             cookies: HashMap::new(),
             proxy: serde_json::Value::Null,
+            insecure_tls: false,
         };
         let encoded = encode_proxy_opts(&opts);
         let redirect_actions = vec![ProxyHttpRedirectActionConfig::RemoveHeader(
