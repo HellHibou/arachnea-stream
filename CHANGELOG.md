@@ -550,3 +550,38 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **VK video error messages**: The VK resolver now returns the `#video_ext_msg` player error. The
   known Russian message for a missing video file is normalized to `Video file not found`; other
   messages are preserved as returned by VK.
+
+## Unreleased — Proxy persistence through the generic persistence store
+
+### Added
+
+- **Transaction-based persistence contract**: `PersistenceStore` is now a factory of namespace-bound
+  `PersistenceTransaction` handles (`get`/`put`/`delete`/`find_by_fields`/`commit`). Keys are plain
+  domain strings; the namespace is carried by the transaction. A crate-private `PersistenceBackend`
+  trait isolates storage engines (in-memory and file today, database later). `find_by_fields`
+  supports equality filters on named fields, including nested dot paths, with shared filtering
+  logic used by both backends.
+- **Field-only records**: `PersistedRecord` no longer carries a binary `payload`; records are stored
+  exclusively as named fields (`fields`, sub-objects allowed), keeping documents inspectable and
+  field-queryable. The legacy `payload` read fallback in `chaser_cf.rs` was removed.
+- **Deferred file writes**: `FilePersistenceStore` now keeps an in-memory cache per namespace with a
+  dirty flag. `get`/`put`/`delete`/`find_by_fields` only touch memory; `commit` flushes a dirty
+  namespace atomically (temporary file + fsync + rename) and is a no-op for clean namespaces or the
+  in-memory backend. Committing one namespace never touches other namespaces.
+- **Proxy persistent cache**: New `persistence` feature in `arachnea-proxy`. `ProxyInventory` accepts
+  a shared `Arc<dyn PersistenceStore>` via `with_persistence_store`: selection falls back to the
+  `proxy-inventory` namespace filtered by country before triggering the provider, loaded batches are
+  written through one transaction committed at the end of processing, status mutations persist the
+  updated record, and removals delete the persisted record. Records are keyed by authority, expire
+  through cooldown/probe freshness or a 24 h global TTL (`PROXY_CACHE_TTL`), and conversions between
+  `ProxyRecord` and `PersistedRecord` live in the new `proxy_persistence` module.
+- **Scrapyfy proxy cache wiring**: `default_scrapyfy_proxy_inventory` and
+  `default_scrapyfy_proxy_core` accept the shared persistence store; `ScraperAgregator::ensure_proxy_core`
+  passes its store so cookies/sessions and proxies share one backend with distinct namespaces.
+
+### Changed
+
+- **Removed `ProxyStore`/`ProxySerdeStore`**: The snapshot-based proxy file store, its codecs, and
+  the `ProxyInventory::with_store`/`load_from_store`/`save_to_store` conveniences were removed;
+  their fsync-before-rename behavior moved into `FilePersistenceStore::persist_document`.
+  `IpCountrySerdeStore` is unaffected.

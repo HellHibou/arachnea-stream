@@ -5,7 +5,13 @@ use std::time::{Duration, Instant, SystemTime};
 
 use tokio::sync::RwLock;
 
-use crate::core::proxy_store::ProxyStore;
+#[cfg(feature = "persistence")]
+use arachnea_core::persistence::{PersistedRecord, PersistenceStore};
+#[cfg(feature = "persistence")]
+use serde_json::{Map as JsonMap, Value as JsonValue};
+
+#[cfg(feature = "persistence")]
+use crate::core::proxy_persistence::PROXY_NAMESPACE;
 use crate::core::{
     Destination, IpCountryResolver, ProxyDataProvider, ProxyError, ProxyProbe, ProxyProtocol,
     ProxyRecord, ProxyRuntimeStatus, Result,
@@ -82,7 +88,9 @@ pub struct ProxyInventory {
     inner: RwLock<InventoryInner>,
     provider: Option<Arc<dyn ProxyDataProvider>>,
     probe: Option<Arc<ProxyProbe>>,
-    store: Option<Arc<dyn ProxyStore>>,
+    /// Persistent cache for dynamic proxy records, when configured.
+    #[cfg(feature = "persistence")]
+    persistence: Option<Arc<dyn PersistenceStore>>,
     config: InventoryConfig,
     ip_country_resolver: Option<Arc<IpCountryResolver>>,
 }
@@ -110,30 +118,24 @@ impl ProxyInventory {
             }),
             provider,
             probe,
-            store: None,
+            #[cfg(feature = "persistence")]
+            persistence: None,
             config,
             ip_country_resolver: None,
         }
     }
 
-    /// Creates a new proxy inventory with a persistent store.
+    /// Attaches a persistence store used as a persistent cache for dynamic
+    /// proxies.
     ///
-    /// # Parameters
-    ///
-    /// - `config`: Inventory configuration (TTLs, cooldowns, thresholds).
-    /// - `provider`: Optional data provider for lazy loading per country.
-    /// - `probe`: Optional probe for testing newly loaded records.
-    /// - `store`: Persistent store used for explicit loads and automatic saves
-    ///   after lazy loading.
-    pub fn with_store(
-        config: InventoryConfig,
-        provider: Option<Arc<dyn ProxyDataProvider>>,
-        probe: Option<Arc<ProxyProbe>>,
-        store: Arc<dyn ProxyStore>,
-    ) -> Self {
-        let mut inventory = Self::new(config, provider, probe);
-        inventory.store = Some(store);
-        inventory
+    /// When configured, selection falls back to the store (filtered by country)
+    /// before triggering a provider load, and mutations are written back
+    /// through namespace-bound transactions committed at the end of each
+    /// processing batch.
+    #[cfg(feature = "persistence")]
+    pub fn with_persistence_store(mut self, persistence: Arc<dyn PersistenceStore>) -> Self {
+        self.persistence = Some(persistence);
+        self
     }
 
     /// Sets an IP-country resolver for on-demand geolocation during strict
@@ -186,17 +188,39 @@ impl ProxyInventory {
         self.probe.as_ref()
     }
 
-    /// Returns the persistent store, if one is configured.
-    pub fn store(&self) -> Option<&Arc<dyn ProxyStore>> {
-        self.store.as_ref()
+    /// Returns the persistence store, if one is configured.
+    #[cfg(feature = "persistence")]
+    pub fn persistence(&self) -> Option<&Arc<dyn PersistenceStore>> {
+        self.persistence.as_ref()
     }
 
-    async fn save_configured_store(&self) {
-        let Some(store) = &self.store else {
+    /// Persists records through one transaction committed after the whole
+    /// batch has been written into the namespace cache.
+    #[cfg(feature = "persistence")]
+    async fn persist_records(&self, records: &[ProxyRecord]) {
+        let Some(persistence) = &self.persistence else {
             return;
         };
-        if let Err(error) = self.save_to_store(store.as_ref()).await {
-            tracing::warn!(%error, "failed to persist proxy inventory");
+        if let Err(error) = persist_proxy_records(persistence, records).await {
+            tracing::warn!(%error, count = records.len(), "failed to persist proxy records");
+        }
+    }
+
+    /// Deletes the persisted record of an authority, if persistence is
+    /// configured.
+    #[cfg(feature = "persistence")]
+    async fn delete_persisted_record(&self, authority: &str) {
+        let Some(persistence) = &self.persistence else {
+            return;
+        };
+        let result = async {
+            let transaction = persistence.transaction(PROXY_NAMESPACE).await?;
+            transaction.delete(authority).await?;
+            transaction.commit().await
+        }
+        .await;
+        if let Err(error) = result {
+            tracing::warn!(authority = %authority, %error, "failed to delete persisted proxy record");
         }
     }
 
@@ -325,15 +349,30 @@ impl ProxyInventory {
     }
 
     /// Removes a proxy record by its normalised authority.
+    ///
+    /// The persisted record, when a persistence store is configured, is deleted
+    /// as well.
     pub async fn remove(&self, authority: &str) {
-        let mut inner = self.inner.write().await;
-        if let Some(record) = inner.records.remove(authority) {
-            if let Some(ref country) = record.country {
-                if let Some(keys) = inner.country_records.get_mut(country) {
-                    keys.retain(|k| k != authority);
-                }
-            }
+        let existed = {
+            let mut inner = self.inner.write().await;
+            inner
+                .records
+                .remove(authority)
+                .is_some_and(|record| {
+                    if let Some(ref country) = record.country {
+                        if let Some(keys) = inner.country_records.get_mut(country) {
+                            keys.retain(|k| k != authority);
+                        }
+                    }
+                    true
+                })
+        };
+        #[cfg(feature = "persistence")]
+        if existed {
+            self.delete_persisted_record(authority).await;
         }
+        #[cfg(not(feature = "persistence"))]
+        let _ = existed;
     }
 
     /// Returns a snapshot of all stored records.
@@ -424,6 +463,18 @@ impl ProxyInventory {
             return Ok(record);
         }
 
+        // Cache-first: import persisted records of this country from the
+        // persistence store before falling back to the provider.
+        #[cfg(feature = "persistence")]
+        if self.load_cached_country(country).await {
+            if let Some(record) = self
+                .select_cached(country, require_https, destination)
+                .await
+            {
+                return Ok(record);
+            }
+        }
+
         self.load_if_needed(country).await;
 
         self.select_cached(country, require_https, destination)
@@ -433,6 +484,53 @@ impl ProxyInventory {
                     "no working proxy available for country '{country}'"
                 ))
             })
+    }
+
+    /// Imports cached records for `country` from the persistence store into
+    /// the in-memory inventory.
+    ///
+    /// # Returns
+    ///
+    /// `true` when at least one valid cached record was imported.
+    #[cfg(feature = "persistence")]
+    async fn load_cached_country(&self, country: &str) -> bool {
+        let Some(persistence) = &self.persistence else {
+            return false;
+        };
+        let result = async {
+            let transaction = persistence.transaction(PROXY_NAMESPACE).await?;
+            let mut filters = JsonMap::new();
+            filters.insert(
+                "country".to_string(),
+                JsonValue::String(country.to_string()),
+            );
+            let records = transaction.find_by_fields(&filters).await?;
+            let mut converted = Vec::with_capacity(records.len());
+            for (key, record) in &records {
+                match ProxyRecord::try_from(record) {
+                    Ok(proxy_record) => converted.push(proxy_record),
+                    Err(error) => {
+                        tracing::warn!(key = %key, %error, "skipping invalid cached proxy record");
+                    }
+                }
+            }
+            anyhow::Ok(converted)
+        }
+        .await;
+        let converted = match result {
+            Ok(converted) => converted,
+            Err(error) => {
+                tracing::warn!(country = %country, %error, "failed to read cached proxy records");
+                return false;
+            }
+        };
+        if converted.is_empty() {
+            return false;
+        }
+        let count = converted.len();
+        self.add_or_update(converted).await;
+        tracing::debug!(country = %country, count, "loaded cached proxy records from persistence");
+        true
     }
 
     /// Selects from cached records only, without triggering a load.
@@ -577,6 +675,10 @@ impl ProxyInventory {
                     auth_flag = probe_stats.authentication_required_flag,
                     "loaded dynamic proxies probed"
                 );
+                // Persist the loaded batch through one transaction committed
+                // after the whole list has been written.
+                #[cfg(feature = "persistence")]
+                let records_to_persist = records.clone();
                 self.add_or_update(records).await;
 
                 let http_stats = self
@@ -609,7 +711,8 @@ impl ProxyInventory {
                     );
                 }
 
-                self.save_configured_store().await;
+                #[cfg(feature = "persistence")]
+                self.persist_records(&records_to_persist).await;
             }
             Err(error) => {
                 tracing::warn!(country = %country, %error, "failed to load proxies");
@@ -661,7 +764,7 @@ impl ProxyInventory {
         destination: &Destination,
         reason: crate::core::ProxyDestinationFailureReason,
     ) -> bool {
-        let marked_ko = {
+        let outcome = {
             let mut inner = self.inner.write().await;
             let record = match inner.records.get_mut(authority) {
                 Some(r) => r,
@@ -704,19 +807,20 @@ impl ProxyInventory {
                 record.failure_count += 1;
                 record.cooldown_until = Some(now + self.config.ko_cooldown);
                 record.destination_failures.clear();
-                true
+                (true, record.clone())
             } else {
-                false
+                (false, record.clone())
             }
         };
 
-        self.save_configured_store().await;
-        marked_ko
+        #[cfg(feature = "persistence")]
+        self.persist_records(std::slice::from_ref(&outcome.1)).await;
+        outcome.0
     }
 
     /// Marks a proxy as globally failed (KO) with cooldown.
     pub async fn record_global_failure(&self, authority: &str) {
-        {
+        let updated = {
             let mut inner = self.inner.write().await;
             if let Some(record) = inner.records.get_mut(authority) {
                 let now = SystemTime::now();
@@ -724,37 +828,77 @@ impl ProxyInventory {
                 record.failure_count += 1;
                 record.cooldown_until = Some(now + self.config.ko_cooldown);
                 record.destination_failures.clear();
+                Some(record.clone())
+            } else {
+                None
             }
+        };
+        if let Some(record) = updated {
+            #[cfg(feature = "persistence")]
+            self.persist_records(std::slice::from_ref(&record)).await;
+            #[cfg(not(feature = "persistence"))]
+            drop(record);
         }
-        self.save_configured_store().await;
     }
 
     /// Records that a proxy requires authentication.
     pub async fn record_auth_required(&self, authority: &str) {
-        {
+        let updated = {
             let mut inner = self.inner.write().await;
             if let Some(record) = inner.records.get_mut(authority) {
                 record.status = ProxyRuntimeStatus::AuthenticationRequired;
                 record.authentication_required = Some(true);
                 record.failure_count += 1;
+                Some(record.clone())
+            } else {
+                None
             }
+        };
+        if let Some(record) = updated {
+            #[cfg(feature = "persistence")]
+            self.persist_records(std::slice::from_ref(&record)).await;
+            #[cfg(not(feature = "persistence"))]
+            drop(record);
         }
-        self.save_configured_store().await;
     }
 
     /// Updates a record's status to `Ok` and clears failure state.
     pub async fn record_ok(&self, authority: &str) {
-        {
+        let updated = {
             let mut inner = self.inner.write().await;
             if let Some(record) = inner.records.get_mut(authority) {
                 record.status = ProxyRuntimeStatus::Ok;
                 record.failure_count = 0;
                 record.cooldown_until = None;
                 record.destination_failures.clear();
+                Some(record.clone())
+            } else {
+                None
             }
+        };
+        if let Some(record) = updated {
+            #[cfg(feature = "persistence")]
+            self.persist_records(std::slice::from_ref(&record)).await;
+            #[cfg(not(feature = "persistence"))]
+            drop(record);
         }
-        self.save_configured_store().await;
     }
+}
+
+/// Writes `records` into the proxy namespace through one transaction committed
+/// after the whole batch has been written.
+#[cfg(feature = "persistence")]
+async fn persist_proxy_records(
+    persistence: &Arc<dyn PersistenceStore>,
+    records: &[ProxyRecord],
+) -> anyhow::Result<()> {
+    let transaction = persistence.transaction(PROXY_NAMESPACE).await?;
+    for record in records {
+        transaction
+            .put(record.authority(), PersistedRecord::from(record))
+            .await?;
+    }
+    transaction.commit().await
 }
 
 // ── Eligibility helpers ───────────────────────────────────────────────

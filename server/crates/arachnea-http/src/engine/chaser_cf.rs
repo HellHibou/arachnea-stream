@@ -4,7 +4,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use arachnea_core::persistence::{PersistedRecord, PersistenceKey, PersistenceStore};
+use arachnea_core::persistence::{PersistedRecord, PersistenceStore};
 use async_trait::async_trait;
 use bytes::Bytes;
 use chaser_cf::core::BrowserManager;
@@ -1657,21 +1657,16 @@ fn is_hidden_node(node: &Node) -> bool {
 }
 
 impl ChaserSessionCache {
-    /// Returns the persistence key for a session URL.
-    fn key_for_url(&self, url: &str) -> Result<PersistenceKey, ArachneaHttpError> {
-        let origin = cache_origin_key(url)?;
-        Ok(PersistenceKey {
-            namespace: CLOUDFLARE_SESSION_NAMESPACE.to_string(),
-            key: origin,
-        })
-    }
-
     /// Returns cached headers for a still-valid Cloudflare session.
     async fn headers_for_url(&self, url: &str) -> Result<Option<HeaderMap>, ArachneaHttpError> {
-        let key = self.key_for_url(url)?;
-        let record = self
+        let origin = cache_origin_key(url)?;
+        let transaction = self
             .store
-            .get(&key)
+            .transaction(CLOUDFLARE_SESSION_NAMESPACE)
+            .await
+            .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
+        let record = transaction
+            .get(&origin)
             .await
             .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
         let Some(record) = record else {
@@ -1683,15 +1678,23 @@ impl ChaserSessionCache {
         let session: CachedChaserSession = record
             .fields
             .map(|fields| serde_json::from_value(serde_json::Value::Object(fields)))
-            .unwrap_or_else(|| serde_json::from_slice(&record.payload))
+            .ok_or_else(|| {
+                ArachneaHttpError::ChaserCfFailure(
+                    "chaser-cf session record has no fields".to_string(),
+                )
+            })?
             .map_err(|err| {
                 ArachneaHttpError::ChaserCfFailure(format!(
                     "failed to deserialize chaser-cf session: {err}"
                 ))
             })?;
         if !session.is_usable(self.refresh_margin) {
-            self.store
-                .delete(&key)
+            transaction
+                .delete(&origin)
+                .await
+                .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
+            transaction
+                .commit()
                 .await
                 .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
             return Ok(None);
@@ -1705,7 +1708,7 @@ impl ChaserSessionCache {
         url: &str,
         session: &WafSession,
     ) -> Result<(), ArachneaHttpError> {
-        let key = self.key_for_url(url)?;
+        let origin = cache_origin_key(url)?;
         let Some(session) = CachedChaserSession::from_waf_session(session) else {
             return Ok(());
         };
@@ -1724,15 +1727,23 @@ impl ChaserSessionCache {
             })?;
         let record = PersistedRecord {
             format_version: CLOUDFLARE_SESSION_FORMAT_VERSION,
-            payload: Vec::new(),
             fields: Some(fields),
             expires_at: session
                 .clearance_expires_at
                 .map(|expires_at| UNIX_EPOCH + Duration::from_secs(expires_at)),
             updated_at: SystemTime::now(),
         };
-        self.store
-            .put(key, record)
+        let transaction = self
+            .store
+            .transaction(CLOUDFLARE_SESSION_NAMESPACE)
+            .await
+            .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
+        transaction
+            .put(origin, record)
+            .await
+            .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))?;
+        transaction
+            .commit()
             .await
             .map_err(|err| ArachneaHttpError::ChaserCfFailure(err.to_string()))
     }

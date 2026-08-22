@@ -117,7 +117,10 @@ impl ScraperAgregator {
     #[cfg(feature = "arachnea-proxy")]
     pub fn ensure_proxy_core(&mut self) {
         let ptr: *mut ScraperAgregator = self;
-        match default_scrapyfy_proxy_core(unsafe { &mut *ptr }) {
+        // The shared persistence store serves both the HTTP clients (cookies,
+        // Cloudflare sessions) and the proxy inventory cache; namespaces keep
+        // the data families isolated.
+        match default_scrapyfy_proxy_core(unsafe { &mut *ptr }, self.persistence_store.clone()) {
             Ok(core) => {
                 tracing::info!(
                     "Dynamic proxy core created with scrapyfy provider for country routing"

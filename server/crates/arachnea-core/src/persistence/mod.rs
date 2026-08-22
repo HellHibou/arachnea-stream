@@ -19,4 +19,6 @@ pub use file_codec::{JsonPersistenceFileCodec, PersistenceFileCodec};
 pub use file_credentials_store::FileCredentialsStore;
 pub use file_store::{FilePersistenceStore, PersistenceFileDocument};
 pub use memory_store::MemoryPersistenceStore;
-pub use store::{PersistedRecord, PersistenceKey, PersistenceStore};
+pub use store::{PersistedRecord, PersistenceKey, PersistenceStore, PersistenceTransaction};
+
+pub(crate) use store::{PersistenceBackend, record_matches_filters};

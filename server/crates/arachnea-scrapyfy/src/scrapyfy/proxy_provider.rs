@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
+use arachnea_core::persistence::PersistenceStore;
 use arachnea_proxy::core::{
     ArachneaProxyCore, InventoryConfig, IpCountryResolver, IpCountryResolverConfig,
     ParameterHandlerConfig, ParameterHandlerKind, ProbeConfig, ProxyAvailabilityHint, ProxyChain,
@@ -293,10 +294,18 @@ pub fn default_scrapyfy_ip_country_resolver(
 ///
 /// The returned inventory uses [`ScrapyfyProxyDataProvider`] and the default
 /// [`ProxyProbe`] configuration, with an IP-country resolver pre-configured
-/// for strict country selection. Persistence remains a caller concern so
-/// applications can choose their store path and codec.
+/// for strict country selection. `persistence_store` is attached as the
+/// persistent cache of dynamic proxies (shared with other domains such as
+/// cookies; namespaces keep data families isolated).
+///
+/// # Arguments
+///
+/// * `scraper_agregator` - The aggregator instance that owns or will own this
+///   inventory.
+/// * `persistence_store` - Shared persistence store used as the proxy cache.
 pub fn default_scrapyfy_proxy_inventory(
     scraper_agregator: &mut ScraperAgregator,
+    persistence_store: Arc<dyn PersistenceStore>,
 ) -> ProxyInventory {
     let probe_config = ProbeConfig {
         https_probe_url: Some("https://example.com/".to_string()),
@@ -309,6 +318,7 @@ pub fn default_scrapyfy_proxy_inventory(
         Some(Arc::new(ProxyProbe::new(probe_config))),
     )
     .with_ip_country_resolver(Arc::new(resolver))
+    .with_persistence_store(persistence_store)
 }
 
 /// Builds a default [`ArachneaProxyCore`] with dynamic country routing backed
@@ -322,6 +332,7 @@ pub fn default_scrapyfy_proxy_inventory(
 /// # Arguments
 ///
 /// * `scraper_agregator` - The aggregator instance that owns or will own this core.
+/// * `persistence_store` - Shared persistence store used as the proxy cache.
 ///
 /// # Returns
 ///
@@ -332,8 +343,9 @@ pub fn default_scrapyfy_proxy_inventory(
 /// Returns an error when proxy configuration validation fails.
 pub fn default_scrapyfy_proxy_core(
     scraper_agregator: &mut ScraperAgregator,
+    persistence_store: Arc<dyn PersistenceStore>,
 ) -> Result<ArachneaProxyCore> {
-    let inventory = default_scrapyfy_proxy_inventory(scraper_agregator);
+    let inventory = default_scrapyfy_proxy_inventory(scraper_agregator, persistence_store);
     let proxy_config = ProxyConfig {
         profile: ProxyProfile::Advanced,
         chains: vec![ProxyChain::direct()],

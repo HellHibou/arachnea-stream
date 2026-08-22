@@ -6,7 +6,7 @@
 
 - Define controller abstractions and the REST/Tauri controller backends under `src/controler/`.
 - Provide a main-thread dispatcher abstraction for native UI/event-loop work shared by controller backends.
-- Define credentials persistence and runtime resource helpers under `src/persistence/`.
+- Define credentials persistence and runtime resource helpers under `src/persistence/`. The generic `PersistenceStore` contract is a factory of namespace-bound `PersistenceTransaction` handles (`get`/`put`/`delete`/`find_by_fields`/`commit`); records are stored exclusively as named fields, and the file backend defers writes until `commit` (dirty flag per namespace, atomic tmp + fsync + rename).
 - Provide small shared utilities that are useful across backend crates and do not belong to the scraper engine or stream service.
 
 ## Notes

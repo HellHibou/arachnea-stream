@@ -17,7 +17,7 @@ anyhow.workspace = true
 aes.workspace = true
 arachnea-core = { path = "../arachnea-core" }
 arachnea-http = { path = "../arachnea-http", default-features = false }
-arachnea-proxy = { path = "../arachnea-proxy", default-features = false, features = ["core"], optional = true }
+arachnea-proxy = { path = "../arachnea-proxy", default-features = false, features = ["core", "persistence"], optional = true }
 async-trait.workspace = true
 chrono.workspace = true
 futures.workspace = true

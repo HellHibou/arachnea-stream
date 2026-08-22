@@ -23,10 +23,11 @@ pub mod policy;
 pub mod proxy_inventory;
 /// Proxy liveness probing engine.
 pub mod proxy_probe;
+/// Persistence bridge between proxy records and the generic persistence store.
+#[cfg(feature = "persistence")]
+pub mod proxy_persistence;
 /// Proxy record types used by inventory and stores.
 pub mod proxy_record;
-/// Serialization and storage for proxy records.
-pub mod proxy_store;
 mod routing;
 mod stats;
 pub mod transport;
@@ -75,7 +76,8 @@ pub use proxy_record::{
     ProxyDestinationFailureReason, ProxyLoadRequest, ProxyProtocol, ProxyRecord,
     ProxyRuntimeStatus,
 };
-pub use proxy_store::{JsonProxyCodec, ProxySerdeCodec, ProxySerdeStore, ProxyStore};
+#[cfg(feature = "persistence")]
+pub use proxy_persistence::{PROXY_CACHE_TTL, PROXY_NAMESPACE, PROXY_RECORD_FORMAT_VERSION};
 pub use routing::{RouteDecision, RoutePolicy, RouteRule};
 pub use stats::{ProxyStats, ProxyStatsSnapshot};
 pub use transport::{socks::Socks5UdpAssociation, OutboundTransport, UdpAssociation};

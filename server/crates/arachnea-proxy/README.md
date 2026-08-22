@@ -30,6 +30,7 @@ This README is the design and usage home for the proxy crate. Remaining work is 
 - Optional HTTP proxy, HTTP CONNECT, HTTPS proxy, SOCKS4/SOCKS4a, SOCKS5 CONNECT, and SOCKS5 UDP ASSOCIATE server listeners.
 - Public-bind safety checks, ACLs, optional HTTP/SOCKS authentication, connection limits, and typed errors.
 - Optional integration with `arachnea-dns` when local resolution or Smart DNS decisions are required.
+- Optional persistent cache for dynamic proxies (feature `persistence`): the inventory consults a shared `PersistenceStore` per country before falling back to the provider, and writes mutations back through namespace-bound transactions committed at the end of each processing batch. Records are keyed by authority in the `proxy-inventory` namespace, expire through cooldown/probe freshness or a 24 h global TTL, and are filtered by country through field queries.
 
 ## Profiles
 
@@ -54,6 +55,7 @@ The retired design notes also reserved `censorship_resistance`; it remains track
 | `hyper` | Enables the hyper-oriented connector adapter. |
 | `rquest` | Enables the loopback helper for `rquest` compatibility. |
 | `arachnea-dns` | Enables integration with the DNS crate. |
+| `persistence` | Enables the persistent cache of dynamic proxies backed by `arachnea-core::persistence`. |
 
 ## Routing and DNS
 

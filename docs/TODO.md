@@ -42,6 +42,8 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 
 ## Server/Proxy
 
+- Migrer le backend de `PersistenceStore` vers une base de données quand le volume de proxys persistés le justifiera : implémenter le trait interne `PersistenceBackend` dans `arachnea-core` (transactions SQL mappées sur `PersistenceTransaction`), sans changer le contrat public. Voir `docs/dev-tracking/proxy-persistence-store-analysis.md`.
+- Surveiller la croissance du namespace `proxy-inventory` (un seul fichier pour tous les pays) ; l'élagage par `expires_at` et les suppressions transactionnelles le maintiennent à taille raisonnable, mais un très grand nombre de proxys renforcera l'argument pour la future DB.
 - Évaluer MASQUE CONNECT-UDP après la stabilisation du socle UDP et d'une pile Rust HTTP/3 compatible.
 - Ajouter l'orchestration `ExternalTunnel` pour les processus locaux comme obfs4proxy, WebTunnel, les plugins Shadowsocks ou un daemon Tor local.
 - Ajouter les modes d'intégration Tor :
