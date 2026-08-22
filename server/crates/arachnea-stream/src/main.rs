@@ -7,7 +7,7 @@ use std::net::IpAddr;
 
 use arachnea_core::{
     application,
-    controler::{ApplicationMode, CoreApplicationOptions, DEFAULT_SERVER_PORT},
+    controler::{ApplicationMode, CoreApplicationOptions, ServerNetworkMode, DEFAULT_SERVER_PORT},
     persistence::EncryptedFileCredentialsStore
 };
 use arachnea_scrapyfy::*;
@@ -43,6 +43,7 @@ Options:
   --desktop                     Run in desktop application mode (forces mode_server to false)
   --server                      Run in server mode (forces mode_server to true)
   --server-port <PORT>          Override the server port (default: {DEFAULT_SERVER_PORT})
+  --network <MODE>              Client access rule: local, private or public (default: private)
   --entrypoint-root <PATH>      Public root path used before API routes in server mode
   --entrypoint-api <PATH>       Public API path segment used in server mode
   --no-tray                     Disable the server tray icon even when a GUI is available
@@ -57,6 +58,11 @@ Options:
 /// - `--desktop`: forces desktop mode
 /// - `--server`: forces server mode
 /// - `--server-port <port>`: overrides the REST server port
+/// - `--network <local|private|public>`: sets which client connections the
+///   server accepts. `local` binds to loopback only, `private` binds to all
+///   interfaces and rejects clients outside the local network ranges, and
+///   `public` binds to all interfaces and accepts every client. Defaults to
+///   `private`.
 /// - `--current-country <ISO_CODE>`: sets the explicit local country
 /// - `--help`: prints help and exits successfully
 ///
@@ -94,6 +100,13 @@ fn parse_runtime_options() -> Result<CliAction> {
                         format!("invalid value for `--server-port`: `{port}`")
                     })?,
                 );
+            }
+            "--network" => {
+                let value =
+                    args.next().context("missing value for `--network`")?;
+                options.application_option.network_mode = value
+                    .parse::<ServerNetworkMode>()
+                    .map_err(|error| anyhow::anyhow!("invalid value for `--network`: {error}"))?;
             }
             "--entrypoint-root" => {
                 options.application_option.entrypoint_root = Some(

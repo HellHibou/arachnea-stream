@@ -5,6 +5,7 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ## Unreleased
 
 ### Added
+- **Public server binding**: Added the `--server-public` flag to the backend executable. When set, the REST server binds to `0.0.0.0` instead of `127.0.0.1`, making the web interface and API reachable through any local network hostname or IP (for example `http://pc-jeremy:8080/`). It is exposed through `CoreApplicationOptions::server_public` and propagated to the REST controller configuration.
 - **Generic persistence store**: Added `PersistenceStore`, `PersistenceKey`, `PersistedRecord`, `MemoryPersistenceStore`, and `FilePersistenceStore` in `arachnea-core::persistence`. The file backend stores one document per namespace with atomic writes and expired-record pruning on read; JSON remains the default codec, while callers can supply a codec and extension.
 - **Cloudflare session persistence**: `ChaserCfEngine` now persists structured Cloudflare sessions (cookies, user-agent, expiration) through the shared `PersistenceStore` instead of the temporary JSON file. The first browser-strategy refresh may consume a persisted session before requesting a fresh solve; retries after a block stay fresh.
 - **Persistence store propagation**: `StreamScraper::new_with_persistence_store`, `ScraperAgregator::new_with_persistence_store`, `HttpClient::with_http_config_proxy_handle_and_local_country_and_persistence_store`, and `ArachneaHttpClient::new_with_cookie_cache_browser_session_manager_and_persistence_store` now accept a shared `Arc<dyn PersistenceStore>`. `StreamScraper::new` uses the durable file backend; lower-level compatibility constructors retain the in-memory backend.
@@ -20,6 +21,7 @@ All notable changes to the server workspace are recorded here. Add new entries a
   players (HLS/DASH) remain always playable and are not subject to the
   allowlist.
 ### Changed
+- **Server launch URL display**: The REST server startup message now shows `localhost` when bound to a loopback address, and the machine's first non-loopback IPv4 address when bound to an unspecified address (`0.0.0.0`), instead of always printing the raw bound IP.
 - **Optional sprite storyboard dimensions**: Resolver storyboards may now omit `width` and
   `height`. The frontend preloads the first sprite image and derives its cell dimensions from the
   image's natural size and declared grid. Uniform cell separators are removed before rendering,

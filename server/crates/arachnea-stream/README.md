@@ -23,7 +23,7 @@ The crate build script runs Tauri build helpers from this crate root so these fi
 
 ## Commands
 
-- `cd server && cargo run -p arachnea-stream --bin arachnea` - Run the backend executable.
+- `cd server && cargo run -p arachnea-stream --bin arachnea` - Run the backend executable. Add `--server-public` to bind the server to `0.0.0.0` so the web interface and API are reachable through any local network hostname or IP (for example `http://pc-jeremy:8080/`).
 - `cd server && cargo check -p arachnea-stream` - Type-check this crate.
 - `cd server && cargo test -p arachnea-stream` - Run this crate's tests.
 - `cd server/crates/arachnea-stream && cargo tauri build` - Build the Tauri desktop application and release bundles.

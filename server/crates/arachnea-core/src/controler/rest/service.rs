@@ -28,6 +28,11 @@ pub struct RestControlerService {
     socket_addr: std::net::SocketAddr,
     /// Warp router containing all registered routes.
     router: Option<RestRouter>,
+    /// Networks whose clients are allowed to connect to the server.
+    ///
+    /// When non-empty, the server rejects requests from addresses outside these
+    /// networks. This powers `ServerNetworkMode::Private`.
+    allowed_networks: Vec<ipnet::IpNet>,
     /// Parsed entry point root path segments.
     entrypoint_root: Vec<String>,
     /// API path segment mounted under the root prefix.
@@ -75,6 +80,7 @@ impl RestControlerService {
         RestControlerService {
             socket_addr,
             router: None,
+            allowed_networks: configuration.allowed_networks,
             entrypoint_root,
             entrypoint_api: Some(entrypoint_api),
             main_thread_dispatcher,
@@ -157,7 +163,35 @@ impl RestControlerService {
         self.add_route(new_filter);
     }
 
+    /// Builds the client access-control filter.
+    ///
+    /// When networks are configured, the filter rejects requests whose remote
+    /// address does not belong to one of them; otherwise it lets everything
+    /// through. This powers `ServerNetworkMode::Private`.
+    fn make_client_acl_filter(&self) -> BoxedFilter<()> {
+        let networks = self.allowed_networks.clone();
+        if networks.is_empty() {
+            warp::any().boxed()
+        } else {
+            warp::addr::remote()
+                .and_then(move |addr: Option<std::net::SocketAddr>| {
+                    let networks = networks.clone();
+                    async move {
+                        match addr {
+                            Some(addr) if networks.iter().any(|net| net.contains(&addr.ip())) => {
+                                Ok(())
+                            }
+                            _ => Err(warp::reject::not_found()),
+                        }
+                    }
+                })
+                .untuple_one()
+                .boxed()
+        }
+    }
+
     fn add_route(&mut self, route: RestRouter) {
+        let route = self.make_client_acl_filter().and(route).boxed();
         if self.router.is_none() {
             self.router = Some(route);
         } else {
@@ -300,9 +334,27 @@ impl RestControlerService {
                 enpoint = entrypoint_root.join("/");
                 enpoint.push('/')
             }
+            let display_host = if addr.ip().is_loopback() {
+                "localhost".to_string()
+            } else if addr.ip().is_unspecified() {
+                if_addrs::get_if_addrs()
+                    .ok()
+                    .and_then(|interfaces| {
+                        interfaces
+                            .iter()
+                            .find(|iface| {
+                                !iface.is_loopback()
+                                    && matches!(iface.addr, if_addrs::IfAddr::V4(_))
+                            })
+                            .map(|iface| iface.ip().to_string())
+                    })
+                    .unwrap_or_else(|| "localhost".to_string())
+            } else {
+                addr.ip().to_string()
+            };
             println!(
                 "Web Server Application launched: http://{}:{}/{}",
-                addr.ip(),
+                display_host,
                 addr.port(),
                 enpoint
             );

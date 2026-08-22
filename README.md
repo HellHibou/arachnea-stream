@@ -50,7 +50,7 @@ The following commands are available for the Rust backend workspace in `server/`
 
 - `cargo build` - Build the backend workspace.
 - `cargo check --workspace` - Check the backend workspace.
-- `cargo run -p arachnea-stream --bin arachnea` - Build and run the backend executable.
+- `cargo run -p arachnea-stream --bin arachnea` - Build and run the backend executable. Add `--server-public` to bind the server to `0.0.0.0` so the web interface and API are reachable through any local network hostname or IP (for example `http://pc-jeremy:8080/`).
 - `cargo run -p arachnea-dns -- validate-config crates/arachnea-dns/config-sample/system_relay.toml` - Validate a DNS configuration sample.
 - `cargo run -p arachnea-proxy -- validate-config crates/arachnea-proxy/config-sample/direct.toml` - Validate a proxy configuration sample.
 - `cd server/crates/arachnea-stream && cargo tauri build` - Build the Tauri desktop application and generate release bundles.

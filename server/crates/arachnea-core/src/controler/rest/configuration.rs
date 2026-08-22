@@ -16,6 +16,12 @@ pub struct RestControlerConfiguration {
     /// Server IP address. Used when `server_socket` is not set.
     pub(crate) server_ip: Option<std::net::IpAddr>,
 
+    /// Networks whose clients are allowed to connect to the HTTP server.
+    ///
+    /// When non-empty, requests from addresses outside these networks are
+    /// rejected. This powers [`crate::controler::ServerNetworkMode::Private`].
+    pub(crate) allowed_networks: Vec<ipnet::IpNet>,
+
     /// Entry point root path prefix mounted by the HTTP server.
     pub(crate) entrypoint_root: Option<String>,
 
@@ -53,6 +59,22 @@ impl RestControlerConfiguration {
     #[allow(dead_code)]
     pub fn server_ip(mut self, server_ip: std::net::IpAddr) -> Self {
         self.server_ip = Some(server_ip);
+        self
+    }
+
+    /// Sets the networks whose clients are allowed to connect to the server.
+    ///
+    /// When non-empty, requests from addresses outside these networks are
+    /// rejected. An empty list disables client filtering.
+    ///
+    /// # Arguments
+    /// * `allowed_networks` - Networks allowed to reach the server.
+    ///
+    /// # Returns
+    /// The updated configuration.
+    #[allow(dead_code)]
+    pub fn allowed_networks(mut self, allowed_networks: Vec<ipnet::IpNet>) -> Self {
+        self.allowed_networks = allowed_networks;
         self
     }
 

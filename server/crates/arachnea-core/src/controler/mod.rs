@@ -390,6 +390,35 @@ pub enum ApplicationMode {
     Server,
 }
 
+/// Which client connections the REST server accepts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ServerNetworkMode {
+    /// Loopback only: the server binds to `127.0.0.1`.
+    Local,
+    /// Loopback plus the machine's local networks, detected from the interface
+    /// netmasks. The server binds to all interfaces and rejects clients whose
+    /// address does not belong to a local network range.
+    #[default]
+    Private,
+    /// Any network: the server binds to all interfaces and accepts every client.
+    Public,
+}
+
+impl std::str::FromStr for ServerNetworkMode {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "local" => Ok(Self::Local),
+            "private" => Ok(Self::Private),
+            "public" => Ok(Self::Public),
+            _ => Err(format!(
+                "expected one of `local`, `private` or `public`, got `{value}`"
+            )),
+        }
+    }
+}
+
 /// Default runtime mode used when no CLI mode flag is provided.
 ///
 /// In release builds the backend defaults to server mode; in debug builds it
@@ -416,6 +445,12 @@ pub struct CoreApplicationOptions {
     ///
     /// Falls back to [`DEFAULT_SERVER_PORT`] when `None`.
     pub server_port: Option<u16>,
+
+    /// Which client connections the REST server accepts.
+    ///
+    /// Defaults to [`ServerNetworkMode::Private`], which binds to all
+    /// interfaces and only accepts clients belonging to a local network range.
+    pub network_mode: ServerNetworkMode,
     
     /// Optional public root path prefix for server mode.
     pub entrypoint_root: Option<String>,
@@ -468,6 +503,7 @@ impl CoreApplicationOptions {
         Self {
             application_mode,
             server_port,
+            network_mode: ServerNetworkMode::default(),
             entrypoint_root,
             entrypoint_api,
             web_scheme,
@@ -511,6 +547,7 @@ impl Default for CoreApplicationOptions {
         Self {
             application_mode: None,
             server_port: Some(DEFAULT_SERVER_PORT),
+            network_mode: ServerNetworkMode::default(),
             entrypoint_root: None,
             entrypoint_api: Some(DEFAULT_TAURI_API_PREFIX.to_string()),
             web_scheme: Some(DEFAULT_TAURI_WEB_SCHEME.to_string()),
@@ -632,6 +669,20 @@ pub fn create_application_controler_from_config(
             let server_port = options.server_port.unwrap_or(DEFAULT_SERVER_PORT);
             let mut configuration =
                 RestControlerConfiguration::default().server_port(server_port);
+            match options.network_mode {
+                ServerNetworkMode::Local => {}
+                ServerNetworkMode::Private => {
+                    configuration =
+                        configuration.server_ip(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED));
+                    configuration = configuration.allowed_networks(
+                        crate::controler::rest::local_networks(),
+                    );
+                }
+                ServerNetworkMode::Public => {
+                    configuration =
+                        configuration.server_ip(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED));
+                }
+            }
             if let Some(entrypoint_root) = &options.entrypoint_root {
                 configuration = configuration.entrypoint_root(entrypoint_root);
             }
