@@ -6,7 +6,30 @@
 //! and routes errors to a global notification stack.
 
 use arachnea_core::error_code::ArachneaErrorCode;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+/// Freshness status of one source after conditional validation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScraperSourceStatus {
+    /// Remote content changed (or first request) — the source was parsed.
+    Fresh,
+    /// Remote content unchanged (`304` or identical hash) — not parsed.
+    Stale,
+}
+
+/// Per-source conditional-validation outcome attached to an aggregation result.
+///
+/// The `etag` fragment is always up to date, whether the source is fresh or
+/// stale, so callers can rebuild a coherent global ETag from phase-1 results.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScraperSourceValidation {
+    /// Whether the remote content was parsed for this request.
+    pub status: ScraperSourceStatus,
+    /// Up-to-date validator fragment (`E:...` or `C:...`) for this source.
+    pub etag: String,
+}
 
 
 
@@ -84,6 +107,12 @@ pub struct ScraperAggregationResult<T> {
 
     /// Per-source error collection. Empty on full success.
     pub errors: Vec<ScraperExecutionError>,
+
+    /// Per-source conditional-validation outcomes, keyed by source name.
+    ///
+    /// Empty when ETag validation is disabled or unsupported by the operation.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub validations: HashMap<String, ScraperSourceValidation>,
 }
 
 impl<T> ScraperAggregationResult<T> {
@@ -92,12 +121,26 @@ impl<T> ScraperAggregationResult<T> {
         Self {
             data,
             errors: Vec::new(),
+            validations: HashMap::new(),
         }
     }
 
     /// Creates a result from data and a list of errors.
     pub fn new(data: T, errors: Vec<ScraperExecutionError>) -> Self {
-        Self { data, errors }
+        Self {
+            data,
+            errors,
+            validations: HashMap::new(),
+        }
+    }
+
+    /// Attaches per-source validation outcomes to this result.
+    pub fn with_validations(
+        mut self,
+        validations: HashMap<String, ScraperSourceValidation>,
+    ) -> Self {
+        self.validations = validations;
+        self
     }
 
     /// Returns `true` if there are no errors.

@@ -594,3 +594,66 @@ All notable changes to the server workspace are recorded here. Add new entries a
   the `ProxyInventory::with_store`/`load_from_store`/`save_to_store` conveniences were removed;
   their fsync-before-rename behavior moved into `FilePersistenceStore::persist_document`.
   `IpCountrySerdeStore` is unaffected.
+
+## Unreleased — Conditional validation (ETag fragments) and parallel catch-up
+
+### Added
+
+- **Base62 encoding helper**: New `arachnea-core::crypt::base62` module providing reusable
+  base62 encoding of unsigned integers (digits + uppercase + lowercase alphabet), with unit
+  coverage including round-trip validation.
+- **Conditional request primitives**: New `arachnea-scrapyfy::conditional` module with validator
+  fragments (`E:<etag>` for HTTP ETags, `C:<last_modified>-<hash>` for content hashes, `N:` for
+  sources without remote validators), full XXH3-128 digests encoded in base62 without truncation
+  (`xxhash-rust`, feature `xxh3`, plus the shared base62 encoder), fragment build/parse helpers,
+  and a `ValidationSlot` carrying the incoming client fragment plus the recorded root-fetch
+  outcome.
+- **Root conditional fetch**: The unified query executor applies `If-None-Match` /
+  `If-Modified-Since` headers to each source's root request when a client fragment is provided,
+  detects `304 Not Modified` or an identical content hash (including browser-driven
+  `page_navigate` queries via hash comparison), records the up-to-date fragment, and skips parsing
+  entirely on unchanged content. Sub-queries never receive conditional headers.
+- **Per-source validations in the envelope**: `ScraperAggregationResult` gained a `validations`
+  map (`ScraperSourceValidation { status: fresh|stale, etag }`) populated by
+  `execute_query_async`, which now accepts optional per-source client fragments.
+- **Global ETag layer**: New `arachnea-stream::stream_etag` module building the deterministic
+  global ETag (`[S:<hash services>;]<fragment>;...` over alphabetically sorted service names,
+  the `S:` hash using the same full XXH3-128/base62 helper) and decoding client ETags back into
+  per-source fragments by position, rejecting stale or mismatched service lists through the
+  `S:` block.
+- **Parallel validation + catch-up orchestration**: `StreamScraper::execute_query_with_etag`
+  runs phase 1 (parallel conditional validation of every involved source), short-circuits to an
+  empty payload when every source is stale and the rebuilt global ETag matches the client's
+  `If-None-Match`, then runs phase 2 (forced full GETs restricted to stale sources) merging rows
+  into the aggregate while keeping phase-1 fragments for the response ETag.
+- **Header-aware JSON commands**: New controller contract (`register_json_function`,
+  `ControlerJsonInput`/`ControlerJsonOutput`, `register_etag_result_function[_with_state]`)
+  exposing request headers to JSON commands and letting them answer `304 Not Modified` (empty
+  body) or attach an `ETag` response header. Implemented by both the REST (Warp) and Tauri
+  backends; Tauri passes empty headers since IPC carries no conditional validation.
+- **ETag-enabled catalog commands**: `search`, `load_home`, `get_service`, `list_lives`,
+  `get_category`, `get_section`, `get_banners`, `get_players`, `get_entry`, `get_season`, and
+  `get_live` accept optional `arachneaEtag` / `enableEtag` parameters (validation enabled by
+  default) and are registered through the header-aware contract.
+
+### Changed
+
+- **REST bridge switched to GET**: The frontend `call_api` REST path now issues GET requests with
+  every parameter JSON-encoded into the query string; the backend query-string deserializer
+  JSON-decodes values starting with `[`, `{`, or `"` so complex parameters round-trip unchanged.
+  Repeated keys collapse into arrays. The Tauri invoke path is unchanged.
+- **Frontend ETag cache**: `call_api` caches the backend `ETag` per command + serialized
+  parameters, replays it as `If-None-Match`, and resolves `304 Not Modified` responses from the
+  cached envelope without touching the network payload.
+
+### Fixed
+
+- **Deterministic aggregation fragments**: Sources without a recorded validation outcome (static
+  or fetch-less queries) contribute a stable `N:` fallback fragment derived from the source name,
+  keeping the global ETag identical across identical requests.
+- **Parameterless REST GET commands**: REST command routes now accept a missing query string as
+  an empty payload. ETag-enabled calls such as `load_home`, `get_service`, and `list_lives` no
+  longer fail with `400 Bad Request - Invalid query string` when invoked without parameters.
+- **Typed REST GET scalar parameters**: Query-string values that are valid JSON scalars are now
+  deserialized as their native JSON types. Numeric parameters such as `get_section.page` no
+  longer reach Rust as strings and fail `usize` deserialization.

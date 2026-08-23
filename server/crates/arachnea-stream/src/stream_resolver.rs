@@ -246,6 +246,7 @@ impl<'a> StreamResolver<'a> {
                 None,
                 None,
                 "resolve_stream",
+                None,
             )
             .await
             .data;
@@ -475,6 +476,7 @@ impl<'a> StreamResolver<'a> {
                 None,
                 None,
                 "can_resolve_html",
+                None,
             )
             .await
             .data;
@@ -502,6 +504,7 @@ impl<'a> StreamResolver<'a> {
                 None,
                 None,
                 "can_resolve_url",
+                None,
             )
             .await
             .data;

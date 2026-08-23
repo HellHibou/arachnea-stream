@@ -89,6 +89,7 @@ impl ScrapyfyIpCountryDataProvider {
                     None,
                     None,
                     "resolve_ip_country",
+                    None,
                 )
                 .await;
 
@@ -143,6 +144,7 @@ impl IpCountryDataProvider for ScrapyfyIpCountryDataProvider {
                 None,
                 None,
                 "resolve_ip_country",
+                None,
             )
             .await
             .data;
@@ -175,6 +177,7 @@ impl IpCountryDataProvider for ScrapyfyIpCountryDataProvider {
                 None,
                 None,
                 "resolve_current_country",
+                None,
             )
             .await
             .data;

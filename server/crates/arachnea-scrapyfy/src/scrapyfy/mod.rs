@@ -3,6 +3,14 @@ use std::collections::HashMap;
 /// The default directory for scraper service configuration files.
 pub const DEFAULT_SERVICES_DIRECTORY: &str = "services";
 
+/// Conditional request validation primitives (ETag fragments).
+pub mod conditional;
+pub use conditional::{
+    conditional_from_fragment, fragment_from_response, hash62, ConditionalRequest,
+    CONTENT_FRAGMENT_PREFIX, ETAG_FRAGMENT_PREFIX, NO_VALIDATION_PREFIX, RootFetchOutcome,
+    ValidationSlot,
+};
+
 /// Tree-shaped output node model used by all scraper pipelines.
 pub mod scraper_data_node;
 

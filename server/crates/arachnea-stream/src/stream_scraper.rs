@@ -13,7 +13,10 @@ use arachnea_core::{
     persistence::{CredentialsStore, FileCredentialsStore, FilePersistenceStore, PersistenceStore},
 };
 use arachnea_proxy::core::{ArachneaProxyCore, ProxyConfig};
-use arachnea_scrapyfy::{scraper_result::ScraperAggregationResult, *};
+use arachnea_scrapyfy::{
+    scraper_result::{ScraperAggregationResult, ScraperSourceStatus},
+    *,
+};
 
 use crate::services::{
     francetv_resolver::FrancetvResolver,
@@ -23,6 +26,7 @@ use crate::services::{
     rtlplay_resolver::RtlPlayResolver,
     tf1_resolver::Tf1Resolver,
 };
+use crate::stream_etag::{build_global_etag, decode_client_fragments};
 use crate::stream_resolver::{
     ResolvedStream, StreamResolver, GENERIC_STREAM_RESOLVER_ID, STREAM_RESOLVER_CONFIG_PATH,
     STREAM_RESOLVER_GROUP_NAME,
@@ -52,6 +56,11 @@ fn default_page() -> usize {
     1
 }
 
+/// Returns `true` — conditional ETag validation is enabled by default.
+fn default_enable_etag() -> bool {
+    true
+}
+
 #[derive(Serialize, Deserialize)]
 struct SearchRequest {
     query: String,
@@ -63,12 +72,24 @@ struct SearchRequest {
     themes: Vec<String>,
     #[serde(default, alias = "sourceParams")]
     source_params: Vec<SourceParamsRequestEntry>,
+    /// Client-provided global ETag (`If-None-Match`) for conditional validation.
+    #[serde(default, alias = "arachneaEtag")]
+    arachnea_etag: Option<String>,
+    /// Whether conditional ETag validation is enabled for this request.
+    #[serde(default = "default_enable_etag", alias = "enableEtag")]
+    enable_etag: bool,
 }
 
 #[derive(Serialize, Deserialize)]
 struct GetEntryRequest {
     entry: String,
     source: String,
+    /// Client-provided global ETag (`If-None-Match`) for conditional validation.
+    #[serde(default, alias = "arachneaEtag")]
+    arachnea_etag: Option<String>,
+    /// Whether conditional ETag validation is enabled for this request.
+    #[serde(default = "default_enable_etag", alias = "enableEtag")]
+    enable_etag: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -77,15 +98,34 @@ struct GetSeasonRequest {
     source: String,
     #[serde(default = "default_page")]
     page: usize,
+    /// Client-provided global ETag (`If-None-Match`) for conditional validation.
+    #[serde(default, alias = "arachneaEtag")]
+    arachnea_etag: Option<String>,
+    /// Whether conditional ETag validation is enabled for this request.
+    #[serde(default = "default_enable_etag", alias = "enableEtag")]
+    enable_etag: bool,
 }
 
 #[derive(Serialize, Deserialize)]
-struct ListLivesRequest {}
+struct ListLivesRequest {
+    /// Client-provided global ETag (`If-None-Match`) for conditional validation.
+    #[serde(default, alias = "arachneaEtag")]
+    arachnea_etag: Option<String>,
+    /// Whether conditional ETag validation is enabled for this request.
+    #[serde(default = "default_enable_etag", alias = "enableEtag")]
+    enable_etag: bool,
+}
 
 #[derive(Serialize, Deserialize)]
 struct GetLiveRequest {
     channel: String,
     source: String,
+    /// Client-provided global ETag (`If-None-Match`) for conditional validation.
+    #[serde(default, alias = "arachneaEtag")]
+    arachnea_etag: Option<String>,
+    /// Whether conditional ETag validation is enabled for this request.
+    #[serde(default = "default_enable_etag", alias = "enableEtag")]
+    enable_etag: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -95,10 +135,24 @@ struct GetStreamRequest {
 }
 
 #[derive(Default, Serialize, Deserialize)]
-struct LoadHomeRequest {}
+struct LoadHomeRequest {
+    /// Client-provided global ETag (`If-None-Match`) for conditional validation.
+    #[serde(default, alias = "arachneaEtag")]
+    arachnea_etag: Option<String>,
+    /// Whether conditional ETag validation is enabled for this request.
+    #[serde(default = "default_enable_etag", alias = "enableEtag")]
+    enable_etag: bool,
+}
 
 #[derive(Default, Serialize, Deserialize)]
-struct GetServiceRequest {}
+struct GetServiceRequest {
+    /// Client-provided global ETag (`If-None-Match`) for conditional validation.
+    #[serde(default, alias = "arachneaEtag")]
+    arachnea_etag: Option<String>,
+    /// Whether conditional ETag validation is enabled for this request.
+    #[serde(default = "default_enable_etag", alias = "enableEtag")]
+    enable_etag: bool,
+}
 
 #[derive(Serialize, Deserialize)]
 struct GetCategoryRequest {
@@ -110,6 +164,12 @@ struct GetCategoryRequest {
     page: usize,
     #[serde(default, alias = "sourceParams")]
     source_params: Vec<SourceParamsRequestEntry>,
+    /// Client-provided global ETag (`If-None-Match`) for conditional validation.
+    #[serde(default, alias = "arachneaEtag")]
+    arachnea_etag: Option<String>,
+    /// Whether conditional ETag validation is enabled for this request.
+    #[serde(default = "default_enable_etag", alias = "enableEtag")]
+    enable_etag: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -122,6 +182,12 @@ struct GetSectionRequest {
     page: usize,
     #[serde(default, alias = "sourceParams")]
     source_params: Vec<SourceParamsRequestEntry>,
+    /// Client-provided global ETag (`If-None-Match`) for conditional validation.
+    #[serde(default, alias = "arachneaEtag")]
+    arachnea_etag: Option<String>,
+    /// Whether conditional ETag validation is enabled for this request.
+    #[serde(default = "default_enable_etag", alias = "enableEtag")]
+    enable_etag: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -130,6 +196,12 @@ struct GetBannersRequest {
     source: String,
     #[serde(default)]
     link: String,
+    /// Client-provided global ETag (`If-None-Match`) for conditional validation.
+    #[serde(default, alias = "arachneaEtag")]
+    arachnea_etag: Option<String>,
+    /// Whether conditional ETag validation is enabled for this request.
+    #[serde(default = "default_enable_etag", alias = "enableEtag")]
+    enable_etag: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -138,6 +210,12 @@ struct GetPlayersRequest {
     source: String,
     #[serde(default)]
     link: String,
+    /// Client-provided global ETag (`If-None-Match`) for conditional validation.
+    #[serde(default, alias = "arachneaEtag")]
+    arachnea_etag: Option<String>,
+    /// Whether conditional ETag validation is enabled for this request.
+    #[serde(default = "default_enable_etag", alias = "enableEtag")]
+    enable_etag: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -316,6 +394,142 @@ impl StreamScraper {
         }
     }
 
+    /// Executes an aggregated query with optional conditional ETag validation.
+    ///
+    /// When enabled, phase 1 validates every involved source in parallel using
+    /// the client fragments decoded from the incoming global ETag; unchanged
+    /// sources skip parsing entirely. A second pass re-fetches stale sources
+    /// without conditional headers so the aggregated payload stays complete.
+    /// The returned global ETag is always built from the phase-1 fragments.
+    ///
+    /// # Arguments
+    ///
+    /// * `arachnea_etag` - Incoming client global ETag (`If-None-Match`), when any.
+    /// * `enable_etag` - Whether conditional validation is enabled for this request.
+    ///
+    /// # Returns
+    ///
+    /// The aggregation result alongside the up-to-date global ETag (`None`
+    /// when validation is disabled or no service is involved).
+    #[allow(clippy::too_many_arguments)]
+    async fn execute_query_with_etag(
+        &self,
+        group_name: &str,
+        query_name: &str,
+        params: &HashMap<String, String>,
+        source_params: Option<&ScraperSourceParams>,
+        scrapper_list: Option<&Vec<String>>,
+        query_media_type_filter: Option<&Vec<String>>,
+        fields_filters: Option<&HashMap<String, Vec<String>>>,
+        source_field_name: Option<&str>,
+        operation: &str,
+        arachnea_etag: Option<String>,
+        enable_etag: bool,
+    ) -> Result<(
+        ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>>,
+        Option<String>,
+    )> {
+        if !enable_etag {
+            let result = self
+                .scraper_agregator
+                .execute_query_async(
+                    group_name,
+                    query_name,
+                    params,
+                    source_params,
+                    scrapper_list,
+                    query_media_type_filter,
+                    fields_filters,
+                    source_field_name,
+                    operation,
+                    None,
+                )
+                .await;
+            return Ok((result, None));
+        }
+
+        // Deterministic ordered service list involved in this request.
+        let mut services: Vec<String> = match scrapper_list {
+            Some(list) => list.clone(),
+            None => self.scraper_agregator.source_names_in_group(group_name),
+        };
+        services.retain(|name| !name.trim().is_empty());
+        services.sort();
+        services.dedup();
+        let service_refs: Vec<&str> = services.iter().map(String::as_str).collect();
+
+        // Phase 1: parallel conditional validation per source.
+        let client_fragments = arachnea_etag
+            .as_deref()
+            .and_then(|etag| decode_client_fragments(etag, &service_refs));
+
+        let mut result = self
+            .scraper_agregator
+            .execute_query_async(
+                group_name,
+                query_name,
+                params,
+                source_params,
+                scrapper_list,
+                query_media_type_filter,
+                fields_filters,
+                source_field_name,
+                operation,
+                client_fragments.as_ref(),
+            )
+            .await;
+
+        let etag_fragments: HashMap<String, String> = result
+            .validations
+            .iter()
+            .map(|(name, validation)| (name.clone(), validation.etag.clone()))
+            .collect();
+        let global_etag = build_global_etag(&service_refs, &etag_fragments);
+
+        // Full 304 short-circuit: every validated source is stale and the
+        // rebuilt global ETag matches what the client sent — no data needed.
+        let all_stale = !result.validations.is_empty()
+            && result
+                .validations
+                .values()
+                .all(|validation| validation.status == ScraperSourceStatus::Stale);
+        if all_stale && global_etag.is_some() && global_etag == arachnea_etag {
+            return Ok((result, global_etag));
+        }
+
+        // Phase 2: forced full GETs for stale sources only, merging their
+        // freshly parsed rows into the aggregate. The global ETag keeps the
+        // phase-1 fragments — they already describe the current remote state.
+        let stale_sources: Vec<String> = result
+            .validations
+            .iter()
+            .filter(|(_, validation)| validation.status == ScraperSourceStatus::Stale)
+            .map(|(name, _)| name.clone())
+            .collect();
+
+        if !stale_sources.is_empty() {
+            let catch_up = self
+                .scraper_agregator
+                .execute_query_async(
+                    group_name,
+                    query_name,
+                    params,
+                    source_params,
+                    Some(&stale_sources),
+                    query_media_type_filter,
+                    fields_filters,
+                    source_field_name,
+                    operation,
+                    None,
+                )
+                .await;
+            result.data.extend(catch_up.data);
+            result.errors.extend(catch_up.errors);
+        }
+
+        Ok((result, global_etag))
+    }
+
     /// Executes the `search` query using URL-encoded terms.
     ///
     /// # Arguments
@@ -325,6 +539,12 @@ impl StreamScraper {
     /// * `themes` - Optional theme filters applied to scraped results.
     /// * `page` - 1-based page number requested by the caller.
     /// * `source_params` - Source-specific runtime parameters returned by the previous page.
+    /// * `arachnea_etag` - Incoming client global ETag for conditional validation.
+    /// * `enable_etag` - Whether conditional ETag validation is enabled.
+    ///
+    /// # Returns
+    ///
+    /// The aggregation result alongside the up-to-date global ETag.
     pub async fn search(
         &self,
         query: String,
@@ -332,7 +552,12 @@ impl StreamScraper {
         themes: Vec<String>,
         page: usize,
         source_params: ScraperSourceParams,
-    ) -> Result<ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>>> {
+        arachnea_etag: Option<String>,
+        enable_etag: bool,
+    ) -> Result<(
+        ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>>,
+        Option<String>,
+    )> {
         let page = page.max(1);
         let scrapper_list = if page > 1 && !source_params.is_empty() {
             Some(source_params.keys().cloned().collect::<Vec<_>>())
@@ -358,20 +583,20 @@ impl StreamScraper {
             Some(&media_types)
         };
 
-        Ok(self
-            .scraper_agregator
-            .execute_query_async(
-                STREAM_SERVICE_GROUP_NAME,
-                "search",
-                &params,
-                Some(&source_params),
-                scrapper_list.as_ref(),
-                media,
-                None,
-                None,
-                "search",
-            )
-            .await)
+        self.execute_query_with_etag(
+            STREAM_SERVICE_GROUP_NAME,
+            "search",
+            &params,
+            Some(&source_params),
+            scrapper_list.as_ref(),
+            media,
+            None,
+            None,
+            "search",
+            arachnea_etag,
+            enable_etag,
+        )
+        .await
     }
 
     /// Convenience helper for the `get_entry` query using the provided absolute entry URL.
@@ -380,6 +605,12 @@ impl StreamScraper {
     ///
     /// * `query_source` - Query source name.
     /// * `query_url` - Absolute URL of the entry page to fetch.
+    /// * `arachnea_etag` - Incoming client global ETag for conditional validation.
+    /// * `enable_etag` - Whether conditional ETag validation is enabled.
+    ///
+    /// # Returns
+    ///
+    /// The aggregation result alongside the up-to-date global ETag.
     ///
     /// # Errors
     ///
@@ -388,16 +619,20 @@ impl StreamScraper {
         &self,
         query_source: String,
         query_url: String,
-    ) -> Result<ScraperAggregationResult<HashMap<String, ScraperDataNode>>> {
+        arachnea_etag: Option<String>,
+        enable_etag: bool,
+    ) -> Result<(
+        ScraperAggregationResult<HashMap<String, ScraperDataNode>>,
+        Option<String>,
+    )> {
         let mut params: HashMap<String, String> = HashMap::new();
         params.insert("query_url".to_string(), query_url);
         self.enrich_runtime_params(&mut params);
 
         let scrapper_list = vec![query_source];
 
-        let result = self
-            .scraper_agregator
-            .execute_query_async(
+        let (result, global_etag) = self
+            .execute_query_with_etag(
                 STREAM_SERVICE_GROUP_NAME,
                 "get_entry",
                 &params,
@@ -407,8 +642,10 @@ impl StreamScraper {
                 None,
                 None,
                 "get_entry",
+                arachnea_etag,
+                enable_etag,
             )
-            .await;
+            .await?;
 
         let mut root = ScraperDataNode {
             children: result.data.into_iter().next().unwrap_or_default(),
@@ -416,7 +653,11 @@ impl StreamScraper {
         };
         populate_stream_resolver_web_links(&mut root);
 
-        Ok(ScraperAggregationResult::new(root.children, result.errors))
+        Ok((
+            ScraperAggregationResult::new(root.children, result.errors)
+                .with_validations(result.validations),
+            global_etag,
+        ))
     }
 
     /// Convenience helper for the `get_season` query using the provided absolute season URL.
@@ -426,6 +667,12 @@ impl StreamScraper {
     /// * `query_source` - Query source name.
     /// * `query_url` - Absolute URL of the season payload to fetch.
     /// * `page` - 1-based page number requested from the backend source.
+    /// * `arachnea_etag` - Incoming client global ETag for conditional validation.
+    /// * `enable_etag` - Whether conditional ETag validation is enabled.
+    ///
+    /// # Returns
+    ///
+    /// The aggregation result alongside the up-to-date global ETag.
     ///
     /// # Errors
     ///
@@ -435,7 +682,12 @@ impl StreamScraper {
         query_source: String,
         query_url: String,
         page: usize,
-    ) -> Result<ScraperAggregationResult<HashMap<String, ScraperDataNode>>> {
+        arachnea_etag: Option<String>,
+        enable_etag: bool,
+    ) -> Result<(
+        ScraperAggregationResult<HashMap<String, ScraperDataNode>>,
+        Option<String>,
+    )> {
         let mut params: HashMap<String, String> = HashMap::new();
         params.insert("query_url".to_string(), query_url);
         params.insert("page".to_string(), page.max(1).to_string());
@@ -443,9 +695,8 @@ impl StreamScraper {
 
         let scrapper_list = vec![query_source];
 
-        let result = self
-            .scraper_agregator
-            .execute_query_async(
+        let (result, global_etag) = self
+            .execute_query_with_etag(
                 STREAM_SERVICE_GROUP_NAME,
                 "get_season",
                 &params,
@@ -455,37 +706,55 @@ impl StreamScraper {
                 None,
                 None,
                 "get_season",
+                arachnea_etag,
+                enable_etag,
             )
-            .await;
+            .await?;
 
-        Ok(ScraperAggregationResult::new(
-            result.data.into_iter().next().unwrap_or_default(),
-            result.errors,
+        Ok((
+            ScraperAggregationResult::new(
+                result.data.into_iter().next().unwrap_or_default(),
+                result.errors,
+            )
+            .with_validations(result.validations),
+            global_etag,
         ))
     }
 
     /// Loads the aggregated live catalog across every configured source.
+    ///
+    /// # Arguments
+    ///
+    /// * `arachnea_etag` - Incoming client global ETag for conditional validation.
+    /// * `enable_etag` - Whether conditional ETag validation is enabled.
+    ///
+    /// # Returns
+    ///
+    /// The aggregation result alongside the up-to-date global ETag.
     pub async fn list_lives(
         &self,
-    ) -> Result<ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>>> {
+        arachnea_etag: Option<String>,
+        enable_etag: bool,
+    ) -> Result<(
+        ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>>,
+        Option<String>,
+    )> {
         let mut params: HashMap<String, String> = HashMap::new();
         self.enrich_runtime_params(&mut params);
-        let result = self
-            .scraper_agregator
-            .execute_query_async(
-                STREAM_SERVICE_GROUP_NAME,
-                "list_lives",
-                &params,
-                None,
-                None,
-                None,
-                None,
-                Some("source"),
-                "list_lives",
-            )
-            .await;
-
-        Ok(result)
+        self.execute_query_with_etag(
+            STREAM_SERVICE_GROUP_NAME,
+            "list_lives",
+            &params,
+            None,
+            None,
+            None,
+            None,
+            Some("source"),
+            "list_lives",
+            arachnea_etag,
+            enable_etag,
+        )
+        .await
     }
 
     /// Loads one live payload for the provided source and channel identifier.
@@ -494,6 +763,12 @@ impl StreamScraper {
     ///
     /// * `query_source` - Query source name.
     /// * `channel` - Source-specific live channel identifier.
+    /// * `arachnea_etag` - Incoming client global ETag for conditional validation.
+    /// * `enable_etag` - Whether conditional ETag validation is enabled.
+    ///
+    /// # Returns
+    ///
+    /// The aggregation result alongside the up-to-date global ETag.
     ///
     /// # Errors
     ///
@@ -502,16 +777,20 @@ impl StreamScraper {
         &self,
         query_source: String,
         channel: String,
-    ) -> Result<ScraperAggregationResult<HashMap<String, ScraperDataNode>>> {
+        arachnea_etag: Option<String>,
+        enable_etag: bool,
+    ) -> Result<(
+        ScraperAggregationResult<HashMap<String, ScraperDataNode>>,
+        Option<String>,
+    )> {
         let mut params: HashMap<String, String> = HashMap::new();
         params.insert("channel".to_string(), channel);
         self.enrich_runtime_params(&mut params);
 
         let scrapper_list = vec![query_source];
 
-        let result = self
-            .scraper_agregator
-            .execute_query_async(
+        let (result, global_etag) = self
+            .execute_query_with_etag(
                 STREAM_SERVICE_GROUP_NAME,
                 "get_live",
                 &params,
@@ -521,38 +800,64 @@ impl StreamScraper {
                 None,
                 None,
                 "get_live",
+                arachnea_etag,
+                enable_etag,
             )
-            .await;
+            .await?;
 
-        Ok(ScraperAggregationResult::new(
-            result.data.into_iter().next().unwrap_or_default(),
-            result.errors,
+        Ok((
+            ScraperAggregationResult::new(
+                result.data.into_iter().next().unwrap_or_default(),
+                result.errors,
+            )
+            .with_validations(result.validations),
+            global_etag,
         ))
     }
 
     /// Loads the aggregated home catalog across every configured source.
+    ///
+    /// # Arguments
+    ///
+    /// * `arachnea_etag` - Incoming client global ETag for conditional validation.
+    /// * `enable_etag` - Whether conditional ETag validation is enabled.
+    ///
+    /// # Returns
+    ///
+    /// The aggregation result alongside the up-to-date global ETag.
     pub async fn load_home(
         &self,
-    ) -> Result<ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>>> {
+        arachnea_etag: Option<String>,
+        enable_etag: bool,
+    ) -> Result<(
+        ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>>,
+        Option<String>,
+    )> {
         let mut params: HashMap<String, String> = HashMap::new();
         self.enrich_runtime_params(&mut params);
-        Ok(self
-            .scraper_agregator
-            .execute_query_async(
-                STREAM_SERVICE_GROUP_NAME,
-                "load_home",
-                &params,
-                None,
-                None,
-                None,
-                None,
-                Some("source"),
-                "load_home",
-            )
-            .await)
+        self.execute_query_with_etag(
+            STREAM_SERVICE_GROUP_NAME,
+            "load_home",
+            &params,
+            None,
+            None,
+            None,
+            None,
+            Some("source"),
+            "load_home",
+            arachnea_etag,
+            enable_etag,
+        )
+        .await
     }
 
     /// Loads display metadata for every configured source.
+    ///
+    /// # Arguments
+    ///
+    /// # Returns
+    ///
+    /// The aggregation result for every configured source.
     pub async fn get_service(
         &self,
     ) -> Result<ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>>> {
@@ -571,6 +876,7 @@ impl StreamScraper {
                 None,
                 None,
                 "service_stream_metadata",
+                None,
             )
             .await)
     }
@@ -582,6 +888,12 @@ impl StreamScraper {
     /// * `sources` - Source descriptors returned under `category.sources` by `load_home`.
     /// * `page` - 1-based page number requested from the backend source.
     /// * `source_params` - Optional per-source runtime parameters overriding global values.
+    /// * `arachnea_etag` - Incoming client global ETag for conditional validation.
+    /// * `enable_etag` - Whether conditional ETag validation is enabled.
+    ///
+    /// # Returns
+    ///
+    /// The aggregation result alongside the up-to-date global ETag.
     ///
     /// # Errors
     ///
@@ -591,7 +903,12 @@ impl StreamScraper {
         sources: Vec<HashMap<String, String>>,
         page: usize,
         source_params: ScraperSourceParams,
-    ) -> Result<ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>>> {
+        arachnea_etag: Option<String>,
+        enable_etag: bool,
+    ) -> Result<(
+        ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>>,
+        Option<String>,
+    )> {
         let page = page.max(1);
         let mut source_params = source_params;
         let mut scrapper_list = Vec::new();
@@ -624,20 +941,20 @@ impl StreamScraper {
         params.insert("page".to_string(), page.to_string());
         self.enrich_runtime_params(&mut params);
 
-        Ok(self
-            .scraper_agregator
-            .execute_query_async(
-                STREAM_SERVICE_GROUP_NAME,
-                "get_category",
-                &params,
-                Some(&source_params),
-                Some(&scrapper_list),
-                None,
-                None,
-                Some("source"),
-                "get_category",
-            )
-            .await)
+        self.execute_query_with_etag(
+            STREAM_SERVICE_GROUP_NAME,
+            "get_category",
+            &params,
+            Some(&source_params),
+            Some(&scrapper_list),
+            None,
+            None,
+            Some("source"),
+            "get_category",
+            arachnea_etag,
+            enable_etag,
+        )
+        .await
     }
 
     /// Loads one paged section payload for the provided source and section link.
@@ -648,13 +965,24 @@ impl StreamScraper {
     /// * `query_url` - Source-specific section URL or API endpoint.
     /// * `page` - 1-based page number requested from the backend source.
     /// * `source_params` - Optional per-source runtime parameters overriding global values.
+    /// * `arachnea_etag` - Incoming client global ETag for conditional validation.
+    /// * `enable_etag` - Whether conditional ETag validation is enabled.
+    ///
+    /// # Returns
+    ///
+    /// The aggregation result alongside the up-to-date global ETag.
     pub async fn get_section(
         &self,
         query_source: String,
         query_url: String,
         page: usize,
         mut source_params: ScraperSourceParams,
-    ) -> Result<ScraperAggregationResult<HashMap<String, ScraperDataNode>>> {
+        arachnea_etag: Option<String>,
+        enable_etag: bool,
+    ) -> Result<(
+        ScraperAggregationResult<HashMap<String, ScraperDataNode>>,
+        Option<String>,
+    )> {
         let mut params: HashMap<String, String> = HashMap::new();
         params.insert("page".to_string(), page.max(1).to_string());
         self.enrich_runtime_params(&mut params);
@@ -680,9 +1008,8 @@ impl StreamScraper {
             None
         };
 
-        let result = self
-            .scraper_agregator
-            .execute_query_async(
+        let (result, global_etag) = self
+            .execute_query_with_etag(
                 STREAM_SERVICE_GROUP_NAME,
                 "get_section",
                 &params,
@@ -692,8 +1019,10 @@ impl StreamScraper {
                 None,
                 Some("source"),
                 "get_section",
+                arachnea_etag,
+                enable_etag,
             )
-            .await;
+            .await?;
 
         let mut root = ScraperDataNode::default();
         for row in result.data {
@@ -704,7 +1033,11 @@ impl StreamScraper {
         }
         root.keep_first_values();
 
-        Ok(ScraperAggregationResult::new(root.children, result.errors))
+        Ok((
+            ScraperAggregationResult::new(root.children, result.errors)
+                .with_validations(result.validations),
+            global_etag,
+        ))
     }
 
     /// Loads banners for the provided source and banner link.
@@ -713,11 +1046,22 @@ impl StreamScraper {
     ///
     /// * `query_source` - Query source name.
     /// * `query_url` - Source-specific banner URL or API endpoint.
+    /// * `arachnea_etag` - Incoming client global ETag for conditional validation.
+    /// * `enable_etag` - Whether conditional ETag validation is enabled.
+    ///
+    /// # Returns
+    ///
+    /// The aggregation result alongside the up-to-date global ETag.
     pub async fn get_banners(
         &self,
         query_source: String,
         query_url: String,
-    ) -> Result<ScraperAggregationResult<HashMap<String, ScraperDataNode>>> {
+        arachnea_etag: Option<String>,
+        enable_etag: bool,
+    ) -> Result<(
+        ScraperAggregationResult<HashMap<String, ScraperDataNode>>,
+        Option<String>,
+    )> {
         let mut params: HashMap<String, String> = HashMap::new();
         self.enrich_runtime_params(&mut params);
 
@@ -732,9 +1076,8 @@ impl StreamScraper {
             Some(vec![query_source])
         };
 
-        let result = self
-            .scraper_agregator
-            .execute_query_async(
+        let (result, global_etag) = self
+            .execute_query_with_etag(
                 STREAM_SERVICE_GROUP_NAME,
                 "get_banners",
                 &params,
@@ -744,8 +1087,10 @@ impl StreamScraper {
                 None,
                 Some("source"),
                 "get_banners",
+                arachnea_etag,
+                enable_etag,
             )
-            .await;
+            .await?;
 
         let mut root = ScraperDataNode::default();
         for row in result.data {
@@ -756,7 +1101,11 @@ impl StreamScraper {
         }
         root.keep_first_values();
 
-        Ok(ScraperAggregationResult::new(root.children, result.errors))
+        Ok((
+            ScraperAggregationResult::new(root.children, result.errors)
+                .with_validations(result.validations),
+            global_etag,
+        ))
     }
 
     /// Loads players for the provided source and player link.
@@ -765,11 +1114,22 @@ impl StreamScraper {
     ///
     /// * `query_source` - Query source name.
     /// * `query_url` - Source-specific player URL or API endpoint.
+    /// * `arachnea_etag` - Incoming client global ETag for conditional validation.
+    /// * `enable_etag` - Whether conditional ETag validation is enabled.
+    ///
+    /// # Returns
+    ///
+    /// The aggregation result alongside the up-to-date global ETag.
     pub async fn get_players(
         &self,
         query_source: String,
         query_url: String,
-    ) -> Result<ScraperAggregationResult<HashMap<String, ScraperDataNode>>> {
+        arachnea_etag: Option<String>,
+        enable_etag: bool,
+    ) -> Result<(
+        ScraperAggregationResult<HashMap<String, ScraperDataNode>>,
+        Option<String>,
+    )> {
         let mut params: HashMap<String, String> = HashMap::new();
         self.enrich_runtime_params(&mut params);
 
@@ -784,9 +1144,8 @@ impl StreamScraper {
             Some(vec![query_source])
         };
 
-        let result = self
-            .scraper_agregator
-            .execute_query_async(
+        let (result, global_etag) = self
+            .execute_query_with_etag(
                 STREAM_SERVICE_GROUP_NAME,
                 "get_players",
                 &params,
@@ -796,8 +1155,10 @@ impl StreamScraper {
                 None,
                 Some("source"),
                 "get_players",
+                arachnea_etag,
+                enable_etag,
             )
-            .await;
+            .await?;
 
         let mut root = ScraperDataNode::default();
         for row in result.data {
@@ -809,7 +1170,11 @@ impl StreamScraper {
         root.keep_first_values();
         populate_stream_resolver_web_links(&mut root);
 
-        Ok(ScraperAggregationResult::new(root.children, result.errors))
+        Ok((
+            ScraperAggregationResult::new(root.children, result.errors)
+                .with_validations(result.validations),
+            global_etag,
+        ))
     }
 
     async fn get_stream(
@@ -990,10 +1355,10 @@ impl ScraperManager for StreamScraper {
 
         let connector = Arc::new(self);
 
-        controler.register_result_function_with_state(
+        controler.register_etag_result_function_with_state(
             "search",
             Arc::clone(&connector),
-            |scraper, input: SearchRequest| async move {
+            |scraper, input: SearchRequest, _headers| async move {
                 scraper
                     .search(
                         input.query,
@@ -1001,97 +1366,145 @@ impl ScraperManager for StreamScraper {
                         input.themes,
                         input.page,
                         source_params_from_entries(input.source_params),
+                        input.arachnea_etag,
+                        input.enable_etag,
                     )
                     .await
             },
         );
 
-        controler.register_result_function_with_state(
+        controler.register_etag_result_function_with_state(
             "load_home",
             Arc::clone(&connector),
-            |scraper, _input: LoadHomeRequest| async move { scraper.load_home().await },
+            |scraper, input: LoadHomeRequest, _headers| async move {
+                scraper.load_home(input.arachnea_etag, input.enable_etag).await
+            },
         );
 
         controler.register_result_function_with_state(
             "get_service",
             Arc::clone(&connector),
-            |scraper, _input: GetServiceRequest| async move { scraper.get_service().await },
+            |scraper, _input: GetServiceRequest| async move {
+                scraper.get_service().await
+            },
         );
 
-        controler.register_result_function_with_state(
+        controler.register_etag_result_function_with_state(
             "list_lives",
             Arc::clone(&connector),
-            |scraper, _input: ListLivesRequest| async move { scraper.list_lives().await },
+            |scraper, input: ListLivesRequest, _headers| async move {
+                scraper
+                    .list_lives(input.arachnea_etag, input.enable_etag)
+                    .await
+            },
         );
 
-        controler.register_result_function_with_state(
+        controler.register_etag_result_function_with_state(
             "get_category",
             Arc::clone(&connector),
-            |scraper, input: GetCategoryRequest| async move {
+            |scraper, input: GetCategoryRequest, _headers| async move {
                 scraper
                     .get_category(
                         category_sources_from_request(input.source, input.sources),
                         input.page,
                         source_params_from_entries(input.source_params),
+                        input.arachnea_etag,
+                        input.enable_etag,
                     )
                     .await
             },
         );
 
-        controler.register_result_function_with_state(
+        controler.register_etag_result_function_with_state(
             "get_section",
             Arc::clone(&connector),
-            |scraper, input: GetSectionRequest| async move {
+            |scraper, input: GetSectionRequest, _headers| async move {
                 scraper
                     .get_section(
                         input.source,
                         input.link,
                         input.page,
                         source_params_from_entries(input.source_params),
+                        input.arachnea_etag,
+                        input.enable_etag,
                     )
                     .await
             },
         );
 
-        controler.register_result_function_with_state(
+        controler.register_etag_result_function_with_state(
             "get_banners",
             Arc::clone(&connector),
-            |scraper, input: GetBannersRequest| async move {
-                scraper.get_banners(input.source, input.link).await
-            },
-        );
-
-        controler.register_result_function_with_state(
-            "get_players",
-            Arc::clone(&connector),
-            |scraper, input: GetPlayersRequest| async move {
-                scraper.get_players(input.source, input.link).await
-            },
-        );
-
-        controler.register_result_function_with_state(
-            "get_entry",
-            Arc::clone(&connector),
-            |scraper, input: GetEntryRequest| async move {
-                scraper.get_entry(input.source, input.entry).await
-            },
-        );
-
-        controler.register_result_function_with_state(
-            "get_season",
-            Arc::clone(&connector),
-            |scraper, input: GetSeasonRequest| async move {
+            |scraper, input: GetBannersRequest, _headers| async move {
                 scraper
-                    .get_season(input.source, input.season, input.page)
+                    .get_banners(
+                        input.source,
+                        input.link,
+                        input.arachnea_etag,
+                        input.enable_etag,
+                    )
                     .await
             },
         );
 
-        controler.register_result_function_with_state(
+        controler.register_etag_result_function_with_state(
+            "get_players",
+            Arc::clone(&connector),
+            |scraper, input: GetPlayersRequest, _headers| async move {
+                scraper
+                    .get_players(
+                        input.source,
+                        input.link,
+                        input.arachnea_etag,
+                        input.enable_etag,
+                    )
+                    .await
+            },
+        );
+
+        controler.register_etag_result_function_with_state(
+            "get_entry",
+            Arc::clone(&connector),
+            |scraper, input: GetEntryRequest, _headers| async move {
+                scraper
+                    .get_entry(
+                        input.source,
+                        input.entry,
+                        input.arachnea_etag,
+                        input.enable_etag,
+                    )
+                    .await
+            },
+        );
+
+        controler.register_etag_result_function_with_state(
+            "get_season",
+            Arc::clone(&connector),
+            |scraper, input: GetSeasonRequest, _headers| async move {
+                scraper
+                    .get_season(
+                        input.source,
+                        input.season,
+                        input.page,
+                        input.arachnea_etag,
+                        input.enable_etag,
+                    )
+                    .await
+            },
+        );
+
+        controler.register_etag_result_function_with_state(
             "get_live",
             Arc::clone(&connector),
-            |scraper, input: GetLiveRequest| async move {
-                scraper.get_live(input.source, input.channel).await
+            |scraper, input: GetLiveRequest, _headers| async move {
+                scraper
+                    .get_live(
+                        input.source,
+                        input.channel,
+                        input.arachnea_etag,
+                        input.enable_etag,
+                    )
+                    .await
             },
         );
 

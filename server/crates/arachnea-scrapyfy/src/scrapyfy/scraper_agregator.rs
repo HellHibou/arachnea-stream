@@ -10,7 +10,10 @@ use std::sync::{Arc, LazyLock};
 
 use arachnea_core::error_code::ErrorCodeGenerator;
 use arachnea_core::persistence::{MemoryPersistenceStore, PersistenceStore};
-use scraper_result::{ScraperAggregationResult, ScraperErrorOrigin, ScraperExecutionError};
+use scraper_result::{
+    ScraperAggregationResult, ScraperErrorOrigin, ScraperExecutionError, ScraperSourceStatus,
+    ScraperSourceValidation,
+};
 
 static ERROR_CODE_GEN: LazyLock<ErrorCodeGenerator> = LazyLock::new(ErrorCodeGenerator::new);
 
@@ -572,11 +575,16 @@ impl ScraperAgregator {
     /// * `fields_filters` - Root fields filter list or None.
     /// * `source_field_name` - Optional metadata key used to store the originating source name.
     /// * `operation` - Logical operation name used in error correlation codes.
+    /// * `client_fragments` - Optional per-source validator fragments provided by the
+    ///   client (source name → fragment). When set for a source, conditional headers
+    ///   are applied to that source's root request and unchanged content skips parsing.
     ///
     /// The returned entries are already tree-shaped when fields include `>` in their names.
     ///
     /// Per-source and pre-execution errors are collected in
     /// [`ScraperAggregationResult::errors`] and logged with a correlation code.
+    /// Per-source validation outcomes are collected in
+    /// [`ScraperAggregationResult::validations`].
     pub async fn execute_query_async(
         &self,
         group_name: &str,
@@ -588,6 +596,7 @@ impl ScraperAgregator {
         fields_filters: Option<&HashMap<String, Vec<String>>>,
         source_field_name: Option<&str>,
         operation: &str,
+        client_fragments: Option<&HashMap<String, String>>,
     ) -> ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>> {
         let Some(queries_collection) = self.queries_collection.get(group_name) else {
             let code = ERROR_CODE_GEN.next_code();
@@ -652,13 +661,17 @@ impl ScraperAgregator {
                 }
             }
 
+            let client_fragment = client_fragments.and_then(|fragments| {
+                fragments.get(query_collection.name()).map(String::as_str)
+            });
             async move {
                 query_collection
-                    .execute_query(
+                    .execute_query_with_validation(
                         query_name,
                         &execution_params,
                         query_media_type_filter,
                         fields_filters,
+                        client_fragment,
                     )
                     .await
             }
@@ -667,10 +680,24 @@ impl ScraperAgregator {
 
         let mut aggregated_results: Vec<HashMap<String, ScraperDataNode>> = Vec::new();
         let mut errors: Vec<ScraperExecutionError> = Vec::new();
+        let mut validations: HashMap<String, ScraperSourceValidation> = HashMap::new();
 
         for (query, result) in filtered_queries.into_iter().zip(results) {
             match result {
-                Ok(entries) => {
+                Ok((entries, outcome)) => {
+                    if let Some(outcome) = outcome {
+                        validations.insert(
+                            query.name().to_string(),
+                            ScraperSourceValidation {
+                                status: if outcome.not_modified {
+                                    ScraperSourceStatus::Stale
+                                } else {
+                                    ScraperSourceStatus::Fresh
+                                },
+                                etag: outcome.etag_fragment,
+                            },
+                        );
+                    }
                     for mut entry in entries {
                         if let Some(source_field_name) = source_field_name {
                             // Preserve the origin of each row when the caller requests it.
@@ -707,7 +734,7 @@ impl ScraperAgregator {
             }
         }
 
-        ScraperAggregationResult::new(aggregated_results, errors)
+        ScraperAggregationResult::new(aggregated_results, errors).with_validations(validations)
     }
 }
 
@@ -856,7 +883,6 @@ fn resolve_manifest_sources_recursive(
 mod tests {
     use super::*;
     use arachnea_core::error_code::ErrorCodeGenerator;
-    use scraper_result::{ScraperAggregationResult, ScraperErrorOrigin, ScraperExecutionError};
     use std::collections::HashMap;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -1211,6 +1237,7 @@ queries:
                 None,
                 None,
                 "probe",
+                None,
             )
             .await;
 
@@ -1240,6 +1267,7 @@ queries:
                 None,
                 None,
                 "probe",
+                None,
             )
             .await;
 
@@ -1278,6 +1306,7 @@ queries:
                 None,
                 None,
                 "probe",
+                None,
             )
             .await;
 
@@ -1309,6 +1338,7 @@ queries:
                 None,
                 None,
                 "probe",
+                None,
             )
             .await;
 

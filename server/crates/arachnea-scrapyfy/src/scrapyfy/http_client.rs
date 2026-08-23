@@ -1051,12 +1051,26 @@ impl HttpClient {
         let payload = self
             .query_http_for_request(method, url, request_headers, request_body)
             .await?;
+        Self::extract_next_data_json(url, &payload)
+    }
+
+    /// Extracts and parses the `__NEXT_DATA__` JSON payload from an HTML page.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - Absolute URL the payload was downloaded from, used in errors.
+    /// * `payload` - Raw HTML page content.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the script tag is missing or the JSON is invalid.
+    pub fn extract_next_data_json(url: &str, payload: &str) -> Result<Value> {
         let regex = NEXT_DATA_REGEX.get_or_init(|| {
             Regex::new(r#"(?s)<script[^>]*\bid=["']__NEXT_DATA__["'][^>]*>(.*?)</script>"#)
                 .expect("Invalid __NEXT_DATA__ regex")
         });
         let captures = regex
-            .captures(&payload)
+            .captures(payload)
             .with_context(|| format!("Missing __NEXT_DATA__ payload in {}", url))?;
         let json_payload = captures
             .get(1)

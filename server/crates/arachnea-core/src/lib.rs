@@ -13,5 +13,8 @@ pub mod logger;
 /// Thread-safe error correlation code generator.
 pub mod error_code;
 
+/// Cryptographic and hashing helpers (base62 encoding, ...).
+pub mod crypt;
+
 /// Various application resources (application path, ...)
 pub mod application;

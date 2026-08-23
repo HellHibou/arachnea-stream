@@ -120,6 +120,7 @@ impl ProxyDataProvider for ScrapyfyProxyDataProvider {
                 None,
                 None,
                 "load_proxies",
+                None,
             )
             .await
             .data;
@@ -158,6 +159,7 @@ impl ProxyDataProvider for ScrapyfyProxyDataProvider {
                         None,
                         None,
                         "resolve_ip_country",
+                        None,
                     )
                     .await
                     .data;

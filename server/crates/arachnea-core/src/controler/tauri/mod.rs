@@ -17,10 +17,10 @@ use super::web_assets::{
 };
 use super::{
     install_global_main_thread_dispatcher, main_thread::MainThreadHandlerStore,
-    ControlerFunctionInput, ControlerService, ControlerStreamInput, ControlerStreamOutput,
-    MainThreadContext, MainThreadDispatchError, MainThreadDispatcher, MainThreadEvent,
-    MainThreadHandler, MainThreadHandlerId, MainThreadTask, ResponseBody,
-    SerializedControlerFunction, StreamControlerFunction,
+    ControlerFunctionInput, ControlerJsonInput, ControlerService, ControlerStreamInput,
+    ControlerStreamOutput, JsonControlerFunction, MainThreadContext, MainThreadDispatchError,
+    MainThreadDispatcher, MainThreadEvent, MainThreadHandler, MainThreadHandlerId, MainThreadTask,
+    ResponseBody, SerializedControlerFunction, StreamControlerFunction,
 };
 
 /// The default custom URI scheme used for Tauri web assets.
@@ -349,6 +349,8 @@ pub struct TauriControlerService {
     api_prefix: String,
     /// Registered serialized function handlers.
     handlers: Vec<(String, SerializedControlerFunction)>,
+    /// Registered header-aware JSON function handlers.
+    json_handlers: Vec<(String, JsonControlerFunction)>,
     /// Registered stream function handlers with their entry points.
     stream_handlers: Vec<(String, StreamControlerFunction, String)>,
     /// Configured web assets (if any).
@@ -382,6 +384,7 @@ impl TauriControlerService {
             web_scheme: configuration.web_scheme,
             api_prefix: configuration.api_prefix,
             handlers: Vec::new(),
+            json_handlers: Vec::new(),
             stream_handlers: Vec::new(),
             web_assets: None,
             main_thread_dispatcher: TauriMainThreadDispatcher::new(),
@@ -438,6 +441,10 @@ impl ControlerService for TauriControlerService {
         self.handlers.push((command.to_string(), call));
     }
 
+    fn register_json_function(&mut self, command: &str, call: JsonControlerFunction) {
+        self.json_handlers.push((command.to_string(), call));
+    }
+
     fn register_stream_function(&mut self, command: &str, call: StreamControlerFunction) {
         // Build the entry-point URL prefix for this command in the Tauri scheme.
         let entry_point = format!(
@@ -477,6 +484,7 @@ impl ControlerService for TauriControlerService {
 
     fn launch(&mut self) {
         let handlers = std::mem::take(&mut self.handlers);
+        let json_handlers = std::mem::take(&mut self.json_handlers);
         let stream_handlers = std::mem::take(&mut self.stream_handlers);
         let web_assets = self.web_assets.clone();
         let web_scheme = self.web_scheme.clone();
@@ -647,6 +655,35 @@ impl ControlerService for TauriControlerService {
                         handler(ControlerFunctionInput::Json(payload))
                             .await
                             .map_err(|e| InvokeError::from_anyhow(anyhow!("Handler error: {}", e)))
+                    });
+                    true
+                } else if let Some((_cmd, handler)) =
+                    json_handlers.iter().find(|(c, _)| *c == command)
+                {
+                    // Tauri IPC carries no HTTP headers and no conditional
+                    // validation; the desktop frontend never sends ETags.
+                    let handler = std::sync::Arc::clone(handler);
+                    let payload = match invoke.message.payload() {
+                        InvokeBody::Json(payload) => payload.clone(),
+                        InvokeBody::Raw(_) => {
+                            invoke.resolver.respond(Err::<Value, InvokeError>(
+                                InvokeError::from_anyhow(anyhow!(
+                                    "Raw invoke payloads are not supported for command: {}",
+                                    command
+                                )),
+                            ));
+                            return true;
+                        }
+                    };
+
+                    invoke.resolver.respond_async(async move {
+                        handler(ControlerJsonInput {
+                            payload: ControlerFunctionInput::Json(payload),
+                            headers: Default::default(),
+                        })
+                        .await
+                        .map(|output| output.value)
+                        .map_err(|e| InvokeError::from_anyhow(anyhow!("Handler error: {}", e)))
                     });
                     true
                 } else {

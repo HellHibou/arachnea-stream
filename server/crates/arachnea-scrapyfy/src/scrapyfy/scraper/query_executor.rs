@@ -22,7 +22,8 @@ use crate::scrapyfy::scraper_json::entry::{
 use crate::scrapyfy::scraper_json::query::{JsonScraperQuery, JsonScraperSubQuery};
 use crate::scrapyfy::scraper_static::query::StaticScraperEntryRaw;
 use crate::scrapyfy::{
-    HttpClient, ScraperBrowserContext, ScraperBrowserTokenRetry, ScraperHttpExecution,
+    fragment_from_response, hash62, ConditionalRequest, HttpClient, RootFetchOutcome,
+    ScraperBrowserContext, ScraperBrowserTokenRetry, ScraperHttpExecution, ValidationSlot,
 };
 
 use super::entry_trait::ScraperEntrySpec;
@@ -85,6 +86,12 @@ pub struct QueryContext<'a> {
     ///
     /// When set, sub-queries with `request_pointer` can extract URLs from this response.
     pub parent_response: Option<&'a Value>,
+
+    /// Optional conditional-validation slot for the root request of a source.
+    ///
+    /// Only set on root contexts; every sub-query context clears it so
+    /// conditional headers apply to the source's first request only.
+    pub validation: Option<&'a ValidationSlot>,
 }
 
 /// Maximum number of follow-up requests executed together (sane default for
@@ -173,6 +180,165 @@ async fn fetch_single(
     }
 }
 
+/// Applies the incoming conditional validators as request headers.
+///
+/// # Arguments
+///
+/// * `headers` - Header map mutated in place.
+/// * `conditional` - Validators derived from the client fragment.
+fn apply_conditional_headers(headers: &mut HashMap<String, String>, conditional: &ConditionalRequest) {
+    if let Some(if_none_match) = &conditional.if_none_match {
+        headers.insert("if-none-match".to_string(), if_none_match.clone());
+    }
+    if let Some(if_modified_since) = &conditional.if_modified_since {
+        headers.insert("if-modified-since".to_string(), if_modified_since.clone());
+    }
+}
+
+/// Fetches the root response of one source under conditional validation.
+///
+/// Sends the conditional headers derived from the client fragment, detects a
+/// `304 Not Modified` or an identical content hash, records the up-to-date
+/// validator fragment into the shared slot, and returns a
+/// [`FetchedResponse::NotModified`] marker when parsing can be skipped.
+///
+/// # Arguments
+///
+/// * `query` - The root query being executed.
+/// * `urls` - Resolved request URLs; the first non-empty one is validated.
+/// * `context` - Runtime context containing parameters and HTTP client.
+/// * `validation` - Shared slot carrying the incoming fragment and outcome.
+///
+/// # Returns
+///
+/// A single-element vector with either the parsed response or a
+/// [`FetchedResponse::NotModified`] marker.
+///
+/// # Errors
+///
+/// Returns an error if the HTTP request fails or the response cannot be parsed.
+async fn fetch_responses_with_validation(
+    query: &dyn ScraperQuery,
+    urls: &[String],
+    context: &QueryContext<'_>,
+    validation: &ValidationSlot,
+) -> Result<Vec<(String, FetchedResponse)>> {
+    let url = urls
+        .iter()
+        .find(|url| !url.trim().is_empty())
+        .cloned()
+        .unwrap_or_default();
+    if url.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let method = query.request_method().as_http_method();
+    let mut headers = resolve_request_headers(
+        query.request_headers(),
+        context.params,
+        &url,
+        context.parent_response,
+    );
+    let body = resolve_request_body(
+        query.request_body_pointer(),
+        query.request_body_select(),
+        query.request_body_actions(),
+        context.params,
+        &url,
+        context.parent_response,
+    );
+    let incoming = validation.request().cloned().unwrap_or_default();
+    apply_conditional_headers(&mut headers, &incoming);
+
+    let record_outcome = |not_modified: bool, etag_fragment: String| {
+        validation.record(RootFetchOutcome {
+            not_modified,
+            etag_fragment,
+        });
+    };
+
+    // Browser-driven executions cannot send conditional headers reliably;
+    // fall back to content-hash comparison on the rendered page.
+    if matches!(
+        query.http_config().execution,
+        Some(ScraperHttpExecution::PageNavigate)
+    ) {
+        let html = context
+            .http_client
+            .configured(query.http_config().clone())
+            .page_navigate_for_request(&url, &headers)
+            .await?;
+        let fragment = fragment_from_response(None, None, &html);
+        let not_modified = incoming
+            .content_hash
+            .as_deref()
+            .is_some_and(|expected| expected == hash62(html.as_bytes()));
+        record_outcome(not_modified, fragment);
+        return Ok(vec![(url, FetchedResponse::Html(html))]);
+    }
+
+    let client = context.http_client.configured(query.http_config().clone());
+    let response = client
+        .send_for_request(method, &url, &headers, body.as_deref())
+        .await?;
+    let status = response.status();
+
+    let etag_header = response
+        .headers()
+        .get("etag")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+    let last_modified_header = response
+        .headers()
+        .get("last-modified")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+
+    // 304 Not Modified: reuse the server ETag when refreshed, otherwise the
+    // incoming fragment (still valid — the content did not change).
+    if status == http::StatusCode::NOT_MODIFIED && incoming.has_validator() {
+        let fragment = match &etag_header {
+            Some(etag) => format!("{}{}", crate::scrapyfy::ETAG_FRAGMENT_PREFIX, urlencoding::encode(etag)),
+            None => validation.incoming_fragment().unwrap_or_default().to_string(),
+        };
+        record_outcome(true, fragment);
+        return Ok(vec![(url, FetchedResponse::NotModified)]);
+    }
+
+    let text = response.text().await?;
+    let fragment =
+        fragment_from_response(etag_header.as_deref(), last_modified_header.as_deref(), &text);
+
+    // Content-hash staleness: the server ignored conditional headers but the
+    // body is byte-identical to what the client already has.
+    let not_modified = etag_header.is_none()
+        && incoming
+            .content_hash
+            .as_deref()
+            .is_some_and(|expected| expected == hash62(text.as_bytes()));
+
+    record_outcome(not_modified, fragment);
+    if not_modified {
+        return Ok(vec![(url, FetchedResponse::NotModified)]);
+    }
+
+    let parsed = match query.scraper_type() {
+        ScraperType::Json => {
+            if query.extract_next_data() {
+                FetchedResponse::Json(HttpClient::extract_next_data_json(&url, &text)?)
+            } else {
+                FetchedResponse::Json(serde_json::from_str(&text).map_err(|error| {
+                    anyhow::anyhow!("Invalid JSON payload returned by {}: {error}", url)
+                })?)
+            }
+        }
+        ScraperType::Html => FetchedResponse::Html(text),
+        ScraperType::Text => FetchedResponse::Text(text),
+        ScraperType::Static => FetchedResponse::Static,
+    };
+    Ok(vec![(url, parsed)])
+}
+
 /// Fetched response shape used by the unified executor.
 ///
 /// Represents the result of a single HTTP request, parsed according to the scraper type.
@@ -196,6 +362,12 @@ pub enum FetchedResponse {
     ///
     /// Static queries don't make HTTP requests; they use YAML-declared data.
     Static,
+
+    /// Remote content unchanged (`304` or identical hash) — nothing to parse.
+    ///
+    /// Carries no body; the up-to-date validator fragment was recorded in the
+    /// [`ValidationSlot`] by the conditional fetch path.
+    NotModified,
 }
 
 // ---------------------------------------------------------------------------
@@ -435,6 +607,7 @@ async fn execute_query_internal(
                                         http_client: context.http_client,
                                         fields_filters: None,
                                         parent_response: Some(ctx),
+                                        validation: None,
                                     };
                                     let sub_items =
                                         Box::pin(execute_query_internal(sibling, &sub_context))
@@ -519,6 +692,7 @@ async fn execute_query_internal(
                                                         http_client: context.http_client,
                                                         fields_filters: None,
                                                         parent_response: fetched_json,
+                                                        validation: None,
                                                     };
                                                     let child_items =
                                                         Box::pin(execute_query_internal(
@@ -543,6 +717,7 @@ async fn execute_query_internal(
                                                             fields_filters: None,
                                                             parent_response: row_value
                                                                 .or(fetched_json),
+                                                            validation: None,
                                                         };
                                                         let child_items =
                                                             Box::pin(execute_query_internal(
@@ -602,6 +777,7 @@ async fn execute_query_internal(
                     http_client: context.http_client,
                     fields_filters: None,
                     parent_response: parent_json,
+                    validation: None,
                 };
                 let sibling_root = Box::pin(execute_query_internal(sibling, &sub_context)).await?;
                 merge_targeted_items(&mut item, sibling_root, sibling.target());
@@ -933,6 +1109,12 @@ async fn fetch_responses(
         urls.first().map(String::as_str).unwrap_or(""),
         context.parent_response,
     );
+    // Conditional validation applies to the root request of a source only;
+    // sub-query contexts always carry a None validation slot.
+    if let Some(validation) = context.validation {
+        return fetch_responses_with_validation(query, urls, context, validation).await;
+    }
+
     let extract_next_data = query.extract_next_data();
     let scraper_type = query.scraper_type();
     let execution = query.http_config().execution;
@@ -1131,6 +1313,10 @@ fn extract_items(
                 }
             }
             vec![item]
+        }
+        FetchedResponse::NotModified => {
+            // Nothing changed remotely — no rows to extract.
+            Vec::new()
         }
         FetchedResponse::Text(text) => {
             // Text: split by row delimiter, then by field delimiter, and
@@ -1559,6 +1745,7 @@ async fn execute_entry_sub_queries_for_entries(
                         http_client: context.http_client,
                         fields_filters: None,
                         parent_response: None,
+                        validation: None,
                     };
                     let sub_items =
                         Box::pin(execute_query_internal(sub_query, &sub_context)).await?;
@@ -1574,6 +1761,7 @@ async fn execute_entry_sub_queries_for_entries(
                     http_client: context.http_client,
                     fields_filters: None,
                     parent_response: None,
+                    validation: None,
                 };
                 let sub_items = Box::pin(execute_query_internal(sub_query, &sub_context)).await?;
                 merge_targeted_items(item, sub_items, sub_query.target());
@@ -1946,6 +2134,7 @@ async fn fetch_and_extract_for_entry_sub_query(
         }
         FetchedResponse::Text(_) => {}
         FetchedResponse::Static => {}
+        FetchedResponse::NotModified => {}
     }
 
     if !sub_query.entries().is_empty() {
@@ -1957,6 +2146,7 @@ async fn fetch_and_extract_for_entry_sub_query(
             http_client: context.http_client,
             fields_filters: None,
             parent_response: nested_parent_response.as_ref(),
+            validation: None,
         };
         Box::pin(execute_entry_sub_queries(
             sub_query,
