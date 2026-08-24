@@ -498,7 +498,7 @@ pub trait ControlerServiceExt: ControlerService {
                         return Ok(ControlerJsonOutput {
                             value: Value::Null,
                             status: 304,
-                            headers: HashMap::from([("ETag".to_string(), etag.clone())]),
+                            headers: HashMap::from([("ETag".to_string(), format!("\"{etag}\""))]),
                         });
                     }
                 }

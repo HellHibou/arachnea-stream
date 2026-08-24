@@ -657,3 +657,29 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **Typed REST GET scalar parameters**: Query-string values that are valid JSON scalars are now
   deserialized as their native JSON types. Numeric parameters such as `get_section.page` no
   longer reach Rust as strings and fail `usize` deserialization.
+- **Scrapyfy response pre-processing**: Queries and sub-queries may now declare ordered
+  `pre_process` actions. The initial `remove_text_blocks` action removes literal volatile blocks
+  before parsing and before fallback content-hash ETag validation. The resulting `C:` validator
+  is calculated only from transformed content and can stop dependent sub-queries. Remote ETags
+  and Last-Modified validators retain their existing priority. PapaDuStream v2 removes its
+  changing Cloudflare blocks from `get_players` responses.
+- **REST ETag propagation to Scrapyfy**: Cached REST ETags are sent as the `arachneaEtag`
+  request parameter, outside the cache key. `get_players` also consumes `If-None-Match` directly
+  when that parameter is absent. Scrapyfy can therefore validate the root response and skip
+  dependent sub-queries before the controller returns `304 Not Modified`. Header quotes and weak
+  validator prefixes are normalized before comparing the global ETag, preventing a false catch-up
+  pass that previously executed stale sources' sub-queries.
+- **Static `get_service` validation**: Restored the header-aware ETag response for
+  `get_service`. Its static metadata uses the existing deterministic `N:` source fragments and
+  never hashes the final serialized response.
+- **Multi-source ETag decoding**: Removed the duplicate separator between the `S:` block and the
+  first source fragment, allowing aggregated client ETags to be decoded and validated again.
+- **Quoted `304` ETags**: Conditional REST responses now use the same quoted ETag wire format as
+  successful responses.
+- **PapaDuStream entry and season validation**: `get_entry` and `get_season` now each declare
+  the same local `pre_process` rules as `get_players`, removing volatile Cloudflare blocks before
+  their fallback content ETag is calculated.
+- **Parameterized pre-processing delimiters**: `remove_text_blocks.start` and `.end` now resolve
+  `{base_url}` from the runtime query parameter (or the query base URL), allowing source domains
+  such as PapaDuStream to remain configurable. Browser `page_fetch` sub-queries now apply the
+  same pre-processing pipeline as other HTTP response paths.

@@ -303,6 +303,7 @@ impl EntrySubQueryRaw {
                         .collect::<Result<Vec<_>>>()?;
 
                 let SubQueryCommon {
+                    pre_process,
                     post_process,
                     context_pointer,
                     context_select,
@@ -360,6 +361,7 @@ impl EntrySubQueryRaw {
                     row_selector_template: row_selector,
                     result_item_field: None,
                     scraper_entries: all_entries,
+                    pre_processes: pre_process,
                     post_processes: post_process,
                     input_html: None,
                     http_client: HttpClient::new(base_url),
@@ -411,6 +413,7 @@ impl EntrySubQueryRaw {
                         .collect::<Result<Vec<_>>>()?;
 
                 let SubQueryCommon {
+                    pre_process,
                     post_process,
                     context_pointer,
                     context_select,
@@ -446,6 +449,10 @@ impl EntrySubQueryRaw {
                 query.request_body_actions = request_body_actions;
                 query.request_headers = request_headers;
                 query.http_config = http;
+                for action in &pre_process {
+                    action.validate("json entry sub-query")?;
+                }
+                query.pre_processes = pre_process;
                 query.post_processes = post_process;
                 // Sub-query specific fields
                 query.context_pointer = context_pointer;
@@ -679,6 +686,7 @@ impl TryFrom<JsonScraperQueryRaw> for JsonScraperQuery {
             http,
             query_param_mappings,
             result_item_field,
+            pre_process,
             post_process,
             ..
         } = common;
@@ -730,6 +738,11 @@ impl TryFrom<JsonScraperQueryRaw> for JsonScraperQuery {
         query.query_param_mappings = query_param_mappings;
         query.result_item_field = result_item_field;
 
+        for pre_process in pre_process {
+            pre_process.validate(&name)?;
+            query.pre_processes.push(pre_process);
+        }
+
         for post_process in post_process {
             post_process.validate(&name)?;
             query.post_processes.push(post_process);
@@ -772,6 +785,7 @@ impl From<&JsonScraperQuery> for JsonScraperQueryRaw {
                 http: query.http_config.clone(),
                 query_param_mappings: query.query_param_mappings.clone(),
                 result_item_field: query.result_item_field.clone(),
+                pre_process: query.pre_processes.clone(),
                 post_process: query.post_processes.clone(),
             },
             extract_next_data: query.extract_next_data,
@@ -846,6 +860,7 @@ impl TryFrom<JsonScraperSubQueryRaw> for JsonScraperSubQuery {
             request_method,
             request_headers,
             http,
+            pre_process,
             post_process,
             ..
         } = common;
@@ -858,6 +873,10 @@ impl TryFrom<JsonScraperSubQueryRaw> for JsonScraperSubQuery {
             .is_some_and(|target| target.trim().is_empty())
         {
             anyhow::bail!("Invalid JSON sub-query: target cannot be empty");
+        }
+
+        for action in &pre_process {
+            action.validate("JSON sub-query")?;
         }
 
         JsonScraperSubQuery::validate_actions(&row_pointer, &request_actions)?;
@@ -905,6 +924,7 @@ impl TryFrom<JsonScraperSubQueryRaw> for JsonScraperSubQuery {
             http_config: http,
             row_pointer,
             entries,
+            pre_processes: pre_process,
             post_processes: post_process,
             sub_queries,
             http_client: HttpClient::new(""),
@@ -943,6 +963,7 @@ impl From<&JsonScraperSubQuery> for JsonScraperSubQueryRaw {
                     })
                     .collect(),
                 http: sub_query.http_config.clone(),
+                pre_process: sub_query.pre_processes.clone(),
                 post_process: sub_query.post_processes.clone(),
             },
             row_pointer: sub_query.row_pointer.clone(),

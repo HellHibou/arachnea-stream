@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 use crate::scrapyfy::query_helpers::{self, QueryTemplateParamMapping};
 use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
-use crate::scrapyfy::{ScraperAction, ScraperHttpConfig, ScraperPostProcess};
+use crate::scrapyfy::{PreProcessAction, ScraperAction, ScraperHttpConfig, ScraperPostProcess};
 
 // ---------------------------------------------------------------------------
 // Default value helpers
@@ -244,6 +244,10 @@ impl Serialize for ScraperRequestHeader {
 /// to reduce code duplication.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SubQueryCommon {
+    /// Transformations applied to the HTTP response body before parsing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pre_process: Vec<PreProcessAction>,
+
     /// Post-processing steps applied to each extracted row.
     ///
     /// These steps transform and process the extracted data after extraction.
@@ -447,6 +451,10 @@ pub struct ScraperQueryCommon {
     /// When set, items from the specified field are hoisted to become individual rows.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub result_item_field: Option<String>,
+
+    /// Transformations applied to the HTTP response body before parsing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pre_process: Vec<PreProcessAction>,
 
     /// Post-processing steps applied to each extracted row.
     ///

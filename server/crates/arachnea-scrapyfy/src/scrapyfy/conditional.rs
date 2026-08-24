@@ -255,17 +255,16 @@ mod tests {
         assert!(fragment.starts_with("C:0-"));
 
         let conditional = conditional_from_fragment(&fragment).expect("fragment should parse");
-        assert_eq!(conditional.content_hash.as_deref(), Some(&hash62(body.as_bytes())[..]));
+        assert_eq!(
+            conditional.content_hash.as_deref(),
+            Some(&hash62(body.as_bytes())[..])
+        );
         assert!(conditional.if_modified_since.is_none());
     }
 
     #[test]
     fn content_fragment_keeps_last_modified_timestamp() {
-        let fragment = fragment_from_response(
-            None,
-            Some("Wed, 21 Oct 2015 07:28:00 GMT"),
-            "body",
-        );
+        let fragment = fragment_from_response(None, Some("Wed, 21 Oct 2015 07:28:00 GMT"), "body");
         let conditional = conditional_from_fragment(&fragment).expect("fragment should parse");
         assert!(conditional.if_modified_since.is_some());
         assert_eq!(

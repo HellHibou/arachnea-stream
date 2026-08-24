@@ -158,8 +158,7 @@ pub enum ScraperAction {
     /// # Fields
     ///
     /// * `variable_prefix` - Dynamic variable namespace to resolve. Currently only `@` is supported.
-    ReplaceVariables {
-    },
+    ReplaceVariables {},
 
     /// Applies a signed Caesar shift to ASCII letters in every current value.
     CaesarShift {
@@ -259,7 +258,7 @@ pub enum ScraperAction {
     /// Applies a math formula to every current value. The `{value}` placeholder
     /// in the formula is replaced by each value before evaluation.
     ///
-    MathFormula { },
+    MathFormula {},
 
     /// Replaces all occurrences of `search` with `replace` in every current value.
     ///
@@ -528,7 +527,13 @@ impl ScraperAction {
                 timeout_ms,
                 inject_html_scripts,
                 scripts,
-            } => exec_js::apply(texts, *timeout_ms, response_body, *inject_html_scripts, scripts)?,
+            } => exec_js::apply(
+                texts,
+                *timeout_ms,
+                response_body,
+                *inject_html_scripts,
+                scripts,
+            )?,
             ScraperAction::AesCbcDecrypt { key, iv } => aes_cbc_decrypt::apply(texts, key, iv),
         };
         Ok(values)
@@ -561,9 +566,7 @@ impl ScraperAction {
                 extract_variables::ExtractVariablesDuplicatePolicy::parse(on_duplicate.as_deref())?;
                 extract_variables::validate(name, owner, pattern, variable_name)
             }
-            ScraperAction::ReplaceVariables {} => {
-                replace_variables::validate(name, owner)
-            }
+            ScraperAction::ReplaceVariables {} => replace_variables::validate(name, owner),
             ScraperAction::RegexReplaceAll { pattern, .. } => regex_replace_all::validate(pattern)
                 .map_err(|error| {
                     anyhow::anyhow!(

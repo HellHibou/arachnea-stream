@@ -31,8 +31,6 @@ pub struct ScraperSourceValidation {
     pub etag: String,
 }
 
-
-
 /// Origin of a scraper execution error.
 ///
 /// Used to distinguish errors produced by the server from errors synthesized

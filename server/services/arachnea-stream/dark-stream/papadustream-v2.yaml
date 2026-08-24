@@ -278,6 +278,13 @@ queries:
     base_url: "{base_url}"
     query_url: "{query_url}"
     media_types: *media_types_series
+    pre_process:
+      - type: remove_text_blocks
+        start: '<a href="{base_url}/cdn-cgi/content?id='
+        end: '</a>'
+      - type: remove_text_blocks
+        start: '<script>(function(){function c(){var b=a.contentDocument'
+        end: '</script>'
     row_selector: html
     entries:
       - name: source
@@ -443,6 +450,13 @@ queries:
     base_url: "{base_url}"
     query_url: "{query_url}"
     media_types: *media_types_series
+    pre_process:
+      - type: remove_text_blocks
+        start: '<a href="{base_url}/cdn-cgi/content?id='
+        end: '</a>'
+      - type: remove_text_blocks
+        start: '<script>(function(){function c(){var b=a.contentDocument'
+        end: '</script>'
     row_selector: html
     entries:
       - name: source
@@ -581,6 +595,13 @@ queries:
     media_types: *media_types_series
     http:
       mode: direct
+    pre_process:
+      - type: remove_text_blocks
+        start: '<a href="{base_url}/cdn-cgi/content?id='
+        end: '</a>'
+      - type: remove_text_blocks
+        start: '<script>(function(){function c(){var b=a.contentDocument'
+        end: '</script>'
     row_selector: html
     entries:
       - name: player-user-hash

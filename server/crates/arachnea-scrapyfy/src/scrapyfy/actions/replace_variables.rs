@@ -2,9 +2,7 @@ use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use crate::scrapyfy::query_helpers::{
-    replace_template_placeholders, DynamicTemplateVariables,
-};
+use crate::scrapyfy::query_helpers::{replace_template_placeholders, DynamicTemplateVariables};
 
 /// Applies the `replace_variables` scraper action.
 ///
@@ -46,10 +44,7 @@ mod tests {
         let dynamic = Mutex::new(DynamicTemplateVariables::new());
         dynamic.lock().unwrap().insert(&params, "A", "80").unwrap();
 
-        let values = apply(
-            vec!["{A}:{country}:{Missing}".to_string()],
-            &dynamic,
-        );
+        let values = apply(vec!["{A}:{country}:{Missing}".to_string()], &dynamic);
 
         assert_eq!(values, vec!["80:{country}:{Missing}".to_string()]);
     }

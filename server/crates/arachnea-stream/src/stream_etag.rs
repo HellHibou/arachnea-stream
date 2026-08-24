@@ -68,7 +68,6 @@ pub fn build_global_etag(services: &[&str], fragments: &HashMap<String, String>)
     if names.len() > 1 {
         etag.push_str(SERVICES_HASH_PREFIX);
         etag.push_str(&services_hash(&names));
-        etag.push(GLOBAL_ETAG_SEPARATOR);
     }
     for name in &names {
         if !etag.is_empty() {
@@ -84,10 +83,10 @@ pub fn build_global_etag(services: &[&str], fragments: &HashMap<String, String>)
     Some(etag)
 }
 
-/// Normalizes an incoming `If-None-Match` header value.
+/// Normalizes an incoming global ETag value.
 ///
 /// Strips surrounding quotes and the weak-validator `W/` prefix.
-fn normalize_incoming(value: &str) -> &str {
+pub fn normalize_client_etag(value: &str) -> &str {
     let value = value.trim();
     let value = value.strip_prefix("W/").unwrap_or(value);
     value.trim_matches('"')
@@ -119,7 +118,7 @@ pub fn decode_client_fragments(
     names.sort();
     names.dedup();
 
-    let mut parts: Vec<&str> = normalize_incoming(client_etag)
+    let mut parts: Vec<&str> = normalize_client_etag(client_etag)
         .split(GLOBAL_ETAG_SEPARATOR)
         .collect();
 

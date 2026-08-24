@@ -661,9 +661,8 @@ impl ScraperAgregator {
                 }
             }
 
-            let client_fragment = client_fragments.and_then(|fragments| {
-                fragments.get(query_collection.name()).map(String::as_str)
-            });
+            let client_fragment = client_fragments
+                .and_then(|fragments| fragments.get(query_collection.name()).map(String::as_str));
             async move {
                 query_collection
                     .execute_query_with_validation(
@@ -804,8 +803,8 @@ fn resolve_manifest_sources_recursive(
             config_path.display()
         )
     })?;
-    let raw_entries: Vec<serde_json::Value> =
-        serde_json::from_reader(BufReader::new(config_file)).map_err(|error| {
+    let raw_entries: Vec<serde_json::Value> = serde_json::from_reader(BufReader::new(config_file))
+        .map_err(|error| {
             anyhow::anyhow!(
                 "Failed to parse manifest file: {}: {error}",
                 config_path.display()
@@ -834,14 +833,13 @@ fn resolve_manifest_sources_recursive(
             );
         }
 
-        let entry: ScraperAggregatorConfigEntry =
-            serde_json::from_value(raw).map_err(|error| {
-                anyhow::anyhow!(
-                    "Failed to parse manifest entry: {}: entry {}: {error}",
-                    config_path.display(),
-                    entry_index
-                )
-            })?;
+        let entry: ScraperAggregatorConfigEntry = serde_json::from_value(raw).map_err(|error| {
+            anyhow::anyhow!(
+                "Failed to parse manifest entry: {}: entry {}: {error}",
+                config_path.display(),
+                entry_index
+            )
+        })?;
 
         match entry {
             ScraperAggregatorConfigEntry::Source(source) => {
@@ -942,9 +940,9 @@ mod tests {
             "legal-stream/rtlplay-be.yaml",
             "local.yaml",
         ]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
         assert_eq!(paths, expected);
         assert!(resolved[0].enabled);
         assert!(!resolved[1].enabled);
@@ -974,10 +972,7 @@ mod tests {
 
         let resolved = resolve_manifest_sources(dir.join("a.json"))
             .expect("cyclic manifest should still resolve without infinite recursion");
-        let paths: Vec<String> = resolved
-            .iter()
-            .map(|s| s.path.to_string())
-            .collect();
+        let paths: Vec<String> = resolved.iter().map(|s| s.path.to_string()).collect();
         assert_eq!(paths, vec!["a.yaml".to_string(), "b.yaml".to_string()]);
 
         std::fs::remove_dir_all(dir).expect("test service directory should be removed");

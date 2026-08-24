@@ -26,7 +26,7 @@ use crate::services::{
     rtlplay_resolver::RtlPlayResolver,
     tf1_resolver::Tf1Resolver,
 };
-use crate::stream_etag::{build_global_etag, decode_client_fragments};
+use crate::stream_etag::{build_global_etag, decode_client_fragments, normalize_client_etag};
 use crate::stream_resolver::{
     ResolvedStream, StreamResolver, GENERIC_STREAM_RESOLVER_ID, STREAM_RESOLVER_CONFIG_PATH,
     STREAM_RESOLVER_GROUP_NAME,
@@ -59,6 +59,24 @@ fn default_page() -> usize {
 /// Returns `true` — conditional ETag validation is enabled by default.
 fn default_enable_etag() -> bool {
     true
+}
+
+/// Selects the explicit validation value or the HTTP conditional validator.
+///
+/// REST callers normally provide `If-None-Match`; the scraper engine also
+/// needs that value to decode its per-source fragments before it schedules
+/// follow-up queries. Tauri callers have no HTTP headers and keep using the
+/// explicit `arachneaEtag` field.
+fn request_arachnea_etag(
+    explicit_etag: Option<String>,
+    headers: &HashMap<String, String>,
+) -> Option<String> {
+    explicit_etag.or_else(|| {
+        headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("if-none-match"))
+            .map(|(_, value)| value.clone())
+    })
 }
 
 #[derive(Serialize, Deserialize)]
@@ -429,6 +447,12 @@ impl StreamScraper {
         ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>>,
         Option<String>,
     )> {
+        let arachnea_etag = arachnea_etag
+            .as_deref()
+            .map(normalize_client_etag)
+            .filter(|etag| !etag.is_empty())
+            .map(str::to_string);
+
         if !enable_etag {
             let result = self
                 .scraper_agregator
@@ -861,24 +885,36 @@ impl StreamScraper {
     pub async fn get_service(
         &self,
     ) -> Result<ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>>> {
+        let (result, _) = self.get_service_with_etag(None, false).await?;
+        Ok(result)
+    }
+
+    /// Loads display metadata for every configured source with optional ETag validation.
+    async fn get_service_with_etag(
+        &self,
+        arachnea_etag: Option<String>,
+        enable_etag: bool,
+    ) -> Result<(
+        ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>>,
+        Option<String>,
+    )> {
         let mut params: HashMap<String, String> = HashMap::new();
         self.enrich_runtime_params(&mut params);
 
-        Ok(self
-            .scraper_agregator
-            .execute_query_async(
-                STREAM_SERVICE_GROUP_NAME,
-                "service_stream_metadata",
-                &params,
-                None,
-                None,
-                None,
-                None,
-                None,
-                "service_stream_metadata",
-                None,
-            )
-            .await)
+        self.execute_query_with_etag(
+            STREAM_SERVICE_GROUP_NAME,
+            "service_stream_metadata",
+            &params,
+            None,
+            None,
+            None,
+            None,
+            None,
+            "service_stream_metadata",
+            arachnea_etag,
+            enable_etag,
+        )
+        .await
     }
 
     /// Loads category payloads for the provided YAML-defined source descriptors.
@@ -1304,10 +1340,7 @@ fn populate_stream_resolver_web_links(node: &mut ScraperDataNode) {
             if let Some(target_id) = target_id {
                 item.children.insert(
                     "web-link".to_string(),
-                    ScraperDataNode::from_values_typed(
-                        vec![target_id],
-                        ScraperOutputType::String,
-                    ),
+                    ScraperDataNode::from_values_typed(vec![target_id], ScraperOutputType::String),
                 );
             }
         }
@@ -1358,7 +1391,7 @@ impl ScraperManager for StreamScraper {
         controler.register_etag_result_function_with_state(
             "search",
             Arc::clone(&connector),
-            |scraper, input: SearchRequest, _headers| async move {
+            |scraper, input: SearchRequest, headers| async move {
                 scraper
                     .search(
                         input.query,
@@ -1366,7 +1399,7 @@ impl ScraperManager for StreamScraper {
                         input.themes,
                         input.page,
                         source_params_from_entries(input.source_params),
-                        input.arachnea_etag,
+                        request_arachnea_etag(input.arachnea_etag, &headers),
                         input.enable_etag,
                     )
                     .await
@@ -1376,25 +1409,38 @@ impl ScraperManager for StreamScraper {
         controler.register_etag_result_function_with_state(
             "load_home",
             Arc::clone(&connector),
-            |scraper, input: LoadHomeRequest, _headers| async move {
-                scraper.load_home(input.arachnea_etag, input.enable_etag).await
+            |scraper, input: LoadHomeRequest, headers| async move {
+                scraper
+                    .load_home(
+                        request_arachnea_etag(input.arachnea_etag, &headers),
+                        input.enable_etag,
+                    )
+                    .await
             },
         );
 
-        controler.register_result_function_with_state(
+        controler.register_etag_result_function_with_state(
             "get_service",
             Arc::clone(&connector),
-            |scraper, _input: GetServiceRequest| async move {
-                scraper.get_service().await
+            |scraper, input: GetServiceRequest, headers| async move {
+                scraper
+                    .get_service_with_etag(
+                        request_arachnea_etag(input.arachnea_etag, &headers),
+                        input.enable_etag,
+                    )
+                    .await
             },
         );
 
         controler.register_etag_result_function_with_state(
             "list_lives",
             Arc::clone(&connector),
-            |scraper, input: ListLivesRequest, _headers| async move {
+            |scraper, input: ListLivesRequest, headers| async move {
                 scraper
-                    .list_lives(input.arachnea_etag, input.enable_etag)
+                    .list_lives(
+                        request_arachnea_etag(input.arachnea_etag, &headers),
+                        input.enable_etag,
+                    )
                     .await
             },
         );
@@ -1402,13 +1448,13 @@ impl ScraperManager for StreamScraper {
         controler.register_etag_result_function_with_state(
             "get_category",
             Arc::clone(&connector),
-            |scraper, input: GetCategoryRequest, _headers| async move {
+            |scraper, input: GetCategoryRequest, headers| async move {
                 scraper
                     .get_category(
                         category_sources_from_request(input.source, input.sources),
                         input.page,
                         source_params_from_entries(input.source_params),
-                        input.arachnea_etag,
+                        request_arachnea_etag(input.arachnea_etag, &headers),
                         input.enable_etag,
                     )
                     .await
@@ -1418,14 +1464,14 @@ impl ScraperManager for StreamScraper {
         controler.register_etag_result_function_with_state(
             "get_section",
             Arc::clone(&connector),
-            |scraper, input: GetSectionRequest, _headers| async move {
+            |scraper, input: GetSectionRequest, headers| async move {
                 scraper
                     .get_section(
                         input.source,
                         input.link,
                         input.page,
                         source_params_from_entries(input.source_params),
-                        input.arachnea_etag,
+                        request_arachnea_etag(input.arachnea_etag, &headers),
                         input.enable_etag,
                     )
                     .await
@@ -1435,12 +1481,12 @@ impl ScraperManager for StreamScraper {
         controler.register_etag_result_function_with_state(
             "get_banners",
             Arc::clone(&connector),
-            |scraper, input: GetBannersRequest, _headers| async move {
+            |scraper, input: GetBannersRequest, headers| async move {
                 scraper
                     .get_banners(
                         input.source,
                         input.link,
-                        input.arachnea_etag,
+                        request_arachnea_etag(input.arachnea_etag, &headers),
                         input.enable_etag,
                     )
                     .await
@@ -1450,12 +1496,12 @@ impl ScraperManager for StreamScraper {
         controler.register_etag_result_function_with_state(
             "get_players",
             Arc::clone(&connector),
-            |scraper, input: GetPlayersRequest, _headers| async move {
+            |scraper, input: GetPlayersRequest, headers| async move {
                 scraper
                     .get_players(
                         input.source,
                         input.link,
-                        input.arachnea_etag,
+                        request_arachnea_etag(input.arachnea_etag, &headers),
                         input.enable_etag,
                     )
                     .await
@@ -1465,12 +1511,12 @@ impl ScraperManager for StreamScraper {
         controler.register_etag_result_function_with_state(
             "get_entry",
             Arc::clone(&connector),
-            |scraper, input: GetEntryRequest, _headers| async move {
+            |scraper, input: GetEntryRequest, headers| async move {
                 scraper
                     .get_entry(
                         input.source,
                         input.entry,
-                        input.arachnea_etag,
+                        request_arachnea_etag(input.arachnea_etag, &headers),
                         input.enable_etag,
                     )
                     .await
@@ -1480,13 +1526,13 @@ impl ScraperManager for StreamScraper {
         controler.register_etag_result_function_with_state(
             "get_season",
             Arc::clone(&connector),
-            |scraper, input: GetSeasonRequest, _headers| async move {
+            |scraper, input: GetSeasonRequest, headers| async move {
                 scraper
                     .get_season(
                         input.source,
                         input.season,
                         input.page,
-                        input.arachnea_etag,
+                        request_arachnea_etag(input.arachnea_etag, &headers),
                         input.enable_etag,
                     )
                     .await
@@ -1496,12 +1542,12 @@ impl ScraperManager for StreamScraper {
         controler.register_etag_result_function_with_state(
             "get_live",
             Arc::clone(&connector),
-            |scraper, input: GetLiveRequest, _headers| async move {
+            |scraper, input: GetLiveRequest, headers| async move {
                 scraper
                     .get_live(
                         input.source,
                         input.channel,
-                        input.arachnea_etag,
+                        request_arachnea_etag(input.arachnea_etag, &headers),
                         input.enable_etag,
                     )
                     .await

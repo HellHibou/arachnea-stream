@@ -1,14 +1,12 @@
 use anyhow::Result;
 use boa_engine::{
-    js_string, Context, JsObject, JsValue, NativeFunction, Source,
-    context::ContextBuilder,
-    property::Attribute,
-    realm::Realm,
+    context::ContextBuilder, js_string, property::Attribute, realm::Realm, Context, JsObject,
+    JsValue, NativeFunction, Source,
 };
 use regex::Regex;
 use std::cell::RefCell;
 use std::rc::Rc;
-use tracing::{trace};
+use tracing::trace;
 
 const MAX_SCRIPTS: usize = 50;
 const DEFAULT_LOOP_LIMIT: u64 = 10_000_000;
@@ -194,9 +192,7 @@ mod tests {
 
     #[test]
     fn test_text_is_js_not_html() {
-        let texts = vec![
-            "<html><script>var a = 1;</script></html>".to_string(),
-        ];
+        let texts = vec!["<html><script>var a = 1;</script></html>".to_string()];
         let result = apply(texts, 500, None, false, &[]);
         assert!(result.is_err());
     }
@@ -212,7 +208,14 @@ mod tests {
     #[test]
     fn test_hardcoded_scripts_are_injected() {
         let texts = vec!["var y = helper();".to_string()];
-        let result = apply(texts, 500, None, false, &["function helper() { return 42; }".to_string()]).unwrap();
+        let result = apply(
+            texts,
+            500,
+            None,
+            false,
+            &["function helper() { return 42; }".to_string()],
+        )
+        .unwrap();
         assert!(result.contains(&"y=42".to_string()));
     }
 
@@ -220,13 +223,7 @@ mod tests {
     fn test_inject_html_plus_hardcoded_plus_text() {
         let texts = vec!["var z = x + y;".to_string()];
         let html = "<html><script>var x = 10;</script></html>";
-        let result = apply(
-            texts,
-            500,
-            Some(html),
-            true,
-            &["var y = 5;".to_string()],
-        ).unwrap();
+        let result = apply(texts, 500, Some(html), true, &["var y = 5;".to_string()]).unwrap();
         assert!(result.contains(&"x=10".to_string()));
         assert!(result.contains(&"y=5".to_string()));
         assert!(result.contains(&"z=15".to_string()));
@@ -250,7 +247,8 @@ mod tests {
     #[test]
     fn test_transitive_resolution() {
         let texts = vec![
-            "Six0Eight = 0; ZeroThreeSeven = Six0Eight ^ 0; Eight4EightNine = ZeroThreeSeven ^ 88;".to_string(),
+            "Six0Eight = 0; ZeroThreeSeven = Six0Eight ^ 0; Eight4EightNine = ZeroThreeSeven ^ 88;"
+                .to_string(),
         ];
         let result = apply(texts, 500, None, false, &[]).unwrap();
         assert!(result.contains(&"Eight4EightNine=88".to_string()));
@@ -272,10 +270,13 @@ mod tests {
 
     #[test]
     fn test_spysone_simulation() {
-        let html = r#"<html><script>ZeroThreeSeven=0;Eight4EightNine=ZeroThreeSeven^88;</script></html>"#;
+        let html =
+            r#"<html><script>ZeroThreeSeven=0;Eight4EightNine=ZeroThreeSeven^88;</script></html>"#;
         let texts = vec!["".to_string()];
         let result = apply(texts, 500, Some(html), true, &[]).unwrap();
-        assert!(result.iter().any(|line| line.starts_with("Eight4EightNine")));
+        assert!(result
+            .iter()
+            .any(|line| line.starts_with("Eight4EightNine")));
     }
 
     #[test]
@@ -288,22 +289,28 @@ mod tests {
             Some(html),
             true,
             &["var document = { write: function(s) {} };".to_string()],
-        ).unwrap();
+        )
+        .unwrap();
         assert!(result.iter().any(|line| line == "spysone_port=100"));
     }
 
     #[test]
     fn test_configured_script_provides_document_write_html_has_packer_vars() {
-        let packer_script = "Eight4EightNine=90^0;TwoSevenFive=60^0;Seven4SixZero=47^0;SixNineFour=27^0;";
+        let packer_script =
+            "Eight4EightNine=90^0;TwoSevenFive=60^0;Seven4SixZero=47^0;SixNineFour=27^0;";
         let html = format!(r#"<html><script>{}</script></html>"#, packer_script);
-        let texts = vec!["var spysone_port = (Eight4EightNine ^ TwoSevenFive) + (Seven4SixZero ^ SixNineFour);".to_string()];
+        let texts = vec![
+            "var spysone_port = (Eight4EightNine ^ TwoSevenFive) + (Seven4SixZero ^ SixNineFour);"
+                .to_string(),
+        ];
         let result = apply(
             texts,
             500,
             Some(&html),
             true,
             &["var document = { write: function(s) { return s; } };".to_string()],
-        ).unwrap();
+        )
+        .unwrap();
         assert!(result.iter().any(|line| line == "Eight4EightNine=90"));
         assert!(result.iter().any(|line| line == "TwoSevenFive=60"));
         assert!(result.iter().any(|line| line == "Seven4SixZero=47"));
@@ -321,8 +328,12 @@ mod tests {
             500,
             Some(html),
             true,
-            &["var window = {}; var dataLayer = []; var document = { write: function(s) {} };".to_string()],
-        ).unwrap();
+            &[
+                "var window = {}; var dataLayer = []; var document = { write: function(s) {} };"
+                    .to_string(),
+            ],
+        )
+        .unwrap();
         assert!(result.iter().any(|line| line == "Eight4EightNine=88"));
         assert!(result.iter().any(|line| line == "spysone_port=88"));
     }

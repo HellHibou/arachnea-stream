@@ -22,8 +22,9 @@ use crate::scrapyfy::scraper_json::entry::{
 use crate::scrapyfy::scraper_json::query::{JsonScraperQuery, JsonScraperSubQuery};
 use crate::scrapyfy::scraper_static::query::StaticScraperEntryRaw;
 use crate::scrapyfy::{
-    fragment_from_response, hash62, ConditionalRequest, HttpClient, RootFetchOutcome,
-    ScraperBrowserContext, ScraperBrowserTokenRetry, ScraperHttpExecution, ValidationSlot,
+    apply_pre_processes, fragment_from_response, hash62, ConditionalRequest, HttpClient,
+    PreProcessAction, RootFetchOutcome, ScraperBrowserContext, ScraperBrowserTokenRetry,
+    ScraperHttpExecution, ValidationSlot,
 };
 
 use super::entry_trait::ScraperEntrySpec;
@@ -133,6 +134,10 @@ fn entries_contain_isolated_page_click(entries: &[&dyn ScraperEntrySpec]) -> boo
 /// * `body` - Optional request body.
 /// * `extract_next_data` - Whether to parse the response as Next.js `__NEXT_DATA__`.
 /// * `scraper_type` - The type of scraper (HTML, JSON, or Static).
+/// * `pre_processes` - Response transformations declared by the query.
+/// * `query_name` - Query name used in pre-processing diagnostics.
+/// * `base_url` - Source base URL exposed as `{base_url}` to pre-processing templates.
+/// * `params` - Runtime parameters exposed to pre-processing templates.
 ///
 /// # Returns
 ///
@@ -149,31 +154,69 @@ async fn fetch_single(
     body: Option<&str>,
     extract_next_data: bool,
     scraper_type: ScraperType,
+    pre_processes: &[PreProcessAction],
+    query_name: &str,
+    base_url: &str,
+    params: &HashMap<String, String>,
 ) -> Result<FetchedResponse> {
     match scraper_type {
         ScraperType::Json => {
+            if pre_processes.is_empty() {
+                if extract_next_data {
+                    return Ok(FetchedResponse::Json(
+                        client
+                            .get_next_data_json_for_request(method, url, headers, body)
+                            .await?,
+                    ));
+                }
+                return Ok(FetchedResponse::Json(
+                    client
+                        .get_json_for_request(method, url, headers, body)
+                        .await?,
+                ));
+            }
+
+            let text = apply_pre_processes(
+                client
+                    .query_http_for_request(method, url, headers, body)
+                    .await?,
+                pre_processes,
+                query_name,
+                base_url,
+                params,
+            )?;
             if extract_next_data {
-                let json = client
-                    .get_next_data_json_for_request(method, url, headers, body)
-                    .await?;
-                Ok(FetchedResponse::Json(json))
+                Ok(FetchedResponse::Json(HttpClient::extract_next_data_json(
+                    url, &text,
+                )?))
             } else {
-                let json = client
-                    .get_json_for_request(method, url, headers, body)
-                    .await?;
-                Ok(FetchedResponse::Json(json))
+                Ok(FetchedResponse::Json(serde_json::from_str(&text).map_err(
+                    |error| anyhow::anyhow!("Invalid JSON payload returned by {url}: {error}"),
+                )?))
             }
         }
         ScraperType::Html => {
-            let html = client
-                .query_http_for_request(method, url, headers, body)
-                .await?;
+            let html = apply_pre_processes(
+                client
+                    .query_http_for_request(method, url, headers, body)
+                    .await?,
+                pre_processes,
+                query_name,
+                base_url,
+                params,
+            )?;
             Ok(FetchedResponse::Html(html))
         }
         ScraperType::Text => {
-            let text = client
-                .query_http_for_request(method, url, headers, body)
-                .await?;
+            let text = apply_pre_processes(
+                client
+                    .query_http_for_request(method, url, headers, body)
+                    .await?,
+                pre_processes,
+                query_name,
+                base_url,
+                params,
+            )?;
             Ok(FetchedResponse::Text(text))
         }
         ScraperType::Static => Ok(FetchedResponse::Static),
@@ -186,7 +229,10 @@ async fn fetch_single(
 ///
 /// * `headers` - Header map mutated in place.
 /// * `conditional` - Validators derived from the client fragment.
-fn apply_conditional_headers(headers: &mut HashMap<String, String>, conditional: &ConditionalRequest) {
+fn apply_conditional_headers(
+    headers: &mut HashMap<String, String>,
+    conditional: &ConditionalRequest,
+) {
     if let Some(if_none_match) = &conditional.if_none_match {
         headers.insert("if-none-match".to_string(), if_none_match.clone());
     }
@@ -263,11 +309,17 @@ async fn fetch_responses_with_validation(
         query.http_config().execution,
         Some(ScraperHttpExecution::PageNavigate)
     ) {
-        let html = context
-            .http_client
-            .configured(query.http_config().clone())
-            .page_navigate_for_request(&url, &headers)
-            .await?;
+        let html = apply_pre_processes(
+            context
+                .http_client
+                .configured(query.http_config().clone())
+                .page_navigate_for_request(&url, &headers)
+                .await?,
+            query.pre_processes(),
+            query.name(),
+            query.base_url(),
+            context.params,
+        )?;
         let fragment = fragment_from_response(None, None, &html);
         let not_modified = incoming
             .content_hash
@@ -298,16 +350,32 @@ async fn fetch_responses_with_validation(
     // incoming fragment (still valid — the content did not change).
     if status == http::StatusCode::NOT_MODIFIED && incoming.has_validator() {
         let fragment = match &etag_header {
-            Some(etag) => format!("{}{}", crate::scrapyfy::ETAG_FRAGMENT_PREFIX, urlencoding::encode(etag)),
-            None => validation.incoming_fragment().unwrap_or_default().to_string(),
+            Some(etag) => format!(
+                "{}{}",
+                crate::scrapyfy::ETAG_FRAGMENT_PREFIX,
+                urlencoding::encode(etag)
+            ),
+            None => validation
+                .incoming_fragment()
+                .unwrap_or_default()
+                .to_string(),
         };
         record_outcome(true, fragment);
         return Ok(vec![(url, FetchedResponse::NotModified)]);
     }
 
-    let text = response.text().await?;
-    let fragment =
-        fragment_from_response(etag_header.as_deref(), last_modified_header.as_deref(), &text);
+    let text = apply_pre_processes(
+        response.text().await?,
+        query.pre_processes(),
+        query.name(),
+        query.base_url(),
+        context.params,
+    )?;
+    let fragment = fragment_from_response(
+        etag_header.as_deref(),
+        last_modified_header.as_deref(),
+        &text,
+    );
 
     // Content-hash staleness: the server ignored conditional headers but the
     // body is byte-identical to what the client already has.
@@ -665,6 +733,10 @@ async fn execute_query_internal(
                                                 body.as_deref(),
                                                 sibling.extract_next_data(),
                                                 sibling.scraper_type(),
+                                                sibling.pre_processes(),
+                                                sibling.name(),
+                                                sibling.base_url(),
+                                                context.params,
                                             )
                                             .await?;
                                             let fetched_json = match &response {
@@ -1160,7 +1232,13 @@ async fn fetch_responses(
             let client = configured_client.clone();
             async move {
                 let response = if execution == Some(ScraperHttpExecution::PageNavigate) {
-                    FetchedResponse::Html(client.page_navigate_for_request(&url, &headers).await?)
+                    FetchedResponse::Html(apply_pre_processes(
+                        client.page_navigate_for_request(&url, &headers).await?,
+                        query.pre_processes(),
+                        query.name(),
+                        query.base_url(),
+                        context.params,
+                    )?)
                 } else {
                     fetch_single(
                         &client,
@@ -1170,6 +1248,10 @@ async fn fetch_responses(
                         body.as_deref(),
                         extract_next_data,
                         scraper_type,
+                        query.pre_processes(),
+                        query.name(),
+                        query.base_url(),
+                        context.params,
                     )
                     .await?
                 };
@@ -1980,7 +2062,16 @@ async fn fetch_and_extract_for_entry_sub_query(
                 )
                 .await
             {
-                Ok(html) => break FetchedResponse::Html(html),
+                Ok(html) => {
+                    let html = apply_pre_processes(
+                        html,
+                        sub_query.pre_processes(),
+                        sub_query.name(),
+                        sub_query.base_url(),
+                        params,
+                    )?;
+                    break FetchedResponse::Html(html);
+                }
                 Err(error)
                     if retry_once
                         && attempts == 0
@@ -2040,7 +2131,13 @@ async fn fetch_and_extract_for_entry_sub_query(
                 .page_click_for_request(&page_url, &selector, &wait_for_selector)
                 .await?
         };
-        FetchedResponse::Html(html)
+        FetchedResponse::Html(apply_pre_processes(
+            html,
+            sub_query.pre_processes(),
+            sub_query.name(),
+            sub_query.base_url(),
+            params,
+        )?)
     } else {
         fetch_single(
             &client,
@@ -2050,6 +2147,10 @@ async fn fetch_and_extract_for_entry_sub_query(
             body.as_deref(),
             sub_query.extract_next_data(),
             sub_query.scraper_type(),
+            sub_query.pre_processes(),
+            sub_query.name(),
+            sub_query.base_url(),
+            params,
         )
         .await?
     };

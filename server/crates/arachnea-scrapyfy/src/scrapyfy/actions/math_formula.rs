@@ -20,11 +20,11 @@ pub(super) fn apply(texts: Vec<String>) -> Vec<String> {
     for expression in texts {
         match post_processes::evaluate_math_expression(&expression) {
             Ok(result) => {
-                new_texts.push( post_processes::format_math_result(result));
-            },
+                new_texts.push(post_processes::format_math_result(result));
+            }
             Err(error) => {
                 warn!("Can't execute {}: {}", expression, error);
-            },
+            }
         }
     }
 

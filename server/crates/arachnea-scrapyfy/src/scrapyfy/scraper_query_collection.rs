@@ -355,9 +355,8 @@ impl ScraperQueryDefinition {
 
         let dynamic_template_variables =
             std::sync::Mutex::new(crate::scrapyfy::query_helpers::DynamicTemplateVariables::new());
-        let validation_slot = crate::scrapyfy::ValidationSlot::new(
-            client_fragment.map(str::to_string),
-        );
+        let validation_slot =
+            crate::scrapyfy::ValidationSlot::new(client_fragment.map(str::to_string));
         let context = crate::scrapyfy::scraper::query_executor::QueryContext {
             params: &execution_params,
             dynamic_template_variables: &dynamic_template_variables,

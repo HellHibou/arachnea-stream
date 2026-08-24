@@ -135,7 +135,9 @@ function buildEtagCacheKey(fct_name: string, queryString: string): string {
  * The REST path issues a GET request whose parameters are JSON-encoded into
  * the query string, and participates in conditional validation: the global
  * ETag returned by the backend is cached per request shape and replayed as
- * `If-None-Match`; a `304 Not Modified` answer resolves to the cached payload.
+ * `If-None-Match` and `arachneaEtag`. The latter lets Scrapyfy validate the
+ * root response before it executes dependent sub-queries; a `304 Not Modified`
+ * answer resolves to the cached payload.
  * The Tauri path keeps its original invoke semantics.
  *
  * @param fct_name Backend function name.
@@ -170,10 +172,15 @@ export async function call_api<T = unknown>(
     const headers: Record<string, string> = {}
     if (cachedEntry) {
       headers['If-None-Match'] = `"${cachedEntry.etag}"`
+      // Keep the validator out of cacheKey, otherwise every refresh would use
+      // a different cache entry. The backend uses this value to decode the
+      // source fragment before scheduling scraper sub-queries.
+      searchParams.append('arachneaEtag', JSON.stringify(cachedEntry.etag))
     }
+    const requestQueryString = searchParams.toString()
 
     const response = await fetch(
-      `${restApiBaseUrl}/${fct_name}${queryString ? `?${queryString}` : ''}`,
+      `${restApiBaseUrl}/${fct_name}${requestQueryString ? `?${requestQueryString}` : ''}`,
       { method: 'GET', headers },
     )
 

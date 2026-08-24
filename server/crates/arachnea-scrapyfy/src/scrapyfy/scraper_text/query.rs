@@ -52,6 +52,8 @@ pub struct TextScraperQuery {
     pub(crate) result_item_field: Option<String>,
     /// Field extractors executed for every row.
     pub(crate) scraper_entries: Vec<crate::scrapyfy::scraper_text::entry::TextScraperEntry>,
+    /// Transformations applied to the fetched response before text parsing.
+    pub(crate) pre_processes: Vec<PreProcessAction>,
     /// HTTP client used to issue requests.
     pub(crate) http_client: HttpClient,
 }
@@ -101,6 +103,7 @@ impl TextScraperQuery {
             field_delimiter,
             result_item_field,
             scraper_entries,
+            pre_processes: Vec::new(),
             http_client: HttpClient::new(base_url),
         })
     }
@@ -211,6 +214,10 @@ impl ScraperQuery for TextScraperQuery {
         self.field_delimiter.as_deref()
     }
 
+    fn pre_processes(&self) -> &[PreProcessAction] {
+        &self.pre_processes
+    }
+
     fn post_processes(&self) -> &[crate::scrapyfy::ScraperPostProcess] {
         &[]
     }
@@ -312,6 +319,7 @@ impl TryFrom<TextScraperQueryRaw> for TextScraperQuery {
             request_url_actions,
             http,
             result_item_field,
+            pre_process,
             ..
         } = common;
 
@@ -337,6 +345,10 @@ impl TryFrom<TextScraperQueryRaw> for TextScraperQuery {
         query.http_config = http.clone();
         query.request_url_actions = request_url_actions;
         query.http_client = HttpClient::with_http_config(http);
+        for action in &pre_process {
+            action.validate(&name)?;
+        }
+        query.pre_processes = pre_process;
         Ok(query)
     }
 }
@@ -370,6 +382,7 @@ impl From<&TextScraperQuery> for TextScraperQueryRaw {
                 http: query.http_config.clone(),
                 query_param_mappings: query.query_param_mappings.clone(),
                 result_item_field: query.result_item_field.clone(),
+                pre_process: query.pre_processes.clone(),
                 post_process: Vec::new(),
             },
             row_delimiter: query.row_delimiter.clone(),

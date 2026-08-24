@@ -7,8 +7,8 @@ pub const DEFAULT_SERVICES_DIRECTORY: &str = "services";
 pub mod conditional;
 pub use conditional::{
     conditional_from_fragment, fragment_from_response, hash62, ConditionalRequest,
-    CONTENT_FRAGMENT_PREFIX, ETAG_FRAGMENT_PREFIX, NO_VALIDATION_PREFIX, RootFetchOutcome,
-    ValidationSlot,
+    RootFetchOutcome, ValidationSlot, CONTENT_FRAGMENT_PREFIX, ETAG_FRAGMENT_PREFIX,
+    NO_VALIDATION_PREFIX,
 };
 
 /// Tree-shaped output node model used by all scraper pipelines.
@@ -34,6 +34,10 @@ pub use actions::{GetDateSource, GetDateSources, ScraperAction, HTTP_PROXY_PUBLI
 /// Post-process transformations applied after raw extraction.
 pub mod post_processes;
 pub use post_processes::{ScraperPostProcess, ScraperPostProcessContext};
+
+/// Response-body transformations applied before parsing and content validation.
+pub mod pre_processes;
+pub use pre_processes::{apply_pre_processes, PreProcessAction};
 
 /// HTML query definitions, executors, and field extractors.
 pub mod scraper_html;
