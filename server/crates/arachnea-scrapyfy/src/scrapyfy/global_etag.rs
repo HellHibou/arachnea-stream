@@ -38,8 +38,18 @@ pub fn services_hash(services: &[&str]) -> String {
 
 /// Returns the deterministic fallback fragment for a source without any
 /// recorded validation outcome (static queries, fetch-less sources).
-fn fallback_fragment(source: &str) -> String {
-    format!("{NO_VALIDATION_PREFIX}{}", hash62(source.as_bytes()))
+///
+/// The leading `N:` fragment carries the source YAML-hash when the caller can
+/// provide it, so a scraper edit still invalidates the fragment and forces a
+/// client reload.
+fn fallback_fragment(source: &str, yaml_hash: Option<&str>) -> String {
+    match yaml_hash {
+        Some(hash) if !hash.is_empty() => format!(
+            "{NO_VALIDATION_PREFIX}{hash}-{}",
+            hash62(source.as_bytes())
+        ),
+        _ => format!("{NO_VALIDATION_PREFIX}{}", hash62(source.as_bytes())),
+    }
 }
 
 /// Builds the global ETag from the per-source validation fragments.
@@ -51,11 +61,17 @@ fn fallback_fragment(source: &str) -> String {
 ///
 /// * `services` - Service names involved in the request.
 /// * `fragments` - Up-to-date fragment per source name, when validated.
+/// * `yaml_hashes` - Base62 YAML-hash per source name; used to build the
+///   fallback fragment for sources without a recorded validation outcome.
 ///
 /// # Returns
 ///
 /// The global ETag string, or `None` when no service is involved.
-pub fn build_global_etag(services: &[&str], fragments: &HashMap<String, String>) -> Option<String> {
+pub fn build_global_etag(
+    services: &[&str],
+    fragments: &HashMap<String, String>,
+    yaml_hashes: &HashMap<String, String>,
+) -> Option<String> {
     if services.is_empty() {
         return None;
     }
@@ -76,7 +92,7 @@ pub fn build_global_etag(services: &[&str], fragments: &HashMap<String, String>)
         let fragment = fragments
             .get(*name)
             .cloned()
-            .unwrap_or_else(|| fallback_fragment(name));
+            .unwrap_or_else(|| fallback_fragment(name, yaml_hashes.get(*name).map(String::as_str)));
         etag.push_str(&fragment);
     }
 
@@ -152,6 +168,11 @@ pub fn decode_client_fragments(
 mod tests {
     use super::*;
 
+    /// Builds an empty per-service YAML-hash map for tests not exercising it.
+    fn empty_hashes() -> HashMap<String, String> {
+        HashMap::new()
+    }
+
     #[test]
     fn services_hash_is_order_insensitive_and_stable() {
         let left = services_hash(&["b-source", "a-source"]);
@@ -164,36 +185,50 @@ mod tests {
     #[test]
     fn global_etag_multi_source_starts_with_services_block() {
         let mut fragments = HashMap::new();
-        fragments.insert("b".to_string(), "E:w456".to_string());
-        fragments.insert("a".to_string(), "C:0-abcd1234".to_string());
+        fragments.insert("b".to_string(), "E:3hY0a9c2X-w456".to_string());
+        fragments.insert("a".to_string(), "C:3dY0aBc2Xf-0-abcd1234".to_string());
 
-        let etag = build_global_etag(&["b", "a"], &fragments).expect("etag should build");
+        let etag = build_global_etag(&["b", "a"], &fragments, &empty_hashes())
+            .expect("etag should build");
         let hash = services_hash(&["a", "b"]);
-        assert_eq!(etag, format!("S:{hash};C:0-abcd1234;E:w456"));
+        assert_eq!(etag, format!("S:{hash};C:3dY0aBc2Xf-0-abcd1234;E:3hY0a9c2X-w456"));
     }
 
     #[test]
     fn global_etag_single_source_has_no_services_block() {
         let mut fragments = HashMap::new();
-        fragments.insert("only".to_string(), "E:w456".to_string());
+        fragments.insert("only".to_string(), "E:3hY0a9c2X-w456".to_string());
 
-        let etag = build_global_etag(&["only"], &fragments).expect("etag should build");
-        assert_eq!(etag, "E:w456");
+        let etag = build_global_etag(&["only"], &fragments, &empty_hashes())
+            .expect("etag should build");
+        assert_eq!(etag, "E:3hY0a9c2X-w456");
+    }
+
+    #[test]
+    fn fallback_fragment_includes_yaml_hash_when_known() {
+        // Sources without a validated outcome still get the YAML hash so a
+        // scraper edit invalidates their stable fragment.
+        let mut yaml_hashes = HashMap::new();
+        yaml_hashes.insert("static".to_string(), "3hY0a9c2Xf".to_string());
+        let etag = build_global_etag(&["static"], &HashMap::new(), &yaml_hashes)
+            .expect("etag should build");
+        assert!(etag.starts_with("N:3hY0a9c2Xf-"));
     }
 
     #[test]
     fn decode_round_trips_built_etag() {
         let services = vec!["c", "a", "b"];
         let mut fragments = HashMap::new();
-        fragments.insert("a".to_string(), "E:w1".to_string());
-        fragments.insert("b".to_string(), "E:w2".to_string());
-        fragments.insert("c".to_string(), "C:0-deadbeef".to_string());
+        fragments.insert("a".to_string(), "E:3hY0a9c2X-w1".to_string());
+        fragments.insert("b".to_string(), "E:3hY0a9c2X-w2".to_string());
+        fragments.insert("c".to_string(), "C:3hY0a9c2X-0-deadbeef".to_string());
 
-        let etag = build_global_etag(&services, &fragments).expect("etag should build");
+        let etag = build_global_etag(&services, &fragments, &empty_hashes())
+            .expect("etag should build");
         let decoded = decode_client_fragments(&etag, &services).expect("should decode");
-        assert_eq!(decoded.get("a").map(String::as_str), Some("E:w1"));
-        assert_eq!(decoded.get("b").map(String::as_str), Some("E:w2"));
-        assert_eq!(decoded.get("c").map(String::as_str), Some("C:0-deadbeef"));
+        assert_eq!(decoded.get("a").map(String::as_str), Some("E:3hY0a9c2X-w1"));
+        assert_eq!(decoded.get("b").map(String::as_str), Some("E:3hY0a9c2X-w2"));
+        assert_eq!(decoded.get("c").map(String::as_str), Some("C:3hY0a9c2X-0-deadbeef"));
     }
 
     #[test]

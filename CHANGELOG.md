@@ -698,3 +698,10 @@ All notable changes to the server workspace are recorded here. Add new entries a
   `{base_url}` from the runtime query parameter (or the query base URL), allowing source domains
   such as PapaDuStream to remain configurable. Browser `page_fetch` sub-queries now apply the
   same pre-processing pipeline as other HTTP response paths.
+- **YAML-hash-aware ETag fragments**: Per-service validator fragments now embed a compact base62
+  hash of the source YAML document (`E:<yamlhash>-<etag>`, `C:<yamlhash>-<last_modified>-<hash>`,
+  `N:<yamlhash>-<namehash>`). The hash is computed once from the raw YAML bytes at load time
+  (`arachnea_core::crypt::hash62_64`) and a client fragment carrying a divergent hash is dropped,
+  so editing a scraper forces a full re-fetch even when the remote content is unchanged. Legacy
+  client ETags without a YAML-hash segment are treated as divergent and converge after one full
+  re-fetch; the global ETag stays opaque to the frontend.

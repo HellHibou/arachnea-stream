@@ -320,7 +320,7 @@ async fn fetch_responses_with_validation(
             query.base_url(),
             context.params,
         )?;
-        let fragment = fragment_from_response(None, None, &html);
+        let fragment = fragment_from_response(validation.yaml_hash(), None, None, &html);
         let not_modified = incoming
             .content_hash
             .as_deref()
@@ -351,8 +351,9 @@ async fn fetch_responses_with_validation(
     if status == http::StatusCode::NOT_MODIFIED && incoming.has_validator() {
         let fragment = match &etag_header {
             Some(etag) => format!(
-                "{}{}",
+                "{}{}-{}",
                 crate::scrapyfy::ETAG_FRAGMENT_PREFIX,
+                validation.yaml_hash(),
                 urlencoding::encode(etag)
             ),
             None => validation
@@ -372,6 +373,7 @@ async fn fetch_responses_with_validation(
         context.params,
     )?;
     let fragment = fragment_from_response(
+        validation.yaml_hash(),
         etag_header.as_deref(),
         last_modified_header.as_deref(),
         &text,

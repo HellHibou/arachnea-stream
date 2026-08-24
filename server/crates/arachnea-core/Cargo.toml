@@ -21,6 +21,7 @@ tauri-plugin-opener.workspace = true
 tokio = { workspace = true, features = ["full"] }
 urlencoding.workspace = true
 warp.workspace = true
+xxhash-rust.workspace = true
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "json", "time"] }
 time = { workspace = true, features = ["formatting", "macros"] }

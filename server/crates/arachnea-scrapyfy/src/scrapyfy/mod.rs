@@ -6,9 +6,9 @@ pub const DEFAULT_SERVICES_DIRECTORY: &str = "services";
 /// Conditional request validation primitives (ETag fragments).
 pub mod conditional;
 pub use conditional::{
-    conditional_from_fragment, fragment_from_response, hash62, ConditionalRequest,
-    RootFetchOutcome, ValidationSlot, CONTENT_FRAGMENT_PREFIX, ETAG_FRAGMENT_PREFIX,
-    NO_VALIDATION_PREFIX,
+    conditional_from_fragment, fragment_from_response, fragment_yaml_hash, hash62,
+    ConditionalRequest, RootFetchOutcome, ValidationSlot, CONTENT_FRAGMENT_PREFIX,
+    ETAG_FRAGMENT_PREFIX, NO_VALIDATION_PREFIX,
 };
 
 /// Global ETag construction and decoding for aggregated responses.

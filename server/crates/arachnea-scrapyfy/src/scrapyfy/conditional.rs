@@ -1,14 +1,18 @@
 //! Conditional request validation primitives (ETag fragments).
 //!
 //! Each source exposes a stable *fragment* encoding the validator mechanism
-//! used for its root request:
+//! used for its root request. Every fragment begins with the base62 hash of
+//! the source's YAML file so an edit of the scraper invalidates the fragment
+//! even when the remote content is unchanged:
 //!
-//! - `E:<etag>` — HTTP ETag validated through `If-None-Match`.
-//! - `C:<last_modified_unix>-<hash>` — content hash (XXH3-128 encoded in
-//!   full base62) optionally combined with `If-Modified-Since`.
+//! - `E:<yamlhash>-<etag>` — HTTP ETag validated through `If-None-Match`.
+//! - `C:<yamlhash>-<last_modified_unix>-<hash>` — content hash (XXH3-128
+//!   encoded in full base62) optionally combined with `If-Modified-Since`.
+//! - `N:<yamlhash>-<namehash>` — source without remote validation, always
+//!   re-fetched.
 //!
-//! Fragments are stable while the remote content does not change and are
-//! concatenated by the caller into the global aggregated ETag.
+//! Fragments are stable while both the YAML file and the remote content do not
+//! change, and are concatenated by the caller into the global aggregated ETag.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -55,11 +59,17 @@ pub struct RootFetchOutcome {
 
 /// Shared slot carrying the incoming client fragment and receiving the
 /// root-fetch outcome of one query execution.
+///
+/// Also carries the source YAML-hash used to compose up-to-date fragments;
+/// when the incoming fragment does not carry the same hash, the caller must
+/// drop it so a YAML edit forces a full re-fetch (see `fragment_yaml_hash`).
 pub struct ValidationSlot {
     /// Conditional request derived from the incoming fragment, when any.
     request: Option<ConditionalRequest>,
     /// Raw incoming fragment, reused as the up-to-date fragment on `304`.
     incoming_fragment: Option<String>,
+    /// Base62 hash of the source YAML document, embedded in outgoing fragments.
+    yaml_hash: String,
     /// Outcome recorded by the executor, keeping the first value written.
     outcome: std::sync::Mutex<Option<RootFetchOutcome>>,
 }
@@ -70,13 +80,15 @@ impl ValidationSlot {
     /// # Arguments
     ///
     /// * `incoming_fragment` - Client-provided fragment for this source, when any.
-    pub fn new(incoming_fragment: Option<String>) -> Self {
+    /// * `yaml_hash` - Base62 hash of the source YAML document.
+    pub fn new(incoming_fragment: Option<String>, yaml_hash: String) -> Self {
         let request = incoming_fragment
             .as_deref()
             .and_then(conditional_from_fragment);
         Self {
             request,
             incoming_fragment,
+            yaml_hash,
             outcome: std::sync::Mutex::new(None),
         }
     }
@@ -84,6 +96,11 @@ impl ValidationSlot {
     /// Returns the conditional request derived from the incoming fragment.
     pub fn request(&self) -> Option<&ConditionalRequest> {
         self.request.as_ref()
+    }
+
+    /// Returns the source YAML-hash used to compose up-to-date fragments.
+    pub fn yaml_hash(&self) -> &str {
+        &self.yaml_hash
     }
 
     /// Returns the raw incoming fragment, when provided by the client.
@@ -134,16 +151,22 @@ fn decode_component(value: &str) -> String {
 ///
 /// # Arguments
 ///
+/// * `yaml_hash` - Base62 hash of the source YAML document, embedded as the
+///   leading fragment segment.
 /// * `etag_header` - Raw `ETag` response header value, when present.
 /// * `last_modified_header` - Raw `Last-Modified` response header value, when present.
 /// * `body` - Response body used for the content-hash fallback.
 pub fn fragment_from_response(
+    yaml_hash: &str,
     etag_header: Option<&str>,
     last_modified_header: Option<&str>,
     body: &str,
 ) -> String {
     if let Some(etag) = etag_header.map(str::trim).filter(|value| !value.is_empty()) {
-        return format!("{ETAG_FRAGMENT_PREFIX}{}", encode_component(etag));
+        return format!(
+            "{ETAG_FRAGMENT_PREFIX}{yaml_hash}-{}",
+            encode_component(etag)
+        );
     }
 
     let last_modified = last_modified_header
@@ -153,9 +176,37 @@ pub fn fragment_from_response(
         .unwrap_or(0);
 
     format!(
-        "{CONTENT_FRAGMENT_PREFIX}{last_modified}-{}",
+        "{CONTENT_FRAGMENT_PREFIX}{yaml_hash}-{last_modified}-{}",
         hash62(body.as_bytes())
     )
+}
+
+/// Extracts the base62 YAML-hash segment of a fragment.
+///
+/// The YAML hash is pure base62 so it never contains `-` and is never empty;
+/// the leading `-` therefore always separates it from the rest, even when the
+/// percent-encoded remote ETag carries literal `-` characters.
+///
+/// # Arguments
+///
+/// * `fragment` - Fragment previously returned by [`fragment_from_response`].
+///
+/// # Returns
+///
+/// The YAML-hash segment, or `None` when the fragment is empty, uses an
+/// unknown prefix, or lacks the leading `<yamlhash>-` segment (for example a
+/// legacy fragment produced before the YAML hash was introduced).
+pub fn fragment_yaml_hash(fragment: &str) -> Option<&str> {
+    let fragment = fragment.trim();
+    let rest = fragment
+        .strip_prefix(ETAG_FRAGMENT_PREFIX)
+        .or_else(|| fragment.strip_prefix(CONTENT_FRAGMENT_PREFIX))
+        .or_else(|| fragment.strip_prefix(NO_VALIDATION_PREFIX))?;
+    let (yaml_hash, _) = rest.split_once('-')?;
+    if yaml_hash.is_empty() {
+        return None;
+    }
+    Some(yaml_hash)
 }
 
 /// Parses a client-provided fragment into the conditional request to apply.
@@ -166,11 +217,13 @@ pub fn fragment_from_response(
 ///
 /// # Returns
 ///
-/// The conditional request to send, or `None` when the fragment is malformed.
+/// The conditional request to send, or `None` when the fragment is malformed
+/// or describes a source without remote validation.
 pub fn conditional_from_fragment(fragment: &str) -> Option<ConditionalRequest> {
     let fragment = fragment.trim();
-    if let Some(etag) = fragment.strip_prefix(ETAG_FRAGMENT_PREFIX) {
-        let etag = decode_component(etag);
+    if let Some(rest) = fragment.strip_prefix(ETAG_FRAGMENT_PREFIX) {
+        let (_yaml_hash, encoded_etag) = rest.split_once('-')?;
+        let etag = decode_component(encoded_etag);
         if etag.is_empty() {
             return None;
         }
@@ -187,7 +240,8 @@ pub fn conditional_from_fragment(fragment: &str) -> Option<ConditionalRequest> {
     }
 
     if let Some(rest) = fragment.strip_prefix(CONTENT_FRAGMENT_PREFIX) {
-        let (timestamp, hash) = rest.split_once('-')?;
+        let (_yaml_hash, remainder) = rest.split_once('-')?;
+        let (timestamp, hash) = remainder.split_once('-')?;
         let timestamp: u64 = timestamp.parse().ok()?;
         if hash.is_empty() {
             return None;
@@ -226,6 +280,9 @@ pub fn unix_now() -> u64 {
 mod tests {
     use super::*;
 
+    /// Fixed YAML hash used by fragment tests.
+    const YAML_HASH: &str = "3dY0aBc2Xf";
+
     #[test]
     fn hash62_is_deterministic_full_base62() {
         let first = hash62(b"example-body");
@@ -240,8 +297,8 @@ mod tests {
     #[test]
     fn etag_fragment_round_trip() {
         let quoted_etag = r#""w456""#;
-        let fragment = fragment_from_response(Some(quoted_etag), None, "body");
-        assert_eq!(fragment, "E:%22w456%22");
+        let fragment = fragment_from_response(YAML_HASH, Some(quoted_etag), None, "body");
+        assert_eq!(fragment, "E:3dY0aBc2Xf-%22w456%22");
 
         let conditional = conditional_from_fragment(&fragment).expect("fragment should parse");
         assert_eq!(conditional.if_none_match.as_deref(), Some(quoted_etag));
@@ -249,10 +306,24 @@ mod tests {
     }
 
     #[test]
+    fn etag_fragment_round_trip_keeps_dashes_in_encoded_etag() {
+        // The remote ETag may contain literal `-`; only the first `-` after
+        // the YAML hash separates the hash segment.
+        let quoted_etag = r#""w/123-abc""#;
+        let fragment = fragment_from_response(YAML_HASH, Some(quoted_etag), None, "body");
+        assert_eq!(fragment, "E:3dY0aBc2Xf-%22w%2F123-abc%22");
+
+        let conditional = conditional_from_fragment(&fragment).expect("fragment should parse");
+        assert_eq!(conditional.if_none_match.as_deref(), Some(quoted_etag));
+
+        assert_eq!(fragment_yaml_hash(&fragment), Some(YAML_HASH));
+    }
+
+    #[test]
     fn content_fragment_round_trip_without_last_modified() {
         let body = "example-body";
-        let fragment = fragment_from_response(None, None, body);
-        assert!(fragment.starts_with("C:0-"));
+        let fragment = fragment_from_response(YAML_HASH, None, None, body);
+        assert!(fragment.starts_with("C:3dY0aBc2Xf-0-"));
 
         let conditional = conditional_from_fragment(&fragment).expect("fragment should parse");
         assert_eq!(
@@ -260,11 +331,13 @@ mod tests {
             Some(&hash62(body.as_bytes())[..])
         );
         assert!(conditional.if_modified_since.is_none());
+        assert_eq!(fragment_yaml_hash(&fragment), Some(YAML_HASH));
     }
 
     #[test]
     fn content_fragment_keeps_last_modified_timestamp() {
-        let fragment = fragment_from_response(None, Some("Wed, 21 Oct 2015 07:28:00 GMT"), "body");
+        let fragment =
+            fragment_from_response(YAML_HASH, None, Some("Wed, 21 Oct 2015 07:28:00 GMT"), "body");
         let conditional = conditional_from_fragment(&fragment).expect("fragment should parse");
         assert!(conditional.if_modified_since.is_some());
         assert_eq!(
@@ -274,10 +347,35 @@ mod tests {
     }
 
     #[test]
+    fn fragment_yaml_hash_extracts_for_all_prefixes() {
+        assert_eq!(fragment_yaml_hash("E:3dY0aBc2Xf-%22w456%22"), Some(YAML_HASH));
+        assert_eq!(fragment_yaml_hash("C:3dY0aBc2Xf-0-deadbeef"), Some(YAML_HASH));
+        assert_eq!(fragment_yaml_hash("N:3dY0aBc2Xf-aBcDe"), Some(YAML_HASH));
+    }
+
+    #[test]
+    fn legacy_fragments_without_yaml_hash_are_divergent() {
+        // Fragments produced before the YAML hash was introduced do not match
+        // the current grammar and must never be applied as conditional headers.
+        assert!(conditional_from_fragment("E:w456").is_none());
+        assert!(fragment_yaml_hash("E:w456").is_none());
+        assert!(fragment_yaml_hash("C:0-abcd1234").is_none());
+        assert!(fragment_yaml_hash("N:abcd1234").is_none());
+    }
+
+    #[test]
     fn malformed_fragments_are_rejected() {
         assert!(conditional_from_fragment("").is_none());
         assert!(conditional_from_fragment("X:abc").is_none());
         assert!(conditional_from_fragment("C:notanumber-abcd1234").is_none());
         assert!(conditional_from_fragment("E:").is_none());
+        assert!(conditional_from_fragment("-w456").is_none());
+    }
+
+    #[test]
+    fn yaml_hash_mismatch_is_detected() {
+        let fragment = fragment_from_response("AAAAAAAAAAA", Some(r#""w456""#), None, "body");
+        assert_eq!(fragment_yaml_hash(&fragment), Some("AAAAAAAAAAA"));
+        assert_ne!(fragment_yaml_hash(&fragment), Some(YAML_HASH));
     }
 }

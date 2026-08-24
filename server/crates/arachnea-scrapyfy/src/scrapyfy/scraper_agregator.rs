@@ -326,6 +326,13 @@ impl ScraperAgregator {
                 }
             };
             let reader = BufReader::new(file);
+            let source_bytes = fs::read(&source_path).map_err(|error| {
+                anyhow::anyhow!(
+                    "Failed to read source file: {}: {error}",
+                    source_path.display()
+                )
+            })?;
+            let source_yaml_hash = arachnea_core::crypt::hash62_64(&source_bytes);
             let mut raw: ScraperQueryCollectionRaw = parse(reader).map_err(|error| {
                 anyhow::anyhow!(
                     "Failed to parse source file: {}: {error}",
@@ -371,6 +378,7 @@ impl ScraperAgregator {
                     source_path.display()
                 )
             })?;
+            collection.set_yaml_hash(source_yaml_hash);
             collection.set_runtime_handles_with_persistence_store(
                 self.proxy_handle.clone(),
                 self.local_country.clone(),
@@ -423,8 +431,13 @@ impl ScraperAgregator {
             .or_default();
 
         for path in paths {
+            let source_bytes = fs::read(&path).map_err(|error| {
+                anyhow::anyhow!("Failed to read source file: {}: {error}", path)
+            })?;
+            let source_yaml_hash = arachnea_core::crypt::hash62_64(&source_bytes);
             let mut collection =
                 ScraperQueryCollection::from_file_with(path, |reader| parse(reader))?;
+            collection.set_yaml_hash(source_yaml_hash);
             collection.set_runtime_handles_with_persistence_store(
                 self.proxy_handle.clone(),
                 self.local_country.clone(),
@@ -663,7 +676,14 @@ impl ScraperAgregator {
             }
 
             let client_fragment = client_fragments
-                .and_then(|fragments| fragments.get(query_collection.name()).map(String::as_str));
+                .and_then(|fragments| fragments.get(query_collection.name()).map(String::as_str))
+                .filter(|fragment| {
+                    // Only apply the client fragment when its YAML hash still
+                    // matches the current collection; an edited scraper must
+                    // trigger a full re-fetch without conditional headers.
+                    fragment_yaml_hash(fragment)
+                        .is_some_and(|hash| hash == query_collection.yaml_hash())
+                });
             async move {
                 query_collection
                     .execute_query_with_validation(
@@ -672,6 +692,7 @@ impl ScraperAgregator {
                         query_media_type_filter,
                         fields_filters,
                         client_fragment,
+                        query_collection.yaml_hash(),
                     )
                     .await
             }
@@ -837,7 +858,16 @@ impl ScraperAgregator {
             .iter()
             .map(|(name, validation)| (name.clone(), validation.etag.clone()))
             .collect();
-        let global_etag = build_global_etag(&service_refs, &etag_fragments);
+        // Per-service YAML hashes back the deterministic fallback fragment of
+        // sources without a recorded validation outcome (static queries).
+        let yaml_hashes: HashMap<String, String> = self
+            .queries_collection
+            .get(group_name)
+            .into_iter()
+            .flatten()
+            .map(|collection| (collection.name().to_string(), collection.yaml_hash().to_string()))
+            .collect();
+        let global_etag = build_global_etag(&service_refs, &etag_fragments, &yaml_hashes);
 
         // Full 304 short-circuit: every validated source is stale and the
         // rebuilt global ETag matches what the client sent — no data needed.

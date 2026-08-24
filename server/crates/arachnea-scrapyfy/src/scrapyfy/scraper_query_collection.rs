@@ -286,6 +286,8 @@ impl ScraperQueryDefinition {
     /// * `params` - Runtime values used to format the query URL template.
     /// * `fields_filters` - Root fields filter list or None.
     /// * `client_fragment` - Client-provided validator fragment for this source.
+    /// * `yaml_hash` - Base62 hash of the source YAML document, embedded in
+    ///   every outgoing validator fragment.
     ///
     /// # Returns
     ///
@@ -300,6 +302,7 @@ impl ScraperQueryDefinition {
         params: &HashMap<String, String>,
         fields_filters: Option<&HashMap<String, Vec<String>>>,
         client_fragment: Option<&str>,
+        yaml_hash: &str,
     ) -> Result<(
         Vec<HashMap<String, ScraperDataNode>>,
         Option<crate::scrapyfy::RootFetchOutcome>,
@@ -355,8 +358,10 @@ impl ScraperQueryDefinition {
 
         let dynamic_template_variables =
             std::sync::Mutex::new(crate::scrapyfy::query_helpers::DynamicTemplateVariables::new());
-        let validation_slot =
-            crate::scrapyfy::ValidationSlot::new(client_fragment.map(str::to_string));
+        let validation_slot = crate::scrapyfy::ValidationSlot::new(
+            client_fragment.map(str::to_string),
+            yaml_hash.to_string(),
+        );
         let context = crate::scrapyfy::scraper::query_executor::QueryContext {
             params: &execution_params,
             dynamic_template_variables: &dynamic_template_variables,
@@ -524,6 +529,7 @@ pub struct ScraperQueryCollection {
     proxy_insecure_tls_hosts: Vec<String>,
     parameter_defaults: HashMap<String, String>,
     queries: HashMap<String, ScraperQueryDefinition>,
+    yaml_hash: String,
 }
 
 impl ScraperQueryCollection {
@@ -557,6 +563,7 @@ impl ScraperQueryCollection {
             proxy_insecure_tls_hosts,
             parameter_defaults,
             queries: HashMap::new(),
+            yaml_hash: String::new(),
         };
 
         for query in queries {
@@ -579,6 +586,21 @@ impl ScraperQueryCollection {
     /// Returns exact hosts eligible for an explicit proxy TLS bypass.
     pub fn proxy_insecure_tls_hosts(&self) -> &[String] {
         &self.proxy_insecure_tls_hosts
+    }
+
+    /// Returns the base62 hash of the source YAML document backing this collection.
+    ///
+    /// The hash is computed once from the raw file bytes at load time and is
+    /// embedded in every validator fragment so a scraper edit invalidates the
+    /// cached response even when the remote content is unchanged.
+    pub fn yaml_hash(&self) -> &str {
+        &self.yaml_hash
+    }
+
+    /// Records the base62 hash of the raw source YAML document.
+    pub(crate) fn set_yaml_hash(&mut self, yaml_hash: String) -> &mut Self {
+        self.yaml_hash = yaml_hash;
+        self
     }
 
     #[cfg(any(test, feature = "test-support"))]
@@ -706,6 +728,7 @@ impl ScraperQueryCollection {
             query_media_type_filter,
             fields_filters,
             None,
+            self.yaml_hash(),
         )
         .await
         .map(|(rows, _)| rows)
@@ -737,6 +760,7 @@ impl ScraperQueryCollection {
         query_media_type_filter: Option<&Vec<String>>,
         fields_filters: Option<&HashMap<String, Vec<String>>>,
         client_fragment: Option<&str>,
+        yaml_hash: &str,
     ) -> Result<(
         Vec<HashMap<String, ScraperDataNode>>,
         Option<crate::scrapyfy::RootFetchOutcome>,
@@ -756,6 +780,7 @@ impl ScraperQueryCollection {
                             &merged_params,
                             fields_filters,
                             client_fragment,
+                            yaml_hash,
                         )
                         .await
                 } else {
