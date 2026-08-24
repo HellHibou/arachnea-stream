@@ -12,8 +12,8 @@ use crate::controler::{
     install_global_main_thread_dispatcher, main_thread::MainThreadDispatchLoop,
     main_thread::QueuedMainThreadDispatcher, ControlerFunctionInput, ControlerJsonInput,
     ControlerJsonOutput, ControlerService, ControlerStreamInput, ControlerStreamOutput,
-    JsonControlerFunction, MainThreadDispatcher, ResponseBody, SerializedControlerFunction,
-    SharedWebAssets, StreamControlerFunction,
+    JsonControlerFunction, MainThreadDispatcher, RequestControlerContext, ResponseBody,
+    SerializedControlerFunction, SharedWebAssets, StreamControlerFunction,
 };
 
 use super::configuration::RestControlerConfiguration;
@@ -465,7 +465,7 @@ impl ControlerService for RestControlerService {
                             &post_call,
                             ControlerJsonInput {
                                 payload: ControlerFunctionInput::Json(input),
-                                headers: Self::headers_to_map(&headers),
+                                context: RequestControlerContext::new(Self::headers_to_map(&headers)),
                             },
                         )
                         .await,
@@ -487,7 +487,7 @@ impl ControlerService for RestControlerService {
                             &get_call,
                             ControlerJsonInput {
                                 payload: ControlerFunctionInput::Query(input),
-                                headers: Self::headers_to_map(&headers),
+                                context: RequestControlerContext::new(Self::headers_to_map(&headers)),
                             },
                         )
                         .await,

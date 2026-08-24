@@ -21,6 +21,21 @@ All notable changes to the server workspace are recorded here. Add new entries a
   players (HLS/DASH) remain always playable and are not subject to the
   allowlist.
 ### Changed
+- **Merged controller result contract**: `register_result_function` / `register_result_function_with_state` are now the single header-aware registration path. Their closures receive a new `RequestControlerContext` (carrying the incoming HTTP headers) right after the state parameter and return `(payload, Option<String> global_etag)`; they answer `304 Not Modified` or attach the `ETag` response header like the former `register_etag_result_function[_with_state]`, which were removed. REST builds the context from Warp headers, Tauri from an empty context. New constants `HEADER_IF_NONE_MATCH` and `HEADER_ETAG` live in `arachnea-core::controler`.
+- **Conditional ETag ownership moved into Scrapyfy**: `ScraperAgregator::execute_query_async` now takes `(&RequestControlerContext, QueryParameters)` as its first parameters (after `&self`) and internally runs the phase 1 (parallel conditional validation), stale-source phase 2 re-fetch, and global ETag rebuild previously implemented by `StreamScraper::execute_query_with_etag`. `QueryParameters` defaults to `enable_etag = true`; internal engine callers (proxy/IP-country providers, stream resolver) disable it explicitly. `ScraperAggregationResult` gains a serialized `global_etag` field (`with_global_etag` / `take_global_etag`). The global ETag helpers moved from `arachnea-stream::stream_etag` to `arachnea-scrapyfy::global_etag` (the stream module keeps re-exports).
+- **Internal-only ETag fields in the envelope**: `ScraperAggregationResult::validations` and
+  `ScraperAggregationResult::global_etag` are now annotated with `#[serde(skip_serializing)]`.
+  Both stay available to the aggregation engine and the header-aware controller contract
+  (`ETag` response / `If-None-Match` request) but no longer appear in JSON responses. The
+  frontend never read either field.
+- **Source params helpers moved into Scrapyfy**: `source_params_from_entries`, its private
+  `request_param_value_to_string` helper, and the request entry type (renamed
+  `ScraperSourceParamsRequestEntry`) moved from `arachnea-stream::stream_scraper` to the new
+  `arachnea-scrapyfy::source_params` module so other controller facades can reuse them. The
+  stream scraper now consumes the re-exported items through its existing glob import.
+
+
+- **ETag-free stream request payloads**: The eleven scraper command request structs no longer carry `arachneaEtag` / `enableEtag` fields. The client global ETag now flows exclusively through the `If-None-Match` request header into `RequestControlerContext`, and conditional validation is enabled by default through `QueryParameters`. Frontend callers that still send `arachneaEtag` keep working because unknown query parameters are ignored.
 - **Server launch URL display**: The REST server startup message now shows `localhost` when bound to a loopback address, and the machine's first non-loopback IPv4 address when bound to an unspecified address (`0.0.0.0`), instead of always printing the raw bound IP.
 - **Optional sprite storyboard dimensions**: Resolver storyboards may now omit `width` and
   `height`. The frontend preloads the first sprite image and derives its cell dimensions from the

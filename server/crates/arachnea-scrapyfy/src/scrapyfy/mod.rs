@@ -11,6 +11,16 @@ pub use conditional::{
     NO_VALIDATION_PREFIX,
 };
 
+/// Global ETag construction and decoding for aggregated responses.
+pub mod global_etag;
+pub use global_etag::{
+    build_global_etag, decode_client_fragments, normalize_client_etag, services_hash,
+};
+
+/// Runtime options controlling how a query is executed.
+pub mod query_parameters;
+pub use query_parameters::QueryParameters;
+
 /// Tree-shaped output node model used by all scraper pipelines.
 pub mod scraper_data_node;
 
@@ -96,6 +106,10 @@ pub use ip_country_provider::{
 /// Multi-source query aggregator.
 pub mod scraper_agregator;
 pub use scraper_agregator::{resolve_manifest_sources, ScraperAgregator, ScraperSourceParams};
+
+/// Source-scoped request parameter parsing helpers.
+pub mod source_params;
+pub use source_params::{source_params_from_entries, ScraperSourceParamsRequestEntry};
 
 /// Scraper manager trait used by runtime and test harnesses.
 pub mod scraper_manager;

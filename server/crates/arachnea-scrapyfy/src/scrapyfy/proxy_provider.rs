@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
+use arachnea_core::controler::RequestControlerContext;
 use arachnea_core::persistence::PersistenceStore;
 use arachnea_proxy::core::{
     ArachneaProxyCore, InventoryConfig, IpCountryResolver, IpCountryResolverConfig,
@@ -14,7 +15,7 @@ use arachnea_proxy::core::{
 use tracing::{info, trace};
 
 use crate::scrapyfy::ip_country_provider::ScrapyfyIpCountryDataProvider;
-use crate::scrapyfy::ScraperDataNode;
+use crate::scrapyfy::{QueryParameters, ScraperDataNode};
 use crate::ScraperAgregator;
 use crate::DEFAULT_SERVICES_DIRECTORY;
 
@@ -111,6 +112,8 @@ impl ProxyDataProvider for ScrapyfyProxyDataProvider {
         params.insert("country".to_string(), country.clone());
         let results = agregator
             .execute_query_async(
+                &RequestControlerContext::default(),
+                QueryParameters { enable_etag: false },
                 PROXIES_GROUP_NAME,
                 "list_proxies_for_country",
                 &params,
@@ -120,7 +123,7 @@ impl ProxyDataProvider for ScrapyfyProxyDataProvider {
                 None,
                 None,
                 "load_proxies",
-                None,
+                
             )
             .await
             .data;
@@ -150,6 +153,8 @@ impl ProxyDataProvider for ScrapyfyProxyDataProvider {
                 ip_params.insert("ip".to_string(), ip_str.clone());
                 let rows = agregator
                     .execute_query_async(
+                        &RequestControlerContext::default(),
+                        QueryParameters { enable_etag: false },
                         IP_COUNTRY_GROUP_NAME,
                         "resolve_ip_country",
                         &ip_params,
@@ -159,7 +164,7 @@ impl ProxyDataProvider for ScrapyfyProxyDataProvider {
                         None,
                         None,
                         "resolve_ip_country",
-                        None,
+                        
                     )
                     .await
                     .data;

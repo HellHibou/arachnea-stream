@@ -20,7 +20,7 @@ use super::{
     ControlerFunctionInput, ControlerJsonInput, ControlerService, ControlerStreamInput,
     ControlerStreamOutput, JsonControlerFunction, MainThreadContext, MainThreadDispatchError,
     MainThreadDispatcher, MainThreadEvent, MainThreadHandler, MainThreadHandlerId, MainThreadTask,
-    ResponseBody, SerializedControlerFunction, StreamControlerFunction,
+    RequestControlerContext, ResponseBody, SerializedControlerFunction, StreamControlerFunction,
 };
 
 /// The default custom URI scheme used for Tauri web assets.
@@ -679,7 +679,8 @@ impl ControlerService for TauriControlerService {
                     invoke.resolver.respond_async(async move {
                         handler(ControlerJsonInput {
                             payload: ControlerFunctionInput::Json(payload),
-                            headers: Default::default(),
+                            // Tauri IPC carries no HTTP headers.
+                            context: RequestControlerContext::default(),
                         })
                         .await
                         .map(|output| output.value)

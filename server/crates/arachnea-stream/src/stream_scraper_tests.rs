@@ -3,6 +3,7 @@ use crate::stream_scraper::DEFAULT_SERVICES_CONFIG_PATH;
 use crate::stream_scraper::STREAM_SERVICE_GROUP_NAME;
 use anyhow::Result;
 use arachnea_core::application;
+use arachnea_core::controler::RequestControlerContext;
 use arachnea_scrapyfy::scrapyfy::scraper_agregator::resolve_manifest_sources;
 use arachnea_scrapyfy::scrapyfy::scraper_data_node::ScraperDataNode;
 use arachnea_scrapyfy::scrapyfy::scraper_manager::tests::assert_query_succeeds;
@@ -109,7 +110,7 @@ fn service_stream_metadata(yaml_file: &str) -> Result<()> {
         yaml_file,
         move |scraper| {
             Box::pin(async move {
-                let result = scraper.get_service().await?;
+                let (result, _) = scraper.get_service(RequestControlerContext::default()).await?;
                 assert!(
                     result.is_ok(),
                     "service_stream_metadata should complete without errors, got {:?}",
@@ -134,7 +135,7 @@ fn load_home(yaml_file: &str) -> Result<()> {
         yaml_file,
         move |scraper| {
             Box::pin(async move {
-                let result = scraper.load_home().await?;
+                let (result, _) = scraper.load_home(RequestControlerContext::default()).await?;
                 assert!(
                     result.is_ok(),
                     "load_home should complete without errors, got {:?}",
@@ -160,8 +161,15 @@ fn search(search_term: String, yaml_file: &str) -> Result<()> {
         move |scraper| {
             let search_term = search_term.clone();
             Box::pin(async move {
-                let result = scraper
-                    .search(search_term, Vec::new(), Vec::new(), 1, Default::default())
+                let (result, _) = scraper
+                    .search(
+                        RequestControlerContext::default(),
+                        search_term,
+                        Vec::new(),
+                        Vec::new(),
+                        1,
+                        Default::default(),
+                    )
                     .await?;
 
                 // Verify envelope contract
@@ -235,8 +243,13 @@ fn get_entry(get_entry_url: Option<String>, yaml_file: &str) -> Result<()> {
                 let source_path = Path::new(&yaml_file_inner).with_extension("");
                 let source_name = source_path.to_string_lossy();
                 let entry_result = scraper
-                    .get_entry(source_name.to_string(), entry_url)
+                    .get_entry(
+                        RequestControlerContext::default(),
+                        source_name.to_string(),
+                        entry_url,
+                    )
                     .await?;
+                let (entry_result, _) = entry_result;
                 assert!(
                     entry_result.is_ok(),
                     "get_entry should complete without errors, got {:?}",
@@ -269,7 +282,8 @@ async fn load_entry_url_from_home(
     scraper: &mut StreamScraper,
     query_source: &str,
 ) -> Result<String> {
-    let home_result = scraper.load_home().await?.data;
+    let (home_result, _) = scraper.load_home(RequestControlerContext::default()).await?;
+    let home_result = home_result.data;
 
     let section: ScraperDataNode = home_result
         .iter()
@@ -299,9 +313,15 @@ async fn load_entry_url_from_home(
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("Missing link in load_home section"))?;
         let section_result = scraper
-            .get_section(query_source.to_string(), section_url, 1, Default::default())
-            .await?
-            .data;
+            .get_section(
+                RequestControlerContext::default(),
+                query_source.to_string(),
+                section_url,
+                1,
+                Default::default(),
+            )
+            .await?;
+        let section_result = section_result.0.data;
 
         section_result
             .get("entries")

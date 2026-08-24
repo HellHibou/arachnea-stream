@@ -108,9 +108,20 @@ pub struct ScraperAggregationResult<T> {
 
     /// Per-source conditional-validation outcomes, keyed by source name.
     ///
-    /// Empty when ETag validation is disabled or unsupported by the operation.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    /// Internal-only data used by the aggregation engine (stale-source
+    /// phase 2 re-fetch and global ETag rebuild). It is never serialized:
+    /// clients receive the outcome through HTTP caching headers (`ETag`
+    /// response / `If-None-Match` request) instead.
+    #[serde(default, skip_serializing)]
     pub validations: HashMap<String, ScraperSourceValidation>,
+
+    /// Global ETag covering every validated source of this aggregation.
+    ///
+    /// Internal-only data: the controller receives it through this struct,
+    /// but answers clients with an `ETag` HTTP header instead. Never
+    /// serialized in the JSON envelope.
+    #[serde(default, skip_serializing)]
+    pub global_etag: Option<String>,
 }
 
 impl<T> ScraperAggregationResult<T> {
@@ -120,6 +131,7 @@ impl<T> ScraperAggregationResult<T> {
             data,
             errors: Vec::new(),
             validations: HashMap::new(),
+            global_etag: None,
         }
     }
 
@@ -129,6 +141,7 @@ impl<T> ScraperAggregationResult<T> {
             data,
             errors,
             validations: HashMap::new(),
+            global_etag: None,
         }
     }
 
@@ -139,6 +152,17 @@ impl<T> ScraperAggregationResult<T> {
     ) -> Self {
         self.validations = validations;
         self
+    }
+
+    /// Attaches the up-to-date global ETag to this result.
+    pub fn with_global_etag(mut self, global_etag: Option<String>) -> Self {
+        self.global_etag = global_etag;
+        self
+    }
+
+    /// Moves the global ETag out of this result, leaving `None` in its place.
+    pub fn take_global_etag(&mut self) -> Option<String> {
+        self.global_etag.take()
     }
 
     /// Returns `true` if there are no errors.

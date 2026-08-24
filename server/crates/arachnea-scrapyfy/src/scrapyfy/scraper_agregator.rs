@@ -8,6 +8,7 @@ use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
+use arachnea_core::controler::{RequestControlerContext, HEADER_IF_NONE_MATCH};
 use arachnea_core::error_code::ErrorCodeGenerator;
 use arachnea_core::persistence::{MemoryPersistenceStore, PersistenceStore};
 use scraper_result::{
@@ -561,7 +562,7 @@ impl ScraperAgregator {
         None
     }
 
-    /// Executes the same query on all sources within a group and merges the resulting entries.
+    /// Executes a single aggregation pass of one query on every selected source.
     ///
     /// # Arguments
     ///
@@ -585,7 +586,7 @@ impl ScraperAgregator {
     /// [`ScraperAggregationResult::errors`] and logged with a correlation code.
     /// Per-source validation outcomes are collected in
     /// [`ScraperAggregationResult::validations`].
-    pub async fn execute_query_async(
+    async fn execute_query_pass(
         &self,
         group_name: &str,
         query_name: &str,
@@ -734,6 +735,153 @@ impl ScraperAgregator {
         }
 
         ScraperAggregationResult::new(aggregated_results, errors).with_validations(validations)
+    }
+
+    /// Executes the same query on all sources within a group with optional
+    /// conditional ETag validation and merges the resulting entries.
+    ///
+    /// When [`QueryParameters::enable_etag`] is enabled (the default), the
+    /// client global ETag is read from the request context's `If-None-Match`
+    /// header. Phase 1 validates every involved source in parallel using the
+    /// client fragments decoded from that global ETag; unchanged sources skip
+    /// parsing entirely. A second pass re-fetches stale sources without
+    /// conditional headers so the aggregated payload stays complete. The
+    /// result carries the up-to-date global ETag, always built from the
+    /// phase-1 fragments.
+    ///
+    /// When validation is disabled, a single unconditional pass runs and no
+    /// global ETag is produced.
+    ///
+    /// # Arguments
+    ///
+    /// * `context` - Context of the incoming controller request, providing the
+    ///   received HTTP headers (`If-None-Match`).
+    /// * `query_parameters` - Runtime options controlling the execution.
+    /// * `group_name` - Group name whose sources should be queried.
+    /// * `query_name` - Name of the query to execute on every configured source.
+    /// * `params` - Runtime values passed to each source-specific query template.
+    /// * `source_params` - Optional per-source parameter overrides merged into `params`.
+    /// * `scrapper_list` - Optional list of source names to execute. When `None`, every
+    ///   configured source in the group is queried.
+    /// * `query_media_type_filter` - Filter on media_type query.
+    /// * `fields_filters` - Root fields filter list or None.
+    /// * `source_field_name` - Optional metadata key used to store the originating source name.
+    /// * `operation` - Logical operation name used in error correlation codes.
+    pub async fn execute_query_async(
+        &self,
+        context: &RequestControlerContext,
+        query_parameters: QueryParameters,
+        group_name: &str,
+        query_name: &str,
+        params: &HashMap<String, String>,
+        source_params: Option<&ScraperSourceParams>,
+        scrapper_list: Option<&Vec<String>>,
+        query_media_type_filter: Option<&Vec<String>>,
+        fields_filters: Option<&HashMap<String, Vec<String>>>,
+        source_field_name: Option<&str>,
+        operation: &str,
+    ) -> ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>> {
+        if !query_parameters.enable_etag {
+            return self
+                .execute_query_pass(
+                    group_name,
+                    query_name,
+                    params,
+                    source_params,
+                    scrapper_list,
+                    query_media_type_filter,
+                    fields_filters,
+                    source_field_name,
+                    operation,
+                    None,
+                )
+                .await;
+        }
+
+        // Deterministic ordered service list involved in this request.
+        let mut services: Vec<String> = match scrapper_list {
+            Some(list) => list.clone(),
+            None => self.source_names_in_group(group_name),
+        };
+        services.retain(|name| !name.trim().is_empty());
+        services.sort();
+        services.dedup();
+        let service_refs: Vec<&str> = services.iter().map(String::as_str).collect();
+
+        // Phase 1: parallel conditional validation per source.
+        let client_etag = context
+            .get_header(HEADER_IF_NONE_MATCH)
+            .map(normalize_client_etag)
+            .filter(|etag| !etag.is_empty())
+            .map(str::to_string);
+        let client_fragments = client_etag
+            .as_deref()
+            .and_then(|etag| decode_client_fragments(etag, &service_refs));
+
+        let mut result = self
+            .execute_query_pass(
+                group_name,
+                query_name,
+                params,
+                source_params,
+                scrapper_list,
+                query_media_type_filter,
+                fields_filters,
+                source_field_name,
+                operation,
+                client_fragments.as_ref(),
+            )
+            .await;
+        let etag_fragments: HashMap<String, String> = result
+            .validations
+            .iter()
+            .map(|(name, validation)| (name.clone(), validation.etag.clone()))
+            .collect();
+        let global_etag = build_global_etag(&service_refs, &etag_fragments);
+
+        // Full 304 short-circuit: every validated source is stale and the
+        // rebuilt global ETag matches what the client sent — no data needed.
+        let all_stale = !result.validations.is_empty()
+            && result
+                .validations
+                .values()
+                .all(|validation| validation.status == ScraperSourceStatus::Stale);
+        if all_stale && global_etag.is_some() && global_etag == client_etag {
+            result.global_etag = global_etag;
+            return result;
+        }
+
+        // Phase 2: forced full GETs for stale sources only, merging their
+        // freshly parsed rows into the aggregate. The global ETag keeps the
+        // phase-1 fragments — they already describe the current remote state.
+        let stale_sources: Vec<String> = result
+            .validations
+            .iter()
+            .filter(|(_, validation)| validation.status == ScraperSourceStatus::Stale)
+            .map(|(name, _)| name.clone())
+            .collect();
+
+        if !stale_sources.is_empty() {
+            let catch_up = self
+                .execute_query_pass(
+                    group_name,
+                    query_name,
+                    params,
+                    source_params,
+                    Some(&stale_sources),
+                    query_media_type_filter,
+                    fields_filters,
+                    source_field_name,
+                    operation,
+                    None,
+                )
+                .await;
+            result.data.extend(catch_up.data);
+            result.errors.extend(catch_up.errors);
+        }
+
+        result.global_etag = global_etag;
+        result
     }
 }
 
@@ -1223,6 +1371,8 @@ queries:
 
         let result = aggregator
             .execute_query_async(
+                &RequestControlerContext::default(),
+                QueryParameters::default(),
                 "test",
                 "probe",
                 &HashMap::new(),
@@ -1232,7 +1382,7 @@ queries:
                 None,
                 None,
                 "probe",
-                None,
+                
             )
             .await;
 
@@ -1253,6 +1403,8 @@ queries:
 
         let result = aggregator
             .execute_query_async(
+                &RequestControlerContext::default(),
+                QueryParameters::default(),
                 "test",
                 "probe",
                 &HashMap::new(),
@@ -1262,7 +1414,7 @@ queries:
                 None,
                 None,
                 "probe",
-                None,
+                
             )
             .await;
 
@@ -1292,6 +1444,8 @@ queries:
 
         let result = aggregator
             .execute_query_async(
+                &RequestControlerContext::default(),
+                QueryParameters::default(),
                 "test",
                 "probe",
                 &HashMap::new(),
@@ -1301,7 +1455,7 @@ queries:
                 None,
                 None,
                 "probe",
-                None,
+                
             )
             .await;
 
@@ -1324,6 +1478,8 @@ queries:
         let aggregator = ScraperAgregator::new_with_proxy_handle(SharedProxyConfigHandle::new());
         let result = aggregator
             .execute_query_async(
+                &RequestControlerContext::default(),
+                QueryParameters::default(),
                 "missing",
                 "probe",
                 &HashMap::new(),
@@ -1333,7 +1489,7 @@ queries:
                 None,
                 None,
                 "probe",
-                None,
+                
             )
             .await;
 

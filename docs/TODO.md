@@ -7,7 +7,8 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 
 - Implémenter le cache serveur (Redis / mémoire) pour la phase 2 (rattrapage) de la validation conditionnelle ETag : servir les sources `stale` depuis le cache au lieu d'un GET complet externe. Voir `docs/dev-tracking/etag-fragments-parallel-validation-analysis.md` §7 et §12.
 - Rendre persistant le cache ETag frontal (IndexedDB) pour survivre aux rechargements de page. Voir `docs/dev-tracking/etag-fragments-parallel-validation-analysis.md` §12.
-- Réparer la compilation des tests du workspace : les blocs `#[cfg(any(test, feature = "test-support"))]` de `scraper_manager.rs` référencent une crate `resources` non liée (`resources::get_application_root()`), ce qui bloque `cargo test --workspace`.
+- Réparer la compilation des tests du workspace : les blocs `#[cfg(any(test, feature = "test-support"))]` de `scraper_manager.rs` référencent une crate `resources` non liée (`resources::get_application_root()`), ce qui bloque `cargo test --workspace`. Ce blocage empêche aussi de valider les tests unitaires de `arachnea-scrapyfy` (dont les nouveaux tests `global_etag`) et `stream_scraper_tests.rs` mis à jour pour le contrat `RequestControlerContext`.
+- Facultatif (frontend) : cesser d'envoyer `arachneaEtag` / `enableEtag` dans `front/src/services/rustify.ts` — l'en-tête `If-None-Match` suffit depuis la migration du contexte contrôleur (`docs/dev-tracking/request-context-query-parameters-analysis.md`).
 - Utiliser obscura pour contourner Cloudflare (navigateur rust avec résolution cloudflare interne).
 - Ajouter la gestion réutilisable du mode serveur et du mode application de bureau :
     - En mode serveur, si le mode graphique est disponible, afficher une icône de notification pour :

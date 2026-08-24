@@ -97,24 +97,61 @@ impl From<Value> for ControlerJsonOutput {
     }
 }
 
+/// Header carrying the client validator (`If-None-Match`) for conditional requests.
+pub const HEADER_IF_NONE_MATCH: &str = "if-none-match";
+
+/// Header carrying the server validator echoed back to clients.
+pub const HEADER_ETAG: &str = "etag";
+
+/// Context of an incoming controller request.
+///
+/// Carries the HTTP headers received by the controller backend so registered
+/// commands can access them without depending on a specific transport
+/// (REST HTTP headers, empty Tauri IPC context, ...).
+#[derive(Default, Clone)]
+pub struct RequestControlerContext {
+    /// Incoming request headers as key-value pairs.
+    headers: HashMap<String, String>,
+}
+
+impl RequestControlerContext {
+    /// Creates a context from the received header map.
+    ///
+    /// # Arguments
+    /// * `headers` - Incoming HTTP request headers as key-value pairs.
+    pub fn new(headers: HashMap<String, String>) -> Self {
+        Self { headers }
+    }
+
+    /// Returns the optional value of the given header.
+    ///
+    /// The lookup is case-insensitive, matching HTTP header semantics.
+    ///
+    /// # Arguments
+    /// * `name` - Header name to look up.
+    pub fn get_header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(header_name, _)| header_name.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.as_str())
+    }
+}
+
 /// Input of a header-aware JSON command.
 ///
-/// Carries the deserialized payload alongside the incoming HTTP request
-/// headers so commands can implement conditional validation.
+/// Carries the deserialized payload alongside the incoming request context
+/// so commands can implement conditional validation.
 pub struct ControlerJsonInput {
     /// Deserialized command payload (JSON body or URL query string).
     pub payload: ControlerFunctionInput,
-    /// Incoming HTTP request headers as key-value pairs.
-    pub headers: HashMap<String, String>,
+    /// Context of the incoming request (received HTTP headers).
+    pub context: RequestControlerContext,
 }
 
 impl ControlerJsonInput {
     /// Returns the `If-None-Match` request header value, when present.
     pub fn if_none_match(&self) -> Option<&str> {
-        self.headers
-            .iter()
-            .find(|(name, _)| name.eq_ignore_ascii_case("if-none-match"))
-            .map(|(_, value)| value.as_str())
+        self.context.get_header(HEADER_IF_NONE_MATCH)
     }
 }
 
@@ -389,14 +426,21 @@ pub trait ControlerServiceExt: ControlerService {
     /// Registers a strongly typed callback that may fail under a command name.
     ///
     /// The callback input is deserialized from either JSON or a raw query string,
-    /// depending on the backend and HTTP method used. Errors are forwarded to the
-    /// controller backend as user-visible command errors instead of panicking.
+    /// depending on the backend and HTTP method used. The callback also receives
+    /// the [`RequestControlerContext`] built by the controller backend. Errors are
+    /// forwarded to the controller backend as user-visible command errors instead
+    /// of panicking.
+    ///
+    /// When the callback produces a global ETag and the client's
+    /// `If-None-Match` header matches it, the backend answers `304 Not Modified`
+    /// with no body; otherwise the serialized payload is returned with an `ETag`
+    /// response header when one was produced.
     ///
     /// # Type Parameters
     /// * `I` - Input type that implements `DeserializeOwned`.
     /// * `O` - Output type that implements `Serialize`.
-    /// * `F` - Function type that takes input and returns a future.
-    /// * `Fut` - Future type that resolves to `Result<O, E>`.
+    /// * `F` - Function type taking input and the request context.
+    /// * `Fut` - Future type that resolves to `Result<(O, Option<String>), E>`.
     /// * `E` - Error type that implements `Display`.
     ///
     /// # Arguments
@@ -406,32 +450,52 @@ pub trait ControlerServiceExt: ControlerService {
     where
         I: DeserializeOwned + Send + 'static,
         O: Serialize + Send + 'static,
-        F: Fn(I) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<O, E>> + Send + 'static,
+        F: Fn(I, RequestControlerContext) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(O, Option<String>), E>> + Send + 'static,
         E: std::fmt::Display,
     {
         let fct = Arc::new(fct);
-        let handler = move |payload: ControlerFunctionInput| -> SerializedControlerFuture {
+        let handler = move |input: ControlerJsonInput| -> JsonControlerFuture {
             let fct = Arc::clone(&fct);
             Box::pin(async move {
-                let input = deserialize_input(payload)?;
+                let if_none_match = normalize_etag(input.if_none_match());
+                let payload = deserialize_input(input.payload)?;
+                let (response, etag) = fct(payload, input.context)
+                    .await
+                    .map_err(|e| e.to_string())?;
 
-                let response = fct(input).await.map_err(|e| e.to_string())?;
-                serialize_output(response)
+                if let Some(etag) = etag.as_ref() {
+                    if if_none_match.as_deref() == Some(etag.as_str()) {
+                        return Ok(ControlerJsonOutput {
+                            value: Value::Null,
+                            status: 304,
+                            headers: HashMap::from([(HEADER_ETAG.to_string(), format!("\"{etag}\""))]),
+                        });
+                    }
+                }
+
+                let mut output = ControlerJsonOutput::from(serialize_output(response)?);
+                if let Some(etag) = etag {
+                    output.headers.insert(HEADER_ETAG.to_string(), format!("\"{etag}\""));
+                }
+                Ok(output)
             })
         };
 
-        self.register_serialized_function(name, Arc::new(handler));
+        self.register_json_function(name, Arc::new(handler));
     }
 
     /// Registers an async callback bound to shared state without per-call boilerplate.
+    ///
+    /// See [`ControlerServiceExt::register_result_function`] for the
+    /// conditional-validation contract.
     ///
     /// # Type Parameters
     /// * `S` - State type that implements `Send + Sync`.
     /// * `I` - Input type that implements `DeserializeOwned`.
     /// * `O` - Output type that implements `Serialize`.
-    /// * `F` - Function type that takes state and input.
-    /// * `Fut` - Future type that resolves to `Result<O, E>`.
+    /// * `F` - Function type that takes state, the request context, and input.
+    /// * `Fut` - Future type that resolves to `Result<(O, Option<String>), E>`.
     /// * `E` - Error type that implements `Display`.
     ///
     /// # Arguments
@@ -447,102 +511,19 @@ pub trait ControlerServiceExt: ControlerService {
         S: Send + Sync + 'static,
         I: DeserializeOwned + Send + 'static,
         O: Serialize + Send + 'static,
-        F: Fn(Arc<S>, I) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<O, E>> + Send + 'static,
-        E: std::fmt::Display,
-    {
-        self.register_result_function(name, move |input: I| {
-            let state = Arc::clone(&state);
-            fct(state, input)
-        });
-    }
-
-    /// Registers a strongly typed header-aware callback that may fail under a command name.
-    ///
-    /// The callback receives the deserialized input plus the incoming request
-    /// headers, and returns an optional global ETag. When the client's
-    /// `If-None-Match` header matches the produced ETag, the backend answers
-    /// `304 Not Modified` with no body; otherwise the serialized payload is
-    /// returned with an `ETag` response header when one was produced.
-    ///
-    /// # Type Parameters
-    /// * `I` - Input type that implements `DeserializeOwned`.
-    /// * `O` - Output type that implements `Serialize`.
-    /// * `F` - Function type taking input and request headers.
-    /// * `Fut` - Future resolving to `(O, Option<String>)`.
-    /// * `E` - Error type implementing `Display`.
-    ///
-    /// # Arguments
-    /// * `name` - The command name to register under.
-    /// * `fct` - The function to register.
-    fn register_etag_result_function<I, O, F, Fut, E>(&mut self, name: &str, fct: F)
-    where
-        I: DeserializeOwned + Send + 'static,
-        O: Serialize + Send + 'static,
-        F: Fn(I, HashMap<String, String>) -> Fut + Send + Sync + 'static,
+        F: Fn(Arc<S>, RequestControlerContext, I) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<(O, Option<String>), E>> + Send + 'static,
         E: std::fmt::Display,
     {
-        let fct = Arc::new(fct);
-        let handler = move |input: ControlerJsonInput| -> JsonControlerFuture {
-            let fct = Arc::clone(&fct);
-            Box::pin(async move {
-                let if_none_match = normalize_etag(input.if_none_match());
-                let payload = deserialize_input(input.payload)?;
-                let (response, etag) = fct(payload, input.headers)
-                    .await
-                    .map_err(|e| e.to_string())?;
-
-                if let Some(etag) = etag.as_ref() {
-                    if if_none_match.as_deref() == Some(etag.as_str()) {
-                        return Ok(ControlerJsonOutput {
-                            value: Value::Null,
-                            status: 304,
-                            headers: HashMap::from([("ETag".to_string(), format!("\"{etag}\""))]),
-                        });
-                    }
-                }
-
-                let mut output = ControlerJsonOutput::from(serialize_output(response)?);
-                if let Some(etag) = etag {
-                    output
-                        .headers
-                        .insert("ETag".to_string(), format!("\"{etag}\""));
-                }
-                Ok(output)
-            })
-        };
-
-        self.register_json_function(name, Arc::new(handler));
+        self.register_result_function(
+            name,
+            move |input: I, context: RequestControlerContext| {
+                let state = Arc::clone(&state);
+                fct(state, context, input)
+            },
+        );
     }
 
-    /// Registers an async header-aware callback bound to shared state.
-    ///
-    /// See [`ControlerServiceExt::register_etag_result_function`] for the
-    /// conditional-validation contract.
-    ///
-    /// # Arguments
-    /// * `name` - The command name to register under.
-    /// * `state` - The shared state to bind to the function.
-    /// * `fct` - The function to register.
-    fn register_etag_result_function_with_state<S, I, O, F, Fut, E>(
-        &mut self,
-        name: &str,
-        state: Arc<S>,
-        fct: F,
-    ) where
-        S: Send + Sync + 'static,
-        I: DeserializeOwned + Send + 'static,
-        O: Serialize + Send + 'static,
-        F: Fn(Arc<S>, I, HashMap<String, String>) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<(O, Option<String>), E>> + Send + 'static,
-        E: std::fmt::Display,
-    {
-        self.register_etag_result_function(name, move |input: I, headers: HashMap<String, String>| {
-            let state = Arc::clone(&state);
-            fct(state, input, headers)
-        });
-    }
 
     /// Registers an async binary stream callback bound to shared state without per-call boilerplate.
     ///
