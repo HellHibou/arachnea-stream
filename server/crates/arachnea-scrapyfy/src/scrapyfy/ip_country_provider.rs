@@ -10,7 +10,7 @@ use arachnea_proxy::core::{
 use tracing::{info, warn};
 
 use arachnea_core::controler::RequestControlerContext;
-use crate::scrapyfy::{QueryParameters, ScraperAgregator};
+use crate::scrapyfy::{CacheType, QueryParameters, ScraperAgregator};
 
 const IP_COUNTRY_GROUP_NAME: &str = "arachnea-ip-countries";
 
@@ -82,7 +82,7 @@ impl ScrapyfyIpCountryDataProvider {
             let query_results = agregator
                 .execute_query_async(
                     &RequestControlerContext::default(),
-                    QueryParameters { enable_etag: false },
+                    QueryParameters { cache_type: CacheType::NoCache },
                     IP_COUNTRY_GROUP_NAME,
                     "resolve_ip_country",
                     &params,
@@ -139,7 +139,7 @@ impl IpCountryDataProvider for ScrapyfyIpCountryDataProvider {
         let rows = agregator
             .execute_query_async(
                 &RequestControlerContext::default(),
-                QueryParameters { enable_etag: false },
+                QueryParameters { cache_type: CacheType::NoCache },
                 IP_COUNTRY_GROUP_NAME,
                 "resolve_ip_country",
                 &params,
@@ -174,7 +174,7 @@ impl IpCountryDataProvider for ScrapyfyIpCountryDataProvider {
         let rows = agregator
             .execute_query_async(
                 &RequestControlerContext::default(),
-                QueryParameters { enable_etag: false },
+                QueryParameters { cache_type: CacheType::NoCache },
                 IP_COUNTRY_GROUP_NAME,
                 "resolve_current_country",
                 &HashMap::new(),

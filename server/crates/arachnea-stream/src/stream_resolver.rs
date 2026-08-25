@@ -239,7 +239,7 @@ impl<'a> StreamResolver<'a> {
             .scraper_agregator
             .execute_query_async(
                 &RequestControlerContext::default(),
-                QueryParameters { enable_etag: false },
+                QueryParameters { cache_type: CacheType::NoCache },
                 STREAM_RESOLVER_GROUP_NAME,
                 RESOLVE_STREAM_QUERY_NAME,
                 &params,
@@ -471,7 +471,7 @@ impl<'a> StreamResolver<'a> {
             .scraper_agregator
             .execute_query_async(
                 &RequestControlerContext::default(),
-                QueryParameters { enable_etag: false },
+                QueryParameters { cache_type: CacheType::NoCache },
                 STREAM_RESOLVER_GROUP_NAME,
                 CAN_RESOLVE_HTML_QUERY_NAME,
                 &params,
@@ -501,7 +501,7 @@ impl<'a> StreamResolver<'a> {
             .scraper_agregator
             .execute_query_async(
                 &RequestControlerContext::default(),
-                QueryParameters { enable_etag: false },
+                QueryParameters { cache_type: CacheType::NoCache },
                 STREAM_RESOLVER_GROUP_NAME,
                 CAN_RESOLVE_URL_QUERY_NAME,
                 &params,

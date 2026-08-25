@@ -1208,7 +1208,7 @@ mod tests {
     /// into a query collection and serialized back as JSON.
     #[test]
     fn config_yaml_to_json() -> super::Result<()> {
-        let services_path = format!("{}/services", resources::get_application_root());
+        let services_path = format!("{}/services", arachnea_core::application::get_application_root());
 
         for entry in std::fs::read_dir(services_path)? {
             let path = entry?.path();

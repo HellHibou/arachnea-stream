@@ -88,7 +88,7 @@ pub fn init_mock(query_source: &str, query: &str) {
     http_client::set_router(move |_client, _route| {
         let file = format!(
             "{}/{}/{}-{}.html",
-            resources::get_application_root(),
+            arachnea_core::application::get_application_root(),
             MOCK_DATA_FOLDER,
             query_source_str,
             query_str
@@ -185,7 +185,7 @@ pub mod tests {
     ) -> Result<Option<TestExpectedFields>> {
         let yaml_file = format!(
             "{}/{}/{}.yaml",
-            resources::get_application_root(),
+            arachnea_core::application::get_application_root(),
             TEST_DATA_FOLDER,
             query_source
         );
@@ -254,7 +254,7 @@ pub mod tests {
 
         let yaml_path = format!(
             "{}/{}/{}",
-            resources::get_application_root(),
+            arachnea_core::application::get_application_root(),
             DEFAULT_SERVICES_DIRECTORY,
             yaml_file
         );

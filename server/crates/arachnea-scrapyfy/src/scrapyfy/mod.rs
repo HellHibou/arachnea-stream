@@ -21,6 +21,11 @@ pub use global_etag::{
 pub mod query_parameters;
 pub use query_parameters::QueryParameters;
 
+pub mod scraper_cache;
+pub use scraper_cache::{
+    server_cache_key, CacheType, ScraperCacheConfig, ScraperServerCache, ServerCacheInteraction,
+};
+
 /// Tree-shaped output node model used by all scraper pipelines.
 pub mod scraper_data_node;
 

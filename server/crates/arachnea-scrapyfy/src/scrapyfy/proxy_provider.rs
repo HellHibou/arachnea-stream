@@ -15,7 +15,7 @@ use arachnea_proxy::core::{
 use tracing::{info, trace};
 
 use crate::scrapyfy::ip_country_provider::ScrapyfyIpCountryDataProvider;
-use crate::scrapyfy::{QueryParameters, ScraperDataNode};
+use crate::scrapyfy::{CacheType, QueryParameters, ScraperDataNode};
 use crate::ScraperAgregator;
 use crate::DEFAULT_SERVICES_DIRECTORY;
 
@@ -113,7 +113,7 @@ impl ProxyDataProvider for ScrapyfyProxyDataProvider {
         let results = agregator
             .execute_query_async(
                 &RequestControlerContext::default(),
-                QueryParameters { enable_etag: false },
+                QueryParameters { cache_type: CacheType::NoCache },
                 PROXIES_GROUP_NAME,
                 "list_proxies_for_country",
                 &params,
@@ -154,7 +154,7 @@ impl ProxyDataProvider for ScrapyfyProxyDataProvider {
                 let rows = agregator
                     .execute_query_async(
                         &RequestControlerContext::default(),
-                        QueryParameters { enable_etag: false },
+                        QueryParameters { cache_type: CacheType::NoCache },
                         IP_COUNTRY_GROUP_NAME,
                         "resolve_ip_country",
                         &ip_params,

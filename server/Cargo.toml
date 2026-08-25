@@ -31,6 +31,7 @@ const_format = "0.2"
 cookie = "0.18"
 encoding_rs = "0.8"
 futures = "0.3"
+foyer = "0.22"
 ghostwire = "1.1"
 hickory-proto = "0.25.2"
 hickory-resolver = "0.25.2"
@@ -69,5 +70,12 @@ urlencoding = "2.1"
 warp = "0.3"
 webpki-roots = "1.0"
 wry = "0.55.1"
+
+# Compile dependencies with basic optimizations even in debug builds so the
+# serde-heavy scraper result paths (server cache, JSON envelopes) stay usable
+# during development.
+[profile.dev.package."*"]
+opt-level = 1
+
 
 

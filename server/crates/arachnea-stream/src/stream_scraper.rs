@@ -369,7 +369,7 @@ impl StreamScraper {
             .scraper_agregator
             .execute_query_async(
                 &context,
-                QueryParameters::default(),
+                QueryParameters::from_cache_type(CacheType::ClientCache),
                 STREAM_SERVICE_GROUP_NAME,
                 "search",
                 &params,
@@ -419,7 +419,7 @@ impl StreamScraper {
             .scraper_agregator
             .execute_query_async(
                 &context,
-                QueryParameters::default(),
+                QueryParameters::from_cache_type(CacheType::ClientCache),
                 STREAM_SERVICE_GROUP_NAME,
                 "get_entry",
                 &params,
@@ -484,7 +484,7 @@ impl StreamScraper {
             .scraper_agregator
             .execute_query_async(
                 &context,
-                QueryParameters::default(),
+                QueryParameters::from_cache_type(CacheType::ClientCache),
                 STREAM_SERVICE_GROUP_NAME,
                 "get_season",
                 &params,
@@ -531,7 +531,7 @@ impl StreamScraper {
             .scraper_agregator
             .execute_query_async(
                 &context,
-                QueryParameters::default(),
+                QueryParameters::from_cache_type(CacheType::FullCache),
                 STREAM_SERVICE_GROUP_NAME,
                 "list_lives",
                 &params,
@@ -628,7 +628,7 @@ impl StreamScraper {
             .scraper_agregator
             .execute_query_async(
                 &context,
-                QueryParameters::default(),
+                QueryParameters::from_cache_type(CacheType::ServerCache),
                 STREAM_SERVICE_GROUP_NAME,
                 "load_home",
                 &params,
@@ -667,7 +667,7 @@ impl StreamScraper {
             .scraper_agregator
             .execute_query_async(
                 &context,
-                QueryParameters::default(),
+                QueryParameters::from_cache_type(CacheType::NoCache),
                 STREAM_SERVICE_GROUP_NAME,
                 "service_stream_metadata",
                 &params,
@@ -745,7 +745,7 @@ impl StreamScraper {
             .scraper_agregator
             .execute_query_async(
                 &context,
-                QueryParameters::default(),
+                QueryParameters::from_cache_type(CacheType::FullCache),
                 STREAM_SERVICE_GROUP_NAME,
                 "get_category",
                 &params,
@@ -814,7 +814,7 @@ impl StreamScraper {
             .scraper_agregator
             .execute_query_async(
                 &context,
-                QueryParameters::default(),
+                QueryParameters::from_cache_type(CacheType::FullCache),
                 STREAM_SERVICE_GROUP_NAME,
                 "get_section",
                 &params,
@@ -883,7 +883,7 @@ impl StreamScraper {
             .scraper_agregator
             .execute_query_async(
                 &context,
-                QueryParameters::default(),
+                QueryParameters::from_cache_type(CacheType::ClientCache),
                 STREAM_SERVICE_GROUP_NAME,
                 "get_banners",
                 &params,
@@ -952,7 +952,7 @@ impl StreamScraper {
             .scraper_agregator
             .execute_query_async(
                 &context,
-                QueryParameters::default(),
+                QueryParameters::from_cache_type(CacheType::ClientCache),
                 STREAM_SERVICE_GROUP_NAME,
                 "get_players",
                 &params,

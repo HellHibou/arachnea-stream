@@ -264,7 +264,7 @@ fn get_entry(get_entry_url: Option<String>, yaml_file: &str) -> Result<()> {
 fn load_enabled_services() -> Vec<String> {
     let config_file = format!(
         "{}/{}",
-        resources::get_application_root(),
+        arachnea_core::application::get_application_root(),
         DEFAULT_SERVICES_CONFIG_PATH
     );
     let services_json_path = Path::new(config_file.as_str());

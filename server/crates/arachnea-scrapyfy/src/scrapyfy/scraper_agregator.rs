@@ -71,6 +71,7 @@ pub struct ScraperAgregator {
     proxy_handle: SharedProxyConfigHandle,
     local_country: SharedLocalCountry,
     persistence_store: Arc<dyn PersistenceStore>,
+    server_cache: Arc<ScraperServerCache>,
     #[cfg(feature = "arachnea-proxy")]
     proxy_core: Option<ArachneaProxyCore>,
 }
@@ -109,6 +110,7 @@ impl ScraperAgregator {
             proxy_handle,
             local_country: SharedLocalCountry::new(),
             persistence_store,
+            server_cache: Arc::new(ScraperServerCache::new(ScraperCacheConfig::default())),
             #[cfg(feature = "arachnea-proxy")]
             proxy_core: None,
         }
@@ -172,6 +174,7 @@ impl ScraperAgregator {
             proxy_handle,
             local_country: SharedLocalCountry::new(),
             persistence_store,
+            server_cache: Arc::new(ScraperServerCache::new(ScraperCacheConfig::default())),
             #[cfg(feature = "arachnea-proxy")]
             proxy_core: None,
         }
@@ -195,6 +198,57 @@ impl ScraperAgregator {
     /// Returns the shared proxy handle used by this aggregator and its queries.
     pub fn get_proxy_handle(&self) -> SharedProxyConfigHandle {
         self.proxy_handle.clone()
+    }
+
+    /// Replaces the server-side cache configuration.
+    ///
+    /// Must be called before any query execution; the underlying hybrid cache
+    /// engine is created lazily on the first cached execution.
+    pub fn set_cache_config(&mut self, config: ScraperCacheConfig) {
+        self.server_cache = Arc::new(ScraperServerCache::new(config));
+    }
+
+    /// Returns the shared server-side cache used by this aggregator.
+    pub fn server_cache(&self) -> Arc<ScraperServerCache> {
+        self.server_cache.clone()
+    }
+
+    /// Builds the deterministic server-cache key of one source execution.
+    ///
+    /// Returns `None` when the source is unknown within the group.
+    #[allow(clippy::too_many_arguments)]
+    fn server_cache_key_for_source(
+        &self,
+        group_name: &str,
+        source_name: &str,
+        query_name: &str,
+        params: &HashMap<String, String>,
+        source_params: Option<&ScraperSourceParams>,
+        query_media_type_filter: Option<&Vec<String>>,
+        fields_filters: Option<&HashMap<String, Vec<String>>>,
+    ) -> Option<String> {
+        let collection = self
+            .queries_collection
+            .get(group_name)?
+            .iter()
+            .find(|collection| collection.name() == source_name)?;
+        // Replicates exactly the per-source parameter merge performed by
+        // `execute_query_pass` so both sides derive the same key.
+        let mut merged_params = params.clone();
+        if let Some(source_params) = source_params {
+            if let Some(params_for_source) = source_params.get(source_name) {
+                merged_params.extend(params_for_source.clone());
+            }
+        }
+        Some(server_cache_key(
+            group_name,
+            source_name,
+            query_name,
+            &merged_params,
+            query_media_type_filter,
+            fields_filters,
+            collection.yaml_hash(),
+        ))
     }
 
     /// Sets the proxy core instance used by clients created through this aggregator.
@@ -592,6 +646,8 @@ impl ScraperAgregator {
     /// * `client_fragments` - Optional per-source validator fragments provided by the
     ///   client (source name → fragment). When set for a source, conditional headers
     ///   are applied to that source's root request and unchanged content skips parsing.
+    /// * `server_cache_interaction` - How this pass interacts with the server-side
+    ///   cache (`None`, `Validate` or `ForceRefresh`). See [`ServerCacheInteraction`].
     ///
     /// The returned entries are already tree-shaped when fields include `>` in their names.
     ///
@@ -611,6 +667,7 @@ impl ScraperAgregator {
         source_field_name: Option<&str>,
         operation: &str,
         client_fragments: Option<&HashMap<String, String>>,
+        server_cache_interaction: ServerCacheInteraction,
     ) -> ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>> {
         let Some(queries_collection) = self.queries_collection.get(group_name) else {
             let code = ERROR_CODE_GEN.next_code();
@@ -684,17 +741,123 @@ impl ScraperAgregator {
                     fragment_yaml_hash(fragment)
                         .is_some_and(|hash| hash == query_collection.yaml_hash())
                 });
+            let cache_key = match server_cache_interaction {
+                ServerCacheInteraction::None => None,
+                _ => Some(server_cache_key(
+                    group_name,
+                    query_collection.name(),
+                    query_name,
+                    &execution_params,
+                    query_media_type_filter,
+                    fields_filters,
+                    query_collection.yaml_hash(),
+                )),
+            };
+            let server_cache = self.server_cache.clone();
             async move {
-                query_collection
-                    .execute_query_with_validation(
-                        query_name,
-                        &execution_params,
-                        query_media_type_filter,
-                        fields_filters,
-                        client_fragment,
-                        query_collection.yaml_hash(),
-                    )
-                    .await
+                match server_cache_interaction {
+                    ServerCacheInteraction::None => {
+                        query_collection
+                            .execute_query_with_validation(
+                                query_name,
+                                &execution_params,
+                                query_media_type_filter,
+                                fields_filters,
+                                client_fragment,
+                                query_collection.yaml_hash(),
+                            )
+                            .await
+                    }
+                    ServerCacheInteraction::Validate => {
+                        let Some(key) = cache_key else {
+                            return query_collection
+                                .execute_query_with_validation(
+                                    query_name,
+                                    &execution_params,
+                                    query_media_type_filter,
+                                    fields_filters,
+                                    client_fragment,
+                                    query_collection.yaml_hash(),
+                                )
+                                .await;
+                        };
+                        // The stored fragment takes precedence over the client
+                        // fragment: the cached rows back it, so a `304` against
+                        // it proves those rows are still current.
+                        let cached = server_cache.load_entry(&key).await;
+                        let effective_fragment = cached
+                            .as_ref()
+                            .map(|entry| entry.etag_fragment.as_str())
+                            .or(client_fragment);
+                        match query_collection
+                            .execute_query_with_validation(
+                                query_name,
+                                &execution_params,
+                                query_media_type_filter,
+                                fields_filters,
+                                effective_fragment,
+                                query_collection.yaml_hash(),
+                            )
+                            .await
+                        {
+                            Ok((rows, outcome)) => match outcome {
+                                // Unchanged remote content: never return rows
+                                // here — phase 2 resolves them (cache first),
+                                // exactly like the historical client-ETag flow,
+                                // so they cannot be duplicated in the aggregate.
+                                Some(outcome) if outcome.not_modified => Ok((Vec::new(), Some(outcome))),
+                                Some(outcome) => {
+                                    if !rows.is_empty() {
+                                        server_cache
+                                            .store_entry(&key, &rows, &outcome.etag_fragment)
+                                            .await;
+                                    } else if cached.is_some() {
+                                        // Content vanished: drop the stale entry
+                                        // instead of keeping unusable rows.
+                                        server_cache.invalidate(&key).await;
+                                    }
+                                    Ok((rows, Some(outcome)))
+                                }
+                                // Static query without validation outcome.
+                                None => Ok((rows, None)),
+                            },
+                            Err(error) => {
+                                if cached.is_some() {
+                                    server_cache.invalidate(&key).await;
+                                }
+                                Err(error)
+                            }
+                        }
+                    }
+                    ServerCacheInteraction::ForceRefresh => {
+                        let result = query_collection
+                            .execute_query_with_validation(
+                                query_name,
+                                &execution_params,
+                                query_media_type_filter,
+                                fields_filters,
+                                None,
+                                query_collection.yaml_hash(),
+                            )
+                            .await;
+                        match (&cache_key, &result) {
+                            (Some(key), Ok((rows, Some(outcome))))
+                                if !rows.is_empty() && !outcome.not_modified =>
+                            {
+                                server_cache
+                                    .store_entry(key, rows, &outcome.etag_fragment)
+                                    .await;
+                            }
+                            (_, Err(_)) => {
+                                if let Some(key) = &cache_key {
+                                    server_cache.invalidate(key).await;
+                                }
+                            }
+                            _ => {}
+                        }
+                        result
+                    }
+                }
             }
         }))
         .await;
@@ -759,19 +922,27 @@ impl ScraperAgregator {
     }
 
     /// Executes the same query on all sources within a group with optional
-    /// conditional ETag validation and merges the resulting entries.
+    /// conditional ETag validation, optional server-side caching, and merges
+    /// the resulting entries.
     ///
-    /// When [`QueryParameters::enable_etag`] is enabled (the default), the
-    /// client global ETag is read from the request context's `If-None-Match`
-    /// header. Phase 1 validates every involved source in parallel using the
-    /// client fragments decoded from that global ETag; unchanged sources skip
-    /// parsing entirely. A second pass re-fetches stale sources without
-    /// conditional headers so the aggregated payload stays complete. The
-    /// result carries the up-to-date global ETag, always built from the
-    /// phase-1 fragments.
+    /// The behavior is driven by [`QueryParameters::cache_type`]:
     ///
-    /// When validation is disabled, a single unconditional pass runs and no
-    /// global ETag is produced.
+    /// - `NoCache`: a single unconditional pass runs and no global ETag is
+    ///   produced (historical `enable_etag = false`).
+    /// - `ClientCache` (the default): the client global ETag is read from the
+    ///   request context's `If-None-Match` header. Phase 1 validates every
+    ///   involved source in parallel using the client fragments decoded from
+    ///   that global ETag; unchanged sources skip parsing entirely. A second
+    ///   pass re-fetches stale sources without conditional headers so the
+    ///   aggregated payload stays complete. The result carries the up-to-date
+    ///   global ETag, always built from the phase-1 fragments.
+    /// - `ServerCache`: same two-phase flow, but the per-source conditional
+    ///   requests are driven by the fragments stored in the server-side cache.
+    ///   Stale sources are served from the cache when it holds their rows, so
+    ///   only unknown sources hit the remotes again. No global ETag is exposed
+    ///   to the client.
+    /// - `FullCache`: server-cache flow with the rebuilt global ETag exposed
+    ///   to the client, keeping the full `304 Not Modified` short-circuit.
     ///
     /// # Arguments
     ///
@@ -802,7 +973,11 @@ impl ScraperAgregator {
         source_field_name: Option<&str>,
         operation: &str,
     ) -> ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>> {
-        if !query_parameters.enable_etag {
+        let cache_type = query_parameters.cache_type;
+        let client_flow = cache_type.sends_client_etag();
+        let server_cache_enabled = cache_type.uses_server_cache();
+
+        if !client_flow && !server_cache_enabled {
             return self
                 .execute_query_pass(
                     group_name,
@@ -815,6 +990,7 @@ impl ScraperAgregator {
                     source_field_name,
                     operation,
                     None,
+                    ServerCacheInteraction::None,
                 )
                 .await;
         }
@@ -830,14 +1006,27 @@ impl ScraperAgregator {
         let service_refs: Vec<&str> = services.iter().map(String::as_str).collect();
 
         // Phase 1: parallel conditional validation per source.
-        let client_etag = context
-            .get_header(HEADER_IF_NONE_MATCH)
-            .map(normalize_client_etag)
-            .filter(|etag| !etag.is_empty())
-            .map(str::to_string);
-        let client_fragments = client_etag
-            .as_deref()
-            .and_then(|etag| decode_client_fragments(etag, &service_refs));
+        //
+        // Client fragments only participate in the request-time validation when
+        // the global ETag is exposed to the client (`ClientCache` / `FullCache`);
+        // in server-cache modes, the stored per-source fragments drive the
+        // conditional requests instead.
+        let client_etag = if client_flow {
+            context
+                .get_header(HEADER_IF_NONE_MATCH)
+                .map(normalize_client_etag)
+                .filter(|etag| !etag.is_empty())
+                .map(str::to_string)
+        } else {
+            None
+        };
+        let client_fragments = if client_flow {
+            client_etag
+                .as_deref()
+                .and_then(|etag| decode_client_fragments(etag, &service_refs))
+        } else {
+            None
+        };
 
         let mut result = self
             .execute_query_pass(
@@ -851,6 +1040,11 @@ impl ScraperAgregator {
                 source_field_name,
                 operation,
                 client_fragments.as_ref(),
+                if server_cache_enabled {
+                    ServerCacheInteraction::Validate
+                } else {
+                    ServerCacheInteraction::None
+                },
             )
             .await;
         let etag_fragments: HashMap<String, String> = result
@@ -892,25 +1086,76 @@ impl ScraperAgregator {
             .collect();
 
         if !stale_sources.is_empty() {
-            let catch_up = self
-                .execute_query_pass(
-                    group_name,
-                    query_name,
-                    params,
-                    source_params,
-                    Some(&stale_sources),
-                    query_media_type_filter,
-                    fields_filters,
-                    source_field_name,
-                    operation,
-                    None,
-                )
-                .await;
-            result.data.extend(catch_up.data);
-            result.errors.extend(catch_up.errors);
+            // Phase 2 resolves the rows of stale sources. With the server cache
+            // enabled, "stale" means the remote confirmed a stored fragment via
+            // `304`, so cached rows are still current: serve them directly and
+            // only re-fetch from the remotes the sources without a usable entry.
+            let remote_needed: Vec<String> = if server_cache_enabled {
+                let mut remaining: Vec<String> = Vec::new();
+                for source in &stale_sources {
+                    let Some(key) = self.server_cache_key_for_source(
+                        group_name,
+                        source,
+                        query_name,
+                        params,
+                        source_params,
+                        query_media_type_filter,
+                        fields_filters,
+                    ) else {
+                        remaining.push(source.clone());
+                        continue;
+                    };
+                    match self.server_cache.load_entry(&key).await {
+                        Some(entry) => {
+                            for mut row in entry.rows {
+                                if let Some(source_field_name) = source_field_name {
+                                    row.insert(
+                                        source_field_name.to_string(),
+                                        ScraperDataNode::from_values_typed(
+                                            vec![source.clone()],
+                                            ScraperOutputType::String,
+                                        ),
+                                    );
+                                }
+                                result.data.push(row);
+                            }
+                        }
+                        None => remaining.push(source.clone()),
+                    }
+                }
+                remaining
+            } else {
+                stale_sources.clone()
+            };
+
+            if !remote_needed.is_empty() {
+                let catch_up = self
+                    .execute_query_pass(
+                        group_name,
+                        query_name,
+                        params,
+                        source_params,
+                        Some(&remote_needed),
+                        query_media_type_filter,
+                        fields_filters,
+                        source_field_name,
+                        operation,
+                        None,
+                        if server_cache_enabled {
+                            ServerCacheInteraction::ForceRefresh
+                        } else {
+                            ServerCacheInteraction::None
+                        },
+                    )
+                    .await;
+                result.data.extend(catch_up.data);
+                result.errors.extend(catch_up.errors);
+            }
         }
 
-        result.global_etag = global_etag;
+        if client_flow {
+            result.global_etag = global_etag;
+        }
         result
     }
 }
@@ -1131,6 +1376,7 @@ mod tests {
     #[test]
     fn resolve_manifest_sources_skips_cyclic_imports() {
         let dir = unique_temp_dir();
+        std::fs::create_dir_all(&dir).expect("test service directory should be created");
         std::fs::write(
             dir.join("a.json"),
             r#"[
@@ -1159,6 +1405,7 @@ mod tests {
     #[test]
     fn resolve_manifest_sources_rejects_ambiguous_entries() {
         let dir = unique_temp_dir();
+        std::fs::create_dir_all(&dir).expect("test service directory should be created");
         std::fs::write(
             dir.join("services.json"),
             r#"[
@@ -1182,6 +1429,7 @@ mod tests {
     #[test]
     fn resolve_manifest_sources_fails_on_missing_import() {
         let dir = unique_temp_dir();
+        std::fs::create_dir_all(&dir).expect("test service directory should be created");
         std::fs::write(
             dir.join("services.json"),
             r#"[

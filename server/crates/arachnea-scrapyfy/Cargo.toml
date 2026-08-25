@@ -21,6 +21,7 @@ arachnea-proxy = { path = "../arachnea-proxy", default-features = false, feature
 async-trait.workspace = true
 chrono.workspace = true
 futures.workspace = true
+foyer.workspace = true
 http.workspace = true
 evalexpr.workspace = true
 regex.workspace = true
