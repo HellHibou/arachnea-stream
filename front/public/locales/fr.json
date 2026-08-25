@@ -245,10 +245,7 @@
     "unavailableTitle": "Catégorie indisponible",
     "label": "Catégorie",
     "defaultLabel": "Catégorie {index}",
-    "loadingTitle": "Chargement en cours",
-    "loadingMessage": "La categorie est chargee depuis le lien.",
-    "invalidLink": "Le lien de categorie est invalide.",
-    "notFound": "Cette categorie est introuvable dans le catalogue actuel."
+    "invalidLink": "Le lien de categorie est invalide."
   },
   "notFound": {
     "title": "Page introuvable",

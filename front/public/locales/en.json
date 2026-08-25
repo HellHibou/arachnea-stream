@@ -245,10 +245,7 @@
     "unavailableTitle": "Category unavailable",
     "label": "Category",
     "defaultLabel": "Category {index}",
-    "loadingTitle": "Loading",
-    "loadingMessage": "The category is loading from the link.",
-    "invalidLink": "The category link is invalid.",
-    "notFound": "This category cannot be found in the current catalog."
+    "invalidLink": "The category link is invalid."
   },
   "notFound": {
     "title": "Page not found",

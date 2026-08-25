@@ -11,7 +11,7 @@ import {
 import { getStream } from '@/services/rustify'
 import { useStorage } from '@/services/storage'
 import { isMediaSourceAllowedBySecurity } from '@/services/videoSourceAllowlist'
-import { encodeEntryRoutePayload } from '@/router/routePayloads'
+import { encodeEntryRouteParam } from '@/router/routePayloads'
 import VideoPlayer from '@/components/media/VideoPlayer.vue'
 import type { VideoJsMediaDimensions } from '@/composables/video/useVideoJsMediaRenderer'
 import { useI18n } from '@/i18n'
@@ -308,6 +308,7 @@ const activeBannerTarget = computed<MediaSelectionTarget | null>(() => {
     source: banner.source,
     entryUrl,
     webUrl: banner.webUrl ?? entryUrl,
+    title: banner.title,
   }
 })
 
@@ -326,9 +327,10 @@ const bannerActionHref = computed(() => {
   return router.resolve({
     name: 'entry-details',
     params: {
-      encodedEntry: encodeEntryRoutePayload({
+      encodedEntry: encodeEntryRouteParam({
         source: target.source,
         entryUrl: target.entryUrl,
+        title: target.title,
       }),
     },
   }).href

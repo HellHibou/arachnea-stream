@@ -5,7 +5,7 @@ import { useRouter } from 'vue-router'
 import { useServiceMetadata } from '@/composables/useServiceMetadata'
 import type { MediaItem, ThumbnailImageFit, ThumbnailOrientation } from '@/types/media'
 import {
-  encodeEntryRoutePayload,
+  encodeEntryRouteParam,
   encodeLiveRoutePayload,
 } from '@/router/routePayloads'
 
@@ -160,9 +160,10 @@ const actionHref = computed(() => {
   return router.resolve({
     name: 'entry-details',
     params: {
-      encodedEntry: encodeEntryRoutePayload({
+      encodedEntry: encodeEntryRouteParam({
         source: props.item.source,
         entryUrl: props.item.entryUrl,
+        title: props.item.title,
       }),
     },
   }).href

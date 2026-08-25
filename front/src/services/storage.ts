@@ -69,6 +69,11 @@ export interface EntryBookmark {
    */
   imageLandscapeUrl: string | null
   /**
+   * Generic image URL snapshot from `get_entry`, used when no oriented
+   * poster or landscape image is available.
+   */
+  imageUrl: string | null
+  /**
    * Description snapshot from `get_entry`.
    */
   description: string | null
@@ -342,6 +347,7 @@ export const useStorage = defineStore('storage', () => {
           alternativeTitleLabel: record.alternativeTitleLabel,
           imagePosterUrl: record.imagePosterUrl,
           imageLandscapeUrl: record.imageLandscapeUrl,
+          imageUrl: record.imageUrl,
           description: record.description,
           mediaTypeLabel: record.mediaTypeLabel,
           seasonLabel: record.seasonLabel,
@@ -911,6 +917,7 @@ function sanitizeEntryBookmark(value: unknown): EntryBookmark {
         alternativeTitleLabel: null,
         imagePosterUrl: null,
         imageLandscapeUrl: null,
+        imageUrl: null,
         description: null,
         mediaTypeLabel: null,
         seasonLabel: null,
@@ -929,6 +936,7 @@ function sanitizeEntryBookmark(value: unknown): EntryBookmark {
       alternativeTitleLabel: sanitizeNullableString(record.alternativeTitleLabel),
       imagePosterUrl: sanitizeNullableString(record.imagePosterUrl),
       imageLandscapeUrl: sanitizeNullableString(record.imageLandscapeUrl),
+      imageUrl: sanitizeNullableString(record.imageUrl),
       description: sanitizeNullableString(record.description),
       mediaTypeLabel: sanitizeNullableString(record.mediaTypeLabel),
       seasonLabel: sanitizeNullableString(record.seasonLabel),

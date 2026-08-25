@@ -54,6 +54,13 @@ export interface MediaSelectionTarget {
   entryUrl: string | null
   /** The public web URL to access the entry. */
   webUrl: string | null
+  /**
+   * The display title of the entry, used for the informative route slug.
+   *
+   * Optional because bare selection targets may omit it; concrete media items
+   * always provide it through `MediaItem`.
+   */
+  title?: string | null
 }
 
 /**

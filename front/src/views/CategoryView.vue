@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { shallowRef, watch } from 'vue'
+import { computed } from 'vue'
 
 import HomeCatalog from '@/components/HomeCatalog.vue'
 import RouteStateMessage from '@/components/routing/RouteStateMessage.vue'
-import { loadHomeCatalog } from '@/services/rustify'
+import { decodeCategoryRoutePayload } from '@/router/routePayloads'
 import { useStorage } from '@/services/storage'
 import { useI18n } from '@/i18n'
 import type { HomeCategory } from '@/types/home'
@@ -14,9 +14,9 @@ import type { BackgroundMediaCandidate, MediaSelectionTarget } from '@/types/med
  */
 interface Props {
   /**
-   * Public category merge key from the route path.
+   * Informative category slug and base64url payload token from the route path.
    */
-  categoryKey: string
+  categoryToken: string
 }
 
 const props = defineProps<Props>()
@@ -24,18 +24,6 @@ const props = defineProps<Props>()
 /** Application parameters loaded from persistent storage. */
 const parameters = useStorage().getParameters()
 const { t } = useI18n()
-
-/** Resolved category from the route parameter. */
-const category = shallowRef<HomeCategory | null>(null)
-
-/** Whether a category resolution is currently in progress. */
-const isResolvingCategory = shallowRef(false)
-
-/** Error message displayed when category resolution fails. */
-const errorMessage = shallowRef<string | null>(null)
-
-/** Counter to track the latest category resolution request. */
-let latestRequestId = 0
 
 const emit = defineEmits<{
   /** Emitted when a media item is selected. */
@@ -47,76 +35,36 @@ const emit = defineEmits<{
 }>()
 
 /**
- * Resolves the public category key into a full HomeCategory.
+ * Category rebuilt synchronously from the base64url route payload.
  *
- * @param categoryKey Category merge key received from the route path.
+ * Null when the route parameter cannot be decoded, which renders the
+ * invalid-link error state instead of the catalog.
  */
-async function resolveCategory(categoryKey: string) {
-  const requestId = ++latestRequestId
-  const normalizedCategoryKey = categoryKey.trim()
+const category = computed<HomeCategory | null>(() => {
+  const payload = decodeCategoryRoutePayload(props.categoryToken)
 
-  category.value = null
-  errorMessage.value = null
-  emit('update:background-media-items', [])
-
-  if (!normalizedCategoryKey) {
-    errorMessage.value = t('category.invalidLink')
-    return
+  if (!payload) {
+    return null
   }
 
-  isResolvingCategory.value = true
+  const separatorIndex = props.categoryToken.indexOf('-')
+  const slug = props.categoryToken.slice(0, separatorIndex)
 
-  try {
-    const homeCatalog = await loadHomeCatalog()
-
-    if (requestId !== latestRequestId) {
-      return
-    }
-
-    const matchingCategory = homeCatalog.categories.find(
-      (candidate) => candidate.mergeKey === normalizedCategoryKey,
-    )
-
-    if (!matchingCategory) {
-      errorMessage.value = t('category.notFound')
-      return
-    }
-
-    category.value = matchingCategory
-  } catch (error) {
-    if (requestId !== latestRequestId) {
-      return
-    }
-
-    errorMessage.value =
-      error instanceof Error ? error.message : t('errors.homeCatalog')
-  } finally {
-    if (requestId === latestRequestId) {
-      isResolvingCategory.value = false
-    }
+  return {
+    id: slug,
+    label: payload.label,
+    imageUrl: null,
+    mergeKey: slug,
+    sources: payload.sources,
   }
-}
-
-watch(
-  () => props.categoryKey,
-  (categoryKey) => {
-    void resolveCategory(categoryKey)
-  },
-  { immediate: true },
-)
+})
 </script>
 
 <template>
   <RouteStateMessage
-    v-if="errorMessage"
+    v-if="!category"
     :title="t('category.unavailableTitle')"
-    :message="errorMessage"
-  />
-
-  <RouteStateMessage
-    v-else-if="isResolvingCategory || !category"
-    :title="t('category.loadingTitle')"
-    :message="t('category.loadingMessage')"
+    :message="t('category.invalidLink')"
   />
 
   <HomeCatalog

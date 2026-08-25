@@ -15,11 +15,11 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/SearchView.vue'),
   },
   {
-    path: '/categorie/:categoryKey',
+    path: '/categorie/:categoryToken',
     name: 'category',
     component: () => import('@/views/CategoryView.vue'),
     props: (route) => ({
-      categoryKey: readRouteParam(route.params.categoryKey),
+      categoryToken: readRouteParam(route.params.categoryToken),
     }),
   },
   {

@@ -8,7 +8,8 @@ import {
   readSearchRouteQuery,
 } from '@/router/searchQuery'
 import {
-  encodeEntryRoutePayload,
+  encodeCategoryRouteParam,
+  encodeEntryRouteParam,
   encodeLiveRoutePayload,
 } from '@/router/routePayloads'
 import type { BackgroundMediaCandidate, MediaSelectionTarget } from '@/types/media'
@@ -169,9 +170,10 @@ function handleSelectedItem(item: MediaSelectionTarget) {
   navigateTo({
     name: 'entry-details',
     params: {
-      encodedEntry: encodeEntryRoutePayload({
+      encodedEntry: encodeEntryRouteParam({
         source: item.source,
         entryUrl: item.entryUrl,
+        title: item.title,
       }),
     },
   })
@@ -186,7 +188,7 @@ function handleSelectedCategory(category: HomeCategory) {
   navigateTo({
     name: 'category',
     params: {
-      categoryKey: category.mergeKey,
+      categoryToken: encodeCategoryRouteParam(category),
     },
   })
 }

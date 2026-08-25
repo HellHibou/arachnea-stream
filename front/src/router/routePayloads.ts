@@ -1,3 +1,6 @@
+import { buildUrlSlug } from '@/services/textUtils'
+import type { HomeCategory, HomeCategorySource } from '@/types/home'
+
 /** Base interface for versioned route payloads. */
 interface VersionedRoutePayload {
   /** Version identifier for the payload format. */
@@ -10,6 +13,25 @@ export interface EntryRoutePayload {
   source: string
   /** Absolute entry URL used to fetch entry details. */
   entryUrl: string
+}
+
+/**
+ * Selection values used to build an entry detail route parameter.
+ *
+ * The title is optional and only feeds the informative URL slug; it never
+ * participates in the encoded payload, keeping bookmark keys stable.
+ */
+export interface EntryRouteTarget extends EntryRoutePayload {
+  /** Display title of the entry used for the informative URL slug. */
+  title?: string | null
+}
+
+/** Payload for aggregated category routes. */
+export interface CategoryRoutePayload extends VersionedRoutePayload {
+  /** Display label of the category. */
+  label: string
+  /** Source descriptors required to load the category catalog. */
+  sources: HomeCategorySource[]
 }
 
 /** Payload for live channel routes. */
@@ -36,13 +58,39 @@ export function encodeEntryRoutePayload(payload: EntryRoutePayload): string {
 }
 
 /**
+ * Builds the entry detail route parameter with an informative title slug.
+ *
+ * The parameter is `<slug>-<base64url payload>` where the slug derives from
+ * the entry title. The slug is purely informative: the encoded payload stays
+ * identical to the bookmark key produced by `encodeEntryRoutePayload`. The
+ * slug never contains a dash, so the first dash unambiguously separates it
+ * from the token.
+ *
+ * @param target Entry selection values including the optional display title.
+ * @returns Route-safe entry parameter.
+ */
+export function encodeEntryRouteParam(target: EntryRouteTarget): string {
+  const slug = buildUrlSlug(target.title ?? '') || 'entry'
+
+  return `${slug}-${encodeEntryRoutePayload({
+    source: target.source,
+    entryUrl: target.entryUrl,
+  })}`
+}
+
+/**
  * Decodes an entry detail base64url token.
+ *
+ * Accepts both a bare base64url token and a `<slug>-<token>` route segment;
+ * the slug prefix, when present, is ignored.
  *
  * @param token Route segment received from Vue Router.
  * @returns Valid entry payload, or null when the token is invalid.
  */
 export function decodeEntryRoutePayload(token: string): EntryRoutePayload | null {
-  const payload = decodeRoutePayload(token)
+  const separatorIndex = token.indexOf('-')
+  const payloadToken = separatorIndex >= 0 ? token.slice(separatorIndex + 1) : token
+  const payload = decodeRoutePayload(payloadToken)
 
   if (!isRouteRecord(payload)) {
     return null
@@ -59,6 +107,77 @@ export function decodeEntryRoutePayload(token: string): EntryRoutePayload | null
     source,
     entryUrl,
   }
+}
+
+/**
+ * Builds the category route parameter from a category descriptor.
+ *
+ * The parameter is `<slug>-<base64url payload>` where the slug is the
+ * lower-cased label with every character outside `[0-9a-z]` replaced by `_`.
+ * The slug is purely informative; the base64url token carries the data. Both
+ * sides are unambiguously separated by the first dash because neither the
+ * slug nor the base64url alphabet contains one.
+ *
+ * @param category Category selected from the home catalog.
+ * @returns Route-safe category parameter.
+ */
+export function encodeCategoryRouteParam(category: HomeCategory): string {
+  const slug = buildUrlSlug(category.label) || 'category'
+  const payload: CategoryRoutePayload = {
+    v: 1,
+    label: category.label,
+    sources: category.sources,
+  }
+
+  return `${slug}-${encodeRoutePayload(payload)}`
+}
+
+/**
+ * Decodes a category route parameter into its payload.
+ *
+ * @param segment Route segment received from Vue Router.
+ * @returns Valid category payload, or null when the parameter is invalid.
+ */
+export function decodeCategoryRoutePayload(segment: string): CategoryRoutePayload | null {
+  const separatorIndex = segment.indexOf('-')
+
+  if (separatorIndex < 0) {
+    return null
+  }
+
+  const payload = decodeRoutePayload(segment.slice(separatorIndex + 1))
+
+  if (!isRouteRecord(payload) || payload.v !== 1 || !Array.isArray(payload.sources)) {
+    return null
+  }
+
+  return {
+    v: 1,
+    label: readNonEmptyString(payload.label) ?? '',
+    sources: payload.sources.flatMap(readHomeCategorySource),
+  }
+}
+
+/**
+ * Sanitizes one decoded source descriptor, keeping only string-valued pairs.
+ *
+ * @param value Decoded source entry.
+ * @returns A single-entry list with the sanitized source, or an empty list when invalid.
+ */
+function readHomeCategorySource(value: unknown): HomeCategorySource[] {
+  if (!isRouteRecord(value)) {
+    return []
+  }
+
+  const source: HomeCategorySource = {}
+
+  Object.entries(value).forEach(([key, entryValue]) => {
+    if (typeof entryValue === 'string') {
+      source[key] = entryValue
+    }
+  })
+
+  return [source]
 }
 
 /**

@@ -1,4 +1,23 @@
 /**
+ * Converts a plain text string into a URL-friendly slug by:
+ * - Lower-casing the input
+ * - Removing diacritics from accented characters (`é` -> `e`)
+ * - Replacing every character outside `[0-9a-z]` with `_`
+ * - Stripping trailing underscores
+ *
+ * @param text - The raw text input
+ * @returns The normalized slug usable inside a route segment, possibly empty
+ */
+export function buildUrlSlug(text: string): string {
+  return text
+    .toLocaleLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/[^0-9a-z]/gu, '_')
+    .replace(/_+$/u, '')
+}
+
+/**
  * Converts a plain text string into safe HTML by:
  * - Escaping HTML special characters to prevent XSS
  * - Converting `\n` (newlines) into `<br>` tags

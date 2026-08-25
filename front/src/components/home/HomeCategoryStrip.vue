@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
 
+import { encodeCategoryRouteParam } from '@/router/routePayloads'
 import type { HomeCategory } from '@/types/home'
 
 /**
@@ -33,7 +34,7 @@ const router = useRouter()
 function categoryHref(category: HomeCategory): string {
   return router.resolve({
     name: 'category',
-    params: { categoryKey: category.mergeKey },
+    params: { categoryToken: encodeCategoryRouteParam(category) },
   }).href
 }
 
