@@ -5,6 +5,5 @@
 //! re-exports for `arachnea-stream` consumers.
 
 pub use arachnea_scrapyfy::global_etag::{
-    build_global_etag, decode_client_fragments, normalize_client_etag, services_hash,
-    GLOBAL_ETAG_SEPARATOR,
+    build_global_etag, decode_client_fragments, normalize_client_etag, GLOBAL_ETAG_SEPARATOR,
 };

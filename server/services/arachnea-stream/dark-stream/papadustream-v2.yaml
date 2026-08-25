@@ -100,6 +100,13 @@ queries:
     query_url: "{base_url}/"
     media_types: *media_types_series
     row_selector: html
+    pre_process:
+      - type: remove_text_blocks
+        start: '<a href="{base_url}/cdn-cgi/content?id='
+        end: '</a>'
+      - type: remove_text_blocks
+        start: '<script>(function(){function c(){var b=a.contentDocument'
+        end: '</script>'
     entries:
       - name: source
         type: string
@@ -251,6 +258,13 @@ queries:
     query_url: "{base_url}/f/l.title={search_terms}/p.cat=11/sort=editdate/order=desc/"
     media_types: *media_types_series
     row_selector: html
+    pre_process:
+      - type: remove_text_blocks
+        start: '<a href="{base_url}/cdn-cgi/content?id='
+        end: '</a>'
+      - type: remove_text_blocks
+        start: '<script>(function(){function c(){var b=a.contentDocument'
+        end: '</script>'
     entries:
       - name: source
         type: string
@@ -514,6 +528,13 @@ queries:
     query_url: "{query_url}"
     media_types: *media_types_series
     row_selector: html
+    pre_process:
+      - type: remove_text_blocks
+        start: '<a href="{base_url}/cdn-cgi/content?id='
+        end: '</a>'
+      - type: remove_text_blocks
+        start: '<script>(function(){function c(){var b=a.contentDocument'
+        end: '</script>'
     entries:
       - name: source
         type: string

@@ -3,7 +3,7 @@
 
 /// Global ETag construction and decoding for aggregated responses.
 pub mod stream_etag;
-pub use stream_etag::{build_global_etag, decode_client_fragments, services_hash};
+pub use stream_etag::{build_global_etag, decode_client_fragments};
 
 /// Stream service implementations and player resolvers.
 pub mod services;

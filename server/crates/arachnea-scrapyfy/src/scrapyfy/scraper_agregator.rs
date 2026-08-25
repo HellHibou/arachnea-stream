@@ -785,6 +785,13 @@ impl ScraperAgregator {
                         // fragment: the cached rows back it, so a `304` against
                         // it proves those rows are still current.
                         let cached = server_cache.load_entry(&key).await;
+                        tracing::debug!(
+                            group_name,
+                            source = query_collection.name(),
+                            query = query_name,
+                            cached_entry = cached.is_some(),
+                            "server cache validation of source"
+                        );
                         let effective_fragment = cached
                             .as_ref()
                             .map(|entry| entry.etag_fragment.as_str())
@@ -1003,7 +1010,6 @@ impl ScraperAgregator {
         services.retain(|name| !name.trim().is_empty());
         services.sort();
         services.dedup();
-        let service_refs: Vec<&str> = services.iter().map(String::as_str).collect();
 
         // Phase 1: parallel conditional validation per source.
         //
@@ -1023,7 +1029,8 @@ impl ScraperAgregator {
         let client_fragments = if client_flow {
             client_etag
                 .as_deref()
-                .and_then(|etag| decode_client_fragments(etag, &service_refs))
+                .map(decode_client_fragments)
+                .filter(|fragments| !fragments.is_empty())
         } else {
             None
         };
@@ -1052,16 +1059,10 @@ impl ScraperAgregator {
             .iter()
             .map(|(name, validation)| (name.clone(), validation.etag.clone()))
             .collect();
-        // Per-service YAML hashes back the deterministic fallback fragment of
-        // sources without a recorded validation outcome (static queries).
-        let yaml_hashes: HashMap<String, String> = self
-            .queries_collection
-            .get(group_name)
-            .into_iter()
-            .flatten()
-            .map(|collection| (collection.name().to_string(), collection.yaml_hash().to_string()))
-            .collect();
-        let global_etag = build_global_etag(&service_refs, &etag_fragments, &yaml_hashes);
+        // Sources without a recorded validation outcome (static queries,
+        // failed fetches) carry no fragment and are excluded from the tag:
+        // a returned ETag never claims freshness it cannot back.
+        let global_etag = build_global_etag(&etag_fragments);
 
         // Full 304 short-circuit: every validated source is stale and the
         // rebuilt global ETag matches what the client sent — no data needed.
@@ -1107,6 +1108,13 @@ impl ScraperAgregator {
                     };
                     match self.server_cache.load_entry(&key).await {
                         Some(entry) => {
+                            tracing::debug!(
+                                group_name,
+                                source = %source,
+                                query = query_name,
+                                row_count = entry.rows.len(),
+                                "source rows served from server cache"
+                            );
                             for mut row in entry.rows {
                                 if let Some(source_field_name) = source_field_name {
                                     row.insert(
@@ -1120,7 +1128,15 @@ impl ScraperAgregator {
                                 result.data.push(row);
                             }
                         }
-                        None => remaining.push(source.clone()),
+                        None => {
+                            tracing::debug!(
+                                group_name,
+                                source = %source,
+                                query = query_name,
+                                "source rows unavailable in server cache; fetching from remote"
+                            );
+                            remaining.push(source.clone());
+                        }
                     }
                 }
                 remaining

@@ -13,9 +13,7 @@ pub use conditional::{
 
 /// Global ETag construction and decoding for aggregated responses.
 pub mod global_etag;
-pub use global_etag::{
-    build_global_etag, decode_client_fragments, normalize_client_etag, services_hash,
-};
+pub use global_etag::{build_global_etag, decode_client_fragments, normalize_client_etag};
 
 /// Runtime options controlling how a query is executed.
 pub mod query_parameters;

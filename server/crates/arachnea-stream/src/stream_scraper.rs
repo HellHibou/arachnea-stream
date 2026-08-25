@@ -628,7 +628,7 @@ impl StreamScraper {
             .scraper_agregator
             .execute_query_async(
                 &context,
-                QueryParameters::from_cache_type(CacheType::ServerCache),
+                QueryParameters::from_cache_type(CacheType::FullCache),
                 STREAM_SERVICE_GROUP_NAME,
                 "load_home",
                 &params,

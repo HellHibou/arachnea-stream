@@ -366,6 +366,11 @@ impl ScraperServerCache {
             etag_fragment: etag_fragment.to_string(),
             stored_at_unix: now_unix(),
         };
+        tracing::debug!(
+            key = %key,
+            row_count = rows.len(),
+            "source execution stored into server cache"
+        );
         self.write_entry(key, &entry).await;
     }
 

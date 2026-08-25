@@ -8,8 +8,12 @@
 //! - `E:<yamlhash>-<etag>` — HTTP ETag validated through `If-None-Match`.
 //! - `C:<yamlhash>-<last_modified_unix>-<hash>` — content hash (XXH3-128
 //!   encoded in full base62) optionally combined with `If-Modified-Since`.
-//! - `N:<yamlhash>-<namehash>` — source without remote validation, always
-//!   re-fetched.
+//!
+//! Sources without remote validation support (static queries, fetch-less
+//! sources) carry no fragment and are excluded from the global ETag — they are
+//! always re-fetched on every execution. The legacy `N:` prefix is accepted
+//! when parsing client-provided fragments so an outdated value degrades to a
+//! full re-fetch instead of an error, but it is never emitted anymore.
 //!
 //! Fragments are stable while both the YAML file and the remote content do not
 //! change, and are concatenated by the caller into the global aggregated ETag.
