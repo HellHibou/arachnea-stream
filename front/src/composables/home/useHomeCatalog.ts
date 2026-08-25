@@ -9,13 +9,24 @@ import {
   type MaybeRefOrGetter,
 } from 'vue'
 
-import { loadHomeSectionPage } from '@/services/rustify'
+import { loadHomeSectionPage, getStream } from '@/services/rustify'
 import {
   BOOKMARKS_SECTION_PREFERENCE_KEY,
   type EntryBookmarkRecord,
 } from '@/services/entryBookmarks'
 import { useStorage, type HomePreferences } from '@/services/storage'
-import type { HomeCatalogData, HomeCategory, HomeSection } from '@/types/home'
+import {
+  resolveBackendStreamMediaSource,
+  resolveBackgroundMediaSource,
+  resolveIframeMediaSource,
+} from '@/services/players'
+import type {
+  HomeBanner,
+  HomeCatalogData,
+  HomeCategory,
+  HomeSection,
+} from '@/types/home'
+import type { EntryPlayer } from '@/types/entry'
 import type {
   BackgroundMediaCandidate,
   MediaCardCollectionMode,
@@ -28,6 +39,9 @@ import { t } from '@/i18n'
 
 /** Maximum number of background media candidates exposed to the background layer. */
 const BACKGROUND_MEDIA_ITEMS_LIMIT = 10
+
+/** Maximum number of banner trailer videos exposed to the background layer. */
+const BACKGROUND_MEDIA_VIDEO_ITEMS_LIMIT = 5
 
 /**
  * Returns the first available thumbnail image URL for one media item.
@@ -153,13 +167,211 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
       currentCatalog.value.sections.length > 0,
   )
   /**
-   * Background media candidates derived from banner images, completed with section thumbnail images
-   * up to {@link BACKGROUND_MEDIA_ITEMS_LIMIT} entries.
+   * Resolved background video URLs by banner id for banners whose trailer
+   * requires asynchronous player resolution through `get_stream`.
+   */
+  const bannerBackgroundVideoUrls = shallowRef<Record<string, string>>({})
+  /** Banner ids whose background video resolution failed or returned nothing. */
+  const failedBannerBackgroundVideoIds = new Set<string>()
+  /** Request counter guarding against stale asynchronous banner resolutions. */
+  let bannerVideoResolutionId = 0
+
+  /**
+   * Builds the minimal player descriptor required to resolve one banner stream.
+   *
+   * @param banner Banner containing an optional backend player resolver.
+   * @returns Player descriptor, or null when the banner has no resolver.
+   */
+  function createBannerPlayer(banner: HomeBanner): EntryPlayer | null {
+    if (!banner.player) {
+      return null
+    }
+
+    return {
+      id: `${banner.id}-background`,
+      label: banner.title ?? banner.id,
+      directLink: null,
+      webLink: null,
+      name: null,
+      lang: null,
+      resolver: banner.player,
+      storyboard: null,
+    }
+  }
+
+  /**
+   * Resolves the playable video URL of one banner.
+   *
+   * Direct video URLs are used as-is while player-based banners call
+   * `get_stream` on the backend, mirroring the hero banner behavior.
+   *
+   * @param banner Banner to resolve.
+   * @returns Playable URL usable by the decorative background renderer, or null.
+   */
+  async function resolveBannerBackgroundVideoUrl(banner: HomeBanner): Promise<string | null> {
+    const directSource = resolveBackgroundMediaSource(banner.videoUrl)
+
+    if (directSource) {
+      return directSource.src
+    }
+
+    const player = createBannerPlayer(banner)
+
+    if (!player) {
+      return null
+    }
+
+    const response = await getStream(player)
+
+    if (!response) {
+      return null
+    }
+
+    const source =
+      'embedLink' in response
+        ? resolveIframeMediaSource(response.embedLink)
+        : resolveBackendStreamMediaSource(
+            response.streamUrl[0] ?? null,
+            response.manifestType,
+            response.licenseUrl,
+            response.licenseHeaders,
+            response.storyboardVttUrl,
+            response.chapters,
+          )
+
+    return source?.src ?? null
+  }
+
+  /**
+   * Resolves pending banner trailers one by one until the background video
+   * limit is reached or every candidate was attempted.
+   *
+   * Deferred `get_banners` arrivals re-trigger this loop through the watcher.
+   */
+  async function resolvePendingBannerBackgroundVideos(): Promise<void> {
+    const requestId = ++bannerVideoResolutionId
+
+    while (
+      requestId === bannerVideoResolutionId &&
+      parameters.useTrailerAsBackground.value
+    ) {
+      const knownIds = new Set([
+        ...Object.keys(bannerBackgroundVideoUrls.value),
+        ...failedBannerBackgroundVideoIds,
+      ])
+      let availableCount = 0
+      let pendingBanner: HomeBanner | null = null
+
+      for (const banner of currentCatalog.value.banners.entries) {
+        if (!banner.videoUrl && !banner.player) {
+          continue
+        }
+
+        if (banner.videoUrl || bannerBackgroundVideoUrls.value[banner.id]) {
+          availableCount += 1
+          continue
+        }
+
+        if (!knownIds.has(banner.id)) {
+          pendingBanner = banner
+          break
+        }
+      }
+
+      if (availableCount >= BACKGROUND_MEDIA_VIDEO_ITEMS_LIMIT || !pendingBanner) {
+        return
+      }
+
+      const banner = pendingBanner
+
+      try {
+        const url = await resolveBannerBackgroundVideoUrl(banner)
+
+        if (requestId !== bannerVideoResolutionId) {
+          return
+        }
+
+        if (url) {
+          bannerBackgroundVideoUrls.value = {
+            ...bannerBackgroundVideoUrls.value,
+            [banner.id]: url,
+          }
+        } else {
+          failedBannerBackgroundVideoIds.add(banner.id)
+        }
+      } catch {
+        if (requestId === bannerVideoResolutionId) {
+          failedBannerBackgroundVideoIds.add(banner.id)
+        }
+      }
+    }
+  }
+
+  /** Restarts banner trailer resolution whenever banners or the parameter change. */
+  watch(
+    [
+      () => parameters.useTrailerAsBackground.value,
+      () => currentCatalog.value.banners.entries,
+    ],
+    () => {
+      void resolvePendingBannerBackgroundVideos()
+    },
+    { immediate: true },
+  )
+
+  /**
+   * Collects banner trailer video candidates in display order.
+   *
+   * Player-resolved trailers come from {@link bannerBackgroundVideoUrls}.
+   * Each candidate keeps its paired banner image so the background layer can
+   * fall back to it when the video is blocked by the security mode.
+   *
+   * @returns Array of banner video candidates, deduplicated by video URL and limited to
+   * {@link BACKGROUND_MEDIA_VIDEO_ITEMS_LIMIT} entries.
+   */
+  function toBannerVideoBackgroundItems(): BackgroundMediaCandidate[] {
+    const resolvedUrls = bannerBackgroundVideoUrls.value
+    const items: BackgroundMediaCandidate[] = []
+    const uniqueVideoUrls = new Set<string>()
+
+    for (const banner of currentCatalog.value.banners.entries) {
+      const videoUrl = banner.videoUrl?.trim() || resolvedUrls[banner.id]?.trim() || null
+
+      if (!videoUrl || uniqueVideoUrls.has(videoUrl)) {
+        continue
+      }
+
+      uniqueVideoUrls.add(videoUrl)
+      items.push({ imageUrl: banner.imageUrl?.trim() || null, videoUrl })
+
+      if (items.length >= BACKGROUND_MEDIA_VIDEO_ITEMS_LIMIT) {
+        break
+      }
+    }
+
+    return items
+  }
+
+  /**
+   * Background media candidates derived from banners and section thumbnail images.
+   *
+   * When trailer usage is enabled and at least one banner exposes a playable
+   * video, the banner videos (limited to five) replace the background images
+   * entirely. Otherwise, banner images are completed with section thumbnail
+   * images up to {@link BACKGROUND_MEDIA_ITEMS_LIMIT} entries.
    * Deduplicates image URLs for the background media component.
    *
    * @returns Array of background media candidates from banners and section thumbnails.
    */
   const backgroundMediaItems = computed<BackgroundMediaCandidate[]>(() => {
+    if (parameters.useTrailerAsBackground.value) {
+      const bannerVideoItems = toBannerVideoBackgroundItems()
+
+      if (bannerVideoItems.length > 0) {
+        return bannerVideoItems
+      }
+    }
+
     if (!parameters.useCatalogBannersAsBackground.value) {
       return []
     }

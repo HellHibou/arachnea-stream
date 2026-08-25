@@ -22,7 +22,24 @@ All notable changes to the server workspace are recorded here. Add new entries a
   `unsafe` renders every embed. Native video streams resolved by the backend
   players (HLS/DASH) remain always playable and are not subject to the
   allowlist.
+- **Banner trailer videos as page background**: when the trailer usage
+  parameter (`useTrailerAsBackground`) is enabled and at least one home or
+  category banner exposes a playable video, the catalog background media
+  candidates now carry up to five banner videos instead of background images.
+  Banner trailers are collected from direct `videoUrl` values and, like the
+  hero banner, from `player` resolvers asynchronously resolved through
+  `get_stream`; deferred `get_banners` arrivals are picked up reactively,
+  including when `load_home` initially exposes no video at all.
+  Each candidate keeps its paired banner image as a security-mode fallback,
+  videos are deduplicated by URL, and playback is sequential: the background
+  layer waits for each native video to end before starting the next one
+  (iframe embeds such as YouTube loop or advance on the fixed rotation delay).
+  When no banner video is available, the previous image-based behavior applies;
+  the app-level background gate no longer drops these candidates when
+  `useCatalogBannersAsBackground` is disabled since each media kind now carries
+  its own parameter upstream.
 ### Changed
+- **Background Ken Burns pans exactly to the real image borders**: the animated background image now measures each source's natural dimensions on load and derives its true rendered overflow under `object-fit: cover` (`--ken-burns-max-x` / `--ken-burns-max-y` CSS variables per image), so the pan sweeps from one image corner to the opposite one regardless of the picture's aspect ratio — portrait images finally use their full vertical headroom while landscape ones stay capped at their own edges. A zoom breathing from `1x` to `1.22x` mid-cycle keeps the effect clearly visible even when the picture closely matches the screen ratio; every frame stays fully covered since translations never exceed the measured overflow. Bounds are recomputed on viewport resize, pruned when the media list changes, and fall back to a static frame until an image has loaded.
 - **Bookmarks persist the generic `img.url` snapshot**: `EntryBookmark` gains an `imageUrl` field (the un-oriented image from `get_entry`), saved alongside `imagePosterUrl`/`imageLandscapeUrl` in `ProgramEntryDetails`, carried through the bookmark lookup and sanitization in `storage.ts`, and exposed by the bookmarks home section so favorite cards fall back to it when no poster or landscape image is available. Existing bookmarks without the field load as `imageUrl: null` with no migration needed.
 - **URL slugs are now centralized and accent-free**: added `buildUrlSlug()` in `front/src/services/textUtils.ts` which lower-cases text, strips diacritics through Unicode NFD normalization (`é` -> `e`, `Ü` -> `u`), replaces every remaining character outside `[0-9a-z]` with `_`, and strips trailing underscores. The category and entry route slugs use this helper; empty slugs fall back to a fixed segment (`category` / `entry`).
 - **Entry route now carries an informative title slug**: `/entry/:encodedEntry` links are built as `<slug>-<base64url payload>` via the new `encodeEntryRouteParam({ source, entryUrl, title })`; `MediaSelectionTarget` gained an optional `title` so cards, hero banners, and catalog selections can feed the slug, and banners pass their title in the selection target. `decodeEntryRoutePayload` ignores the slug prefix while still accepting bare tokens. The encoded payload is unchanged: bookmark keys produced by `buildBookmarkKey`/`encodeEntryRoutePayload` remain byte-identical.

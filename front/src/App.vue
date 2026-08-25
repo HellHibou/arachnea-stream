@@ -111,13 +111,13 @@ function toggleSearch() {
 }
 
 /**
- * Returns the background images that should be shown behind catalog and search screens.
+ * Returns the background media items that should be shown behind catalog and search screens.
+ *
+ * Both usage gates (`useCatalogBannersAsBackground` for images,
+ * `useTrailerAsBackground` for banner videos) are applied by the emitting
+ * composables, so the routed payload is forwarded as-is.
  */
 const catalogScreenBackgroundMediaItems = computed(() => {
-  if (!parameters.useCatalogBannersAsBackground.value) {
-    return []
-  }
-
   if (route.name !== 'home' && route.name !== 'category' && route.name !== 'search') {
     return []
   }
@@ -126,9 +126,9 @@ const catalogScreenBackgroundMediaItems = computed(() => {
 })
 
 /**
- * Stores the current background image candidates exposed by catalog and search screens.
+ * Stores the current background media candidates exposed by catalog and search screens.
  *
- * @param mediaItems Background image candidates collected from the active catalog or search payload.
+ * @param mediaItems Background image and banner-video candidates collected from the active screen.
  */
 function handleCatalogBackgroundMediaItemsUpdate(mediaItems: BackgroundMediaCandidate[]) {
   catalogBackgroundMediaItems.value = mediaItems
