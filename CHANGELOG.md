@@ -5,6 +5,8 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ## Unreleased
 
 ### Added
+- **Server-side scraper result cache (foyer)**: `ScraperAgregator` now embeds a lazily-built foyer hybrid cache (`ScraperServerCache`, bounded to 100 MiB on disk / 32 MiB in memory by default, rooted at `<application data>/cache`, overridable through `set_cache_config(ScraperCacheConfig)`). Entries are keyed per source execution (group + source + query + merged parameters + media-type filter + fields filters + source YAML hash) and hold the parsed rows together with the validator fragment that produced them. Freshness is driven by ETag revalidation against the stored fragment; a one-year safety TTL (`SERVER_CACHE_ENTRY_TTL`) bounds entry age. Stale sources of the phase-2 catch-up are served from this cache before any remote re-fetch; failed executions invalidate their entry instead of caching partial data.
+- **`QueryParameters::cache_type`**: replaced `enable_etag: bool` with a `CacheType` enum — `NoCache` (former `enable_etag = false`), `ClientCache` (former `enable_etag = true`, still the default), `ServerCache` (server cache only, no global ETag exposed to the client) and `FullCache` (server cache AND global ETag exposed to the client, keeping the full `304 Not Modified` short-circuit). Internal engine callers (proxy/IP-country providers, stream resolver) now pass `CacheType::NoCache`.
 - **Public server binding**: Added the `--server-public` flag to the backend executable. When set, the REST server binds to `0.0.0.0` instead of `127.0.0.1`, making the web interface and API reachable through any local network hostname or IP (for example `http://pc-jeremy:8080/`). It is exposed through `CoreApplicationOptions::server_public` and propagated to the REST controller configuration.
 - **Generic persistence store**: Added `PersistenceStore`, `PersistenceKey`, `PersistedRecord`, `MemoryPersistenceStore`, and `FilePersistenceStore` in `arachnea-core::persistence`. The file backend stores one document per namespace with atomic writes and expired-record pruning on read; JSON remains the default codec, while callers can supply a codec and extension.
 - **Cloudflare session persistence**: `ChaserCfEngine` now persists structured Cloudflare sessions (cookies, user-agent, expiration) through the shared `PersistenceStore` instead of the temporary JSON file. The first browser-strategy refresh may consume a persisted session before requesting a fresh solve; retries after a block stay fresh.
@@ -21,6 +23,23 @@ All notable changes to the server workspace are recorded here. Add new entries a
   players (HLS/DASH) remain always playable and are not subject to the
   allowlist.
 ### Changed
+- **Dev profile dependency optimizations**: dependencies are now compiled with `opt-level = 1` in the workspace `dev` profile (`[profile.dev.package."*"]`). This keeps the serde-heavy paths (server cache serialization, scraper result envelopes) fast during development at the cost of slightly longer cold builds; application code stays fully debuggable.
+- **Global ETag format is now self-describing**: the aggregated ETag is a `;`-separated list of `name=fragment` pairs covering only the sources that produced a real validator (`E:`/`C:`). Sources without remote validation (static/fetch-less queries) and failed sources are excluded from the value, so a returned ETag never claims freshness it cannot back. The previous positional format (one fragment per selected service, with a deterministic `N:` fallback and an `S:` services-hash block) is no longer emitted; legacy tags decode to an empty fragment map and trigger a full re-fetch. `decode_client_fragments` now takes the raw tag and returns a map.
+- **Merged controller result contract**: `register_result_function` / `register_result_function_with_state` are now the single header-aware registration path. Their closures receive a new `RequestControlerContext` (carrying the incoming HTTP headers) right after the state parameter and return `(payload, Option<String> global_etag)`; they answer `304 Not Modified` or attach the `ETag` response header like the former `register_etag_result_function[_with_state]`, which were removed. REST builds the context from Warp headers, Tauri from an empty context. New constants `HEADER_IF_NONE_MATCH` and `HEADER_ETAG` live in `arachnea-core::controler`.
+- **Conditional ETag ownership moved into Scrapyfy**: `ScraperAgregator::execute_query_async` now takes `(&RequestControlerContext, QueryParameters)` as its first parameters (after `&self`) and internally runs the phase 1 (parallel conditional validation), stale-source phase 2 re-fetch, and global ETag rebuild previously implemented by `StreamScraper::execute_query_with_etag`. `QueryParameters` defaults to `enable_etag = true`; internal engine callers (proxy/IP-country providers, stream resolver) disable it explicitly. `ScraperAggregationResult` gains a serialized `global_etag` field (`with_global_etag` / `take_global_etag`). The global ETag helpers moved from `arachnea-stream::stream_etag` to `arachnea-scrapyfy::global_etag` (the stream module keeps re-exports).
+- **Internal-only ETag fields in the envelope**: `ScraperAggregationResult::validations` and
+  `ScraperAggregationResult::global_etag` are now annotated with `#[serde(skip_serializing)]`.
+  Both stay available to the aggregation engine and the header-aware controller contract
+  (`ETag` response / `If-None-Match` request) but no longer appear in JSON responses. The
+  frontend never read either field.
+- **Source params helpers moved into Scrapyfy**: `source_params_from_entries`, its private
+  `request_param_value_to_string` helper, and the request entry type (renamed
+  `ScraperSourceParamsRequestEntry`) moved from `arachnea-stream::stream_scraper` to the new
+  `arachnea-scrapyfy::source_params` module so other controller facades can reuse them. The
+  stream scraper now consumes the re-exported items through its existing glob import.
+
+
+- **ETag-free stream request payloads**: The eleven scraper command request structs no longer carry `arachneaEtag` / `enableEtag` fields. The client global ETag now flows exclusively through the `If-None-Match` request header into `RequestControlerContext`, and conditional validation is enabled by default through `QueryParameters`. Frontend callers that still send `arachneaEtag` keep working because unknown query parameters are ignored.
 - **Server launch URL display**: The REST server startup message now shows `localhost` when bound to a loopback address, and the machine's first non-loopback IPv4 address when bound to an unspecified address (`0.0.0.0`), instead of always printing the raw bound IP.
 - **Optional sprite storyboard dimensions**: Resolver storyboards may now omit `width` and
   `height`. The frontend preloads the first sprite image and derives its cell dimensions from the
@@ -178,6 +197,7 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **`rtbf-auvio-be.yaml` `load_home` PROMOBOX banner video proxying**: RedBee HLS banner preview URLs are now wrapped through the configured generic HTTP proxy path.
 - **Frontend banner video proxy URLs**: Native video source detection now preserves same-origin proxy paths such as `/api/proxy/https://...m3u8` instead of extracting and playing the embedded upstream URL directly.
 - **`anime-sama.yaml` `load_home` banners**: Carousel clone slides marked with `aria-hidden="true"` are now ignored, keeping the home banners list to the four real featured items.
+- **`anime-sama.yaml` `load_home` pre-processing**: the volatile Cloudflare `window.__CF$cv$params` script injected before `</body>` is now removed through `remove_text_blocks` before parsing and before the fallback content-hash ETag fragment, so repeated home fetches yield a stable `C:` validator while the page content is unchanged.
 - **`m6play-fr.yaml` `search` result grouping**: Search now extracts one root response with hits nested under `entries`, preventing repeated root `source` values from breaking typed serialization.
 - **`francetv.yaml` `get_entry` season grouping**: FranceTV program details now build seasons from `collections` filtered to `type: playlist_video`, keeping each season's episodes under that season instead of flattening every playlist video item into a top-level `episode` list.
 - **RTBF Auvio playback CORS**: RTBF RedBee media manifest URLs returned by the player resolver now use the same-origin `/api/proxy/` route, so the DASH MPD and relative segment requests are fetched through Arachnea while the Widevine license proxy remains on `/api/get_stream/rtbf-auvio-be/...`.
@@ -594,3 +614,99 @@ All notable changes to the server workspace are recorded here. Add new entries a
   the `ProxyInventory::with_store`/`load_from_store`/`save_to_store` conveniences were removed;
   their fsync-before-rename behavior moved into `FilePersistenceStore::persist_document`.
   `IpCountrySerdeStore` is unaffected.
+
+## Unreleased — Conditional validation (ETag fragments) and parallel catch-up
+
+### Added
+
+- **Base62 encoding helper**: New `arachnea-core::crypt::base62` module providing reusable
+  base62 encoding of unsigned integers (digits + uppercase + lowercase alphabet), with unit
+  coverage including round-trip validation.
+- **Conditional request primitives**: New `arachnea-scrapyfy::conditional` module with validator
+  fragments (`E:<etag>` for HTTP ETags, `C:<last_modified>-<hash>` for content hashes, `N:` for
+  sources without remote validators), full XXH3-128 digests encoded in base62 without truncation
+  (`xxhash-rust`, feature `xxh3`, plus the shared base62 encoder), fragment build/parse helpers,
+  and a `ValidationSlot` carrying the incoming client fragment plus the recorded root-fetch
+  outcome.
+- **Root conditional fetch**: The unified query executor applies `If-None-Match` /
+  `If-Modified-Since` headers to each source's root request when a client fragment is provided,
+  detects `304 Not Modified` or an identical content hash (including browser-driven
+  `page_navigate` queries via hash comparison), records the up-to-date fragment, and skips parsing
+  entirely on unchanged content. Sub-queries never receive conditional headers.
+- **Per-source validations in the envelope**: `ScraperAggregationResult` gained a `validations`
+  map (`ScraperSourceValidation { status: fresh|stale, etag }`) populated by
+  `execute_query_async`, which now accepts optional per-source client fragments.
+- **Global ETag layer**: New `arachnea-stream::stream_etag` module building the deterministic
+  global ETag (`[S:<hash services>;]<fragment>;...` over alphabetically sorted service names,
+  the `S:` hash using the same full XXH3-128/base62 helper) and decoding client ETags back into
+  per-source fragments by position, rejecting stale or mismatched service lists through the
+  `S:` block.
+- **Parallel validation + catch-up orchestration**: `StreamScraper::execute_query_with_etag`
+  runs phase 1 (parallel conditional validation of every involved source), short-circuits to an
+  empty payload when every source is stale and the rebuilt global ETag matches the client's
+  `If-None-Match`, then runs phase 2 (forced full GETs restricted to stale sources) merging rows
+  into the aggregate while keeping phase-1 fragments for the response ETag.
+- **Header-aware JSON commands**: New controller contract (`register_json_function`,
+  `ControlerJsonInput`/`ControlerJsonOutput`, `register_etag_result_function[_with_state]`)
+  exposing request headers to JSON commands and letting them answer `304 Not Modified` (empty
+  body) or attach an `ETag` response header. Implemented by both the REST (Warp) and Tauri
+  backends; Tauri passes empty headers since IPC carries no conditional validation.
+- **ETag-enabled catalog commands**: `search`, `load_home`, `get_service`, `list_lives`,
+  `get_category`, `get_section`, `get_banners`, `get_players`, `get_entry`, `get_season`, and
+  `get_live` accept optional `arachneaEtag` / `enableEtag` parameters (validation enabled by
+  default) and are registered through the header-aware contract.
+
+### Changed
+
+- **REST bridge switched to GET**: The frontend `call_api` REST path now issues GET requests with
+  every parameter JSON-encoded into the query string; the backend query-string deserializer
+  JSON-decodes values starting with `[`, `{`, or `"` so complex parameters round-trip unchanged.
+  Repeated keys collapse into arrays. The Tauri invoke path is unchanged.
+- **Frontend ETag cache**: `call_api` caches the backend `ETag` per command + serialized
+  parameters, replays it as `If-None-Match`, and resolves `304 Not Modified` responses from the
+  cached envelope without touching the network payload.
+
+### Fixed
+
+- **Deterministic aggregation fragments**: Sources without a recorded validation outcome (static
+  or fetch-less queries) contribute a stable `N:` fallback fragment derived from the source name,
+  keeping the global ETag identical across identical requests.
+- **Parameterless REST GET commands**: REST command routes now accept a missing query string as
+  an empty payload. ETag-enabled calls such as `load_home`, `get_service`, and `list_lives` no
+  longer fail with `400 Bad Request - Invalid query string` when invoked without parameters.
+- **Typed REST GET scalar parameters**: Query-string values that are valid JSON scalars are now
+  deserialized as their native JSON types. Numeric parameters such as `get_section.page` no
+  longer reach Rust as strings and fail `usize` deserialization.
+- **Scrapyfy response pre-processing**: Queries and sub-queries may now declare ordered
+  `pre_process` actions. The initial `remove_text_blocks` action removes literal volatile blocks
+  before parsing and before fallback content-hash ETag validation. The resulting `C:` validator
+  is calculated only from transformed content and can stop dependent sub-queries. Remote ETags
+  and Last-Modified validators retain their existing priority. PapaDuStream v2 removes its
+  changing Cloudflare blocks from `get_players` responses.
+- **REST ETag propagation to Scrapyfy**: Cached REST ETags are sent as the `arachneaEtag`
+  request parameter, outside the cache key. `get_players` also consumes `If-None-Match` directly
+  when that parameter is absent. Scrapyfy can therefore validate the root response and skip
+  dependent sub-queries before the controller returns `304 Not Modified`. Header quotes and weak
+  validator prefixes are normalized before comparing the global ETag, preventing a false catch-up
+  pass that previously executed stale sources' sub-queries.
+- **Static `get_service` validation**: Restored the header-aware ETag response for
+  `get_service`. Its static metadata uses the existing deterministic `N:` source fragments and
+  never hashes the final serialized response.
+- **Multi-source ETag decoding**: Removed the duplicate separator between the `S:` block and the
+  first source fragment, allowing aggregated client ETags to be decoded and validated again.
+- **Quoted `304` ETags**: Conditional REST responses now use the same quoted ETag wire format as
+  successful responses.
+- **PapaDuStream entry and season validation**: `get_entry` and `get_season` now each declare
+  the same local `pre_process` rules as `get_players`, removing volatile Cloudflare blocks before
+  their fallback content ETag is calculated.
+- **Parameterized pre-processing delimiters**: `remove_text_blocks.start` and `.end` now resolve
+  `{base_url}` from the runtime query parameter (or the query base URL), allowing source domains
+  such as PapaDuStream to remain configurable. Browser `page_fetch` sub-queries now apply the
+  same pre-processing pipeline as other HTTP response paths.
+- **YAML-hash-aware ETag fragments**: Per-service validator fragments now embed a compact base62
+  hash of the source YAML document (`E:<yamlhash>-<etag>`, `C:<yamlhash>-<last_modified>-<hash>`,
+  `N:<yamlhash>-<namehash>`). The hash is computed once from the raw YAML bytes at load time
+  (`arachnea_core::crypt::hash62_64`) and a client fragment carrying a divergent hash is dropped,
+  so editing a scraper forces a full re-fetch even when the remote content is unchanged. Legacy
+  client ETags without a YAML-hash segment are treated as divergent and converge after one full
+  re-fetch; the global ETag stays opaque to the frontend.

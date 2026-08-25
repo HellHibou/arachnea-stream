@@ -166,8 +166,32 @@ request_headers:                    # optional: HTTP headers
 http: {}                            # optional: HTTP configuration (override)
 query_param_mappings: []            # optional: parameter mappings
 result_item_field: "entries"        # optional: group field to flatten into rows
+pre_process: []                     # optional: body transformations before parsing and fallback ETag hashing
 post_process: []                    # optional: post-processing
 ```
+
+### `pre_process`
+
+Pre-processing applies to the final body returned by an HTTP request, after
+redirects and before HTML, JSON, or text parsing. It also runs before the
+content-hash fallback used for conditional validation. Remote `ETag` and
+`Last-Modified` validators retain priority when present. Without them, the
+transformed body produces the `C:` fragment; a matching fragment stops parsing
+and all dependent sub-queries. Each root query and sub-query owns its own list;
+it is not inherited by children. It does not apply to `input_html`. The `start`
+and `end` values may use `{base_url}`, resolved from the runtime parameter when
+present and otherwise from the query base URL.
+
+```yaml
+pre_process:
+  - type: remove_text_blocks
+    start: '<script data-volatile="true">'
+    end: '</script>'
+```
+
+`remove_text_blocks` removes all literal blocks, including both delimiters.
+An absent `start` is a no-op. A found `start` without a following `end` is a
+configuration error at execution time. Both delimiters must be non-empty.
 
 ### `request_headers`
 
@@ -555,6 +579,7 @@ sub_queries:
     request_method: get                # optional: get | post
     request_headers: []                # optional: sub-query headers
     http: {}                           # optional: HTTP config
+    pre_process: []                    # optional: body transformations before parsing
     post_process: []                   # optional: post-processing
     # Scraper-type-specific fields
 ```

@@ -107,8 +107,38 @@ interface TauriWindow extends Window {
   }
 }
 
+/** Cached conditional-validation entry keyed by command name and serialized parameters. */
+interface EtagCacheEntry {
+  /** Global ETag returned by the backend for this request. */
+  etag: string
+  /** Raw JSON envelope previously returned for this request. */
+  payload: unknown
+}
+
+/** In-memory conditional-validation cache shared by every REST GET call. */
+const etagCache = new Map<string, EtagCacheEntry>()
+
+/**
+ * Builds the cache key of one REST GET request from its command and parameters.
+ *
+ * @param fct_name Backend function name.
+ * @param queryString Serialized query string of the request.
+ * @returns Stable cache key scoped to this exact request.
+ */
+function buildEtagCacheKey(fct_name: string, queryString: string): string {
+  return `${fct_name}?${queryString}`
+}
+
 /**
  * Calls a backend function through either Tauri or the REST bridge.
+ *
+ * The REST path issues a GET request whose parameters are JSON-encoded into
+ * the query string, and participates in conditional validation: the global
+ * ETag returned by the backend is cached per request shape and replayed as
+ * `If-None-Match` and `arachneaEtag`. The latter lets Scrapyfy validate the
+ * root response before it executes dependent sub-queries; a `304 Not Modified`
+ * answer resolves to the cached payload.
+ * The Tauri path keeps its original invoke semantics.
  *
  * @param fct_name Backend function name.
  * @param params Function parameters.
@@ -128,15 +158,50 @@ export async function call_api<T = unknown>(
       return unwrapAggregationPayload<T>(payload, fct_name)
     }
 
-    const response = await fetch(`${restApiBaseUrl}/${fct_name}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params),
-    })
+    // Serialize every parameter as JSON so complex values (arrays, objects,
+    // quoted strings) survive the query-string round trip; the backend
+    // JSON-decodes values that start with `[`, `{`, or `"`.
+    const searchParams = new URLSearchParams()
+    for (const [key, value] of Object.entries(params)) {
+      searchParams.append(key, JSON.stringify(value))
+    }
+    const queryString = searchParams.toString()
+    const cacheKey = buildEtagCacheKey(fct_name, queryString)
+    const cachedEntry = etagCache.get(cacheKey)
+
+    const headers: Record<string, string> = {}
+    if (cachedEntry) {
+      headers['If-None-Match'] = `"${cachedEntry.etag}"`
+      // Keep the validator out of cacheKey, otherwise every refresh would use
+      // a different cache entry. The backend uses this value to decode the
+      // source fragment before scheduling scraper sub-queries.
+      searchParams.append('arachneaEtag', JSON.stringify(cachedEntry.etag))
+    }
+    const requestQueryString = searchParams.toString()
+
+    const response = await fetch(
+      `${restApiBaseUrl}/${fct_name}${requestQueryString ? `?${requestQueryString}` : ''}`,
+      { method: 'GET', headers },
+    )
+
+    if (response.status === 304 && cachedEntry) {
+      return unwrapAggregationPayload<T>(cachedEntry.payload, fct_name)
+    }
+
     const payload = await parseResponseBody(response)
 
     if (!response.ok) {
       handleFailedRestResponse(payload, fct_name, response.status)
+    }
+
+    const etagHeader = response.headers.get('ETag')
+    if (etagHeader) {
+      etagCache.set(cacheKey, {
+        etag: etagHeader.replace(/^W?"/, '').replace(/"$/, ''),
+        payload,
+      })
+    } else {
+      etagCache.delete(cacheKey)
     }
 
     return unwrapAggregationPayload<T>(payload, fct_name)

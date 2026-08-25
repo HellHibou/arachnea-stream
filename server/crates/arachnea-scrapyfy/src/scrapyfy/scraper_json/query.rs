@@ -104,6 +104,9 @@ pub struct JsonScraperQuery {
     /// Field extractors executed for every matched row.
     pub(crate) scraper_entries: Vec<JsonScraperEntry>,
 
+    /// Transformations applied to the fetched response before JSON parsing.
+    pub(crate) pre_processes: Vec<PreProcessAction>,
+
     /// Entries extracted from the parent context row when this query is used
     /// as a query-level sub-query.
     pub(crate) context_entries: Vec<JsonScraperEntry>,
@@ -213,6 +216,9 @@ pub struct JsonScraperSubQuery {
 
     /// Field extractors executed for every matched row.
     pub(crate) entries: Vec<JsonScraperEntry>,
+
+    /// Transformations applied to the fetched response before JSON parsing.
+    pub(crate) pre_processes: Vec<PreProcessAction>,
 
     /// Post-processing steps applied to each extracted row.
     pub(crate) post_processes: Vec<ScraperPostProcess>,
@@ -448,6 +454,7 @@ impl JsonScraperQuery {
             scraper_entries: Vec::new(),
             context_entries: Vec::new(),
             sub_queries,
+            pre_processes: Vec::new(),
             post_processes: Vec::new(),
             // Champs sub-query (par défaut)
             context_pointer: None,
@@ -595,6 +602,10 @@ impl ScraperQuery for JsonScraperQuery {
         RowLocator::Pointer(self.row_pointer.clone())
     }
 
+    fn pre_processes(&self) -> &[PreProcessAction] {
+        &self.pre_processes
+    }
+
     fn post_processes(&self) -> &[crate::scrapyfy::ScraperPostProcess] {
         &self.post_processes
     }
@@ -722,6 +733,10 @@ impl ScraperQuery for JsonScraperSubQuery {
 
     fn row_locator(&self) -> RowLocator {
         RowLocator::Pointer(self.row_pointer.clone())
+    }
+
+    fn pre_processes(&self) -> &[PreProcessAction] {
+        &self.pre_processes
     }
 
     fn post_processes(&self) -> &[crate::scrapyfy::ScraperPostProcess] {

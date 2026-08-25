@@ -1,19 +1,21 @@
 use anyhow::{bail, Result};
 use const_format::concatcp;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::{collections::HashMap, sync::Arc};
 use urlencoding::encode;
 
 use arachnea_core::{
     controler::{
         ControlerService, ControlerServiceExt, ControlerStreamInput, ControlerStreamOutput,
-        ResponseBody,
+        RequestControlerContext, ResponseBody,
     },
     persistence::{CredentialsStore, FileCredentialsStore, FilePersistenceStore, PersistenceStore},
 };
 use arachnea_proxy::core::{ArachneaProxyCore, ProxyConfig};
-use arachnea_scrapyfy::{scraper_result::ScraperAggregationResult, *};
+use arachnea_scrapyfy::{
+    scraper_result::ScraperAggregationResult,
+    *,
+};
 
 use crate::services::{
     francetv_resolver::FrancetvResolver,
@@ -62,7 +64,7 @@ struct SearchRequest {
     #[serde(default)]
     themes: Vec<String>,
     #[serde(default, alias = "sourceParams")]
-    source_params: Vec<SourceParamsRequestEntry>,
+    source_params: Vec<ScraperSourceParamsRequestEntry>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -80,7 +82,8 @@ struct GetSeasonRequest {
 }
 
 #[derive(Serialize, Deserialize)]
-struct ListLivesRequest {}
+struct ListLivesRequest {
+}
 
 #[derive(Serialize, Deserialize)]
 struct GetLiveRequest {
@@ -95,10 +98,12 @@ struct GetStreamRequest {
 }
 
 #[derive(Default, Serialize, Deserialize)]
-struct LoadHomeRequest {}
+struct LoadHomeRequest {
+}
 
 #[derive(Default, Serialize, Deserialize)]
-struct GetServiceRequest {}
+struct GetServiceRequest {
+}
 
 #[derive(Serialize, Deserialize)]
 struct GetCategoryRequest {
@@ -109,7 +114,7 @@ struct GetCategoryRequest {
     #[serde(default = "default_page")]
     page: usize,
     #[serde(default, alias = "sourceParams")]
-    source_params: Vec<SourceParamsRequestEntry>,
+    source_params: Vec<ScraperSourceParamsRequestEntry>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -121,7 +126,7 @@ struct GetSectionRequest {
     #[serde(default = "default_page")]
     page: usize,
     #[serde(default, alias = "sourceParams")]
-    source_params: Vec<SourceParamsRequestEntry>,
+    source_params: Vec<ScraperSourceParamsRequestEntry>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -138,13 +143,6 @@ struct GetPlayersRequest {
     source: String,
     #[serde(default)]
     link: String,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-struct SourceParamsRequestEntry {
-    source: String,
-    #[serde(flatten)]
-    params: HashMap<String, Value>,
 }
 
 /// High-level facade exposing scraper operations used by controllers and tests.
@@ -325,14 +323,23 @@ impl StreamScraper {
     /// * `themes` - Optional theme filters applied to scraped results.
     /// * `page` - 1-based page number requested by the caller.
     /// * `source_params` - Source-specific runtime parameters returned by the previous page.
+    /// * `context` - Context of the incoming controller request.
+    ///
+    /// # Returns
+    ///
+    /// The aggregation result alongside the up-to-date global ETag.
     pub async fn search(
         &self,
+        context: RequestControlerContext,
         query: String,
         media_types: Vec<String>,
         themes: Vec<String>,
         page: usize,
         source_params: ScraperSourceParams,
-    ) -> Result<ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>>> {
+    ) -> Result<(
+        ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>>,
+        Option<String>,
+    )> {
         let page = page.max(1);
         let scrapper_list = if page > 1 && !source_params.is_empty() {
             Some(source_params.keys().cloned().collect::<Vec<_>>())
@@ -358,9 +365,11 @@ impl StreamScraper {
             Some(&media_types)
         };
 
-        Ok(self
+        let mut result = self
             .scraper_agregator
             .execute_query_async(
+                &context,
+                QueryParameters::from_cache_type(CacheType::ClientCache),
                 STREAM_SERVICE_GROUP_NAME,
                 "search",
                 &params,
@@ -371,7 +380,9 @@ impl StreamScraper {
                 None,
                 "search",
             )
-            .await)
+            .await;
+        let global_etag = result.take_global_etag();
+        Ok((result, global_etag))
     }
 
     /// Convenience helper for the `get_entry` query using the provided absolute entry URL.
@@ -380,24 +391,35 @@ impl StreamScraper {
     ///
     /// * `query_source` - Query source name.
     /// * `query_url` - Absolute URL of the entry page to fetch.
+    /// * `context` - Context of the incoming controller request.
+    ///
+    /// # Returns
+    ///
+    /// The aggregation result alongside the up-to-date global ETag.
     ///
     /// # Errors
     ///
     /// Returns an error if query execution cannot be started.
     pub async fn get_entry(
         &self,
+        context: RequestControlerContext,
         query_source: String,
         query_url: String,
-    ) -> Result<ScraperAggregationResult<HashMap<String, ScraperDataNode>>> {
+    ) -> Result<(
+        ScraperAggregationResult<HashMap<String, ScraperDataNode>>,
+        Option<String>,
+    )> {
         let mut params: HashMap<String, String> = HashMap::new();
         params.insert("query_url".to_string(), query_url);
         self.enrich_runtime_params(&mut params);
 
         let scrapper_list = vec![query_source];
 
-        let result = self
+        let mut result = self
             .scraper_agregator
             .execute_query_async(
+                &context,
+                QueryParameters::from_cache_type(CacheType::ClientCache),
                 STREAM_SERVICE_GROUP_NAME,
                 "get_entry",
                 &params,
@@ -409,6 +431,7 @@ impl StreamScraper {
                 "get_entry",
             )
             .await;
+        let global_etag = result.take_global_etag();
 
         let mut root = ScraperDataNode {
             children: result.data.into_iter().next().unwrap_or_default(),
@@ -416,7 +439,12 @@ impl StreamScraper {
         };
         populate_stream_resolver_web_links(&mut root);
 
-        Ok(ScraperAggregationResult::new(root.children, result.errors))
+        Ok((
+            ScraperAggregationResult::new(root.children, result.errors)
+                .with_validations(result.validations)
+                .with_global_etag(global_etag.clone()),
+            global_etag,
+        ))
     }
 
     /// Convenience helper for the `get_season` query using the provided absolute season URL.
@@ -426,16 +454,25 @@ impl StreamScraper {
     /// * `query_source` - Query source name.
     /// * `query_url` - Absolute URL of the season payload to fetch.
     /// * `page` - 1-based page number requested from the backend source.
+    /// * `context` - Context of the incoming controller request.
+    ///
+    /// # Returns
+    ///
+    /// The aggregation result alongside the up-to-date global ETag.
     ///
     /// # Errors
     ///
     /// Returns an error if query execution cannot be started.
     pub async fn get_season(
         &self,
+        context: RequestControlerContext,
         query_source: String,
         query_url: String,
         page: usize,
-    ) -> Result<ScraperAggregationResult<HashMap<String, ScraperDataNode>>> {
+    ) -> Result<(
+        ScraperAggregationResult<HashMap<String, ScraperDataNode>>,
+        Option<String>,
+    )> {
         let mut params: HashMap<String, String> = HashMap::new();
         params.insert("query_url".to_string(), query_url);
         params.insert("page".to_string(), page.max(1).to_string());
@@ -443,9 +480,11 @@ impl StreamScraper {
 
         let scrapper_list = vec![query_source];
 
-        let result = self
+        let mut result = self
             .scraper_agregator
             .execute_query_async(
+                &context,
+                QueryParameters::from_cache_type(CacheType::ClientCache),
                 STREAM_SERVICE_GROUP_NAME,
                 "get_season",
                 &params,
@@ -457,22 +496,42 @@ impl StreamScraper {
                 "get_season",
             )
             .await;
+        let global_etag = result.take_global_etag();
 
-        Ok(ScraperAggregationResult::new(
-            result.data.into_iter().next().unwrap_or_default(),
-            result.errors,
+        Ok((
+            ScraperAggregationResult::new(
+                result.data.into_iter().next().unwrap_or_default(),
+                result.errors,
+            )
+            .with_validations(result.validations)
+                .with_global_etag(global_etag.clone()),
+            global_etag,
         ))
     }
 
     /// Loads the aggregated live catalog across every configured source.
+    ///
+    /// # Arguments
+    ///
+    /// * `context` - Context of the incoming controller request.
+    ///
+    /// # Returns
+    ///
+    /// The aggregation result alongside the up-to-date global ETag.
     pub async fn list_lives(
         &self,
-    ) -> Result<ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>>> {
+        context: RequestControlerContext,
+    ) -> Result<(
+        ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>>,
+        Option<String>,
+    )> {
         let mut params: HashMap<String, String> = HashMap::new();
         self.enrich_runtime_params(&mut params);
-        let result = self
+        let mut result = self
             .scraper_agregator
             .execute_query_async(
+                &context,
+                QueryParameters::from_cache_type(CacheType::FullCache),
                 STREAM_SERVICE_GROUP_NAME,
                 "list_lives",
                 &params,
@@ -484,8 +543,8 @@ impl StreamScraper {
                 "list_lives",
             )
             .await;
-
-        Ok(result)
+        let global_etag = result.take_global_etag();
+        Ok((result, global_etag))
     }
 
     /// Loads one live payload for the provided source and channel identifier.
@@ -494,24 +553,35 @@ impl StreamScraper {
     ///
     /// * `query_source` - Query source name.
     /// * `channel` - Source-specific live channel identifier.
+    /// * `context` - Context of the incoming controller request.
+    ///
+    /// # Returns
+    ///
+    /// The aggregation result alongside the up-to-date global ETag.
     ///
     /// # Errors
     ///
     /// Returns an error if query execution cannot be started.
     pub async fn get_live(
         &self,
+        context: RequestControlerContext,
         query_source: String,
         channel: String,
-    ) -> Result<ScraperAggregationResult<HashMap<String, ScraperDataNode>>> {
+    ) -> Result<(
+        ScraperAggregationResult<HashMap<String, ScraperDataNode>>,
+        Option<String>,
+    )> {
         let mut params: HashMap<String, String> = HashMap::new();
         params.insert("channel".to_string(), channel);
         self.enrich_runtime_params(&mut params);
 
         let scrapper_list = vec![query_source];
 
-        let result = self
+        let mut result = self
             .scraper_agregator
             .execute_query_async(
+                &context,
+                QueryParameters::default(),
                 STREAM_SERVICE_GROUP_NAME,
                 "get_live",
                 &params,
@@ -523,22 +593,42 @@ impl StreamScraper {
                 "get_live",
             )
             .await;
+        let global_etag = result.take_global_etag();
 
-        Ok(ScraperAggregationResult::new(
-            result.data.into_iter().next().unwrap_or_default(),
-            result.errors,
+        Ok((
+            ScraperAggregationResult::new(
+                result.data.into_iter().next().unwrap_or_default(),
+                result.errors,
+            )
+            .with_validations(result.validations)
+                .with_global_etag(global_etag.clone()),
+            global_etag,
         ))
     }
 
     /// Loads the aggregated home catalog across every configured source.
+    ///
+    /// # Arguments
+    ///
+    /// * `context` - Context of the incoming controller request.
+    ///
+    /// # Returns
+    ///
+    /// The aggregation result alongside the up-to-date global ETag.
     pub async fn load_home(
         &self,
-    ) -> Result<ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>>> {
+        context: RequestControlerContext,
+    ) -> Result<(
+        ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>>,
+        Option<String>,
+    )> {
         let mut params: HashMap<String, String> = HashMap::new();
         self.enrich_runtime_params(&mut params);
-        Ok(self
+        let mut result = self
             .scraper_agregator
             .execute_query_async(
+                &context,
+                QueryParameters::from_cache_type(CacheType::FullCache),
                 STREAM_SERVICE_GROUP_NAME,
                 "load_home",
                 &params,
@@ -549,19 +639,35 @@ impl StreamScraper {
                 Some("source"),
                 "load_home",
             )
-            .await)
+            .await;
+        let global_etag = result.take_global_etag();
+        Ok((result, global_etag))
     }
 
     /// Loads display metadata for every configured source.
+    ///
+    /// # Arguments
+    ///
+    /// * `context` - Context of the incoming controller request.
+    ///
+    /// # Returns
+    ///
+    /// The aggregation result alongside the up-to-date global ETag.
     pub async fn get_service(
         &self,
-    ) -> Result<ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>>> {
+        context: RequestControlerContext,
+    ) -> Result<(
+        ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>>,
+        Option<String>,
+    )> {
         let mut params: HashMap<String, String> = HashMap::new();
         self.enrich_runtime_params(&mut params);
 
-        Ok(self
+        let mut result = self
             .scraper_agregator
             .execute_query_async(
+                &context,
+                QueryParameters::from_cache_type(CacheType::NoCache),
                 STREAM_SERVICE_GROUP_NAME,
                 "service_stream_metadata",
                 &params,
@@ -572,7 +678,9 @@ impl StreamScraper {
                 None,
                 "service_stream_metadata",
             )
-            .await)
+            .await;
+        let global_etag = result.take_global_etag();
+        Ok((result, global_etag))
     }
 
     /// Loads category payloads for the provided YAML-defined source descriptors.
@@ -582,16 +690,25 @@ impl StreamScraper {
     /// * `sources` - Source descriptors returned under `category.sources` by `load_home`.
     /// * `page` - 1-based page number requested from the backend source.
     /// * `source_params` - Optional per-source runtime parameters overriding global values.
+    /// * `context` - Context of the incoming controller request.
+    ///
+    /// # Returns
+    ///
+    /// The aggregation result alongside the up-to-date global ETag.
     ///
     /// # Errors
     ///
     /// Returns an error if a required source name is missing from the request.
     pub async fn get_category(
         &self,
+        context: RequestControlerContext,
         sources: Vec<HashMap<String, String>>,
         page: usize,
         source_params: ScraperSourceParams,
-    ) -> Result<ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>>> {
+    ) -> Result<(
+        ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>>,
+        Option<String>,
+    )> {
         let page = page.max(1);
         let mut source_params = source_params;
         let mut scrapper_list = Vec::new();
@@ -624,9 +741,11 @@ impl StreamScraper {
         params.insert("page".to_string(), page.to_string());
         self.enrich_runtime_params(&mut params);
 
-        Ok(self
+        let mut result = self
             .scraper_agregator
             .execute_query_async(
+                &context,
+                QueryParameters::from_cache_type(CacheType::FullCache),
                 STREAM_SERVICE_GROUP_NAME,
                 "get_category",
                 &params,
@@ -637,7 +756,9 @@ impl StreamScraper {
                 Some("source"),
                 "get_category",
             )
-            .await)
+            .await;
+        let global_etag = result.take_global_etag();
+        Ok((result, global_etag))
     }
 
     /// Loads one paged section payload for the provided source and section link.
@@ -648,13 +769,22 @@ impl StreamScraper {
     /// * `query_url` - Source-specific section URL or API endpoint.
     /// * `page` - 1-based page number requested from the backend source.
     /// * `source_params` - Optional per-source runtime parameters overriding global values.
+    /// * `context` - Context of the incoming controller request.
+    ///
+    /// # Returns
+    ///
+    /// The aggregation result alongside the up-to-date global ETag.
     pub async fn get_section(
         &self,
+        context: RequestControlerContext,
         query_source: String,
         query_url: String,
         page: usize,
         mut source_params: ScraperSourceParams,
-    ) -> Result<ScraperAggregationResult<HashMap<String, ScraperDataNode>>> {
+    ) -> Result<(
+        ScraperAggregationResult<HashMap<String, ScraperDataNode>>,
+        Option<String>,
+    )> {
         let mut params: HashMap<String, String> = HashMap::new();
         params.insert("page".to_string(), page.max(1).to_string());
         self.enrich_runtime_params(&mut params);
@@ -680,9 +810,11 @@ impl StreamScraper {
             None
         };
 
-        let result = self
+        let mut result = self
             .scraper_agregator
             .execute_query_async(
+                &context,
+                QueryParameters::from_cache_type(CacheType::FullCache),
                 STREAM_SERVICE_GROUP_NAME,
                 "get_section",
                 &params,
@@ -694,6 +826,7 @@ impl StreamScraper {
                 "get_section",
             )
             .await;
+        let global_etag = result.take_global_etag();
 
         let mut root = ScraperDataNode::default();
         for row in result.data {
@@ -704,7 +837,12 @@ impl StreamScraper {
         }
         root.keep_first_values();
 
-        Ok(ScraperAggregationResult::new(root.children, result.errors))
+        Ok((
+            ScraperAggregationResult::new(root.children, result.errors)
+                .with_validations(result.validations)
+                .with_global_etag(global_etag.clone()),
+            global_etag,
+        ))
     }
 
     /// Loads banners for the provided source and banner link.
@@ -713,11 +851,20 @@ impl StreamScraper {
     ///
     /// * `query_source` - Query source name.
     /// * `query_url` - Source-specific banner URL or API endpoint.
+    /// * `context` - Context of the incoming controller request.
+    ///
+    /// # Returns
+    ///
+    /// The aggregation result alongside the up-to-date global ETag.
     pub async fn get_banners(
         &self,
+        context: RequestControlerContext,
         query_source: String,
         query_url: String,
-    ) -> Result<ScraperAggregationResult<HashMap<String, ScraperDataNode>>> {
+    ) -> Result<(
+        ScraperAggregationResult<HashMap<String, ScraperDataNode>>,
+        Option<String>,
+    )> {
         let mut params: HashMap<String, String> = HashMap::new();
         self.enrich_runtime_params(&mut params);
 
@@ -732,9 +879,11 @@ impl StreamScraper {
             Some(vec![query_source])
         };
 
-        let result = self
+        let mut result = self
             .scraper_agregator
             .execute_query_async(
+                &context,
+                QueryParameters::from_cache_type(CacheType::ClientCache),
                 STREAM_SERVICE_GROUP_NAME,
                 "get_banners",
                 &params,
@@ -746,6 +895,7 @@ impl StreamScraper {
                 "get_banners",
             )
             .await;
+        let global_etag = result.take_global_etag();
 
         let mut root = ScraperDataNode::default();
         for row in result.data {
@@ -756,7 +906,12 @@ impl StreamScraper {
         }
         root.keep_first_values();
 
-        Ok(ScraperAggregationResult::new(root.children, result.errors))
+        Ok((
+            ScraperAggregationResult::new(root.children, result.errors)
+                .with_validations(result.validations)
+                .with_global_etag(global_etag.clone()),
+            global_etag,
+        ))
     }
 
     /// Loads players for the provided source and player link.
@@ -765,11 +920,20 @@ impl StreamScraper {
     ///
     /// * `query_source` - Query source name.
     /// * `query_url` - Source-specific player URL or API endpoint.
+    /// * `context` - Context of the incoming controller request.
+    ///
+    /// # Returns
+    ///
+    /// The aggregation result alongside the up-to-date global ETag.
     pub async fn get_players(
         &self,
+        context: RequestControlerContext,
         query_source: String,
         query_url: String,
-    ) -> Result<ScraperAggregationResult<HashMap<String, ScraperDataNode>>> {
+    ) -> Result<(
+        ScraperAggregationResult<HashMap<String, ScraperDataNode>>,
+        Option<String>,
+    )> {
         let mut params: HashMap<String, String> = HashMap::new();
         self.enrich_runtime_params(&mut params);
 
@@ -784,9 +948,11 @@ impl StreamScraper {
             Some(vec![query_source])
         };
 
-        let result = self
+        let mut result = self
             .scraper_agregator
             .execute_query_async(
+                &context,
+                QueryParameters::from_cache_type(CacheType::ClientCache),
                 STREAM_SERVICE_GROUP_NAME,
                 "get_players",
                 &params,
@@ -798,6 +964,7 @@ impl StreamScraper {
                 "get_players",
             )
             .await;
+        let global_etag = result.take_global_etag();
 
         let mut root = ScraperDataNode::default();
         for row in result.data {
@@ -809,7 +976,12 @@ impl StreamScraper {
         root.keep_first_values();
         populate_stream_resolver_web_links(&mut root);
 
-        Ok(ScraperAggregationResult::new(root.children, result.errors))
+        Ok((
+            ScraperAggregationResult::new(root.children, result.errors)
+                .with_validations(result.validations)
+                .with_global_etag(global_etag.clone()),
+            global_etag,
+        ))
     }
 
     async fn get_stream(
@@ -939,10 +1111,7 @@ fn populate_stream_resolver_web_links(node: &mut ScraperDataNode) {
             if let Some(target_id) = target_id {
                 item.children.insert(
                     "web-link".to_string(),
-                    ScraperDataNode::from_values_typed(
-                        vec![target_id],
-                        ScraperOutputType::String,
-                    ),
+                    ScraperDataNode::from_values_typed(vec![target_id], ScraperOutputType::String),
                 );
             }
         }
@@ -993,9 +1162,10 @@ impl ScraperManager for StreamScraper {
         controler.register_result_function_with_state(
             "search",
             Arc::clone(&connector),
-            |scraper, input: SearchRequest| async move {
+            |scraper, context, input: SearchRequest| async move {
                 scraper
                     .search(
+                        context,
                         input.query,
                         input.media_types,
                         input.themes,
@@ -1009,27 +1179,34 @@ impl ScraperManager for StreamScraper {
         controler.register_result_function_with_state(
             "load_home",
             Arc::clone(&connector),
-            |scraper, _input: LoadHomeRequest| async move { scraper.load_home().await },
+            |scraper, context, _input: LoadHomeRequest| async move {
+                scraper.load_home(context).await
+            },
         );
 
         controler.register_result_function_with_state(
             "get_service",
             Arc::clone(&connector),
-            |scraper, _input: GetServiceRequest| async move { scraper.get_service().await },
+            |scraper, context, _input: GetServiceRequest| async move {
+                scraper.get_service(context).await
+            },
         );
 
         controler.register_result_function_with_state(
             "list_lives",
             Arc::clone(&connector),
-            |scraper, _input: ListLivesRequest| async move { scraper.list_lives().await },
+            |scraper, context, _input: ListLivesRequest| async move {
+                scraper.list_lives(context).await
+            },
         );
 
         controler.register_result_function_with_state(
             "get_category",
             Arc::clone(&connector),
-            |scraper, input: GetCategoryRequest| async move {
+            |scraper, context, input: GetCategoryRequest| async move {
                 scraper
                     .get_category(
+                        context,
                         category_sources_from_request(input.source, input.sources),
                         input.page,
                         source_params_from_entries(input.source_params),
@@ -1041,9 +1218,10 @@ impl ScraperManager for StreamScraper {
         controler.register_result_function_with_state(
             "get_section",
             Arc::clone(&connector),
-            |scraper, input: GetSectionRequest| async move {
+            |scraper, context, input: GetSectionRequest| async move {
                 scraper
                     .get_section(
+                        context,
                         input.source,
                         input.link,
                         input.page,
@@ -1056,33 +1234,39 @@ impl ScraperManager for StreamScraper {
         controler.register_result_function_with_state(
             "get_banners",
             Arc::clone(&connector),
-            |scraper, input: GetBannersRequest| async move {
-                scraper.get_banners(input.source, input.link).await
+            |scraper, context, input: GetBannersRequest| async move {
+                scraper
+                    .get_banners(context, input.source, input.link)
+                    .await
             },
         );
 
         controler.register_result_function_with_state(
             "get_players",
             Arc::clone(&connector),
-            |scraper, input: GetPlayersRequest| async move {
-                scraper.get_players(input.source, input.link).await
+            |scraper, context, input: GetPlayersRequest| async move {
+                scraper
+                    .get_players(context, input.source, input.link)
+                    .await
             },
         );
 
         controler.register_result_function_with_state(
             "get_entry",
             Arc::clone(&connector),
-            |scraper, input: GetEntryRequest| async move {
-                scraper.get_entry(input.source, input.entry).await
+            |scraper, context, input: GetEntryRequest| async move {
+                scraper
+                    .get_entry(context, input.source, input.entry)
+                    .await
             },
         );
 
         controler.register_result_function_with_state(
             "get_season",
             Arc::clone(&connector),
-            |scraper, input: GetSeasonRequest| async move {
+            |scraper, context, input: GetSeasonRequest| async move {
                 scraper
-                    .get_season(input.source, input.season, input.page)
+                    .get_season(context, input.source, input.season, input.page)
                     .await
             },
         );
@@ -1090,16 +1274,21 @@ impl ScraperManager for StreamScraper {
         controler.register_result_function_with_state(
             "get_live",
             Arc::clone(&connector),
-            |scraper, input: GetLiveRequest| async move {
-                scraper.get_live(input.source, input.channel).await
+            |scraper, context, input: GetLiveRequest| async move {
+                scraper
+                    .get_live(context, input.source, input.channel)
+                    .await
             },
         );
 
         controler.register_result_function_with_state(
             "get_stream",
             Arc::clone(&connector),
-            |scraper, input: GetStreamRequest| async move {
-                scraper.get_stream(input.resolver, input.target).await
+            |scraper, _context, input: GetStreamRequest| async move {
+                scraper
+                    .get_stream(input.resolver, input.target)
+                    .await
+                    .map(|result| (result, None::<String>))
             },
         );
 
@@ -1108,40 +1297,6 @@ impl ScraperManager for StreamScraper {
             Arc::clone(&connector),
             |scraper, input| async move { scraper.get_drm_license(input).await },
         );
-    }
-}
-
-fn source_params_from_entries(entries: Vec<SourceParamsRequestEntry>) -> ScraperSourceParams {
-    let mut source_params = ScraperSourceParams::new();
-
-    for entry in entries {
-        let source = entry.source.trim().to_string();
-        if source.is_empty() {
-            continue;
-        }
-
-        let params = source_params.entry(source).or_default();
-        for (key, value) in entry.params {
-            if key == "source" {
-                continue;
-            }
-
-            if let Some(value) = request_param_value_to_string(value) {
-                params.insert(key, value);
-            }
-        }
-    }
-
-    source_params
-}
-
-fn request_param_value_to_string(value: Value) -> Option<String> {
-    match value {
-        Value::Null => None,
-        Value::String(value) => Some(value),
-        Value::Bool(value) => Some(value.to_string()),
-        Value::Number(value) => Some(value.to_string()),
-        Value::Array(_) | Value::Object(_) => Some(value.to_string()),
     }
 }
 

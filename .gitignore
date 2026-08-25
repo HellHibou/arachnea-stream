@@ -7,3 +7,4 @@ docs/private/
 credentials.json
 .kilo/
 server/data/*.json
+server/data/cache

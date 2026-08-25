@@ -4,6 +4,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 
 use arachnea_proxy::http::proxy_service::proxied_url_with_insecure_tls;
+use arachnea_core::controler::RequestControlerContext;
 use arachnea_scrapyfy::*;
 use url::Url;
 
@@ -237,6 +238,8 @@ impl<'a> StreamResolver<'a> {
         let results = self
             .scraper_agregator
             .execute_query_async(
+                &RequestControlerContext::default(),
+                QueryParameters { cache_type: CacheType::NoCache },
                 STREAM_RESOLVER_GROUP_NAME,
                 RESOLVE_STREAM_QUERY_NAME,
                 &params,
@@ -246,6 +249,7 @@ impl<'a> StreamResolver<'a> {
                 None,
                 None,
                 "resolve_stream",
+                
             )
             .await
             .data;
@@ -466,6 +470,8 @@ impl<'a> StreamResolver<'a> {
         let results = self
             .scraper_agregator
             .execute_query_async(
+                &RequestControlerContext::default(),
+                QueryParameters { cache_type: CacheType::NoCache },
                 STREAM_RESOLVER_GROUP_NAME,
                 CAN_RESOLVE_HTML_QUERY_NAME,
                 &params,
@@ -475,6 +481,7 @@ impl<'a> StreamResolver<'a> {
                 None,
                 None,
                 "can_resolve_html",
+                
             )
             .await
             .data;
@@ -493,6 +500,8 @@ impl<'a> StreamResolver<'a> {
         let results = self
             .scraper_agregator
             .execute_query_async(
+                &RequestControlerContext::default(),
+                QueryParameters { cache_type: CacheType::NoCache },
                 STREAM_RESOLVER_GROUP_NAME,
                 CAN_RESOLVE_URL_QUERY_NAME,
                 &params,
@@ -502,6 +511,7 @@ impl<'a> StreamResolver<'a> {
                 None,
                 None,
                 "can_resolve_url",
+                
             )
             .await
             .data;

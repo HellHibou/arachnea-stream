@@ -280,6 +280,10 @@ queries:
     query_url: "{base_url}"
     media_types: *media_types_anime_sama
     row_selector: "html"
+    pre_process:
+      - type: remove_text_blocks
+        start: '<script>window.__CF$cv$params='
+        end: '</script>'
     entries:
     - name: banners > entries
       type: object[]
@@ -542,6 +546,10 @@ queries:
     query_url: "{query_url}&page={page}"
     media_types: *media_types_anime_sama
     row_selector: "html"
+    pre_process:
+      - type: remove_text_blocks
+        start: '<script>window.__CF$cv$params='
+        end: '</script>'
     entries:
       - name: categories
         type: object[]
@@ -640,6 +648,10 @@ queries:
     query_url: "{query_url}&page={page}"
     media_types: *media_types_anime_sama
     row_selector: "html"
+    pre_process:
+      - type: remove_text_blocks
+        start: '<script>window.__CF$cv$params='
+        end: '</script>'
     entries:
       - name: current_page
         type: number
@@ -669,6 +681,10 @@ queries:
     base_url: "{base_url}"
     media_types: *media_types_anime_sama
     query_url: "{base_url}/catalogue/?{media_type_filter}{themes_filter}search={search_terms}&page={page}"
+    pre_process:
+      - type: remove_text_blocks
+        start: '<script>window.__CF$cv$params='
+        end: '</script>'
     query_param_mappings:
       - target_param: media_type_filter
         source_param: media_types
@@ -825,6 +841,10 @@ queries:
     query_url: "{query_url}"
     media_types: *media_types_anime_sama
     row_selector: "html"
+    pre_process:
+      - type: remove_text_blocks
+        start: '<script>window.__CF$cv$params='
+        end: '</script>'
     entries:
       - name: title
         type: string
@@ -916,6 +936,10 @@ queries:
     query_url: "{query_url}"
     media_types: *media_types_anime_sama
     row_selector: "html"
+    pre_process:
+      - type: remove_text_blocks
+        start: '<script>window.__CF$cv$params='
+        end: '</script>'
     entries:
       - name: current_page
         type: number

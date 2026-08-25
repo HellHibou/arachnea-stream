@@ -166,8 +166,35 @@ request_headers:                      # optionnel : en-têtes HTTP
 http: {}                              # optionnel : configuration HTTP (surcharge)
 query_param_mappings: []              # optionnel : mappings de paramètres
 result_item_field: "entries"          # optionnel : champ groupe à aplatir en lignes
+pre_process: []                       # optionnel : transformations du corps avant parsing et hash ETag de fallback
 post_process: []                      # optionnel : post-traitements
 ```
+
+### `pre_process`
+
+Le pré-traitement s'applique au corps final retourné par une requête HTTP,
+après les redirections et avant le parsing HTML, JSON ou texte. Il est aussi
+appliqué avant le hash de contenu de fallback utilisé pour la validation
+conditionnelle. Les validateurs distants `ETag` et `Last-Modified` restent
+prioritaires lorsqu'ils sont disponibles. Sinon, le corps transformé produit
+le fragment `C:` ; une correspondance arrête le parsing et toutes les
+sous-requêtes dépendantes. Chaque requête racine et sous-requête possède sa
+propre liste, sans héritage vers les enfants. Il ne s'applique pas à
+`input_html`. Les valeurs `start` et `end` peuvent utiliser `{base_url}`, résolu
+depuis le paramètre à l'exécution lorsqu'il est présent, ou depuis l'URL de base
+de la requête sinon.
+
+```yaml
+pre_process:
+  - type: remove_text_blocks
+    start: '<script data-volatile="true">'
+    end: '</script>'
+```
+
+`remove_text_blocks` retire tous les blocs littéraux, délimiteurs inclus.
+L'absence de `start` ne modifie pas le contenu. Un `start` trouvé sans `end`
+suivant produit une erreur à l'exécution. Les deux délimiteurs doivent être
+non vides.
 
 ### `request_headers`
 
@@ -557,6 +584,7 @@ sub_queries:
     request_method: get                # optionnel : get | post
     request_headers: []                # optionnel : en-têtes de la sous-requête
     http: {}                           # optionnel : config HTTP
+    pre_process: []                    # optionnel : transformations du corps avant parsing
     post_process: []                   # optionnel : post-traitements
     # Champs spécifiques selon scraper_type
 ```

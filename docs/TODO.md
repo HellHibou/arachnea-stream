@@ -5,6 +5,10 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 
 ## Divers
 
+- ~~Implémenter le cache serveur (Redis / mémoire) pour la phase 2 (rattrapage) de la validation conditionnelle ETag~~ : réalisé via le cache hybride foyer (`ScraperServerCache`) dans `arachnea-scrapyfy`, piloté par `QueryParameters::cache_type` (`ServerCache` / `FullCache`). Voir `docs/dev-tracking/server-cache-foyer-analysis.md`. Suivis éventuels : exposer la configuration du cache (`set_cache_config`) dans les options applicatives ; ajuster la TTL garde-fou (`SERVER_CACHE_ENTRY_TTL`, 1 an) si besoin.
+- Rendre persistant le cache ETag frontal (IndexedDB) pour survivre aux rechargements de page. Voir `docs/dev-tracking/etag-fragments-parallel-validation-analysis.md` §12.
+- ~~Réparer la compilation des tests du workspace~~ : corrigé — les blocs de test référencent désormais `arachnea_core::application::get_application_root()` au lieu de la crate `resources` non liée. Restent connus comme en échec (préexistant, hors périmètre) : les tests `exec_js` / `replace_variables` / `query_helpers` (comportement du moteur boa), `conditional::legacy_fragments_without_yaml_hash_are_divergent` (assertion divergente du commit « Ajout hash service dans etag »), et les tests `arachnea-stream` `stream_scraper` / `stream_resolver` qui dépendent d'un fichier de fixtures `data-test/services.json` absent et d'accès réseau réels.
+- Facultatif (frontend) : cesser d'envoyer `arachneaEtag` / `enableEtag` dans `front/src/services/rustify.ts` — l'en-tête `If-None-Match` suffit depuis la migration du contexte contrôleur (`docs/dev-tracking/request-context-query-parameters-analysis.md`).
 - Utiliser obscura pour contourner Cloudflare (navigateur rust avec résolution cloudflare interne).
 - Ajouter la gestion réutilisable du mode serveur et du mode application de bureau :
     - En mode serveur, si le mode graphique est disponible, afficher une icône de notification pour :

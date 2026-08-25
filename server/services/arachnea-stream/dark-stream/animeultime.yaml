@@ -116,6 +116,10 @@ queries:
     query_url: "{base_url}"
     media_types: *media_types_default
     row_selector: "html"
+    pre_process:
+      - type: remove_text_blocks
+        start: '<div class="main_box">'
+        end: '</div>'
     entries:
       - name: source
         type: string

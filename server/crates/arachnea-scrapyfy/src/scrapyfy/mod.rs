@@ -3,6 +3,27 @@ use std::collections::HashMap;
 /// The default directory for scraper service configuration files.
 pub const DEFAULT_SERVICES_DIRECTORY: &str = "services";
 
+/// Conditional request validation primitives (ETag fragments).
+pub mod conditional;
+pub use conditional::{
+    conditional_from_fragment, fragment_from_response, fragment_yaml_hash, hash62,
+    ConditionalRequest, RootFetchOutcome, ValidationSlot, CONTENT_FRAGMENT_PREFIX,
+    ETAG_FRAGMENT_PREFIX, NO_VALIDATION_PREFIX,
+};
+
+/// Global ETag construction and decoding for aggregated responses.
+pub mod global_etag;
+pub use global_etag::{build_global_etag, decode_client_fragments, normalize_client_etag};
+
+/// Runtime options controlling how a query is executed.
+pub mod query_parameters;
+pub use query_parameters::QueryParameters;
+
+pub mod scraper_cache;
+pub use scraper_cache::{
+    server_cache_key, CacheType, ScraperCacheConfig, ScraperServerCache, ServerCacheInteraction,
+};
+
 /// Tree-shaped output node model used by all scraper pipelines.
 pub mod scraper_data_node;
 
@@ -26,6 +47,10 @@ pub use actions::{GetDateSource, GetDateSources, ScraperAction, HTTP_PROXY_PUBLI
 /// Post-process transformations applied after raw extraction.
 pub mod post_processes;
 pub use post_processes::{ScraperPostProcess, ScraperPostProcessContext};
+
+/// Response-body transformations applied before parsing and content validation.
+pub mod pre_processes;
+pub use pre_processes::{apply_pre_processes, PreProcessAction};
 
 /// HTML query definitions, executors, and field extractors.
 pub mod scraper_html;
@@ -84,6 +109,10 @@ pub use ip_country_provider::{
 /// Multi-source query aggregator.
 pub mod scraper_agregator;
 pub use scraper_agregator::{resolve_manifest_sources, ScraperAgregator, ScraperSourceParams};
+
+/// Source-scoped request parameter parsing helpers.
+pub mod source_params;
+pub use source_params::{source_params_from_entries, ScraperSourceParamsRequestEntry};
 
 /// Scraper manager trait used by runtime and test harnesses.
 pub mod scraper_manager;

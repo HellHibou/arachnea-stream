@@ -119,6 +119,8 @@ pub struct HtmlScraperQuery {
     /// Entries that define how to extract data from each row matched by the
     /// row selector. Each entry can have its own CSS selector and action pipeline.
     pub(crate) scraper_entries: Vec<HtmlScraperEntry>,
+    /// Transformations applied to the fetched response before HTML parsing.
+    pub(crate) pre_processes: Vec<PreProcessAction>,
     /// Post-processing steps applied to each extracted row.
     ///
     /// Transformations and processing steps applied to each extracted row
@@ -290,6 +292,7 @@ impl HtmlScraperQuery {
             row_selector_template: row_selector.to_string(),
             result_item_field: None,
             scraper_entries: Vec::new(),
+            pre_processes: Vec::new(),
             post_processes: Vec::new(),
             input_html: None,
             // Nouveaux champs sub-query (par défaut)
@@ -457,6 +460,8 @@ pub struct HtmlScraperSubQuery {
     /// Entries that define how to extract data from each row matched by the
     /// row selector in the follow-up response.
     pub(crate) entries: Vec<HtmlScraperEntry>,
+    /// Transformations applied to the fetched response before HTML parsing.
+    pub(crate) pre_processes: Vec<PreProcessAction>,
     /// Post-processing steps applied to each extracted row.
     ///
     /// Transformations applied to extracted rows after extraction.
@@ -634,6 +639,10 @@ impl ScraperQuery for HtmlScraperQuery {
             selector: self.row_selector_template.clone(),
             select: HtmlScraperSelectMode::All,
         }
+    }
+
+    fn pre_processes(&self) -> &[PreProcessAction] {
+        &self.pre_processes
     }
 
     /// Returns the post-processing steps for this query.
@@ -847,6 +856,10 @@ impl ScraperQuery for HtmlScraperSubQuery {
             selector: self.row_selector.clone(),
             select: HtmlScraperSelectMode::All,
         }
+    }
+
+    fn pre_processes(&self) -> &[PreProcessAction] {
+        &self.pre_processes
     }
 
     /// Returns the post-processing steps for this sub-query.

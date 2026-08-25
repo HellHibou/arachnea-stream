@@ -73,6 +73,97 @@ pub type SerializedControlerFuture =
 pub type SerializedControlerFunction =
     Arc<dyn Fn(ControlerFunctionInput) -> SerializedControlerFuture + Send + Sync + 'static>;
 
+/// Output of a header-aware JSON command.
+///
+/// Extends the plain JSON value with an HTTP status code and additional
+/// response headers, used for conditional validation (`ETag` / `304`).
+pub struct ControlerJsonOutput {
+    /// Serialized JSON payload returned to the caller.
+    pub value: Value,
+    /// HTTP status code to return (defaults to 200).
+    pub status: u16,
+    /// Additional response headers (e.g. `ETag`).
+    pub headers: HashMap<String, String>,
+}
+
+impl From<Value> for ControlerJsonOutput {
+    /// Wraps a bare JSON value into a 200 OK output without extra headers.
+    fn from(value: Value) -> Self {
+        Self {
+            value,
+            status: 200,
+            headers: HashMap::new(),
+        }
+    }
+}
+
+/// Header carrying the client validator (`If-None-Match`) for conditional requests.
+pub const HEADER_IF_NONE_MATCH: &str = "if-none-match";
+
+/// Header carrying the server validator echoed back to clients.
+pub const HEADER_ETAG: &str = "etag";
+
+/// Context of an incoming controller request.
+///
+/// Carries the HTTP headers received by the controller backend so registered
+/// commands can access them without depending on a specific transport
+/// (REST HTTP headers, empty Tauri IPC context, ...).
+#[derive(Default, Clone)]
+pub struct RequestControlerContext {
+    /// Incoming request headers as key-value pairs.
+    headers: HashMap<String, String>,
+}
+
+impl RequestControlerContext {
+    /// Creates a context from the received header map.
+    ///
+    /// # Arguments
+    /// * `headers` - Incoming HTTP request headers as key-value pairs.
+    pub fn new(headers: HashMap<String, String>) -> Self {
+        Self { headers }
+    }
+
+    /// Returns the optional value of the given header.
+    ///
+    /// The lookup is case-insensitive, matching HTTP header semantics.
+    ///
+    /// # Arguments
+    /// * `name` - Header name to look up.
+    pub fn get_header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(header_name, _)| header_name.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.as_str())
+    }
+}
+
+/// Input of a header-aware JSON command.
+///
+/// Carries the deserialized payload alongside the incoming request context
+/// so commands can implement conditional validation.
+pub struct ControlerJsonInput {
+    /// Deserialized command payload (JSON body or URL query string).
+    pub payload: ControlerFunctionInput,
+    /// Context of the incoming request (received HTTP headers).
+    pub context: RequestControlerContext,
+}
+
+impl ControlerJsonInput {
+    /// Returns the `If-None-Match` request header value, when present.
+    pub fn if_none_match(&self) -> Option<&str> {
+        self.context.get_header(HEADER_IF_NONE_MATCH)
+    }
+}
+
+/// Type-erased future resolving to a header-aware JSON output or error string.
+pub type JsonControlerFuture =
+    Pin<Box<dyn Future<Output = Result<ControlerJsonOutput, String>> + Send + 'static>>;
+
+/// Type-erased async callback stored by controller backends for header-aware
+/// JSON commands.
+pub type JsonControlerFunction =
+    Arc<dyn Fn(ControlerJsonInput) -> JsonControlerFuture + Send + Sync + 'static>;
+
 /// Raw stream payload received by controller backends.
 ///
 /// This struct represents the complete HTTP request information for stream
@@ -180,6 +271,16 @@ pub trait ControlerService {
     /// * `fct` - The stream function to register.
     fn register_stream_function(&mut self, name: &str, fct: StreamControlerFunction);
 
+    /// Registers a type-erased header-aware JSON callback under a command name.
+    ///
+    /// Backends without HTTP semantics (e.g. Tauri IPC) receive empty request
+    /// headers and ignore the status/headers of the output.
+    ///
+    /// # Arguments
+    /// * `name` - The command name to register the function under.
+    /// * `fct` - The header-aware JSON function to register.
+    fn register_json_function(&mut self, name: &str, fct: JsonControlerFunction);
+
     /// Returns the browser-facing path for a binary stream command.
     ///
     /// The returned value is path-only so it remains valid when a REST
@@ -244,9 +345,59 @@ where
             serde_json::from_value(value).map_err(|e| format!("Deserialization error: {}", e))
         }
         ControlerFunctionInput::Query(query) => {
-            serde_urlencoded::from_str(&query).map_err(|e| format!("Deserialization error: {}", e))
+            let value = query_string_to_json_value(&query)?;
+            serde_json::from_value(value).map_err(|e| format!("Deserialization error: {}", e))
         }
     }
+}
+
+/// Parses a raw URL query string into a JSON object value.
+///
+/// Each parameter value is parsed as JSON when it is a valid JSON value;
+/// otherwise it remains a string. This lets GET clients send arrays, objects,
+/// quoted strings, numbers, booleans, and null values through the query
+/// string while preserving unquoted text values.
+///
+/// Repeated keys are collected into a JSON array of their raw string values.
+///
+/// # Arguments
+///
+/// * `query` - Raw URL query string (without the leading `?`).
+///
+/// # Returns
+///
+/// A JSON object mapping parameter names to their decoded values.
+///
+/// # Errors
+///
+/// Returns an error when the query string cannot be percent-decoded.
+fn query_string_to_json_value(query: &str) -> Result<Value, String> {
+    use serde_json::Map;
+
+    let pairs = serde_urlencoded::from_str::<Vec<(String, String)>>(query)
+        .map_err(|e| format!("Deserialization error: {}", e))?;
+    let mut object = Map::new();
+
+    for (key, raw_value) in pairs {
+        let value = serde_json::from_str::<Value>(&raw_value)
+            .unwrap_or_else(|_| Value::String(raw_value));
+
+        match object.get_mut(&key) {
+            Some(existing) => {
+                if let Some(array) = existing.as_array_mut() {
+                    array.push(value);
+                } else {
+                    let previous = existing.take();
+                    *existing = Value::Array(vec![previous, value]);
+                }
+            }
+            None => {
+                object.insert(key, value);
+            }
+        }
+    }
+
+    Ok(Value::Object(object))
 }
 
 /// Serializes output into a JSON value.
@@ -275,14 +426,21 @@ pub trait ControlerServiceExt: ControlerService {
     /// Registers a strongly typed callback that may fail under a command name.
     ///
     /// The callback input is deserialized from either JSON or a raw query string,
-    /// depending on the backend and HTTP method used. Errors are forwarded to the
-    /// controller backend as user-visible command errors instead of panicking.
+    /// depending on the backend and HTTP method used. The callback also receives
+    /// the [`RequestControlerContext`] built by the controller backend. Errors are
+    /// forwarded to the controller backend as user-visible command errors instead
+    /// of panicking.
+    ///
+    /// When the callback produces a global ETag and the client's
+    /// `If-None-Match` header matches it, the backend answers `304 Not Modified`
+    /// with no body; otherwise the serialized payload is returned with an `ETag`
+    /// response header when one was produced.
     ///
     /// # Type Parameters
     /// * `I` - Input type that implements `DeserializeOwned`.
     /// * `O` - Output type that implements `Serialize`.
-    /// * `F` - Function type that takes input and returns a future.
-    /// * `Fut` - Future type that resolves to `Result<O, E>`.
+    /// * `F` - Function type taking input and the request context.
+    /// * `Fut` - Future type that resolves to `Result<(O, Option<String>), E>`.
     /// * `E` - Error type that implements `Display`.
     ///
     /// # Arguments
@@ -292,32 +450,52 @@ pub trait ControlerServiceExt: ControlerService {
     where
         I: DeserializeOwned + Send + 'static,
         O: Serialize + Send + 'static,
-        F: Fn(I) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<O, E>> + Send + 'static,
+        F: Fn(I, RequestControlerContext) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(O, Option<String>), E>> + Send + 'static,
         E: std::fmt::Display,
     {
         let fct = Arc::new(fct);
-        let handler = move |payload: ControlerFunctionInput| -> SerializedControlerFuture {
+        let handler = move |input: ControlerJsonInput| -> JsonControlerFuture {
             let fct = Arc::clone(&fct);
             Box::pin(async move {
-                let input = deserialize_input(payload)?;
+                let if_none_match = normalize_etag(input.if_none_match());
+                let payload = deserialize_input(input.payload)?;
+                let (response, etag) = fct(payload, input.context)
+                    .await
+                    .map_err(|e| e.to_string())?;
 
-                let response = fct(input).await.map_err(|e| e.to_string())?;
-                serialize_output(response)
+                if let Some(etag) = etag.as_ref() {
+                    if if_none_match.as_deref() == Some(etag.as_str()) {
+                        return Ok(ControlerJsonOutput {
+                            value: Value::Null,
+                            status: 304,
+                            headers: HashMap::from([(HEADER_ETAG.to_string(), format!("\"{etag}\""))]),
+                        });
+                    }
+                }
+
+                let mut output = ControlerJsonOutput::from(serialize_output(response)?);
+                if let Some(etag) = etag {
+                    output.headers.insert(HEADER_ETAG.to_string(), format!("\"{etag}\""));
+                }
+                Ok(output)
             })
         };
 
-        self.register_serialized_function(name, Arc::new(handler));
+        self.register_json_function(name, Arc::new(handler));
     }
 
     /// Registers an async callback bound to shared state without per-call boilerplate.
+    ///
+    /// See [`ControlerServiceExt::register_result_function`] for the
+    /// conditional-validation contract.
     ///
     /// # Type Parameters
     /// * `S` - State type that implements `Send + Sync`.
     /// * `I` - Input type that implements `DeserializeOwned`.
     /// * `O` - Output type that implements `Serialize`.
-    /// * `F` - Function type that takes state and input.
-    /// * `Fut` - Future type that resolves to `Result<O, E>`.
+    /// * `F` - Function type that takes state, the request context, and input.
+    /// * `Fut` - Future type that resolves to `Result<(O, Option<String>), E>`.
     /// * `E` - Error type that implements `Display`.
     ///
     /// # Arguments
@@ -333,15 +511,19 @@ pub trait ControlerServiceExt: ControlerService {
         S: Send + Sync + 'static,
         I: DeserializeOwned + Send + 'static,
         O: Serialize + Send + 'static,
-        F: Fn(Arc<S>, I) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<O, E>> + Send + 'static,
+        F: Fn(Arc<S>, RequestControlerContext, I) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(O, Option<String>), E>> + Send + 'static,
         E: std::fmt::Display,
     {
-        self.register_result_function(name, move |input: I| {
-            let state = Arc::clone(&state);
-            fct(state, input)
-        });
+        self.register_result_function(
+            name,
+            move |input: I, context: RequestControlerContext| {
+                let state = Arc::clone(&state);
+                fct(state, context, input)
+            },
+        );
     }
+
 
     /// Registers an async binary stream callback bound to shared state without per-call boilerplate.
     ///
@@ -375,6 +557,17 @@ pub trait ControlerServiceExt: ControlerService {
 
         self.register_stream_function(name, Arc::new(handler));
     }
+}
+
+/// Normalizes an `If-None-Match` header value for comparison.
+///
+/// Strips surrounding quotes and the weak-validator `W/` prefix so both the
+/// incoming header and the produced ETag compare as bare opaque strings.
+fn normalize_etag(value: Option<&str>) -> Option<String> {
+    let value = value?.trim();
+    let value = value.strip_prefix("W/").unwrap_or(value);
+    let value = value.trim_matches('"');
+    (!value.is_empty()).then(|| value.to_string())
 }
 
 impl<T: ControlerService + ?Sized> ControlerServiceExt for T {}
@@ -790,4 +983,3 @@ macro_rules! create_application_controler {
         )
     }};
 }
-

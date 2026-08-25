@@ -7,6 +7,7 @@
 
 use crate::scrapyfy::actions::ScraperAction;
 use crate::scrapyfy::post_processes::ScraperPostProcess;
+use crate::scrapyfy::pre_processes::PreProcessAction;
 use crate::scrapyfy::scraper::config::{ScraperRequestHeader, ScraperRequestMethod};
 use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
 use crate::scrapyfy::{HttpClient, ScraperHttpConfig};
@@ -171,6 +172,11 @@ pub trait ScraperQuery: Send + Sync {
     /// on this delimiter. Entries then select fields by 1-based index.
     fn field_delimiter(&self) -> Option<&str> {
         None
+    }
+
+    /// Returns transformations applied to the fetched response before parsing.
+    fn pre_processes(&self) -> &[PreProcessAction] {
+        &[]
     }
 
     // --- Post-processing ---

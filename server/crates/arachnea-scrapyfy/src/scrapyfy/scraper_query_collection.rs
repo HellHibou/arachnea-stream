@@ -262,6 +262,7 @@ impl ScraperQueryDefinition {
             http_client: query_ref.http_client(),
             fields_filters,
             parent_response: None,
+            validation: None,
         };
 
         let rows =
@@ -272,6 +273,116 @@ impl ScraperQueryDefinition {
             Some(result_item_field) => flatten_result_item_field(rows, result_item_field),
             None => rows,
         })
+    }
+
+    /// Executes the query with optional conditional validation of its root request.
+    ///
+    /// When `client_fragment` is provided, conditional headers (`If-None-Match`
+    /// / `If-Modified-Since`) are applied to the source's first request and a
+    /// `304` or identical content hash skips parsing entirely.
+    ///
+    /// # Arguments
+    ///
+    /// * `params` - Runtime values used to format the query URL template.
+    /// * `fields_filters` - Root fields filter list or None.
+    /// * `client_fragment` - Client-provided validator fragment for this source.
+    /// * `yaml_hash` - Base62 hash of the source YAML document, embedded in
+    ///   every outgoing validator fragment.
+    ///
+    /// # Returns
+    ///
+    /// The extracted rows alongside the root-fetch outcome, when the query
+    /// performed an HTTP fetch.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if query execution fails.
+    pub async fn execute_query_with_validation(
+        &self,
+        params: &HashMap<String, String>,
+        fields_filters: Option<&HashMap<String, Vec<String>>>,
+        client_fragment: Option<&str>,
+        yaml_hash: &str,
+    ) -> Result<(
+        Vec<HashMap<String, ScraperDataNode>>,
+        Option<crate::scrapyfy::RootFetchOutcome>,
+    )> {
+        // Apply query_param_mappings before creating the context
+        let (query_ref, result_item_field, execution_params) = match self {
+            ScraperQueryDefinition::Html(query) => {
+                let mappings = &query.query_param_mappings;
+                let base_url = query.base_url();
+                let execution_params = crate::scrapyfy::query_helpers::build_query_execution_params(
+                    base_url, params, mappings,
+                );
+                (
+                    &*query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery,
+                    query.result_item_field(),
+                    execution_params,
+                )
+            }
+            ScraperQueryDefinition::Json(query) => {
+                let mappings = &query.query_param_mappings;
+                let base_url = query.base_url();
+                let execution_params = crate::scrapyfy::query_helpers::build_query_execution_params(
+                    base_url, params, mappings,
+                );
+                (
+                    &*query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery,
+                    query.result_item_field(),
+                    execution_params,
+                )
+            }
+            ScraperQueryDefinition::Static(query) => {
+                let execution_params =
+                    crate::scrapyfy::query_helpers::resolve_nested_template_params(params);
+                (
+                    &*query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery,
+                    None,
+                    execution_params,
+                )
+            }
+            ScraperQueryDefinition::Text(query) => {
+                let mappings = &query.query_param_mappings;
+                let base_url = query.base_url();
+                let execution_params = crate::scrapyfy::query_helpers::build_query_execution_params(
+                    base_url, params, mappings,
+                );
+                (
+                    &*query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery,
+                    query.result_item_field(),
+                    execution_params,
+                )
+            }
+        };
+
+        let dynamic_template_variables =
+            std::sync::Mutex::new(crate::scrapyfy::query_helpers::DynamicTemplateVariables::new());
+        let validation_slot = crate::scrapyfy::ValidationSlot::new(
+            client_fragment.map(str::to_string),
+            yaml_hash.to_string(),
+        );
+        let context = crate::scrapyfy::scraper::query_executor::QueryContext {
+            params: &execution_params,
+            dynamic_template_variables: &dynamic_template_variables,
+            request_url: "",
+            response_body: None,
+            http_client: query_ref.http_client(),
+            fields_filters,
+            parent_response: None,
+            validation: Some(&validation_slot),
+        };
+
+        let rows =
+            crate::scrapyfy::scraper::query_executor::execute_query_items(query_ref, &context)
+                .await?;
+        let outcome = validation_slot.take();
+
+        let rows = match result_item_field {
+            Some(result_item_field) => flatten_result_item_field(rows, result_item_field),
+            None => rows,
+        };
+        Ok((rows, outcome))
     }
 
     /// Rebinds all embedded HTTP clients to the provided shared proxy handle.
@@ -418,6 +529,7 @@ pub struct ScraperQueryCollection {
     proxy_insecure_tls_hosts: Vec<String>,
     parameter_defaults: HashMap<String, String>,
     queries: HashMap<String, ScraperQueryDefinition>,
+    yaml_hash: String,
 }
 
 impl ScraperQueryCollection {
@@ -451,6 +563,7 @@ impl ScraperQueryCollection {
             proxy_insecure_tls_hosts,
             parameter_defaults,
             queries: HashMap::new(),
+            yaml_hash: String::new(),
         };
 
         for query in queries {
@@ -473,6 +586,21 @@ impl ScraperQueryCollection {
     /// Returns exact hosts eligible for an explicit proxy TLS bypass.
     pub fn proxy_insecure_tls_hosts(&self) -> &[String] {
         &self.proxy_insecure_tls_hosts
+    }
+
+    /// Returns the base62 hash of the source YAML document backing this collection.
+    ///
+    /// The hash is computed once from the raw file bytes at load time and is
+    /// embedded in every validator fragment so a scraper edit invalidates the
+    /// cached response even when the remote content is unchanged.
+    pub fn yaml_hash(&self) -> &str {
+        &self.yaml_hash
+    }
+
+    /// Records the base62 hash of the raw source YAML document.
+    pub(crate) fn set_yaml_hash(&mut self, yaml_hash: String) -> &mut Self {
+        self.yaml_hash = yaml_hash;
+        self
     }
 
     #[cfg(any(test, feature = "test-support"))]
@@ -594,6 +722,49 @@ impl ScraperQueryCollection {
         query_media_type_filter: Option<&Vec<String>>,
         fields_filters: Option<&HashMap<String, Vec<String>>>,
     ) -> Result<Vec<HashMap<String, ScraperDataNode>>> {
+        self.execute_query_with_validation(
+            query_name,
+            params,
+            query_media_type_filter,
+            fields_filters,
+            None,
+            self.yaml_hash(),
+        )
+        .await
+        .map(|(rows, _)| rows)
+    }
+
+    /// Executes one named query within this collection with optional
+    /// conditional validation of the source's root request.
+    ///
+    /// # Arguments
+    ///
+    /// * `query_name` - Name of the query to execute.
+    /// * `params` - Runtime values used to format the query URL template.
+    /// * `query_media_type_filter` - Filter on media_type query.
+    /// * `fields_filters` - Root fields filter list or None.
+    /// * `client_fragment` - Client-provided validator fragment for this source.
+    ///
+    /// # Returns
+    ///
+    /// The extracted rows alongside the root-fetch outcome, when the query
+    /// performed an HTTP fetch.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `query_name` is unknown or if query execution fails.
+    pub async fn execute_query_with_validation(
+        &self,
+        query_name: &str,
+        params: &HashMap<String, String>,
+        query_media_type_filter: Option<&Vec<String>>,
+        fields_filters: Option<&HashMap<String, Vec<String>>>,
+        client_fragment: Option<&str>,
+        yaml_hash: &str,
+    ) -> Result<(
+        Vec<HashMap<String, ScraperDataNode>>,
+        Option<crate::scrapyfy::RootFetchOutcome>,
+    )> {
         let mut merged_params = self.build_execution_params(params);
         merged_params
             .entry("source".to_string())
@@ -604,12 +775,19 @@ impl ScraperQueryCollection {
                 if query_media_type_filter.is_none()
                     || value.is_media_type(query_media_type_filter.unwrap())
                 {
-                    value.execute_query(&merged_params, fields_filters).await
+                    value
+                        .execute_query_with_validation(
+                            &merged_params,
+                            fields_filters,
+                            client_fragment,
+                            yaml_hash,
+                        )
+                        .await
                 } else {
-                    Ok(Vec::new())
+                    Ok((Vec::new(), None))
                 }
             }
-            _none => Ok(Vec::new()),
+            _none => Ok((Vec::new(), None)),
         }
     }
 
@@ -1030,7 +1208,7 @@ mod tests {
     /// into a query collection and serialized back as JSON.
     #[test]
     fn config_yaml_to_json() -> super::Result<()> {
-        let services_path = format!("{}/services", resources::get_application_root());
+        let services_path = format!("{}/services", arachnea_core::application::get_application_root());
 
         for entry in std::fs::read_dir(services_path)? {
             let path = entry?.path();

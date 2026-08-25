@@ -137,6 +137,7 @@ impl TryFrom<HtmlScraperQueryRaw> for HtmlScraperQuery {
             http,
             query_param_mappings,
             result_item_field,
+            pre_process,
             post_process,
             ..
         } = common;
@@ -180,6 +181,11 @@ impl TryFrom<HtmlScraperQueryRaw> for HtmlScraperQuery {
         query.input_html = input_html;
         query.query_param_mappings = query_param_mappings;
         query.result_item_field = result_item_field;
+
+        for pre_process in pre_process {
+            pre_process.validate(&name)?;
+            query.pre_processes.push(pre_process);
+        }
 
         for post_process in post_process {
             post_process.validate(&name)?;
@@ -230,6 +236,7 @@ impl From<&HtmlScraperQuery> for HtmlScraperQueryRaw {
                 http: query.http_config.clone(),
                 query_param_mappings: query.query_param_mappings.clone(),
                 result_item_field: query.result_item_field.clone(),
+                pre_process: query.pre_processes.clone(),
                 post_process: query.post_processes.clone(),
             },
             row_concurrency: query.row_concurrency,
@@ -341,6 +348,7 @@ impl TryFrom<HtmlScraperSubQueryRaw> for crate::scrapyfy::scraper_html::query::H
             request_method,
             request_headers,
             http,
+            pre_process,
             post_process,
             ..
         } = common;
@@ -353,6 +361,10 @@ impl TryFrom<HtmlScraperSubQueryRaw> for crate::scrapyfy::scraper_html::query::H
             .is_some_and(|target| target.trim().is_empty())
         {
             anyhow::bail!("Invalid HTML sub-query: target cannot be empty");
+        }
+
+        for action in &pre_process {
+            action.validate("HTML sub-query")?;
         }
 
         let selector = ::scraper::Selector::parse(&row_selector)
@@ -400,6 +412,7 @@ impl TryFrom<HtmlScraperSubQueryRaw> for crate::scrapyfy::scraper_html::query::H
             row_selector: row_selector.clone(),
             row_selector_compiled: selector,
             entries,
+            pre_processes: pre_process,
             post_processes: post_process,
             sub_queries,
             http_client: HttpClient::new(""),
@@ -451,6 +464,7 @@ impl From<&crate::scrapyfy::scraper_html::query::HtmlScraperSubQuery> for HtmlSc
                     })
                     .collect(),
                 http: sub_query.http_config.clone(),
+                pre_process: sub_query.pre_processes.clone(),
                 post_process: sub_query.post_processes.clone(),
             },
             row_selector: sub_query.row_selector.clone(),

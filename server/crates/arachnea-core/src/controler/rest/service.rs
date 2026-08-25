@@ -10,8 +10,9 @@ use warp::{reply, Filter, Rejection, Reply};
 use crate::controler::web_assets::{normalize_mount_path, replace_html_base, WebAssetSource};
 use crate::controler::{
     install_global_main_thread_dispatcher, main_thread::MainThreadDispatchLoop,
-    main_thread::QueuedMainThreadDispatcher, ControlerFunctionInput, ControlerService,
-    ControlerStreamInput, ControlerStreamOutput, MainThreadDispatcher, ResponseBody,
+    main_thread::QueuedMainThreadDispatcher, ControlerFunctionInput, ControlerJsonInput,
+    ControlerJsonOutput, ControlerService, ControlerStreamInput, ControlerStreamOutput,
+    JsonControlerFunction, MainThreadDispatcher, RequestControlerContext, ResponseBody,
     SerializedControlerFunction, SharedWebAssets, StreamControlerFunction,
 };
 
@@ -238,6 +239,48 @@ impl RestControlerService {
         (response,)
     }
 
+    /// Executes a header-aware JSON command and builds the HTTP reply.
+    ///
+    /// Honors the command-provided status code (e.g. `304 Not Modified`) and
+    /// additional response headers (e.g. `ETag`). A `304` reply carries no body.
+    async fn call_and_reply_json(
+        call: &JsonControlerFunction,
+        input: ControlerJsonInput,
+    ) -> (Box<dyn Reply + Send>,) {
+        let response: Box<dyn Reply + Send> = match call(input).await {
+            Ok(ControlerJsonOutput {
+                value,
+                status,
+                headers,
+            }) => {
+                let mut builder = warp::http::Response::builder()
+                    .status(StatusCode::from_u16(status).unwrap_or(StatusCode::OK))
+                    .header("content-type", "application/json");
+                for (name, header_value) in &headers {
+                    if name.to_ascii_lowercase() != "content-type" {
+                        builder = builder.header(name.as_str(), header_value.as_str());
+                    }
+                }
+                let body = if status == 304 {
+                    Vec::new()
+                } else {
+                    serde_json::to_vec(&value).unwrap_or_else(|_| Vec::new())
+                };
+                Box::new(
+                    builder
+                        .body(body)
+                        .expect("Failed to build JSON response."),
+                )
+            }
+            Err(error) => Box::new(reply::with_status(
+                reply::json(&error),
+                StatusCode::BAD_REQUEST,
+            )),
+        };
+
+        (response,)
+    }
+
     async fn call_and_reply_stream(
         call: &StreamControlerFunction,
         input: ControlerStreamInput,
@@ -392,12 +435,62 @@ impl ControlerService for RestControlerService {
         let get_filter = base_filter
             .clone()
             .and(warp::get())
-            .and(warp::query::raw())
+            .and(warp::query::raw().or(warp::any().map(String::new)).unify())
             .and_then(move |input: String| {
                 let get_call = Arc::clone(&get_call);
                 async move {
                     Ok::<(Box<dyn Reply + Send>,), Rejection>(
                         Self::call_and_reply(&get_call, ControlerFunctionInput::Query(input)).await,
+                    )
+                }
+            });
+
+        self.add_route(post_filter.or(get_filter).unify().boxed());
+    }
+
+    fn register_json_function(&mut self, command: &str, call: JsonControlerFunction) {
+        let base_filter = self.make_base_filter(true, command);
+
+        let post_call = call.clone();
+        let post_filter = base_filter
+            .clone()
+            .and(warp::post())
+            .and(warp::body::json::<Value>())
+            .and(warp::header::headers_cloned())
+            .and_then(move |input: Value, headers: warp::http::HeaderMap| {
+                let post_call = Arc::clone(&post_call);
+                async move {
+                    Ok::<(Box<dyn Reply + Send>,), Rejection>(
+                        Self::call_and_reply_json(
+                            &post_call,
+                            ControlerJsonInput {
+                                payload: ControlerFunctionInput::Json(input),
+                                context: RequestControlerContext::new(Self::headers_to_map(&headers)),
+                            },
+                        )
+                        .await,
+                    )
+                }
+            });
+
+        let get_call = call.clone();
+        let get_filter = base_filter
+            .clone()
+            .and(warp::get())
+            .and(warp::query::raw().or(warp::any().map(String::new)).unify())
+            .and(warp::header::headers_cloned())
+            .and_then(move |input: String, headers: warp::http::HeaderMap| {
+                let get_call = Arc::clone(&get_call);
+                async move {
+                    Ok::<(Box<dyn Reply + Send>,), Rejection>(
+                        Self::call_and_reply_json(
+                            &get_call,
+                            ControlerJsonInput {
+                                payload: ControlerFunctionInput::Query(input),
+                                context: RequestControlerContext::new(Self::headers_to_map(&headers)),
+                            },
+                        )
+                        .await,
                     )
                 }
             });

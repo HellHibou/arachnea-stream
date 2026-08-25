@@ -39,6 +39,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::scrapyfy::actions::ScraperAction;
 use crate::scrapyfy::post_processes::ScraperPostProcess;
+use crate::scrapyfy::pre_processes::PreProcessAction;
 use crate::scrapyfy::query_helpers::QueryTemplateParamMapping;
 use crate::scrapyfy::scraper::config::{
     default_request_method, default_select_mode, ScraperRequestHeaderRaw, ScraperRequestMethod,
@@ -186,6 +187,10 @@ pub struct ScraperQueryConfig {
     pub target: Option<String>,
 
     // --- Post-processing ---
+    /// Transformations applied to the HTTP response body before parsing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pre_process: Vec<PreProcessAction>,
+
     /// Post-processing steps applied to each extracted row.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub post_process: Vec<ScraperPostProcess>,
