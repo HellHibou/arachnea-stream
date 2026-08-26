@@ -23,8 +23,12 @@ pub use tracing;
 #[cfg(debug_assertions)]
 pub static mut DEFAULT_LEVEL: Level = Level::DEBUG; // Cargo run / development mode.
 
+/// The default log level before logger initialization.
+///
+/// Release builds (`cargo build --release`) fall back to `INFO` while debug
+/// builds use `DEBUG`.
 #[cfg(not(debug_assertions))]
-pub static mut DEFAULT_LEVEL: Level = Level::INFO; // Cargo build --release mode.
+pub static mut DEFAULT_LEVEL: Level = Level::INFO;
 
 /// Logger configuration with multiple level thresholds.
 ///
@@ -123,6 +127,10 @@ macro_rules! set_default_log_level_debug {
     };
 }
 
+/// Sets the default log level in debug builds before logger initialization.
+///
+/// No-op variant used in release builds; see the `debug_assertions` variant
+/// for details.
 #[cfg(not(debug_assertions))]
 #[macro_export]
 macro_rules! set_default_log_level_debug {
@@ -149,6 +157,18 @@ macro_rules! set_default_log_level_release {
     ($level:ident) => {};
 }
 
+/// Sets the default log level in release builds before logger initialization.
+///
+/// The macro expects a `tracing::Level` variant name, such as `INFO` or `WARN`.
+/// It changes the fallback level used by [`init_logger`] when `RUST_LOG` is not
+/// set or cannot be parsed. In debug builds, the macro expands to a no-op.
+///
+/// # Examples
+///
+/// ```
+/// arachnea_core::logger::set_default_log_level_release!(WARN);
+/// arachnea_core::logger::init_logger();
+/// ```
 #[cfg(not(debug_assertions))]
 #[macro_export]
 macro_rules! set_default_log_level_release {

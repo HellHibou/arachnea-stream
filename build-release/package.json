@@ -1,0 +1,16 @@
+{
+  "name": "arachnea-release",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local cross-platform release builder for Arachnea (Tauri).",
+  "type": "module",
+  "scripts": {
+    "list": "node release.mjs --list",
+    "release": "node release.mjs",
+    "release:mac": "node release.mjs --platform darwin-universal",
+    "release:windows": "node release.mjs --platform windows-x86_64",
+    "release:linux": "node release.mjs --platform linux-x86_64",
+    "install-tools": "node install-tools.mjs",
+    "version": "node release.mjs --version"
+  }
+}

@@ -98,6 +98,48 @@ cd server/crates/arachnea-stream
 cargo tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc
 ```
 
+## Local Cross-Platform Release Build
+
+A Node-based release builder lives in `build-release/` and drives the Tauri CLI for every platform the current host can produce locally, without Docker — see `build-release/README.md` for the full documentation. It reads project paths and the platform list from `build-release/release-config.json`, resolves the version from `server/Cargo.toml`, builds with `cargo tauri build`, then assembles a `releases/release-<VERSION>/` folder with version-named installers, companion `*.sha256`/`*.md5` checksum files, the project CHANGELOG at its root, and a portable Windows `.zip` (executable + `services/`) for Windows platforms.
+
+```bash
+node build-release/install-tools.mjs                # install rust targets + cargo-xwin (+ Linux packages)
+node build-release/release.mjs                      # build all platforms available on this host
+node build-release/release.mjs -p windows            # build one family (osx = alias of darwin)
+node build-release/release.mjs -p "darwin-*"         # build by wildcard pattern
+node build-release/release.mjs -p darwin-universal -p windows   # several selectors (repeat or comma)
+node build-release/release.mjs --list                # show which platforms this host can build
+node build-release/release.mjs --version             # print the project version
+node build-release/release.mjs --skip-build          # assemble only, reusing existing target/ artifacts
+```
+
+`-p/--platform` accepts exact ids (`darwin-arm64`), family names (`darwin`, `windows`, `linux`), `*` patterns (`darwin-*`), and the alias `osx` (maps to `darwin`). Multiple selectors can be repeated (`-p darwin -p windows-*`) or comma-separated (`-p "darwin,windows"`). Platform subfolders are named after the family part: `darwin-*` → `osx`, `windows-*` → `windows`, `linux-*` → `linux` (mapping centralized in `build-release/capabilities.mjs`).
+
+The frontend is built **once** and shared by all targets: each `cargo tauri build` invocation is passed a `--config` override that disables `beforeBuildCommand` (which stays active for manual `cargo tauri build` runs outside this tooling). Use `--no-frontend-build` to reuse an existing `front/dist`. Every installer and portable Windows zip gets companion `*.sha256` and `*.md5` checksum files (formats `sha256sum`/`md5sum`). Only the outputs being rebuilt are cleaned: rebuilding a whole family (e.g. `-p osx`) clears that family folder, while rebuilding a single platform (e.g. `-p darwin-x86_64`) removes only that build's artifacts and checksums, leaving other platforms' files untouched.
+
+Cross-compiling Windows NSIS installers from macOS/Linux requires a few native tools that `install-tools` provisions automatically: LLVM (`llvm-rc`, for cargo-xwin), CMake + Ninja + NASM (for BoringSSL-based dependencies), and `makensis` — for the latter a `makensis.exe` shim wrapping the native compiler is created in `~/.arachnea-cross-tools/bin/` because the Tauri NSIS bundler looks for the Windows-style executable name; spawned builds automatically get this directory on their PATH.
+
+Example output layout:
+
+```
+releases/release-0.1.0/
+  CHANGELOG.md
+  osx/        arachnea_0.1.0_universal.dmg
+  windows/    arachnea_0.1.0_x64-setup.exe
+              arachnea_0.1.0_x64-portable.zip   # arachnea.exe + services/
+  linux/      arachnea_0.1.0_amd64.deb
+```
+
+The cross-compilation capability matrix (which bundles each host can produce) is encoded in `build-release/capabilities.mjs`:
+
+| Host \ Target bundle | macOS `.dmg` | Windows NSIS | Windows MSI | Linux `.deb`/`.rpm`/`.AppImage` |
+|---|---|---|---|---|
+| macOS | native | via `cargo-xwin` | not possible (WiX) | not possible |
+| Windows | not possible | native | native | not possible (use WSL2) |
+| Linux | not possible | via `cargo-xwin` | not possible (WiX) | native |
+
+The Windows portable archive is the only generated zip; it ships the release executable plus the runtime `services/` folder read by the app in release mode, excluding local-only state such as `credentials.json` and the cache. The `data/` folder is not included and is created at runtime.
+
 ## NPM Commands
 
 The following commands are available for the frontend project in `front/`.

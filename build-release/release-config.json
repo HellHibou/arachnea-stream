@@ -1,0 +1,63 @@
+{
+  "versionSource": "../server/Cargo.toml",
+  "tauriProject": "../server/crates/arachnea-stream",
+  "frontendProject": "../front",
+  "changelog": "../CHANGELOG.md",
+  "productName": "arachnea",
+  "portableSource": "../server",
+  "platforms": [
+    {
+      "id": "darwin-universal",
+      "target": "universal-apple-darwin",
+      "needsTargets": ["aarch64-apple-darwin", "x86_64-apple-darwin"],
+      "bundles": ["dmg"],
+      "portable": false
+    },
+    {
+      "id": "darwin-x86_64",
+      "target": "x86_64-apple-darwin",
+      "bundles": ["dmg"],
+      "portable": false
+    },
+    {
+      "id": "darwin-arm64",
+      "target": "aarch64-apple-darwin",
+      "bundles": ["dmg"],
+      "portable": false
+    },
+    {
+      "id": "windows-x86_64",
+      "target": "x86_64-pc-windows-msvc",
+      "runner": "cargo-xwin",
+      "bundles": ["nsis", "msi"],
+      "portable": {
+        "exeName": "arachnea.exe",
+        "include": ["services"],
+        "exclude": ["credentials", "credentials.json", "cache", "store-proxy-inventory.json", "store-cloudflare-session.json"]
+      }
+    },
+    {
+      "id": "windows-arm64",
+      "target": "aarch64-pc-windows-msvc",
+      "runner": "cargo-xwin",
+      "bundles": ["nsis", "msi"],
+      "portable": {
+        "exeName": "arachnea.exe",
+        "include": ["services"],
+        "exclude": ["credentials", "credentials.json", "cache", "store-proxy-inventory.json", "store-cloudflare-session.json"]
+      }
+    },
+    {
+      "id": "linux-x86_64",
+      "target": "x86_64-unknown-linux-gnu",
+      "bundles": ["deb", "rpm", "appimage"],
+      "portable": false
+    },
+    {
+      "id": "linux-arm64",
+      "target": "aarch64-unknown-linux-gnu",
+      "bundles": ["deb", "rpm", "appimage"],
+      "portable": false
+    }
+  ]
+}
