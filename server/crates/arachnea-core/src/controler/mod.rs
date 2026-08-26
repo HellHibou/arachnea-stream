@@ -646,6 +646,10 @@ pub struct CoreApplicationOptions {
     pub network_mode: ServerNetworkMode,
     
     /// Optional public root path prefix for server mode.
+    ///
+    /// When set to a non-root prefix, a bare `GET /` on the REST server answers
+    /// a `302 Found` redirect to the mounted application path (for example
+    /// `/prefix/`) instead of `404 Not Found`.
     pub entrypoint_root: Option<String>,
     
     /// Optional public API path segment for server mode.
@@ -851,10 +855,10 @@ pub fn create_application_controler_from_config(
     desktop: DesktopApplicationConfig,
 ) -> Box<dyn ControlerService> {
 
-    #[cfg(not(debug_assertions))] // Release mode defaults.
-    let application_mode = options.application_mode.unwrap_or(ApplicationMode::Desktop);
+    // #[cfg(not(debug_assertions))] // Release mode defaults.
+    // let application_mode = options.application_mode.unwrap_or(ApplicationMode::Desktop);
  
-    #[cfg(debug_assertions)] // Debug mode defaults.
+    // #[cfg(debug_assertions)] // Debug mode defaults.
     let application_mode = options.application_mode.unwrap_or(ApplicationMode::Server);
 
     let mut controler: Box<dyn ControlerService> =

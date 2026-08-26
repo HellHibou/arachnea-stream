@@ -17,6 +17,8 @@ use arachnea_stream::StreamScraper;
 struct RuntimeOptions {
     application_option: CoreApplicationOptions,
     current_country: Option<String>,
+    cache_max_disk_bytes: Option<u64>,
+    cache_max_memory_bytes: Option<u64>,
 }
 
 /// Default path used by the encrypted server credentials store.
@@ -45,9 +47,10 @@ Options:
   --server-port <PORT>          Override the server port (default: {DEFAULT_SERVER_PORT})
   --network <MODE>              Client access rule: local, private or public (default: private)
   --entrypoint-root <PATH>      Public root path used before API routes in server mode
-  --entrypoint-api <PATH>       Public API path segment used in server mode
   --no-tray                     Disable the server tray icon even when a GUI is available
   --current-country <ISO_CODE>  Explicit local country used for geo proxy decisions
+  --cache-max-disk-bytes <BYTES>  Override the maximum on-disk size of the server cache (default: 100 MiB)
+  --cache-max-memory-bytes <BYTES>  Override the maximum in-memory size of the server cache (default: 32 MiB)
   --refresh-ip-countries        Refresh IP-to-country geolocation data and exit"
     )
 }
@@ -64,6 +67,8 @@ Options:
 ///   `public` binds to all interfaces and accepts every client. Defaults to
 ///   `private`.
 /// - `--current-country <ISO_CODE>`: sets the explicit local country
+/// - `--cache-max-disk-bytes <BYTES>`: overrides the server cache on-disk size
+/// - `--cache-max-memory-bytes <BYTES>`: overrides the server cache in-memory size
 /// - `--help`: prints help and exits successfully
 ///
 /// When both `--desktop` and `--server` are provided, the last one wins.
@@ -77,6 +82,8 @@ fn parse_runtime_options() -> Result<CliAction> {
     let mut options = RuntimeOptions {
         application_option,
         current_country: None,
+        cache_max_disk_bytes: None,
+        cache_max_memory_bytes: None,
     };
 
     let mut args = std::env::args().skip(1);
@@ -114,17 +121,31 @@ fn parse_runtime_options() -> Result<CliAction> {
                         .context("missing value for `--entrypoint-root`")?,
                 );
             }
-            "--entrypoint-api" => {
-                options.application_option.entrypoint_api = Some(
-                    args.next()
-                        .context("missing value for `--entrypoint-api`")?,
-                );
-            }
             "--no-tray" => options.application_option.tray_enabled = false,
             "--current-country" => {
                 options.current_country = Some(
                     args.next()
                         .context("missing value for `--current-country`")?,
+                );
+            }
+            "--cache-max-disk-bytes" => {
+                let value =
+                    args.next().context("missing value for `--cache-max-disk-bytes`")?;
+
+                options.cache_max_disk_bytes = Some(
+                    value.parse::<u64>().with_context(|| {
+                        format!("invalid value for `--cache-max-disk-bytes`: `{value}`")
+                    })?,
+                );
+            }
+            "--cache-max-memory-bytes" => {
+                let value =
+                    args.next().context("missing value for `--cache-max-memory-bytes`")?;
+
+                options.cache_max_memory_bytes = Some(
+                    value.parse::<u64>().with_context(|| {
+                        format!("invalid value for `--cache-max-memory-bytes`: `{value}`")
+                    })?,
                 );
             }
             _ => bail!("unknown argument: `{arg}`"),
@@ -204,9 +225,23 @@ async fn main() -> Result<()> {
         DEFAULT_SERVER_CREDENTIALS_KEY,
     );
 
-    let manager = StreamScraper::from_json(None)?;
+    let mut manager = StreamScraper::from_json(None)?;
     if let Some(current_country) = &options.current_country {
         manager.set_current_country(current_country).await;
+    }
+
+    // Override the server cache sizing when explicit CLI values are provided.
+    if options.cache_max_disk_bytes.is_some() || options.cache_max_memory_bytes.is_some() {
+        let mut config = ScraperCacheConfig::default();
+        if let Some(bytes) = options.cache_max_disk_bytes {
+            config.max_disk_bytes = bytes;
+        }
+        if let Some(bytes) = options.cache_max_memory_bytes {
+            config.max_memory_bytes = bytes;
+        }
+        manager
+            .get_scraper_agregator_mut()
+            .set_cache_config(config);
     }
 
     let mut controler = arachnea_core::create_application_controler!(options.application_option);

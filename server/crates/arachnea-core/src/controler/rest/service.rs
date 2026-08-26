@@ -200,6 +200,31 @@ impl RestControlerService {
         }
     }
 
+    /// Registers a `302 Found` redirect from the server root `/` to the
+    /// configured entry point root path.
+    ///
+    /// When the web application is mounted under a path prefix (non-empty
+    /// `--entrypoint-root`), the bare server root otherwise matches nothing and
+    /// returns `404 Not Found`; the redirect keeps `http://host:port/`
+    /// reachable. The `Location` header is built as a relative path prefixed
+    /// with `/` so it resolves against the server origin.
+    fn add_root_redirect(&mut self) {
+        let entrypoint_root = self.entrypoint_root.clone();
+        let redirect_filter = warp::path::end()
+            .map(move || {
+                let target = format!("/{}/", entrypoint_root.join("/"));
+                let response = warp::http::Response::builder()
+                    .status(StatusCode::FOUND)
+                    .header("location", target)
+                    .body(Vec::new())
+                    .expect("Failed to build root redirect response.");
+                (Box::new(response) as Box<dyn Reply + Send>,)
+            })
+            .boxed();
+
+        self.add_route(redirect_filter);
+    }
+
     fn make_base_filter(&self, use_api: bool, last_path: &str) -> BoxedFilter<()> {
         let mut path = self.entrypoint_root.clone();
 
@@ -623,6 +648,13 @@ impl ControlerService for RestControlerService {
     }
 
     fn launch(&mut self) {
+        // When the web application is served under a path prefix, redirect the
+        // bare server root to the configured entry point. The redirect is added
+        // last so every registered route keeps priority.
+        if !self.entrypoint_root.is_empty() {
+            self.add_root_redirect();
+        }
+
         let router = self
             .router
             .clone()

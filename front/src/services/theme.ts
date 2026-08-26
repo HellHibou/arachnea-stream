@@ -4,6 +4,8 @@
  * Each preset maps to an HSL primary color that drives the
  * `--color-primary` CSS custom property and its derived accents.
  */
+import { resolveAppPath } from '@/services/baseUrl'
+
 export interface ThemePreset {
   /** Machine-readable theme identifier used for persistence. */
   key: string
@@ -51,7 +53,7 @@ const FALLBACK_THEME: ThemePreset = {
  */
 export async function loadThemes(): Promise<ThemePreset[]> {
   try {
-    const response = await fetch('/themes.json')
+    const response = await fetch(resolveAppPath('themes.json'))
     if (!response.ok) {
       throw new Error(`Unable to load themes (${response.status}).`)
     }

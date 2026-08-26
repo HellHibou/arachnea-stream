@@ -38,6 +38,27 @@ All notable changes to the server workspace are recorded here. Add new entries a
   the app-level background gate no longer drops these candidates when
   `useCatalogBannersAsBackground` is disabled since each media kind now carries
   its own parameter upstream.
+- **Server cache CLI sizing overrides**: the backend executable now accepts
+  `--cache-max-disk-bytes <BYTES>` and `--cache-max-memory-bytes <BYTES>` to
+  override the server-side scraper result cache bounds (defaults stay at 100 MiB
+  on disk / 32 MiB in memory). The values replace the corresponding fields of
+  `ScraperCacheConfig` before the aggregator builds its foyer hybrid cache.
+- **Entry point root redirect**: when the REST server runs under a non-root
+  `--entrypoint-root` prefix, a bare `GET /` now answers `302 Found` with a
+  `Location` header pointing to the mounted application path (for example
+  `/prefix/`) instead of `404 Not Found`; without a prefix the existing
+  root-serving behavior is unchanged.
+- **Removed `--entrypoint-api` CLI flag**: the backend executable no longer
+  accepts `--entrypoint-api`; the server continues to use the built-in `api`
+  path segment under the configured `--entrypoint-root` (the
+  `CoreApplicationOptions::entrypoint_api` plumbing in `arachnea-core` is
+  unchanged).
+- **Root-aware public JSON fetches**: `loadThemes()` and
+  `loadVideoSourceAllowlist()` now resolve `themes.json` and
+  `video-sources-whitelist.json` through `resolveAppPath()` like the locale
+  assets, so both files load correctly when the server serves the application
+  under a non-root `--entrypoint-root` prefix instead of failing with root-
+  absolute `/themes.json` / `/video-sources-whitelist.json` requests.
 ### Changed
 - **Background Ken Burns pans exactly to the real image borders**: the animated background image now measures each source's natural dimensions on load and derives its true rendered overflow under `object-fit: cover` (`--ken-burns-max-x` / `--ken-burns-max-y` CSS variables per image), so the pan sweeps from one image corner to the opposite one regardless of the picture's aspect ratio — portrait images finally use their full vertical headroom while landscape ones stay capped at their own edges. A zoom breathing from `1x` to `1.22x` mid-cycle keeps the effect clearly visible even when the picture closely matches the screen ratio; every frame stays fully covered since translations never exceed the measured overflow. Bounds are recomputed on viewport resize, pruned when the media list changes, and fall back to a static frame until an image has loaded.
 - **Bookmarks persist the generic `img.url` snapshot**: `EntryBookmark` gains an `imageUrl` field (the un-oriented image from `get_entry`), saved alongside `imagePosterUrl`/`imageLandscapeUrl` in `ProgramEntryDetails`, carried through the bookmark lookup and sanitization in `storage.ts`, and exposed by the bookmarks home section so favorite cards fall back to it when no poster or landscape image is available. Existing bookmarks without the field load as `imageUrl: null` with no migration needed.

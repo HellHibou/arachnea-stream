@@ -10,6 +10,7 @@
  * consumers holding a reference see updates without re-binding.
  */
 import { resolveYoutubeEmbedUrl } from '@/services/players'
+import { resolveAppPath } from '@/services/baseUrl'
 
 /** One allowlisted source entry loaded from the JSON asset. */
 export interface VideoSourceAllowlistEntry {
@@ -222,7 +223,7 @@ function isVideoSourceAllowlistEntry(value: unknown): value is VideoSourceAllowl
  */
 export async function loadVideoSourceAllowlist(): Promise<VideoSourceAllowlistEntry[]> {
   try {
-    const response = await fetch('/video-sources-whitelist.json')
+    const response = await fetch(resolveAppPath('video-sources-whitelist.json'))
     if (!response.ok) {
       throw new Error(`Unable to load video source allowlist (${response.status}).`)
     }
