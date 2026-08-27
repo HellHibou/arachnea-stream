@@ -15,7 +15,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { installTools } from './install-tools.mjs';
+import { installTools, ensurePlatformRustupTargets } from './install-tools.mjs';
 import {
   ROOT,
   buildEnvWithLlvm,
@@ -550,6 +550,14 @@ async function main() {
   const results = [];
   for (const platform of buildable) {
     try {
+      // Per-platform pre-flight guard: make sure this platform's rustup target
+      // is installed before running the native build so a missing target (e.g.
+      // `aarch64-pc-windows-msvc`) cannot abort `cargo tauri build` with a
+      // `can't find crate for core/std` error. Missing targets are installed
+      // automatically after explicit confirmation.
+      if (platform.method === 'native' && !options.skipBuild) {
+        await ensurePlatformRustupTargets(platform);
+      }
       buildPlatform(platform, config, version, releaseDir, tauriDir, options.skipBuild);
       results.push({ platform, success: true });
     } catch (error) {

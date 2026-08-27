@@ -138,7 +138,7 @@ The cross-compilation capability matrix (which bundles each host can produce) is
 | Windows | not possible | native | native | not possible (use WSL2) |
 | Linux | not possible | via `cargo-xwin` | not possible (WiX) | native |
 
-The Windows portable archive is the only generated zip; it ships the release executable plus the runtime `services/` folder read by the app in release mode, excluding local-only state such as `credentials.json` and the cache. The `data/` folder is not included and is created at runtime.
+The Windows portable archive is the only generated zip; it ships the release executable plus the runtime `services/` folder read by the app in release mode, excluding local-only state such as `credentials.json` and the cache. The `data/` folder is not included and is created at runtime. The installer bundles (NSIS `.exe`, `.msi`, `.deb`, `.rpm`, `.AppImage`, `.dmg`) also embed the same `services/` folder through the Tauri `bundle.resources` setting; on Windows it is installed next to the executable (the application root in release mode), while on Linux/macOS it lands in the platform resource directory.
 
 ## NPM Commands
 

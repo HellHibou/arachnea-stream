@@ -161,3 +161,15 @@ Two portable formats, each getting `.sha256`/`.md5` checksums:
 - **Linux/macOS `.tar.gz`**: the raw `arachnea` binary built through the Docker
   cross image (see "Portable binaries via Docker" above). It does not bundle the
   `services/` runtime data.
+
+## Installer resources
+
+The installer bundles (NSIS `.exe`, `.msi`, `.deb`, `.rpm`, `.AppImage`, `.dmg`)
+embed the `services/` runtime folder through the Tauri `bundle.resources`
+setting in `server/crates/arachnea-stream/tauri.conf.json`
+(`"../../../server/services": "services/"`). On Windows the resources are
+installed next to the executable, which is the application root the app reads
+in release mode. On Linux/macOS they land in the platform resource directory
+(`/usr/lib/...`, `.app/Contents/Resources`, ...), which the exe-directory
+application root does not read — the portable archives remain the way to get a
+self-contained app on those platforms.

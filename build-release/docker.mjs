@@ -8,7 +8,7 @@
 // - Linux targets: `cargo tauri build` through the in-image Tauri CLI
 //   (`crossBundleArgs`), producing the .deb/.rpm/.AppImage installers AND the
 //   release binary (reused by the host-side portable step). Artifacts land in
-//   the mounted repository `target/.docker-build/<arch>/` and are assembled
+//   the mounted repository `target/docker-build/<arch>/` and are assembled
 //   host-side by release.mjs.
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -172,7 +172,7 @@ function crossRunBase(platform, tauriDir) {
   // each other's host artifacts in the shared workspace `target/`.
   const contArch = containerArchFor(platform);
   const workspaceRel = path.relative(ROOT, workspaceRootFor(path.resolve(tauriDir))).replace(/\\/g, '/');
-  const dockerTargetDir = ['/io', workspaceRel, 'target', '.docker-build', contArch].filter(Boolean).join('/');
+  const dockerTargetDir = ['/io', workspaceRel, 'target', 'docker-build', contArch].filter(Boolean).join('/');
 
   const args = ['run', '--rm', '--env', `CARGO_TARGET_DIR=${dockerTargetDir}`];
   const imagePlatform = imagePlatformFor(platform);
@@ -238,7 +238,7 @@ function buildCrossRunArgs(platform, tauriDir, command, extraEnv) {
  * host into its configured dist folder (mounted through `/io`), so the in-image
  * build skips `beforeBuildCommand`; each pass compiles the release binary
  * (reused by the portable step) and the requested installers, which land under
- * `<workspace target>/.docker-build/<arch>/<triple>/release/bundle/`.
+ * `<workspace target>/docker-build/<arch>/<triple>/release/bundle/`.
  *
  * One process is spawned **per bundle type** (`bundles` is a single-element
  * list in practice, see release.mjs): requesting several types in one call

@@ -298,11 +298,11 @@ export function targetBaseDirs(tauriDir) {
     if (parent === dir) break;
     dir = parent;
   }
-  // Docker cross builds write into `<workspace target>/.docker-build/<arch>/`
+  // Docker cross builds write into `<workspace target>/docker-build/<arch>/`
   // (one sub-directory per container architecture, see docker.mjs); include
   // the ones that already exist so bundle/exe lookups find those artifacts.
   for (const base of [...bases]) {
-    const splitRoot = path.join(base, '.docker-build');
+    const splitRoot = path.join(base, 'docker-build');
     if (!existsSync(splitRoot)) continue;
     for (const entry of readdirSync(splitRoot)) {
       bases.add(path.join(splitRoot, entry));
@@ -442,20 +442,50 @@ const LLVM_BIN_DIRS = [
 ];
 
 /**
- * Returns the process environment augmented with the common Homebrew LLVM
- * directories and the cross-tools shim directory on PATH (when present), so
- * `cargo-xwin` finds its LLVM tools and the NSIS bundler finds its
- * `makensis.exe` shim without requiring a shell profile change.
+ * Returns the process environment augmented with:
+ * - the common Homebrew LLVM directories and the cross-tools shim directory on
+ *   PATH (so `cargo-xwin` finds its LLVM tools and the NSIS bundler finds its
+ *   `makensis.exe` shim without requiring a shell profile change);
+ * - on Windows hosts with Visual Studio installed, the VS-provided LLVM bin
+ *   (for `clang-cl`, required by `ring`/`aws-lc-sys` when building
+ *   `aarch64-pc-windows-msvc`), the VS CMake Ninja directory (`ninja.exe`) and
+ *   the MSVC toolchain bin dirs. Everything is optional: only existing
+ *   directories are prepended.
  *
  * @returns {object} Environment suitable for `spawnSync`.
  */
 export function buildEnvWithLlvm() {
   const pathSeparator = process.platform === 'win32' ? ';' : ':';
-  const extraDirs = [...LLVM_BIN_DIRS, CROSS_TOOLS_BIN_DIR].filter((directory) =>
-    existsSync(directory),
-  );
+  const extraDirs = [...LLVM_BIN_DIRS, CROSS_TOOLS_BIN_DIR];
+
+  if (process.platform === 'win32') {
+    const vs = findVsInstallation();
+    if (vs && vs.installationPath) {
+      const toolset = msvcToolsetDir(vs.installationPath);
+      if (toolset) {
+        for (const host of ['Hostx64', 'Hostarm64']) {
+          extraDirs.push(path.join(toolset, 'bin', host, 'arm64'));
+          extraDirs.push(path.join(toolset, 'bin', host, 'x64'));
+        }
+      }
+      const llvmBin = path.join(vs.installationPath, 'VC', 'Tools', 'Llvm', 'x64', 'bin');
+      if (existsSync(llvmBin)) extraDirs.push(llvmBin);
+      const ninjaDir = path.join(
+        vs.installationPath,
+        'Common7',
+        'IDE',
+        'CommonExtensions',
+        'Microsoft',
+        'CMake',
+        'Ninja',
+      );
+      if (existsSync(ninjaDir)) extraDirs.push(ninjaDir);
+    }
+  }
+
+  const present = extraDirs.filter((directory) => existsSync(directory));
   const currentEntries = (process.env.PATH || '').split(pathSeparator);
-  const missing = extraDirs.filter((dir) => !currentEntries.includes(dir));
+  const missing = present.filter((dir) => !currentEntries.includes(dir));
   const env = { ...process.env };
   if (missing.length === 0) return env;
   return { ...env, PATH: `${missing.join(pathSeparator)}${pathSeparator}${process.env.PATH}` };
@@ -464,4 +494,173 @@ export function buildEnvWithLlvm() {
 /** Removes a directory tree if it exists. */
 export function removeDir(dir) {
   if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
+}
+
+/**
+ * Resolves the Visual Studio Installer `vswhere.exe` on a Windows host.
+ *
+ * @returns {string|null} Absolute path of `vswhere.exe`, or `null` when the
+ *   Visual Studio Installer is not present.
+ */
+export function vsWhereExe() {
+  if (process.platform !== 'win32') return null;
+  const base = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
+  const candidate = path.join(base, 'Microsoft Visual Studio', 'Installer', 'vswhere.exe');
+  return existsSync(candidate) ? candidate : null;
+}
+
+/**
+ * Locates a Visual Studio installation through `vswhere`. Used to find the
+ * MSVC toolset, LLVM/Clang and Ninja shipped inside Visual Studio so the
+ * release builder can provision and use them.
+ *
+ * @returns {{ installationPath: string, installationVersion: string, instanceId: string }|null}
+ *   The first VS instance found, or `null` when none is installed.
+ */
+export function findVsInstallation() {
+  const vsWhere = vsWhereExe();
+  if (!vsWhere) return null;
+  const result = spawnSync(vsWhere, ['-all', '-products', '*', '-format', 'json'], { encoding: 'utf8' });
+  if (result.status !== 0) return null;
+  try {
+    const list = JSON.parse(result.stdout);
+    const instance = (list ?? []).find((entry) => entry && entry.installationPath);
+    if (!instance) return null;
+    return {
+      installationPath: instance.installationPath,
+      installationVersion: instance.installationVersion || '',
+      instanceId: instance.instanceId || '',
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Returns the most recent MSVC toolset directory of a Visual Studio
+ * installation (e.g. `...\VC\Tools\MSVC\14.44.35207`).
+ *
+ * @param {string} vsPath - Visual Studio installation path.
+ * @returns {string|null} The toolset directory, or `null` when none exists.
+ */
+export function msvcToolsetDir(vsPath) {
+  const root = path.join(vsPath, 'VC', 'Tools', 'MSVC');
+  if (!existsSync(root)) return null;
+  const versions = readdirSync(root)
+    .filter((name) => /^\d+\.\d+/.test(name))
+    .sort((a, b) => {
+      const va = a.split('.').map(Number);
+      const vb = b.split('.').map(Number);
+      for (let i = 0; i < Math.max(va.length, vb.length); i += 1) {
+        const d = (va[i] ?? 0) - (vb[i] ?? 0);
+        if (d !== 0) return d;
+      }
+      return 0;
+    })
+    .reverse();
+  return versions.length ? path.join(root, versions[0]) : null;
+}
+
+/**
+ * Detects whether the Windows host can compile C/C++ for the
+ * `aarch64-pc-windows-msvc` Rust target natively. Two pieces must exist:
+ * - the **MSVC ARM64 build tools** (`Hostx64\arm64\cl.exe` plus the `arm64`
+ *   MSVC libraries) so `rustc` can link against the MSVC CRT;
+ * - **clang-cl** (the "C++ Clang Compiler for Windows" component inside VS or
+ *   an otherwise installed LLVM), because `ring` and `aws-lc-sys` require it
+ *   to assemble/compile C for Windows ARM64.
+ *
+ * @returns {{ ok: boolean, missing: string[], vs: (object|null), toolset: (string|null), clangClPath: (string|null), msvcArm64ClPath: (string|null) }}
+ */
+export function windowsNativeMsvcArm64State() {
+  const missing = [];
+  const vs = findVsInstallation();
+  let toolset = null;
+  let clangClPath = null;
+  let msvcArm64ClPath = null;
+
+  if (vs && vs.installationPath) {
+    toolset = msvcToolsetDir(vs.installationPath);
+    if (!toolset) {
+      missing.push('MSVC build tools (x64/x86)');
+    } else {
+      const clHostX64Arm64 = path.join(toolset, 'bin', 'Hostx64', 'arm64', 'cl.exe');
+      const libArm64 = path.join(toolset, 'lib', 'arm64');
+      if (!existsSync(clHostX64Arm64) || !existsSync(libArm64)) {
+        missing.push('MSVC ARM64 build tools');
+      } else {
+        msvcArm64ClPath = clHostX64Arm64;
+      }
+    }
+    const clangCl = path.join(vs.installationPath, 'VC', 'Tools', 'Llvm', 'x64', 'bin', 'clang-cl.exe');
+    if (!existsSync(clangCl)) {
+      missing.push('C++ Clang Compiler for Windows (clang-cl)');
+    } else {
+      clangClPath = clangCl;
+    }
+  } else {
+    missing.push('Visual Studio Build Tools');
+  }
+
+  return { ok: missing.length === 0, missing, vs, toolset, clangClPath, msvcArm64ClPath };
+}
+
+/**
+ * Detects whether the current Node process is running with Windows elevated
+ * (Administrator) privileges.
+ *
+ * @returns {boolean} `true` when elevated on Windows.
+ */
+export function isElevated() {
+  if (process.platform !== 'win32') return false;
+  try {
+    execFileSync('net', ['session'], { stdio: 'ignore', windowsHide: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Re-runs the given command with Windows elevation (UAC prompt) and waits for
+ * the elevated process to finish, inheriting stdio. Used to launch the Visual
+ * Studio installer, which requires elevation for `--quiet`/`--passive` (an
+ * unelevated run fails with exit 5007 "should be run elevated from the
+ * beginning").
+ *
+ * @param {string} exe - Absolute path of the executable to elevate.
+ * @param {string[]} args - Command-line arguments.
+ * @returns {number} Exit code of the elevated process.
+ */
+export function runElevatedSync(exe, args) {
+  // `Start-Process -ArgumentList` with a PowerShell array joins the elements
+  // without re-quoting, so paths containing spaces (e.g.
+  // "C:\Program Files (x86)\...") would be split into separate arguments. The
+  // reliable form is a single command-line string with every token that
+  // contains whitespace wrapped in double quotes. The whole argument string is
+  // then single-quoted for PowerShell (double single quotes escape one).
+  const quoteToken = (token) => (/[\s"]/).test(token) ? `"${token.replace(/"/g, '""')}"` : token;
+  const argString = args.map(quoteToken).join(' ');
+  const psQuotedArgs = `'${argString.replace(/'/g, "''")}'`;
+  // `Start-Process -Verb RunAs` triggers the UAC prompt. `-Wait` is unreliable
+  // with `-Verb RunAs` (it can return before the elevated process exits), so
+  // completion is polled with `HasExited` on the process handle returned by
+  // `-PassThru` instead. `$ErrorActionPreference = 'Stop'` + a catch turns a
+  // refused/cancelled elevation into a non-zero exit instead of `$p` staying
+  // undefined.
+  const script =
+    `$ErrorActionPreference = 'Stop'; ` +
+    `try { ` +
+    `$p = Start-Process -FilePath ${JSON.stringify(exe)} -ArgumentList ${psQuotedArgs} ` +
+    `-Verb RunAs -PassThru -ErrorAction Stop; ` +
+    `while (-not $p.HasExited) { Start-Sleep -Milliseconds 500; $p.Refresh() } ` +
+    `exit $p.ExitCode ` +
+    `} catch { Write-Error $_.Exception.Message; exit 1 }`;
+  const result = spawnSync(
+    'powershell',
+    ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', script],
+    { stdio: 'inherit', windowsHide: true },
+  );
+  if (result.error) throw new Error(`Failed to elevate ${exe}: ${result.error.message}`);
+  return result.status ?? 0;
 }
