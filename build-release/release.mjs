@@ -36,8 +36,16 @@ import {
   writeChecksum,
   fileDigestHex,
 } from './lib.mjs';
-import { archShort, outputFolderName, familyOf } from './capabilities.mjs';
-import { assertDocker, crossBuildArgs, describeCrossBuild, ensureCrossImage } from './docker.mjs';
+import { archShort, outputFolderName, familyOf, dockerBundlesFor } from './capabilities.mjs';
+import {
+  assertCrossImageFor,
+  assertDocker,
+  crossBuildArgs,
+  crossBundleArgs,
+  describeCrossBuild,
+  describeCrossBundling,
+  ensureCrossImage,
+} from './docker.mjs';
 
 function parseArgs(argv) {
   const options = {
@@ -94,16 +102,21 @@ Cross-platform release builder (host: ${hostLabel()}).
   --continue-on-error   Continue with remaining platforms after a platform build failure.
   --dry-run             Print the commands that would run (incl. Docker cross builds) and exit.
   --force-use-docker-builder
-                        Build Docker-capable platforms (config "build": "docker" +
-                        portable) inside the cross image even when this host could
-                        produce them natively. Non-Docker targets stay native.
+                        Build Docker-capable platforms (config "build": "docker"
+                        declaring a portable block or Linux installers) inside
+                        the cross image even when this host could produce them
+                        natively. Non-Docker targets stay native.
   --help, -h            Show this help.
 
 The frontend is built once and shared by all targets (each \`cargo tauri build\`
-skips its \`beforeBuildCommand\` through a config override). Artifacts follow the
-\`<product>-<version>-<os>-<arch>.<ext>\` scheme. Every installer gets companion
-\`.sha256\`/\`.md5\` checksum files; a portable archive's checksum file lists the
-archive's own hash first, then the hash of every file inside the archive.
+skips its \`beforeBuildCommand\` through a config override). On hosts that cannot
+natively bundle a target, the Docker cross image compiles it and additionally
+produces the Linux installers (.deb/.rpm/.AppImage) for Linux targets; the
+raw binary is still packaged as a portable archive when configured. Artifacts
+follow the \`<product>-<version>-<os>-<arch>.<ext>\` scheme. Every installer gets
+companion \`.sha256\`/\`.md5\` checksum files; a portable archive's checksum file
+lists the archive's own hash first, then the hash of every file inside the
+archive.
 
 Release version resolved from server/Cargo.toml: ${version}
 Output directory: releases/release-<version>/ at the repository root.
@@ -283,6 +296,14 @@ function buildPlatform(platform, config, version, releaseDir, tauriDir, skipBuil
   console.log(`\n===== Building ${label} (${platform.method}) =====`);
   if (platform.method === 'native') {
     console.log(`Bundles on this host: ${platform.usable.join(', ')}`);
+  } else {
+    const dockerBundles = dockerBundlesFor(platform);
+    if (dockerBundles.length > 0) {
+      console.log(
+        `Installers from the cross image: ${dockerBundles.join(', ')}` +
+          `${platform.portable ? ', plus the portable archive' : ''}`,
+      );
+    }
   }
 
   // 1. Build step. Native platforms use the host toolchain via the Tauri CLI;
@@ -310,8 +331,42 @@ function buildPlatform(platform, config, version, releaseDir, tauriDir, skipBuil
   } else if (!skipBuild && platform.method === 'docker') {
     assertDocker();
     ensureCrossImage();
-    console.log(`${label} cross-building in the Docker image: ${describeCrossBuild(platform, tauriDir)}`);
-    run('docker', crossBuildArgs(platform, tauriDir));
+    // Tag presence is not enough: the image must exist for the container
+    // platform this target runs in (see multi-platform builds).
+    assertCrossImageFor(platform);
+    const dockerBundles = dockerBundlesFor(platform);
+    if (dockerBundles.length > 0) {
+      // Each `cargo tauri build` pass compiles the release binary AND one
+      // installer type. One pass per type is required: bundling several types
+      // in a single process crashes the Tauri bundler (see crossBundleArgs).
+      console.log(
+        `${label} cross-building installers (${dockerBundles.join(', ')}) in the Docker image:\n    ${describeCrossBundling(platform, tauriDir)}`,
+      );
+      // Try each bundle independently so a container without FUSE (e.g. Docker
+      // Desktop on macOS) can still ship deb/rpm when only .AppImage fails.
+      const failedBundles = [];
+      for (const bundle of dockerBundles) {
+        try {
+          run('docker', crossBundleArgs(platform, tauriDir, false, [bundle]));
+        } catch (error) {
+          failedBundles.push(bundle);
+          console.warn(`${label} bundle \`${bundle}\` failed inside the Docker image:\n    ${error.message}`);
+        }
+      }
+      if (failedBundles.length === dockerBundles.length) {
+        throw new Error(
+          `all Docker-produced bundles failed inside the image: ${dockerBundles.join(', ')}`,
+        );
+      }
+      if (failedBundles.length > 0) {
+        console.warn(
+          `${label} partial bundle production (continuing with the rest): ${failedBundles.join(', ')}`,
+        );
+      }
+    } else {
+      console.log(`${label} cross-building in the Docker image: ${describeCrossBuild(platform, tauriDir)}`);
+      run('docker', crossBuildArgs(platform, tauriDir));
+    }
   } else {
     console.log(`${label} --skip-build: reusing existing artifacts in ${tauriDir}/target.`);
   }
@@ -319,9 +374,12 @@ function buildPlatform(platform, config, version, releaseDir, tauriDir, skipBuil
   const platformOutDir = path.join(releaseDir, outputFolderName(platform.id));
   const copied = [];
 
-  // 2. Assemble version-named native bundles into the family folder.
-  if (platform.method === 'native') {
-    for (const bundleType of platform.usable) {
+  // 2. Assemble version-named native bundles into the family folder. Both
+  //    production methods may yield installers: native hosts produce
+  //    `platform.usable`, the cross image produces `dockerBundlesFor`.
+  const producedBundles = platform.method === 'native' ? platform.usable : dockerBundlesFor(platform);
+  if (producedBundles.length > 0) {
+    for (const bundleType of producedBundles) {
       const artifacts = findArtifacts(tauriDir, platform.target, bundleType);
       if (artifacts.length === 0) {
         console.warn(
@@ -415,8 +473,14 @@ async function main() {
     console.log(`Host: ${hostLabel()}`);
     console.log(`Version: ${version}\n`);
     for (const platform of platforms) {
-      const produces =
-        platform.method === 'native' ? platform.usable.join(', ') || 'nothing' : 'portable archive';
+      let produces;
+      if (!platform.buildable) produces = 'nothing';
+      else if (platform.method === 'native') produces = platform.usable.join(', ') || 'nothing';
+      else {
+        const parts = dockerBundlesFor(platform);
+        if (platform.portable) parts.push('portable archive');
+        produces = parts.join(', ') || 'portable archive';
+      }
       const detail = platform.buildable
         ? `available (${platform.method}; produces: ${produces})`
         : 'not buildable on this host';
@@ -434,8 +498,13 @@ async function main() {
     console.log('DRY RUN — no artifact is produced. Planned production:\n');
     for (const platform of platforms) {
       const method = platform.buildable ? platform.method : 'none';
-      const command =
-        platform.method === 'docker' ? `\n        ${describeCrossBuild(platform, tauriDir)}` : '';
+      let command = '';
+      if (!platform.buildable) command = '';
+      else if (platform.method === 'docker') {
+        const bundleCommand = describeCrossBundling(platform, tauriDir);
+        if (bundleCommand) command += `\n        ${bundleCommand}`;
+        if (platform.portable && !bundleCommand) command += `\n        ${describeCrossBuild(platform, tauriDir)}`;
+      }
       console.log(`  ${platform.id.padEnd(20)} method=${method}${command}`);
     }
     return;

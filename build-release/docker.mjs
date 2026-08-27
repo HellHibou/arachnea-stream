@@ -1,20 +1,25 @@
 // Docker cross-build orchestration for the Arachnea release tooling.
 //
-// Produces the raw release binary for Linux/macOS targets that the current host
-// cannot natively bundle, by compiling inside the Arachnea cross image
-// (build-release/docker/Dockerfile, derived from
-// joseluisq/rust-linux-darwin-builder). The compiled executable lands in the
-// mounted repository `target/<triple>/release/` and is then packaged on the
-// host by the portable-archive step.
+// Produces, inside the Arachnea cross image (build-release/docker/Dockerfile,
+// derived from joseluisq/rust-linux-darwin-builder), what the current host
+// cannot natively produce:
+// - macOS targets (osxcross): the raw release binary (`crossBuildArgs`),
+//   packaged on the host as a portable archive.
+// - Linux targets: `cargo tauri build` through the in-image Tauri CLI
+//   (`crossBundleArgs`), producing the .deb/.rpm/.AppImage installers AND the
+//   release binary (reused by the host-side portable step). Artifacts land in
+//   the mounted repository `target/.docker-build/<arch>/` and are assembled
+//   host-side by release.mjs.
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { ROOT, canRun, run, releaseDir } from './lib.mjs';
+import { dockerBundlesFor } from './capabilities.mjs';
 
 const RELEASE_DIR = releaseDir();
 
 /** Tag of the locally-built Arachnea cross image. */
-export const CROSS_IMAGE = 'arachnea-cross-builder:1.0.0';
+export const CROSS_IMAGE = 'arachnea-cross-builder:1.1.0';
 
 /** Directory holding the cross image Dockerfile. */
 export const DOCKERFILE_DIR = path.join(RELEASE_DIR, 'docker');
@@ -44,6 +49,42 @@ function dockerImageRefs() {
 /** Returns `true` when the cross image has already been built locally. */
 export function crossImagePresent() {
   return dockerImageRefs().has(CROSS_IMAGE);
+}
+
+/**
+ * Container platform string a target runs in: Linux targets pin their own
+ * architecture; other targets (macOS via osxcross) run a host-arch container.
+ */
+function effectiveImagePlatform(platform) {
+  return imagePlatformFor(platform) ?? `linux/${process.arch === 'arm64' ? 'arm64' : 'amd64'}`;
+}
+
+/**
+ * Ensures a locally built variant of the cross image exists for the container
+ * platform a target runs in. `crossImagePresent()` only checks the tag, but an
+ * amd64 and an arm64 build can share it: without this probe, docker fails with
+ * a misleading "pull access denied" registry error instead of pointing at the
+ * missing local variant.
+ *
+ * @param {object} platform - A platform entry.
+ * @throws When no local image variant matches the required container platform,
+ *   with the exact `docker build` command to produce it.
+ */
+export function assertCrossImageFor(platform) {
+  assertDocker();
+  const plat = effectiveImagePlatform(platform);
+  // Cheap one-shot container that only succeeds when the variant is stored
+  // locally; otherwise docker attempts a pull and exits non-zero right away.
+  const probe = spawnSync('docker', ['run', '--rm', '--platform', plat, CROSS_IMAGE, 'true'], {
+    stdio: 'ignore',
+  });
+  if (probe.status !== 0) {
+    throw new Error(
+      `The Arachnea cross image \`${CROSS_IMAGE}\` has no ${plat} variant locally ` +
+        `(docker exited with status ${probe.status}). Build it from the repository root with:\n` +
+        `  docker build --platform ${plat} --tag ${CROSS_IMAGE} build-release/docker`,
+    );
+  }
 }
 
 /**
@@ -113,6 +154,34 @@ function workspaceRootFor(tauriDir) {
 }
 
 /**
+ * Builds the common `docker run` argument prefix for a cross build: repository
+ * mounted at `/io`, cargo artifacts isolated per container architecture, and
+ * the container platform pinned to the Linux target triple when required.
+ *
+ * @param {object} platform - A platform entry.
+ * @param {string} tauriDir - Absolute path of the Tauri crate on the host.
+ * @returns {{ args: string[], workspaceRel: string }} Argument list built up to
+ *   the image reference, plus the repo-relative workspace root path.
+ */
+function crossRunBase(platform, tauriDir) {
+  const repoMount = toDockerMount(ROOT);
+  // Isolate cargo artifacts per container architecture. Build scripts and
+  // proc-macros are compiled for the *container* architecture and stored in
+  // the target dir root; without this split, runs from differently-arched
+  // containers (e.g. amd64 for linux-x86_64, arm64 elsewhere) would overwrite
+  // each other's host artifacts in the shared workspace `target/`.
+  const contArch = containerArchFor(platform);
+  const workspaceRel = path.relative(ROOT, workspaceRootFor(path.resolve(tauriDir))).replace(/\\/g, '/');
+  const dockerTargetDir = ['/io', workspaceRel, 'target', '.docker-build', contArch].filter(Boolean).join('/');
+
+  const args = ['run', '--rm', '--env', `CARGO_TARGET_DIR=${dockerTargetDir}`];
+  const imagePlatform = imagePlatformFor(platform);
+  if (imagePlatform) args.push('--platform', imagePlatform);
+  args.push('--volume', `${repoMount}:/io`);
+  return { args, workspaceRel };
+}
+
+/**
  * Builds the `docker run` argument list that compiles the raw release binary
  * for the given platform inside the cross image. The repository is mounted at
  * `/io` and the Tauri crate is compiled from its workspace layout so cargo
@@ -131,27 +200,89 @@ function workspaceRootFor(tauriDir) {
  */
 export function crossBuildArgs(platform, tauriDir, dryRun = false) {
   if (!dryRun) assertDocker();
-  const repoMount = toDockerMount(ROOT);
   const crateRel = path.relative(ROOT, path.resolve(tauriDir)).replace(/\\/g, '/');
   const workaround = `cd /io/${crateRel} && cargo build --release --target ${platform.target}`;
+  return buildCrossRunArgs(platform, tauriDir, workaround, [], dryRun);
+}
 
-  // Isolate cargo artifacts per container architecture. Build scripts and
-  // proc-macros are compiled for the *container* architecture and stored in
-  // the target dir root; without this split, runs from differently-arched
-  // containers (e.g. amd64 for linux-x86_64, arm64 elsewhere) would overwrite
-  // each other's host artifacts in the shared workspace `target/`.
-  const contArch = containerArchFor(platform);
-  const wsRel = path.relative(ROOT, workspaceRootFor(path.resolve(tauriDir))).replace(/\\/g, '/');
-  const dockerTargetDir = ['/io', wsRel, 'target', '.docker-build', contArch].filter(Boolean).join('/');
+/** Prints a human-readable description of the raw-binary cross build command. */
+export function describeCrossBuild(platform, tauriDir) {
+  return `docker ${crossBuildArgs(platform, tauriDir, true).join(' ')}`;
+}
 
-  const args = ['run', '--rm', '--env', `CARGO_TARGET_DIR=${dockerTargetDir}`];
-  const imagePlatform = imagePlatformFor(platform);
-  if (imagePlatform) args.push('--platform', imagePlatform);
-  args.push('--volume', `${repoMount}:/io`, CROSS_IMAGE, 'sh', '-c', workaround);
+/**
+ * Host-side repo-relative cache directory for the AppImage bundler tool
+ * downloads (linuxdeploy/AppRun/plugins), keyed by container architecture so
+ * they persist across `docker run --rm` invocations.
+ */
+function crossBundleCacheDir(platform) {
+  const wsRel = path.relative(ROOT, workspaceRootFor(path.resolve(ROOT, 'server'))).replace(/\\/g, '/');
+  return `${wsRel}/target/.tauri-bundle-cache/${containerArchFor(platform)}`;
+}
+
+/**
+ * Assembles the final `docker run` arguments from the base prefix, the in-image
+ * shell command and optional additional environment variables.
+ */
+function buildCrossRunArgs(platform, tauriDir, command, extraEnv) {
+  const { args } = crossRunBase(platform, tauriDir);
+  for (const [name, value] of extraEnv) args.push('--env', `${name}=${value}`);
+  args.push(CROSS_IMAGE, 'sh', '-c', command);
   return args;
 }
 
-/** Prints a human-readable description of the cross build command. */
-export function describeCrossBuild(platform, tauriDir) {
-  return `docker ${crossBuildArgs(platform, tauriDir, true).join(' ')}`;
+/**
+ * Builds the `docker run` argument list that produces the Linux installers of a
+ * platform (`.deb`, `.rpm`, `.AppImage`) inside the cross image through the
+ * in-image Tauri CLI (`cargo tauri build`). The frontend is prebuilt by the
+ * host into its configured dist folder (mounted through `/io`), so the in-image
+ * build skips `beforeBuildCommand`; each pass compiles the release binary
+ * (reused by the portable step) and the requested installers, which land under
+ * `<workspace target>/.docker-build/<arch>/<triple>/release/bundle/`.
+ *
+ * One process is spawned **per bundle type** (`bundles` is a single-element
+ * list in practice, see release.mjs): requesting several types in one call
+ * (`bundle.targets: ["deb","rpm","appimage"]`) is unreliable — the bundler
+ * patches the binary in place and re-reads it between types, crashing with
+ * "Could not read binary file" on the mounted volume for the second type.
+ *
+ * @param {object} platform - A platform entry.
+ * @param {string} tauriDir - Absolute path of the Tauri crate on the host.
+ * @param {boolean} [dryRun] - When true, return the args without validating Docker.
+ * @param {string[]} [bundles] - Bundle types to produce (default: the platform's
+ *   Docker-producible bundles).
+ * @returns {string[]|null} Arguments to pass to the `docker` executable, or
+ *   `null` when no bundles are requested.
+ */
+export function crossBundleArgs(platform, tauriDir, dryRun = false, bundles = null) {
+  const requested = bundles ?? dockerBundlesFor(platform);
+  if (requested.length === 0) return null;
+  if (!dryRun) assertDocker();
+  const crateRel = path.relative(ROOT, path.resolve(tauriDir)).replace(/\\/g, '/');
+  // JSON output never contains single quotes, so shell-quoting stays safe.
+  const configJson = JSON.stringify({
+    build: { beforeBuildCommand: null },
+    bundle: { targets: requested },
+  });
+  const command =
+    `cd /io/${crateRel} && cargo tauri build --target ${platform.target} --config '${configJson}'`;
+  const extraEnv = [
+    ['XDG_CACHE_HOME', '/io/' + crossBundleCacheDir(platform) + '/.cache'],
+  ];
+  return buildCrossRunArgs(platform, tauriDir, command, extraEnv);
+}
+
+/**
+ * Prints a human-readable description of the installer cross-bundling runs, one
+ * `docker run` line per bundle type.
+ *
+ * @returns {string|null} Newline-separated descriptions, or `null` when the
+ *   target has no Docker-producible bundles.
+ */
+export function describeCrossBundling(platform, tauriDir) {
+  const bundles = dockerBundlesFor(platform);
+  if (bundles.length === 0) return null;
+  return bundles
+    .map((bundle) => `docker ${crossBundleArgs(platform, tauriDir, true, [bundle]).join(' ')}`)
+    .join('\n    ');
 }

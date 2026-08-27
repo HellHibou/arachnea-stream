@@ -8,8 +8,9 @@
 // - Windows NSIS (-setup.exe): cross-compilable from macOS/Linux through the
 //   `cargo-xwin` runner (provides llvm-rc and the MSVC CRT crates).
 // - Windows MSI: WiX only runs on Windows, so a Windows host only.
-// - Linux (.deb/.rpm/.AppImage): requires dpkg/rpmbuild/appimagetool and the
-//   WebKitGTK stack, so a Linux host only (or an equivalent container).
+// - Linux (.deb/.rpm/.AppImage): requires the WebKitGTK stack, so a Linux host
+//   or an equivalent container (see DOCKER_BUNDLED_TARGETS below); the bundlers
+//   themselves are pure Rust / FUSE-free.
 const HOST_CAPABILITIES = {
   darwin: {
     'x86_64-apple-darwin': { bundles: ['app', 'dmg'], runner: null },
@@ -143,9 +144,9 @@ export function archShort(target) {
 /**
  * Rust targets that can be produced as a single raw executable through the
  * Arachnea cross-build image (`build-release/docker/Dockerfile`, derived from
- * `joseluisq/rust-linux-darwin-builder`). This does NOT create platform
- * installers (`.dmg`, `.deb`, ...): it only compiles the release binary that
- * the host-side portable step packages (`.tar.gz`/`.zip`).
+ * `joseluisq/rust-linux-darwin-builder`). macOS targets compile through
+ * osxcross and can only ship this raw binary; Linux targets additionally get
+ * their installers bundled inside the image (see `DOCKER_BUNDLED_TARGETS`).
  *
  * A platform entry that sets `"build": "docker"` together with a `portable`
  * block is produced this way whenever the current host cannot natively bundle
@@ -159,15 +160,40 @@ const DOCKER_PORTABLE_TARGETS = {
 };
 
 /**
- * Returns `true` when the platform entry declares a portable artifact that must
- * be produced through the Docker cross-build image (the host cannot natively
- * bundle this target as an installer, but can still ship a raw binary).
+ * Bundle types the cross image can produce for a target, beyond the raw
+ * portable binary. The .deb/.rpm bundlers of `tauri-bundler` are pure Rust and
+ * the AppImage one runs linuxdeploy with `--appimage-extract-and-run`
+ * (no FUSE needed), so all three work inside an unprivileged Linux container.
+ */
+const DOCKER_BUNDLED_TARGETS = {
+  'x86_64-unknown-linux-gnu': ['deb', 'rpm', 'appimage'],
+  'aarch64-unknown-linux-gnu': ['deb', 'rpm', 'appimage'],
+};
+
+/**
+ * Returns the bundles of a platform entry that are produced inside the cross
+ * image (`bundle.targets` intersected with what the image supports).
+ *
+ * @param {object} platform - A platform entry from `release-config.json`.
+ * @returns {string[]} Docker-producible bundle types (possibly empty).
+ */
+export function dockerBundlesFor(platform) {
+  const supported = DOCKER_BUNDLED_TARGETS[platform.target];
+  if (!supported || platform.build !== 'docker') return [];
+  return (platform.bundles ?? []).filter((bundle) => supported.includes(bundle));
+}
+
+/**
+ * Returns `true` when the platform entry must be produced through the Docker
+ * cross-build image: it declares either a portable artifact or bundles the
+ * image can produce, and the host cannot natively do everything.
  *
  * @param {object} platform - A platform entry from `release-config.json`.
  * @returns {boolean} Whether the platform should be built inside the container.
  */
 export function needsDockerBuild(platform) {
-  return !!(platform.portable && platform.build === 'docker' && DOCKER_PORTABLE_TARGETS[platform.target]);
+  if (platform.build !== 'docker' || !DOCKER_PORTABLE_TARGETS[platform.target]) return false;
+  return !!(platform.portable || dockerBundlesFor(platform).length > 0);
 }
 
 /**

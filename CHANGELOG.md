@@ -5,6 +5,41 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ## Unreleased
 
 ### Added
+- **Linux installers (.deb/.rpm/.AppImage) from the Docker cross image (`build-release/`)**:
+  On hosts that cannot natively bundle them (macOS/Windows), the `linux-x86_64`
+  and `linux-arm64` platforms are now fully produced inside the cross image: a
+  single in-image `cargo tauri build --target <triple>` pass (via the newly
+  installed Tauri CLI) compiles the release binary AND generates the three
+  installer formats, alongside — not instead of — the existing portable
+  `.tar.gz`. No FUSE or privileged container is involved: the Tauri deb/rpm
+  bundlers are pure Rust and its AppImage bundler runs linuxdeploy with
+  `--appimage-extract-and-run` (downloads cached in
+  `<workspace target>/.tauri-bundle-cache/<arch>/` across runs). Host-side,
+  `capabilities.mjs` gained `dockerBundlesFor()` (targets x64/arm64 Linux ->
+  `deb`/`rpm`/`appimage`, intersected with the config's declared bundles) and
+  `needsDockerBuild()` now also triggers on bundle declarations, not just
+  portable ones; `release.mjs` assembles/checksums the container-produced
+  installers like native ones (discovered under the existing
+  `.docker-build/<arch>/` roots). Cross image bumped to
+  `arachnea-cross-builder:1.1.0`: added `curl`, `ca-certificates`, `file`,
+  `desktop-file-utils`, and tauri-cli 2.11.4 (prebuilt binary on the amd64
+  port, compiled from crates.io on arm64 since upstream ships no
+  aarch64-linux asset; the GNU target is forced explicitly because the base
+  image's cargo config defaults its arm64 port to a static musl build that
+  fails to link). Docker platforms now also probe that a local image variant
+  exists for their container architecture before running, so a missing amd64
+  or arm64 build yields an actionable error instead of a registry pull
+  failure. Linux installers are produced by **one in-image `cargo tauri build`
+  pass per bundle type** (`bundle.targets` limited to a single type each time):
+  requesting `deb`+`rpm`+`appimage` together in one process made the Tauri
+  bundler crash with "Could not read binary file" on the mounted volume between
+  types. The image also gained `squashfs-tools` (linuxdeploy needs `mksquashfs`
+  for the AppImage) and each bundle pass is attempted independently: when a
+  bundle cannot be produced in the container (e.g. `.AppImage` under Docker
+  Desktop, which has no FUSE for linuxdeploy's internal sub-processes), the
+  other installers and the portable archive are still shipped and the platform
+  is reported as a success with a warning. `--list` and `--dry-run` reflect
+  the new production.
 - **Release artifact naming and checksums (`build-release/`)**: All produced
   artifacts now follow the `<product>-<version>-<os>-<arch>.<ext>` scheme
   (e.g. `arachnea-0.1.0-darwin-x64.dmg`,

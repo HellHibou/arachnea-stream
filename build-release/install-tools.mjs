@@ -254,9 +254,10 @@ async function ensureMakensis(platforms) {
 
 /**
  * Ensures the Docker cross image is built when some selected platforms produce
- * their portable Linux/macOS binaries through Docker. Because the first build
- * pulls the large base image (Rust + osxcross + Apple SDK), it requires
- * confirmation like every other host change.
+ * anything through Docker (portable Linux/macOS binaries and/or the Linux
+ * installers bundled inside the image). Because the first build pulls the
+ * large base image (Rust + osxcross + Apple SDK), it requires confirmation
+ * like every other host change.
  *
  * @param {object[]} platforms - Resolved platform entries.
  */

@@ -9,6 +9,8 @@
 # This derivation adds the WebKitGTK/GUI development stack required to compile
 # the Tauri application for the *-unknown-linux-gnu targets (which the base
 # image does not ship) and updates rustup to the latest stable (see below).
+# It also installs the Tauri CLI (`cargo tauri build`), used inside the image
+# to produce the Linux installers (.deb/.rpm/.AppImage).
 # macOS targets need no extra system package: wry on macOS links against the
 # Apple frameworks provided by the osxcross SDK.
 FROM joseluisq/rust-linux-darwin-builder:2.0.0-beta.1
@@ -30,7 +32,33 @@ RUN apt-get update \
         librsvg2-dev \
         patchelf \
         xdg-utils \
+        curl \
+        ca-certificates \
+        file \
+        desktop-file-utils \
     && rm -rf /var/lib/apt/lists/*
+
+# Tauri CLI (`cargo tauri build`) used by the Docker bundling step for the Linux
+# installers (.deb/.rpm/.AppImage). Upstream only ships a prebuilt binary for
+# x86_64-unknown-linux-gnu; the arm64 port compiles it from crates.io instead.
+# The GNU target must be passed explicitly on arm64: the base image's cargo
+# config defaults that port to a static musl build of cargo-install targets,
+# which fails to link (mixed glibc/musl objects, missing libm symbols).
+# `--root /usr/local` places `cargo-tauri` into /usr/local/bin so the plain
+# `cargo tauri ...` form works.
+ARG TARGETARCH
+ARG TAURI_CLI_VERSION=2.11.4
+RUN set -e; \
+    case "$TARGETARCH" in \
+      amd64) \
+        curl -fsSL "https://github.com/tauri-apps/tauri/releases/download/tauri-cli-v${TAURI_CLI_VERSION}/cargo-tauri-x86_64-unknown-linux-gnu.tgz" \
+          | tar -xz -C /usr/local/bin cargo-tauri ;; \
+      arm64) \
+        cargo install --locked --version "$TAURI_CLI_VERSION" \
+          --target aarch64-unknown-linux-gnu --root /usr/local tauri-cli ;; \
+      *) \
+        echo "Unsupported TARGETARCH for tauri-cli installation: $TARGETARCH" >&2; exit 1 ;; \
+    esac
 
 # Bring Rust up to the latest stable and re-install the cross targets on it.
 # The base image pins an older rustc (earlier 1.8x) that cannot compile the
@@ -89,3 +117,13 @@ ENV CC_x86_64_apple_darwin=/usr/local/bin/x86_64-apple-darwin22.4-clang \
 # target triple they are scoped to above.
 ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS="-Clink-arg=/usr/lib/x86_64-linux-gnu/libssl.so -Clink-arg=/usr/lib/x86_64-linux-gnu/libcrypto.so" \
     CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS="-Clink-arg=/usr/lib/aarch64-linux-gnu/libssl.so -Clink-arg=/usr/lib/aarch64-linux-gnu/libcrypto.so"
+
+# AppImage bundling toolchain. linuxdeploy-plugin-appimage produces the
+# SquashFS image through `mksquashfs`, which the base image does not ship; the
+# AppImage bundler fails with `failed to run linuxdeploy` without it. Kept as a
+# separate layer after the Tauri CLI one so the heavy apt/tauri-cli layers stay
+# cached when this list changes.
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        squashfs-tools \
+    && rm -rf /var/lib/apt/lists/*
