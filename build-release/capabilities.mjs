@@ -60,7 +60,7 @@ const ARCH_SHORT = {
  * before the first dash). Families missing from this map keep their raw name.
  */
 const FAMILY_OUTPUT_NAMES = {
-  darwin: 'osx',
+  darwin: 'darwin',
   windows: 'windows',
   linux: 'linux',
 };
@@ -75,7 +75,7 @@ const SELECTOR_ALIASES = {
 
 /**
  * Returns the release subfolder name for a platform id, using only the
- * family part before the first dash (`darwin-arm64` -> `osx`,
+ * family part before the first dash (`darwin-arm64` -> `darwin`,
  * `windows-x86_64` -> `windows`).
  *
  * @param {string} platformId - Platform identifier from `release-config.json`.
@@ -139,3 +139,58 @@ export function usableBundlesFor(platform, requested) {
 export function archShort(target) {
   return ARCH_SHORT[target] ?? target.split('-')[0];
 }
+
+/**
+ * Rust targets that can be produced as a single raw executable through the
+ * Arachnea cross-build image (`build-release/docker/Dockerfile`, derived from
+ * `joseluisq/rust-linux-darwin-builder`). This does NOT create platform
+ * installers (`.dmg`, `.deb`, ...): it only compiles the release binary that
+ * the host-side portable step packages (`.tar.gz`/`.zip`).
+ *
+ * A platform entry that sets `"build": "docker"` together with a `portable`
+ * block is produced this way whenever the current host cannot natively bundle
+ * that target.
+ */
+const DOCKER_PORTABLE_TARGETS = {
+  'x86_64-apple-darwin': true,
+  'aarch64-apple-darwin': true,
+  'x86_64-unknown-linux-gnu': true,
+  'aarch64-unknown-linux-gnu': true,
+};
+
+/**
+ * Returns `true` when the platform entry declares a portable artifact that must
+ * be produced through the Docker cross-build image (the host cannot natively
+ * bundle this target as an installer, but can still ship a raw binary).
+ *
+ * @param {object} platform - A platform entry from `release-config.json`.
+ * @returns {boolean} Whether the platform should be built inside the container.
+ */
+export function needsDockerBuild(platform) {
+  return !!(platform.portable && platform.build === 'docker' && DOCKER_PORTABLE_TARGETS[platform.target]);
+}
+
+/**
+ * Resolves the production method for a platform entry.
+ *
+ * - `native`: the current host can natively bundle this target (e.g. `.dmg` on
+ *   macOS, NSIS/MSI on Windows, Linux installers on Linux).
+ * - `docker`: the raw release binary must be cross-compiled in the container
+ *   and shipped as a portable archive.
+ * - `none`: cannot be produced on this host at all.
+ *
+ * With `forceDocker`, platforms eligible for the Docker cross-build image
+ * (`needsDockerBuild`) use it even when this host could natively bundle them;
+ * targets not managed by the image still fall back to the native builder.
+ *
+ * @param {object} platform - A platform entry from `release-config.json`.
+ * @param {string[]} usable - The bundles usable on this host (see `usableBundlesFor`).
+ * @param {boolean} [forceDocker] - Force the Docker builder where supported.
+ * @returns {'native'|'docker'|'none'}
+ */
+export function productionMethod(platform, usable, forceDocker = false) {
+  if (forceDocker && needsDockerBuild(platform)) return 'docker';
+  if (usable.length > 0) return 'native';
+  return needsDockerBuild(platform) ? 'docker' : 'none';
+}
+

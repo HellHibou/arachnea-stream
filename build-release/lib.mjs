@@ -17,7 +17,7 @@ import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { usableBundlesFor, hostId, normalizeSelector } from './capabilities.mjs';
+import { usableBundlesFor, hostId, normalizeSelector, needsDockerBuild, productionMethod } from './capabilities.mjs';
 
 const RELEASE_DIR = path.dirname(fileURLToPath(import.meta.url));
 
@@ -85,6 +85,18 @@ function matchesSelector(id, selector) {
 }
 
 /**
+ * Merges common and platform-specific portable option lists, preserving order
+ * and dropping duplicates (common values first, platform values after).
+ *
+ * @param {Array<string>} [common] - Common `portable` list from the config root.
+ * @param {Array<string>} [local] - Platform-level `portable` list.
+ * @returns {string[]} Merged, de-duplicated list.
+ */
+function mergePortableList(common = [], local = []) {
+  return [...new Set([...common, ...local])];
+}
+
+/**
  * Enriches platform entries with the bundles usable on this host.
  *
  * @param {object} config - Loaded release configuration.
@@ -92,13 +104,38 @@ function matchesSelector(id, selector) {
  *   matches one of the selectors. Selectors are exact ids, bare family names
  *   (`darwin`, `windows`, `linux`, and aliases like `osx`), or `*` patterns
  *   like `darwin-*`. They may repeat or be comma-separated upstream.
+ * @param {object} [options] - Resolution options.
+ * @param {boolean} [options.forceUseDockerBuilder] - Route every Docker-capable
+ *   platform through the cross-build image even when this host could produce
+ *   it natively (targets not managed by the image stay native).
  * @returns {object[]} Platform entries with `usable`, `runner`, `needsTargets`
- *   and `buildable` fields added, in configuration order.
+ *   and `buildable` fields added, in configuration order. Portable platforms
+ *   get their `portable.include`/`portable.exclude` merged with the common
+ *   `config.portable.include`/`.exclude` lists (platform values appended).
  */
-export function resolvePlatforms(config, selectors = []) {
+export function resolvePlatforms(config, selectors = [], options = {}) {
   const platforms = config.platforms.map((platform) => {
     const { usable, runner, needsTargets } = usableBundlesFor(platform, platform.bundles);
-    return { ...platform, usable, runner, needsTargets, buildable: usable.length > 0 };
+    const method = productionMethod(platform, usable, options.forceUseDockerBuilder === true);
+    let portable = platform.portable;
+    if (portable) {
+      const common = config.portable ?? {};
+      portable = {
+        ...portable,
+        include: mergePortableList(common.include, portable.include),
+        exclude: mergePortableList(common.exclude, portable.exclude),
+      };
+    }
+    return {
+      ...platform,
+      usable,
+      runner,
+      needsTargets,
+      method,
+      needsDockerBuild: needsDockerBuild(platform),
+      buildable: method !== 'none',
+      portable,
+    };
   });
 
   const normalized = (selectors ?? []).map((selector) => normalizeSelector(selector.trim()));
@@ -212,6 +249,35 @@ export function createZip(srcDir, zipPath) {
 }
 
 /**
+ * Creates a `.tar.gz` archive from a source directory using `tar` (bsdtar on
+ * Windows/macOS, GNU tar elsewhere), which is available on every supported
+ * host. Used for portable Linux/macOS builds produced through Docker.
+ *
+ * @param {string} srcDir - Directory whose content is archived (relative paths).
+ * @param {string} tarPath - Absolute destination `.tar.gz` archive path.
+ */
+export function createTarGz(srcDir, tarPath) {
+  mkdirSync(path.dirname(tarPath), { recursive: true });
+  if (!canRun('tar')) throw new Error('`tar` is required to create the portable archive.');
+  run('tar', ['-czf', tarPath, '.'], { cwd: srcDir });
+}
+
+/**
+ * Creates a portable archive whose format depends on the file extension:
+ * `.tar.gz` uses `createTarGz`, anything else uses `createZip`.
+ *
+ * @param {string} srcDir - Directory whose content is archived.
+ * @param {string} archivePath - Absolute destination archive path.
+ */
+export function createArchive(srcDir, archivePath) {
+  if (archivePath.endsWith('.tar.gz')) {
+    createTarGz(srcDir, archivePath);
+    return;
+  }
+  createZip(srcDir, archivePath);
+}
+
+/**
  * Lists the cargo output directories to search for a Tauri project: its own
  * `target/` folder and, when built inside a workspace, the workspace root
  * `target/` folder (where cargo actually places cross-target builds).
@@ -231,6 +297,16 @@ export function targetBaseDirs(tauriDir) {
     const parent = path.dirname(dir);
     if (parent === dir) break;
     dir = parent;
+  }
+  // Docker cross builds write into `<workspace target>/.docker-build/<arch>/`
+  // (one sub-directory per container architecture, see docker.mjs); include
+  // the ones that already exist so bundle/exe lookups find those artifacts.
+  for (const base of [...bases]) {
+    const splitRoot = path.join(base, '.docker-build');
+    if (!existsSync(splitRoot)) continue;
+    for (const entry of readdirSync(splitRoot)) {
+      bases.add(path.join(splitRoot, entry));
+    }
   }
   return [...bases];
 }

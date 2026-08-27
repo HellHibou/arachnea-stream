@@ -10,11 +10,13 @@
 // Usage:
 //   node release/install-tools.mjs                 # all locally buildable platforms
 //   node release/install-tools.mjs --platform <id> # tools for one platform
-import { chmodSync, existsSync, mkdirSync, readSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { createInterface } from 'node:readline/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { canRun, commandPath, run, loadConfig, resolvePlatforms, hostLabel, CROSS_TOOLS_BIN_DIR } from './lib.mjs';
+import { crossImagePresent, ensureCrossImage } from './docker.mjs';
 
 function parseArgs(argv) {
   const options = { platforms: [] };
@@ -51,8 +53,17 @@ current host (${hostLabel()}):
 `);
 }
 
-/** Requests confirmation before changing the host toolchain. */
-function confirmInstallation(description) {
+/**
+ * Requests confirmation before changing the host toolchain.
+ *
+ * Reads the answer through a readline interface instead of a raw synchronous
+ * stdin read: `readSync(0, ...)` fails with EAGAIN when stdin sits in
+ * non-blocking mode (e.g. IDE terminals), while readline handles it correctly.
+ * The prompt is written explicitly through plain stdout because readline
+ * ignores its own prompt string when running without `terminal: true`, which
+ * would otherwise leave a silent wait with no visible question.
+ */
+async function confirmInstallation(description) {
   if (!process.stdin.isTTY) {
     throw new Error(
       `Cannot install ${description} without confirmation in a non-interactive terminal. ` +
@@ -60,17 +71,24 @@ function confirmInstallation(description) {
     );
   }
 
-  process.stdout.write(`\n[install-tools] Install ${description}? [y/N] `);
-  const buffer = Buffer.alloc(1024);
-  const length = readSync(0, buffer, 0, buffer.length, null);
-  const answer = buffer.toString('utf8', 0, length).trim().toLowerCase();
-  if (answer !== 'y' && answer !== 'yes') {
+  const rl = createInterface({ input: process.stdin, terminal: false });
+  try {
+    process.stdout.write(`\n[install-tools] Install ${description}? [y/N] `);
+    const answer = (await rl.question('')).trim().toLowerCase();
+    if (answer !== 'y' && answer !== 'yes') {
+      throw new Error(`Installation cancelled: ${description}.`);
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Installation cancelled')) throw error;
+    // A closed stdin (EOF/Ctrl+D) or a stream failure counts as a refusal.
     throw new Error(`Installation cancelled: ${description}.`);
+  } finally {
+    rl.close();
   }
 }
 
 /** Installs rust targets for the given platform entries. */
-function installRustTargets(platforms) {
+async function installRustTargets(platforms) {
   const targets = [...new Set(platforms.flatMap((p) => p.needsTargets))];
   if (targets.length === 0) return;
   if (!canRun('rustup')) throw new Error('`rustup` is not installed. Install Rust first: https://rustup.rs');
@@ -82,12 +100,12 @@ function installRustTargets(platforms) {
     console.log('\n[install-tools] Required Rust targets are already installed.');
     return;
   }
-  confirmInstallation(`Rust targets: ${missing.join(', ')}`);
+  await confirmInstallation(`Rust targets: ${missing.join(', ')}`);
   run('rustup', ['target', 'add', ...missing]);
 }
 
 /** Installs `cargo-xwin` when a Windows target is built from a non-Windows host. */
-function installCargoXwin(platforms) {
+async function installCargoXwin(platforms) {
   const needsXwin =
     process.platform !== 'win32' && platforms.some((p) => p.target.includes('windows'));
   if (!needsXwin) return;
@@ -97,12 +115,12 @@ function installCargoXwin(platforms) {
     return;
   }
   console.log('\n[install-tools] Installing cargo-xwin (Windows MSVC cross-linker)...');
-  confirmInstallation('cargo-xwin');
+  await confirmInstallation('cargo-xwin');
   run('cargo', ['install', 'cargo-xwin', '--locked']);
 }
 
 /** Installs Linux system packages required by Tauri bundles. */
-function installLinuxSystemDeps() {
+async function installLinuxSystemDeps() {
   if (process.platform !== 'linux') return;
   const packages = [
     'libwebkit2gtk-4.1-dev',
@@ -113,7 +131,7 @@ function installLinuxSystemDeps() {
     'zip',
   ];
   console.log('\n[install-tools] Installing Linux system packages...');
-  confirmInstallation(`Linux system packages: ${packages.join(', ')}`);
+  await confirmInstallation(`Linux system packages: ${packages.join(', ')}`);
   run('sudo', ['apt-get', 'update']);
   run('sudo', ['apt-get', 'install', '-y', ...packages]);
 }
@@ -138,7 +156,7 @@ function hasRequiredLlvmTools() {
  *
  * @param {object[]} platforms - Resolved platform entries.
  */
-function ensureWindowsCrossLlvmTools(platforms) {
+async function ensureWindowsCrossLlvmTools(platforms) {
   if (process.platform === 'win32') return;
   if (!platforms.some((p) => p.target.includes('windows'))) return;
 
@@ -149,14 +167,14 @@ function ensureWindowsCrossLlvmTools(platforms) {
 
   if (process.platform === 'darwin' && canRun('brew')) {
     console.log('\n[install-tools] Installing LLVM and LLD through Homebrew for cargo-xwin...');
-    confirmInstallation('Homebrew packages: llvm, lld');
+    await confirmInstallation('Homebrew packages: llvm, lld');
     run('brew', ['install', 'llvm', 'lld']);
     return;
   }
 
   if (process.platform === 'linux') {
     console.log('\n[install-tools] Installing LLVM tools for cargo-xwin...');
-    confirmInstallation('Linux packages: clang, lld, llvm');
+    await confirmInstallation('Linux packages: clang, lld, llvm');
     run('sudo', ['apt-get', 'update']);
     run('sudo', ['apt-get', 'install', '-y', 'clang', 'lld', 'llvm']);
     return;
@@ -175,7 +193,7 @@ const NATIVE_BUILD_TOOLS = ['cmake', 'ninja', 'nasm'];
  * Installs the native build tools required by some crates' build scripts
  * (`cmake`, `ninja`) when missing, through Homebrew on macOS or apt on Linux.
  */
-function ensureNativeBuildTools() {
+async function ensureNativeBuildTools() {
   const missing = NATIVE_BUILD_TOOLS.filter((tool) => !canRun(tool));
   if (missing.length === 0) {
     console.log(`\n[install-tools] Native build tools (${NATIVE_BUILD_TOOLS.join(', ')}) found.`);
@@ -184,14 +202,14 @@ function ensureNativeBuildTools() {
 
   if (process.platform === 'darwin' && canRun('brew')) {
     console.log(`\n[install-tools] Installing native build tools through Homebrew: ${missing.join(', ')}...`);
-    confirmInstallation(`Homebrew packages: ${missing.join(', ')}`);
+    await confirmInstallation(`Homebrew packages: ${missing.join(', ')}`);
     run('brew', ['install', ...missing]);
     return;
   }
   if (process.platform === 'linux') {
     const packages = missing.map((tool) => (tool === 'ninja' ? 'ninja-build' : tool));
     console.log(`\n[install-tools] Installing native build tools: ${packages.join(', ')}...`);
-    confirmInstallation(`Linux packages: ${packages.join(', ')}`);
+    await confirmInstallation(`Linux packages: ${packages.join(', ')}`);
     run('sudo', ['apt-get', 'install', '-y', ...packages]);
     return;
   }
@@ -206,14 +224,14 @@ function ensureNativeBuildTools() {
  *
  * @param {object[]} platforms - Resolved platform entries.
  */
-function ensureMakensis(platforms) {
+async function ensureMakensis(platforms) {
   if (process.platform === 'win32') return;
   if (!platforms.some((p) => p.target.includes('windows'))) return;
 
   if (!canRun('makensis')) {
     if (process.platform === 'darwin' && canRun('brew')) {
       console.log('\n[install-tools] Installing makensis through Homebrew (NSIS compiler)...');
-      confirmInstallation('Homebrew package: makensis');
+      await confirmInstallation('Homebrew package: makensis');
       run('brew', ['install', 'makensis']);
     } else {
       console.warn('[install-tools] `makensis` not found. Install NSIS before building Windows targets.');
@@ -235,11 +253,30 @@ function ensureMakensis(platforms) {
 }
 
 /**
- * Installs every tool required to build the given platforms on this host.
+ * Ensures the Docker cross image is built when some selected platforms produce
+ * their portable Linux/macOS binaries through Docker. Because the first build
+ * pulls the large base image (Rust + osxcross + Apple SDK), it requires
+ * confirmation like every other host change.
+ *
+ * @param {object[]} platforms - Resolved platform entries.
+ */
+async function ensureDockerCrossBuild(platforms) {
+  const buildPlatforms = platforms.filter((p) => p.needsDockerBuild);
+  if (buildPlatforms.length === 0) return;
+  if (crossImagePresent()) {
+    console.log(`\n[install-tools] Docker cross image already built for: ${buildPlatforms.map((p) => p.id).join(', ')}.`);
+    return;
+  }
+  console.log(`\n[install-tools] Building the Docker cross image for: ${buildPlatforms.map((p) => p.id).join(', ')}.`);
+  await confirmInstallation('the Arach cross-build Docker image (first run pulls the base rust + osxcross image)');
+  ensureCrossImage();
+}
+
+/** Installs every tool required to build the given platforms on this host.
  *
  * @param {object[]} platforms - Resolved platform entries (see `lib.mjs`).
  */
-export function installTools(platforms) {
+export async function installTools(platforms) {
   const buildable = platforms.filter((p) => p.buildable);
   const skipped = platforms.filter((p) => !p.buildable);
   for (const platform of skipped) {
@@ -255,19 +292,22 @@ export function installTools(platforms) {
   const targets = [...new Set(buildable.flatMap((p) => p.needsTargets))];
   console.log(`[install-tools] Host: ${hostLabel()}`);
   console.log(`[install-tools] Toolchain targets to ensure: ${targets.join(', ') || '(none)'}`);
-  installRustTargets(buildable);
-  installCargoXwin(buildable);
-  ensureWindowsCrossLlvmTools(buildable);
-  ensureNativeBuildTools();
-  ensureMakensis(buildable);
-  installLinuxSystemDeps();
+  // Docker-built targets compile inside the container via osxcross/its own
+  // toolchains, so only install host rustup targets for natively-built ones.
+  await installRustTargets(buildable.filter((p) => p.method !== 'docker'));
+  await installCargoXwin(buildable);
+  await ensureWindowsCrossLlvmTools(buildable);
+  await ensureNativeBuildTools();
+  await ensureMakensis(buildable);
+  await installLinuxSystemDeps();
+  await ensureDockerCrossBuild(buildable);
   if (!canRun('zip')) {
     console.warn('[install-tools] `zip` not found. The Windows portable archive will use an alternative tool.');
   }
   console.log('[install-tools] Done.');
 }
 
-function main() {
+async function main() {
   const options = parseArgs(process.argv.slice(2));
   if (options.help) {
     help();
@@ -275,7 +315,7 @@ function main() {
   }
   const config = loadConfig();
   const platforms = resolvePlatforms(config, options.platforms);
-  installTools(platforms);
+  await installTools(platforms);
 }
 
 // Only run the CLI when this file is the entry point, so that importing

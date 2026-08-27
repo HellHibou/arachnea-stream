@@ -5,6 +5,36 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ## Unreleased
 
 ### Added
+- **Release artifact naming and checksums (`build-release/`)**: All produced
+  artifacts now follow the `<product>-<version>-<os>-<arch>.<ext>` scheme
+  (e.g. `arachnea-0.1.0-darwin-x64.dmg`,
+  `arachnea-0.1.0-linux-amd64-portable.tar.gz`, `-setup.exe` kept for NSIS) and
+  macOS outputs are no longer placed under an `osx/` sub-folder — the family's
+  own `darwin/` name is kept in `releases/release-<version>/`.
+  A portable archive's `.sha256`/`.md5` checksum file lists the archive's own
+  hash first, then the hash of every file staged inside the archive; hashes are
+  computed on the original files during packaging without ever extracting the
+  archive. `release-config.json` also accepts a top-level `portable.include` /
+  `portable.exclude` block shared by every platform with a `portable` section,
+  merged with each platform's own lists (common values first, platform values
+  after, de-duplicated).
+- **`--force-use-docker-builder` release flag**: New CLI option routing every
+  Docker-capable platform (`"build": "docker"` + portable block + target listed
+  in the cross-image matrix) through the Docker builder even when the current
+  host could natively produce it (e.g. building macOS portables from a Mac
+  inside the cross image instead of natively). Targets not managed by the
+  image (Windows MSVC bundles, `darwin-universal`, ...) keep the native
+  builder.
+- **Cross-image aarch64-apple-darwin compiler fix (`build-release/docker/`)**:
+  The generated `aarch64-apple-darwin22.4-clang`/`-clang++` wrappers pointed at
+  the historical unversioned osxcross driver (`aarch64-apple-darwin-clang`),
+  which exists in neither the amd64 nor the arm64 image port, so any build
+  compiling Objective-C sources for `aarch64-apple-darwin` inside the
+  container failed (`objc2-exception-helper`: "exec: ... not found"). Wrappers
+  now exec the arch-versioned drivers (`aarch64-apple-darwin22.4-clang[-++]`,
+  present in both ports) with their matching `-ld`; verified by a successful
+  full `darwin-arm64` container build producing a Mach-O arm64 executable.
+
 - **Release builder configuration**: Renamed `build-release/release-targets.json` to `release-config.json` and added `frontendProject`, so the frontend build directory is configured rather than hardcoded.
 - **Release builder failure handling**: Added `--continue-on-error` to continue after a platform-specific failure, with a final per-target success/failure summary and non-zero exit status when any target fails.
 - **Release tool provisioning confirmation**: The release toolchain now requests explicit interactive confirmation before installing Rust targets, packages, or build tools, including when provisioning is started by `release.mjs`.
@@ -62,6 +92,37 @@ All notable changes to the server workspace are recorded here. Add new entries a
   assets, so both files load correctly when the server serves the application
   under a non-root `--entrypoint-root` prefix instead of failing with root-
   absolute `/themes.json` / `/video-sources-whitelist.json` requests.
+
+### Fixed
+
+- **Release tool installer EAGAIN crash**: the interactive confirmation in
+  `build-release/install-tools.mjs` read stdin with a raw synchronous
+  `readSync(0, ...)`, which failed with `EAGAIN` when stdin sat in non-blocking
+  mode (e.g. IDE terminals). Confirmations now go through a
+  `node:readline/promises` question written explicitly to stdout (readline
+  ignores its own prompt string without `terminal: true`, which left a silent
+  wait); `installTools()` and its helpers are async and awaited by
+  `release.mjs`. A closed stdin (EOF/Ctrl+D) counts as a refusal.
+- **Docker Linux cross-builds now run container-arch-matched containers**:
+  linking a GNU/Linux binary requires GTK/WebKitGTK/OpenSSL for the *target*
+  architecture, but the cross image only ships those stacks for its own arch,
+  so `linux-x86_64` builds failed — first at `openssl-sys`
+  (`openssl/opensslconf.h` is per-architecture under Debian multiarch), then
+  at the final link (`cannot find -lwebkit2gtk-4.1`, ...). The cross image
+  (`build-release/docker/Dockerfile`) is rebuilt as an amd64 + arm64 manifest
+  list, and `docker.mjs` pins `--platform linux/amd64|arm64` to the Linux
+  target triple (macOS targets keep the host default through osxcross). Cargo
+  artifacts split into `<workspace target>/.docker-build/<amd64|arm64>/`
+  via `CARGO_TARGET_DIR` so build scripts / proc-macros compiled for different
+  container architectures cannot overwrite each other in the shared mounted
+  workspace; `targetBaseDirs()` includes those directories when present so the
+  portable-archive step still finds the raw executables. The GNU/Linux link
+  also pins the system OpenSSL shared objects through per-target
+  `CARGO_TARGET_*_RUSTFLAGS`: `boring-sys2`'s static `libssl.a`/`libcrypto.a`
+  -L directories shadow the bare `-lssl`/`-lcrypto` names and left OpenSSL
+  3-only symbols (`SSL_read_ex`, `SSL_get1_peer_certificate`,
+  `ERR_get_error_all`, ...) undefined at link time.
+
 ### Changed
 - **Background Ken Burns pans exactly to the real image borders**: the animated background image now measures each source's natural dimensions on load and derives its true rendered overflow under `object-fit: cover` (`--ken-burns-max-x` / `--ken-burns-max-y` CSS variables per image), so the pan sweeps from one image corner to the opposite one regardless of the picture's aspect ratio — portrait images finally use their full vertical headroom while landscape ones stay capped at their own edges. A zoom breathing from `1x` to `1.22x` mid-cycle keeps the effect clearly visible even when the picture closely matches the screen ratio; every frame stays fully covered since translations never exceed the measured overflow. Bounds are recomputed on viewport resize, pruned when the media list changes, and fall back to a static frame until an image has loaded.
 - **Bookmarks persist the generic `img.url` snapshot**: `EntryBookmark` gains an `imageUrl` field (the un-oriented image from `get_entry`), saved alongside `imagePosterUrl`/`imageLandscapeUrl` in `ProgramEntryDetails`, carried through the bookmark lookup and sanitization in `storage.ts`, and exposed by the bookmarks home section so favorite cards fall back to it when no poster or landscape image is available. Existing bookmarks without the field load as `imageUrl: null` with no migration needed.
@@ -765,3 +826,4 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **Targeted release cleanup (`build-release/`)**: The release run no longer wipes the whole `releases/release-<VERSION>/` folder. Cleaning is now scoped to what the run rebuilds: selecting a full family (e.g. `-p osx`) clears that family folder, while selecting a single platform (e.g. `-p darwin-x86_64`) removes only that build's artifacts and their `.sha256`/`.md5` checksums, leaving other platforms' files untouched (including unrelated files in the family folder).
 - **Cross-platform bundle selection fix (`build-release/`)**: Bundle types are now passed to `cargo tauri build` through a `--config` merge (`bundle.targets`) instead of the `--bundles` flag, which the Tauri CLI validates against a host-dependent value list that rejects cross builds (e.g. a macOS host only accepts `app`/`dmg`/`ios`, so `--bundles nsis` failed for `x86_64-pc-windows-msvc`). `install-tools` additionally installs LLVM through Homebrew when `llvm-rc` is missing on non-Windows hosts building Windows targets (required by cargo-xwin), warns about a missing `cmake`, and every spawned `cargo tauri build` augments PATH with the common Homebrew LLVM directories.
 - **Windows cross-build toolchain provisioning (`build-release/`)**: The first real `x86_64-pc-windows-msvc` cross build surfaced three missing native tools, now provisioned automatically by `install-tools`: Ninja and NASM through Homebrew/apt (BoringSSL's `boring-sys2` CMake build requires both), and `makensis` — for which a `makensis.exe` shell shim wrapping the native compiler is created under `~/.arachnea-cross-tools/bin/` because the Tauri NSIS bundler invokes the Windows-style executable name; spawned builds augment PATH with that directory. The full macOS → Windows NSIS pipeline is verified end to end: `arachnea.exe` cross-compiled, `*-setup.exe` installer generated, portable zip assembled, checksums written.
+- **Portable Linux/macOS binaries via Docker (`build-release/`)**: The builder can now ship raw portable binaries for `linux-x86_64`, `linux-arm64`, `darwin-x86_64` and `darwin-arm64` from any host (e.g. Windows) by cross-compiling inside a dedicated Docker image. `build-release/docker.mjs` builds/runs the image and `build-release/docker/Dockerfile` derives it from `joseluisq/rust-linux-darwin-builder` (Rust + osxcross for macOS, WebKitGTK 4.1 stack added for the Linux GNU targets). A platform is produced this way (method `docker`) when `release-config.json` declares `"build": "docker"` with a `portable` block and the host cannot bundle it natively, packaging the executable as `arachnea_<ver>_<arch>-portable.tar.gz` (with `.sha256`/`.md5`). The generic portable step now supports both `.zip` (Windows) and `.tar.gz` (Linux/macOS). Added `--dry-run` to preview the planned production including the exact `docker run` commands; `--list` reports the production method (`native`/`docker`). The `install-tools` frontend build also works on Node ≥ 20 under Windows (`npm.cmd` is now spawned with `shell: true` to avoid an `EINVAL`). The cross image (`arachnea-cross-builder:1.0.0`) updates rustup to the latest stable so its rustc can compile the dependency graph (e.g. `boa`, `cookie_store`, `time` require rustc >= 1.88, reinstalling the darwin/linux targets on the new toolchain) and points cc-rs at osxcross compilers named with the full triple prefix (`x86_64-apple-darwin22.4-clang`, using the dash-substituted `CC_<target-with-underscores>` form cargo actually forwards) via wrappers that bind clang to the osxcross ld64 linker (`-fuse-ld`). Naming them with the triple prefix makes cmake infer and locate the osxcross binutils it needs (`install_name_tool`, `dsymutil`, `nm`, `ar`, ...), so C/ObjC sources and CMake builds (objc2, ring, BoringSSL) compile and link instead of falling back to the host GCC/`/usr/bin/ld`. No installer (`.dmg`/`.deb`/...) is created by this path — the `.dmg` and MSI remain host-bound; macOS portable binaries are unsigned (see `docs/dev-tracking/docker-build.txt`).

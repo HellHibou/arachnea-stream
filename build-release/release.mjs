@@ -10,8 +10,10 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from 'node:fs';
 import { installTools } from './install-tools.mjs';
 import {
@@ -30,10 +32,12 @@ import {
   bundleSearchDirs,
   canRun,
   removeDir,
-  createZip,
+  createArchive,
   writeChecksum,
+  fileDigestHex,
 } from './lib.mjs';
-import { archShort, outputFolderName } from './capabilities.mjs';
+import { archShort, outputFolderName, familyOf } from './capabilities.mjs';
+import { assertDocker, crossBuildArgs, describeCrossBuild, ensureCrossImage } from './docker.mjs';
 
 function parseArgs(argv) {
   const options = {
@@ -44,6 +48,9 @@ function parseArgs(argv) {
     skipBuild: false,
     noFrontendBuild: false,
     continueOnError: false,
+    dryRun: false,
+    forceUseDockerBuilder: false,
+    help: false,
   };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -60,6 +67,8 @@ function parseArgs(argv) {
     else if (arg === '--skip-build') options.skipBuild = true;
     else if (arg === '--no-frontend-build') options.noFrontendBuild = true;
     else if (arg === '--continue-on-error') options.continueOnError = true;
+    else if (arg === '--dry-run') options.dryRun = true;
+    else if (arg === '--force-use-docker-builder') options.forceUseDockerBuilder = true;
     else if (arg === '--help' || arg === '-h') options.help = true;
     else throw new Error(`Unknown argument: ${arg}`);
   }
@@ -83,11 +92,18 @@ Cross-platform release builder (host: ${hostLabel()}).
   --skip-build          Reuse existing Tauri build artifacts (target/…); only assemble.
   --no-frontend-build   Do not build the frontend once upfront (reuse its configured dist/).
   --continue-on-error   Continue with remaining platforms after a platform build failure.
+  --dry-run             Print the commands that would run (incl. Docker cross builds) and exit.
+  --force-use-docker-builder
+                        Build Docker-capable platforms (config "build": "docker" +
+                        portable) inside the cross image even when this host could
+                        produce them natively. Non-Docker targets stay native.
   --help, -h            Show this help.
 
 The frontend is built once and shared by all targets (each \`cargo tauri build\`
-skips its \`beforeBuildCommand\` through a config override). Every installer and
-portable zip gets a companion \`.sha256\` checksum file.
+skips its \`beforeBuildCommand\` through a config override). Artifacts follow the
+\`<product>-<version>-<os>-<arch>.<ext>\` scheme. Every installer gets companion
+\`.sha256\`/\`.md5\` checksum files; a portable archive's checksum file lists the
+archive's own hash first, then the hash of every file inside the archive.
 
 Release version resolved from server/Cargo.toml: ${version}
 Output directory: releases/release-<version>/ at the repository root.
@@ -96,12 +112,11 @@ Output directory: releases/release-<version>/ at the repository root.
 
 /** Builds a clean, version-named artifact file name for a bundle type. */
 function artifactName(bundleType, platform, version, productName) {
+  const os = familyOf(platform.id);
   const arch = archShort(platform.target);
-  if (bundleType === 'nsis') return `${productName}_${version}_${arch}-setup.exe`;
-  if (bundleType === 'rpm') return `${productName}-${version}-1.${arch}.rpm`;
-  if (bundleType === 'appimage') return `${productName}_${version}_${arch}.AppImage`;
-  if (bundleType === 'app') return `${productName}_${version}_${arch}.app`;
-  return `${productName}_${version}_${arch}.${bundleType}`;
+  if (bundleType === 'nsis') return `${productName}-${version}-${os}-${arch}-setup.exe`;
+  const ext = bundleType === 'appimage' ? 'AppImage' : bundleType;
+  return `${productName}-${version}-${os}-${arch}.${ext}`;
 }
 
 /**
@@ -118,8 +133,66 @@ function addChecksums(filePath, copied) {
   }
 }
 
+/**
+ * Recursively collects the relative paths (forward slashes) of every file
+ * below a staging directory.
+ *
+ * @param {string} dir - Directory to walk.
+ * @returns {string[]} Relative file paths, POSIX-style.
+ */
+function listStagedFiles(dir) {
+  const files = [];
+  for (const entry of readdirSync(dir)) {
+    const full = path.join(dir, entry);
+    if (statSync(full).isDirectory()) {
+      files.push(...listStagedFiles(full).map((rel) => path.posix.join(entry, rel)));
+    } else {
+      files.push(entry);
+    }
+  }
+  return files;
+}
+
+/**
+ * Writes one `.sha256` and one `.md5` checksum file for a portable archive.
+ * Each checksum file first lists the hash of the archive itself, then the hash
+ * of every file staged inside the archive (its uncompressed content), so no
+ * archive extraction is ever performed to compute them.
+ *
+ * @param {string} stagingDir - Directory holding the unpacked archive content.
+ * @param {string} archivePath - Absolute path of the produced archive.
+ * @param {string[]} copied - List accumulating produced file names.
+ */
+function addPortableChecksums(stagingDir, archivePath, copied) {
+  for (const algorithm of ['sha256', 'md5']) {
+    const extension = algorithm === 'md5' ? 'md5' : 'sha256';
+    const lines = [`${fileDigestHex(archivePath, algorithm)}  ${path.basename(archivePath)}`];
+    for (const rel of listStagedFiles(stagingDir)) {
+      lines.push(`${fileDigestHex(path.join(stagingDir, rel), algorithm)}  ${rel}`);
+    }
+    const out = `${archivePath}.${extension}`;
+    writeFileSync(out, `${lines.join('\n')}\n`);
+    copied.push(path.basename(out));
+  }
+}
+
 /** File-name suffixes produced for each artifact (artifact + checksums). */
 const ARTIFACT_SUFFIXES = ['', '.sha256', '.md5'];
+
+/** Portable archive extension: `.tar.gz` for Linux/macOS, `.zip` otherwise. */
+function portableExt(platform) {
+  return platform.portable && platform.portable.format === 'targz' ? '.tar.gz' : '.zip';
+}
+
+/** Version-named portable archive base blob (without extension/checksums). */
+function portableBaseName(platform, version, productName) {
+  return `${productName}-${version}-${familyOf(platform.id)}-${archShort(platform.target)}-portable`;
+}
+
+/** Full version-named portable archive file name. */
+function portableArchiveName(platform, version, productName) {
+  return `${portableBaseName(platform, version, productName)}${portableExt(platform)}`;
+}
 
 /**
  * Removes previous outputs for the platforms about to be built. When every
@@ -173,9 +246,9 @@ function cleanPreviousOutputs(selected, config, version, releaseDir) {
         }
       }
       if (platform.portable) {
-        const zipName = `${config.productName}_${version}_${archShort(platform.target)}-portable.zip`;
+        const portableName = portableArchiveName(platform, version, config.productName);
         for (const suffix of ARTIFACT_SUFFIXES) {
-          const file = path.join(folderPath, `${zipName}${suffix}`);
+          const file = path.join(folderPath, `${portableName}${suffix}`);
           if (existsSync(file)) {
             rmSync(file);
             removedAny = true;
@@ -201,17 +274,20 @@ function cleanPreviousOutputs(selected, config, version, releaseDir) {
  */
 function buildPlatform(platform, config, version, releaseDir, tauriDir, skipBuild) {
   const label = `[${platform.id}] (${platform.target})`;
-  if (!platform.buildable) {
+  if (platform.method === 'none') {
     console.warn(`${label} not buildable on ${hostLabel()} — installer types [${platform.bundles.join(', ')}] ` +
-      'cannot be cross-produced here. Skipping.');
+      'cannot be cross-produced here and no portable Docker build is configured. Skipping.');
     return;
   }
 
-  console.log(`\n===== Building ${label} =====`);
-  console.log(`Bundles on this host: ${platform.usable.join(', ')}`);
+  console.log(`\n===== Building ${label} (${platform.method}) =====`);
+  if (platform.method === 'native') {
+    console.log(`Bundles on this host: ${platform.usable.join(', ')}`);
+  }
 
-  // 1. Build the installers via the Tauri CLI (unless reusing existing artifacts).
-  if (!skipBuild) {
+  // 1. Build step. Native platforms use the host toolchain via the Tauri CLI;
+  //    Docker platforms cross-compile the raw release binary in the container.
+  if (!skipBuild && platform.method === 'native') {
     const args = [
       'tauri',
       'build',
@@ -231,38 +307,47 @@ function buildPlatform(platform, config, version, releaseDir, tauriDir, skipBuil
     // Augment PATH so cargo-xwin finds llvm-rc installed by install-tools
     // even when the Homebrew LLVM directory is not on the shell PATH.
     run('cargo', args, { cwd: tauriDir, env: buildEnvWithLlvm() });
+  } else if (!skipBuild && platform.method === 'docker') {
+    assertDocker();
+    ensureCrossImage();
+    console.log(`${label} cross-building in the Docker image: ${describeCrossBuild(platform, tauriDir)}`);
+    run('docker', crossBuildArgs(platform, tauriDir));
   } else {
     console.log(`${label} --skip-build: reusing existing artifacts in ${tauriDir}/target.`);
   }
 
-  // 2. Assemble version-named artifacts into the platform family folder.
   const platformOutDir = path.join(releaseDir, outputFolderName(platform.id));
   const copied = [];
-  for (const bundleType of platform.usable) {
-    const artifacts = findArtifacts(tauriDir, platform.target, bundleType);
-    if (artifacts.length === 0) {
-      console.warn(
-        `${label} no \`${bundleType}\` artifact found. Searched:\n    ` +
-          bundleSearchDirs(tauriDir, platform.target, bundleType).join('\n    '),
-      );
-      continue;
-    }
-    const targetName = artifactName(bundleType, platform, version, config.productName);
-    const target = path.join(platformOutDir, targetName);
-    copyArtifact(artifacts[0], target);
-    console.log(`  bundled ${targetName}`);
-    copied.push(targetName);
-    if (statSync(target).isFile()) {
-      addChecksums(target, copied);
+
+  // 2. Assemble version-named native bundles into the family folder.
+  if (platform.method === 'native') {
+    for (const bundleType of platform.usable) {
+      const artifacts = findArtifacts(tauriDir, platform.target, bundleType);
+      if (artifacts.length === 0) {
+        console.warn(
+          `${label} no \`${bundleType}\` artifact found. Searched:\n    ` +
+            bundleSearchDirs(tauriDir, platform.target, bundleType).join('\n    '),
+        );
+        continue;
+      }
+      const targetName = artifactName(bundleType, platform, version, config.productName);
+      const target = path.join(platformOutDir, targetName);
+      copyArtifact(artifacts[0], target);
+      console.log(`  bundled ${targetName}`);
+      copied.push(targetName);
+      if (statSync(target).isFile()) {
+        addChecksums(target, copied);
+      }
     }
   }
 
-  // 3. Optional portable folder (Windows): executable + runtime data, zipped.
+  // 3. Optional portable archive: the raw executable + optional runtime data.
   if (platform.portable) {
-    const portableName = `${config.productName}_${version}_${archShort(platform.target)}-portable`;
+    const portableName = portableArchiveName(platform, version, config.productName);
     const portableDir = path.join(releaseDir, `.tmp-${portableName}`);
     removeDir(portableDir);
-    const exeName = platform.portable.exeName || (process.platform === 'win32' ? 'arachnea.exe' : 'arachnea');
+    const exeName =
+      platform.portable.exeName || (platform.target.includes('windows') ? 'arachnea.exe' : 'arachnea');
     const exe = findExecutable(tauriDir, platform.target, exeName);
     if (!exe) {
       console.warn(`${label} release executable not found; skipping portable archive.`);
@@ -280,11 +365,13 @@ function buildPlatform(platform, config, version, releaseDir, tauriDir, skipBuil
         }
         copyDir(src, path.join(portableDir, rel), exclude);
       }
-      const zipPath = path.join(platformOutDir, `${portableName}.zip`);
-      console.log(`${label} packaging portable archive ${path.basename(zipPath)}...`);
-      createZip(portableDir, zipPath);
-      copied.push(path.basename(zipPath));
-      addChecksums(zipPath, copied);
+      const archivePath = path.join(platformOutDir, portableName);
+      console.log(`${label} packaging portable archive ${path.basename(archivePath)}...`);
+      createArchive(portableDir, archivePath);
+      copied.push(path.basename(archivePath));
+      // One checksum file per algorithm: archive hash first, then every inner
+      // file's hash (computed on the staged originals, never via extraction).
+      addPortableChecksums(portableDir, archivePath, copied);
       removeDir(portableDir);
     }
   }
@@ -304,7 +391,7 @@ function printBuildSummary(results) {
   }
 }
 
-function main() {
+async function main() {
   const options = parseArgs(process.argv.slice(2));
   const config = loadConfig();
   const version = parseWorkspaceVersion();
@@ -318,7 +405,9 @@ function main() {
     return;
   }
 
-  const platforms = resolvePlatforms(config, options.platforms);
+  const platforms = resolvePlatforms(config, options.platforms, {
+    forceUseDockerBuilder: options.forceUseDockerBuilder,
+  });
   const tauriDir = resolveFromRelease(config.tauriProject);
   const releaseDir = path.join(ROOT, 'releases', `release-${version}`);
 
@@ -326,8 +415,10 @@ function main() {
     console.log(`Host: ${hostLabel()}`);
     console.log(`Version: ${version}\n`);
     for (const platform of platforms) {
+      const produces =
+        platform.method === 'native' ? platform.usable.join(', ') || 'nothing' : 'portable archive';
       const detail = platform.buildable
-        ? `available (produces: ${platform.usable.join(', ')})`
+        ? `available (${platform.method}; produces: ${produces})`
         : 'not buildable on this host';
       console.log(
         `  ${platform.id.padEnd(20)} -> ${outputFolderName(platform.id).padEnd(10)} ` +
@@ -338,6 +429,18 @@ function main() {
   }
 
   const buildable = platforms.filter((p) => p.buildable);
+
+  if (options.dryRun) {
+    console.log('DRY RUN — no artifact is produced. Planned production:\n');
+    for (const platform of platforms) {
+      const method = platform.buildable ? platform.method : 'none';
+      const command =
+        platform.method === 'docker' ? `\n        ${describeCrossBuild(platform, tauriDir)}` : '';
+      console.log(`  ${platform.id.padEnd(20)} method=${method}${command}`);
+    }
+    return;
+  }
+
   if (buildable.length === 0) {
     console.error(`No platform can be built on host ${hostLabel()} with these targets.`);
     if (options.platforms.length === 0) {
@@ -348,15 +451,20 @@ function main() {
 
   if (!options.noInstall) {
     console.log('[release] Ensuring build tools...');
-    installTools(platforms);
+    await installTools(platforms);
   }
 
   // Build the frontend once, shared by every target. Each platform build later
   // runs `cargo tauri build` with a config override disabling `beforeBuildCommand`.
   if (!options.skipBuild && !options.noFrontendBuild) {
     console.log('\n[release] Building the frontend once for all targets...');
-    const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-    run(npmCmd, ['run', 'build'], { cwd: resolveFromRelease(config.frontendProject) });
+    const isWindows = process.platform === 'win32';
+    // Node >= 20 cannot `spawn` a Windows `.cmd` shim directly (EINVAL); pass
+    // `shell: true` so npm.cmd is resolved through cmd.exe on Windows only.
+    run(isWindows ? 'npm.cmd' : 'npm', ['run', 'build'], {
+      cwd: resolveFromRelease(config.frontendProject),
+      ...(isWindows ? { shell: true } : {}),
+    });
   } else {
     console.log(
       `[release] ${options.skipBuild ? '--skip-build' : '--no-frontend-build'}: reusing existing ${config.frontendProject}/dist.`,

@@ -5,6 +5,10 @@
   "changelog": "../CHANGELOG.md",
   "productName": "arachnea",
   "portableSource": "../server",
+  "portable": {
+    "include": ["services"],
+    "exclude": ["credentials", "credentials.json", "cache", "store-proxy-inventory.json", "store-cloudflare-session.json"]
+  },
   "platforms": [
     {
       "id": "darwin-universal",
@@ -17,13 +21,21 @@
       "id": "darwin-x86_64",
       "target": "x86_64-apple-darwin",
       "bundles": ["dmg"],
-      "portable": false
+      "build": "docker",
+      "portable": {
+        "format": "targz",
+        "exeName": "arachnea"
+      }
     },
     {
       "id": "darwin-arm64",
       "target": "aarch64-apple-darwin",
       "bundles": ["dmg"],
-      "portable": false
+      "build": "docker",
+      "portable": {
+        "format": "targz",
+        "exeName": "arachnea"
+      }
     },
     {
       "id": "windows-x86_64",
@@ -31,9 +43,7 @@
       "runner": "cargo-xwin",
       "bundles": ["nsis", "msi"],
       "portable": {
-        "exeName": "arachnea.exe",
-        "include": ["services"],
-        "exclude": ["credentials", "credentials.json", "cache", "store-proxy-inventory.json", "store-cloudflare-session.json"]
+        "exeName": "arachnea.exe"
       }
     },
     {
@@ -42,22 +52,28 @@
       "runner": "cargo-xwin",
       "bundles": ["nsis", "msi"],
       "portable": {
-        "exeName": "arachnea.exe",
-        "include": ["services"],
-        "exclude": ["credentials", "credentials.json", "cache", "store-proxy-inventory.json", "store-cloudflare-session.json"]
+        "exeName": "arachnea.exe"
       }
     },
     {
       "id": "linux-x86_64",
       "target": "x86_64-unknown-linux-gnu",
       "bundles": ["deb", "rpm", "appimage"],
-      "portable": false
+      "build": "docker",
+      "portable": {
+        "format": "targz",
+        "exeName": "arachnea"
+      }
     },
     {
       "id": "linux-arm64",
       "target": "aarch64-unknown-linux-gnu",
       "bundles": ["deb", "rpm", "appimage"],
-      "portable": false
+      "build": "docker",
+      "portable": {
+        "format": "targz",
+        "exeName": "arachnea"
+      }
     }
   ]
 }
