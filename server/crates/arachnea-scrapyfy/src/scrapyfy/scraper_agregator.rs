@@ -321,7 +321,18 @@ impl ScraperAgregator {
             config_path = %config_path.display(),
             "loading scraper query collection config"
         );
-        let sources = resolve_manifest_sources(config_path)?;
+        // Relative manifest paths resolve against the application resource
+        // root (executable directory, bundle resources, or system resource
+        // dir), never against the process working directory.
+        let config_path: PathBuf = if config_path.is_relative() {
+            arachnea_core::application::get_application_resource_path(
+                &config_path.to_string_lossy(),
+            )
+            .into()
+        } else {
+            config_path.to_path_buf()
+        };
+        let sources = resolve_manifest_sources(&config_path)?;
 
         let config_dir = config_path.parent().unwrap_or(Path::new(""));
         let collections = self

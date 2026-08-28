@@ -891,6 +891,85 @@ entry below). The classic
 unchanged; both archives get `.sha256`/`.md5` checksums and are cleaned on
 partial rebuilds. The `.app` cannot be produced by the Tauri CLI inside the
 cross image — it ignores macOS bundle types on a Linux host (`Wrong package
-type app for platform Linux`) — hence the host-side assembly; analysis in
-`docs/dev-tracking/macos-portable-app.md`.
+type app for platform Linux`) — hence the host-side assembly.
 
+
+## Unreleased — application resource and data root resolution (`server`)
+
+`arachnea-core::application` gains two dedicated, process-wide resolvers and
+the legacy `get_application_path`/`get_application_root` are kept only for
+compatibility:
+
+- **`get_application_resource_path`/`_root`** (read-only `services/` scraper
+  manifests and YAML sources): probed once at first call, first candidate
+  containing a `services` directory wins — executable directory (portable
+  archives, NSIS), `Contents/Resources/` inside a macOS bundle (Tauri bundler
+  layout), and `../lib/<product name>/` for Linux system packages
+  (deb/rpm/AppImage, verified against the produced `.deb`:
+  `/usr/lib/Arachnéa/services`). Scraper manifests were previously opened
+  relative to the process working directory, which broke every packaged
+  layout (`.app` via Finder/LaunchServices, `.dmg`, `.deb`, `.rpm`,
+  `.AppImage`); `add_query_collection_from_config` now resolves relative
+  manifest paths through this resolver.
+- **`get_application_data_path`/`_root`** (writable `data/` and credentials):
+  executable directory for portable layouts (unchanged behavior) when it is
+  writable and the install is not packaged; otherwise the per-OS standard
+  directory, named after the application identifier following the Tauri
+  `app_data_dir` convention — `~/Library/Application Support/` on macOS,
+  `$XDG_DATA_HOME` on Linux, `%APPDATA%` on Windows
+  (`hell-hibou.arachnea`). Packaged-install detection covers macOS
+  bundles, `/usr|/opt|/snap` prefixes and AppImage mount points; the
+  writability check is a create-and-remove probe.
+
+`build-release/release.mjs` stages the macOS `.app` runtime data in
+`Contents/Resources/` (Tauri `bundle.resources` layout) accordingly, and the
+portable assembly for Docker-produced platforms prefers the container-built
+executable (`dockerBuildExecutable`, `docker-build/<arch>/…`) so a stale
+host-built binary left in the plain target dir cannot shadow the fresh
+cross-compiled one.
+
+## Unreleased — macOS Finder launch arguments (`server`)
+
+The `arachnea` executable now ignores the macOS Finder process serial number
+argument (`-psn_...`). Launching the `.app` from Finder or the Dock therefore
+reaches the desktop startup path instead of exiting before the Tauri window is
+created.
+
+## Unreleased — macOS server tray startup (`server`)
+
+The release default remains server mode. The application controller now routes
+the generated Tauri context to the server tray service in that mode, so the
+server launched from the `.app` exposes its TrayIcon.
+
+## Unreleased — macOS server shutdown (`server`)
+
+Selecting **Shutdown server** from the server TrayIcon now lets the Tauri event
+loop exit after the HTTP server has stopped. The tray still prevents accidental
+application exits while the server is running.
+
+## Unreleased — server tray menu (`server`)
+
+The server TrayIcon now opens its menu with either a left or right click.
+
+## Unreleased — server tray status (`server`)
+
+The server TrayIcon menu now displays the full server URL and network access
+mode as disabled status items. The browser action is labelled **Open in
+browser**.
+
+## Unreleased — application data path logging (`server`)
+
+Application startup now logs the resolved application data directory at the
+`info` level.
+
+## Unreleased — macOS application data directory (`server`)
+
+macOS `.app` bundles are now detected from their actual bundle directory name,
+so writable application data is stored under `~/Library/Application Support/`
+instead of inside an unpacked bundle.
+
+## Unreleased — application data identifier configuration (`server`)
+
+The shared core no longer hardcodes the application data directory name.
+`arachnea-stream` now reads its Tauri `identifier` from `tauri.conf.json` at
+build time and configures the core before any writable data path is resolved.

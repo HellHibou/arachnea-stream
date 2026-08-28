@@ -2,7 +2,7 @@
   "$schema": "../../gen/schemas/desktop-schema.json",
   "productName": "Arachnéa",
   "version": "0.1.0",
-  "identifier": "hell-hibou.arachnea.app",
+  "identifier": "hell-hibou.arachnea",
   "mainBinaryName": "arachnea",
   "build": {
     "beforeBuildCommand": {

@@ -83,9 +83,9 @@ impl FilePersistenceStore<JsonPersistenceFileCodec> {
 
     /// Creates a file store rooted at the default application data directory.
     ///
-    /// The directory is `get_application_path("data")`.
+    /// The directory is `get_application_data_path("data")`.
     pub fn default_data_dir() -> Self {
-        Self::new(crate::application::get_application_path("data"))
+        Self::new(crate::application::get_application_data_path("data"))
     }
 }
 

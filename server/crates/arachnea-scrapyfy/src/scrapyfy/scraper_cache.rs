@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
-use arachnea_core::application::get_application_path;
+use arachnea_core::application::get_application_data_path;
 use arachnea_core::crypt::hash62_64;
 use foyer::{BlockEngineConfig, DeviceBuilder, FsDeviceBuilder, HybridCache, HybridCacheBuilder};
 use serde::{Deserialize, Serialize};
@@ -94,7 +94,7 @@ impl Default for ScraperCacheConfig {
         Self {
             max_disk_bytes: DEFAULT_CACHE_MAX_DISK_BYTES,
             max_memory_bytes: DEFAULT_CACHE_MAX_MEMORY_BYTES,
-            cache_dir: PathBuf::from(get_application_path("data")).join("cache"),
+            cache_dir: PathBuf::from(get_application_data_path("data")).join("cache"),
         }
     }
 }

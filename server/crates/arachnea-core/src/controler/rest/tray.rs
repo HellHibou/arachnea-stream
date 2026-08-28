@@ -19,7 +19,7 @@
 use std::sync::{Arc, Mutex};
 
 use tauri::{
-    menu::{MenuBuilder, MenuEvent},
+    menu::{MenuBuilder, MenuEvent, MenuItemBuilder},
     tray::TrayIconBuilder,
     AppHandle, Manager, Wry, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
 };
@@ -33,6 +33,10 @@ use super::shutdown::ShutdownSignal;
 pub struct ServerTrayConfiguration {
     /// Public URL of the running HTTP server, opened by the browser action.
     pub server_url: String,
+    /// Full server URL displayed in the tray menu.
+    pub server_display_url: String,
+    /// Network access mode displayed in the tray menu.
+    pub network_mode: String,
     /// Shared log cache feeding the dedicated log window.
     pub log_cache: Arc<LogCache>,
     /// Shared shutdown signal triggered by the tray close action.
@@ -134,6 +138,8 @@ const TRAY_ID: &str = "server-tray";
 const MENU_SHUTDOWN: &str = "shutdown";
 const MENU_SHOW_LOGS: &str = "show-logs";
 const MENU_OPEN_BROWSER: &str = "open-browser";
+const MENU_SERVER_INFO: &str = "server-info";
+const MENU_NETWORK_INFO: &str = "network-info";
 
 /// Log window label.
 const LOG_WINDOW_LABEL: &str = "logs";
@@ -472,7 +478,8 @@ fn build_tauri_server_tray(
     icon: Option<tauri::image::Image<'static>>,
     configuration: ServerTrayConfiguration,
 ) -> TauriServerTrayScaffold {
-    let server_url = configuration.server_url.clone();
+    let server_display_url = configuration.server_display_url;
+    let network_mode = configuration.network_mode;
     let app_title = context
         .config()
         .app
@@ -503,15 +510,30 @@ fn build_tauri_server_tray(
                 .expect("Failed to build the log window response.")
         })
         .setup(move |app| {
+            let server_info = MenuItemBuilder::with_id(
+                MENU_SERVER_INFO,
+                format!("Server: {server_display_url}"),
+            )
+            .enabled(false)
+            .build(app)?;
+            let network_info = MenuItemBuilder::with_id(
+                MENU_NETWORK_INFO,
+                format!("Network: {network_mode}"),
+            )
+            .enabled(false)
+            .build(app)?;
             let menu = MenuBuilder::new(app)
-                .text(MENU_OPEN_BROWSER, format!("Open {server_url}"))
+                .item(&server_info)
+                .item(&network_info)
+                .separator()
+                .text(MENU_OPEN_BROWSER, "Open in browser")
                 .text(MENU_SHOW_LOGS, "Show log")
                 .text(MENU_SHUTDOWN, "Shutdown server")
                 .build()?;
 
             let mut tray = TrayIconBuilder::with_id(TRAY_ID)
                 .menu(&menu)
-                .show_menu_on_left_click(false)
+                .show_menu_on_left_click(true)
                 .on_menu_event(move |app, event| handle_events.on_menu_event(app, event));
             if let Some(icon) = app
                 .default_window_icon()
@@ -539,14 +561,17 @@ fn build_tauri_server_tray(
 /// * `scaffold` - The prepared tray scaffold to run, blocking until the tray
 ///   application exits.
 fn run_tauri_server_tray_app(scaffold: TauriServerTrayScaffold) {
+    let shutdown = scaffold.handle.shutdown.clone();
     match scaffold.builder.build(scaffold.context) {
         Ok(app) => {
-            app.run(|_handle, event| {
+            app.run(move |_handle, event| {
                 // Closing the dedicated log window must not exit the tray
-                // application; only the explicit shutdown action (via app.exit)
-                // terminates it.
+                // application. An explicit shutdown first requests server
+                // shutdown, then exits the application event loop.
                 if let tauri::RunEvent::ExitRequested { api, .. } = event {
-                    api.prevent_exit();
+                    if !shutdown.is_requested() {
+                        api.prevent_exit();
+                    }
                 }
             });
         }

@@ -73,3 +73,29 @@ pub(crate) fn build_public_url(socket_addr: std::net::SocketAddr, entrypoint_roo
     }
     url
 }
+
+/// Returns the host displayed for a running server.
+///
+/// Loopback listeners are displayed as `localhost`. Listeners bound to all
+/// interfaces use the first non-loopback IPv4 interface when available.
+pub(crate) fn display_server_host(socket_addr: std::net::SocketAddr) -> String {
+    if socket_addr.ip().is_loopback() {
+        return "localhost".to_string();
+    }
+
+    if socket_addr.ip().is_unspecified() {
+        return if_addrs::get_if_addrs()
+            .ok()
+            .and_then(|interfaces| {
+                interfaces
+                    .iter()
+                    .find(|iface| {
+                        !iface.is_loopback() && matches!(iface.addr, if_addrs::IfAddr::V4(_))
+                    })
+                    .map(|iface| iface.ip().to_string())
+            })
+            .unwrap_or_else(|| "localhost".to_string());
+    }
+
+    socket_addr.ip().to_string()
+}

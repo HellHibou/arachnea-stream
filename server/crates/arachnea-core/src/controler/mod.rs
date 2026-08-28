@@ -952,7 +952,7 @@ macro_rules! create_application_controler {
             ::std::option::Option::None => {
                 #[cfg(not(debug_assertions))]
                 {
-                    false // Release default: desktop.
+                    true // Release default: server.
                 }
                 #[cfg(debug_assertions)]
                 {

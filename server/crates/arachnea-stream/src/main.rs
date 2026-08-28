@@ -70,6 +70,7 @@ Options:
 /// - `--cache-max-disk-bytes <BYTES>`: overrides the server cache on-disk size
 /// - `--cache-max-memory-bytes <BYTES>`: overrides the server cache in-memory size
 /// - `--help`: prints help and exits successfully
+/// - macOS Finder process serial number arguments (`-psn_...`) are ignored
 ///
 /// When both `--desktop` and `--server` are provided, the last one wins.
 ///
@@ -148,6 +149,9 @@ fn parse_runtime_options() -> Result<CliAction> {
                     })?,
                 );
             }
+            // Finder passes this process serial number argument when opening a
+            // macOS application bundle. It is not an application option.
+            arg if cfg!(target_os = "macos") && arg.starts_with("-psn_") => {}
             _ => bail!("unknown argument: `{arg}`"),
         }
     }
@@ -200,6 +204,8 @@ async fn refresh_ip_countries_cli() -> Result<()> {
 /// Starts the configured backend controller using command line runtime options.
 #[tokio::main]
 async fn main() -> Result<()> {
+    application::configure_application_data_dir_name(env!("ARACHNEA_TAURI_IDENTIFIER"))
+        .map_err(anyhow::Error::msg)?;
     arachnea_core::application::application_init();
     arachnea_core::logger::set_default_log_level_debug!(INFO);
     StreamScraper::init_sub_logger_levels();
@@ -221,7 +227,7 @@ async fn main() -> Result<()> {
     // Keep the encrypted store construction in main so the server key remains
     // initialized at bootstrap even while server mode still uses the clear JSON store.
     let _server_encrypted_store = EncryptedFileCredentialsStore::new(
-        application::get_application_path(DEFAULT_ENCRYPTED_FILE_CREDENTIALS_STORE_PATH),
+        application::get_application_data_path(DEFAULT_ENCRYPTED_FILE_CREDENTIALS_STORE_PATH),
         DEFAULT_SERVER_CREDENTIALS_KEY,
     );
 

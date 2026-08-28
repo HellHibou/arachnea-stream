@@ -35,7 +35,7 @@ impl Default for FileCredentialsStore {
     /// # Returns
     /// A FileCredentialsStore instance using the default credentials path.
     fn default() -> Self {
-        Self::new(application::get_application_path(
+        Self::new(application::get_application_data_path(
             DEFAULT_FILE_CREDENTIALS_STORE_PATH,
         ))
     }

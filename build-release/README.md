@@ -180,7 +180,7 @@ Two portable formats, each getting `.sha256`/`.md5` checksums:
   Tauri `bundle.resources` location, which the application resource root
   resolution probes (`arachnea-core::application`). Writable `data/` lands in
   the per-user standard directory on packaged installs (`~/Library/Application
-  Support/hell-hibou.arachnea.app` on macOS). The `.app` is unsigned
+  Support/hell-hibou.arachnea` on macOS). The `.app` is unsigned
   (ad-hoc signing is still required on Apple Silicon before it runs, and
   downloaded files may trip Gatekeeper); the `.dmg` produced on a real macOS
   host remains the fully bundled alternative. A `.app` is a directory, not an

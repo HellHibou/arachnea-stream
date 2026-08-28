@@ -19,7 +19,7 @@ use crate::controler::{
 use super::configuration::RestControlerConfiguration;
 use super::shutdown::ShutdownSignal;
 use super::tray::{gui_available, ServerTrayConfiguration, ServerTrayFactory};
-use super::{build_public_url, RestReply, RestRouter};
+use super::{build_public_url, display_server_host, RestReply, RestRouter};
 
 /// REST controller service.
 ///
@@ -402,24 +402,7 @@ impl RestControlerService {
                 enpoint = entrypoint_root.join("/");
                 enpoint.push('/')
             }
-            let display_host = if addr.ip().is_loopback() {
-                "localhost".to_string()
-            } else if addr.ip().is_unspecified() {
-                if_addrs::get_if_addrs()
-                    .ok()
-                    .and_then(|interfaces| {
-                        interfaces
-                            .iter()
-                            .find(|iface| {
-                                !iface.is_loopback()
-                                    && matches!(iface.addr, if_addrs::IfAddr::V4(_))
-                            })
-                            .map(|iface| iface.ip().to_string())
-                    })
-                    .unwrap_or_else(|| "localhost".to_string())
-            } else {
-                addr.ip().to_string()
-            };
+            let display_host = display_server_host(addr);
             println!(
                 "Web Server Application launched: http://{}:{}/{}",
                 display_host,
@@ -682,8 +665,26 @@ impl ControlerService for RestControlerService {
         // shared shutdown signal so its "close" action can stop the HTTP server.
         let tray = if self.tray_enabled && gui_available() {
             self.tray_factory.as_ref().map(|factory| {
+                let application_root = if self.entrypoint_root.is_empty() {
+                    "/".to_string()
+                } else {
+                    format!("/{}", self.entrypoint_root.join("/"))
+                };
                 let configuration = ServerTrayConfiguration {
                     server_url: build_public_url(self.socket_addr, &self.entrypoint_root),
+                    server_display_url: format!(
+                        "http://{}:{}{}",
+                        display_server_host(self.socket_addr),
+                        self.socket_addr.port(),
+                        application_root
+                    ),
+                    network_mode: if self.socket_addr.ip().is_loopback() {
+                        "Local".to_string()
+                    } else if self.allowed_networks.is_empty() {
+                        "Public".to_string()
+                    } else {
+                        "Private".to_string()
+                    },
                     log_cache: crate::logger::global_log_cache(),
                     shutdown: shutdown.clone(),
                 };
@@ -746,4 +747,3 @@ fn wait_for_shutdown(shutdown: &ShutdownSignal) {
         std::thread::sleep(POLL_INTERVAL);
     }
 }
-
