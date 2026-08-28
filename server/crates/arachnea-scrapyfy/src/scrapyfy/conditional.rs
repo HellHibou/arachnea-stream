@@ -340,8 +340,12 @@ mod tests {
 
     #[test]
     fn content_fragment_keeps_last_modified_timestamp() {
-        let fragment =
-            fragment_from_response(YAML_HASH, None, Some("Wed, 21 Oct 2015 07:28:00 GMT"), "body");
+        let fragment = fragment_from_response(
+            YAML_HASH,
+            None,
+            Some("Wed, 21 Oct 2015 07:28:00 GMT"),
+            "body",
+        );
         let conditional = conditional_from_fragment(&fragment).expect("fragment should parse");
         assert!(conditional.if_modified_since.is_some());
         assert_eq!(
@@ -352,8 +356,14 @@ mod tests {
 
     #[test]
     fn fragment_yaml_hash_extracts_for_all_prefixes() {
-        assert_eq!(fragment_yaml_hash("E:3dY0aBc2Xf-%22w456%22"), Some(YAML_HASH));
-        assert_eq!(fragment_yaml_hash("C:3dY0aBc2Xf-0-deadbeef"), Some(YAML_HASH));
+        assert_eq!(
+            fragment_yaml_hash("E:3dY0aBc2Xf-%22w456%22"),
+            Some(YAML_HASH)
+        );
+        assert_eq!(
+            fragment_yaml_hash("C:3dY0aBc2Xf-0-deadbeef"),
+            Some(YAML_HASH)
+        );
         assert_eq!(fragment_yaml_hash("N:3dY0aBc2Xf-aBcDe"), Some(YAML_HASH));
     }
 

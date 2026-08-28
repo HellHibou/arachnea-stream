@@ -110,7 +110,9 @@ fn service_stream_metadata(yaml_file: &str) -> Result<()> {
         yaml_file,
         move |scraper| {
             Box::pin(async move {
-                let (result, _) = scraper.get_service(RequestControlerContext::default()).await?;
+                let (result, _) = scraper
+                    .get_service(RequestControlerContext::default())
+                    .await?;
                 assert!(
                     result.is_ok(),
                     "service_stream_metadata should complete without errors, got {:?}",
@@ -135,7 +137,9 @@ fn load_home(yaml_file: &str) -> Result<()> {
         yaml_file,
         move |scraper| {
             Box::pin(async move {
-                let (result, _) = scraper.load_home(RequestControlerContext::default()).await?;
+                let (result, _) = scraper
+                    .load_home(RequestControlerContext::default())
+                    .await?;
                 assert!(
                     result.is_ok(),
                     "load_home should complete without errors, got {:?}",
@@ -282,7 +286,9 @@ async fn load_entry_url_from_home(
     scraper: &mut StreamScraper,
     query_source: &str,
 ) -> Result<String> {
-    let (home_result, _) = scraper.load_home(RequestControlerContext::default()).await?;
+    let (home_result, _) = scraper
+        .load_home(RequestControlerContext::default())
+        .await?;
     let home_result = home_result.data;
 
     let section: ScraperDataNode = home_result

@@ -973,3 +973,20 @@ instead of inside an unpacked bundle.
 The shared core no longer hardcodes the application data directory name.
 `arachnea-stream` now reads its Tauri `identifier` from `tauri.conf.json` at
 build time and configures the core before any writable data path is resolved.
+
+## Unreleased — persistent Stream configuration (server)
+
+Arachnéa Stream now loads its persistent application configuration from
+data/config.json. It validates the port, public root, network mode and
+administrator password-hash field, supports atomic owner-only writes on Unix,
+and applies these values only when the equivalent CLI option is absent.
+Server starts without a persisted administrator hash now print a new temporary
+remote-administration password to the console.
+
+## Unreleased — persistent service activation (server)
+
+Scrapyfy now supports a persistence-backed source-activation policy. Arachnéa
+Stream synchronizes every declared stream service into the arachnea-services
+namespace, preserves administrator overrides, and applies them while loading
+the YAML collections. Service YAML files can now declare optional credentials
+metadata for required and signup_url.

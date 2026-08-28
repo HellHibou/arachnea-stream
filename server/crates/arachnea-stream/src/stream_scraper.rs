@@ -12,10 +12,7 @@ use arachnea_core::{
     persistence::{CredentialsStore, FileCredentialsStore, FilePersistenceStore, PersistenceStore},
 };
 use arachnea_proxy::core::{ArachneaProxyCore, ProxyConfig};
-use arachnea_scrapyfy::{
-    scraper_result::ScraperAggregationResult,
-    *,
-};
+use arachnea_scrapyfy::{scraper_result::ScraperAggregationResult, *};
 
 use crate::services::{
     francetv_resolver::FrancetvResolver,
@@ -32,6 +29,8 @@ use crate::stream_resolver::{
 
 /// Default group name used by the stream scraper crate.
 pub const STREAM_SERVICE_GROUP_NAME: &str = "arachnea-stream";
+/// Persistence namespace containing administrator service activation overrides.
+pub const STREAM_SERVICES_STORE_NAME: &str = "arachnea-services";
 
 /// Default path used by the services
 pub const DEFAULT_SERVICES_CONFIG_PATH: &str = concatcp!(
@@ -49,6 +48,24 @@ static RTBF_AUVIO_RESOLVER: RtbfAuvioResolver = RtbfAuvioResolver;
 static RTLPLAY_RESOLVER: RtlPlayResolver = RtlPlayResolver;
 static TF1_RESOLVER: Tf1Resolver = Tf1Resolver;
 static FRANCETV_RESOLVER: FrancetvResolver = FrancetvResolver;
+
+/// Creates missing persistent service states without changing existing choices.
+fn synchronize_service_defaults(
+    store: Arc<dyn PersistenceStore>,
+    sources: Vec<ScraperSourceDescriptor>,
+) -> Result<()> {
+    std::thread::spawn(move || {
+        tokio::runtime::Runtime::new()
+            .map_err(anyhow::Error::from)?
+            .block_on(async move {
+                PersistenceSourceEnabled::new(store, STREAM_SERVICES_STORE_NAME)
+                    .register_defaults(&sources)
+                    .await
+            })
+    })
+    .join()
+    .map_err(|_| anyhow::anyhow!("service-state synchronization thread panicked"))?
+}
 
 fn default_page() -> usize {
     1
@@ -82,8 +99,7 @@ struct GetSeasonRequest {
 }
 
 #[derive(Serialize, Deserialize)]
-struct ListLivesRequest {
-}
+struct ListLivesRequest {}
 
 #[derive(Serialize, Deserialize)]
 struct GetLiveRequest {
@@ -98,12 +114,10 @@ struct GetStreamRequest {
 }
 
 #[derive(Default, Serialize, Deserialize)]
-struct LoadHomeRequest {
-}
+struct LoadHomeRequest {}
 
 #[derive(Default, Serialize, Deserialize)]
-struct GetServiceRequest {
-}
+struct GetServiceRequest {}
 
 #[derive(Serialize, Deserialize)]
 struct GetCategoryRequest {
@@ -149,6 +163,7 @@ struct GetPlayersRequest {
 pub struct StreamScraper {
     pub(crate) scraper_agregator: Box<ScraperAgregator>,
     credentials_store: Arc<dyn CredentialsStore>,
+    persistence_store: Arc<dyn PersistenceStore>,
     proxy_handle: SharedProxyConfigHandle,
     proxy_http_core: Option<ArachneaProxyCore>,
     player_resolver_endpoints: PlayerResolverEndpoints,
@@ -210,6 +225,10 @@ impl StreamScraper {
         let mut agregator = Box::new(ScraperAgregator::new_with_persistence_store(
             persistence_store.clone(),
         ));
+        agregator.set_source_enabled(Arc::new(PersistenceSourceEnabled::new(
+            persistence_store.clone(),
+            STREAM_SERVICES_STORE_NAME,
+        )));
         agregator.ensure_proxy_core();
         let proxy_handle = agregator.get_proxy_handle();
         let proxy_http_core = agregator.proxy_core().cloned();
@@ -217,6 +236,7 @@ impl StreamScraper {
         StreamScraper {
             scraper_agregator: agregator,
             credentials_store,
+            persistence_store,
             proxy_handle,
             proxy_http_core,
             player_resolver_endpoints: PlayerResolverEndpoints::default(),
@@ -232,13 +252,16 @@ impl StreamScraper {
     /// Returns an error if the default configuration file cannot be loaded or parsed.
     pub fn from_json(json_path: Option<&str>) -> Result<Self> {
         let mut instance = Self::default();
+        let services_path = json_path.unwrap_or(DEFAULT_SERVICES_CONFIG_PATH);
+        let catalog = load_service_catalog(services_path)?;
+        synchronize_service_defaults(
+            Arc::clone(&instance.persistence_store),
+            catalog.iter().map(|entry| entry.source.clone()).collect(),
+        )?;
 
         instance
             .scraper_agregator
-            .add_query_collection_from_config_json(
-                STREAM_SERVICE_GROUP_NAME,
-                json_path.unwrap_or(DEFAULT_SERVICES_CONFIG_PATH),
-            )?;
+            .add_query_collection_from_config_json(STREAM_SERVICE_GROUP_NAME, services_path)?;
         instance
             .scraper_agregator
             .add_query_collection_from_config_json(
@@ -248,6 +271,14 @@ impl StreamScraper {
         instance.configure_proxy_insecure_tls_hosts();
 
         Ok(instance)
+    }
+
+    /// Loads the complete service catalog, including sources disabled by default.
+    pub fn load_service_catalog(
+        &self,
+        json_path: Option<&str>,
+    ) -> Result<Vec<ScraperServiceCatalogEntry>> {
+        load_service_catalog(json_path.unwrap_or(DEFAULT_SERVICES_CONFIG_PATH))
     }
 
     /// Returns the mutable proxy handle shared by this scraper instance.
@@ -504,7 +535,7 @@ impl StreamScraper {
                 result.errors,
             )
             .with_validations(result.validations)
-                .with_global_etag(global_etag.clone()),
+            .with_global_etag(global_etag.clone()),
             global_etag,
         ))
     }
@@ -601,7 +632,7 @@ impl StreamScraper {
                 result.errors,
             )
             .with_validations(result.validations)
-                .with_global_etag(global_etag.clone()),
+            .with_global_etag(global_etag.clone()),
             global_etag,
         ))
     }
@@ -1235,9 +1266,7 @@ impl ScraperManager for StreamScraper {
             "get_banners",
             Arc::clone(&connector),
             |scraper, context, input: GetBannersRequest| async move {
-                scraper
-                    .get_banners(context, input.source, input.link)
-                    .await
+                scraper.get_banners(context, input.source, input.link).await
             },
         );
 
@@ -1245,9 +1274,7 @@ impl ScraperManager for StreamScraper {
             "get_players",
             Arc::clone(&connector),
             |scraper, context, input: GetPlayersRequest| async move {
-                scraper
-                    .get_players(context, input.source, input.link)
-                    .await
+                scraper.get_players(context, input.source, input.link).await
             },
         );
 
@@ -1255,9 +1282,7 @@ impl ScraperManager for StreamScraper {
             "get_entry",
             Arc::clone(&connector),
             |scraper, context, input: GetEntryRequest| async move {
-                scraper
-                    .get_entry(context, input.source, input.entry)
-                    .await
+                scraper.get_entry(context, input.source, input.entry).await
             },
         );
 
@@ -1275,9 +1300,7 @@ impl ScraperManager for StreamScraper {
             "get_live",
             Arc::clone(&connector),
             |scraper, context, input: GetLiveRequest| async move {
-                scraper
-                    .get_live(context, input.source, input.channel)
-                    .await
+                scraper.get_live(context, input.source, input.channel).await
             },
         );
 

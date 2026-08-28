@@ -71,6 +71,7 @@ pub struct ScraperAgregator {
     proxy_handle: SharedProxyConfigHandle,
     local_country: SharedLocalCountry,
     persistence_store: Arc<dyn PersistenceStore>,
+    source_enabled: Option<Arc<dyn ScraperSourceEnabled>>,
     server_cache: Arc<ScraperServerCache>,
     #[cfg(feature = "arachnea-proxy")]
     proxy_core: Option<ArachneaProxyCore>,
@@ -110,6 +111,7 @@ impl ScraperAgregator {
             proxy_handle,
             local_country: SharedLocalCountry::new(),
             persistence_store,
+            source_enabled: None,
             server_cache: Arc::new(ScraperServerCache::new(ScraperCacheConfig::default())),
             #[cfg(feature = "arachnea-proxy")]
             proxy_core: None,
@@ -174,10 +176,16 @@ impl ScraperAgregator {
             proxy_handle,
             local_country: SharedLocalCountry::new(),
             persistence_store,
+            source_enabled: None,
             server_cache: Arc::new(ScraperServerCache::new(ScraperCacheConfig::default())),
             #[cfg(feature = "arachnea-proxy")]
             proxy_core: None,
         }
+    }
+
+    /// Sets the optional policy that overrides manifest source activation.
+    pub fn set_source_enabled(&mut self, source_enabled: Arc<dyn ScraperSourceEnabled>) {
+        self.source_enabled = Some(source_enabled);
     }
 
     /// Returns the shared local-country state used by this aggregator.
@@ -351,16 +359,6 @@ impl ScraperAgregator {
         );
 
         for (source_index, source) in sources.into_iter().enumerate() {
-            if !source.enabled {
-                tracing::debug!(
-                    group_name,
-                    source_index,
-                    source_path = %source.path,
-                    "skipping disabled scraper query collection source"
-                );
-                continue;
-            }
-
             let source_path = config_dir.join(&source.path);
             tracing::debug!(
                 group_name,
@@ -405,6 +403,24 @@ impl ScraperAgregator {
                 )
             })?;
             let source_id = raw.id.clone();
+            let descriptor = ScraperSourceDescriptor {
+                id: source_id.clone(),
+                path: source_path.clone(),
+                default_enabled: source.enabled,
+                parameters: source.parameters.clone(),
+            };
+            if let Some(policy) = &self.source_enabled {
+                let enabled = if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                    tokio::task::block_in_place(|| handle.block_on(policy.is_enabled(&descriptor)))?
+                } else {
+                    tokio::runtime::Runtime::new()?.block_on(policy.is_enabled(&descriptor))?
+                };
+                if !enabled {
+                    continue;
+                }
+            } else if !source.enabled {
+                continue;
+            }
             let query_names: Vec<String> = raw.queries.iter().map(|query| query.name()).collect();
             tracing::debug!(
                 group_name,
@@ -823,7 +839,9 @@ impl ScraperAgregator {
                                 // here — phase 2 resolves them (cache first),
                                 // exactly like the historical client-ETag flow,
                                 // so they cannot be duplicated in the aggregate.
-                                Some(outcome) if outcome.not_modified => Ok((Vec::new(), Some(outcome))),
+                                Some(outcome) if outcome.not_modified => {
+                                    Ok((Vec::new(), Some(outcome)))
+                                }
                                 Some(outcome) => {
                                     if !rows.is_empty() {
                                         server_cache
@@ -1687,7 +1705,6 @@ queries:
                 None,
                 None,
                 "probe",
-                
             )
             .await;
 
@@ -1719,7 +1736,6 @@ queries:
                 None,
                 None,
                 "probe",
-                
             )
             .await;
 
@@ -1760,7 +1776,6 @@ queries:
                 None,
                 None,
                 "probe",
-                
             )
             .await;
 
@@ -1794,7 +1809,6 @@ queries:
                 None,
                 None,
                 "probe",
-                
             )
             .await;
 

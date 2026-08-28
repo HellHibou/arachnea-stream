@@ -62,6 +62,21 @@ description:
   en: "M6 streaming service"
 ```
 
+### `credentials` (optionnel)
+Déclare si l'utilisation du service requiert un compte et, facultativement,
+l'URL de création du compte. Sans ce bloc, aucun identifiant n'est requis.
+
+```yaml
+credentials:
+  required: true
+  signup_url: "https://example.org/register"
+```
+
+| Champ | Type | Obligatoire | Description |
+|-------|------|-------------|-------------|
+| `required` | booléen | non | Vaut `false` par défaut ; le service requiert des identifiants lorsqu'il vaut `true`. |
+| `signup_url` | chaîne | non | URL publique d'inscription affichée par les clients d'administration. |
+
 ### `parameters` (optionnel)
 Liste de paramètres par défaut de la collection. Chaque paramètre a :
 

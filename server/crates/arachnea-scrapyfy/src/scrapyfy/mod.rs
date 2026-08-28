@@ -87,6 +87,7 @@ pub use local_country::SharedLocalCountry;
 pub mod scraper_query_collection;
 pub use scraper_query_collection::{
     ScraperQueryCollection, ScraperQueryCollectionParameter, ScraperQueryCollectionRaw,
+    ScraperServiceCredentials,
 };
 
 /// Proxy data provider placeholder for dynamic proxy loading.
@@ -109,6 +110,12 @@ pub use ip_country_provider::{
 /// Multi-source query aggregator.
 pub mod scraper_agregator;
 pub use scraper_agregator::{resolve_manifest_sources, ScraperAgregator, ScraperSourceParams};
+/// Source activation policy contracts and persistence-backed implementation.
+pub mod source_enabled;
+pub use source_enabled::{PersistenceSourceEnabled, ScraperSourceDescriptor, ScraperSourceEnabled};
+/// Complete read-only service catalog loading.
+pub mod service_catalog;
+pub use service_catalog::{load_service_catalog, ScraperServiceCatalogEntry};
 
 /// Source-scoped request parameter parsing helpers.
 pub mod source_params;
