@@ -317,6 +317,7 @@ fn init_app_data_root() -> PathBuf {
 
 /// Returns `true` when the executable runs from a system-managed install
 /// whose directory must not receive writable data.
+ #[allow(unused_variables)]
 fn is_packaged_install(exe_dir: &Path) -> bool {
     #[cfg(target_os = "macos")]
     if exe_dir.file_name().is_some_and(|name| name == "MacOS") {

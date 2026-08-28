@@ -21,7 +21,7 @@ All notable changes to the server workspace are recorded here. Add new entries a
   portable ones; `release.mjs` assembles/checksums the container-produced
   installers like native ones (discovered under the existing
   `docker-build/<arch>/` roots). Cross image bumped to
-  `arachnea-cross-builder:1.1.0`: added `curl`, `ca-certificates`, `file`,
+  `arachnea-cross-builder:1.0.0`: added `curl`, `ca-certificates`, `file`,
   `desktop-file-utils`, and tauri-cli 2.11.4 (prebuilt binary on the amd64
   port, compiled from crates.io on arm64 since upstream ships no
   aarch64-linux asset; the GNU target is forced explicitly because the base

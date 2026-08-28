@@ -20,7 +20,7 @@ import { dockerBundlesFor } from './capabilities.mjs';
 const RELEASE_DIR = releaseDir();
 
 /** Tag of the locally-built Arachnea cross image. */
-export const CROSS_IMAGE = 'arachnea-cross-builder:1.1.0';
+export const CROSS_IMAGE = 'arachnea-cross-builder:1.0.0';
 
 /** Directory holding the cross image Dockerfile. */
 export const DOCKERFILE_DIR = path.join(RELEASE_DIR, 'docker');
@@ -263,17 +263,19 @@ function buildCrossRunArgs(platform, tauriDir, command, extraEnv) {
 /**
  * Builds the `docker run` argument list that produces the Linux installers of a
  * platform (`.deb`, `.rpm`, `.AppImage`) inside the cross image through the
- * in-image Tauri CLI (`cargo tauri build`). The frontend is prebuilt by the
+ * in-image Tauri CLI (`cargo tauri bundle`). The frontend is prebuilt by the
  * host into its configured dist folder (mounted through `/io`), so the in-image
- * build skips `beforeBuildCommand`; each pass compiles the release binary
- * (reused by the portable step) and the requested installers, which land under
- * `<workspace target>/docker-build/<arch>/<triple>/release/bundle/`.
+ * build skips `beforeBuildCommand`; each pass uses the already compiled release
+ * binary (from `crossBuildArgs`) and produces the requested installer, which
+ * lands under `<workspace target>/docker-build/<arch>/<triple>/release/bundle/`.
  *
  * One process is spawned **per bundle type** (`bundles` is a single-element
  * list in practice, see release.mjs): requesting several types in one call
  * (`bundle.targets: ["deb","rpm","appimage"]`) is unreliable — the bundler
  * patches the binary in place and re-reads it between types, crashing with
  * "Could not read binary file" on the mounted volume for the second type.
+ * Using `cargo tauri bundle` instead of `build` avoids re-linking the binary
+ * between bundle types, saving time.
  *
  * @param {object} platform - A platform entry.
  * @param {string} tauriDir - Absolute path of the Tauri crate on the host.
@@ -293,8 +295,10 @@ export function crossBundleArgs(platform, tauriDir, dryRun = false, bundles = nu
     build: { beforeBuildCommand: null },
     bundle: { targets: requested },
   });
+  // Use `cargo tauri bundle` instead of `build` to avoid recompilation/re-linking
+  // between separate bundle types; the binary is already present.
   const command =
-    `cd /io/${crateRel} && cargo tauri build --target ${platform.target} --config '${configJson}'`;
+    `cd /io/${crateRel} && cargo tauri bundle --target ${platform.target} --config '${configJson}'`;
   const extraEnv = [
     ['XDG_CACHE_HOME', '/io/' + crossBundleCacheDir(platform) + '/.cache'],
   ];

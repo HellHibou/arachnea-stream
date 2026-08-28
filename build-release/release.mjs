@@ -119,7 +119,7 @@ binary is still packaged as a portable archive when configured, and macOS
 targets additionally get a \`-app.tar.gz\` archive embedding a
 \`<productName>.app\` bundle. Artifacts
 follow the \`<product>-<version>-<os>-<arch>.<ext>\` scheme. Every installer gets
-companion \`.sha256\`/\`.md5\` checksum files; a portable archive's checksum file
+companion \`.sha256\` and \`.sha3\` checksum files; a portable archive's checksum file
 lists the archive's own hash first, then the hash of every file inside the
 archive.
 
@@ -138,17 +138,24 @@ function artifactName(bundleType, platform, version, productName) {
 }
 
 /**
- * Writes the SHA-256 and MD5 checksum files for an artifact and records them
+ * Writes the SHA-256 and SHA-3 checksum files for an artifact and records them
  * in the platform "produced" list.
  *
  * @param {string} filePath - Absolute path of the artifact to checksum.
  * @param {string[]} copied - List accumulating produced file names.
  */
 function addChecksums(filePath, copied) {
-  for (const algorithm of ['sha256', 'md5']) {
-    const checksum = writeChecksum(filePath, algorithm);
-    copied.push(path.basename(checksum));
-  }
+  // SHA-256
+  const hash256 = fileDigestHex(filePath, 'sha256');
+  const out256 = `${filePath}.sha256`;
+  writeFileSync(out256, `${hash256}  ${path.basename(filePath)}\n`);
+  copied.push(path.basename(out256));
+
+  // SHA-3 (SHA3-256)
+  const hash3 = fileDigestHex(filePath, 'sha3-256');
+  const out3 = `${filePath}.sha3`;
+  writeFileSync(out3, `${hash3}  ${path.basename(filePath)}\n`);
+  copied.push(path.basename(out3));
 }
 
 /**
@@ -172,7 +179,7 @@ function listStagedFiles(dir) {
 }
 
 /**
- * Writes one `.sha256` and one `.md5` checksum file for a portable archive.
+ * Writes one `.sha256` and one `.sha3` checksum file for a portable archive.
  * Each checksum file first lists the hash of the archive itself, then the hash
  * of every file staged inside the archive (its uncompressed content), so no
  * archive extraction is ever performed to compute them.
@@ -182,20 +189,27 @@ function listStagedFiles(dir) {
  * @param {string[]} copied - List accumulating produced file names.
  */
 function addPortableChecksums(stagingDir, archivePath, copied) {
-  for (const algorithm of ['sha256', 'md5']) {
-    const extension = algorithm === 'md5' ? 'md5' : 'sha256';
-    const lines = [`${fileDigestHex(archivePath, algorithm)}  ${path.basename(archivePath)}`];
-    for (const rel of listStagedFiles(stagingDir)) {
-      lines.push(`${fileDigestHex(path.join(stagingDir, rel), algorithm)}  ${rel}`);
-    }
-    const out = `${archivePath}.${extension}`;
-    writeFileSync(out, `${lines.join('\n')}\n`);
-    copied.push(path.basename(out));
+  // SHA-256
+  const lines256 = [`${fileDigestHex(archivePath, 'sha256')}  ${path.basename(archivePath)}`];
+  for (const rel of listStagedFiles(stagingDir)) {
+    lines256.push(`${fileDigestHex(path.join(stagingDir, rel), 'sha256')}  ${rel}`);
   }
+  const out256 = `${archivePath}.sha256`;
+  writeFileSync(out256, `${lines256.join('\n')}\n`);
+  copied.push(path.basename(out256));
+
+  // SHA-3 (SHA3-256)
+  const lines3 = [`${fileDigestHex(archivePath, 'sha3-256')}  ${path.basename(archivePath)}`];
+  for (const rel of listStagedFiles(stagingDir)) {
+    lines3.push(`${fileDigestHex(path.join(stagingDir, rel), 'sha3-256')}  ${rel}`);
+  }
+  const out3 = `${archivePath}.sha3`;
+  writeFileSync(out3, `${lines3.join('\n')}\n`);
+  copied.push(path.basename(out3));
 }
 
 /** File-name suffixes produced for each artifact (artifact + checksums). */
-const ARTIFACT_SUFFIXES = ['', '.sha256', '.md5'];
+const ARTIFACT_SUFFIXES = ['', '.sha256', '.sha3'];
 
 /** Portable archive extension: `.tar.gz` for Linux/macOS, `.zip` otherwise. */
 function portableExt(platform) {
@@ -321,7 +335,7 @@ function stageMacApp(portableDir, exe, platform, config, version) {
  * Removes previous outputs for the platforms about to be built. When every
  * platform of a family is selected, the whole family folder is cleared;
  * otherwise only the files belonging to the selected platforms are removed
- * (artifacts plus their `.sha256`/`.md5` checksums).
+ * (artifacts plus their `.sha256`/`.sha3` checksums).
  *
  * @param {object[]} selected - Enriched platform entries being rebuilt.
  * @param {object} config - Release configuration.
@@ -391,6 +405,102 @@ function cleanPreviousOutputs(selected, config, version, releaseDir) {
 }
 
 /**
+ * Generates SHA256SUMS and SHA3SUMS files in a family directory, containing
+ * checksums for every file (except the SUMS files themselves) in that directory.
+ *
+ * @param {string} familyDir - Absolute path to the family output directory.
+ */
+function generateFamilyChecksums(familyDir) {
+  if (!existsSync(familyDir)) return;
+  const files = readdirSync(familyDir)
+    .filter((name) => name !== 'SHA256SUMS' && name !== 'SHA3SUMS' && name !== 'CHANGELOG.md')
+    .map((name) => path.join(familyDir, name))
+    .filter((full) => statSync(full).isFile());
+
+  if (files.length === 0) return;
+
+  // SHA-256
+  const lines256 = files.map((file) => {
+    const hash = fileDigestHex(file, 'sha256');
+    return `${hash}  ${path.basename(file)}`;
+  });
+  const out256 = path.join(familyDir, 'SHA256SUMS');
+  writeFileSync(out256, lines256.join('\n') + '\n');
+  console.log(`[release] Generated SHA256SUMS in ${path.basename(familyDir)}/`);
+
+  // SHA-3
+  const lines3 = files.map((file) => {
+    const hash = fileDigestHex(file, 'sha3-256');
+    return `${hash}  ${path.basename(file)}`;
+  });
+  const out3 = path.join(familyDir, 'SHA3SUMS');
+  writeFileSync(out3, lines3.join('\n') + '\n');
+  console.log(`[release] Generated SHA3SUMS in ${path.basename(familyDir)}/`);
+}
+
+/**
+ * Generates root SHA256SUMS and SHA3SUMS files at the release directory root.
+ * These files contain checksums for every file located inside subdirectories
+ * (family folders) only. Files directly at the root (CHANGELOG.md, etc.) are
+ * ignored. Also excludes any file named SHA256SUMS or SHA3SUMS (regardless of
+ * location) and CHANGELOG.md to avoid including checksum files themselves.
+ *
+ * @param {string} releaseDir - The release version directory.
+ */
+function generateRootChecksums(releaseDir) {
+  if (!existsSync(releaseDir)) return;
+
+  // Exclude these base names from checksumming.
+  const EXCLUDED_NAMES = new Set(['SHA256SUMS', 'SHA3SUMS', 'CHANGELOG.md']);
+
+  // Collect all files under releaseDir, using relative POSIX paths.
+  const allFiles = [];
+  function walk(dir, rel) {
+    for (const entry of readdirSync(dir)) {
+      const full = path.join(dir, entry);
+      const relEntry = rel ? path.posix.join(rel, entry) : entry;
+      if (statSync(full).isDirectory()) {
+        walk(full, relEntry);
+      } else {
+        allFiles.push(relEntry);
+      }
+    }
+  }
+  walk(releaseDir, '');
+
+  // Keep only files that are inside a subdirectory (i.e., contain a '/')
+  // and whose base name is not in the exclusion set.
+  const subdirFiles = allFiles.filter(
+    (rel) => rel.includes('/') && !EXCLUDED_NAMES.has(path.basename(rel)),
+  );
+
+  if (subdirFiles.length === 0) {
+    console.log('[release] No files in subdirectories; no root checksums generated.');
+    return;
+  }
+
+  // SHA-256
+  const lines256 = subdirFiles.map((rel) => {
+    const abs = path.join(releaseDir, rel);
+    const hash = fileDigestHex(abs, 'sha256');
+    return `${hash}  ${rel}`;
+  });
+  const out256 = path.join(releaseDir, 'SHA256SUMS');
+  writeFileSync(out256, lines256.join('\n') + '\n');
+  console.log('[release] Generated root SHA256SUMS');
+
+  // SHA-3
+  const lines3 = subdirFiles.map((rel) => {
+    const abs = path.join(releaseDir, rel);
+    const hash = fileDigestHex(abs, 'sha3-256');
+    return `${hash}  ${rel}`;
+  });
+  const out3 = path.join(releaseDir, 'SHA3SUMS');
+  writeFileSync(out3, lines3.join('\n') + '\n');
+  console.log('[release] Generated root SHA3SUMS');
+}
+
+/**
  * Builds and assembles one platform into `release-<VERSION>/<platform.id>/`.
  *
  * @param {object} platform - Enriched platform entry.
@@ -450,15 +560,17 @@ function buildPlatform(platform, config, version, releaseDir, tauriDir, skipBuil
     // platform this target runs in (see multi-platform builds).
     assertCrossImageFor(platform);
     const dockerBundles = dockerBundlesFor(platform);
+
+    // --- Split compilation and packaging steps ---
     if (dockerBundles.length > 0) {
-      // Each `cargo tauri build` pass compiles the release binary AND one
-      // installer type. One pass per type is required: bundling several types
-      // in a single process crashes the Tauri bundler (see crossBundleArgs).
+      // Step 1: compile the raw binary once
+      console.log(`${label} cross-compiling release binary in the Docker image: ${describeCrossBuild(platform, tauriDir)}`);
+      run('docker', crossBuildArgs(platform, tauriDir));
+
+      // Step 2: package each bundle type (the binary is already present)
       console.log(
         `${label} cross-building installers (${dockerBundles.join(', ')}) in the Docker image:\n    ${describeCrossBundling(platform, tauriDir)}`,
       );
-      // Try each bundle independently so a container without FUSE (e.g. Docker
-      // Desktop on macOS) can still ship deb/rpm when only .AppImage fails.
       const failedBundles = [];
       for (const bundle of dockerBundles) {
         try {
@@ -469,9 +581,7 @@ function buildPlatform(platform, config, version, releaseDir, tauriDir, skipBuil
         }
       }
       if (failedBundles.length === dockerBundles.length) {
-        throw new Error(
-          `all Docker-produced bundles failed inside the image: ${dockerBundles.join(', ')}`,
-        );
+        throw new Error(`all Docker-produced bundles failed inside the image: ${dockerBundles.join(', ')}`);
       }
       if (failedBundles.length > 0) {
         console.warn(
@@ -479,9 +589,12 @@ function buildPlatform(platform, config, version, releaseDir, tauriDir, skipBuil
         );
       }
     } else {
+      // No bundles, just compile the binary (e.g., macOS case)
       console.log(`${label} cross-building in the Docker image: ${describeCrossBuild(platform, tauriDir)}`);
       run('docker', crossBuildArgs(platform, tauriDir));
     }
+    // --- end of split ---
+
   } else {
     console.log(`${label} --skip-build: reusing existing artifacts in ${tauriDir}/target.`);
   }
@@ -697,6 +810,29 @@ async function main() {
   // Only clean what this run rebuilds (family folder or single-platform files).
   mkdirSync(releaseDir, { recursive: true });
   cleanPreviousOutputs(buildable, config, version, releaseDir);
+
+  // Remove existing root SHA256SUMS and SHA3SUMS before building.
+  for (const sumFile of ['SHA256SUMS', 'SHA3SUMS']) {
+    const sumPath = path.join(releaseDir, sumFile);
+    if (existsSync(sumPath)) {
+      rmSync(sumPath);
+      console.log(`[release] Removed existing root ${sumFile}`);
+    }
+  }
+
+  // Remove existing SUMS files in each family folder that will be rebuilt.
+  const families = new Set(buildable.map((p) => outputFolderName(p.id)));
+  for (const family of families) {
+    const familyDir = path.join(releaseDir, family);
+    for (const sumFile of ['SHA256SUMS', 'SHA3SUMS']) {
+      const sumPath = path.join(familyDir, sumFile);
+      if (existsSync(sumPath)) {
+        rmSync(sumPath);
+        console.log(`[release] Removed existing ${sumPath}`);
+      }
+    }
+  }
+
   const results = [];
   for (const platform of buildable) {
     try {
@@ -729,6 +865,15 @@ async function main() {
   const changelog = resolveFromRelease(config.changelog);
   copyFileSync(changelog, path.join(releaseDir, 'CHANGELOG.md'));
   console.log('\n[release] Copied CHANGELOG.md into the release folder.');
+
+  // Regenerate family checksums for each rebuilt family.
+  for (const family of families) {
+    const familyDir = path.join(releaseDir, family);
+    generateFamilyChecksums(familyDir);
+  }
+
+  // Generate root SHA256SUMS and SHA3SUMS (after family SUMS are created).
+  generateRootChecksums(releaseDir);
 
   console.log('\n[release] Done.');
   console.log(`Release directory : ${releaseDir}`);
