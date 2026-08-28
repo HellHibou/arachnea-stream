@@ -875,3 +875,22 @@ All notable changes to the server workspace are recorded here. Add new entries a
   folder, but into their platform resource directory, which the
   exe-directory application root does not read — the portable archives remain
   the self-contained option there.
+
+## Unreleased — macOS `-app.tar.gz` archives embed a `.app` bundle (`build-release/`)
+
+macOS targets (`darwin-x86_64`, `darwin-arm64`) now get a **second** archive
+alongside the unchanged portable one: `arachnea-<ver>-darwin-<arch>-app.tar.gz`
+holds only a launchable `<productName>.app` bundle with the tauri-bundler
+`app` layout (`Contents/Info.plist` — identifier, version, icon — `PkgInfo`,
+`Contents/MacOS/arachnea` marked executable, `Contents/Resources/icon.icns`,
+all read from the crate's `tauri.conf.json`). The runtime `services/` folder
+is staged in `Contents/Resources/`, the Tauri `bundle.resources` location,
+probed by the application resource root resolution (see the resource/data
+entry below). The classic
+`arachnea-<ver>-darwin-<arch>-portable.tar.gz` (raw binary + `services/`) is
+unchanged; both archives get `.sha256`/`.md5` checksums and are cleaned on
+partial rebuilds. The `.app` cannot be produced by the Tauri CLI inside the
+cross image — it ignores macOS bundle types on a Linux host (`Wrong package
+type app for platform Linux`) — hence the host-side assembly; analysis in
+`docs/dev-tracking/macos-portable-app.md`.
+

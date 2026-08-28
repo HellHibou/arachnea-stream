@@ -7,9 +7,11 @@
 // (executable + runtime data).
 import path from 'node:path';
 import {
+  chmodSync,
   copyFileSync,
   existsSync,
   mkdirSync,
+  readFileSync,
   readdirSync,
   rmSync,
   statSync,
@@ -44,6 +46,7 @@ import {
   crossBundleArgs,
   describeCrossBuild,
   describeCrossBundling,
+  dockerBuildExecutable,
   ensureCrossImage,
 } from './docker.mjs';
 
@@ -112,7 +115,9 @@ The frontend is built once and shared by all targets (each \`cargo tauri build\`
 skips its \`beforeBuildCommand\` through a config override). On hosts that cannot
 natively bundle a target, the Docker cross image compiles it and additionally
 produces the Linux installers (.deb/.rpm/.AppImage) for Linux targets; the
-raw binary is still packaged as a portable archive when configured. Artifacts
+binary is still packaged as a portable archive when configured, and macOS
+targets additionally get a \`-app.tar.gz\` archive embedding a
+\`<productName>.app\` bundle. Artifacts
 follow the \`<product>-<version>-<os>-<arch>.<ext>\` scheme. Every installer gets
 companion \`.sha256\`/\`.md5\` checksum files; a portable archive's checksum file
 lists the archive's own hash first, then the hash of every file inside the
@@ -208,6 +213,111 @@ function portableArchiveName(platform, version, productName) {
 }
 
 /**
+ * Version-named macOS `.app` archive file name — a separate archive from the
+ * portable one, holding the launchable `<productName>.app` bundle.
+ */
+function macAppArchiveName(platform, version, productName) {
+  return `${productName}-${version}-${familyOf(platform.id)}-${archShort(platform.target)}-app.tar.gz`;
+}
+
+/** Returns `true` when a platform's portable archive embeds a macOS `.app`. */
+function isMacPortable(platform) {
+  return platform.target.endsWith('-apple-darwin');
+}
+
+/**
+ * Reads the Tauri configuration of the bundled crate (product name, bundle
+ * identifier, ...) used to stage the macOS `.app` bundle.
+ *
+ * @param {object} config - Release configuration.
+ * @returns {object} Parsed `tauri.conf.json`.
+ */
+function readTauriConf(config) {
+  return JSON.parse(
+    readFileSync(path.join(resolveFromRelease(config.tauriProject), 'tauri.conf.json'), 'utf8'),
+  );
+}
+
+/**
+ * Stages a macOS `.app` bundle inside the `.app` archive staging directory:
+ * `<productName>.app/Contents/{Info.plist, PkgInfo, MacOS/<exe>, Resources/}`.
+ * Replicates the file layout of the tauri-bundler `app` bundle (pure file
+ * operations, no code signing) so the `-app.tar.gz` archive ships a launchable
+ * application alongside the raw-binary portable archive. The optional runtime
+ * data (`services/`, ...) is staged in `Contents/Resources/`, the Tauri
+ * `bundle.resources` location, which the application resource root resolution
+ * probes (see `arachnea-core::application`).
+ *
+ * The `.app` cannot be produced inside the Docker cross image: the Tauri CLI
+ * ignores macOS bundle types on a Linux host ("Wrong package type app for
+ * platform Linux").
+ *
+ * @param {string} portableDir - Staging directory holding the archive content.
+ * @param {string} exe - Absolute path of the release executable to embed.
+ * @param {object} platform - A platform entry with a `portable` block.
+ * @param {object} config - Release configuration.
+ * @param {string} version - Project version.
+ * @returns {string} The directory receiving the runtime data
+ *   (`Contents/Resources`), i.e. where the resource tree must be staged.
+ */
+function stageMacApp(portableDir, exe, platform, config, version) {
+  const tauri = readTauriConf(config);
+  const appName = `${tauri.productName}.app`;
+  const contents = path.join(portableDir, appName, 'Contents');
+  const macosDir = path.join(contents, 'MacOS');
+  const resourcesDir = path.join(contents, 'Resources');
+  mkdirSync(macosDir, { recursive: true });
+  mkdirSync(resourcesDir, { recursive: true });
+
+  const exeName = platform.portable.exeName || 'arachnea';
+  const exeDest = path.join(macosDir, exeName);
+  copyFileSync(exe, exeDest);
+  chmodSync(exeDest, 0o755);
+
+  const plist = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>${tauri.productName}</string>
+	<key>CFBundleExecutable</key>
+	<string>${exeName}</string>
+	<key>CFBundleIconFile</key>
+	<string>icon.icns</string>
+	<key>CFBundleIdentifier</key>
+	<string>${tauri.identifier}</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>${tauri.productName}</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>${version}</string>
+	<key>CFBundleVersion</key>
+	<string>${version}</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>10.13</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+</dict>
+</plist>
+`;
+  writeFileSync(path.join(contents, 'Info.plist'), plist);
+  writeFileSync(path.join(contents, 'PkgInfo'), 'APPL????');
+
+  const icon = path.join(resolveFromRelease(config.tauriProject), 'icons', 'icon.icns');
+  if (existsSync(icon)) {
+    copyFileSync(icon, path.join(resourcesDir, 'icon.icns'));
+  } else {
+    console.warn(`macOS app icon \`${icon}\` not found; the .app bundle ships without an icon.`);
+  }
+  return resourcesDir;
+}
+
+/**
  * Removes previous outputs for the platforms about to be built. When every
  * platform of a family is selected, the whole family folder is cleared;
  * otherwise only the files belonging to the selected platforms are removed
@@ -260,11 +370,16 @@ function cleanPreviousOutputs(selected, config, version, releaseDir) {
       }
       if (platform.portable) {
         const portableName = portableArchiveName(platform, version, config.productName);
-        for (const suffix of ARTIFACT_SUFFIXES) {
-          const file = path.join(folderPath, `${portableName}${suffix}`);
-          if (existsSync(file)) {
-            rmSync(file);
-            removedAny = true;
+        const archiveNames = isMacPortable(platform)
+          ? [portableName, macAppArchiveName(platform, version, config.productName)]
+          : [portableName];
+        for (const name of archiveNames) {
+          for (const suffix of ARTIFACT_SUFFIXES) {
+            const file = path.join(folderPath, `${name}${suffix}`);
+            if (existsSync(file)) {
+              rmSync(file);
+              removedAny = true;
+            }
           }
         }
       }
@@ -400,29 +515,43 @@ function buildPlatform(platform, config, version, releaseDir, tauriDir, skipBuil
   }
 
   // 3. Optional portable archive: the raw executable + optional runtime data.
+  //    macOS targets additionally get a separate `-app` archive embedding the
+  //    executable in a launchable `<productName>.app` bundle.
   if (platform.portable) {
-    const portableName = portableArchiveName(platform, version, config.productName);
-    const portableDir = path.join(releaseDir, `.tmp-${portableName}`);
-    removeDir(portableDir);
     const exeName =
       platform.portable.exeName || (platform.target.includes('windows') ? 'arachnea.exe' : 'arachnea');
-    const exe = findExecutable(tauriDir, platform.target, exeName);
+    // Docker-produced binaries live under `docker-build/<arch>/<triple>/release/`;
+    // prefer them so a stray host-built binary in the plain target dir cannot
+    // shadow the freshly cross-compiled one.
+    const exe =
+      platform.method === 'docker'
+        ? (dockerBuildExecutable(platform, tauriDir, exeName) ??
+          findExecutable(tauriDir, platform.target, exeName))
+        : findExecutable(tauriDir, platform.target, exeName);
     if (!exe) {
       console.warn(`${label} release executable not found; skipping portable archive.`);
     } else {
-      mkdirSync(portableDir, { recursive: true });
-      copyFileSync(exe, path.join(portableDir, path.basename(exe)));
       const sourceDir = resolveFromRelease(config.portableSource);
       const include = platform.portable.include || [];
       const exclude = platform.portable.exclude || [];
-      for (const rel of include) {
-        const src = path.join(sourceDir, rel);
-        if (!statSync(src, { throwIfNoEntry: false })) {
-          console.warn(`${label} portable include \`${rel}\` not found in ${sourceDir}; skipped.`);
-          continue;
+      // Copies the optional runtime data below `targetDir`, warning on misses.
+      const copyRuntimeData = (targetDir) => {
+        for (const rel of include) {
+          const src = path.join(sourceDir, rel);
+          if (!statSync(src, { throwIfNoEntry: false })) {
+            console.warn(`${label} portable include \`${rel}\` not found in ${sourceDir}; skipped.`);
+            continue;
+          }
+          copyDir(src, path.join(targetDir, rel), exclude);
         }
-        copyDir(src, path.join(portableDir, rel), exclude);
-      }
+      };
+
+      const portableName = portableArchiveName(platform, version, config.productName);
+      const portableDir = path.join(releaseDir, `.tmp-${portableName}`);
+      removeDir(portableDir);
+      mkdirSync(portableDir, { recursive: true });
+      copyFileSync(exe, path.join(portableDir, path.basename(exe)));
+      copyRuntimeData(portableDir);
       const archivePath = path.join(platformOutDir, portableName);
       console.log(`${label} packaging portable archive ${path.basename(archivePath)}...`);
       createArchive(portableDir, archivePath);
@@ -431,6 +560,24 @@ function buildPlatform(platform, config, version, releaseDir, tauriDir, skipBuil
       // file's hash (computed on the staged originals, never via extraction).
       addPortableChecksums(portableDir, archivePath, copied);
       removeDir(portableDir);
+
+      // Separate macOS archive: a launchable `<productName>.app` bundle; the
+      // runtime data is staged in `Contents/Resources/` (Tauri bundler
+      // layout, probed by the runtime resource root resolution).
+      if (isMacPortable(platform)) {
+        const appName = macAppArchiveName(platform, version, config.productName);
+        const appDir = path.join(releaseDir, `.tmp-${appName}`);
+        removeDir(appDir);
+        mkdirSync(appDir, { recursive: true });
+        const resourcesDir = stageMacApp(appDir, exe, platform, config, version);
+        copyRuntimeData(resourcesDir);
+        const appArchivePath = path.join(platformOutDir, appName);
+        console.log(`${label} packaging macOS .app archive ${path.basename(appArchivePath)}...`);
+        createArchive(appDir, appArchivePath);
+        copied.push(path.basename(appArchivePath));
+        addPortableChecksums(appDir, appArchivePath, copied);
+        removeDir(appDir);
+      }
     }
   }
 
@@ -478,7 +625,10 @@ async function main() {
       else if (platform.method === 'native') produces = platform.usable.join(', ') || 'nothing';
       else {
         const parts = dockerBundlesFor(platform);
-        if (platform.portable) parts.push('portable archive');
+        if (platform.portable) {
+          parts.push('portable archive');
+          if (isMacPortable(platform)) parts.push('.app archive');
+        }
         produces = parts.join(', ') || 'portable archive';
       }
       const detail = platform.buildable

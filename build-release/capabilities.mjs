@@ -145,8 +145,10 @@ export function archShort(target) {
  * Rust targets that can be produced as a single raw executable through the
  * Arachnea cross-build image (`build-release/docker/Dockerfile`, derived from
  * `joseluisq/rust-linux-darwin-builder`). macOS targets compile through
- * osxcross and can only ship this raw binary; Linux targets additionally get
- * their installers bundled inside the image (see `DOCKER_BUNDLED_TARGETS`).
+ * osxcross (the image cannot bundle them: the Tauri CLI ignores macOS bundle
+ * types on a Linux host, so the `.app` is assembled host-side in release.mjs);
+ * Linux targets additionally get their installers bundled inside the image
+ * (see `DOCKER_BUNDLED_TARGETS`).
  *
  * A platform entry that sets `"build": "docker"` together with a `portable`
  * block is produced this way whenever the current host cannot natively bundle

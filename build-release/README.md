@@ -1,6 +1,6 @@
 # Arachnea Release Builder
 
-Local, zero-dependency Node tooling that builds the Arachnea Tauri application for every platform the current host can produce, without relying on CI. It drives the Tauri CLI (`cargo tauri build`) for installers, assembles versioned output folders under `releases/`, and provisions the native toolchain required for cross-compilation. When the host cannot natively bundle a Linux or macOS target (e.g. building on Windows or macOS), it can additionally build through a small Docker image (`docker.mjs`): a **portable** raw binary for every Docker-capable target, plus the Linux `.deb`/`.rpm`/`.AppImage` installers produced inside the container (one pass per bundle type; the `.AppImage` needs FUSE for linuxdeploy, unavailable under Docker Desktop).
+Local, zero-dependency Node tooling that builds the Arachnea Tauri application for every platform the current host can produce, without relying on CI. It drives the Tauri CLI (`cargo tauri build`) for installers, assembles versioned output folders under `releases/`, and provisions the native toolchain required for cross-compilation. When the host cannot natively bundle a Linux or macOS target (e.g. building on Windows or macOS), it can additionally build through a small Docker image (`docker.mjs`): a portable archive for every Docker-capable target, plus the Linux `.deb`/`.rpm`/`.AppImage` installers produced inside the container (one pass per bundle type; the `.AppImage` needs FUSE for linuxdeploy, unavailable under Docker Desktop). macOS targets additionally get a separate `-app.tar.gz` archive embedding a launchable `.app` bundle.
 
 ## Files
 
@@ -62,7 +62,9 @@ releases/release-0.1.0/
   CHANGELOG.md
   osx/        arachnea_0.1.0_universal.dmg (+ .sha256 / .md5)
               arachnea_0.1.0_x64-portable.tar.gz (+ .sha256 / .md5)   # via Docker cross-build
+              arachnea_0.1.0_x64-app.tar.gz (+ .sha256 / .md5)        # Arachnéa.app bundle
               arachnea_0.1.0_arm64-portable.tar.gz (+ .sha256 / .md5) # via Docker cross-build
+              arachnea_0.1.0_arm64-app.tar.gz (+ .sha256 / .md5)      # Arachnéa.app bundle
   windows/    arachnea_0.1.0_x64-setup.exe (+ .sha256 / .md5)
               arachnea_0.1.0_x64-portable.zip (+ .sha256 / .md5)   # arachnea.exe + services/
   linux/      arachnea_0.1.0_amd64-portable.tar.gz (+ .sha256 / .md5)   # via Docker cross-build
@@ -100,8 +102,10 @@ When a target cannot be produced natively on the current host, the builder
 cross-compiles it inside the Arachnea Docker image (`docker.mjs` +
 `docker/Dockerfile`, derived from `joseluisq/rust-linux-darwin-builder`):
 
-- **Every Docker-capable target** keeps shipping the raw executable packaged as
-  a portable `.tar.gz` (Windows portable `.zip` is host-only).
+- **Every Docker-capable target** keeps shipping a portable `.tar.gz` holding
+  the raw executable (Windows portable `.zip` is host-only). macOS targets
+  additionally get a separate `-app.tar.gz` archive embedding a
+  `<productName>.app` bundle (see "Portable archives" below).
 - **Linux targets additionally get their installers** (`.deb`, `.rpm`,
   `.AppImage`) bundled inside the container through the in-image Tauri CLI:
   one `cargo tauri build --target <triple>` pass **per bundle type** produces
@@ -114,8 +118,12 @@ cross-compiles it inside the Arachnea Docker image (`docker.mjs` +
   internal sub-processes), the others and the portable archive are still shipped
   with a warning. AppImage builds work on a real Linux host or a Linux CI
   container.
-- `darwin-x86_64` and `darwin-arm64`: compiled with osxcross; no installer is
-  possible from a container (only the portable binary).
+- `darwin-x86_64` and `darwin-arm64`: compiled with osxcross. No installer can
+  be produced from the container — the Tauri CLI ignores macOS bundle types on
+  a Linux host (`Wrong package type app for platform Linux`), so the `.app` is
+  assembled host-side by `release.mjs` into its own archive. Assembly prefers
+  the executable produced by the container (`target/docker-build/<arch>/…`)
+  so a stale host-built binary in the plain target dir cannot shadow it.
 
 A platform is produced this way whenever `release-config.json` sets
 `"build": "docker"` and declares a `portable` block and/or Linux bundles, and
@@ -158,9 +166,26 @@ Two portable formats, each getting `.sha256`/`.md5` checksums:
   folder read by the app in release mode (the executable directory is the
   application root), excluding local-only state such as `credentials.json` and
   caches. The `data/` folder is created at first launch and is not shipped.
-- **Linux/macOS `.tar.gz`**: the raw `arachnea` binary built through the Docker
-  cross image (see "Portable binaries via Docker" above). It does not bundle the
-  `services/` runtime data.
+- **Linux `.tar.gz`**: the raw `arachnea` binary built through the Docker cross
+  image, plus the runtime `services/` folder next to it (the executable
+  directory is the application root).
+- **macOS `.tar.gz`**: same layout as Linux — the raw `arachnea` binary plus
+  `services/` next to it.
+- **macOS `-app.tar.gz`**: a second archive holding only an `Arachnéa.app`
+  bundle (name read from `tauri.conf.json`) staged host-side by `release.mjs`
+  with the same layout as the tauri-bundler `app` bundle —
+  `Contents/Info.plist` (identifier, version, icon), `PkgInfo`,
+  `Contents/MacOS/arachnea`, `Contents/Resources/{icon.icns, services/}`.
+  The `services/` runtime folder is staged in `Contents/Resources/`, the
+  Tauri `bundle.resources` location, which the application resource root
+  resolution probes (`arachnea-core::application`). Writable `data/` lands in
+  the per-user standard directory on packaged installs (`~/Library/Application
+  Support/hell-hibou.arachnea.app` on macOS). The `.app` is unsigned
+  (ad-hoc signing is still required on Apple Silicon before it runs, and
+  downloaded files may trip Gatekeeper); the `.dmg` produced on a real macOS
+  host remains the fully bundled alternative. A `.app` is a directory, not an
+  executable: launch it with `open 'Arachnéa.app'` (or double-click), or run
+  the inner binary directly (`Arachnéa.app/Contents/MacOS/arachnea`).
 
 ## Installer resources
 

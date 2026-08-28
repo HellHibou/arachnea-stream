@@ -4,7 +4,8 @@
 // derived from joseluisq/rust-linux-darwin-builder), what the current host
 // cannot natively produce:
 // - macOS targets (osxcross): the raw release binary (`crossBuildArgs`),
-//   packaged on the host as a portable archive.
+//   packaged on the host as a portable archive embedding a `.app` bundle
+//   (release.mjs) since the Tauri CLI ignores macOS bundle types on Linux.
 // - Linux targets: `cargo tauri build` through the in-image Tauri CLI
 //   (`crossBundleArgs`), producing the .deb/.rpm/.AppImage installers AND the
 //   release binary (reused by the host-side portable step). Artifacts land in
@@ -208,6 +209,34 @@ export function crossBuildArgs(platform, tauriDir, dryRun = false) {
 /** Prints a human-readable description of the raw-binary cross build command. */
 export function describeCrossBuild(platform, tauriDir) {
   return `docker ${crossBuildArgs(platform, tauriDir, true).join(' ')}`;
+}
+
+/**
+ * Resolves the raw release executable produced inside the cross image for a
+ * platform, when present. Docker builds write into
+ * `<workspace target>/docker-build/<container arch>/<triple>/release/` (see
+ * `crossRunBase`), which `targetBaseDirs()` lists last in `lib.mjs` — an old
+ * host-built binary left in the plain `target/<triple>/release/` path could
+ * otherwise shadow it when assembling portable archives.
+ *
+ * @param {object} platform - A platform entry produced through Docker.
+ * @param {string} tauriDir - Absolute path of the Tauri crate on the host.
+ * @param {string} exeName - Executable file name to look for.
+ * @returns {string|null} Absolute executable path, or `null` when absent.
+ */
+export function dockerBuildExecutable(platform, tauriDir, exeName) {
+  const contArch = containerArchFor(platform);
+  const workspaceRoot = workspaceRootFor(path.resolve(tauriDir));
+  const candidate = path.join(
+    workspaceRoot,
+    'target',
+    'docker-build',
+    contArch,
+    platform.target,
+    'release',
+    exeName,
+  );
+  return existsSync(candidate) ? candidate : null;
 }
 
 /**
