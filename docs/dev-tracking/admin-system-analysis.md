@@ -170,6 +170,22 @@ La phase 1 fournit donc le format, le chargement et la priorité de configuratio
 7. Produire un résultat de rechargement détaillant les services chargés, désactivés, ignorés et en erreur.
 8. Faire réutiliser ce flux par le démarrage, l'API admin et le systray.
 
+#### Vérification de l'implémentation — 2026-08-29
+
+| Élément | État | Implémentation constatée |
+|---|---|---|
+| PersistenceStore conservé | Fait | `StreamScraper` conserve `credentials_store` et `persistence_store` ; `StreamScraperBuildOptions` les porte pour chaque reconstruction. |
+| Handler arachnea-services | Fait | `from_options` injecte `PersistenceSourceEnabled` sur le namespace `arachnea-services` dans chaque instance reconstruite. |
+| Synchronisation sans écrasement | Fait | `register_defaults` est appelé au démarrage et à chaque rechargement ; les overrides existants ne sont jamais réécrits. |
+| Store chiffré des credentials | Fait | `main.rs` construit `EncryptedFileCredentialsStore` (`data/credentials`) et le transmet au scraper ; le store JSON clair n'est plus utilisé par l'exécutable. |
+| Façade ReloadableStreamScraper | Fait | Nouveau module `arachnea-stream::reloadable_stream_scraper` ; toutes les routes résolvent `current()` à chaque requête. |
+| Construction hors chemin de requête | Fait | Le remplacement est construit dans `tokio::task::spawn_blocking` pendant que l'instance active continue de servir. |
+| Swap atomique après validation | Fait | L'échange n'a lieu que si la construction réussit et qu'aucune entrée n'est en erreur ; sinon `applied` reste `false` et l'instance active est conservée. |
+| Résultat de rechargement détaillé | Fait | `StreamReloadReport` distingue `loaded`, `disabled`, `ignored` (YAML manquant) et `errors` (YAML invalide, identifiant dupliqué, échec de lecture d'état, échec de construction). |
+| Réutilisation du flux | Partiel | Le démarrage et la façade partagent le même chemin (`from_options`) ; l'API admin et le systray appelleront `reload()` aux phases 4 et 6. `reload_blocking` est déjà disponible pour les callbacks systray. |
+| Stabilité des commandes proxy/DRM | Fait | Le noyau proxy et les chemins publics capturés à l'enregistrement sont réappliqués aux instances reconstruites. |
+
+
 ### Phase 4 — API admin et sécurité
 
 1. Enrichir le contexte REST avec l'adresse TCP distante.
@@ -182,6 +198,38 @@ La phase 1 fournit donc le format, le chargement et la priorité de configuratio
 8. Valider côté backend l'autorisation de choisir Local : serveur, loopback et privilège root.
 9. Retourner les capacités et la provenance des paramètres effectifs depuis status/settings.
 
+#### Vérification de l'implémentation — 2026-08-29
+
+| Élément | État | Implémentation constatée |
+|---|---|---|
+| Adresse TCP distante | Fait | `RequestControlerContext` porte `remote_addr` et `method` ; le backend REST les remplit depuis `warp::addr::remote()` (repli non-loopback quand absent) ; le contexte Tauri les laisse vides. |
+| Services mot de passe / sessions / contrôle d'accès | Fait | `admin::auth` : hachage Argon2id, sessions opaques en mémoire (`SessionStore`, TTL 2 h, cookie HttpOnly/SameSite=Strict), limiteur de tentatives par IP. |
+| Règles desktop / loopback / distant | Fait | Desktop toujours autorisé (contexte IPC) ; serveur : clients loopback autorisés, autres soumis à session. `status` expose `auth_required` et `authenticated`. |
+| Opérations admin | Fait | status, login, logout, services, set-service-enabled, reset-service-enabled, credentials, set-credentials, clear-credentials, settings, update-settings, set-admin-password et reload sous `admin/<operation>` (montés `api/admin/<operation>`). |
+| Confidentialité | Fait | `password_hash`, token de session brut et credentials de services ne sont jamais sérialisés ; les logs ne contiennent aucun secret. |
+| Cookies et en-têtes | Fait | Session via `Set-Cookie` HttpOnly/SameSite=Strict ; toutes les réponses admin en `Cache-Control: no-store`. |
+| CSRF et limitation | Fait | Les écritures exigent POST et refusent les `Origin`/`Referer` étrangers au `Host` ; le login est limité à 10 échecs / 10 min par IP. |
+| Validation Local | Fait | `update-settings` refuse le mode `local` hors (serveur, client loopback, processus privilégié via `application::is_running_elevated`). |
+| Capacités et provenance | Fait | `status` expose les capacités ; `settings` renvoie port/root/réseau effectifs avec leur source (CLI, configuration ou défaut) et `public_http_warning`. |
+| Mot de passe temporaire | Fait | Conservé en mémoire, imprimé une seule fois, comparé en temps constant ; un mot de passe permanent le neutralise. |
+| Rechargement atomique | Fait | L'opération `reload` réutilise `ReloadableStreamScraper::reload` et renvoie un rapport détaillé. |
+### Particularités à connaître pour l'interface (phase 5)
+
+Voici les points que le frontend admin doit respecter pour rester aligné sur l'API :
+
+1. **URL de l'API** : le frontend construit l'URL depuis le root public (`entrypoint_root`) et ne suppose jamais que le serveur est monté à la racine. En HTTP, les opérations sont servies sous `{root}/api/admin/<opération>` ; en desktop, le même code passe par le handler Tauri `invoke("admin/<opération>", payload)` qui expose les mêmes noms de commandes.
+2. **Écran de connexion piloté par `status`** : l'écran d'accueil appelle `status` et s'affiche seulement si `auth_required` est `true`. `authenticated` indique si le client courant passe déjà le contrôle d'accès (desktop ou loopback, ou session valide).
+3. **Motorisation de la connexion** : `login` (POST `{password}`) renvoie un cookie de session `arachnea_admin_session` (`HttpOnly; SameSite=Strict`) posé par le navigateur ; le frontend ne doit jamais stocker le token côté application. `logout` invalide la session côté serveur.
+4. **Données sensibles** : l'API ne renvoie jamais `password_hash`, de session brute, ni les mots de passe de services. `credentials` ne fournit que `required`, `signup_url`, `configured` et `login_masked`. Ne jamais tenter de recalculer ou d'afficher le secret.
+5. **Ouverture de `signup_url`** : c'est une action navigateur contrôlée (fenêtre/onglet externe), jamais une requête API pour créer un compte.
+6. **Activation des services** : `set-service-enabled` / `reset-service-enabled` agissent sur l'override et répondent `reload_required: true`. L'interface doit proposer une action « Recharger » et afficher son résultat ; tant que le rechargement n'est pas fait, l'état effectif affiché peut différer de l'état appliqué au serveur.
+7. **Logos** : le backend résout les logos depuis les paramètres fusionnés ; un logo absent signifie une URL non résolue. L'interface doit prévoir une icône de secours.
+8. **Descriptions localisées** : `services` accepte un paramètre `lang` ; l'interface choisit la langue de l'utilisateur et affiche un fallback (en/fr/première déclarée) côté backend.
+9. **Réglages et redémarrage** : `settings` renvoie les valeurs **effectives** avec leur provenance (`server_port_source`, `network_mode_source`, `entrypoint_root_source` valant `command_line`, `configuration` ou `default`) et `public_http_warning` (réseau public en HTTP). `update-settings` persiste le fichier et répond `restart_required: true` — le port, le root et le réseau ne prennent effet qu'au redémarrage. L'interface doit afficher un avertissement clair pour le mode public en HTTP et une indication de redémarrage pour les changements de réglages.
+10. **Restriction du mode Local** : le backend refuse le choix `local` sauf si l'utilisateur est un client loopback **et** que le processus tourne avec des privilèges élevés (root/administrateur). L'interface doit masquer ou désactiver ce choix dans les autres cas.
+11. **Changement de mot de passe** : `set-admin-password` exige `current_password` dès qu'un hash permanent existe ; un mot de passe de moins de 8 caractères est refusé.
+12. **Rechargement** : `reload` renvoie `applied`, `loaded`, `disabled`, `ignored`, `errors` et `build_error`. L'interface affiche ces états et, quand `applied` est `false`, conserve l'état précédent et propose les erreurs détaillées.
+13. **Composants et logs** : les appels API vivent dans des composables, les vues restent des surfaces de composition ; les erreurs portent un format stable `{error:{code,message}}` que le composable réseau doit normaliser pour l'UI.
 ### Phase 5 — Application web admin
 
 1. Créer le projet admin indépendant et ses scripts Vite.

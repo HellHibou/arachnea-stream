@@ -87,6 +87,21 @@ impl PersistenceSourceEnabled {
         }
         transaction.commit().await
     }
+
+    /// Removes the persisted override of one source identifier.
+    ///
+    /// The source falls back to its manifest default after this call.
+    ///
+    /// # Arguments
+    /// * `source_id` - Stable source identifier to reset.
+    ///
+    /// # Errors
+    /// Returns an error when the backing store cannot be updated.
+    pub async fn clear_enabled(&self, source_id: &str) -> Result<()> {
+        let transaction = self.store.transaction(&self.namespace).await?;
+        transaction.delete(source_id).await?;
+        transaction.commit().await
+    }
 }
 
 #[async_trait]

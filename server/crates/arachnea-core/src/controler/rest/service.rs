@@ -233,7 +233,13 @@ impl RestControlerService {
         }
 
         if !last_path.is_empty() {
-            path.push(last_path.to_string());
+            path.extend(
+                last_path
+                    .split('/')
+                    .map(str::trim)
+                    .filter(|segment| !segment.is_empty())
+                    .map(ToString::to_string),
+            );
         }
 
         let mut base_filter;
@@ -371,6 +377,20 @@ impl RestControlerService {
         map
     }
 
+    /// Returns the peer address of a request, falling back to the unspecified
+    /// address when the transport does not expose one.
+    ///
+    /// The unspecified address is never loopback, so transports without a peer
+    /// address are always treated as remote (untrusted) clients.
+    fn remote_peer(addr: Option<std::net::SocketAddr>) -> std::net::SocketAddr {
+        addr.unwrap_or_else(|| {
+            std::net::SocketAddr::new(
+                std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
+                0,
+            )
+        })
+    }
+
     /// Runs the Warp server to completion on a dedicated Tokio runtime.
     ///
     /// The server shuts down gracefully once the provided shutdown signal is
@@ -463,45 +483,63 @@ impl ControlerService for RestControlerService {
         let post_filter = base_filter
             .clone()
             .and(warp::post())
+            .and(warp::addr::remote())
             .and(warp::body::json::<Value>())
             .and(warp::header::headers_cloned())
-            .and_then(move |input: Value, headers: warp::http::HeaderMap| {
-                let post_call = Arc::clone(&post_call);
-                async move {
-                    Ok::<(Box<dyn Reply + Send>,), Rejection>(
-                        Self::call_and_reply_json(
-                            &post_call,
-                            ControlerJsonInput {
-                                payload: ControlerFunctionInput::Json(input),
-                                context: RequestControlerContext::new(Self::headers_to_map(&headers)),
-                            },
+            .and_then(
+                move |addr: Option<std::net::SocketAddr>,
+                      input: Value,
+                      headers: warp::http::HeaderMap| {
+                    let post_call = Arc::clone(&post_call);
+                    async move {
+                        Ok::<(Box<dyn Reply + Send>,), Rejection>(
+                            Self::call_and_reply_json(
+                                &post_call,
+                                ControlerJsonInput {
+                                    payload: ControlerFunctionInput::Json(input),
+                                    context: RequestControlerContext::new(
+                                        Self::headers_to_map(&headers),
+                                    )
+                                    .with_remote_addr(Self::remote_peer(addr))
+                                    .with_method("POST"),
+                                },
+                            )
+                            .await,
                         )
-                        .await,
-                    )
-                }
-            });
+                    }
+                },
+            );
 
         let get_call = call.clone();
         let get_filter = base_filter
             .clone()
             .and(warp::get())
+            .and(warp::addr::remote())
             .and(warp::query::raw().or(warp::any().map(String::new)).unify())
             .and(warp::header::headers_cloned())
-            .and_then(move |input: String, headers: warp::http::HeaderMap| {
-                let get_call = Arc::clone(&get_call);
-                async move {
-                    Ok::<(Box<dyn Reply + Send>,), Rejection>(
-                        Self::call_and_reply_json(
-                            &get_call,
-                            ControlerJsonInput {
-                                payload: ControlerFunctionInput::Query(input),
-                                context: RequestControlerContext::new(Self::headers_to_map(&headers)),
-                            },
+            .and_then(
+                move |addr: Option<std::net::SocketAddr>,
+                      input: String,
+                      headers: warp::http::HeaderMap| {
+                    let get_call = Arc::clone(&get_call);
+                    async move {
+                        Ok::<(Box<dyn Reply + Send>,), Rejection>(
+                            Self::call_and_reply_json(
+                                &get_call,
+                                ControlerJsonInput {
+                                    payload: ControlerFunctionInput::Query(input),
+                                    context: RequestControlerContext::new(
+                                        Self::headers_to_map(&headers),
+                                    )
+                                    .with_remote_addr(Self::remote_peer(addr))
+                                    .with_method("GET"),
+                                },
+                            )
+                            .await,
                         )
-                        .await,
-                    )
-                }
-            });
+                    }
+                },
+            );
 
         self.add_route(post_filter.or(get_filter).unify().boxed());
     }

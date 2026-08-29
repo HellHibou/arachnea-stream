@@ -5,14 +5,21 @@
 use anyhow::{bail, Context, Result};
 use rand::{distr::Alphanumeric, Rng};
 use std::net::IpAddr;
+use std::sync::Arc;
 
 use arachnea_core::{
     application,
     controler::{ApplicationMode, CoreApplicationOptions, ServerNetworkMode, DEFAULT_SERVER_PORT},
-    persistence::EncryptedFileCredentialsStore,
+    persistence::{
+        CredentialsStore, EncryptedFileCredentialsStore, FilePersistenceStore, PersistenceStore,
+    },
 };
 use arachnea_scrapyfy::*;
-use arachnea_stream::{configuration::ApplicationConfiguration, StreamScraper};
+use arachnea_stream::{
+    admin::{dto::SettingSource, register_admin_service, AdminMode, AdminRuntimeSettings, AdminState},
+    configuration::ApplicationConfiguration, ReloadableStreamScraper, StreamScraper,
+    StreamScraperBuildOptions,
+};
 
 /// Runtime options parsed from command line arguments.
 struct RuntimeOptions {
@@ -190,6 +197,49 @@ fn apply_persistent_configuration(
     Ok(())
 }
 
+/// Builds the effective administration settings from CLI options and the
+/// persisted configuration, with the provenance of each value.
+fn build_admin_runtime_settings(
+    options: &RuntimeOptions,
+    configuration: &ApplicationConfiguration,
+    mode: AdminMode,
+) -> AdminRuntimeSettings {
+    AdminRuntimeSettings {
+        mode,
+        server_port: options
+            .application_option
+            .server_port
+            .unwrap_or(DEFAULT_SERVER_PORT),
+        server_port_source: if options.server_port_specified {
+            SettingSource::CommandLine
+        } else if configuration.server_port.is_some() {
+            SettingSource::Configuration
+        } else {
+            SettingSource::Default
+        },
+        network_mode: match options.application_option.network_mode {
+            ServerNetworkMode::Local => "local".to_string(),
+            ServerNetworkMode::Private => "private".to_string(),
+            ServerNetworkMode::Public => "public".to_string(),
+        },
+        network_mode_source: if options.network_mode_specified {
+            SettingSource::CommandLine
+        } else if configuration.network_mode.is_some() {
+            SettingSource::Configuration
+        } else {
+            SettingSource::Default
+        },
+        entrypoint_root: options.application_option.entrypoint_root.clone(),
+        entrypoint_root_source: if options.entrypoint_root_specified {
+            SettingSource::CommandLine
+        } else if configuration.entrypoint_root.is_some() {
+            SettingSource::Configuration
+        } else {
+            SettingSource::Default
+        },
+    }
+}
+
 /// Generates the one-time administrator password used until one is persisted.
 fn generate_temporary_admin_password() -> String {
     rand::rng()
@@ -266,41 +316,67 @@ async fn main() -> Result<()> {
 
     let configuration = ApplicationConfiguration::load()?;
     apply_persistent_configuration(&mut options, &configuration)?;
-    if configuration.password_hash.is_none()
-        && options.application_option.application_mode != Some(ApplicationMode::Desktop)
+    // The controller macro treats a `None` application mode as server mode.
+    let effective_mode = if matches!(
+        options.application_option.application_mode,
+        Some(ApplicationMode::Desktop)
+    ) {
+        AdminMode::Desktop
+    } else {
+        AdminMode::Server
+    };
+    // A temporary password is generated once when no permanent hash is
+    // configured and kept in memory for the login operation; it is never
+    // persisted and printed a single time to the console.
+    let temp_password = if configuration.password_hash.is_none()
+        && effective_mode == AdminMode::Server
     {
-        println!(
-            "Temporary administrator password for remote administration: {}",
-            generate_temporary_admin_password()
-        );
-    }
+        let password = generate_temporary_admin_password();
+        println!("Temporary administrator password for remote administration: {password}");
+        Some(password)
+    } else {
+        None
+    };
 
-    // Keep the encrypted store construction in main so the server key remains
-    // initialized at bootstrap even while server mode still uses the clear JSON store.
-    let _server_encrypted_store = EncryptedFileCredentialsStore::new(
+    // Service credentials are persisted in the encrypted store configured here;
+    // the activation overrides live in the shared persistence store.
+    let credentials_store: Arc<dyn CredentialsStore> = Arc::new(EncryptedFileCredentialsStore::new(
         application::get_application_data_path(DEFAULT_ENCRYPTED_FILE_CREDENTIALS_STORE_PATH),
         DEFAULT_SERVER_CREDENTIALS_KEY,
-    );
+    ));
+    let persistence_store: Arc<dyn PersistenceStore> =
+        Arc::new(FilePersistenceStore::default_data_dir());
 
-    let mut manager = StreamScraper::from_json(None)?;
-    if let Some(current_country) = &options.current_country {
-        manager.set_current_country(current_country).await;
-    }
-
-    // Override the server cache sizing when explicit CLI values are provided.
+    let mut build_options =
+        StreamScraperBuildOptions::new(credentials_store, persistence_store);
     if options.cache_max_disk_bytes.is_some() || options.cache_max_memory_bytes.is_some() {
-        let mut config = ScraperCacheConfig::default();
+        let mut cache_config = ScraperCacheConfig::default();
         if let Some(bytes) = options.cache_max_disk_bytes {
-            config.max_disk_bytes = bytes;
+            cache_config.max_disk_bytes = bytes;
         }
         if let Some(bytes) = options.cache_max_memory_bytes {
-            config.max_memory_bytes = bytes;
+            cache_config.max_memory_bytes = bytes;
         }
-        manager.get_scraper_agregator_mut().set_cache_config(config);
+        build_options = build_options.with_cache_config(cache_config);
     }
 
+    let reloadable = ReloadableStreamScraper::new(build_options)?;
+    if let Some(current_country) = &options.current_country {
+        reloadable.set_current_country(current_country).await;
+    }
+
+    let admin_runtime_settings = build_admin_runtime_settings(&options, &configuration, effective_mode);
+
     let mut controler = arachnea_core::create_application_controler!(options.application_option);
-    manager.register_service(controler.as_mut());
+    let reloadable = reloadable.register_service(controler.as_mut());
+
+    let admin_state = Arc::new(AdminState::new(
+        admin_runtime_settings,
+        configuration,
+        temp_password,
+        reloadable,
+    ));
+    register_admin_service(&admin_state, controler.as_mut());
     controler.launch();
 
     Ok(())

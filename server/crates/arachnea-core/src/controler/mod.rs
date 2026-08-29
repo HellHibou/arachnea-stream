@@ -112,6 +112,13 @@ pub const HEADER_ETAG: &str = "etag";
 pub struct RequestControlerContext {
     /// Incoming request headers as key-value pairs.
     headers: HashMap<String, String>,
+    /// TCP address of the remote peer, when the transport exposes one.
+    ///
+    /// The REST backend fills this from the connection socket address; the
+    /// desktop Tauri IPC context leaves it `None`.
+    remote_addr: Option<std::net::SocketAddr>,
+    /// HTTP method of the incoming request, when the transport exposes one.
+    method: Option<String>,
 }
 
 impl RequestControlerContext {
@@ -120,7 +127,29 @@ impl RequestControlerContext {
     /// # Arguments
     /// * `headers` - Incoming HTTP request headers as key-value pairs.
     pub fn new(headers: HashMap<String, String>) -> Self {
-        Self { headers }
+        Self {
+            headers,
+            remote_addr: None,
+            method: None,
+        }
+    }
+
+    /// Sets the TCP address of the remote peer.
+    ///
+    /// # Arguments
+    /// * `remote_addr` - Socket address of the client connection.
+    pub fn with_remote_addr(mut self, remote_addr: std::net::SocketAddr) -> Self {
+        self.remote_addr = Some(remote_addr);
+        self
+    }
+
+    /// Sets the HTTP method of the incoming request.
+    ///
+    /// # Arguments
+    /// * `method` - HTTP method name, such as `GET` or `POST`.
+    pub fn with_method(mut self, method: impl Into<String>) -> Self {
+        self.method = Some(method.into());
+        self
     }
 
     /// Returns the optional value of the given header.
@@ -134,6 +163,19 @@ impl RequestControlerContext {
             .iter()
             .find(|(header_name, _)| header_name.eq_ignore_ascii_case(name))
             .map(|(_, value)| value.as_str())
+    }
+
+    /// Returns the TCP address of the remote peer, when known.
+    ///
+    /// `None` means the transport does not expose a peer address, such as the
+    /// desktop Tauri IPC context; such requests are local by construction.
+    pub fn remote_addr(&self) -> Option<std::net::SocketAddr> {
+        self.remote_addr
+    }
+
+    /// Returns the HTTP method of the incoming request, when known.
+    pub fn method(&self) -> Option<&str> {
+        self.method.as_deref()
     }
 }
 
@@ -336,7 +378,7 @@ pub trait ControlerService {
 /// # Returns
 /// `Ok(I)` if deserialization succeeds.
 /// `Err(String)` if deserialization fails.
-fn deserialize_input<I>(payload: ControlerFunctionInput) -> Result<I, String>
+pub fn deserialize_input<I>(payload: ControlerFunctionInput) -> Result<I, String>
 where
     I: DeserializeOwned,
 {

@@ -115,7 +115,10 @@ pub mod source_enabled;
 pub use source_enabled::{PersistenceSourceEnabled, ScraperSourceDescriptor, ScraperSourceEnabled};
 /// Complete read-only service catalog loading.
 pub mod service_catalog;
-pub use service_catalog::{load_service_catalog, ScraperServiceCatalogEntry};
+pub use service_catalog::{
+    load_service_catalog, load_service_catalog_detailed, ScraperServiceCatalogEntry,
+    ServiceCatalogFailure, ServiceCatalogFailureReason, ServiceCatalogLoad,
+};
 
 /// Source-scoped request parameter parsing helpers.
 pub mod source_params;

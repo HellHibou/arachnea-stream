@@ -6,14 +6,15 @@ use urlencoding::encode;
 
 use arachnea_core::{
     controler::{
-        ControlerService, ControlerServiceExt, ControlerStreamInput, ControlerStreamOutput,
-        RequestControlerContext, ResponseBody,
+        ControlerService, ControlerStreamInput, ControlerStreamOutput, RequestControlerContext,
+        ResponseBody,
     },
     persistence::{CredentialsStore, FileCredentialsStore, FilePersistenceStore, PersistenceStore},
 };
 use arachnea_proxy::core::{ArachneaProxyCore, ProxyConfig};
 use arachnea_scrapyfy::{scraper_result::ScraperAggregationResult, *};
 
+use crate::reloadable_stream_scraper::ReloadableStreamScraper;
 use crate::services::{
     francetv_resolver::FrancetvResolver,
     m6play_resolver::M6PlayResolver,
@@ -41,7 +42,7 @@ pub const DEFAULT_SERVICES_CONFIG_PATH: &str = concatcp!(
 );
 
 const HTTP_PROXY_COMMAND: &str = "proxy";
-const DRM_LICENSE_PROXY_COMMAND: &str = "get_drm_license";
+pub(crate) const DRM_LICENSE_PROXY_COMMAND: &str = "get_drm_license";
 
 static M6PLAY_RESOLVER: M6PlayResolver = M6PlayResolver;
 static RTBF_AUVIO_RESOLVER: RtbfAuvioResolver = RtbfAuvioResolver;
@@ -50,6 +51,16 @@ static TF1_RESOLVER: Tf1Resolver = Tf1Resolver;
 static FRANCETV_RESOLVER: FrancetvResolver = FrancetvResolver;
 
 /// Creates missing persistent service states without changing existing choices.
+async fn synchronize_service_defaults_async(
+    store: Arc<dyn PersistenceStore>,
+    sources: Vec<ScraperSourceDescriptor>,
+) -> Result<()> {
+    PersistenceSourceEnabled::new(store, STREAM_SERVICES_STORE_NAME)
+        .register_defaults(&sources)
+        .await
+}
+
+/// Blocking variant of [`synchronize_service_defaults_async`] for synchronous callers.
 fn synchronize_service_defaults(
     store: Arc<dyn PersistenceStore>,
     sources: Vec<ScraperSourceDescriptor>,
@@ -57,11 +68,7 @@ fn synchronize_service_defaults(
     std::thread::spawn(move || {
         tokio::runtime::Runtime::new()
             .map_err(anyhow::Error::from)?
-            .block_on(async move {
-                PersistenceSourceEnabled::new(store, STREAM_SERVICES_STORE_NAME)
-                    .register_defaults(&sources)
-                    .await
-            })
+            .block_on(synchronize_service_defaults_async(store, sources))
     })
     .join()
     .map_err(|_| anyhow::anyhow!("service-state synchronization thread panicked"))?
@@ -72,101 +79,150 @@ fn default_page() -> usize {
 }
 
 #[derive(Serialize, Deserialize)]
-struct SearchRequest {
-    query: String,
+pub(crate) struct SearchRequest {
+    pub(crate) query: String,
     #[serde(default = "default_page")]
-    page: usize,
+    pub(crate) page: usize,
     #[serde(default, alias = "mediaTypes")]
-    media_types: Vec<String>,
+    pub(crate) media_types: Vec<String>,
     #[serde(default)]
-    themes: Vec<String>,
+    pub(crate) themes: Vec<String>,
     #[serde(default, alias = "sourceParams")]
-    source_params: Vec<ScraperSourceParamsRequestEntry>,
+    pub(crate) source_params: Vec<ScraperSourceParamsRequestEntry>,
 }
 
 #[derive(Serialize, Deserialize)]
-struct GetEntryRequest {
-    entry: String,
-    source: String,
+pub(crate) struct GetEntryRequest {
+    pub(crate) entry: String,
+    pub(crate) source: String,
 }
 
 #[derive(Serialize, Deserialize)]
-struct GetSeasonRequest {
-    season: String,
-    source: String,
+pub(crate) struct GetSeasonRequest {
+    pub(crate) season: String,
+    pub(crate) source: String,
     #[serde(default = "default_page")]
-    page: usize,
+    pub(crate) page: usize,
 }
 
 #[derive(Serialize, Deserialize)]
-struct ListLivesRequest {}
+pub(crate) struct ListLivesRequest {}
 
 #[derive(Serialize, Deserialize)]
-struct GetLiveRequest {
-    channel: String,
-    source: String,
+pub(crate) struct GetLiveRequest {
+    pub(crate) channel: String,
+    pub(crate) source: String,
 }
 
 #[derive(Serialize, Deserialize)]
-struct GetStreamRequest {
-    resolver: String,
-    target: String,
+pub(crate) struct GetStreamRequest {
+    pub(crate) resolver: String,
+    pub(crate) target: String,
 }
 
 #[derive(Default, Serialize, Deserialize)]
-struct LoadHomeRequest {}
+pub(crate) struct LoadHomeRequest {}
 
 #[derive(Default, Serialize, Deserialize)]
-struct GetServiceRequest {}
+pub(crate) struct GetServiceRequest {}
 
 #[derive(Serialize, Deserialize)]
-struct GetCategoryRequest {
+pub(crate) struct GetCategoryRequest {
     #[serde(default)]
-    source: HashMap<String, String>,
+    pub(crate) source: HashMap<String, String>,
     #[serde(default)]
-    sources: Vec<HashMap<String, String>>,
+    pub(crate) sources: Vec<HashMap<String, String>>,
     #[serde(default = "default_page")]
-    page: usize,
+    pub(crate) page: usize,
     #[serde(default, alias = "sourceParams")]
-    source_params: Vec<ScraperSourceParamsRequestEntry>,
+    pub(crate) source_params: Vec<ScraperSourceParamsRequestEntry>,
 }
 
 #[derive(Serialize, Deserialize)]
-struct GetSectionRequest {
+pub(crate) struct GetSectionRequest {
     #[serde(default)]
-    source: String,
+    pub(crate) source: String,
     #[serde(default)]
-    link: String,
+    pub(crate) link: String,
     #[serde(default = "default_page")]
-    page: usize,
+    pub(crate) page: usize,
     #[serde(default, alias = "sourceParams")]
-    source_params: Vec<ScraperSourceParamsRequestEntry>,
+    pub(crate) source_params: Vec<ScraperSourceParamsRequestEntry>,
 }
 
 #[derive(Serialize, Deserialize)]
-struct GetBannersRequest {
+pub(crate) struct GetBannersRequest {
     #[serde(default)]
-    source: String,
+    pub(crate) source: String,
     #[serde(default)]
-    link: String,
+    pub(crate) link: String,
 }
 
 #[derive(Serialize, Deserialize)]
-struct GetPlayersRequest {
+pub(crate) struct GetPlayersRequest {
     #[serde(default)]
-    source: String,
+    pub(crate) source: String,
     #[serde(default)]
-    link: String,
+    pub(crate) link: String,
 }
 
 /// High-level facade exposing scraper operations used by controllers and tests.
 pub struct StreamScraper {
     pub(crate) scraper_agregator: Box<ScraperAgregator>,
-    credentials_store: Arc<dyn CredentialsStore>,
-    persistence_store: Arc<dyn PersistenceStore>,
+    pub(crate) credentials_store: Arc<dyn CredentialsStore>,
+    pub(crate) persistence_store: Arc<dyn PersistenceStore>,
     proxy_handle: SharedProxyConfigHandle,
-    proxy_http_core: Option<ArachneaProxyCore>,
-    player_resolver_endpoints: PlayerResolverEndpoints,
+    pub(crate) proxy_http_core: Option<ArachneaProxyCore>,
+    pub(crate) player_resolver_endpoints: PlayerResolverEndpoints,
+}
+
+/// Options controlling how a [`StreamScraper`] instance is built or rebuilt.
+///
+/// Cloning the options is cheap: the stores are shared through `Arc`.
+#[derive(Clone)]
+pub struct StreamScraperBuildOptions {
+    /// Services manifest path, relative to application resources when not absolute.
+    pub services_config_path: String,
+    /// Shared credentials persistence used by service resolvers.
+    pub credentials_store: Arc<dyn CredentialsStore>,
+    /// Shared persistence store used by activation overrides and HTTP clients.
+    pub persistence_store: Arc<dyn PersistenceStore>,
+    /// Optional server cache sizing applied after loading the sources.
+    pub cache_config: Option<ScraperCacheConfig>,
+    /// Optional explicit local country used for geo proxy decisions.
+    pub current_country: Option<String>,
+}
+
+impl StreamScraperBuildOptions {
+    /// Creates build options with the default services manifest path.
+    ///
+    /// # Arguments
+    /// * `credentials_store` - Shared credentials persistence used by service resolvers.
+    /// * `persistence_store` - Shared persistence store used by activation overrides.
+    pub fn new(
+        credentials_store: Arc<dyn CredentialsStore>,
+        persistence_store: Arc<dyn PersistenceStore>,
+    ) -> Self {
+        Self {
+            services_config_path: DEFAULT_SERVICES_CONFIG_PATH.to_string(),
+            credentials_store,
+            persistence_store,
+            cache_config: None,
+            current_country: None,
+        }
+    }
+
+    /// Overrides the services manifest path.
+    pub fn with_services_config_path(mut self, path: impl Into<String>) -> Self {
+        self.services_config_path = path.into();
+        self
+    }
+
+    /// Sets the server cache sizing applied to built instances.
+    pub fn with_cache_config(mut self, config: ScraperCacheConfig) -> Self {
+        self.cache_config = Some(config);
+        self
+    }
 }
 
 impl Default for StreamScraper {
@@ -243,16 +299,28 @@ impl StreamScraper {
         }
     }
 
-    /// Creates a instance of the scraper facade using a file-based credentials store and the default services configuration.
+    /// Creates a scraper facade from explicit build options.
+    ///
+    /// The built instance shares the provided persistence store, registers the
+    /// persistent activation overrides handler under `arachnea-services`,
+    /// synchronizes missing service states, loads the stream and stream-resolver
+    /// source groups, and applies the optional cache configuration.
+    ///
+    /// # Arguments
+    /// * `options` - Build options describing stores, manifest path, and sizing.
     ///
     /// # Returns
-    /// A configured scraper facade with default configuration.
+    /// A configured scraper facade with every declared source loaded.
     ///
     /// # Errors
-    /// Returns an error if the default configuration file cannot be loaded or parsed.
-    pub fn from_json(json_path: Option<&str>) -> Result<Self> {
-        let mut instance = Self::default();
-        let services_path = json_path.unwrap_or(DEFAULT_SERVICES_CONFIG_PATH);
+    /// Returns an error when the catalog or one of the source files cannot be
+    /// loaded or parsed, or when service-state synchronization fails.
+    pub fn from_options(options: &StreamScraperBuildOptions) -> Result<Self> {
+        let mut instance = Self::new_with_persistence_store(
+            Arc::clone(&options.credentials_store),
+            Arc::clone(&options.persistence_store),
+        );
+        let services_path = options.services_config_path.as_str();
         let catalog = load_service_catalog(services_path)?;
         synchronize_service_defaults(
             Arc::clone(&instance.persistence_store),
@@ -269,8 +337,30 @@ impl StreamScraper {
                 STREAM_RESOLVER_CONFIG_PATH,
             )?;
         instance.configure_proxy_insecure_tls_hosts();
+        if let Some(cache_config) = &options.cache_config {
+            instance
+                .scraper_agregator
+                .set_cache_config(cache_config.clone());
+        }
 
         Ok(instance)
+    }
+
+
+    /// Creates a instance of the scraper facade using a file-based credentials store and the default services configuration.
+    ///
+    /// # Returns
+    /// A configured scraper facade with default configuration.
+    ///
+    /// # Errors
+    /// Returns an error if the default configuration file cannot be loaded or parsed.
+    pub fn from_json(json_path: Option<&str>) -> Result<Self> {
+        let options = StreamScraperBuildOptions::new(
+            FileCredentialsStore::default().as_arc(),
+            Arc::new(FilePersistenceStore::default_data_dir()),
+        )
+        .with_services_config_path(json_path.unwrap_or(DEFAULT_SERVICES_CONFIG_PATH));
+        Self::from_options(&options)
     }
 
     /// Loads the complete service catalog, including sources disabled by default.
@@ -1015,7 +1105,7 @@ impl StreamScraper {
         ))
     }
 
-    async fn get_stream(
+    pub(crate) async fn get_stream(
         &self,
         resolver_id: String,
         target: String,
@@ -1049,7 +1139,7 @@ impl StreamScraper {
         Ok(ScraperAggregationResult::ok(resolved))
     }
 
-    async fn get_drm_license(&self, input: ControlerStreamInput) -> Result<ControlerStreamOutput> {
+    pub(crate) async fn get_drm_license(&self, input: ControlerStreamInput) -> Result<ControlerStreamOutput> {
         let stream_token = input.path.trim_matches('/').trim();
         if stream_token.is_empty() {
             bail!("Missing stream token.");
@@ -1071,9 +1161,79 @@ impl StreamScraper {
             headers: response.headers,
         })
     }
+
+    /// Prepares browser-facing endpoints and registers the shared proxy command.
+    ///
+    /// Must be called once before route registration. Reloaded instances reuse
+    /// the endpoints captured at registration time through
+    /// [`StreamScraper::apply_registration_endpoints`].
+    ///
+    /// # Arguments
+    /// * `controler` - Controller used to resolve public stream command paths.
+    pub(crate) fn prepare_registration(&mut self, controler: &mut dyn ControlerService) {
+        self.player_resolver_endpoints.drm_license_public_path =
+            controler.stream_public_path(DRM_LICENSE_PROXY_COMMAND);
+
+        let proxy_core = match self.proxy_http_core.clone() {
+            Some(proxy_core) => Some(proxy_core),
+            None => match ArachneaProxyCore::new(ProxyConfig::default()) {
+                Ok(proxy_core) => Some(proxy_core),
+                Err(error) => {
+                    tracing::warn!(
+                        error = %error,
+                        "proxy_http handler not registered: failed to create default proxy core"
+                    );
+                    None
+                }
+            },
+        };
+
+        if let Some(proxy_core) = proxy_core.as_ref() {
+            proxy_core.set_insecure_tls_hosts(
+                self.scraper_agregator
+                    .group_proxy_insecure_tls_hosts(STREAM_RESOLVER_GROUP_NAME),
+            );
+            let proxy_public_path = controler.stream_public_path(HTTP_PROXY_COMMAND);
+            self.player_resolver_endpoints.http_proxy_public_path = Some(proxy_public_path);
+            arachnea_proxy::core::http::register_service(
+                controler,
+                proxy_core,
+                HTTP_PROXY_COMMAND,
+            );
+        } else {
+            tracing::warn!("proxy_http handler not registered: no proxy core available");
+        }
+
+        self.proxy_http_core = proxy_core;
+    }
+
+    /// Applies registration-time endpoints to a rebuilt instance so reloaded
+    /// scrapers keep serving the same public proxy and DRM license paths.
+    ///
+    /// # Arguments
+    /// * `endpoints` - Endpoints captured when routes were first registered.
+    pub(crate) fn apply_registration_endpoints(
+        &mut self,
+        endpoints: &crate::reloadable_stream_scraper::RegistrationEndpoints,
+    ) {
+        self.player_resolver_endpoints.drm_license_public_path =
+            endpoints.drm_license_public_path.clone();
+        self.player_resolver_endpoints.http_proxy_public_path =
+            endpoints.http_proxy_public_path.clone();
+
+        if let Some(proxy_core) = &endpoints.proxy_core {
+            self.scraper_agregator.set_proxy_core(proxy_core.clone());
+            proxy_core.set_insecure_tls_hosts(
+                self.scraper_agregator
+                    .group_proxy_insecure_tls_hosts(STREAM_RESOLVER_GROUP_NAME),
+            );
+            self.proxy_http_core = Some(proxy_core.clone());
+        }
+    }
 }
 
-fn category_sources_from_request(
+/// Groups the category filters sent by category requests.
+pub(crate) fn category_sources_from_request(
     source: HashMap<String, String>,
     sources: Vec<HashMap<String, String>>,
 ) -> Vec<HashMap<String, String>> {
@@ -1158,168 +1318,15 @@ impl ScraperManager for StreamScraper {
         self.scraper_agregator.create_http_client(http_config)
     }
 
-    fn register_service(mut self, controler: &mut dyn ControlerService) {
-        self.player_resolver_endpoints.drm_license_public_path =
-            controler.stream_public_path(DRM_LICENSE_PROXY_COMMAND);
-
-        let proxy_core = match self.proxy_http_core.clone() {
-            Some(proxy_core) => Some(proxy_core),
-            None => match ArachneaProxyCore::new(ProxyConfig::default()) {
-                Ok(proxy_core) => Some(proxy_core),
-                Err(error) => {
-                    tracing::warn!(
-                        error = %error,
-                        "proxy_http handler not registered: failed to create default proxy core"
-                    );
-                    None
-                }
-            },
+    fn register_service(self, controler: &mut dyn ControlerService) {
+        let options = StreamScraperBuildOptions {
+            services_config_path: DEFAULT_SERVICES_CONFIG_PATH.to_string(),
+            credentials_store: Arc::clone(&self.credentials_store),
+            persistence_store: Arc::clone(&self.persistence_store),
+            cache_config: None,
+            current_country: None,
         };
-
-        if let Some(proxy_core) = proxy_core.as_ref() {
-            proxy_core.set_insecure_tls_hosts(
-                self.scraper_agregator
-                    .group_proxy_insecure_tls_hosts(STREAM_RESOLVER_GROUP_NAME),
-            );
-            let proxy_public_path = controler.stream_public_path(HTTP_PROXY_COMMAND);
-            self.player_resolver_endpoints.http_proxy_public_path = Some(proxy_public_path);
-            arachnea_proxy::core::http::register_service(controler, proxy_core, HTTP_PROXY_COMMAND);
-        } else {
-            tracing::warn!("proxy_http handler not registered: no proxy core available");
-        }
-
-        let connector = Arc::new(self);
-
-        controler.register_result_function_with_state(
-            "search",
-            Arc::clone(&connector),
-            |scraper, context, input: SearchRequest| async move {
-                scraper
-                    .search(
-                        context,
-                        input.query,
-                        input.media_types,
-                        input.themes,
-                        input.page,
-                        source_params_from_entries(input.source_params),
-                    )
-                    .await
-            },
-        );
-
-        controler.register_result_function_with_state(
-            "load_home",
-            Arc::clone(&connector),
-            |scraper, context, _input: LoadHomeRequest| async move {
-                scraper.load_home(context).await
-            },
-        );
-
-        controler.register_result_function_with_state(
-            "get_service",
-            Arc::clone(&connector),
-            |scraper, context, _input: GetServiceRequest| async move {
-                scraper.get_service(context).await
-            },
-        );
-
-        controler.register_result_function_with_state(
-            "list_lives",
-            Arc::clone(&connector),
-            |scraper, context, _input: ListLivesRequest| async move {
-                scraper.list_lives(context).await
-            },
-        );
-
-        controler.register_result_function_with_state(
-            "get_category",
-            Arc::clone(&connector),
-            |scraper, context, input: GetCategoryRequest| async move {
-                scraper
-                    .get_category(
-                        context,
-                        category_sources_from_request(input.source, input.sources),
-                        input.page,
-                        source_params_from_entries(input.source_params),
-                    )
-                    .await
-            },
-        );
-
-        controler.register_result_function_with_state(
-            "get_section",
-            Arc::clone(&connector),
-            |scraper, context, input: GetSectionRequest| async move {
-                scraper
-                    .get_section(
-                        context,
-                        input.source,
-                        input.link,
-                        input.page,
-                        source_params_from_entries(input.source_params),
-                    )
-                    .await
-            },
-        );
-
-        controler.register_result_function_with_state(
-            "get_banners",
-            Arc::clone(&connector),
-            |scraper, context, input: GetBannersRequest| async move {
-                scraper.get_banners(context, input.source, input.link).await
-            },
-        );
-
-        controler.register_result_function_with_state(
-            "get_players",
-            Arc::clone(&connector),
-            |scraper, context, input: GetPlayersRequest| async move {
-                scraper.get_players(context, input.source, input.link).await
-            },
-        );
-
-        controler.register_result_function_with_state(
-            "get_entry",
-            Arc::clone(&connector),
-            |scraper, context, input: GetEntryRequest| async move {
-                scraper.get_entry(context, input.source, input.entry).await
-            },
-        );
-
-        controler.register_result_function_with_state(
-            "get_season",
-            Arc::clone(&connector),
-            |scraper, context, input: GetSeasonRequest| async move {
-                scraper
-                    .get_season(context, input.source, input.season, input.page)
-                    .await
-            },
-        );
-
-        controler.register_result_function_with_state(
-            "get_live",
-            Arc::clone(&connector),
-            |scraper, context, input: GetLiveRequest| async move {
-                scraper.get_live(context, input.source, input.channel).await
-            },
-        );
-
-        controler.register_result_function_with_state(
-            "get_stream",
-            Arc::clone(&connector),
-            |scraper, _context, input: GetStreamRequest| async move {
-                scraper
-                    .get_stream(input.resolver, input.target)
-                    .await
-                    .map(|result| (result, None::<String>))
-            },
-        );
-
-        controler.register_stream_function_with_state(
-            DRM_LICENSE_PROXY_COMMAND,
-            Arc::clone(&connector),
-            |scraper, input| async move { scraper.get_drm_license(input).await },
-        );
+        ReloadableStreamScraper::from_instance(self, options).register_service(controler);
     }
 }
 

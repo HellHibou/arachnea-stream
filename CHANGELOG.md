@@ -990,3 +990,43 @@ Stream synchronizes every declared stream service into the arachnea-services
 namespace, preserves administrator overrides, and applies them while loading
 the YAML collections. Service YAML files can now declare optional credentials
 metadata for required and signup_url.
+
+## Unreleased - reloadable stream scraper and encrypted service credentials (server)
+
+Arachnéa Stream now registers all of its routes against a new
+`ReloadableStreamScraper` facade: every request resolves the active scraper
+instance at call time, so future admin reloads can swap the instance without
+re-registering routes or interrupting in-flight requests. The facade builds
+and validates a replacement off the request path, synchronizes missing service
+states in `arachnea-services` without overwriting existing overrides, and swaps
+atomically only after validation succeeds, returning a detailed report of
+loaded, disabled, ignored, and failing services. The registration-time proxy
+core and public proxy/DRM paths are shared with rebuilt instances so the
+generic `proxy` command and DRM licenses keep working across reloads.
+
+Service credentials used by player resolvers are now persisted in the encrypted
+`data/credentials` store instead of the clear JSON store. Scrapyfy also gained
+`load_service_catalog_detailed`, a tolerant catalog loader that reports
+per-source missing, invalid, or duplicate entries instead of aborting on the
+first broken YAML file.
+## Unreleased - administration API and security (server)
+
+A new administration API is now served under `api/admin/<operation>` over HTTP
+and through the Tauri invoke handler under the same command names. It exposes
+status, login/logout with opaque sessions, the full service catalog (including
+disabled and unavailable sources), persistent service activation and reset,
+service credentials state (never the secrets themselves) with set/clear, server
+settings with provenance and restart hints, permanent administrator password
+management, and an atomic configuration reload reporting loaded, disabled,
+ignored, and failing services.
+
+Access control follows the local/remote rule: desktop and loopback clients
+do not need authentication; any other client must hold a session obtained with
+the administrator password. Passwords are hashed with Argon2id; a temporary
+password is generated, printed once, and kept in memory when no permanent hash
+is configured. Sessions use an HttpOnly SameSite=Strict cookie, admin
+responses are `Cache-Control: no-store`, all writes require POST and reject
+cross-site origins, and failed logins are rate-limited per client address.
+The REST controller context now carries the remote TCP peer address, and the
+latest response describes the provenance (command line, configuration file, or
+default) of every effective setting.
