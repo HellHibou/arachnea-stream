@@ -1,0 +1,171 @@
+import { ref } from 'vue'
+
+import {
+  fetchStatus,
+  login as apiLogin,
+  logout as apiLogout,
+  fetchServices,
+  setServiceEnabled as apiSetServiceEnabled,
+  resetServiceEnabled as apiResetServiceEnabled,
+  fetchCredentials,
+  setCredentials as apiSetCredentials,
+  clearCredentials as apiClearCredentials,
+  fetchSettings,
+  updateSettings as apiUpdateSettings,
+  setAdminPassword as apiSetAdminPassword,
+  reload as apiReload,
+  type StatusResponse,
+  type ServicesResponse,
+  type CredentialsResponse,
+  type SettingsResponse,
+  type ReloadResponse,
+  type ServiceEnabledResponse,
+  type UpdateSettingsResponse,
+  AdminApiException,
+} from '@/services/adminApi'
+import { useI18n } from '@/i18n'
+
+/**
+ * Network error state for the admin API.
+ */
+export interface ApiError {
+  code: string
+  message: string
+}
+
+/**
+ * Composable providing reactive admin API operations with error handling.
+ */
+export function useAdminApi() {
+  const { t } = useI18n()
+  const isLoading = ref(false)
+  const error = ref<ApiError | null>(null)
+
+  /**
+   * Clears the current error state.
+   */
+  function clearError(): void {
+    error.value = null
+  }
+
+  /**
+   * Normalizes any thrown value into an ApiError.
+   *
+   * @param err - The caught error.
+   * @returns Normalized ApiError.
+   */
+  function normalizeError(err: unknown): ApiError {
+    if (err instanceof AdminApiException) {
+      return { code: err.code, message: err.message }
+    }
+    if (err instanceof Error) {
+      return { code: 'network_error', message: err.message }
+    }
+    return { code: 'unknown_error', message: t('error.unknown') }
+  }
+
+  /**
+   * Wraps an API call with loading and error state management.
+   *
+   * @param fn - Async function to execute.
+   * @returns Result of the function, or undefined on error.
+   */
+  async function withApiState<T>(fn: () => Promise<T>): Promise<T | undefined> {
+    isLoading.value = true
+    error.value = null
+    try {
+      return await fn()
+    } catch (err) {
+      error.value = normalizeError(err)
+      return undefined
+    } finally {
+      isLoading.value = false
+    }
+  }
+
+  // ─── Status & Auth ────────────────────────────────────────────────────────
+
+  async function getStatus(): Promise<StatusResponse | undefined> {
+    return withApiState(() => fetchStatus())
+  }
+
+  async function login(password: string): Promise<boolean> {
+    const result = await withApiState(() => apiLogin(password))
+    return result?.authenticated ?? false
+  }
+
+  async function logout(): Promise<void> {
+    await withApiState(() => apiLogout())
+  }
+
+  // ─── Services ─────────────────────────────────────────────────────────────
+
+  async function getServices(lang?: string): Promise<ServicesResponse | undefined> {
+    return withApiState(() => fetchServices(lang))
+  }
+
+  async function setServiceEnabled(serviceId: string, enabled: boolean): Promise<ServiceEnabledResponse | undefined> {
+    return withApiState(() => apiSetServiceEnabled(serviceId, enabled))
+  }
+
+  async function resetServiceEnabled(serviceId: string): Promise<ServiceEnabledResponse | undefined> {
+    return withApiState(() => apiResetServiceEnabled(serviceId))
+  }
+
+  // ─── Credentials ──────────────────────────────────────────────────────────
+
+  async function getCredentials(serviceId?: string): Promise<CredentialsResponse | undefined> {
+    return withApiState(() => fetchCredentials(serviceId))
+  }
+
+  async function setCredentials(serviceId: string, login: string, password: string): Promise<boolean> {
+    return withApiState(() => apiSetCredentials(serviceId, login, password)) !== undefined
+  }
+
+  async function clearCredentials(serviceId: string): Promise<boolean> {
+    return withApiState(() => apiClearCredentials(serviceId)) !== undefined
+  }
+
+  // ─── Settings ─────────────────────────────────────────────────────────────
+
+  async function getSettings(): Promise<SettingsResponse | undefined> {
+    return withApiState(() => fetchSettings())
+  }
+
+  async function updateSettings(settings: {
+    server_port?: number
+    network_mode?: 'local' | 'private' | 'public'
+    entrypoint_root?: string
+  }): Promise<UpdateSettingsResponse | undefined> {
+    return withApiState(() => apiUpdateSettings(settings))
+  }
+
+  async function setAdminPassword(currentPassword: string | undefined, newPassword: string): Promise<boolean> {
+    return withApiState(() => apiSetAdminPassword(currentPassword, newPassword)) !== undefined
+  }
+
+  // ─── Reload ───────────────────────────────────────────────────────────────
+
+  async function reload(): Promise<ReloadResponse | undefined> {
+    return withApiState(() => apiReload())
+  }
+
+  return {
+    isLoading,
+    error,
+    clearError,
+    getStatus,
+    login,
+    logout,
+    getServices,
+    setServiceEnabled,
+    resetServiceEnabled,
+    getCredentials,
+    setCredentials,
+    clearCredentials,
+    getSettings,
+    updateSettings,
+    setAdminPassword,
+    reload,
+  }
+}

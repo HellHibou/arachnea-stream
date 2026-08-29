@@ -5,6 +5,16 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ## Unreleased
 
 ### Added
+- **Admin web application (`front/admin-app/`)**: Independent Vite/Vue/Vuetify SPA served under `/admin`, built separately from the public frontend. Features include:
+  - Conditional login screen driven by `/api/admin/status` (`auth_required`/`authenticated`).
+  - Service catalog with localized descriptions, fallback logos, and enable/disable toggles (override persistence via `arachnea-services` namespace).
+  - Credentials dialog with masked login display and signup URL opener (`window.open`).
+  - Settings page for port, network mode (local/private/public), entrypoint root, and administrator password change.
+  - Reload button with detailed result display (`applied`, `loaded`, `disabled`, `ignored`, `errors`).
+  - Theme system (system/light/dark) with `system` default, persisted to localStorage.
+  - i18n (en/fr) with browser detection and `en` fallback.
+  - All API calls centralized in `useAdminApi` composable with normalized error handling (`AdminApiException`, `{error:{code,message}}`).
+  - Build outputs to `dist/admin/` without conflicting with public frontend (`dist/`).
 - **Linux installers (.deb/.rpm/.AppImage) from the Docker cross image (`build-release/`)**:
   On hosts that cannot natively bundle them (macOS/Windows), the `linux-x86_64`
   and `linux-arm64` platforms are now fully produced inside the cross image: a

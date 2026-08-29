@@ -1,7 +1,7 @@
 # Analyse : système d'administration Arachnéa
 
 > Date : 2026-08-28
-> Statut : proposition à valider avant implémentation
+> Statut : phases 1 à 5 implémentées ; phases 6 et 7 en attente
 
 ## Objet
 
@@ -242,6 +242,24 @@ Voici les points que le frontend admin doit respecter pour rester aligné sur l'
 8. Implémenter les paramètres port/root/réseau, les restrictions Local et l'avertissement HTTP public.
 9. Afficher les états de rechargement et de redémarrage requis.
 10. Construire les appels API dans des composables et conserver les vues comme surfaces de composition.
+
+#### Vérification de l'implémentation — 2026-08-29
+
+| Élément | État | Implémentation constatée |
+|---|---|---|
+| Projet indépendant | Fait | `front/admin-app/` autonome avec ses propres `package.json`, `vite.config.ts`, `tsconfig.json`, sans import de `front/public-app/src`. |
+| Publication sous /admin | Fait | `vite.config.ts` : `base: '/admin/'`, `<base href="{base}">` injecté côté serveur, `router` en `createWebHistory(getAppBasePath())`. |
+| Proxy de développement | Fait | Proxy Vite `/api` → `http://127.0.0.1:8080` pour le développement local (port 5174). |
+| i18n propre | Fait | `admin-app/src/i18n/` : index (`useI18n`, `t()`, `locale`, `availableLocales`), types, dictionnaires `en.json`/`fr.json`, fallback `en`, détection navigateur. |
+| Thème system/light/dark | Fait | `admin-app/src/services/theme.ts` : presets, résolution `system` via `matchMedia('(prefers-color-scheme: dark)')`, persistance localStorage, défaut `system`. |
+| Page de connexion conditionnelle | Fait | `LoginView.vue` appelle `status` au montage ; affiche le formulaire seulement si `auth_required && !authenticated` ; bouton de déconnexion sinon. |
+| Liste de services | Fait | `ServicesView.vue` : catalogue localisé, logos de secours (initiale ou placeholder), toggle d'activation, badge `reload_required`, bouton « Recharger ». |
+| Dialogues de credentials | Fait | `CredentialsDialog.vue` : affichage `login_masked`/`configured`, formulaire login/mot de passe, bouton « Créer un compte » ouvrant `signup_url` via `window.open()`. |
+| Paramètres port/root/réseau | Fait | `SettingsView.vue` : port (1-65535), réseau (local/private/public), entrypoint root, avertissements public HTTP et local, indication de provenance (CLI/configuration/défaut), `restart_required` affiché. |
+| Rechargement et redémarrage | Fait | Bouton « Recharger la configuration » avec résultat détaillé (`applied`, `loaded`, `disabled`, `ignored`, `errors`, `build_error`), conservation de l'état précédent si `applied: false`. |
+| Composables et vues | Fait | `useAdminApi.ts` centralise tous les appels API avec gestion d'erreurs (`AdminApiException`, `{error:{code,message}}`) ; les vues sont des surfaces de composition sans logique métier. |
+| Build | Fait | `npm run build` dans `front/` produit `dist/` (public) et `dist/admin/` (admin) ; les deux builds réussissent avec `vue-tsc` type-check. |
+| Structure unifiée | Fait | `front/package.json` orchestre `build:public` et `build:admin` ; `public-app/vite.config.ts` sort dans `../../dist`, `admin-app/vite.config.ts` sort dans `../../dist/admin`. |
 
 ### Phase 6 — Assets, serveur, desktop et systray
 

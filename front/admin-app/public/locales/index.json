@@ -1,0 +1,17 @@
+{
+  "defaultLanguage": "en",
+  "languages": [
+    {
+      "code": "en",
+      "flag": "🇬🇧",
+      "labelLocal": "English",
+      "labelEn": "English"
+    },
+    {
+      "code": "fr",
+      "flag": "🇫🇷",
+      "labelLocal": "Français",
+      "labelEn": "French"
+    }
+  ]
+}
