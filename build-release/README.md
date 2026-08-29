@@ -135,7 +135,17 @@ without executing them.
 
 The Docker path assumes Docker is available; run
 `node build-release/install-tools.mjs` to build the cross image (asks for
-confirmation, as it pulls the large Rust + osxcross base image). Note that
+confirmation, as it pulls the large Rust + osxcross base image). The image is
+built **for both architecture ports** (`linux/amd64` and `linux/arm64`)
+through `docker buildx build --platform linux/amd64,linux/arm64`, so any Linux
+target can run right away. Keeping both variants under the single
+`arachnea-cross-builder:<version>` tag requires the Docker **containerd image
+store** (Docker Desktop: "Use containerd for pulling and storing images");
+with the classic image store only one variant can exist per tag, and the
+tooling falls back to building just the missing variant with an explicit
+warning. The first build is slow: the arm64 half compiles its Tauri CLI under
+QEMU emulation (30-60 min, cached afterwards). If a variant is still missing
+at build time, `release.mjs` offers to build it on the spot. Note that
 `.deb`/`.rpm`/`.AppImage` outputs link against the glibc/WebKitGTK versions of
 the Debian base image, so they target distributions of same-or-newer vintage.
 
@@ -156,7 +166,9 @@ the Debian base image, so they target distributions of same-or-newer vintage.
 - The Arachnea Docker cross image (installs the WebKitGTK stack and the Tauri
   CLI on top of `joseluisq/rust-linux-darwin-builder`) whenever a Linux/macOS
   portable binary or a Linux installer bundle is selected on a host that cannot
-  produce it natively.
+  produce it natively. The image is built for both architecture ports
+  (`linux/amd64` + `linux/arm64`) through buildx, which requires the Docker
+  containerd image store to keep both variants under the tag.
 
 ## Portable archives
 

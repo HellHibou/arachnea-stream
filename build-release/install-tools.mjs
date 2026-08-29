@@ -554,7 +554,9 @@ async function ensureDockerCrossBuild(platforms) {
     return;
   }
   console.log(`\n[install-tools] Building the Docker cross image for: ${buildPlatforms.map((p) => p.id).join(', ')}.`);
-  await confirmInstallation('the Arach cross-build Docker image (first run pulls the base rust + osxcross image)');
+  await confirmInstallation(
+    'the Arachnea cross-build Docker image (first run pulls the base rust + osxcross image and builds both amd64 and arm64 ports — the arm64 half compiles its Tauri CLI under QEMU emulation)',
+  );
   await ensureCrossImage();
 }
 

@@ -123,37 +123,134 @@ function effectiveImagePlatform(platform) {
  * platform a target runs in. `crossImagePresent()` only checks the tag, but an
  * amd64 and an arm64 build can share it: without this probe, docker fails with
  * a misleading "pull access denied" registry error instead of pointing at the
- * missing local variant.
+ * missing local variant. When the variant is missing, the user is offered to
+ * build it right away (both ports through buildx when the containerd image
+ * store can hold them under the tag); a refusal — or a non-interactive
+ * terminal — throws the contextualized error, unchanged in spirit.
  *
  * @param {object} platform - A platform entry.
- * @throws When no local image variant matches the required container platform,
- *   with the exact `docker build` command to produce it.
+ * @throws When no local image variant matches the required container platform
+ *   and the on-the-spot build was not confirmed (or did not fix it).
  */
 export async function assertCrossImageFor(platform) {
   await assertDocker();
   const plat = effectiveImagePlatform(platform);
   // Cheap one-shot container that only succeeds when the variant is stored
   // locally; otherwise docker attempts a pull and exits non-zero right away.
-  const probe = spawnSync('docker', ['run', '--rm', '--platform', plat, CROSS_IMAGE, 'true'], {
-    stdio: 'ignore',
-  });
-  if (probe.status !== 0) {
-    throw new Error(
-      `The Arachnea cross image \`${CROSS_IMAGE}\` has no ${plat} variant locally ` +
-        `(docker exited with status ${probe.status}). Build it from the repository root with:\n` +
-        `  docker build --platform ${plat} --tag ${CROSS_IMAGE} build-release/docker`,
-    );
+  const probe = () =>
+    spawnSync('docker', ['run', '--rm', '--platform', plat, CROSS_IMAGE, 'true'], {
+      stdio: 'ignore',
+    });
+  let probeResult = probe();
+  if (probeResult.status === 0) return;
+  if (await confirmCrossImageBuild(plat)) {
+    buildCrossImage(plat);
+    probeResult = probe();
+    if (probeResult.status === 0) return;
   }
+  throw new Error(
+    `The Arachnea cross image \`${CROSS_IMAGE}\` has no ${plat} variant locally ` +
+      `(docker exited with status ${probeResult.status}). Build both variants from the ` +
+      'repository root with:\n' +
+      `  docker buildx build --platform ${CROSS_IMAGE_PLATFORMS.join(',')} --tag ${CROSS_IMAGE} build-release/docker\n` +
+      'This keeps both variants under one tag with the containerd image store (Docker ' +
+      'Desktop: "Use containerd for pulling and storing images"); the classic store holds ' +
+      'a single variant per tag, so build the missing one only:\n' +
+      `  docker build --platform ${plat} --tag ${CROSS_IMAGE} build-release/docker`,
+  );
 }
 
 /**
- * Ensures the Arachnea cross image is built. Because this pulls a large base
- * image (Rust + osxcross + Apple SDK) on first use, it requires confirmation.
+ * Ensures the Arachnea cross image is built — for BOTH architecture ports
+ * (`linux/amd64` and `linux/arm64`) when the image store supports it, so any
+ * Linux target can run right away. Because this pulls a large base image
+ * (Rust + osxcross + Apple SDK) and the arm64 half compiles its Tauri CLI
+ * under QEMU emulation, callers must have obtained user confirmation first
+ * (see the `install-tools.mjs` flow).
  */
 export async function ensureCrossImage() {
   await assertDocker();
   if (crossImagePresent()) return;
-  run('docker', ['build', '--tag', CROSS_IMAGE, DOCKERFILE_DIR]);
+  buildCrossImage();
+}
+
+/**
+ * Both container platforms the cross image ships (see
+ * `build-release/docker/Dockerfile`): a Linux target always runs a container
+ * matching its own architecture, macOS targets run a host-arch container.
+ */
+const CROSS_IMAGE_PLATFORMS = ['linux/amd64', 'linux/arm64'];
+
+/**
+ * Resolves the Docker image storage driver (`docker info`). `overlayfs`
+ * identifies the containerd image store, which can hold BOTH architecture
+ * variants of the cross image under one tag; the classic store (`overlay2`)
+ * keeps a single variant per tag, so building one platform replaces the other.
+ *
+ * @returns {string|null} The storage driver name, or `null` when unknown.
+ */
+function dockerStorageDriver() {
+  const result = spawnSync('docker', ['info', '--format', '{{.Driver}}'], { encoding: 'utf8' });
+  return result.status === 0 ? (result.stdout ?? '').trim() : null;
+}
+
+/**
+ * Builds the cross image for both architecture ports through buildx. With the
+ * containerd image store (the expected setup) the resulting manifest list
+ * keeps the `linux/amd64` and `linux/arm64` variants together under the tag.
+ * On the classic image store the multi-platform export is rejected, so only
+ * the requested platform (default amd64) is built — replacing any other
+ * variant previously stored under the tag, which the warning makes explicit.
+ *
+ * @param {string|null} [singlePlatform] - When the containerd store is not
+ *   available, the platform to build (`null` = `linux/amd64`).
+ */
+export function buildCrossImage(singlePlatform = null) {
+  if (dockerStorageDriver() === 'overlayfs') {
+    run('docker', [
+      'buildx',
+      'build',
+      '--platform',
+      CROSS_IMAGE_PLATFORMS.join(','),
+      '--tag',
+      CROSS_IMAGE,
+      DOCKERFILE_DIR,
+    ]);
+    return;
+  }
+  const plat = singlePlatform ?? CROSS_IMAGE_PLATFORMS[0];
+  console.warn(
+    `[docker] Classic Docker image store in use: only one variant can exist per tag. ` +
+      `Building the ${plat} variant of \`${CROSS_IMAGE}\`; any other variant stored under ` +
+      'this tag is replaced. Enable "Use containerd for pulling and storing images" in ' +
+      'Docker Desktop to keep both variants side by side.',
+  );
+  run('docker', ['build', '--platform', plat, '--tag', CROSS_IMAGE, DOCKERFILE_DIR]);
+}
+
+/**
+ * Prompts the user to build the missing cross image variant on the spot.
+ * Returns `true` on confirmation. In a non-interactive terminal (no TTY) the
+ * prompt is skipped and `false` is returned, so callers keep failing with the
+ * contextualized error instead of blocking on an unanswerable question.
+ *
+ * @param {string} plat - The missing container platform (e.g. `linux/arm64`).
+ * @returns {Promise<boolean>} `true` when the user confirms the build.
+ */
+async function confirmCrossImageBuild(plat) {
+  if (!process.stdin.isTTY) return false;
+  const rl = createInterface({ input: process.stdin, terminal: false });
+  try {
+    process.stdout.write(
+      `\n[release] The ${plat} variant of \`${CROSS_IMAGE}\` is missing. Build it now? ` +
+        'First run pulls a large base image, and the arm64 half compiles its Tauri ' +
+        'CLI under QEMU emulation (can take 30-60 min). [y/N] ',
+    );
+    const answer = (await rl.question('')).trim().toLowerCase();
+    return answer === 'y' || answer === 'yes';
+  } finally {
+    rl.close();
+  }
 }
 
 /** Converts an absolute host path into a Docker Desktop mount path. */

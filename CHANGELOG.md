@@ -365,6 +365,20 @@ All notable changes to the server workspace are recorded here. Add new entries a
 - **Scrapyfy dynamic proxy HTTPS validation**: the default scrapyfy-backed proxy inventory now verifies HTTPS tunnelling with `https://example.com/`, and failed HTTPS probes explicitly clear source-claimed HTTPS support so HTTP-only public proxies are not selected for HTTPS sites.
 - **Dynamic proxy HTTPS CONNECT routing**: HTTP `CONNECT` targets on port 443 are now treated as HTTPS destinations for country proxy selection, so public HTTP proxies without working tunnel support are excluded before TF1-style HTTPS requests.
 - **Stream resolver follows simple JS redirects**: the HTML-content detection phase (`fetch_embed_html` in `stream_resolver.rs`) now follows a simple `window.location.href = "…"` string-literal redirect before running `can_resolve_html`. This lets content-based hosters (e.g. VOE on mirror domains fronted by a redirecting shim page) be recognized on their final player page instead of the shim. JavaScript is never executed and hops are bounded/validated like existing fetches.
+- **Multi-arch Docker cross image (`build-release/`)**: the cross image is now
+  built for **both architecture ports** (`linux/amd64` + `linux/arm64`) under
+  one tag, through `docker buildx build --platform linux/amd64,linux/arm64` —
+  which requires the Docker containerd image store ("Use containerd for
+  pulling and storing images"); previously the single-platform `docker build`
+  silently replaced the tag, so fixing one Linux target broke the other. With
+  the classic image store, the tooling falls back to a single-variant build
+  with an explicit warning. A missing variant is no longer a hard stop:
+  `assertCrossImageFor` now offers to build it on the spot (TTY confirmation,
+  duration under QEMU emulation disclosed) and only fails with the updated,
+  store-aware instructions when declined or non-interactive. `ensureCrossImage`
+  (first `install-tools` run) produces both ports as well; the confirmation
+  prompt discloses the emulated arm64 build time. No Dockerfile change: the
+  image tag stays `arachnea-cross-builder:1.0.0`.
 
 ## Unreleased — RTBF Auvio home banner RedBee auth simplification
 

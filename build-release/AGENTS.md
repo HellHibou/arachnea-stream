@@ -20,6 +20,14 @@ configuration (`release-config.json`) and the cross-build image
   Windows and Linux hosts must all remain able to run this tooling, and the
   cross image must keep working for both of its architecture ports
   (`linux/amd64` and `linux/arm64`).
+- The cross image is expected as a multi-arch manifest list (`linux/amd64` +
+  `linux/arm64`) under one tag, built through `docker buildx build --platform
+  linux/amd64,linux/arm64`. That layout requires the Docker **containerd image
+  store** ("Use containerd for pulling and storing images" in Docker Desktop,
+  detected via `docker info --format {{.Driver}}` = `overlayfs`). With the
+  classic image store only one variant can exist per tag: building a variant
+  replaces the other one, and the tooling falls back to a single-platform
+  `docker build --platform` with an explicit warning.
 
 ## Software installation
 
