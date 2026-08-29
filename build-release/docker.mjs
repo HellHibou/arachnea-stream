@@ -14,6 +14,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createInterface } from 'node:readline/promises';
 import { ROOT, canRun, run, releaseDir } from './lib.mjs';
 import { dockerBundlesFor } from './capabilities.mjs';
 
@@ -30,13 +31,70 @@ export function dockerAvailable() {
   return canRun('docker');
 }
 
-/** Throws a contextualized error when Docker is not available. */
-export function assertDocker() {
+/**
+ * Probes the Docker daemon. The CLI can be on the PATH while the daemon is
+ * unreachable (e.g. Docker Desktop not started on Windows), in which case every
+ * command fails with a named-pipe/engine connection error.
+ *
+ * @returns {{ ok: boolean, stderr: string, status: number|null }} Probe result;
+ *   `stderr` holds the daemon's error output when it does not respond.
+ */
+function dockerDaemonProbe() {
+  const result = spawnSync('docker', ['version', '--format', '{{.Server.Version}}'], {
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  return { ok: result.status === 0, stderr: (result.stderr ?? '').trim(), status: result.status };
+}
+
+/**
+ * Prompts the user to retry when the Docker daemon is not responding. Returns
+ * `true` on confirmation. In a non-interactive terminal (no TTY) the prompt is
+ * skipped and `false` is returned, so callers fall back to the contextualized
+ * error instead of blocking on an unanswerable question.
+ *
+ * @returns {Promise<boolean>} `true` when the user confirms the retry.
+ */
+async function confirmDockerRetry() {
+  if (!process.stdin.isTTY) return false;
+  const rl = createInterface({ input: process.stdin, terminal: false });
+  try {
+    process.stdout.write('\n[install-tools] Docker daemon is not responding. Retry? [y/N] ');
+    const answer = (await rl.question('')).trim().toLowerCase();
+    return answer === 'y' || answer === 'yes';
+  } finally {
+    rl.close();
+  }
+}
+
+/**
+ * Ensures the Docker daemon is reachable, prompting to retry when it is not.
+ *
+ * The CLI can be on the PATH while the daemon is down (e.g. Docker Desktop not
+ * started on Windows): commands then fail with a named-pipe/engine connection
+ * error. When the probe fails, the contextualized error is shown and the user
+ * is offered to retry — useful when Docker is starting up in the background.
+ * A refusal (or a non-interactive terminal) throws the same error, unchanged.
+ *
+ * @returns {Promise<void>}
+ */
+export async function assertDocker() {
   if (!dockerAvailable()) {
     throw new Error(
       'Docker is required to produce the portable Linux/macOS binaries but is not ' +
         'available on the PATH. Install Docker (e.g. Docker Desktop on Windows/macOS) and retry.',
     );
+  }
+  while (true) {
+    const probe = dockerDaemonProbe();
+    if (probe.ok) return;
+    const message =
+      'The Docker daemon does not respond: Docker is probably not running ' +
+      '(e.g. Docker Desktop is closed). Start Docker, check it with `docker version`, then retry.\n' +
+      `Original error: ${probe.stderr || `docker exited with status ${probe.status ?? 'unknown'}`}`;
+    console.warn(`\n[install-tools] ${message}`);
+    if (await confirmDockerRetry()) continue;
+    throw new Error(message);
   }
 }
 
@@ -71,8 +129,8 @@ function effectiveImagePlatform(platform) {
  * @throws When no local image variant matches the required container platform,
  *   with the exact `docker build` command to produce it.
  */
-export function assertCrossImageFor(platform) {
-  assertDocker();
+export async function assertCrossImageFor(platform) {
+  await assertDocker();
   const plat = effectiveImagePlatform(platform);
   // Cheap one-shot container that only succeeds when the variant is stored
   // locally; otherwise docker attempts a pull and exits non-zero right away.
@@ -92,8 +150,8 @@ export function assertCrossImageFor(platform) {
  * Ensures the Arachnea cross image is built. Because this pulls a large base
  * image (Rust + osxcross + Apple SDK) on first use, it requires confirmation.
  */
-export function ensureCrossImage() {
-  assertDocker();
+export async function ensureCrossImage() {
+  await assertDocker();
   if (crossImagePresent()) return;
   run('docker', ['build', '--tag', CROSS_IMAGE, DOCKERFILE_DIR]);
 }
@@ -199,16 +257,17 @@ function crossRunBase(platform, tauriDir) {
  * @param {boolean} [dryRun] - When true, return the args without validating Docker.
  * @returns {string[]} Arguments to pass to the `docker` executable.
  */
-export function crossBuildArgs(platform, tauriDir, dryRun = false) {
-  if (!dryRun) assertDocker();
+export async function crossBuildArgs(platform, tauriDir, dryRun = false) {
+  if (!dryRun) await assertDocker();
   const crateRel = path.relative(ROOT, path.resolve(tauriDir)).replace(/\\/g, '/');
   const workaround = `cd /io/${crateRel} && cargo build --release --target ${platform.target}`;
   return buildCrossRunArgs(platform, tauriDir, workaround, [], dryRun);
 }
 
 /** Prints a human-readable description of the raw-binary cross build command. */
-export function describeCrossBuild(platform, tauriDir) {
-  return `docker ${crossBuildArgs(platform, tauriDir, true).join(' ')}`;
+export async function describeCrossBuild(platform, tauriDir) {
+  const args = await crossBuildArgs(platform, tauriDir, true);
+  return `docker ${args.join(' ')}`;
 }
 
 /**
@@ -285,10 +344,10 @@ function buildCrossRunArgs(platform, tauriDir, command, extraEnv) {
  * @returns {string[]|null} Arguments to pass to the `docker` executable, or
  *   `null` when no bundles are requested.
  */
-export function crossBundleArgs(platform, tauriDir, dryRun = false, bundles = null) {
+export async function crossBundleArgs(platform, tauriDir, dryRun = false, bundles = null) {
   const requested = bundles ?? dockerBundlesFor(platform);
   if (requested.length === 0) return null;
-  if (!dryRun) assertDocker();
+  if (!dryRun) await assertDocker();
   const crateRel = path.relative(ROOT, path.resolve(tauriDir)).replace(/\\/g, '/');
   // JSON output never contains single quotes, so shell-quoting stays safe.
   const configJson = JSON.stringify({
@@ -312,10 +371,13 @@ export function crossBundleArgs(platform, tauriDir, dryRun = false, bundles = nu
  * @returns {string|null} Newline-separated descriptions, or `null` when the
  *   target has no Docker-producible bundles.
  */
-export function describeCrossBundling(platform, tauriDir) {
+export async function describeCrossBundling(platform, tauriDir) {
   const bundles = dockerBundlesFor(platform);
   if (bundles.length === 0) return null;
-  return bundles
-    .map((bundle) => `docker ${crossBundleArgs(platform, tauriDir, true, [bundle]).join(' ')}`)
-    .join('\n    ');
+  const descriptions = [];
+  for (const bundle of bundles) {
+    const args = await crossBundleArgs(platform, tauriDir, true, [bundle]);
+    descriptions.push(`docker ${args.join(' ')}`);
+  }
+  return descriptions.join('\n    ');
 }

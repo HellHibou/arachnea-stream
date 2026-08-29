@@ -16,7 +16,7 @@ import { createInterface } from 'node:readline/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { canRun, commandPath, run, loadConfig, resolvePlatforms, hostLabel, CROSS_TOOLS_BIN_DIR, findVsInstallation, msvcToolsetDir, vsWhereExe, windowsNativeMsvcArm64State, isElevated, runElevatedSync } from './lib.mjs';
-import { crossImagePresent, ensureCrossImage } from './docker.mjs';
+import { assertDocker, crossImagePresent, ensureCrossImage } from './docker.mjs';
 
 function parseArgs(argv) {
   const options = { platforms: [] };
@@ -546,13 +546,16 @@ async function ensureMakensis(platforms) {
 async function ensureDockerCrossBuild(platforms) {
   const buildPlatforms = platforms.filter((p) => p.needsDockerBuild);
   if (buildPlatforms.length === 0) return;
+  // Fail fast (with a clear message) when Docker is missing or not running,
+  // instead of prompting for an image build that cannot start.
+  await assertDocker();
   if (crossImagePresent()) {
     console.log(`\n[install-tools] Docker cross image already built for: ${buildPlatforms.map((p) => p.id).join(', ')}.`);
     return;
   }
   console.log(`\n[install-tools] Building the Docker cross image for: ${buildPlatforms.map((p) => p.id).join(', ')}.`);
   await confirmInstallation('the Arach cross-build Docker image (first run pulls the base rust + osxcross image)');
-  ensureCrossImage();
+  await ensureCrossImage();
 }
 
 /** Installs every tool required to build the given platforms on this host.

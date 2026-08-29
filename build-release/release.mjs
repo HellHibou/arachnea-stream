@@ -510,7 +510,7 @@ function generateRootChecksums(releaseDir) {
  * @param {boolean} skipBuild - When true, reuse existing Tauri artifacts instead
  *   of running `cargo tauri build`.
  */
-function buildPlatform(platform, config, version, releaseDir, tauriDir, skipBuild) {
+async function buildPlatform(platform, config, version, releaseDir, tauriDir, skipBuild) {
   const label = `[${platform.id}] (${platform.target})`;
   if (platform.method === 'none') {
     console.warn(`${label} not buildable on ${hostLabel()} — installer types [${platform.bundles.join(', ')}] ` +
@@ -554,27 +554,27 @@ function buildPlatform(platform, config, version, releaseDir, tauriDir, skipBuil
     // even when the Homebrew LLVM directory is not on the shell PATH.
     run('cargo', args, { cwd: tauriDir, env: buildEnvWithLlvm() });
   } else if (!skipBuild && platform.method === 'docker') {
-    assertDocker();
-    ensureCrossImage();
+    await assertDocker();
+    await ensureCrossImage();
     // Tag presence is not enough: the image must exist for the container
     // platform this target runs in (see multi-platform builds).
-    assertCrossImageFor(platform);
+    await assertCrossImageFor(platform);
     const dockerBundles = dockerBundlesFor(platform);
 
     // --- Split compilation and packaging steps ---
     if (dockerBundles.length > 0) {
       // Step 1: compile the raw binary once
-      console.log(`${label} cross-compiling release binary in the Docker image: ${describeCrossBuild(platform, tauriDir)}`);
-      run('docker', crossBuildArgs(platform, tauriDir));
+      console.log(`${label} cross-compiling release binary in the Docker image: ${await describeCrossBuild(platform, tauriDir)}`);
+      run('docker', await crossBuildArgs(platform, tauriDir));
 
       // Step 2: package each bundle type (the binary is already present)
       console.log(
-        `${label} cross-building installers (${dockerBundles.join(', ')}) in the Docker image:\n    ${describeCrossBundling(platform, tauriDir)}`,
+        `${label} cross-building installers (${dockerBundles.join(', ')}) in the Docker image:\n    ${await describeCrossBundling(platform, tauriDir)}`,
       );
       const failedBundles = [];
       for (const bundle of dockerBundles) {
         try {
-          run('docker', crossBundleArgs(platform, tauriDir, false, [bundle]));
+          run('docker', await crossBundleArgs(platform, tauriDir, false, [bundle]));
         } catch (error) {
           failedBundles.push(bundle);
           console.warn(`${label} bundle \`${bundle}\` failed inside the Docker image:\n    ${error.message}`);
@@ -590,8 +590,8 @@ function buildPlatform(platform, config, version, releaseDir, tauriDir, skipBuil
       }
     } else {
       // No bundles, just compile the binary (e.g., macOS case)
-      console.log(`${label} cross-building in the Docker image: ${describeCrossBuild(platform, tauriDir)}`);
-      run('docker', crossBuildArgs(platform, tauriDir));
+      console.log(`${label} cross-building in the Docker image: ${await describeCrossBuild(platform, tauriDir)}`);
+      run('docker', await crossBuildArgs(platform, tauriDir));
     }
     // --- end of split ---
 
@@ -703,9 +703,10 @@ function buildPlatform(platform, config, version, releaseDir, tauriDir, skipBuil
 function printBuildSummary(results) {
   console.log('\n===== Build summary =====');
   for (const result of results) {
+    const color = result.success ? '\x1b[32m' : '\x1b[31m';
     const status = result.success ? '✓' : '✗';
     const detail = result.success ? 'success' : result.error;
-    console.log(`  ${status} ${result.platform.target.padEnd(30)} ${detail}`);
+    console.log(`  ${color}${status}\x1b[0m ${result.platform.target.padEnd(30)} ${detail}`);
   }
 }
 
@@ -764,9 +765,9 @@ async function main() {
       let command = '';
       if (!platform.buildable) command = '';
       else if (platform.method === 'docker') {
-        const bundleCommand = describeCrossBundling(platform, tauriDir);
+        const bundleCommand = await describeCrossBundling(platform, tauriDir);
         if (bundleCommand) command += `\n        ${bundleCommand}`;
-        if (platform.portable && !bundleCommand) command += `\n        ${describeCrossBuild(platform, tauriDir)}`;
+        if (platform.portable && !bundleCommand) command += `\n        ${await describeCrossBuild(platform, tauriDir)}`;
       }
       console.log(`  ${platform.id.padEnd(20)} method=${method}${command}`);
     }
@@ -844,7 +845,7 @@ async function main() {
       if (platform.method === 'native' && !options.skipBuild) {
         await ensurePlatformRustupTargets(platform);
       }
-      buildPlatform(platform, config, version, releaseDir, tauriDir, options.skipBuild);
+      await buildPlatform(platform, config, version, releaseDir, tauriDir, options.skipBuild);
       results.push({ platform, success: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

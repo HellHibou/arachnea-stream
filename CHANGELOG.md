@@ -973,3 +973,16 @@ instead of inside an unpacked bundle.
 The shared core no longer hardcodes the application data directory name.
 `arachnea-stream` now reads its Tauri `identifier` from `tauri.conf.json` at
 build time and configures the core before any writable data path is resolved.
+
+## Unreleased — Docker daemon detection in release tooling (`build-release`)
+
+`assertDocker()` in `build-release/docker.mjs` now probes the Docker daemon
+(`docker version`) after checking the CLI is on the PATH: when the daemon does
+not respond (e.g. Docker Desktop is closed on Windows), the contextualized
+"Docker is probably not running" error (still carrying the original daemon
+error) is shown and the user is offered to retry — so a starting-up daemon can
+be waited for without restarting the whole flow. A refusal (or a
+non-interactive terminal) throws the same error, unchanged. The release and
+install-tools flows no longer prompt for a cross-image build that would crash
+afterwards on a raw named-pipe connection error.
+
