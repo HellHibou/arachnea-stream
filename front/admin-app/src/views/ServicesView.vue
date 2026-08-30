@@ -19,6 +19,7 @@ const {
 const services = ref<AdminServiceEntry[]>([])
 const needsReload = ref(false)
 const reloadResult = ref<string | null>(null)
+const reloadDetails = ref<ReloadSummary | null>(null)
 const activeDialog = ref<string | null>(null)
 /** Service awaiting activation after credentials are saved (null otherwise). */
 const pendingActivation = ref<string | null>(null)
@@ -26,6 +27,19 @@ const pendingActivation = ref<string | null>(null)
 const enableConfirmServiceId = ref<string | null>(null)
 /** Bumped to force switch re-creation so cancelled toggles revert visually. */
 const switchEpoch = ref(0)
+
+/**
+ * Summary of a configuration reload result for display in the admin UI.
+ */
+interface ReloadSummary {
+  applied: boolean
+  loaded: number
+  disabled: number
+  ignored: number
+  errors: number
+  errorDetails: string[]
+  buildError?: string
+}
 
 const servicesWithCredentials = computed(() =>
   services.value.filter((s) => s.credentials?.required),
@@ -147,11 +161,29 @@ async function handleResetEnabled(serviceId: string): Promise<void> {
 
 async function handleReload(): Promise<void> {
   const result = await reload()
+  reloadDetails.value = null
   if (result?.applied) {
     needsReload.value = false
     reloadResult.value = t('reload.success')
+    reloadDetails.value = {
+      applied: true,
+      loaded: result.loaded?.length ?? 0,
+      disabled: result.disabled?.length ?? 0,
+      ignored: result.ignored?.length ?? 0,
+      errors: result.errors?.length ?? 0,
+      errorDetails: result.errors?.map((e) => `${e.path}: ${e.message}`) ?? [],
+    }
   } else {
     reloadResult.value = result?.build_error ?? t('reload.failed')
+    reloadDetails.value = {
+      applied: false,
+      loaded: result?.loaded?.length ?? 0,
+      disabled: result?.disabled?.length ?? 0,
+      ignored: result?.ignored?.length ?? 0,
+      errors: result?.errors?.length ?? 0,
+      errorDetails: result?.errors?.map((e) => `${e.path}: ${e.message}`) ?? [],
+      buildError: result?.build_error,
+    }
   }
   await loadServices()
 }
@@ -232,11 +264,29 @@ onMounted(() => {
 
         <v-alert
           v-else-if="reloadResult"
-          type="success"
+          :type="reloadDetails?.applied ? 'success' : 'error'"
           variant="tonal"
           class="mb-4"
-          :text="reloadResult"
-        />
+        >
+          <div class="d-flex align-center justify-space-between mb-2">
+            <span>{{ reloadResult }}</span>
+          </div>
+          <div v-if="reloadDetails" class="text-body-2">
+            <div>
+              {{ t('reload.details', {
+                loaded: reloadDetails.loaded,
+                disabled: reloadDetails.disabled,
+                ignored: reloadDetails.ignored,
+                errors: reloadDetails.errors,
+              }) }}
+            </div>
+            <ul v-if="reloadDetails.errorDetails.length > 0" class="mt-2">
+              <li v-for="(error, index) in reloadDetails.errorDetails" :key="index">
+                {{ error }}
+              </li>
+            </ul>
+          </div>
+        </v-alert>
 
         <v-progress-circular
           v-if="isLoading && services.length === 0"

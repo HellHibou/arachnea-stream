@@ -33,6 +33,8 @@ use super::shutdown::ShutdownSignal;
 pub struct ServerTrayConfiguration {
     /// Public URL of the running HTTP server, opened by the browser action.
     pub server_url: String,
+    /// Public URL of the administration interface, opened by the admin action.
+    pub admin_url: String,
     /// Full server URL displayed in the tray menu.
     pub server_display_url: String,
     /// Network access mode displayed in the tray menu.
@@ -41,6 +43,13 @@ pub struct ServerTrayConfiguration {
     pub log_cache: Arc<LogCache>,
     /// Shared shutdown signal triggered by the tray close action.
     pub shutdown: ShutdownSignal,
+    /// Optional callback reloading the application configuration.
+    ///
+    /// Invoked on a background thread by the "Reload configuration" tray
+    /// action; the returned summary is written to the application log so
+    /// reload problems stay diagnosable from the log window and the admin
+    /// interface.
+    pub reload_configuration: Option<Arc<dyn Fn() -> String + Send + Sync>>,
 }
 
 /// Handle to a live server tray, used to trigger lifecycle actions.
@@ -57,6 +66,15 @@ pub trait ServerTrayHandle: Send + Sync + 'static {
 
     /// Opens the default browser on the configured server URL.
     fn open_browser(&self);
+
+    /// Opens the default browser on the configured administration URL.
+    fn open_admin(&self);
+
+    /// Reloads the application configuration on a background thread.
+    ///
+    /// The reload runs off the Tauri UI thread so a slow reload never blocks
+    /// the tray; the outcome summary is written to the application log.
+    fn reload_configuration(&self);
 }
 
 /// Factory responsible for creating the server tray icon.
@@ -138,6 +156,8 @@ const TRAY_ID: &str = "server-tray";
 const MENU_SHUTDOWN: &str = "shutdown";
 const MENU_SHOW_LOGS: &str = "show-logs";
 const MENU_OPEN_BROWSER: &str = "open-browser";
+const MENU_OPEN_ADMIN: &str = "open-admin";
+const MENU_RELOAD: &str = "reload-configuration";
 const MENU_SERVER_INFO: &str = "server-info";
 const MENU_NETWORK_INFO: &str = "network-info";
 
@@ -341,6 +361,8 @@ const LOG_HTML: &str = r#"<!DOCTYPE html>
 struct ServerTrayHandleImpl {
     /// Public server URL opened by the browser action.
     server_url: String,
+    /// Public administration URL opened by the admin action.
+    admin_url: String,
     /// Shared signal requesting the HTTP server to shut down gracefully.
     shutdown: ShutdownSignal,
     /// The running Tauri application handle.
@@ -349,6 +371,8 @@ struct ServerTrayHandleImpl {
     log_window: Mutex<Option<WebviewWindow>>,
     /// Application window title from the calling crate's tauri.conf.json.
     app_title: String,
+    /// Optional configuration reload callback invoked on a background thread.
+    reload_configuration: Option<Arc<dyn Fn() -> String + Send + Sync>>,
 }
 
 impl ServerTrayHandleImpl {
@@ -356,17 +380,28 @@ impl ServerTrayHandleImpl {
     ///
     /// # Arguments
     /// * `server_url` - Public URL of the running server.
+    /// * `admin_url` - Public URL of the administration interface.
     /// * `shutdown` - Shared shutdown signal.
+    /// * `app_title` - Application window title.
+    /// * `reload_configuration` - Optional configuration reload callback.
     ///
     /// # Returns
     /// A new tray handle.
-    fn new(server_url: String, shutdown: ShutdownSignal, app_title: String) -> Self {
+    fn new(
+        server_url: String,
+        admin_url: String,
+        shutdown: ShutdownSignal,
+        app_title: String,
+        reload_configuration: Option<Arc<dyn Fn() -> String + Send + Sync>>,
+    ) -> Self {
         Self {
             server_url,
+            admin_url,
             shutdown,
             app_handle: Mutex::new(None),
             log_window: Mutex::new(None),
             app_title,
+            reload_configuration,
         }
     }
 
@@ -388,6 +423,8 @@ impl ServerTrayHandleImpl {
             MENU_SHUTDOWN => self.request_shutdown(),
             MENU_SHOW_LOGS => self.show_log_window(),
             MENU_OPEN_BROWSER => self.open_browser(),
+            MENU_OPEN_ADMIN => self.open_admin(),
+            MENU_RELOAD => self.reload_configuration(),
             _ => {
                 let _ = app;
             }
@@ -446,6 +483,22 @@ impl ServerTrayHandle for ServerTrayHandleImpl {
     fn open_browser(&self) {
         let _ = tauri_plugin_opener::open_url(self.server_url.clone(), None::<&str>);
     }
+
+    fn open_admin(&self) {
+        let _ = tauri_plugin_opener::open_url(self.admin_url.clone(), None::<&str>);
+    }
+
+    fn reload_configuration(&self) {
+        let Some(callback) = &self.reload_configuration else {
+            tracing::warn!("No reload callback is configured for the tray action.");
+            return;
+        };
+        let callback = Arc::clone(callback);
+        std::thread::spawn(move || {
+            let summary = callback();
+            tracing::info!("Tray configuration reload: {summary}");
+        });
+    }
 }
 
 /// Scaffold shared by the threaded and the main-thread server tray run paths.
@@ -489,8 +542,10 @@ fn build_tauri_server_tray(
         .unwrap_or_else(|| "Arachnéa".to_string());
     let handle = Arc::new(ServerTrayHandleImpl::new(
         configuration.server_url,
+        configuration.admin_url,
         configuration.shutdown,
         app_title,
+        configuration.reload_configuration,
     ));
 
     let handle_setup = Arc::clone(&handle);
@@ -527,6 +582,8 @@ fn build_tauri_server_tray(
                 .item(&network_info)
                 .separator()
                 .text(MENU_OPEN_BROWSER, "Open in browser")
+                .text(MENU_OPEN_ADMIN, "Open administration")
+                .text(MENU_RELOAD, "Reload configuration")
                 .text(MENU_SHOW_LOGS, "Show log")
                 .text(MENU_SHUTDOWN, "Shutdown server")
                 .build()?;

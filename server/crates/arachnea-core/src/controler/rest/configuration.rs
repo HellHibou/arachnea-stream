@@ -33,6 +33,12 @@ pub struct RestControlerConfiguration {
 
     /// Whether the server tray should be shown when a GUI is available.
     pub(crate) tray_enabled: bool,
+
+    /// Callback reloading the application configuration from the tray.
+    ///
+    /// Invoked on a background thread by the tray "Reload configuration"
+    /// action; the returned summary is written to the application log.
+    pub(crate) reload_configuration: Option<Arc<dyn Fn() -> String + Send + Sync>>,
 }
 
 impl RestControlerConfiguration {
@@ -140,6 +146,20 @@ impl RestControlerConfiguration {
     #[allow(dead_code)]
     pub fn server_tray_factory(mut self, tray_factory: Arc<dyn ServerTrayFactory>) -> Self {
         self.tray_factory = Some(tray_factory);
+        self
+    }
+
+    /// Sets the callback reloading the application configuration from the tray.
+    ///
+    /// # Arguments
+    /// * `reload_configuration` - Called on a background thread by the tray
+    ///   "Reload configuration" action, returning a log summary.
+    ///
+    /// # Returns
+    /// The updated configuration.
+    #[allow(dead_code)]
+    pub fn reload_configuration(mut self, reload_configuration: Arc<dyn Fn() -> String + Send + Sync>) -> Self {
+        self.reload_configuration = Some(reload_configuration);
         self
     }
 }

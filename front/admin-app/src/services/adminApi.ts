@@ -45,8 +45,32 @@ interface ApiRequestOptions {
   params?: Record<string, string | number | boolean | undefined>
 }
 
+interface TauriInvoke {
+  (command: string, args?: Record<string, unknown>): Promise<unknown>
+}
+
+interface TauriWindow extends Window {
+  __TAURI__?: {
+    core?: { invoke?: TauriInvoke }
+    invoke?: TauriInvoke
+  }
+}
+
+/**
+ * Detects the Tauri invoke bridge when the app runs inside a desktop window.
+ *
+ * @returns The Tauri invoke function, or `undefined` in a plain browser.
+ */
+function getTauriInvoke(): TauriInvoke | undefined {
+  const tauriWindow = window as TauriWindow
+  return tauriWindow.__TAURI__?.core?.invoke ?? tauriWindow.__TAURI__?.invoke
+}
 /**
  * Performs a typed admin API call with normalized error handling.
+ *
+ * In a plain browser the request goes through `fetch`; inside a Tauri desktop
+ * window the same operation is invoked through the `admin/<operation>` IPC
+ * command exposed by the backend, which shares the exact response contract.
  *
  * @param operation - Admin operation name.
  * @param options - Request options.
@@ -56,6 +80,34 @@ interface ApiRequestOptions {
 async function apiCall<T>(operation: string, options: ApiRequestOptions = {}): Promise<T> {
   const { method = 'GET', body, params } = options
 
+  const tauriInvoke = getTauriInvoke()
+  if (tauriInvoke) {
+    const payload: Record<string, unknown> = {}
+    if (params) {
+      for (const [key, value] of Object.entries(params)) {
+        if (value !== undefined) {
+          payload[key] = value
+        }
+      }
+    }
+    if (body && method !== 'GET' && typeof body === 'object' && body !== null) {
+      Object.assign(payload, body)
+    }
+    try {
+      const data = await tauriInvoke(`admin/${operation}`, payload)
+      const envelope = data as ErrorEnvelope | undefined
+      if (envelope?.error) {
+        throw new AdminApiException(envelope.error.code, envelope.error.message, 0)
+      }
+      return data as T
+    } catch (error) {
+      if (error instanceof AdminApiException) {
+        throw error
+      }
+      const message = error instanceof Error ? error.message : String(error)
+      throw new AdminApiException('request_failed', message, 0)
+    }
+  }
   let url = getAdminApiUrl(operation)
   if (params) {
     const searchParams = new URLSearchParams()

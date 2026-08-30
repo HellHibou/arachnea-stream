@@ -114,7 +114,8 @@
     "ignored": "Ignipped: {count}",
     "errors": "Errors: {count}",
     "buildError": "Build error: {error}",
-    "noChanges": "No changes to apply."
+    "noChanges": "No changes to apply.",
+    "details": "Loaded: {loaded}, Disabled: {disabled}, Ignored: {ignored}, Errors: {errors}"
   },
   "theme": {
     "switchToDark": "Switch to dark mode",

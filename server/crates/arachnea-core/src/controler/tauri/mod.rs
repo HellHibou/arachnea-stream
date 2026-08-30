@@ -6,14 +6,14 @@ use std::sync::{Arc, Mutex};
 use ::tauri::{
     ipc::{Invoke, InvokeBody, InvokeError},
     utils::assets::AssetKey,
-    Assets,
+    AppHandle, Assets, Manager, WebviewUrl, WebviewWindowBuilder, Wry,
 };
 use anyhow::anyhow;
 use serde_json::Value;
 
 use super::web_assets::{
-    normalize_mount_path, replace_html_base, strip_mount_path, EmbeddedWebAssets, SharedWebAssets,
-    WebAssetSource,
+    normalize_mount_path, replace_html_base, scope_web_asset_source, strip_mount_path,
+    EmbeddedWebAssets, SharedWebAssets, WebAssetSource,
 };
 use super::{
     install_global_main_thread_dispatcher, main_thread::MainThreadHandlerStore,
@@ -31,6 +31,15 @@ const DEFAULT_TAURI_API_PREFIX: &str = "/api/";
 
 /// Relative `<base>` used when serving the desktop frontend, which lives at the scheme root.
 const TAURI_WEB_BASE: &str = "./";
+
+/// Label of the dedicated administration window, created on demand.
+const ADMIN_WINDOW_LABEL: &str = "admin";
+
+/// Invoke command opening (or refocusing) the dedicated administration window.
+const ADMIN_WINDOW_OPEN_COMMAND: &str = "open_admin_window";
+
+/// Mount path (inside the scheme root) serving the administration bundle.
+const ADMIN_WEB_MOUNT: &str = "admin";
 
 /// Configuration required to build a Tauri controller service.
 ///
@@ -142,9 +151,13 @@ impl TauriWebAssets {
     /// # Returns
     /// A new TauriWebAssets instance configured for directory loading.
     fn from_directory(directory_path: &str, path: &str) -> Self {
+        let mount_path = normalize_mount_path(path);
         Self {
-            mount_path: normalize_mount_path(path),
-            source: WebAssetSource::directory(directory_path),
+            mount_path: mount_path.clone(),
+            source: scope_web_asset_source(
+                WebAssetSource::directory(directory_path),
+                &mount_path,
+            ),
         }
     }
 
@@ -157,10 +170,30 @@ impl TauriWebAssets {
     /// # Returns
     /// A new TauriWebAssets instance configured for embedded loading.
     fn from_embedded(assets: SharedWebAssets, path: &str) -> Self {
+        let mount_path = normalize_mount_path(path);
         Self {
-            mount_path: normalize_mount_path(path),
-            source: WebAssetSource::embedded(assets),
+            mount_path: mount_path.clone(),
+            source: scope_web_asset_source(WebAssetSource::embedded(assets), &mount_path),
         }
+    }
+
+    /// Returns whether this mount serves the given request path.
+    ///
+    /// The root mount (empty path) serves every request; a scoped mount only
+    /// serves requests whose path is below its mount segment, so a bundle
+    /// mounted at `/admin/` never shadows sibling routes.
+    ///
+    /// # Arguments
+    /// * `request_path` - The normalized request path starting with `/`.
+    ///
+    /// # Returns
+    /// `true` when this mount is a candidate for the request.
+    fn matches(&self, request_path: &str) -> bool {
+        if self.mount_path.is_empty() {
+            return true;
+        }
+        request_path == format!("/{}", self.mount_path)
+            || request_path.starts_with(&format!("/{}/", self.mount_path))
     }
 
     /// Generates the window URL for these web assets.
@@ -353,8 +386,11 @@ pub struct TauriControlerService {
     json_handlers: Vec<(String, JsonControlerFunction)>,
     /// Registered stream function handlers with their entry points.
     stream_handlers: Vec<(String, StreamControlerFunction, String)>,
-    /// Configured web assets (if any).
-    web_assets: Option<TauriWebAssets>,
+    /// Configured web assets mounts.
+    ///
+    /// The first registered mount is the root frontend; additional mounts serve
+    /// dedicated bundles (e.g. the administration app) below their own path.
+    web_assets: Vec<TauriWebAssets>,
     /// The main thread dispatcher for this service.
     main_thread_dispatcher: Arc<TauriMainThreadDispatcher>,
 }
@@ -386,7 +422,7 @@ impl TauriControlerService {
             handlers: Vec::new(),
             json_handlers: Vec::new(),
             stream_handlers: Vec::new(),
-            web_assets: None,
+            web_assets: Vec::new(),
             main_thread_dispatcher: TauriMainThreadDispatcher::new(),
         }
     }
@@ -398,7 +434,8 @@ impl TauriControlerService {
     /// * `path` - Relative path under the Tauri root where the assets should be mounted.
     #[allow(dead_code)]
     pub fn register_web_directory(&mut self, directory_path: &str, path: &str) {
-        self.web_assets = Some(TauriWebAssets::from_directory(directory_path, path));
+        self.web_assets
+            .push(TauriWebAssets::from_directory(directory_path, path));
     }
 
     /// Loads frontend assets from the executable embedded resources.
@@ -408,12 +445,16 @@ impl TauriControlerService {
     /// * `path` - Relative path under the Tauri root where the assets should be mounted.
     #[allow(dead_code)]
     pub fn register_embedded_web_assets(&mut self, assets: SharedWebAssets, path: &str) {
-        self.web_assets = Some(TauriWebAssets::from_embedded(assets, path));
+        self.web_assets
+            .push(TauriWebAssets::from_embedded(assets, path));
     }
 
     /// Builds the final Tauri context with configured web assets.
     ///
     /// This method is called during launch and consumes the internal context.
+    /// The first main window is pointed at the root mount (or the first one
+    /// when no root bundle is registered); dedicated windows are created on
+    /// demand by [`open_admin_window`].
     ///
     /// # Returns
     /// The configured Tauri context ready for application launch.
@@ -422,7 +463,12 @@ impl TauriControlerService {
             .context
             .take()
             .expect("Tauri controller launched more than once.");
-        if let Some(web_assets) = &self.web_assets {
+        if let Some(web_assets) = self
+            .web_assets
+            .iter()
+            .find(|assets| assets.mount_path.is_empty())
+            .or_else(|| self.web_assets.first())
+        {
             if let Some(window) = context.config_mut().app.windows.first_mut() {
                 window.url = ::tauri::WebviewUrl::CustomProtocol(
                     web_assets
@@ -505,7 +551,9 @@ impl ControlerService for TauriControlerService {
                     .build(),
             );
 
-        if let Some(web_assets) = web_assets.clone() {
+        // Kept for the invoke handler: the protocol closure moves `web_scheme`.
+        let invoke_web_scheme = web_scheme.clone();
+        if !web_assets.is_empty() {
             let uri_scheme = web_scheme.clone();
             builder = builder.register_uri_scheme_protocol(uri_scheme, move |_app, request| {
                 let request_path = request_path_from_tauri_uri(request.uri(), &web_scheme);
@@ -613,7 +661,15 @@ impl ControlerService for TauriControlerService {
                     }
                 }
 
-                match web_assets.load_request(&request_path) {
+                // Select the most specific mount serving this request: dedicated
+                // bundles (e.g. `/admin/`) take precedence over the root mount.
+                let selected = web_assets
+                    .iter()
+                    .filter(|assets| assets.matches(&request_path))
+                    .max_by_key(|assets| assets.mount_path.len())
+                    .map(|assets| assets.load_request(&request_path))
+                    .unwrap_or_else(|| Err("Web asset not found".to_string()));
+                match selected {
                     Ok(asset) => {
                         let bytes = if asset.mime_type.starts_with("text/html") {
                             replace_html_base(asset.bytes, TAURI_WEB_BASE)
@@ -636,6 +692,17 @@ impl ControlerService for TauriControlerService {
         builder
             .invoke_handler(move |invoke: Invoke| {
                 let command = invoke.message.command().to_string();
+                if command == ADMIN_WINDOW_OPEN_COMMAND {
+                    let app = invoke.message.webview().app_handle().clone();
+                    let admin_url = format!(
+                        "{}://localhost/{}/",
+                        invoke_web_scheme.trim_end_matches(':'),
+                        ADMIN_WEB_MOUNT
+                    );
+                    open_admin_window(app, admin_url);
+                    invoke.resolver.respond(Ok::<(), InvokeError>(()));
+                    return true;
+                }
                 if let Some((_cmd, handler)) = handlers.iter().find(|(c, _)| *c == command) {
                     let handler = std::sync::Arc::clone(handler);
                     let payload = match invoke.message.payload() {
@@ -698,6 +765,37 @@ impl ControlerService for TauriControlerService {
             })
             .run(context)
             .expect("Error launching the Tauri application.");
+    }
+}
+
+/// Opens the dedicated administration window, reusing it when it still exists.
+///
+/// The window loads the admin bundle through the custom web scheme (whose
+/// protocol handler serves the `admin` mount). Closing the window never exits
+/// the application; a later invocation recreates it.
+///
+/// # Arguments
+/// * `app` - The running Tauri application handle.
+/// * `admin_url` - Custom-scheme URL of the administration bundle.
+fn open_admin_window(app: AppHandle<Wry>, admin_url: String) {
+    if let Some(window) = app.get_webview_window(ADMIN_WINDOW_LABEL) {
+        let _ = window.show();
+        let _ = window.set_focus();
+        return;
+    }
+
+    let url: ::tauri::Url = admin_url.parse().expect("Invalid Tauri admin URL.");
+    let window = WebviewWindowBuilder::new(
+        &app,
+        ADMIN_WINDOW_LABEL,
+        WebviewUrl::CustomProtocol(url),
+    )
+    .title("Arachnéa - Administration")
+    .inner_size(980.0, 680.0)
+    .build();
+
+    if let Err(error) = window {
+        tracing::warn!(error = %error, "failed to open the administration window");
     }
 }
 

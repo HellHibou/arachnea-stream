@@ -1,7 +1,7 @@
 # Analyse : système d'administration Arachnéa
 
 > Date : 2026-08-28
-> Statut : phases 1 à 5 implémentées ; phases 6 et 7 en attente
+> Statut : phases 1 à 6 implémentées ; phase 7 en attente
 
 ## Objet
 
@@ -271,7 +271,27 @@ Voici les points que le frontend admin doit respecter pour rester aligné sur l'
 6. Ajouter au systray serveur les entrées Ouvrir l'administration et Recharger la configuration.
 7. Afficher les erreurs de rechargement de manière exploitable dans les logs et l'interface.
 
-### Phase 7 — Documentation et validation
+#### Vérification de l'implémentation — 2026-08-30
+
+| Élément | État | Implémentation constatée |
+|---|---|---|
+| Montage multi-bundle | Fait | `CoreApplicationOptions::web_mount_paths` permet d'enregistrer des montages additionnels ; la macro `create_application_controler!` les enregistre avant le bundle racine pour qu'ils prédéminent sur leurs propres chemins. |
+| Fallback SPA par mount | Fait | `RestControlerService::register_web_assets` crée un filtre dédié par mount avec `scope_web_asset_source` qui résout les candidats (`index.html` fallback) dans le scope du bundle, sans collision avec l'API (le segment `api` est rejeté pour le montage racine). |
+| Intégration admin/dist release | Fait | `tauri.conf.json` référence `../../../front/dist` comme `frontendDist` ; le build `front/package.json` produit `dist/` (public) et `dist/admin/` (admin) ; les deux sont embarqués par Tauri. |
+| Capability admin dédiée | Fait | `server/crates/arachnea-stream/capabilities/admin-window.json` existe et est déclarée dans `tauri.conf.json` (`app.security.capabilities`). |
+| Fenêtre admin desktop | Fait | `arachnea-core::controler::tauri::open_admin_window` crée/réutilise une fenêtre Tauri pointant sur le montage admin via le protocole custom ; la fenêtre principale reste inchangée. |
+| Systray admin + reload | Fait | `ServerTrayConfiguration` porte `admin_url` ; le handle expose `open_admin()` et `reload_configuration()` ; le menu Tauri déclenche `MENU_OPEN_ADMIN` et `MENU_RELOAD`. |
+| Rechargement exploitable | Fait | `tray_reload_summary` dans `main.rs` produit un résumé détaillé (`applied`, `loaded`, `disabled`, `ignored`, `errors`, `build_error`) journalisé via `tracing::info!` ; l'API `reload` retourne `StreamReloadReport` ; l'interface admin affiche les compteurs et le détail des erreurs par source. |
+
+### Phase 7
+1. Vérifier l'implémentation de la phase 6
+2. Ajouter dans le front public, dans les paramètres un bouton pour ouvrir l'administration dans une nouvelle fenetre mais uniquement en mode desktop.
+3. Revoir le redémarage dus erveur depuis l'API : Actuellement, on a un message d'erreur et la configuration n'est pas rechargée (http://pc-jeremy:8080/api/admin/reload), erreur http 400: Request body deserialize error: EOF while parsing a value at line 1 column 0
+4. Dans le front admin, apès avoir taper le mot de passe, la bare de titre et la bare a gauche ne s'affiche pas.
+5. Dans le front admin, dans mode résaeau, l'option Local ne doit s'afficher que si on se connecte en localhost. 
+6. Dans le front admin, dans l'écran de mot  de passe de service, en dessous de 'Créer un compte', ajouter un avertissement pour indiquer que la création d'un compte doit etre via non d'utilisateur / adresse mail et mot de passe et non via un oAuth, etc. (connexion google, ...). 
+
+### Phase 8 — Documentation et validation
 
 1. Mettre à jour les tests existants touchés par le chargement, les manifests et les options de démarrage, sans créer de nouvelle infrastructure.
 2. Exécuter cargo check et les tests ciblés des crates modifiées.

@@ -249,6 +249,46 @@ fn generate_temporary_admin_password() -> String {
         .collect()
 }
 
+/// Builds a compact, log-friendly summary of a configuration reload.
+///
+/// Used by the server tray "Reload configuration" action so reload problems
+/// stay diagnosable from the log window and the administration interface.
+///
+/// # Arguments
+/// * `reloadable` - Reloadable scraper facade to reload.
+///
+/// # Returns
+/// A single-line summary reporting the outcome and, when applicable, the
+/// per-source error details.
+fn tray_reload_summary(reloadable: Arc<ReloadableStreamScraper>) -> String {
+    match reloadable.reload_blocking() {
+        Ok(report) => {
+            let mut summary = format!(
+                "applied={}; loaded={}; disabled={}; ignored={}; errors={}",
+                report.applied,
+                report.loaded.len(),
+                report.disabled.len(),
+                report.ignored.len(),
+                report.errors.len(),
+            );
+            if !report.errors.is_empty() {
+                let details = report
+                    .errors
+                    .iter()
+                    .map(|error| format!("{}: {}", error.path, error.message))
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                summary.push_str(&format!("; error_details=[{details}]"));
+            }
+            if let Some(build_error) = &report.build_error {
+                summary.push_str(&format!("; build_error={build_error}"));
+            }
+            summary
+        }
+        Err(error) => format!("reload failed: {error}"),
+    }
+}
+
 /// Runs the IP-country geolocation refresh and exits.
 ///
 /// Initialises the scraper aggregator, collects proxy IPs from the dynamic
@@ -367,8 +407,27 @@ async fn main() -> Result<()> {
 
     let admin_runtime_settings = build_admin_runtime_settings(&options, &configuration, effective_mode);
 
+    // Mount the administration bundle below the application root (`/admin/`),
+    // in both server and desktop backends.
+    options.application_option.web_mount_paths.push("admin".to_string());
+
+    // Wire the server tray "Reload configuration" action to the reloadable
+    // facade. The facade is only registered once the controller exists, so the
+    // callback resolves it lazily through a shared slot filled just after.
+    let late_reload: Arc<std::sync::OnceLock<Arc<ReloadableStreamScraper>>> =
+        Arc::new(std::sync::OnceLock::new());
+    let late_reload_callback = Arc::clone(&late_reload);
+    let reload_configuration: Arc<dyn Fn() -> String + Send + Sync> = Arc::new(move || {
+        match late_reload_callback.get() {
+            Some(reloadable) => tray_reload_summary(Arc::clone(reloadable)),
+            None => "reload unavailable: scraper not initialized yet".to_string(),
+        }
+    });
+    options.application_option.reload_configuration = Some(reload_configuration);
+
     let mut controler = arachnea_core::create_application_controler!(options.application_option);
     let reloadable = reloadable.register_service(controler.as_mut());
+    let _ = late_reload.set(Arc::clone(&reloadable));
 
     let admin_state = Arc::new(AdminState::new(
         admin_runtime_settings,

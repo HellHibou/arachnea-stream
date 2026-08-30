@@ -15,7 +15,7 @@
     "withGlobalTauri": true,
     "security": {
       "csp": null,
-      "capabilities": ["main-capability", "cloudflare-solver-capability", "logs-window-capability"]
+      "capabilities": ["main-capability", "cloudflare-solver-capability", "logs-window-capability", "admin-window-capability"]
     },
     "windows": [
       {

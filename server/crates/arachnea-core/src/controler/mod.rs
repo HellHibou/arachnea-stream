@@ -718,6 +718,19 @@ pub struct CoreApplicationOptions {
     /// tray icon if a GUI is available. Set to `false` to force-disable the tray
     /// even on a graphical environment.
     pub tray_enabled: bool,
+
+    /// Callback reloading the application configuration from the server tray.
+    ///
+    /// Invoked on a background thread by the tray "Reload configuration"
+    /// action; the returned summary is written to the application log.
+    pub reload_configuration: Option<Arc<dyn Fn() -> String + Send + Sync>>,
+
+    /// Additional web-asset mount paths served below the application root.
+    ///
+    /// Each path mounts the shared embedded asset pool scoped to that
+    /// subdirectory (e.g. `admin` to serve the administration bundle at
+    /// `/admin/`). Dedicated mounts take precedence over the root bundle.
+    pub web_mount_paths: Vec<String>,
 }
 
 impl CoreApplicationOptions {
@@ -749,6 +762,8 @@ impl CoreApplicationOptions {
             api_prefix,
             server_tray_factory: None,
             tray_enabled: true,
+            reload_configuration: None,
+            web_mount_paths: Vec::new(),
         }
     }
 
@@ -779,6 +794,39 @@ impl CoreApplicationOptions {
         self.tray_enabled = tray_enabled;
         self
     }
+
+    /// Sets the callback reloading the application configuration from the tray.
+    ///
+    /// # Arguments
+    /// * `reload_configuration` - Called on a background thread by the tray
+    ///   "Reload configuration" action, returning a log summary.
+    ///
+    /// # Returns
+    /// The modified options for chaining.
+    pub fn with_reload_configuration(
+        mut self,
+        reload_configuration: Arc<dyn Fn() -> String + Send + Sync>,
+    ) -> Self {
+        self.reload_configuration = Some(reload_configuration);
+        self
+    }
+
+    /// Adds a web-asset mount path served below the application root.
+    ///
+    /// # Arguments
+    /// * `mount_path` - Relative path (e.g. `admin`) under the application
+    ///   root where the shared embedded asset pool is mounted scoped to that
+    ///   subdirectory.
+    ///
+    /// # Returns
+    /// The modified options for chaining.
+    pub fn with_web_mount_path(mut self, mount_path: impl Into<String>) -> Self {
+        let mount_path = mount_path.into().trim_matches('/').to_string();
+        if !mount_path.is_empty() {
+            self.web_mount_paths.push(mount_path);
+        }
+        self
+    }
 }
 
 impl Default for CoreApplicationOptions {
@@ -793,6 +841,8 @@ impl Default for CoreApplicationOptions {
             api_prefix: None,
             server_tray_factory: None,
             tray_enabled: true,
+            reload_configuration: None,
+            web_mount_paths: Vec::new(),
         }
     }
 }
@@ -933,6 +983,10 @@ pub fn create_application_controler_from_config(
                     .server_tray_factory(Arc::clone(tray_factory))
                     .tray_enabled(true);
             }
+            if let Some(reload_configuration) = &options.reload_configuration {
+                configuration = configuration
+                    .reload_configuration(Arc::clone(reload_configuration));
+            }
 
             Box::new(RestControlerService::new(configuration))
         } else {
@@ -946,6 +1000,11 @@ pub fn create_application_controler_from_config(
             ))
         };
 
+    // Mount dedicated bundles (e.g. the administration app) before the root so
+    // they win over the root fallback for their own paths.
+    for mount_path in &options.web_mount_paths {
+        controler.register_embedded_web_assets(Arc::clone(&desktop.web_assets), mount_path);
+    }
     controler.register_embedded_web_assets(desktop.web_assets, "");
 
     controler

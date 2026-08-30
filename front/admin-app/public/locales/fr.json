@@ -114,7 +114,8 @@
     "ignored": "Ignorés : {count}",
     "errors": "Erreurs : {count}",
     "buildError": "Erreur de construction : {error}",
-    "noChanges": "Aucun changement à appliquer."
+    "noChanges": "Aucun changement à appliquer.",
+    "details": "Chargés : {loaded}, Désactivés : {disabled}, Ignorés : {ignored}, Erreurs : {errors}"
   },
   "theme": {
     "switchToDark": "Passer en mode sombre",

@@ -7,7 +7,9 @@ use warp::filters::BoxedFilter;
 use warp::http::StatusCode;
 use warp::{reply, Filter, Rejection, Reply};
 
-use crate::controler::web_assets::{normalize_mount_path, replace_html_base, WebAssetSource};
+use crate::controler::web_assets::{
+    normalize_mount_path, replace_html_base, scope_web_asset_source, WebAssetSource,
+};
 use crate::controler::{
     install_global_main_thread_dispatcher, main_thread::MainThreadDispatchLoop,
     main_thread::QueuedMainThreadDispatcher, ControlerFunctionInput, ControlerJsonInput,
@@ -46,6 +48,8 @@ pub struct RestControlerService {
     tray_factory: Option<Arc<dyn ServerTrayFactory>>,
     /// Whether the server tray should be shown when a GUI is available.
     tray_enabled: bool,
+    /// Callback reloading the application configuration from the tray.
+    reload_configuration: Option<Arc<dyn Fn() -> String + Send + Sync>>,
 }
 
 impl RestControlerService {
@@ -88,6 +92,7 @@ impl RestControlerService {
             main_thread_loop: Some(main_thread_loop),
             tray_factory: configuration.tray_factory,
             tray_enabled: configuration.tray_enabled,
+            reload_configuration: configuration.reload_configuration,
         }
     }
 
@@ -119,11 +124,23 @@ impl RestControlerService {
             None
         };
         let entrypoint_root = self.entrypoint_root.clone();
-        let web_base = if entrypoint_root.is_empty() {
+        // HTML `<base>` used by this mount: the entrypoint root plus the mount
+        // path, so a bundle mounted below the root rewrites its base marker to
+        // its own mount point instead of the application root.
+        let mut base_segments = entrypoint_root.clone();
+        if !mount_path.is_empty() {
+            base_segments.push(mount_path.clone());
+        }
+        let web_base = if base_segments.is_empty() {
             "/".to_string()
         } else {
-            format!("/{}/", entrypoint_root.join("/"))
+            format!("/{}/", base_segments.join("/"))
         };
+        // Embedded bundles mounted below the root live inside the shared asset
+        // pool under the mount path (e.g. `admin/`); scope the provider so
+        // asset lookup and the SPA fallback stay inside the bundle instead of
+        // falling back to the root bundle document.
+        let source = scope_web_asset_source(source, &mount_path);
         let source = Arc::new(source);
         let new_filter = self
             .make_base_filter(false, &mount_path)
@@ -710,6 +727,15 @@ impl ControlerService for RestControlerService {
                 };
                 let configuration = ServerTrayConfiguration {
                     server_url: build_public_url(self.socket_addr, &self.entrypoint_root),
+                    admin_url: {
+                        let mut admin_url =
+                            build_public_url(self.socket_addr, &self.entrypoint_root);
+                        if !admin_url.ends_with('/') {
+                            admin_url.push('/');
+                        }
+                        admin_url.push_str("admin/");
+                        admin_url
+                    },
                     server_display_url: format!(
                         "http://{}:{}{}",
                         display_server_host(self.socket_addr),
@@ -725,6 +751,7 @@ impl ControlerService for RestControlerService {
                     },
                     log_cache: crate::logger::global_log_cache(),
                     shutdown: shutdown.clone(),
+                    reload_configuration: self.reload_configuration.clone(),
                 };
                 (Arc::clone(factory), configuration)
             })
