@@ -15,6 +15,11 @@ All notable changes to the server workspace are recorded here. Add new entries a
   - i18n (en/fr) with browser detection and `en` fallback.
   - All API calls centralized in `useAdminApi` composable with normalized error handling (`AdminApiException`, `{error:{code,message}}`).
   - Build outputs to `dist/admin/` without conflicting with public frontend (`dist/`).
+  - Left navigation drawer holding the Services and Settings links (moved from the app bar tabs).
+  - Popup notification stack for backend errors (network failure, invalid response, HTTP error statuses including 401/403 access-denied) with dismiss, Escape handling, and copyable error code.
+  - Dev proxy rewrites the `Origin` header to the backend target so admin write-origin checks (Origin vs Host) pass under `npm run dev` (admin-app and public-app Vite configs).
+  - Credentials key button stacked below the status chip in the service list; credentials dialog title shows the service title with its source code in parentheses, and the signup link on its own line.
+  - Enabling a service that requires credentials but has none configured now asks how to proceed: add credentials (activation resumes after save, cancelled dialog keeps the service disabled), activate without credentials, or leave the service disabled.
 - **Linux installers (.deb/.rpm/.AppImage) from the Docker cross image (`build-release/`)**:
   On hosts that cannot natively bundle them (macOS/Windows), the `linux-x86_64`
   and `linux-arm64` platforms are now fully produced inside the cross image: a

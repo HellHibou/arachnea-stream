@@ -15,13 +15,12 @@ export interface ThemePreset {
 
 /** Available theme presets. */
 const THEME_PRESETS: ThemePreset[] = [
-  { key: 'system', label: 'System', variant: 'light' },
   { key: 'light', label: 'Light', variant: 'light' },
   { key: 'dark', label: 'Dark', variant: 'dark' },
 ]
 
 /** Default theme key used when no preference is stored. */
-export const DEFAULT_THEME_KEY = 'system'
+export const DEFAULT_THEME_KEY = 'dark'
 
 /** Storage key for the theme preference. */
 const THEME_STORAGE_KEY = 'admin.theme'

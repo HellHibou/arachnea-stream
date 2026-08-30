@@ -36,7 +36,16 @@
     "signupUrl": "Créer un compte",
     "loginMasked": "Login : {login}",
     "reloadRequired": "Rechargement requis pour appliquer",
-    "fallbackLogo": "Service"
+    "fallbackLogo": "Service",
+    "enableWarning": {
+      "title": "Identifiants requis pour {service}",
+      "message": "Ce service nécessite des identifiants et aucun n'est configuré. Comment souhaitez-vous continuer ?",
+      "addCredentials": "Ajouter des identifiants et activer",
+      "activateAnyway": "Activer sans identifiants"
+    },
+    "credentialsState": "Identifiant : {state}",
+    "credentialsDefined": "Défini",
+    "credentialsAbsent": "Absent"
   },
   "credentials": {
     "title": "Identifiants pour {service}",
@@ -51,7 +60,9 @@
     "cleared": "Identifiants effacés.",
     "required": "Ce service nécessite des identifiants.",
     "signupPrompt": "Un compte est requis. Créez-en un sur le site du fournisseur.",
-    "openSignup": "Créer un compte"
+    "openSignup": "Créer un compte",
+    "showPassword": "Afficher le mot de passe",
+    "hidePassword": "Masquer le mot de passe"
   },
   "settings": {
     "title": "Paramètres",
@@ -105,6 +116,10 @@
     "buildError": "Erreur de construction : {error}",
     "noChanges": "Aucun changement à appliquer."
   },
+  "theme": {
+    "switchToDark": "Passer en mode sombre",
+    "switchToLight": "Passer en mode clair"
+  },
   "common": {
     "loading": "Chargement...",
     "save": "Enregistrer",
@@ -120,5 +135,23 @@
     "network": "Erreur réseau. Vérifiez votre connexion.",
     "unauthorized": "Session expirée. Veuillez vous reconnecter.",
     "serverError": "Erreur serveur. Veuillez réessayer plus tard."
+  },
+  "errors": {
+    "summaries": {
+      "network": "Le backend est injoignable. Vérifiez que le serveur est en cours d'exécution.",
+      "invalidResponse": "Le backend a renvoyé une réponse inattendue.",
+      "accessDenied": "L'accès au backend est refusé. Vérifiez votre session ou les permissions requises.",
+      "server": "Le backend a signalé une erreur serveur."
+    },
+    "notifications": {
+      "title": "Erreur backend",
+      "close": "Fermer la notification",
+      "technicalDetails": "Détails techniques",
+      "status": "Statut HTTP",
+      "message": "Message",
+      "code": "Code d'erreur",
+      "copyCode": "Copier le code d'erreur {code}",
+      "codeCopied": "Copié"
+    }
   }
 }

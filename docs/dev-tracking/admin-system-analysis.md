@@ -259,7 +259,7 @@ Voici les points que le frontend admin doit respecter pour rester aligné sur l'
 | Rechargement et redémarrage | Fait | Bouton « Recharger la configuration » avec résultat détaillé (`applied`, `loaded`, `disabled`, `ignored`, `errors`, `build_error`), conservation de l'état précédent si `applied: false`. |
 | Composables et vues | Fait | `useAdminApi.ts` centralise tous les appels API avec gestion d'erreurs (`AdminApiException`, `{error:{code,message}}`) ; les vues sont des surfaces de composition sans logique métier. |
 | Build | Fait | `npm run build` dans `front/` produit `dist/` (public) et `dist/admin/` (admin) ; les deux builds réussissent avec `vue-tsc` type-check. |
-| Structure unifiée | Fait | `front/package.json` orchestre `build:public` et `build:admin` ; `public-app/vite.config.ts` sort dans `../../dist`, `admin-app/vite.config.ts` sort dans `../../dist/admin`. |
+| Structure unifiée | Fait | `front/package.json` orchestre `build:public` et `build:admin` ; `public-app/vite.config.ts` sort dans `../dist`, `admin-app/vite.config.ts` sort dans `../dist/admin`. |
 
 ### Phase 6 — Assets, serveur, desktop et systray
 

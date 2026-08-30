@@ -1,6 +1,8 @@
-import { readonly, shallowRef } from 'vue'
+﻿import { readonly, shallowRef } from 'vue'
 
 import { resolveAppPath } from '@/services/baseUrl'
+import localeEn from '@/../public/locales/en.json'
+import localeFr from '@/../public/locales/fr.json'
 import type {
   LocaleIndex,
   LocaleIndexLanguage,
@@ -10,8 +12,14 @@ import type {
 
 /** Default fallback language code. */
 const DEFAULT_LANGUAGE = 'en'
-/** Base path for locale JSON files. */
+/** Base path for locale JSON files (used only for index.json). */
 const LOCALE_BASE_PATH = resolveAppPath('locales')
+
+/** Bundled dictionaries (imported statically to avoid base-path fetch issues). */
+const BUNDLED_LOCALES: Record<string, TranslationDictionary> = {
+  en: localeEn as TranslationDictionary,
+  fr: localeFr as TranslationDictionary,
+}
 
 /** List of languages available for selection. */
 const availableLanguages = shallowRef<LocaleIndexLanguage[]>([
@@ -100,13 +108,13 @@ async function loadLocaleIndex(): Promise<void> {
   }
   defaultLanguage.value = payload.defaultLanguage
   availableLanguages.value = payload.languages
+  await loadFallbackDictionary()
 }
 
 async function resolveActiveLanguage(): Promise<void> {
   const targetLanguage = selectedLanguage.value ?? detectBrowserLanguage()
   resolvedLanguage.value = targetLanguage
   await loadDictionary(targetLanguage, activeMessages)
-  await loadFallbackDictionary()
 }
 
 async function loadDictionary(
@@ -136,18 +144,9 @@ async function loadFallbackDictionary(): Promise<void> {
   if (Object.keys(fallbackMessages.value).length > 0) {
     return
   }
-  try {
-    const response = await fetch(`${LOCALE_BASE_PATH}/${DEFAULT_LANGUAGE}.json`)
-    if (!response.ok) {
-      fallbackMessages.value = {}
-      return
-    }
-    const payload: unknown = await response.json()
-    if (isDictionary(payload)) {
-      fallbackMessages.value = payload
-    }
-  } catch {
-    fallbackMessages.value = {}
+  // Use bundled English dictionary as fallback (avoids fetch under base path).
+  if (BUNDLED_LOCALES[DEFAULT_LANGUAGE]) {
+    fallbackMessages.value = BUNDLED_LOCALES[DEFAULT_LANGUAGE]!
   }
 }
 
@@ -219,4 +218,3 @@ function isLocaleIndex(value: unknown): value is LocaleIndex {
       typeof language.labelEn === 'string',
   )
 }
-

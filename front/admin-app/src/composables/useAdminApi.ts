@@ -24,6 +24,7 @@ import {
   AdminApiException,
 } from '@/services/adminApi'
 import { useI18n } from '@/i18n'
+import { useErrorNotifications } from '@/composables/useErrorNotifications'
 
 /**
  * Network error state for the admin API.
@@ -31,6 +32,8 @@ import { useI18n } from '@/i18n'
 export interface ApiError {
   code: string
   message: string
+  /** HTTP status code when the error came from an HTTP response. */
+  status?: number
 }
 
 /**
@@ -38,6 +41,7 @@ export interface ApiError {
  */
 export function useAdminApi() {
   const { t } = useI18n()
+  const { pushError } = useErrorNotifications()
   const isLoading = ref(false)
   const error = ref<ApiError | null>(null)
 
@@ -56,7 +60,7 @@ export function useAdminApi() {
    */
   function normalizeError(err: unknown): ApiError {
     if (err instanceof AdminApiException) {
-      return { code: err.code, message: err.message }
+      return { code: err.code, message: err.message, status: err.status }
     }
     if (err instanceof Error) {
       return { code: 'network_error', message: err.message }
@@ -77,6 +81,11 @@ export function useAdminApi() {
       return await fn()
     } catch (err) {
       error.value = normalizeError(err)
+      pushError({
+        code: error.value.code,
+        message: error.value.message,
+        status: error.value.status,
+      })
       return undefined
     } finally {
       isLoading.value = false

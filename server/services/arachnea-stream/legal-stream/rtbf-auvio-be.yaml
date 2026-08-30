@@ -3,6 +3,9 @@ title: RTBF Auvio
 logo: https://auvio.rtbf.be/images/icons/auvio_192x192.png
 description:
   fr: "RTBF Auvio est la plateforme de streaming du groupe audiovisuel belge RTBF, offrant un large catalogue de programmes télévisés, films, séries, documentaires et contenus exclusifs en ligne. Les utilisateurs peuvent accéder à leurs émissions préférées en direct ou à la demande, avec des fonctionnalités de recherche avancées et une interface conviviale pour une expérience de visionnage optimale."
+credentials:
+  required: true
+  signup_url: https://auvio.rtbf.be/inscription
 http:
   mode: direct
 

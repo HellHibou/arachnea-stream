@@ -49,14 +49,21 @@ export function getAppBasePath(): string {
 }
 
 /**
- * Builds the admin API URL from the public root.
+ * Builds the admin API URL using a domain-relative path.
  *
- * The API is served under `{root}/api/admin/<operation>` in HTTP mode.
- * This ensures the frontend works behind an entrypoint root.
+ * The API is served at `/api/admin/<operation>` at the server root (not under
+ * `/admin/`). Using a leading slash makes the request relative to the domain
+ * origin, so it works regardless of the mount point (e.g. `/admin`,
+ * `/arachnea/admin`).
+ *
+ * In dev, Vite's proxy forwards `/api` to the backend
+ * (`http://127.0.0.1:8080`). In production, the same `/api/admin/...` path
+ * resolves against the server origin.
  *
  * @param operation - Admin operation name (e.g., `status`, `services`).
- * @returns Absolute URL for the admin API endpoint.
+ * @returns Domain-relative URL for the admin API endpoint.
  */
 export function getAdminApiUrl(operation: string): string {
-  return `${getAppBaseDir()}api/admin/${operation}`
+  return `${getAppBaseDir()}../api/admin/${operation}`;
+
 }

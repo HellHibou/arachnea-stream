@@ -36,7 +36,16 @@
     "signupUrl": "Create account",
     "loginMasked": "Login: {login}",
     "reloadRequired": "Reload required to apply changes",
-    "fallbackLogo": "Service"
+    "fallbackLogo": "Service",
+    "enableWarning": {
+      "title": "Credentials required for {service}",
+      "message": "This service requires credentials and none are configured. How do you want to proceed?",
+      "addCredentials": "Add credentials & activate",
+      "activateAnyway": "Activate without credentials"
+    },
+    "credentialsState": "Credentials: {state}",
+    "credentialsDefined": "Set",
+    "credentialsAbsent": "Absent"
   },
   "credentials": {
     "title": "Credentials for {service}",
@@ -51,7 +60,9 @@
     "cleared": "Credentials cleared.",
     "required": "This service requires credentials.",
     "signupPrompt": "An account is required. Create one on the provider's site.",
-    "openSignup": "Create account"
+    "openSignup": "Create account",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password"
   },
   "settings": {
     "title": "Settings",
@@ -105,6 +116,10 @@
     "buildError": "Build error: {error}",
     "noChanges": "No changes to apply."
   },
+  "theme": {
+    "switchToDark": "Switch to dark mode",
+    "switchToLight": "Switch to light mode"
+  },
   "common": {
     "loading": "Loading...",
     "save": "Save",
@@ -120,5 +135,23 @@
     "network": "Network error. Check your connection.",
     "unauthorized": "Session expired. Please log in again.",
     "serverError": "Server error. Please try again later."
+  },
+  "errors": {
+    "summaries": {
+      "network": "The backend could not be reached. Check that the server is running.",
+      "invalidResponse": "The backend returned an unexpected response.",
+      "accessDenied": "Backend access was denied. Check your session or the required permissions.",
+      "server": "The backend reported a server error."
+    },
+    "notifications": {
+      "title": "Backend error",
+      "close": "Dismiss notification",
+      "technicalDetails": "Technical details",
+      "status": "HTTP status",
+      "message": "Message",
+      "code": "Error code",
+      "copyCode": "Copy error code {code}",
+      "codeCopied": "Copied"
+    }
   }
 }

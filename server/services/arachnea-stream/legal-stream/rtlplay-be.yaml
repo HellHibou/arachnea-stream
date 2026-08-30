@@ -3,9 +3,13 @@ title: RTL Play
 logo: https://www.rtlplay.be/rtlplay/img/rtlplay/logo-large.svg
 description:
   fr: "RTL Play est la plateforme de streaming du groupe audiovisuel belge RTL Belgium, offrant un large catalogue de programmes télévisés, films, séries, documentaires et contenus exclusifs en ligne. Les utilisateurs peuvent accéder à leurs émissions préférées en direct ou à la demande, avec des fonctionnalités de recherche avancées et une interface conviviale pour une expérience de visionnage optimale."
+credentials:
+  required: true
+  signup_url: https://sso.rtl.be/#/inscription
 http:
   mode: direct
-  user_agent: "RTL_PLAY/{api_version_major}.{api_version_minor} (com.tapptic.rtl.tvi; build:{api_version_build}; Android 30)"
+  user_agent: "RTL_PLAY/{ap
+  i_version_major}.{api_version_minor} (com.tapptic.rtl.tvi; build:{api_version_build}; Android 30)"
 
 
 # ############################################################################
