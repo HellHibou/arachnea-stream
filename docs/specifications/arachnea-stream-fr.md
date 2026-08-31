@@ -777,7 +777,7 @@ mêmes noms de commande.
 - En mode serveur, les clients loopback sont autorisés sans authentification.
 - Tout autre client doit s’authentifier avec le mot de passe administrateur pour
   obtenir un cookie de session (`Set-Cookie:
-  arachnaea_admin_session=...; Path=/; HttpOnly; SameSite=Strict`).
+  arachnea_admin_session=...; Path=/; HttpOnly; SameSite=Strict`).
 - Les écritures doivent utiliser la méthode `POST` ; une requête portant un
   en-tête `Origin` ou `Referer` est refusée quand cette origine ne correspond
   pas à l’en-tête `Host`.
@@ -800,7 +800,7 @@ mêmes noms de commande.
 | `settings` | GET | Port, réseau et root effectifs avec leur provenance. |
 | `update-settings` | POST | Persiste port/root/réseau ; répond `restart_required` car ces réglages ne prennent effet qu’au redémarrage. |
 | `set-admin-password` | POST | Définit ou change le mot de passe administrateur permanent (Argon2id). |
-| `reload` | POST | Construit et valide un scraper de remplacement, puis l’échange atomiquement ; renvoie un rapport détaillé. |
+| `reload` | POST | Construit et valide un scraper de remplacement, puis l’échange atomiquement ; renvoie un rapport détaillé. Le corps doit être l’objet JSON vide `{}`. |
 
 ### 9.3 Format d’erreur
 

@@ -1056,3 +1056,20 @@ state after login so its app bar and navigation drawer appear immediately;
 the Local network option is shown only on loopback hosts; and the credentials
 dialog warns that provider accounts must use a username/email and password,
 not OAuth sign-in.
+
+## Unreleased — validation and scraper reliability
+
+The targeted Core, Scrapyfy and Stream test suites now run without warnings or
+failures in their deterministic mode. Scrapyfy restores the documented
+`exec_js` output of numeric global variables, validates and resolves the
+reserved `@` dynamic-variable namespace, and isolates its test data directory.
+The HTTP rquest engine now ignores implicit system proxy settings unless an
+Arachnéa proxy is explicitly configured, avoiding a macOS system-configuration
+panic. Stream tests initialize their data-directory identifier and keep the
+full live-provider sweep as an explicit ignored test because third-party
+catalogues are inherently volatile.
+
+## Unreleased — public settings order
+
+The desktop-only **Administration** section is now the final section in the
+public settings screen.

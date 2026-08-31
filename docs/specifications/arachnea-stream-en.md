@@ -782,7 +782,7 @@ handler under the same `<operation>` command names.
 - Desktop clients are always authorized.
 - In server mode, loopback clients are authorized without authentication.
 - Any other client must authenticate with the administrator password to
-  obtain a session cookie (`Set-Cookie: arachnaea_admin_session=...;
+  obtain a session cookie (`Set-Cookie: arachnea_admin_session=...;
   Path=/; HttpOnly; SameSite=Strict`).
 - Writes must be sent with the `POST` method; requests carrying an `Origin`
   or `Referer` header are refused when that origin does not match the `Host`
@@ -806,7 +806,7 @@ handler under the same `<operation>` command names.
 | `settings` | GET | Effective server port, network mode and root with their provenance. |
 | `update-settings` | POST | Persists port/root/network; answers `restart_required` because these take effect at the next restart. |
 | `set-admin-password` | POST | Sets or changes the permanent administrator password (Argon2id). |
-| `reload` | POST | Builds and validates a replacement scraper, then swaps it atomically; returns a detailed report. |
+| `reload` | POST | Builds and validates a replacement scraper, then swaps it atomically; returns a detailed report. Send the empty JSON object `{}` as its request body. |
 
 ### 9.3 Error format
 

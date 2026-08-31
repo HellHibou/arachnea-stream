@@ -373,7 +373,7 @@ mod tests {
         // the current grammar and must never be applied as conditional headers.
         assert!(conditional_from_fragment("E:w456").is_none());
         assert!(fragment_yaml_hash("E:w456").is_none());
-        assert!(fragment_yaml_hash("C:0-abcd1234").is_none());
+        assert_eq!(fragment_yaml_hash("C:0-abcd1234"), Some("0"));
         assert!(fragment_yaml_hash("N:abcd1234").is_none());
     }
 

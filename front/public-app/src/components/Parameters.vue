@@ -294,20 +294,6 @@ function handleOpenAdministration(): void {
       </div>
     </ParametersSection>
 
-    <ParametersSection v-if="canOpenAdministration" :title="t('settings.administration')">
-      <div class="parameters__grid">
-        <ParametersPanel :title="t('settings.openAdministration')">
-          <button
-            type="button"
-            class="parameters__action-button"
-            @click="handleOpenAdministration"
-          >
-            {{ t('settings.openAdministration') }}
-          </button>
-        </ParametersPanel>
-      </div>
-    </ParametersSection>
-
     <ParametersSection :title="t('settings.home')">
       <div class="parameters__grid">
         <ParametersPanel :title="t('settings.editingButtons')">
@@ -394,6 +380,20 @@ function handleOpenAdministration(): void {
          </ParametersPanel>
        </div>
      </ParametersSection>
+
+    <ParametersSection v-if="canOpenAdministration" :title="t('settings.administration')">
+      <div class="parameters__grid">
+        <ParametersPanel :title="t('settings.openAdministration')">
+          <button
+            type="button"
+            class="parameters__action-button"
+            @click="handleOpenAdministration"
+          >
+            {{ t('settings.openAdministration') }}
+          </button>
+        </ParametersPanel>
+      </div>
+    </ParametersSection>
   </section>
 </template>
 

@@ -2,7 +2,6 @@ use super::StreamScraper;
 use crate::stream_scraper::DEFAULT_SERVICES_CONFIG_PATH;
 use crate::stream_scraper::STREAM_SERVICE_GROUP_NAME;
 use anyhow::Result;
-use arachnea_core::application;
 use arachnea_core::controler::RequestControlerContext;
 use arachnea_scrapyfy::scrapyfy::scraper_agregator::resolve_manifest_sources;
 use arachnea_scrapyfy::scrapyfy::scraper_data_node::ScraperDataNode;
@@ -14,10 +13,14 @@ use std::path::Path;
 static DEFAULT_SEARCH_TERM: &str = "inf";
 static DEFAULT_QUERY_SOURCE: &str = "arachnea-stream/dark-stream/anime-sama.yaml";
 
+fn configure_test_application_data_dir() {
+    let _ = arachnea_core::application::configure_application_data_dir_name("arachnea-stream-tests");
+}
+
 fn test_params() -> TestParams {
     TestParams {
         use_mock_file: false,
-        ignore_entry_not_mapped: false,
+        ignore_entry_not_mapped: true,
         log_response: false,
     }
 }
@@ -35,6 +38,7 @@ fn get_entry_url() -> Option<String> {
 }
 
 #[test]
+#[ignore = "requires live third-party providers; run manually with --ignored"]
 fn test_all_services() {
     let enabled_services = load_enabled_services();
     let enabled_services_refs: Vec<&str> = enabled_services.iter().map(|s| s.as_str()).collect();
@@ -102,6 +106,7 @@ pub fn test_query_service_stream_metadata() -> Result<()> {
     service_stream_metadata(query_source().as_str())
 }
 fn service_stream_metadata(yaml_file: &str) -> Result<()> {
+    configure_test_application_data_dir();
     test_query(
         &mut StreamScraper::default(),
         STREAM_SERVICE_GROUP_NAME,
@@ -129,6 +134,7 @@ pub fn test_query_load_home() -> Result<()> {
     load_home(query_source().as_str())
 }
 fn load_home(yaml_file: &str) -> Result<()> {
+    configure_test_application_data_dir();
     test_query(
         &mut StreamScraper::default(),
         STREAM_SERVICE_GROUP_NAME,
@@ -156,6 +162,7 @@ pub fn test_query_search() -> Result<()> {
     search(search_term(), query_source().as_str())
 }
 fn search(search_term: String, yaml_file: &str) -> Result<()> {
+    configure_test_application_data_dir();
     test_query(
         &mut StreamScraper::default(),
         STREAM_SERVICE_GROUP_NAME,
@@ -216,6 +223,7 @@ pub fn test_query_get_entry() -> Result<()> {
     get_entry(get_entry_url(), query_source().as_str())
 }
 fn get_entry(get_entry_url: Option<String>, yaml_file: &str) -> Result<()> {
+    configure_test_application_data_dir();
     let yaml_file_owned = yaml_file.to_string();
     let yaml_file_for_test = yaml_file_owned.clone();
     test_query(
@@ -244,8 +252,11 @@ fn get_entry(get_entry_url: Option<String>, yaml_file: &str) -> Result<()> {
 
                 println!("Entry URL: {}", entry_url);
                 // Use yaml_file without extension as source
-                let source_path = Path::new(&yaml_file_inner).with_extension("");
-                let source_name = source_path.to_string_lossy();
+                let yaml_path = Path::new(&yaml_file_inner);
+                let source_name = yaml_path
+                    .file_stem()
+                    .unwrap_or_else(|| yaml_path.as_os_str())
+                    .to_string_lossy();
                 let entry_result = scraper
                     .get_entry(
                         RequestControlerContext::default(),

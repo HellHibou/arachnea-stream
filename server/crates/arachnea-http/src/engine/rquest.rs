@@ -43,6 +43,7 @@ impl RquestEngine {
 
         let uses_proxy = proxy_url.is_some();
         let mut builder = rquest::Client::builder()
+            .no_proxy()
             .timeout(config.request_timeout)
             .user_agent(config.user_agent_profile.user_agent())
             .redirect(rquest::redirect::Policy::none());

@@ -1348,6 +1348,16 @@ fn resolve_manifest_sources_recursive(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Once;
+
+    static TEST_APPLICATION_DATA_DIR: Once = Once::new();
+
+    fn configure_test_application_data_dir() {
+        TEST_APPLICATION_DATA_DIR.call_once(|| {
+            arachnea_core::application::configure_application_data_dir_name("arachnea-scrapyfy-tests")
+                .expect("test application data directory should be configured");
+        });
+    }
     use arachnea_core::error_code::ErrorCodeGenerator;
     use std::collections::HashMap;
     use std::path::PathBuf;
@@ -1496,6 +1506,7 @@ mod tests {
     }
 
     fn setup_aggregator_sources(sources: &[(&str, &str)]) -> (ScraperAgregator, PathBuf) {
+        configure_test_application_data_dir();
         let dir = unique_temp_dir();
         std::fs::create_dir_all(&dir).expect("test service directory should be created");
 
