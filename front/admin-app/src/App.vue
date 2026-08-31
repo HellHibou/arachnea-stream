@@ -65,6 +65,13 @@ watch(selectedLanguage, (newLang) => {
   }
 })
 
+watch(
+  () => router.currentRoute.value.name,
+  () => {
+    void checkAuth()
+  },
+)
+
 onMounted(() => {
   // Apply the stored theme to Vuetify on startup
   vuetifyTheme.change(findThemePreset(theme.value).variant)
@@ -74,7 +81,7 @@ onMounted(() => {
 
 <template>
   <v-app>
-    <v-app-bar v-if="isAuthenticated && !authRequired || isAuthenticated" color="primary" density="compact">
+    <v-app-bar v-if="isAuthenticated" color="primary" density="compact">
       <v-app-bar-title>{{ t('app.title') }}</v-app-bar-title>
 
       <v-spacer />
@@ -136,7 +143,7 @@ onMounted(() => {
       />
     </v-app-bar>
 
-    <v-navigation-drawer v-if="isAuthenticated && !authRequired || isAuthenticated">
+    <v-navigation-drawer v-if="isAuthenticated">
       <v-list nav>
         <v-list-item :to="{ name: 'services' }" prepend-icon="mdi-server" :title="t('nav.services')" />
         <v-list-item :to="{ name: 'settings' }" prepend-icon="mdi-cog" :title="t('nav.settings')" />

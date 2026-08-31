@@ -9,6 +9,7 @@ import {
 } from '@/services/storage'
 import { useI18n } from '@/i18n'
 import { useTheme } from '@/composables/useTheme'
+import { isDesktopApp, openAdministrationWindow } from '@/services/rustify'
 
 import ParameterSegmented from './parameters/ParameterSegmented.vue'
 import ParameterSlider from './parameters/ParameterSlider.vue'
@@ -86,6 +87,8 @@ const themeOptions = computed<Array<{ value: string; label: string; color: strin
 )
 /** Current theme key derived from parameters. */
 const selectedTheme = computed<string>(() => parameters.theme.value)
+/** Whether the dedicated administration window can be opened from this desktop app. */
+const canOpenAdministration = isDesktopApp()
 
 /** Whether the language selector should be displayed. */
 const isLanguageVisible = computed(() => languageOptions.value.length > 2)
@@ -207,6 +210,11 @@ function handleEmbeddedPlayerModeUpdate(event: Event) {
   const target = event.target as HTMLSelectElement
   parameters.securityMode.value = target.value as 'unsafe' | 'confirmation' | 'safe'
 }
+
+/** Opens the dedicated administration window in the desktop application. */
+function handleOpenAdministration(): void {
+  void openAdministrationWindow()
+}
 </script>
 
 <template>
@@ -282,6 +290,20 @@ function handleEmbeddedPlayerModeUpdate(event: Event) {
             :options="searchCollectionModeOptions"
             @update:model-value="handleCollectionModeUpdate"
           />
+        </ParametersPanel>
+      </div>
+    </ParametersSection>
+
+    <ParametersSection v-if="canOpenAdministration" :title="t('settings.administration')">
+      <div class="parameters__grid">
+        <ParametersPanel :title="t('settings.openAdministration')">
+          <button
+            type="button"
+            class="parameters__action-button"
+            @click="handleOpenAdministration"
+          >
+            {{ t('settings.openAdministration') }}
+          </button>
         </ParametersPanel>
       </div>
     </ParametersSection>
@@ -376,6 +398,20 @@ function handleEmbeddedPlayerModeUpdate(event: Event) {
 </template>
 
 <style scoped>
+.parameters__action-button {
+  padding: 8px 12px;
+  border: 1px solid var(--border-color-primary);
+  border-radius: 8px;
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  cursor: pointer;
+}
+
+.parameters__action-button:hover,
+.parameters__action-button:focus-visible {
+  border-color: var(--color-primary);
+}
+
 .parameters {
   display: grid;
   gap: 0px;

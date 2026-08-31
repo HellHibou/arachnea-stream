@@ -100,6 +100,8 @@
   },
   "settings": {
     "ariaLabel": "Settings",
+    "administration": "Administration",
+    "openAdministration": "Open administration",
     "general": "General display",
     "language": {
       "panel": "Interface language",

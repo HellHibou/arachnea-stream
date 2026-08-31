@@ -100,6 +100,8 @@
   },
   "settings": {
     "ariaLabel": "Parametres",
+    "administration": "Administration",
+    "openAdministration": "Ouvrir l’administration",
     "general": "Affichage general",
     "language": {
       "panel": "Langue de l'interface",

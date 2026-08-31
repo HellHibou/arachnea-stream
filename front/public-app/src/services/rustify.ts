@@ -107,6 +107,24 @@ interface TauriWindow extends Window {
   }
 }
 
+/** Returns whether the application is running in a Tauri desktop window. */
+export function isDesktopApp(): boolean {
+  const tauriWindow = window as TauriWindow
+  return Boolean(tauriWindow.__TAURI__?.core?.invoke ?? tauriWindow.__TAURI__?.invoke)
+}
+
+/** Opens or focuses the dedicated administration window in desktop mode. */
+export async function openAdministrationWindow(): Promise<void> {
+  const tauriWindow = window as TauriWindow
+  const tauriInvoke = tauriWindow.__TAURI__?.core?.invoke ?? tauriWindow.__TAURI__?.invoke
+
+  if (!tauriInvoke) {
+    return
+  }
+
+  await tauriInvoke('open_admin_window')
+}
+
 /** Cached conditional-validation entry keyed by command name and serialized parameters. */
 interface EtagCacheEntry {
   /** Global ETag returned by the backend for this request. */

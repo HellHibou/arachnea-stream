@@ -387,5 +387,5 @@ export function setAdminPassword(currentPassword: string | undefined, newPasswor
 
 /** Triggers a configuration reload. */
 export function reload(): Promise<ReloadResponse> {
-  return apiCall<ReloadResponse>('reload', { method: 'POST' })
+  return apiCall<ReloadResponse>('reload', { method: 'POST', body: {} })
 }

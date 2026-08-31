@@ -23,14 +23,19 @@ const confirmPassword = ref('')
 const passwordError = ref<string | null>(null)
 const passwordSuccess = ref<string | null>(null)
 
-const networkModes = [
-  { value: 'local', title: t('settings.networkModeLocal') },
-  { value: 'private', title: t('settings.networkModePrivate') },
-  { value: 'public', title: t('settings.networkModePublic') },
-]
-
 const isLocalModeAllowed = computed(() => {
-  return true
+  return ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname)
+})
+
+const networkModes = computed(() => {
+  const modes = [
+    { value: 'private', title: t('settings.networkModePrivate') },
+    { value: 'public', title: t('settings.networkModePublic') },
+  ]
+
+  return isLocalModeAllowed.value
+    ? [{ value: 'local', title: t('settings.networkModeLocal') }, ...modes]
+    : modes
 })
 
 function sourceLabel(source: SettingSource): string {

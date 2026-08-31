@@ -149,6 +149,9 @@ function openSignupUrl(): void {
               {{ t('credentials.openSignup') }}
             </a>
           </div>
+          <div v-if="service.credentials?.signup_url" class="mt-2 text-body-2">
+            {{ t('credentials.signupPasswordWarning') }}
+          </div>
         </v-alert>
 
         <v-alert

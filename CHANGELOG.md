@@ -1045,3 +1045,14 @@ cross-site origins, and failed logins are rate-limited per client address.
 The REST controller context now carries the remote TCP peer address, and the
 latest response describes the provenance (command line, configuration file, or
 default) of every effective setting.
+
+## Unreleased — administration refinements (frontend)
+
+The public desktop settings now expose an **Open administration** action that
+opens or focuses the dedicated Tauri administration window. The admin reload
+request now includes its required empty JSON object, preventing the previous
+HTTP 400 EOF deserialization error. The shell refreshes its authentication
+state after login so its app bar and navigation drawer appear immediately;
+the Local network option is shown only on loopback hosts; and the credentials
+dialog warns that provider accounts must use a username/email and password,
+not OAuth sign-in.

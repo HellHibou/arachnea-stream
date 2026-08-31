@@ -1,7 +1,7 @@
 # Analyse : système d'administration Arachnéa
 
 > Date : 2026-08-28
-> Statut : phases 1 à 6 implémentées ; phase 7 en attente
+> Statut : phases 1 à 7 implémentées ; phase 8 en attente
 
 ## Objet
 
@@ -283,13 +283,25 @@ Voici les points que le frontend admin doit respecter pour rester aligné sur l'
 | Systray admin + reload | Fait | `ServerTrayConfiguration` porte `admin_url` ; le handle expose `open_admin()` et `reload_configuration()` ; le menu Tauri déclenche `MENU_OPEN_ADMIN` et `MENU_RELOAD`. |
 | Rechargement exploitable | Fait | `tray_reload_summary` dans `main.rs` produit un résumé détaillé (`applied`, `loaded`, `disabled`, `ignored`, `errors`, `build_error`) journalisé via `tracing::info!` ; l'API `reload` retourne `StreamReloadReport` ; l'interface admin affiche les compteurs et le détail des erreurs par source. |
 
-### Phase 7
+### Phase 7 — implémentée
 1. Vérifier l'implémentation de la phase 6
 2. Ajouter dans le front public, dans les paramètres un bouton pour ouvrir l'administration dans une nouvelle fenetre mais uniquement en mode desktop.
 3. Revoir le redémarage dus erveur depuis l'API : Actuellement, on a un message d'erreur et la configuration n'est pas rechargée (http://pc-jeremy:8080/api/admin/reload), erreur http 400: Request body deserialize error: EOF while parsing a value at line 1 column 0
 4. Dans le front admin, apès avoir taper le mot de passe, la bare de titre et la bare a gauche ne s'affiche pas.
 5. Dans le front admin, dans mode résaeau, l'option Local ne doit s'afficher que si on se connecte en localhost. 
 6. Dans le front admin, dans l'écran de mot  de passe de service, en dessous de 'Créer un compte', ajouter un avertissement pour indiquer que la création d'un compte doit etre via non d'utilisateur / adresse mail et mot de passe et non via un oAuth, etc. (connexion google, ...). 
+
+#### Vérification de l'implémentation — 2026-08-31
+
+| Élément | État | Implémentation constatée |
+|---|---|---|
+| Phase 6 | Vérifiée | Le commit `9f3bcd5375a39b91bf5a67f9e90ce40b08cf0912` contient les montages multi-bundle, la capability, la fenêtre admin et les actions systray prévues. `cargo check -p arachnea-stream` réussit. |
+| Ouverture desktop depuis le front public | Fait | Les paramètres publics affichent « Ouvrir l’administration » seulement lorsque le bridge Tauri est disponible ; l'action invoque `open_admin_window`, qui crée ou focalise la fenêtre dédiée. |
+| Rechargement depuis l'interface admin | Fait | L'appel POST `reload` transmet désormais le document JSON vide `{}` exigé par la route Warp ; il ne produit donc plus une erreur de désérialisation EOF. |
+| Coque après connexion | Fait | `App.vue` relit `status` à chaque navigation ; après le login, l'état authentifié rend la barre de titre et le panneau de navigation. |
+| Option réseau Local | Fait | La liste des choix réseau ne contient `local` que pour les hôtes `localhost`, `127.0.0.1` ou `::1`. La validation privilégiée reste appliquée par le backend. |
+| Avertissement d'identifiants | Fait | Le dialogue indique sous « Créer un compte » qu'un identifiant/e-mail et un mot de passe sont requis, et que les fournisseurs OAuth ne sont pas pris en charge. |
+| Validation frontend | Fait | Le type-check et le build de `front/admin-app` ainsi que de `front/public-app` réussissent. |
 
 ### Phase 8 — Documentation et validation
 

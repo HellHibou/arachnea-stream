@@ -61,6 +61,7 @@
     "required": "This service requires credentials.",
     "signupPrompt": "An account is required. Create one on the provider's site.",
     "openSignup": "Create account",
+    "signupPasswordWarning": "Create an account with a username or email address and a password. Sign-ins through Google or other OAuth providers are not supported.",
     "showPassword": "Show password",
     "hidePassword": "Hide password"
   },

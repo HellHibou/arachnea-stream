@@ -61,6 +61,7 @@
     "required": "Ce service nécessite des identifiants.",
     "signupPrompt": "Un compte est requis. Créez-en un sur le site du fournisseur.",
     "openSignup": "Créer un compte",
+    "signupPasswordWarning": "Créez un compte avec un nom d’utilisateur ou une adresse e-mail et un mot de passe. Les connexions via Google ou d’autres fournisseurs OAuth ne sont pas prises en charge.",
     "showPassword": "Afficher le mot de passe",
     "hidePassword": "Masquer le mot de passe"
   },
