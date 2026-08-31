@@ -1147,3 +1147,15 @@ typed repositories. `ProxyRecord`, `CachedChaserSession`, and
 `ProxyRecord`/`PersistedRecord` conversion bridge has been removed. Existing
 namespace stores are isolated behind `LegacyTypedEntityStore` during the
 transition to SQLite, so no domain code manipulates persistence maps.
+
+## Unreleased — typed persistence validation
+
+Phase-5 validation coverage now exercises the three backends and the schema
+evolution contract: direct entity roundtrips, single- and multi-field typed
+queries, expiration filtering and pruning, restart persistence and batch
+atomicity for the SQLite, file and memory stores. SQLite tests additionally
+cover managed-index removal at reopen and preservation of externally created
+indexes. The validation surfaced and fixed a file-backend defect: the untagged
+JSON encoding lost the logical type of `DateTime` values (and of scalar `Json`
+values), so reloaded documents were rejected on read; the file store now
+restores the declared types from its schema when loading a document.

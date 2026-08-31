@@ -906,4 +906,151 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         Ok(())
     }
+
+    #[tokio::test]
+    async fn restart_keeps_persisted_entities() -> anyhow::Result<()> {
+        let dir = temp_dir("restart");
+        {
+            let store = store(&dir, false).await?;
+            store.put(&entity("r:1", "n1", 60)).await?;
+            store.put(&entity("r:2", "n2", 60)).await?;
+        }
+        let store = store(&dir, false).await?;
+        assert_eq!(
+            store.get(&"r:1".to_string()).await?.expect("entity").name,
+            "n1"
+        );
+        assert_eq!(
+            store.get(&"r:2".to_string()).await?.expect("entity").name,
+            "n2"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn find_combines_predicates_with_and() -> anyhow::Result<()> {
+        let dir = temp_dir("and-query");
+        let store = store(&dir, false).await?;
+        let mut first = entity("a:1", "same", 60);
+        first.port = 8080;
+        let mut second = entity("a:2", "same", 60);
+        second.port = 9090;
+        store
+            .put_all(&[first, second, entity("a:3", "other", 60)])
+            .await?;
+        let schema = TestEntity::schema();
+        let found = store
+            .find(
+                &EntityQuery::<TestEntity>::new()
+                    .where_string(schema.field_named("name").unwrap(), "same")
+                    .where_integer(schema.field_named("port").unwrap(), 8080),
+            )
+            .await?;
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].authority, "a:1");
+        let _ = std::fs::remove_dir_all(&dir);
+        Ok(())
+    }
+
+    /// Same columns as [`TestEntity`] but with no declared index on `name`.
+    #[derive(Debug, Clone, PartialEq)]
+    struct TestEntityPlain {
+        authority: String,
+        name: String,
+        port: i64,
+        expires_at: SystemTime,
+    }
+    impl PersistentEntity for TestEntityPlain {
+        type Key = String;
+        fn key(&self) -> String {
+            self.authority.clone()
+        }
+        fn schema() -> EntitySchema {
+            EntitySchema::new()
+                .primary_key(Field::string("authority"))
+                .field(Field::string("name"))
+                .field(Field::integer("port"))
+                .field(Field::date_time("expires_at").expiration())
+        }
+        fn write_to(&self, writer: &mut EntityWriter) -> anyhow::Result<()> {
+            writer.string("authority", self.authority.clone())?;
+            writer.string("name", self.name.clone())?;
+            writer.integer("port", self.port)?;
+            writer.date_time("expires_at", self.expires_at)?;
+            Ok(())
+        }
+        fn read_from(reader: &EntityReader<'_>) -> anyhow::Result<Self> {
+            Ok(Self {
+                authority: reader.string("authority")?.to_string(),
+                name: reader.string("name")?.to_string(),
+                port: reader.integer("port")?,
+                expires_at: reader.date_time("expires_at")?,
+            })
+        }
+    }
+
+    fn db_path(dir: &PathBuf) -> PathBuf {
+        dir.join("test-inventory").join("records.sqlite3")
+    }
+
+    fn physical_index_exists(dir: &PathBuf, name: &str) -> bool {
+        let connection = Connection::open(db_path(dir)).expect("open sqlite database");
+        let count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?1",
+                [name],
+                |row| row.get(0),
+            )
+            .expect("index lookup");
+        count > 0
+    }
+
+    #[tokio::test]
+    async fn removed_declared_index_is_dropped() -> anyhow::Result<()> {
+        let dir = temp_dir("index-drop");
+        drop(store(&dir, false).await?);
+        assert!(physical_index_exists(&dir, "idx_test-inventory_name"));
+        // Reopening with the same columns but without the declared index on
+        // `name` must drop the managed index while keeping the data usable.
+        let store = SqliteEntityStore::<TestEntityPlain>::new(
+            PersistenceStoreConfig::new("test-inventory", TestEntityPlain::schema())?,
+            &dir,
+        )?;
+        assert!(!physical_index_exists(&dir, "idx_test-inventory_name"));
+        store
+            .put(&TestEntityPlain {
+                authority: "p:1".to_string(),
+                name: "n".to_string(),
+                port: 80,
+                expires_at: SystemTime::now() + Duration::from_secs(60),
+            })
+            .await?;
+        assert!(store.get(&"p:1".to_string()).await?.is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn external_indexes_are_preserved() -> anyhow::Result<()> {
+        let dir = temp_dir("external-index");
+        {
+            let store = store(&dir, false).await?;
+            store.put(&entity("e:1", "n", 60)).await?;
+        }
+        {
+            let connection = Connection::open(db_path(&dir))?;
+            connection.execute(
+                "CREATE INDEX \"external_custom\" ON \"test-inventory\" (\"port\")",
+                [],
+            )?;
+        }
+        // Reopening must keep the unmanaged external index and stay usable.
+        let reopened = store(&dir, false).await?;
+        assert!(physical_index_exists(&dir, "external_custom"));
+        assert!(physical_index_exists(&dir, "idx_test-inventory_name"));
+        assert!(reopened.get(&"e:1".to_string()).await?.is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+        Ok(())
+    }
 }

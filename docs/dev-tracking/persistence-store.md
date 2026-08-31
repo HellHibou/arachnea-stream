@@ -2,7 +2,7 @@
 
 **Date** : 31/08/2026
 
-**Statut** : phases 0 à 4 terminées — prête pour la validation de la phase 5.
+**Statut** : phases 0 à 5 terminées — implémentation complète et validée.
 
 ## Avancement
 
@@ -13,7 +13,7 @@
 | 2 — repositories | Terminée | Proxys, sessions Cloudflare et activations de sources migrés hors de `PersistedRecord`. |
 | 3 — SQLite | Terminée | Backend SQLite, métadonnées, évolution de schéma et requêtes SQL implémentés derrière la feature `sqlite-persistence`. |
 | 4 — bascule | Terminée | Composition SQLite applicative, injection des repositories et suppression des adaptateurs et types legacy. |
-| 5 — validation | À faire | Couverture des backends et de l’évolution de schéma. |
+| 5 — validation | Terminée | Couverture des trois backends et de l’évolution de schéma ; correction d’un défaut du backend fichier. |
 
 ## Décision
 
@@ -291,11 +291,13 @@ Validation finale (phase 4 clôturée)
 
 ### Phase 5 — validation
 
-**⏳ À faire.** Les vérifications réalisées à ce stade sont `cargo check --workspace`, les tests de `arachnea-core` et les tests ciblés du cache Cloudflare. Les scénarios SQLite restent à créer après la phase 3.
+**✅ Phase terminée.** 25/25 tests `arachnea-core` avec SQLite, 16/16 sans, `cargo fmt --check` propre sur les fichiers touchés, `cargo check -p arachnea-stream` sans warning.
 
-1. Adapter les tests existants : lecture/écriture directe d’entités, requête sur un ou plusieurs champs, expiration, redémarrage, SQLite/fichier/mémoire.
-2. Vérifier l’évolution du schéma : ajout de colonne, ajout/suppression d’index, incompatibilité de type et index externe préservé.
-3. Exécuter `cargo fmt --check`, les tests concernés de `arachnea-core` avec SQLite et `cargo check -p arachnea-stream`.
+1. ✅ Couverture des trois backends (`typed_store::tests` pour mémoire/fichier, `sqlite_store::tests` pour SQLite) : lecture/écriture/suppression directes, requête à un puis plusieurs prédicats combinés par `AND`, expiration (filtrée à la lecture et purgée), redémarrage (réouverture SQLite et fichier avec données persistées), `put_all` rejetant un lot invalide sans écriture partielle, rejet d’un schéma non conforme.
+2. ✅ Évolution du schéma SQLite : ajout de colonne et d’index (test existant), suppression de l’index géré retiré de la configuration (`removed_declared_index_is_dropped`), préservation d’un index externe non géré (`external_indexes_are_preserved`), conflit de type (test existant).
+3. ✅ `cargo fmt --check`, tests `arachnea-core` avec et sans SQLite, `cargo check -p arachnea-stream`.
+
+Défaut corrigé à cette occasion : le codage JSON non étiqueté du backend fichier perdait le type logique des valeurs `DateTime` (et des scalaires `Json`), de sorte que les documents rechargés étaient rejetés à la lecture. Le store fichier restaure désormais les types déclarés à partir de son schéma au chargement (`normalize_loaded_documents`).
 
 ## Passation pour la suite
 
