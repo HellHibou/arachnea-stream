@@ -9,7 +9,7 @@ name = "arachnea"
 path = "src/main.rs"
 
 [dependencies]
-arachnea-core = { path = "../arachnea-core" }
+arachnea-core = { path = "../arachnea-core", features = ["sqlite-persistence"] }
 arachnea-scrapyfy = { path = "../arachnea-scrapyfy", features = ["chaser-cf", "arachnea-proxy"] }
 arachnea-proxy =    { path = "../arachnea-proxy", features = ["controller-service"] }
 argon2 = { workspace = true }

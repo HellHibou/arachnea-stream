@@ -1100,6 +1100,19 @@ catalogues are inherently volatile.
 The desktop-only **Administration** section is now the final section in the
 public settings screen.
 
+## Unreleased — SQLite typed persistence backend
+
+`arachnea-core` gains an optional `sqlite-persistence` feature (rusqlite 0.40.2
+bundled) exposing `SqliteEntityStore<E>`/`SqlitePersistenceStore<E>`. Each named
+store owns its SQLite database under `<data-root>/<store-name>/records.sqlite3`
+with WAL durability, blocking operations off the async runtime, and a single
+transaction for `put_all`. The physical `STRICT` table, its columns and its
+unit indexes are reconciled at open time against internal `arachnea_columns` /
+`arachnea_indexes` metadata tables: missing declared columns are added as
+nullable, managed indexes are created or dropped, and any type, primary-key or
+unmanaged-object conflict fails with a contextualized error. `EntityReader`
+additionally supports optional field reads for nullable schema fields.
+
 ## Unreleased — typed persistence foundation
 
 `arachnea-core::persistence` now exposes the schema-declared typed-store

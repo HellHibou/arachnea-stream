@@ -2,7 +2,7 @@
 
 **Date** : 31/08/2026
 
-**Statut** : phases 0, 1 et 2 terminées — prête pour l’implémentation de la phase 3 (SQLite).
+**Statut** : phases 0 à 3 terminées — prête pour l’implémentation de la phase 4 (bascule applicative).
 
 ## Avancement
 
@@ -11,7 +11,7 @@
 | 0 — contrats | Terminée | Stores initiaux, clés, TTL et schémas des trois entités définis. |
 | 1 — socle typé | Terminée | Contrats de schéma, stores typés mémoire/fichier et validation ajoutés. |
 | 2 — repositories | Terminée | Proxys, sessions Cloudflare et activations de sources migrés hors de `PersistedRecord`. |
-| 3 — SQLite | À faire | Backend SQLite, métadonnées, évolution de schéma et requêtes SQL. |
+| 3 — SQLite | Terminée | Backend SQLite, métadonnées, évolution de schéma et requêtes SQL implémentés derrière la feature `sqlite-persistence`. |
 | 4 — bascule | À faire | Composition SQLite applicative et suppression des adaptateurs legacy. |
 | 5 — validation | À faire | Couverture des backends et de l’évolution de schéma. |
 
@@ -261,13 +261,13 @@ Le coût d’écriture augmente avec chaque index, quel que soit le format. Les 
 
 ### Phase 3 — backend SQLite et évolution de schéma
 
-**⏳ À faire.** Aucune dépendance `rusqlite`, feature SQLite ou base SQLite n’a encore été ajoutée.
+**✅ Phase implémentée.**
 
-1. Ajouter la feature Cargo `sqlite-persistence` et `rusqlite` avec `bundled`.
-2. Implémenter `SqlitePersistenceStore`, les répertoires par store, WAL, `spawn_blocking`, mutex et durabilité.
-3. Créer et valider les tables de données et de métadonnées de schéma.
-4. Implémenter l’ajout de colonnes et la réconciliation création/modification/suppression des index.
-5. Implémenter les écritures, lectures et `EntityQuery<E>` directement sur les colonnes typées.
+1. ✅ Feature Cargo `sqlite-persistence` et `rusqlite` 0.40.2 avec `bundled`, activée par `arachnea-stream`.
+2. ✅ `SqliteEntityStore` (`sqlite_store.rs`) : répertoire par store (`<root>/<store-name>/records.sqlite3`), WAL, `synchronous = FULL`, `busy_timeout`, opérations en `spawn_blocking` derrière un mutex, `put_all` validé puis commité en une transaction unique.
+3. ✅ Table `STRICT` par store avec clé primaire typée et booléens `INTEGER CHECK (IN (0, 1))`, plus les tables internes de métadonnées `arachnea_columns` et `arachnea_indexes`.
+4. ✅ Évolution à l’ouverture : création de la table absente, ajout des colonnes déclarées manquantes (toujours nullables), création/suppression réconciliée des index, échec contextualisé en cas de changement de type, de clé primaire ou de colonne/index non géré.
+5. ✅ `get`, `put`, `put_all`, `delete` et `find` opèrent directement sur les colonnes typées ; l’expiration est purgée par SQL dans `find` et filtrée par `get`. `EntityReader` gagne des lectures optionnelles (`optional_string`, etc.) pour les champs nullables. Les tests unitaires du backend (roundtrip, TTL, batch, évolution, conflit de type) sont en place.
 
 ### Phase 4 — bascule applicative et nettoyage
 

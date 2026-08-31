@@ -108,6 +108,18 @@ impl Field {
     pub fn field_type(&self) -> FieldType {
         self.field_type
     }
+    /// Returns whether an index is declared for this field.
+    pub fn is_indexed(&self) -> bool {
+        self.indexed
+    }
+    /// Returns whether this field may be absent.
+    pub fn is_nullable(&self) -> bool {
+        self.nullable
+    }
+    /// Returns the extra semantics assigned to this field, if any.
+    pub fn role(&self) -> Option<FieldRole> {
+        self.role
+    }
 }
 
 /// Explicit schema for the sole entity contained by a typed store.
@@ -259,7 +271,7 @@ pub trait PersistentEntity: Clone + Send + Sync + Sized + 'static {
 /// JSON-compatible entity value used only inside persistence adapters.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
-enum StoredValue {
+pub(crate) enum StoredValue {
     String(String),
     Integer(i64),
     Boolean(bool),
@@ -268,7 +280,7 @@ enum StoredValue {
 }
 
 impl StoredValue {
-    fn field_type(&self) -> FieldType {
+    pub(crate) fn field_type(&self) -> FieldType {
         match self {
             Self::String(_) => FieldType::String,
             Self::Integer(_) => FieldType::Integer,
@@ -281,8 +293,8 @@ impl StoredValue {
 
 /// Internal, serialized form of one entity. It is never exposed to domains.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct EntityDocument {
-    fields: BTreeMap<String, StoredValue>,
+pub(crate) struct EntityDocument {
+    pub(crate) fields: BTreeMap<String, StoredValue>,
 }
 
 /// Schema-validating sink used by [`PersistentEntity::write_to`].
@@ -353,7 +365,7 @@ pub struct EntityReader<'a> {
 }
 
 impl<'a> EntityReader<'a> {
-    fn new(document: &'a EntityDocument) -> Self {
+    pub(crate) fn new(document: &'a EntityDocument) -> Self {
         Self { document }
     }
     /// Reads a required string field.
@@ -397,6 +409,46 @@ impl<'a> EntityReader<'a> {
             .get(field)
             .ok_or_else(|| anyhow::anyhow!("required field '{field}' is absent"))
     }
+    /// Reads an optional string field.
+    pub fn optional_string(&self, field: &str) -> anyhow::Result<Option<&str>> {
+        match self.document.fields.get(field) {
+            None => Ok(None),
+            Some(StoredValue::String(value)) => Ok(Some(value)),
+            Some(_) => anyhow::bail!("field '{field}' must be a string"),
+        }
+    }
+    /// Reads an optional integer field.
+    pub fn optional_integer(&self, field: &str) -> anyhow::Result<Option<i64>> {
+        match self.document.fields.get(field) {
+            None => Ok(None),
+            Some(StoredValue::Integer(value)) => Ok(Some(*value)),
+            Some(_) => anyhow::bail!("field '{field}' must be an integer"),
+        }
+    }
+    /// Reads an optional boolean field.
+    pub fn optional_boolean(&self, field: &str) -> anyhow::Result<Option<bool>> {
+        match self.document.fields.get(field) {
+            None => Ok(None),
+            Some(StoredValue::Boolean(value)) => Ok(Some(*value)),
+            Some(_) => anyhow::bail!("field '{field}' must be a boolean"),
+        }
+    }
+    /// Reads an optional date-time field.
+    pub fn optional_date_time(&self, field: &str) -> anyhow::Result<Option<SystemTime>> {
+        match self.document.fields.get(field) {
+            None => Ok(None),
+            Some(StoredValue::DateTime(value)) => Ok(Some(from_nanos(*value)?)),
+            Some(_) => anyhow::bail!("field '{field}' must be a date-time"),
+        }
+    }
+    /// Reads an optional JSON field.
+    pub fn optional_json(&self, field: &str) -> anyhow::Result<Option<&Value>> {
+        match self.document.fields.get(field) {
+            None => Ok(None),
+            Some(StoredValue::Json(value)) => Ok(Some(value)),
+            Some(_) => anyhow::bail!("field '{field}' must be a json value"),
+        }
+    }
 }
 
 /// A conjunction of equality predicates evaluated by a typed store.
@@ -436,6 +488,12 @@ impl<E: PersistentEntity> Default for EntityQuery<E> {
         Self::new()
     }
 }
+impl<E: PersistentEntity> EntityQuery<E> {
+    /// Returns the conjunction of equality predicates as `(field, value)` pairs.
+    pub(crate) fn predicates(&self) -> &[(String, StoredValue)] {
+        &self.predicates
+    }
+}
 
 /// Object-safe-per-entity contract used by domain repositories.
 #[async_trait]
@@ -455,7 +513,9 @@ where
     async fn find(&self, query: &EntityQuery<E>) -> anyhow::Result<Vec<E>>;
 }
 
-fn checked_schema<E: PersistentEntity>(config: &PersistenceStoreConfig) -> anyhow::Result<()> {
+pub(crate) fn checked_schema<E: PersistentEntity>(
+    config: &PersistenceStoreConfig,
+) -> anyhow::Result<()> {
     let schema = E::schema();
     schema.validate()?;
     if config.schema != schema {
@@ -477,7 +537,7 @@ fn checked_schema<E: PersistentEntity>(config: &PersistenceStoreConfig) -> anyho
     }
     Ok(())
 }
-fn encode<E: PersistentEntity>(
+pub(crate) fn encode<E: PersistentEntity>(
     config: &PersistenceStoreConfig,
     entity: &E,
 ) -> anyhow::Result<EntityDocument> {
@@ -486,7 +546,7 @@ fn encode<E: PersistentEntity>(
     entity.write_to(&mut writer)?;
     writer.finish()
 }
-fn expired(schema: &EntitySchema, document: &EntityDocument) -> anyhow::Result<bool> {
+pub(crate) fn expired(schema: &EntitySchema, document: &EntityDocument) -> anyhow::Result<bool> {
     let Some(field) = schema.expiration_field() else {
         return Ok(false);
     };
@@ -535,7 +595,7 @@ fn validate_document(schema: &EntitySchema, document: &EntityDocument) -> anyhow
     }
     Ok(())
 }
-fn decode<E: PersistentEntity>(
+pub(crate) fn decode<E: PersistentEntity>(
     schema: &EntitySchema,
     document: &EntityDocument,
 ) -> anyhow::Result<E> {
@@ -936,7 +996,7 @@ impl<E: PersistentEntity, C: PersistenceFileCodec> TypedEntityStore<E> for FileE
         Ok(result)
     }
 }
-fn safe_name(name: &str) -> String {
+pub(crate) fn safe_name(name: &str) -> String {
     let mut safe = String::with_capacity(name.len());
     for byte in name.bytes() {
         if byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_' {

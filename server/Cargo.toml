@@ -46,6 +46,7 @@ quick_html2md = "0.2.1"
 regex = "1.10"
 rquest = { package = "newwreq", version = "5.1.7", features = ["json", "cookies", "gzip"] }
 rand = "0.9.3"
+rusqlite = { version = "0.40.2", default-features = false, features = ["bundled"] }
 rustls = "0.23"
 scopeguard = "1.2.0"
 scraper = "0.20"

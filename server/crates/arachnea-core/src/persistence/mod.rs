@@ -10,6 +10,9 @@ pub mod file_credentials_store;
 pub mod file_store;
 /// In-memory generic persistence store used as a default and for tests.
 pub mod memory_store;
+/// SQLite-backed typed entity store with schema evolution.
+#[cfg(feature = "sqlite-persistence")]
+pub mod sqlite_store;
 /// Generic asynchronous persistence contract for application records.
 pub mod store;
 /// Schema-declared, entity-typed persistence contracts and backends.
@@ -28,9 +31,16 @@ pub use typed_store::{
     PersistentEntity, TypedEntityStore,
 };
 
+/// Typed SQLite persistence store configured for exactly one entity schema.
+#[cfg(feature = "sqlite-persistence")]
+pub use sqlite_store::SqliteEntityStore;
+/// Typed SQLite persistence store configured for exactly one entity schema.
+#[cfg(feature = "sqlite-persistence")]
+pub type SqlitePersistenceStore<E> = SqliteEntityStore<E>;
+
 /// Typed file persistence store configured for exactly one entity schema.
 pub type FilePersistenceStore<E, C = JsonPersistenceFileCodec> = FileEntityStore<E, C>;
 /// Typed in-memory persistence store configured for exactly one entity schema.
 pub type MemoryPersistenceStore<E> = MemoryEntityStore<E>;
 
-pub(crate) use store::{PersistenceBackend, record_matches_filters};
+pub(crate) use store::{record_matches_filters, PersistenceBackend};
