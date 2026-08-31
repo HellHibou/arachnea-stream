@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
-use arachnea_core::persistence::PersistenceStore;
+use arachnea_core::persistence::TypedEntityStore;
+use arachnea_http::chaser_session::{memory_session_store, CachedChaserSession};
 use serde::{Deserialize, Serialize, Serializer};
 use std::collections::HashMap;
 use std::fs;
@@ -410,45 +411,45 @@ impl ScraperQueryDefinition {
         proxy_handle: SharedProxyConfigHandle,
         local_country: SharedLocalCountry,
     ) {
-        self.set_runtime_handles_with_persistence_store(
+        self.set_runtime_handles_with_session_store(
             proxy_handle,
             local_country,
-            Arc::new(arachnea_core::persistence::LegacyMemoryPersistenceStore::new()),
+            memory_session_store().expect("in-memory Cloudflare session store is valid"),
         );
     }
 
     /// Rebinds all embedded HTTP clients to the provided shared runtime handles
     /// and persistence store.
-    pub fn set_runtime_handles_with_persistence_store(
+    pub fn set_runtime_handles_with_session_store(
         &mut self,
         proxy_handle: SharedProxyConfigHandle,
         local_country: SharedLocalCountry,
-        persistence_store: Arc<dyn PersistenceStore>,
+        session_store: Arc<dyn TypedEntityStore<CachedChaserSession>>,
     ) {
         match self {
             ScraperQueryDefinition::Html(query) => bind_html_query_runtime_handles(
                 query,
                 &proxy_handle,
                 &local_country,
-                &persistence_store,
+                &session_store,
             ),
             ScraperQueryDefinition::Json(query) => bind_json_query_runtime_handles(
                 query,
                 &proxy_handle,
                 &local_country,
-                &persistence_store,
+                &session_store,
             ),
             ScraperQueryDefinition::Static(query) => query
-                .set_runtime_handles_with_persistence_store(
+                .set_runtime_handles_with_session_store(
                     proxy_handle,
                     local_country,
-                    persistence_store,
+                    session_store,
                 ),
             ScraperQueryDefinition::Text(query) => bind_text_query_runtime_handles(
                 query,
                 &proxy_handle,
                 &local_country,
-                &persistence_store,
+                &session_store,
             ),
         }
     }
@@ -690,26 +691,26 @@ impl ScraperQueryCollection {
         proxy_handle: SharedProxyConfigHandle,
         local_country: SharedLocalCountry,
     ) {
-        self.set_runtime_handles_with_persistence_store(
+        self.set_runtime_handles_with_session_store(
             proxy_handle,
             local_country,
-            Arc::new(arachnea_core::persistence::LegacyMemoryPersistenceStore::new()),
+            memory_session_store().expect("in-memory Cloudflare session store is valid"),
         );
     }
 
     /// Rebinds all query HTTP clients to the provided shared runtime handles
     /// and persistence store.
-    pub fn set_runtime_handles_with_persistence_store(
+    pub fn set_runtime_handles_with_session_store(
         &mut self,
         proxy_handle: SharedProxyConfigHandle,
         local_country: SharedLocalCountry,
-        persistence_store: Arc<dyn PersistenceStore>,
+        session_store: Arc<dyn TypedEntityStore<CachedChaserSession>>,
     ) {
         for query in self.queries.values_mut() {
-            query.set_runtime_handles_with_persistence_store(
+            query.set_runtime_handles_with_session_store(
                 proxy_handle.clone(),
                 local_country.clone(),
-                persistence_store.clone(),
+                session_store.clone(),
             );
         }
     }
@@ -963,14 +964,14 @@ fn bind_text_query_runtime_handles(
     query: &mut TextScraperQuery,
     proxy_handle: &SharedProxyConfigHandle,
     local_country: &SharedLocalCountry,
-    persistence_store: &Arc<dyn PersistenceStore>,
+    session_store: &Arc<dyn TypedEntityStore<CachedChaserSession>>,
 ) {
     query.http_client =
-        HttpClient::with_http_config_proxy_handle_and_local_country_and_persistence_store(
+        HttpClient::with_http_config_proxy_handle_and_local_country_and_session_store(
             query.http_config.clone(),
             proxy_handle.clone(),
             local_country.clone(),
-            persistence_store.clone(),
+            session_store.clone(),
         );
 }
 
@@ -978,14 +979,14 @@ fn bind_html_query_runtime_handles(
     query: &mut HtmlScraperQuery,
     proxy_handle: &SharedProxyConfigHandle,
     local_country: &SharedLocalCountry,
-    persistence_store: &Arc<dyn PersistenceStore>,
+    session_store: &Arc<dyn TypedEntityStore<CachedChaserSession>>,
 ) {
     query.http_client =
-        HttpClient::with_http_config_proxy_handle_and_local_country_and_persistence_store(
+        HttpClient::with_http_config_proxy_handle_and_local_country_and_session_store(
             query.http_config.clone(),
             proxy_handle.clone(),
             local_country.clone(),
-            persistence_store.clone(),
+            session_store.clone(),
         );
 
     for sub_query in &mut query.sub_queries {
@@ -994,7 +995,7 @@ fn bind_html_query_runtime_handles(
                 html_sub_query,
                 proxy_handle,
                 local_country,
-                persistence_store,
+                session_store,
             );
         } else if let Some(json_sub_query) =
             sub_query.as_any_mut().downcast_mut::<JsonScraperSubQuery>()
@@ -1003,7 +1004,7 @@ fn bind_html_query_runtime_handles(
                 json_sub_query,
                 proxy_handle,
                 local_country,
-                persistence_store,
+                session_store,
             );
         }
     }
@@ -1013,14 +1014,14 @@ fn bind_html_sub_query_runtime_handles(
     query: &mut HtmlScraperSubQuery,
     proxy_handle: &SharedProxyConfigHandle,
     local_country: &SharedLocalCountry,
-    persistence_store: &Arc<dyn PersistenceStore>,
+    session_store: &Arc<dyn TypedEntityStore<CachedChaserSession>>,
 ) {
     query.http_client =
-        HttpClient::with_http_config_proxy_handle_and_local_country_and_persistence_store(
+        HttpClient::with_http_config_proxy_handle_and_local_country_and_session_store(
             query.http_config.clone(),
             proxy_handle.clone(),
             local_country.clone(),
-            persistence_store.clone(),
+            session_store.clone(),
         );
 }
 
@@ -1028,14 +1029,14 @@ fn bind_json_query_runtime_handles(
     query: &mut JsonScraperQuery,
     proxy_handle: &SharedProxyConfigHandle,
     local_country: &SharedLocalCountry,
-    persistence_store: &Arc<dyn PersistenceStore>,
+    session_store: &Arc<dyn TypedEntityStore<CachedChaserSession>>,
 ) {
     query.http_client =
-        HttpClient::with_http_config_proxy_handle_and_local_country_and_persistence_store(
+        HttpClient::with_http_config_proxy_handle_and_local_country_and_session_store(
             query.http_config.clone(),
             proxy_handle.clone(),
             local_country.clone(),
-            persistence_store.clone(),
+            session_store.clone(),
         );
 
     for sub_query in &mut query.sub_queries {
@@ -1044,7 +1045,7 @@ fn bind_json_query_runtime_handles(
                 json_sub_query,
                 proxy_handle,
                 local_country,
-                persistence_store,
+                session_store,
             );
         } else if let Some(html_sub_query) =
             sub_query.as_any_mut().downcast_mut::<HtmlScraperSubQuery>()
@@ -1053,7 +1054,7 @@ fn bind_json_query_runtime_handles(
                 html_sub_query,
                 proxy_handle,
                 local_country,
-                persistence_store,
+                session_store,
             );
         }
     }
@@ -1063,14 +1064,14 @@ fn bind_json_sub_query_runtime_handles(
     query: &mut JsonScraperSubQuery,
     proxy_handle: &SharedProxyConfigHandle,
     local_country: &SharedLocalCountry,
-    persistence_store: &Arc<dyn PersistenceStore>,
+    session_store: &Arc<dyn TypedEntityStore<CachedChaserSession>>,
 ) {
     query.http_client =
-        HttpClient::with_http_config_proxy_handle_and_local_country_and_persistence_store(
+        HttpClient::with_http_config_proxy_handle_and_local_country_and_session_store(
             query.http_config.clone(),
             proxy_handle.clone(),
             local_country.clone(),
-            persistence_store.clone(),
+            session_store.clone(),
         );
 
     for sub_query in &mut query.sub_queries {
@@ -1079,7 +1080,7 @@ fn bind_json_sub_query_runtime_handles(
                 json_sub_query,
                 proxy_handle,
                 local_country,
-                persistence_store,
+                session_store,
             );
         } else if let Some(html_sub_query) =
             sub_query.as_any_mut().downcast_mut::<HtmlScraperSubQuery>()
@@ -1088,7 +1089,7 @@ fn bind_json_sub_query_runtime_handles(
                 html_sub_query,
                 proxy_handle,
                 local_country,
-                persistence_store,
+                session_store,
             );
         }
     }

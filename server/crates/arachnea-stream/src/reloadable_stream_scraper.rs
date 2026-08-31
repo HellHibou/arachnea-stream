@@ -10,7 +10,8 @@ use serde::Serialize;
 use std::sync::{Arc, RwLock};
 
 use arachnea_core::controler::{ControlerService, ControlerServiceExt};
-use arachnea_core::persistence::{CredentialsStore, PersistenceStore};
+use arachnea_core::persistence::{CredentialsStore, TypedEntityStore};
+use arachnea_scrapyfy::SourceEnabledOverride;
 use arachnea_proxy::core::ArachneaProxyCore;
 use arachnea_scrapyfy::{
     load_service_catalog_detailed, source_params_from_entries, PersistenceSourceEnabled,
@@ -21,7 +22,7 @@ use crate::stream_scraper::{
     category_sources_from_request, StreamScraper, StreamScraperBuildOptions, GetBannersRequest,
     GetCategoryRequest, GetEntryRequest, GetLiveRequest, GetPlayersRequest, GetSectionRequest,
     GetSeasonRequest, GetServiceRequest, GetStreamRequest, ListLivesRequest, LoadHomeRequest,
-    SearchRequest, DRM_LICENSE_PROXY_COMMAND, STREAM_SERVICES_STORE_NAME,
+    SearchRequest, DRM_LICENSE_PROXY_COMMAND,
 };
 
 /// Endpoints captured when routes are first registered.
@@ -128,12 +129,15 @@ impl ReloadableStreamScraper {
         Arc::clone(&self.inner.read().expect("stream scraper lock poisoned"))
     }
 
-    /// Returns the shared persistence store used for activation overrides.
-    pub fn persistence_store(&self) -> Arc<dyn PersistenceStore> {
+    /// Returns the typed store used for activation overrides.
+    pub fn source_enabled_store(
+        &self,
+    ) -> Arc<dyn TypedEntityStore<SourceEnabledOverride>> {
         self.options
             .read()
             .expect("stream scraper options lock poisoned")
-            .persistence_store
+            .stores
+            .source_enabled
             .clone()
     }
 
@@ -223,10 +227,8 @@ impl ReloadableStreamScraper {
             || format!("Failed to reload service catalog {}.", options.services_config_path),
         )?;
 
-        let policy = PersistenceSourceEnabled::new(
-            Arc::clone(&options.persistence_store),
-            STREAM_SERVICES_STORE_NAME,
-        );
+        let policy =
+            PersistenceSourceEnabled::with_typed_store(Arc::clone(&options.stores.source_enabled));
         let descriptors: Vec<ScraperSourceDescriptor> = catalog
             .entries
             .iter()

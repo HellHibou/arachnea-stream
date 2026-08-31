@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
-use arachnea_core::persistence::{LegacyMemoryPersistenceStore, PersistenceStore};
+use arachnea_core::persistence::TypedEntityStore;
+use arachnea_http::chaser_session::{memory_session_store, CachedChaserSession};
 use arachnea_http::{
     global_cookie_cache, header_map_from_strings, ArachneaHttpClient, ArachneaHttpConfig,
     ArachneaResponse, BrowserProfile, BrowserSessionConfig, BrowserSessionManager, CookieEntry,
@@ -434,7 +435,7 @@ pub struct HttpClient {
     http_config: ScraperHttpConfig,
     proxy_handle: SharedProxyConfigHandle,
     local_country: SharedLocalCountry,
-    persistence_store: Arc<dyn PersistenceStore>,
+    session_store: Arc<dyn TypedEntityStore<CachedChaserSession>>,
     cookie_cache: Arc<AsyncRwLock<SharedCookieCache>>,
     browser_session_manager: Arc<BrowserSessionManager>,
     client: Arc<AsyncRwLock<Option<CachedHttpClient>>>,
@@ -476,27 +477,27 @@ impl HttpClient {
         proxy_handle: SharedProxyConfigHandle,
         local_country: SharedLocalCountry,
     ) -> Self {
-        Self::with_http_config_proxy_handle_and_local_country_and_persistence_store(
+        Self::with_http_config_proxy_handle_and_local_country_and_session_store(
             http_config,
             proxy_handle,
             local_country,
-            Arc::new(LegacyMemoryPersistenceStore::new()),
+            memory_session_store().expect("in-memory Cloudflare session store is valid"),
         )
     }
 
     /// Builds a client with explicit scraper HTTP configuration, a shared proxy
     /// handle, shared local-country state, and a shared persistence store.
-    pub fn with_http_config_proxy_handle_and_local_country_and_persistence_store(
+    pub fn with_http_config_proxy_handle_and_local_country_and_session_store(
         http_config: ScraperHttpConfig,
         proxy_handle: SharedProxyConfigHandle,
         local_country: SharedLocalCountry,
-        persistence_store: Arc<dyn PersistenceStore>,
+        session_store: Arc<dyn TypedEntityStore<CachedChaserSession>>,
     ) -> Self {
         Self::with_http_config_proxy_handle_and_cookie_cache(
             http_config,
             proxy_handle,
             local_country,
-            persistence_store,
+            session_store,
             global_cookie_cache(),
         )
     }
@@ -505,14 +506,14 @@ impl HttpClient {
         http_config: ScraperHttpConfig,
         proxy_handle: SharedProxyConfigHandle,
         local_country: SharedLocalCountry,
-        persistence_store: Arc<dyn PersistenceStore>,
+        session_store: Arc<dyn TypedEntityStore<CachedChaserSession>>,
         cookie_cache: Arc<AsyncRwLock<SharedCookieCache>>,
     ) -> Self {
         Self {
             http_config,
             proxy_handle,
             local_country,
-            persistence_store,
+            session_store,
             cookie_cache,
             browser_session_manager: Arc::new(BrowserSessionManager::new(
                 BrowserSessionConfig::default(),
@@ -527,7 +528,7 @@ impl HttpClient {
             self.http_config.clone(),
             self.proxy_handle.clone(),
             self.local_country.clone(),
-            self.persistence_store.clone(),
+            self.session_store.clone(),
             Arc::new(AsyncRwLock::new(SharedCookieCache::default())),
         )
     }
@@ -555,7 +556,7 @@ impl HttpClient {
                 http_config,
                 proxy_handle: self.proxy_handle.clone(),
                 local_country: self.local_country.clone(),
-                persistence_store: self.persistence_store.clone(),
+                session_store: self.session_store.clone(),
                 cookie_cache: self.cookie_cache.clone(),
                 browser_session_manager: self.browser_session_manager.clone(),
                 client: self.client.clone(),
@@ -566,7 +567,7 @@ impl HttpClient {
             http_config,
             self.proxy_handle.clone(),
             self.local_country.clone(),
-            self.persistence_store.clone(),
+            self.session_store.clone(),
             self.cookie_cache.clone(),
         )
     }
@@ -681,11 +682,11 @@ impl HttpClient {
         }
         let config = builder.build()?;
         let client = Arc::new(
-            ArachneaHttpClient::new_with_cookie_cache_browser_session_manager_and_persistence_store(
+            ArachneaHttpClient::new_with_cookie_cache_browser_session_manager_and_session_store(
                 config,
                 self.cookie_cache.clone(),
                 self.browser_session_manager.clone(),
-                self.persistence_store.clone(),
+                self.session_store.clone(),
             )
             .await?,
         );

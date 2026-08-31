@@ -31,13 +31,18 @@ const COLUMNS_META_TABLE: &str = "arachnea_columns";
 const INDEXES_META_TABLE: &str = "arachnea_indexes";
 
 /// SQLite physical representation of an entity primary key.
+///
+/// This is an internal implementation detail of [`SqliteEntityStore`], not a
+/// domain-facing contract: callers only use the store with the key types
+/// already implemented here (`String`, `i64`, `Uuid`).
+#[doc(hidden)]
 pub trait SqlKey: Send + Sync + 'static {
     /// Physical SQLite column type declared for the primary key column.
     fn physical_type() -> &'static str;
     /// SQL value bound when addressing this key.
     fn to_sql(&self) -> SqlValue;
-    /// Rebuilds the stored logical value from the primary key cell.
-    fn from_sql(cell: ValueRef<'_>) -> anyhow::Result<StoredValue>;
+    /// Normalized SQL value read back from the primary key cell.
+    fn from_sql(cell: ValueRef<'_>) -> anyhow::Result<SqlValue>;
 }
 impl SqlKey for String {
     fn physical_type() -> &'static str {
@@ -46,11 +51,9 @@ impl SqlKey for String {
     fn to_sql(&self) -> SqlValue {
         SqlValue::Text(self.clone())
     }
-    fn from_sql(cell: ValueRef<'_>) -> anyhow::Result<StoredValue> {
+    fn from_sql(cell: ValueRef<'_>) -> anyhow::Result<SqlValue> {
         match cell {
-            ValueRef::Text(value) => {
-                Ok(StoredValue::String(std::str::from_utf8(value)?.to_string()))
-            }
+            ValueRef::Text(value) => Ok(SqlValue::Text(std::str::from_utf8(value)?.to_string())),
             _ => anyhow::bail!("string primary key cell has an unexpected SQLite type"),
         }
     }
@@ -62,9 +65,9 @@ impl SqlKey for i64 {
     fn to_sql(&self) -> SqlValue {
         SqlValue::Integer(*self)
     }
-    fn from_sql(cell: ValueRef<'_>) -> anyhow::Result<StoredValue> {
+    fn from_sql(cell: ValueRef<'_>) -> anyhow::Result<SqlValue> {
         match cell {
-            ValueRef::Integer(value) => Ok(StoredValue::Integer(value)),
+            ValueRef::Integer(value) => Ok(SqlValue::Integer(value)),
             _ => anyhow::bail!("integer primary key cell has an unexpected SQLite type"),
         }
     }
@@ -77,14 +80,21 @@ impl SqlKey for uuid::Uuid {
     fn to_sql(&self) -> SqlValue {
         SqlValue::Blob(self.as_bytes().to_vec())
     }
-    fn from_sql(cell: ValueRef<'_>) -> anyhow::Result<StoredValue> {
+    fn from_sql(cell: ValueRef<'_>) -> anyhow::Result<SqlValue> {
         match cell {
-            ValueRef::Blob(value) => Ok(StoredValue::String(
-                uuid::Uuid::from_slice(value)?.to_string(),
-            )),
+            ValueRef::Blob(value) => Ok(SqlValue::Text(uuid::Uuid::from_slice(value)?.to_string())),
             _ => anyhow::bail!("uuid primary key cell has an unexpected SQLite type"),
         }
     }
+}
+
+/// Converts a normalized primary key SQL value back into its stored form.
+fn stored_from_key_sql(field: &str, value: SqlValue) -> anyhow::Result<StoredValue> {
+    Ok(match value {
+        SqlValue::Text(value) => StoredValue::String(value),
+        SqlValue::Integer(value) => StoredValue::Integer(value),
+        _ => anyhow::bail!("primary key column '{field}' holds an unexpected SQLite type"),
+    })
 }
 
 /// SQLite-backed store bound to exactly one entity and one schema.
@@ -231,7 +241,10 @@ where
     for (index, field) in schema.fields().iter().enumerate() {
         let cell = row.get_ref(index)?;
         let stored = if field.name() == primary_key.name() {
-            Some(<E::Key as SqlKey>::from_sql(cell)?)
+            Some(stored_from_key_sql(
+                primary_key.name(),
+                <E::Key as SqlKey>::from_sql(cell)?,
+            )?)
         } else {
             stored_from_cell(field.name(), field.field_type(), cell)?
         };

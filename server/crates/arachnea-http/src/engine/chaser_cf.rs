@@ -4,10 +4,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use arachnea_core::persistence::{
-    EntityReader, EntitySchema, EntityWriter, Field, LegacyTypedEntityStore, PersistenceStore,
-    PersistenceStoreConfig, PersistentEntity, TypedEntityStore,
-};
+use arachnea_core::persistence::TypedEntityStore;
 use async_trait::async_trait;
 use bytes::Bytes;
 use chaser_cf::core::BrowserManager;
@@ -24,7 +21,7 @@ use http::{
     HeaderMap, HeaderValue, Method, StatusCode,
 };
 use rand::Rng as _;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 use url::Url;
@@ -34,6 +31,7 @@ use crate::{
         BrowserPageSession, BrowserSessionMetadata, PageClickRequest, PageClickResponse,
         PageFetchRequest, PageFetchResponse, PageNavigationRequest, PageNavigationResponse,
     },
+    chaser_session::{memory_session_store, CachedChaserSession, StructuredCookie},
     config::ArachneaHttpConfig,
     engine::{EngineRequest, EngineResponse, HttpEngine, SOLVER_USER_AGENT_HEADER},
     error::ArachneaHttpError,
@@ -44,9 +42,6 @@ pub const ENGINE_NAME: &str = "chaser-cf";
 
 /// Default margin before a cached Cloudflare session is considered stale.
 const DEFAULT_SESSION_CACHE_REFRESH_MARGIN: Duration = Duration::from_secs(300);
-
-/// Stable store name for persisted Cloudflare sessions.
-const CLOUDFLARE_SESSION_STORE_NAME: &str = "cloudflare-session";
 
 /// Dedicated timeout for chaser-cf browser challenge solving, kept independent
 /// from the HTTP request timeout because solving a captcha (including browser
@@ -106,42 +101,6 @@ pub struct ChaserCfEngine {
     session_cache: Option<ChaserSessionCache>,
 }
 
-/// Serialized Cloudflare session extracted from the shared browser.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct CachedChaserSession {
-    /// Origin primary key for this cached session.
-    origin: String,
-    /// Structured cookies produced from browser cookies.
-    cookies: Vec<StructuredCookie>,
-    /// Browser user-agent observed by the solver.
-    user_agent: Option<String>,
-    /// Unix timestamp for `cf_clearance` expiration when available.
-    clearance_expires_at: Option<u64>,
-    /// Unix timestamp when the session was stored.
-    stored_at: u64,
-}
-
-/// Structured cookie representation persisted in the session record.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct StructuredCookie {
-    /// Cookie name.
-    name: String,
-    /// Cookie value.
-    value: String,
-    /// Cookie domain.
-    domain: Option<String>,
-    /// Cookie path.
-    path: Option<String>,
-    /// Cookie expiration as Unix timestamp.
-    expires: Option<f64>,
-    /// Whether the cookie is HTTP-only.
-    http_only: Option<bool>,
-    /// Whether the cookie is secure.
-    secure: Option<bool>,
-    /// SameSite attribute.
-    same_site: Option<String>,
-}
-
 /// Asynchronous cache for chaser-cf Cloudflare sessions backed by a typed repository.
 struct ChaserSessionCache {
     /// Shared typed session repository.
@@ -163,14 +122,8 @@ struct TypedCloudflareSessionRepository {
 }
 
 impl TypedCloudflareSessionRepository {
-    fn from_legacy_store(store: Arc<dyn PersistenceStore>) -> anyhow::Result<Self> {
-        let config = PersistenceStoreConfig::new(
-            CLOUDFLARE_SESSION_STORE_NAME,
-            CachedChaserSession::schema(),
-        )?;
-        Ok(Self {
-            store: Arc::new(LegacyTypedEntityStore::new(store, config)?),
-        })
+    fn new(store: Arc<dyn TypedEntityStore<CachedChaserSession>>) -> Self {
+        Self { store }
     }
 }
 
@@ -205,16 +158,20 @@ impl ChaserCfEngine {
         Self::new_with_proxy_url(
             config,
             config.proxy.network_url(),
-            Arc::new(arachnea_core::persistence::LegacyMemoryPersistenceStore::new()),
+            memory_session_store().map_err(|error| {
+                ArachneaHttpError::ChaserCfFailure(format!(
+                    "session cache store unavailable: {error}"
+                ))
+            })?,
         )
     }
 
     /// Creates a configured chaser-cf session solver using the effective proxy
-    /// URL selected by the HTTP client runtime and a shared persistence store.
+    /// URL selected by the HTTP client runtime and a shared typed session store.
     pub(crate) fn new_with_proxy_url(
         config: &ArachneaHttpConfig,
         proxy_url: Option<&str>,
-        persistence_store: Arc<dyn PersistenceStore>,
+        session_store: Arc<dyn TypedEntityStore<CachedChaserSession>>,
     ) -> Result<Self, ArachneaHttpError> {
         let chaser_config = ChaserConfig::from_env()
             .with_headless(false)
@@ -242,7 +199,7 @@ impl ChaserCfEngine {
             session_cache: None,
         };
         Ok(engine
-            .with_session_cache(persistence_store)
+            .with_session_cache(session_store)
             .with_session_cache_refresh_margin(config.cookie_refresh_margin))
     }
 
@@ -272,13 +229,13 @@ impl ChaserCfEngine {
         })
     }
 
-    /// Enables a persistent session cache backed by the provided store.
-    pub fn with_session_cache(mut self, store: Arc<dyn PersistenceStore>) -> Self {
+    /// Enables a persistent session cache backed by the provided typed store.
+    pub fn with_session_cache(
+        mut self,
+        session_store: Arc<dyn TypedEntityStore<CachedChaserSession>>,
+    ) -> Self {
         self.session_cache = Some(ChaserSessionCache {
-            repository: Arc::new(
-                TypedCloudflareSessionRepository::from_legacy_store(store)
-                    .expect("Cloudflare session schema is valid"),
-            ),
+            repository: Arc::new(TypedCloudflareSessionRepository::new(session_store)),
             refresh_margin: DEFAULT_SESSION_CACHE_REFRESH_MARGIN,
         });
         self
@@ -1782,39 +1739,6 @@ impl CachedChaserSession {
     }
 }
 
-impl PersistentEntity for CachedChaserSession {
-    type Key = String;
-    fn key(&self) -> Self::Key {
-        self.origin.clone()
-    }
-    fn schema() -> EntitySchema {
-        EntitySchema::new()
-            .primary_key(Field::string("origin"))
-            .field(Field::date_time("expires_at").expiration())
-            .field(Field::json("session"))
-    }
-    fn write_to(&self, writer: &mut EntityWriter) -> anyhow::Result<()> {
-        writer.string("origin", &self.origin)?;
-        let expires_at = self
-            .clearance_expires_at
-            .map(|value| UNIX_EPOCH + Duration::from_secs(value))
-            .unwrap_or_else(|| {
-                UNIX_EPOCH + Duration::from_secs(self.stored_at + CACHE_TTL_NO_EXPIRY.as_secs())
-            });
-        writer.date_time("expires_at", expires_at)?;
-        writer.json("session", serde_json::to_value(self)?)
-    }
-    fn read_from(reader: &EntityReader<'_>) -> anyhow::Result<Self> {
-        let origin = reader.string("origin")?.to_string();
-        let mut session: Self = serde_json::from_value(reader.json("session")?.clone())?;
-        if !session.origin.is_empty() && session.origin != origin {
-            anyhow::bail!("persisted Cloudflare session origin does not match its record");
-        }
-        session.origin = origin;
-        Ok(session)
-    }
-}
-
 fn chaser_proxy_from_url(
     proxy_url: Option<&str>,
 ) -> Result<Option<ProxyConfig>, ArachneaHttpError> {
@@ -1945,7 +1869,6 @@ fn unix_timestamp() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arachnea_core::persistence::LegacyMemoryPersistenceStore;
 
     fn waf_session(expires_at: u64) -> WafSession {
         let mut headers = HashMap::new();
@@ -1967,12 +1890,10 @@ mod tests {
 
     #[tokio::test]
     async fn persistent_session_cache_returns_headers_for_valid_clearance() {
-        let store = Arc::new(LegacyMemoryPersistenceStore::new());
         let cache = ChaserSessionCache {
-            repository: Arc::new(
-                TypedCloudflareSessionRepository::from_legacy_store(store)
-                    .expect("Cloudflare session schema is valid"),
-            ),
+            repository: Arc::new(TypedCloudflareSessionRepository::new(
+                memory_session_store().expect("session store"),
+            )),
             refresh_margin: Duration::from_secs(300),
         };
         cache
@@ -2001,12 +1922,10 @@ mod tests {
 
     #[tokio::test]
     async fn persistent_session_cache_ignores_expiring_clearance() {
-        let store = Arc::new(LegacyMemoryPersistenceStore::new());
         let cache = ChaserSessionCache {
-            repository: Arc::new(
-                TypedCloudflareSessionRepository::from_legacy_store(store)
-                    .expect("Cloudflare session schema is valid"),
-            ),
+            repository: Arc::new(TypedCloudflareSessionRepository::new(
+                memory_session_store().expect("session store"),
+            )),
             refresh_margin: Duration::from_secs(300),
         };
         cache

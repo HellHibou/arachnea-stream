@@ -717,7 +717,7 @@ async fn http_upstream_without_password_does_not_send_proxy_authorization() {
     assert!(!request.to_ascii_lowercase().contains("proxy-authorization"));
 }
 
-/// Verifies that proxy pools test members and cache the first working candidate.
+/// Verifies that proxy pools skip failed members and cache the first working candidate.
 #[tokio::test]
 async fn proxy_pool_selects_and_caches_first_working_member() {
     let bad_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -737,13 +737,14 @@ async fn proxy_pool_selects_and_caches_first_working_member() {
             .write_all(b"HTTP/1.1 403 Forbidden\r\n\r\n")
             .await
             .unwrap();
+        String::from_utf8(data).unwrap()
     });
 
     let good_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let good_endpoint = good_listener.local_addr().unwrap().to_string();
     let good_accept = tokio::spawn(async move {
         let mut requests = Vec::new();
-        for _ in 0..3 {
+        for _ in 0..2 {
             let (mut stream, _) = good_listener.accept().await.unwrap();
             let mut data = Vec::new();
             let mut byte = [0u8; 1];
@@ -800,16 +801,18 @@ async fn proxy_pool_selects_and_caches_first_working_member() {
     let statuses = core.proxy_pool_statuses("pool").unwrap();
     assert_eq!(statuses[0].status, ProxyPoolMemberStatus::Ko);
     assert!(!statuses[0].selected);
-    assert_eq!(statuses[1].status, ProxyPoolMemberStatus::Ok);
+    // Tunnel selection runs no preflight, so the working member stays Untested.
+    assert_eq!(statuses[1].status, ProxyPoolMemberStatus::Untested);
     assert!(statuses[1].selected);
 
     let second = core
         .connect(Destination::host_port("example.com", 443))
         .await;
     assert!(second.is_ok());
-    bad_accept.await.unwrap();
+    let bad_request = bad_accept.await.unwrap();
+    assert!(bad_request.starts_with("CONNECT example.com:443 "));
     let good_requests = good_accept.await.unwrap();
-    assert_eq!(good_requests.len(), 3);
+    assert_eq!(good_requests.len(), 2);
     assert!(good_requests
         .iter()
         .all(|request| request.starts_with("CONNECT example.com:443 ")));
@@ -821,49 +824,42 @@ async fn proxy_pool_fails_over_when_cached_member_stops_accepting_connections() 
     let first_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let first_endpoint = first_listener.local_addr().unwrap().to_string();
     let first_accept = tokio::spawn(async move {
-        let mut requests = Vec::new();
-        for _ in 0..2 {
-            let (mut stream, _) = first_listener.accept().await.unwrap();
-            let mut data = Vec::new();
-            let mut byte = [0u8; 1];
-            loop {
-                stream.read_exact(&mut byte).await.unwrap();
-                data.push(byte[0]);
-                if data.ends_with(b"\r\n\r\n") {
-                    break;
-                }
+        let (mut stream, _) = first_listener.accept().await.unwrap();
+        let mut data = Vec::new();
+        let mut byte = [0u8; 1];
+        loop {
+            stream.read_exact(&mut byte).await.unwrap();
+            data.push(byte[0]);
+            if data.ends_with(b"\r\n\r\n") {
+                break;
             }
-            stream
-                .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
-                .await
-                .unwrap();
-            requests.push(String::from_utf8(data).unwrap());
         }
-        requests
+        stream
+            .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+            .await
+            .unwrap();
+        // Returning drops the listener, so the cached member stops accepting.
+        String::from_utf8(data).unwrap()
     });
 
     let second_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let second_endpoint = second_listener.local_addr().unwrap().to_string();
     let second_accept = tokio::spawn(async move {
-        let mut requests = Vec::new();
-        for _ in 0..2 {
-            let (mut stream, _) = second_listener.accept().await.unwrap();
-            let mut data = Vec::new();
-            let mut byte = [0u8; 1];
-            loop {
-                stream.read_exact(&mut byte).await.unwrap();
-                data.push(byte[0]);
-                if data.ends_with(b"\r\n\r\n") {
-                    break;
-                }
+        let (mut stream, _) = second_listener.accept().await.unwrap();
+        let mut data = Vec::new();
+        let mut byte = [0u8; 1];
+        loop {
+            stream.read_exact(&mut byte).await.unwrap();
+            data.push(byte[0]);
+            if data.ends_with(b"\r\n\r\n") {
+                break;
             }
-            stream
-                .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
-                .await
-                .unwrap();
-            requests.push(String::from_utf8(data).unwrap());
         }
-        requests
+        stream
+            .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+            .await
+            .unwrap();
+        String::from_utf8(data).unwrap()
     });
 
     let core = ArachneaProxyCore::new(ProxyConfig {
@@ -895,7 +891,8 @@ async fn proxy_pool_fails_over_when_cached_member_stops_accepting_connections() 
     assert!(first.is_ok());
     drop(first);
     assert!(core.proxy_pool_statuses("pool").unwrap()[0].selected);
-    first_accept.await.unwrap();
+    let first_request = first_accept.await.unwrap();
+    assert!(first_request.starts_with("CONNECT example.com:443 "));
 
     let second = core
         .connect(Destination::host_port("example.com", 443))
@@ -903,13 +900,13 @@ async fn proxy_pool_fails_over_when_cached_member_stops_accepting_connections() 
     assert!(second.is_ok());
     drop(second);
     let statuses = core.proxy_pool_statuses("pool").unwrap();
-    let second_requests = second_accept.await.unwrap();
+    let second_request = second_accept.await.unwrap();
 
     assert_eq!(statuses[0].status, ProxyPoolMemberStatus::Ko);
     assert!(!statuses[0].selected);
-    assert_eq!(statuses[1].status, ProxyPoolMemberStatus::Ok);
+    // Tunnel selection runs no preflight, so the replacement stays Untested.
     assert!(statuses[1].selected);
-    assert_eq!(second_requests.len(), 2);
+    assert!(second_request.starts_with("CONNECT example.com:443 "));
 }
 
 /// Verifies that a final HTTP proxy pool can relay plain HTTP without CONNECT.
@@ -979,9 +976,10 @@ async fn proxy_pool_final_http_proxy_accepts_absolute_form_http() {
     );
 }
 
-/// Verifies that SOCKS5 pool probing uses the normal DNS fallback behavior.
+/// Verifies that a SOCKS5 pool selection falls back to local DNS resolution
+/// when the proxy rejects domain-form requests.
 #[tokio::test]
-async fn proxy_pool_socks5_probe_uses_dns_fallback() {
+async fn proxy_pool_socks5_selection_uses_dns_fallback() {
     let target = spawn_echo_target_accepting(2).await;
     let proxy_addr = spawn_socks5_proxy_rejecting_domain_requests(3).await;
     let node = ProxyNode::socks5("socks", proxy_addr.to_string())
@@ -1009,8 +1007,9 @@ async fn proxy_pool_socks5_probe_uses_dns_fallback() {
     let statuses = core.proxy_pool_statuses("pool").unwrap();
 
     assert_eq!(&echoed, b"ping");
-    assert_eq!(statuses[0].status, ProxyPoolMemberStatus::Ok);
     assert!(statuses[0].selected);
+    // Tunnel selection runs no preflight, so the member status stays Untested.
+    assert_eq!(statuses[0].status, ProxyPoolMemberStatus::Untested);
 }
 
 /// Verifies that SOCKS5 upstreams use no-auth when no password is defined.

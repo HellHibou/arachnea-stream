@@ -11,7 +11,7 @@ use arachnea_core::{
     application,
     controler::{ApplicationMode, CoreApplicationOptions, ServerNetworkMode, DEFAULT_SERVER_PORT},
     persistence::{
-        CredentialsStore, EncryptedFileCredentialsStore, LegacyFilePersistenceStore, PersistenceStore,
+        CredentialsStore, EncryptedFileCredentialsStore,
     },
 };
 use arachnea_scrapyfy::*;
@@ -379,16 +379,19 @@ async fn main() -> Result<()> {
     };
 
     // Service credentials are persisted in the encrypted store configured here;
-    // the activation overrides live in the shared persistence store.
+    // the activation overrides, Cloudflare sessions and proxy inventory live in
+    // the typed SQLite persistence stores.
     let credentials_store: Arc<dyn CredentialsStore> = Arc::new(EncryptedFileCredentialsStore::new(
         application::get_application_data_path(DEFAULT_ENCRYPTED_FILE_CREDENTIALS_STORE_PATH),
         DEFAULT_SERVER_CREDENTIALS_KEY,
     ));
-    let persistence_store: Arc<dyn PersistenceStore> =
-        Arc::new(LegacyFilePersistenceStore::default_data_dir());
+    let stores =
+        arachnea_stream::stream_scraper::sqlite_application_stores(&application::get_application_data_path(
+            "",
+        ))?;
 
     let mut build_options =
-        StreamScraperBuildOptions::new(credentials_store, persistence_store);
+        StreamScraperBuildOptions::new(credentials_store, stores);
     if options.cache_max_disk_bytes.is_some() || options.cache_max_memory_bytes.is_some() {
         let mut cache_config = ScraperCacheConfig::default();
         if let Some(bytes) = options.cache_max_disk_bytes {

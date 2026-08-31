@@ -63,6 +63,8 @@
 
 /// Reusable browser session management and in-page HTTP fetch execution.
 pub mod browser;
+/// Typed persistent Cloudflare session entity shared across engines.
+pub mod chaser_session;
 /// Main client facade, request builder, and response types.
 pub mod client;
 /// Cloudflare block detection and cookie state helpers.

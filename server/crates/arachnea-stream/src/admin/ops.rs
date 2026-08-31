@@ -365,24 +365,15 @@ pub(crate) async fn op_services(
     )
     .map_err(admin_err)?;
 
-    let transaction = state
-        .persistence_store()
-        .transaction(crate::stream_scraper::STREAM_SERVICES_STORE_NAME)
-        .await
-        .map_err(admin_err)?;
-
+    let policy = state.activation_policy();
     let requested_lang = input.lang.as_deref();
     let mut services = Vec::with_capacity(catalog.entries.len());
     for entry in catalog.entries {
         let id = entry.source.id.clone();
-        let record = transaction
-            .get(&id)
-            .await
-            .map_err(admin_err)?;
-        let has_override = record.is_some();
-        let enabled = record
-            .and_then(|record| record.fields)
-            .and_then(|fields| fields.get("enabled").and_then(serde_json::Value::as_bool))
+        let override_value = policy.override_for(&id).await.map_err(admin_err)?;
+        let has_override = override_value.is_some();
+        let enabled = override_value
+            .map(|record| record.enabled)
             .unwrap_or(entry.source.default_enabled);
 
         services.push(AdminServiceEntry {

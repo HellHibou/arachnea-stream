@@ -2,7 +2,7 @@
 
 **Date** : 31/08/2026
 
-**Statut** : phases 0 à 3 terminées — prête pour l’implémentation de la phase 4 (bascule applicative).
+**Statut** : phases 0 à 4 terminées — prête pour la validation de la phase 5.
 
 ## Avancement
 
@@ -12,7 +12,7 @@
 | 1 — socle typé | Terminée | Contrats de schéma, stores typés mémoire/fichier et validation ajoutés. |
 | 2 — repositories | Terminée | Proxys, sessions Cloudflare et activations de sources migrés hors de `PersistedRecord`. |
 | 3 — SQLite | Terminée | Backend SQLite, métadonnées, évolution de schéma et requêtes SQL implémentés derrière la feature `sqlite-persistence`. |
-| 4 — bascule | À faire | Composition SQLite applicative et suppression des adaptateurs legacy. |
+| 4 — bascule | Terminée | Composition SQLite applicative, injection des repositories et suppression des adaptateurs et types legacy. |
 | 5 — validation | À faire | Couverture des backends et de l’évolution de schéma. |
 
 ## Décision
@@ -271,12 +271,23 @@ Le coût d’écriture augmente avec chaque index, quel que soit le format. Les 
 
 ### Phase 4 — bascule applicative et nettoyage
 
-**⏳ À faire.** L’application reste composée autour des stores legacy au travers de l’adaptateur typé transitoire ; aucune donnée JSON existante ne sera migrée.
+**✅ Phase implémentée.** Tous les consommateurs applicatifs sont migrés sur les stores typés ; aucune donnée JSON existante n’a été migrée.
 
-1. Construire le store applicatif explicitement nommé avec les schémas initiaux dans `arachnea-stream`.
-2. Injecter les repositories SQLite dans l’inventaire de proxys, Chaser-CF et les activations de sources.
-3. Conserver les backends fichier et mémoire comme implémentations compatibles pour les constructeurs de compatibilité et les tests.
-4. Retirer `PersistedRecord`, `PersistenceKey`, `PersistenceTransaction`, `PersistenceBackend`, `record_matches_filters` et les adaptateurs temporaires uniquement après migration de tous les consommateurs.
+1. ✅ `arachnea-stream` construit explicitement les trois stores SQLite nommés (`proxy-inventory`, `cloudflare-session`, `arachnea-services`) via `sqlite_application_stores`, ou des stores mémoire via `memory_application_stores`.
+2. ✅ Les repositories SQLite sont injectés : `ScraperAgregator` reçoit un store proxy et un store session, `StreamScraper`/`AdminState` construisent la policy d’activation sur le store `arachnea-services`. `CloudflareSessionRepository`, `ProxyRepository` et `SourceEnabledRepository` ne passent plus par l’adaptateur legacy. `CachedChaserSession` est déplacé dans `arachnea-http::chaser_session` pour rester disponible sans la feature `chaser-cf`.
+3. ✅ Les backends typés fichier et mémoire restent exposés (`FilePersistenceStore`, `MemoryPersistenceStore`) pour les constructeurs de compatibilité et les tests.
+4. ✅ `PersistedRecord`, `PersistenceKey`, `PersistenceTransaction`, `PersistenceBackend`, `record_matches_filters`, `LegacyTypedEntityStore`, `LegacyMemoryPersistenceStore` et `LegacyFilePersistenceStore` (ainsi que les modules `store.rs`, `memory_store.rs`, `file_store.rs`) ont été retirés après une recherche globale confirmant l’absence d’import restant. `op_services` lit désormais les activations via `PersistenceSourceEnabled::override_for` au lieu du `PersistenceTransaction` legacy.
+
+Résultats obtenus
+cargo check --workspace : passe sans erreur ni warning.
+Tests arachnea-core (SQLite) : 11 ✓ — Tests arachnea-http (chaser-cf) : 39 ✓ — Tests arachnea-stream : 13 ✓ (vu précédemment).
+
+Validation finale (phase 4 clôturée)
+1. ✅ cargo test -p arachnea-proxy --lib : 66/66 tests passent (suite terminée en ~2 s, plus aucun blocage). Les 3 tests de pool obsolètes (`proxy_pool_selects_and_caches_first_working_member`, `proxy_pool_socks5_probe_uses_dns_fallback` renommé `proxy_pool_socks5_selection_uses_dns_fallback`, `proxy_pool_fails_over_when_cached_member_stops_accepting_connections`) ont été alignés sur le comportement actuel du mode Tunnel : sélection sans préflight (statut `Untested` tant qu'aucun préflight HTTP ne s'applique), marquage `Ko` du membre en échec au niveau `connect_request`, basculement vers le membre suivant, et chorégraphie de serveurs factices sans interblocage (le membre défaillant cesse d'accepter à la fin de sa tâche d'écoute).
+2. ✅ cargo fmt --check : aucun diff de formatage sur les fichiers touchés par la phase 4 (croisement vérifié entre la liste des fichiers du commit et les diffs de formatage ; les 28 fichiers en diff sont préexistants et hors périmètre).
+3. ✅ docs/TODO.md mis à jour : les entrées « Server/Proxy » liées à l'ancien backend PersistenceStore/fichier JSON sont marquées réalisées ou reformulées pour SQLite.
+4. ✅ Warning private_interfaces sur SqlKey apuré sans #[allow] : from_sql retourne désormais le type public rusqlite::types::Value (normalisé), la conversion vers StoredValue est faite en interne par stored_from_key_sql, et le trait est pub avec #[doc(hidden)] car il n'est pas destiné aux domaines.
+
 
 ### Phase 5 — validation
 

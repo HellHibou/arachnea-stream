@@ -10,7 +10,11 @@ use std::sync::{Arc, LazyLock};
 
 use arachnea_core::controler::{RequestControlerContext, HEADER_IF_NONE_MATCH};
 use arachnea_core::error_code::ErrorCodeGenerator;
-use arachnea_core::persistence::{LegacyMemoryPersistenceStore, PersistenceStore};
+use arachnea_core::persistence::TypedEntityStore;
+use arachnea_http::chaser_session::{memory_session_store, CachedChaserSession};
+
+#[cfg(feature = "arachnea-proxy")]
+use arachnea_proxy::core::proxy_repository::memory_proxy_store;
 use scraper_result::{
     ScraperAggregationResult, ScraperErrorOrigin, ScraperExecutionError, ScraperSourceStatus,
     ScraperSourceValidation,
@@ -21,7 +25,7 @@ static ERROR_CODE_GEN: LazyLock<ErrorCodeGenerator> = LazyLock::new(ErrorCodeGen
 use super::*;
 
 #[cfg(feature = "arachnea-proxy")]
-use arachnea_proxy::core::ArachneaProxyCore;
+use arachnea_proxy::core::{ArachneaProxyCore, ProxyRecord};
 
 /// Runtime parameters grouped by source name for one aggregated query execution.
 pub type ScraperSourceParams = HashMap<String, HashMap<String, String>>;
@@ -70,7 +74,11 @@ pub struct ScraperAgregator {
     queries_collection: HashMap<String, Vec<ScraperQueryCollection>>,
     proxy_handle: SharedProxyConfigHandle,
     local_country: SharedLocalCountry,
-    persistence_store: Arc<dyn PersistenceStore>,
+    /// Typed store backing the dynamic proxy inventory cache.
+    #[cfg(feature = "arachnea-proxy")]
+    proxy_store: Arc<dyn TypedEntityStore<ProxyRecord>>,
+    /// Typed store backing the Cloudflare session cache of created HTTP clients.
+    session_store: Arc<dyn TypedEntityStore<CachedChaserSession>>,
     source_enabled: Option<Arc<dyn ScraperSourceEnabled>>,
     server_cache: Arc<ScraperServerCache>,
     #[cfg(feature = "arachnea-proxy")]
@@ -84,16 +92,25 @@ impl ScraperAgregator {
     /// and tries to create a dynamic proxy core backed by the scrapyfy proxy
     /// provider for country-based routing.
     pub fn new() -> Self {
-        Self::new_with_persistence_store(Arc::new(LegacyMemoryPersistenceStore::new()))
+        Self::new_with_typed_stores(
+            memory_proxy_store().expect("in-memory proxy store is valid"),
+            memory_session_store().expect("in-memory Cloudflare session store is valid"),
+        )
     }
 
-    /// Creates an empty aggregator with default proxy setup and a shared
-    /// persistence store.
+    /// Creates an empty aggregator with default proxy setup and typed stores.
     ///
     /// # Arguments
     ///
-    /// * `persistence_store` - Shared persistence store used by created HTTP clients.
-    pub fn new_with_persistence_store(persistence_store: Arc<dyn PersistenceStore>) -> Self {
+    /// * `proxy_store` - Typed store used as the dynamic proxy inventory cache.
+    /// * `session_store` - Typed store used as the Cloudflare session cache of
+    ///   created HTTP clients.
+    pub fn new_with_typed_stores(
+        #[cfg(feature = "arachnea-proxy")] proxy_store: Arc<
+            dyn TypedEntityStore<ProxyRecord>,
+        >,
+        session_store: Arc<dyn TypedEntityStore<CachedChaserSession>>,
+    ) -> Self {
         let proxy_handle = SharedProxyConfigHandle::new();
 
         #[cfg(feature = "arachnea-proxy")]
@@ -110,7 +127,9 @@ impl ScraperAgregator {
             queries_collection: HashMap::new(),
             proxy_handle,
             local_country: SharedLocalCountry::new(),
-            persistence_store,
+            #[cfg(feature = "arachnea-proxy")]
+            proxy_store,
+            session_store,
             source_enabled: None,
             server_cache: Arc::new(ScraperServerCache::new(ScraperCacheConfig::default())),
             #[cfg(feature = "arachnea-proxy")]
@@ -128,7 +147,7 @@ impl ScraperAgregator {
         // The shared persistence store serves both the HTTP clients (cookies,
         // Cloudflare sessions) and the proxy inventory cache; namespaces keep
         // the data families isolated.
-        match default_scrapyfy_proxy_core(unsafe { &mut *ptr }, self.persistence_store.clone()) {
+        match default_scrapyfy_proxy_core(unsafe { &mut *ptr }, self.proxy_store.clone()) {
             Ok(core) => {
                 tracing::info!(
                     "Dynamic proxy core created with scrapyfy provider for country routing"
@@ -151,14 +170,15 @@ impl ScraperAgregator {
     /// This constructor does not attempt any default proxy setup. Use it when
     /// the caller wants full control over the proxy configuration.
     pub fn new_with_proxy_handle(proxy_handle: SharedProxyConfigHandle) -> Self {
-        Self::new_with_proxy_handle_and_persistence_store(
+        Self::new_with_proxy_handle_and_typed_stores(
             proxy_handle,
-            Arc::new(LegacyMemoryPersistenceStore::new()),
+            memory_proxy_store().expect("in-memory proxy store is valid"),
+            memory_session_store().expect("in-memory Cloudflare session store is valid"),
         )
     }
 
-    /// Creates an empty aggregator bound to one shared proxy handle and a
-    /// shared persistence store.
+    /// Creates an empty aggregator bound to one shared proxy handle and typed
+    /// stores.
     ///
     /// This constructor does not attempt any default proxy setup. Use it when
     /// the caller wants full control over the proxy configuration.
@@ -166,16 +186,23 @@ impl ScraperAgregator {
     /// # Arguments
     ///
     /// * `proxy_handle` - Shared proxy handle used by this aggregator.
-    /// * `persistence_store` - Shared persistence store used by created HTTP clients.
-    pub fn new_with_proxy_handle_and_persistence_store(
+    /// * `proxy_store` - Typed store used as the dynamic proxy inventory cache.
+    /// * `session_store` - Typed store used as the Cloudflare session cache of
+    ///   created HTTP clients.
+    pub fn new_with_proxy_handle_and_typed_stores(
         proxy_handle: SharedProxyConfigHandle,
-        persistence_store: Arc<dyn PersistenceStore>,
+        #[cfg(feature = "arachnea-proxy")] proxy_store: Arc<
+            dyn TypedEntityStore<ProxyRecord>,
+        >,
+        session_store: Arc<dyn TypedEntityStore<CachedChaserSession>>,
     ) -> Self {
         ScraperAgregator {
             queries_collection: HashMap::new(),
             proxy_handle,
             local_country: SharedLocalCountry::new(),
-            persistence_store,
+            #[cfg(feature = "arachnea-proxy")]
+            proxy_store,
+            session_store,
             source_enabled: None,
             server_cache: Arc::new(ScraperServerCache::new(ScraperCacheConfig::default())),
             #[cfg(feature = "arachnea-proxy")]
@@ -285,19 +312,19 @@ impl ScraperAgregator {
         if let Some(proxy_core) = &self.proxy_core {
             let handle = SharedProxyConfigHandle::new();
             handle.set_proxy(HttpProxyConfig::Arachnea(proxy_core.clone()));
-            return HttpClient::with_http_config_proxy_handle_and_local_country_and_persistence_store(
+            return HttpClient::with_http_config_proxy_handle_and_local_country_and_session_store(
                 http_config,
                 handle,
                 self.local_country.clone(),
-                self.persistence_store.clone(),
+                self.session_store.clone(),
             );
         }
 
-        HttpClient::with_http_config_proxy_handle_and_local_country_and_persistence_store(
+        HttpClient::with_http_config_proxy_handle_and_local_country_and_session_store(
             http_config,
             self.proxy_handle.clone(),
             self.local_country.clone(),
-            self.persistence_store.clone(),
+            self.session_store.clone(),
         )
     }
 
@@ -460,10 +487,10 @@ impl ScraperAgregator {
                 )
             })?;
             collection.set_yaml_hash(source_yaml_hash);
-            collection.set_runtime_handles_with_persistence_store(
+            collection.set_runtime_handles_with_session_store(
                 self.proxy_handle.clone(),
                 self.local_country.clone(),
-                self.persistence_store.clone(),
+                self.session_store.clone(),
             );
 
             collections.push(collection);
@@ -519,10 +546,10 @@ impl ScraperAgregator {
             let mut collection =
                 ScraperQueryCollection::from_file_with(path, |reader| parse(reader))?;
             collection.set_yaml_hash(source_yaml_hash);
-            collection.set_runtime_handles_with_persistence_store(
+            collection.set_runtime_handles_with_session_store(
                 self.proxy_handle.clone(),
                 self.local_country.clone(),
-                self.persistence_store.clone(),
+                self.session_store.clone(),
             );
             collections.push(collection);
         }

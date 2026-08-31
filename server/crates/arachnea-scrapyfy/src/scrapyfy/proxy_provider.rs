@@ -4,7 +4,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use arachnea_core::controler::RequestControlerContext;
-use arachnea_core::persistence::PersistenceStore;
+use arachnea_core::persistence::TypedEntityStore;
 use arachnea_proxy::core::{
     ArachneaProxyCore, InventoryConfig, IpCountryResolver, IpCountryResolverConfig,
     ParameterHandlerConfig, ParameterHandlerKind, ProbeConfig, ProxyAvailabilityHint, ProxyChain,
@@ -314,7 +314,7 @@ pub fn default_scrapyfy_ip_country_resolver(
 /// * `persistence_store` - Shared persistence store used as the proxy cache.
 pub fn default_scrapyfy_proxy_inventory(
     scraper_agregator: &mut ScraperAgregator,
-    persistence_store: Arc<dyn PersistenceStore>,
+    proxy_store: Arc<dyn TypedEntityStore<ProxyRecord>>,
 ) -> ProxyInventory {
     let probe_config = ProbeConfig {
         https_probe_url: Some("https://example.com/".to_string()),
@@ -328,8 +328,7 @@ pub fn default_scrapyfy_proxy_inventory(
     )
     .with_ip_country_resolver(Arc::new(resolver))
     .with_proxy_repository(Arc::new(
-        arachnea_proxy::TypedProxyRepository::from_legacy_store(persistence_store)
-            .expect("proxy persistence schema is valid"),
+        arachnea_proxy::TypedProxyRepository::new(proxy_store),
     ))
 }
 
@@ -355,9 +354,9 @@ pub fn default_scrapyfy_proxy_inventory(
 /// Returns an error when proxy configuration validation fails.
 pub fn default_scrapyfy_proxy_core(
     scraper_agregator: &mut ScraperAgregator,
-    persistence_store: Arc<dyn PersistenceStore>,
+    proxy_store: Arc<dyn TypedEntityStore<ProxyRecord>>,
 ) -> Result<ArachneaProxyCore> {
-    let inventory = default_scrapyfy_proxy_inventory(scraper_agregator, persistence_store);
+    let inventory = default_scrapyfy_proxy_inventory(scraper_agregator, proxy_store);
     let proxy_config = ProxyConfig {
         profile: ProxyProfile::Advanced,
         chains: vec![ProxyChain::direct()],

@@ -1,7 +1,7 @@
 use anyhow::{bail, Result};
 use const_format::concatcp;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use urlencoding::encode;
 
 use arachnea_core::{
@@ -9,9 +9,13 @@ use arachnea_core::{
         ControlerService, ControlerStreamInput, ControlerStreamOutput, RequestControlerContext,
         ResponseBody,
     },
-    persistence::{CredentialsStore, FileCredentialsStore, LegacyFilePersistenceStore, PersistenceStore},
+    persistence::{
+        CredentialsStore, FileCredentialsStore, MemoryEntityStore, PersistenceStoreConfig,
+        PersistentEntity, SqliteEntityStore, TypedEntityStore,
+    },
 };
-use arachnea_proxy::core::{ArachneaProxyCore, ProxyConfig};
+use arachnea_http::chaser_session::{CLOUDFLARE_SESSION_STORE_NAME, CachedChaserSession};
+use arachnea_proxy::core::{ArachneaProxyCore, ProxyConfig, ProxyRecord};
 use arachnea_scrapyfy::{scraper_result::ScraperAggregationResult, *};
 
 use crate::reloadable_stream_scraper::ReloadableStreamScraper;
@@ -32,6 +36,81 @@ use crate::stream_resolver::{
 pub const STREAM_SERVICE_GROUP_NAME: &str = "arachnea-stream";
 /// Persistence namespace containing administrator service activation overrides.
 pub const STREAM_SERVICES_STORE_NAME: &str = "arachnea-services";
+/// Root directory, relative to the application data directory, of the SQLite
+/// persistence stores.
+pub const PERSISTENCE_DATA_ROOT: &str = "data/persistence";
+
+/// Typed persistence stores composing the application backends.
+///
+/// Each store owns exactly one entity schema and one SQLite database; the
+/// in-memory variant is used by compatibility constructors and tests.
+#[derive(Clone)]
+pub struct ApplicationStores {
+    /// Dynamic proxy inventory cache (`proxy-inventory`).
+    pub proxy_inventory: Arc<dyn TypedEntityStore<ProxyRecord>>,
+    /// Cached Cloudflare sessions (`cloudflare-session`).
+    pub cloudflare_session: Arc<dyn TypedEntityStore<CachedChaserSession>>,
+    /// Administrator service activation overrides (`arachnea-services`).
+    pub source_enabled: Arc<dyn TypedEntityStore<SourceEnabledOverride>>,
+}
+
+/// Opens the application SQLite stores under `application_data_path`.
+///
+/// Each store lives in its own `<root>/<store-name>/records.sqlite3` database;
+/// missing columns and indexes are reconciled at open time.
+///
+/// # Errors
+///
+/// Returns an error when a database cannot be opened or its physical schema is
+/// incompatible with the declared entity schema.
+pub fn sqlite_application_stores(application_data_path: impl Into<PathBuf>) -> Result<ApplicationStores> {
+    let root = application_data_path.into().join(PERSISTENCE_DATA_ROOT);
+    Ok(ApplicationStores {
+        proxy_inventory: Arc::new(SqliteEntityStore::new(
+            PersistenceStoreConfig::new("proxy-inventory", ProxyRecord::schema())?,
+            &root,
+        )?),
+        cloudflare_session: Arc::new(SqliteEntityStore::new(
+            PersistenceStoreConfig::new(
+                CLOUDFLARE_SESSION_STORE_NAME,
+                CachedChaserSession::schema(),
+            )?,
+            &root,
+        )?),
+        source_enabled: Arc::new(SqliteEntityStore::new(
+            PersistenceStoreConfig::new(
+                STREAM_SERVICES_STORE_NAME,
+                SourceEnabledOverride::schema(),
+            )?,
+            &root,
+        )?),
+    })
+}
+
+/// Builds the in-memory application stores used by compatibility constructors.
+///
+/// # Errors
+///
+/// Returns an error when a store configuration is invalid.
+pub fn memory_application_stores() -> Result<ApplicationStores> {
+    Ok(ApplicationStores {
+        proxy_inventory: Arc::new(MemoryEntityStore::new(
+            PersistenceStoreConfig::new("proxy-inventory", ProxyRecord::schema())?,
+        )?),
+        cloudflare_session: Arc::new(MemoryEntityStore::new(
+            PersistenceStoreConfig::new(
+                CLOUDFLARE_SESSION_STORE_NAME,
+                CachedChaserSession::schema(),
+            )?,
+        )?),
+        source_enabled: Arc::new(MemoryEntityStore::new(
+            PersistenceStoreConfig::new(
+                STREAM_SERVICES_STORE_NAME,
+                SourceEnabledOverride::schema(),
+            )?,
+        )?),
+    })
+}
 
 /// Default path used by the services
 pub const DEFAULT_SERVICES_CONFIG_PATH: &str = concatcp!(
@@ -52,17 +131,17 @@ static FRANCETV_RESOLVER: FrancetvResolver = FrancetvResolver;
 
 /// Creates missing persistent service states without changing existing choices.
 async fn synchronize_service_defaults_async(
-    store: Arc<dyn PersistenceStore>,
+    store: Arc<dyn TypedEntityStore<SourceEnabledOverride>>,
     sources: Vec<ScraperSourceDescriptor>,
 ) -> Result<()> {
-    PersistenceSourceEnabled::new(store, STREAM_SERVICES_STORE_NAME)
+    PersistenceSourceEnabled::with_typed_store(store)
         .register_defaults(&sources)
         .await
 }
 
 /// Blocking variant of [`synchronize_service_defaults_async`] for synchronous callers.
 fn synchronize_service_defaults(
-    store: Arc<dyn PersistenceStore>,
+    store: Arc<dyn TypedEntityStore<SourceEnabledOverride>>,
     sources: Vec<ScraperSourceDescriptor>,
 ) -> Result<()> {
     std::thread::spawn(move || {
@@ -170,7 +249,7 @@ pub(crate) struct GetPlayersRequest {
 pub struct StreamScraper {
     pub(crate) scraper_agregator: Box<ScraperAgregator>,
     pub(crate) credentials_store: Arc<dyn CredentialsStore>,
-    pub(crate) persistence_store: Arc<dyn PersistenceStore>,
+    pub(crate) stores: ApplicationStores,
     proxy_handle: SharedProxyConfigHandle,
     pub(crate) proxy_http_core: Option<ArachneaProxyCore>,
     pub(crate) player_resolver_endpoints: PlayerResolverEndpoints,
@@ -185,8 +264,9 @@ pub struct StreamScraperBuildOptions {
     pub services_config_path: String,
     /// Shared credentials persistence used by service resolvers.
     pub credentials_store: Arc<dyn CredentialsStore>,
-    /// Shared persistence store used by activation overrides and HTTP clients.
-    pub persistence_store: Arc<dyn PersistenceStore>,
+    /// Typed persistence stores used by activation overrides, HTTP clients, and
+    /// the proxy inventory.
+    pub stores: ApplicationStores,
     /// Optional server cache sizing applied after loading the sources.
     pub cache_config: Option<ScraperCacheConfig>,
     /// Optional explicit local country used for geo proxy decisions.
@@ -198,15 +278,12 @@ impl StreamScraperBuildOptions {
     ///
     /// # Arguments
     /// * `credentials_store` - Shared credentials persistence used by service resolvers.
-    /// * `persistence_store` - Shared persistence store used by activation overrides.
-    pub fn new(
-        credentials_store: Arc<dyn CredentialsStore>,
-        persistence_store: Arc<dyn PersistenceStore>,
-    ) -> Self {
+    /// * `stores` - Typed persistence stores shared by the application.
+    pub fn new(credentials_store: Arc<dyn CredentialsStore>, stores: ApplicationStores) -> Self {
         Self {
             services_config_path: DEFAULT_SERVICES_CONFIG_PATH.to_string(),
             credentials_store,
-            persistence_store,
+            stores,
             cache_config: None,
             current_country: None,
         }
@@ -252,19 +329,20 @@ impl StreamScraper {
     /// Returns an error if the configuration file cannot be loaded or parsed.
     #[allow(clippy::too_many_arguments)]
     pub fn new(credentials_store: Arc<dyn CredentialsStore>) -> Self {
-        Self::new_with_persistence_store(
+        Self::new_with_typed_stores(
             credentials_store,
-            Arc::new(LegacyFilePersistenceStore::default_data_dir()),
+            memory_application_stores().expect("in-memory application stores are valid"),
         )
     }
 
     /// Creates a scraper facade backed by the provided credentials store and
-    /// a shared persistence store.
+    /// typed persistence stores.
     ///
     /// # Arguments
     ///
     /// * `credentials_store` - Shared credentials persistence used by service resolvers.
-    /// * `persistence_store` - Shared persistence store used by created HTTP clients.
+    /// * `stores` - Typed persistence stores used by activation overrides, HTTP
+    ///   clients, and the proxy inventory.
     ///
     /// # Returns
     ///
@@ -274,16 +352,16 @@ impl StreamScraper {
     ///
     /// Returns an error if the configuration file cannot be loaded or parsed.
     #[allow(clippy::too_many_arguments)]
-    pub fn new_with_persistence_store(
+    pub fn new_with_typed_stores(
         credentials_store: Arc<dyn CredentialsStore>,
-        persistence_store: Arc<dyn PersistenceStore>,
+        stores: ApplicationStores,
     ) -> Self {
-        let mut agregator = Box::new(ScraperAgregator::new_with_persistence_store(
-            persistence_store.clone(),
+        let mut agregator = Box::new(ScraperAgregator::new_with_typed_stores(
+            Arc::clone(&stores.proxy_inventory),
+            Arc::clone(&stores.cloudflare_session),
         ));
-        agregator.set_source_enabled(Arc::new(PersistenceSourceEnabled::new(
-            persistence_store.clone(),
-            STREAM_SERVICES_STORE_NAME,
+        agregator.set_source_enabled(Arc::new(PersistenceSourceEnabled::with_typed_store(
+            Arc::clone(&stores.source_enabled),
         )));
         agregator.ensure_proxy_core();
         let proxy_handle = agregator.get_proxy_handle();
@@ -292,7 +370,7 @@ impl StreamScraper {
         StreamScraper {
             scraper_agregator: agregator,
             credentials_store,
-            persistence_store,
+            stores,
             proxy_handle,
             proxy_http_core,
             player_resolver_endpoints: PlayerResolverEndpoints::default(),
@@ -316,14 +394,14 @@ impl StreamScraper {
     /// Returns an error when the catalog or one of the source files cannot be
     /// loaded or parsed, or when service-state synchronization fails.
     pub fn from_options(options: &StreamScraperBuildOptions) -> Result<Self> {
-        let mut instance = Self::new_with_persistence_store(
+        let mut instance = Self::new_with_typed_stores(
             Arc::clone(&options.credentials_store),
-            Arc::clone(&options.persistence_store),
+            options.stores.clone(),
         );
         let services_path = options.services_config_path.as_str();
         let catalog = load_service_catalog(services_path)?;
         synchronize_service_defaults(
-            Arc::clone(&instance.persistence_store),
+            Arc::clone(&instance.stores.source_enabled),
             catalog.iter().map(|entry| entry.source.clone()).collect(),
         )?;
 
@@ -349,15 +427,21 @@ impl StreamScraper {
 
     /// Creates a instance of the scraper facade using a file-based credentials store and the default services configuration.
     ///
+    /// The typed persistence stores are SQLite databases under the default
+    /// application data directory.
+    ///
     /// # Returns
     /// A configured scraper facade with default configuration.
     ///
     /// # Errors
-    /// Returns an error if the default configuration file cannot be loaded or parsed.
+    /// Returns an error if the default configuration file cannot be loaded or
+    /// parsed, or if the persistence stores cannot be opened.
     pub fn from_json(json_path: Option<&str>) -> Result<Self> {
         let options = StreamScraperBuildOptions::new(
             FileCredentialsStore::default().as_arc(),
-            Arc::new(LegacyFilePersistenceStore::default_data_dir()),
+            sqlite_application_stores(&arachnea_core::application::get_application_data_path(
+                "",
+            ))?,
         )
         .with_services_config_path(json_path.unwrap_or(DEFAULT_SERVICES_CONFIG_PATH));
         Self::from_options(&options)
@@ -1322,7 +1406,7 @@ impl ScraperManager for StreamScraper {
         let options = StreamScraperBuildOptions {
             services_config_path: DEFAULT_SERVICES_CONFIG_PATH.to_string(),
             credentials_store: Arc::clone(&self.credentials_store),
-            persistence_store: Arc::clone(&self.persistence_store),
+            stores: self.stores.clone(),
             cache_config: None,
             current_country: None,
         };

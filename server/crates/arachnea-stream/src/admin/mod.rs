@@ -18,12 +18,11 @@ use arachnea_core::controler::{
     deserialize_input, ControlerJsonInput, ControlerJsonOutput, ControlerService,
     JsonControlerFunction, RequestControlerContext,
 };
-use arachnea_core::persistence::{CredentialsStore, PersistenceStore};
-use arachnea_scrapyfy::PersistenceSourceEnabled;
+use arachnea_core::persistence::{CredentialsStore, TypedEntityStore};
+use arachnea_scrapyfy::{PersistenceSourceEnabled, SourceEnabledOverride};
 
 use crate::configuration::ApplicationConfiguration;
 use crate::reloadable_stream_scraper::ReloadableStreamScraper;
-use crate::stream_scraper::STREAM_SERVICES_STORE_NAME;
 
 use auth::{LoginRateLimiter, SessionStore};
 use dto::SettingSource;
@@ -138,9 +137,11 @@ impl AdminState {
         &self.login_limiter
     }
 
-    /// Returns the shared persistence store used for activation overrides.
-    pub(crate) fn persistence_store(&self) -> Arc<dyn PersistenceStore> {
-        self.reloadable.persistence_store()
+    /// Returns the typed store used for activation overrides.
+    pub(crate) fn source_enabled_store(
+        &self,
+    ) -> Arc<dyn TypedEntityStore<SourceEnabledOverride>> {
+        self.reloadable.source_enabled_store()
     }
 
     /// Returns the shared encrypted credentials store.
@@ -155,7 +156,7 @@ impl AdminState {
 
     /// Builds the persistent activation policy over the services namespace.
     pub(crate) fn activation_policy(&self) -> PersistenceSourceEnabled {
-        PersistenceSourceEnabled::new(self.persistence_store(), STREAM_SERVICES_STORE_NAME)
+        PersistenceSourceEnabled::with_typed_store(self.source_enabled_store())
     }
 }
 

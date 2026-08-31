@@ -2,7 +2,8 @@ use std::any::Any;
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
-use arachnea_core::persistence::PersistenceStore;
+use arachnea_core::persistence::TypedEntityStore;
+use arachnea_http::chaser_session::{memory_session_store, CachedChaserSession};
 use serde::{Deserialize, Serialize, Serializer};
 use serde_yaml::Value;
 use std::collections::HashMap;
@@ -190,27 +191,27 @@ impl StaticScraperQuery {
         proxy_handle: SharedProxyConfigHandle,
         local_country: SharedLocalCountry,
     ) {
-        self.set_runtime_handles_with_persistence_store(
+        self.set_runtime_handles_with_session_store(
             proxy_handle,
             local_country,
-            Arc::new(arachnea_core::persistence::LegacyMemoryPersistenceStore::new()),
+            memory_session_store().expect("in-memory Cloudflare session store is valid"),
         );
     }
 
     /// Rebinds the placeholder HTTP client to shared runtime handles and a
     /// persistence store.
-    pub(crate) fn set_runtime_handles_with_persistence_store(
+    pub(crate) fn set_runtime_handles_with_session_store(
         &mut self,
         proxy_handle: SharedProxyConfigHandle,
         local_country: SharedLocalCountry,
-        persistence_store: Arc<dyn PersistenceStore>,
+        session_store: Arc<dyn TypedEntityStore<CachedChaserSession>>,
     ) {
         self.http_client =
-            HttpClient::with_http_config_proxy_handle_and_local_country_and_persistence_store(
+            HttpClient::with_http_config_proxy_handle_and_local_country_and_session_store(
                 self.http_config.clone(),
                 proxy_handle,
                 local_country,
-                persistence_store,
+                session_store,
             );
     }
 

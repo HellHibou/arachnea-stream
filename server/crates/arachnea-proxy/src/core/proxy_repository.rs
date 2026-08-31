@@ -7,8 +7,8 @@ use std::{
 
 use anyhow::Result;
 use arachnea_core::persistence::{
-    EntityQuery, EntityReader, EntitySchema, EntityWriter, Field, LegacyTypedEntityStore,
-    PersistenceStore, PersistenceStoreConfig, PersistentEntity, TypedEntityStore,
+    EntityQuery, EntityReader, EntitySchema, EntityWriter, Field, MemoryEntityStore,
+    PersistenceStoreConfig, PersistentEntity, TypedEntityStore,
 };
 use async_trait::async_trait;
 
@@ -39,13 +39,12 @@ impl TypedProxyRepository {
     pub fn new(store: Arc<dyn TypedEntityStore<ProxyRecord>>) -> Self {
         Self { store }
     }
-    /// Creates a transitional repository over a legacy namespace store.
-    pub fn from_legacy_store(store: Arc<dyn PersistenceStore>) -> Result<Self> {
-        let config = PersistenceStoreConfig::new(PROXY_STORE_NAME, ProxyRecord::schema())?;
-        Ok(Self::new(Arc::new(LegacyTypedEntityStore::new(
-            store, config,
-        )?)))
-    }
+}
+
+/// Creates an in-memory typed proxy store used by compatibility constructors.
+pub fn memory_proxy_store() -> Result<Arc<dyn TypedEntityStore<ProxyRecord>>> {
+    let config = PersistenceStoreConfig::new(PROXY_STORE_NAME, ProxyRecord::schema())?;
+    Ok(Arc::new(MemoryEntityStore::<ProxyRecord>::new(config)?))
 }
 #[async_trait]
 impl ProxyRepository for TypedProxyRepository {

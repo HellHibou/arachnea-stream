@@ -1113,6 +1113,21 @@ nullable, managed indexes are created or dropped, and any type, primary-key or
 unmanaged-object conflict fails with a contextualized error. `EntityReader`
 additionally supports optional field reads for nullable schema fields.
 
+## Unreleased — SQLite application wiring and legacy cleanup
+
+`arachnea-stream` now composes the application around explicitly named typed
+stores (`proxy-inventory`, `cloudflare-session`, `arachnea-services`) backed by
+SQLite by default (`sqlite_application_stores`, under
+`data/persistence/<store>/records.sqlite3`) or by in-memory stores for tests
+(`memory_application_stores`). `ScraperAgregator`, `StreamScraper` and the admin
+API inject repositories directly instead of the transitional legacy adapter,
+and `CachedChaserSession` moved to `arachnea-http::chaser_session` so it stays
+available without the `chaser-cf` feature. The deprecated map-based contract was
+removed entirely: `PersistedRecord`, `PersistenceKey`, `PersistenceTransaction`,
+`PersistenceBackend`, `record_matches_filters`, `LegacyTypedEntityStore`,
+`LegacyMemoryPersistenceStore` and `LegacyFilePersistenceStore` are gone, along
+with their modules. No existing JSON data is migrated; SQLite starts empty.
+
 ## Unreleased — typed persistence foundation
 
 `arachnea-core::persistence` now exposes the schema-declared typed-store

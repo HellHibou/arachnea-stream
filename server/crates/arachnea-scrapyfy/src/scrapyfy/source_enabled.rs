@@ -2,8 +2,7 @@
 
 use anyhow::{Context, Result};
 use arachnea_core::persistence::{
-    EntityReader, EntitySchema, EntityWriter, Field, LegacyTypedEntityStore, PersistenceStore,
-    PersistenceStoreConfig, PersistentEntity, TypedEntityStore,
+    EntityReader, EntitySchema, EntityWriter, Field, PersistentEntity, TypedEntityStore,
 };
 use async_trait::async_trait;
 use std::path::PathBuf;
@@ -31,7 +30,7 @@ pub trait ScraperSourceEnabled: Send + Sync {
     async fn is_enabled(&self, source: &ScraperSourceDescriptor) -> Result<bool>;
 }
 
-/// Activation policy using a named PersistenceStore namespace.
+/// Activation policy backed by a typed source-activation repository.
 pub struct PersistenceSourceEnabled {
     repository: Arc<dyn SourceEnabledRepository>,
 }
@@ -110,15 +109,9 @@ impl SourceEnabledRepository for TypedSourceEnabledRepository {
 }
 
 impl PersistenceSourceEnabled {
-    /// Creates a persistent activation policy.
-    pub fn new(store: Arc<dyn PersistenceStore>, namespace: impl Into<String>) -> Self {
-        let config = PersistenceStoreConfig::new(namespace, SourceEnabledOverride::schema())
-            .expect("source activation schema is valid");
-        let typed_store = Arc::new(
-            LegacyTypedEntityStore::<SourceEnabledOverride>::new(store, config)
-                .expect("source activation store configuration is valid"),
-        );
-        Self::with_repository(Arc::new(TypedSourceEnabledRepository::new(typed_store)))
+    /// Creates a persistent activation policy over a typed entity store.
+    pub fn with_typed_store(store: Arc<dyn TypedEntityStore<SourceEnabledOverride>>) -> Self {
+        Self::with_repository(Arc::new(TypedSourceEnabledRepository::new(store)))
     }
 
     /// Creates a policy backed by a source-activation repository.
@@ -161,6 +154,14 @@ impl PersistenceSourceEnabled {
     /// Returns an error when the backing store cannot be updated.
     pub async fn clear_enabled(&self, source_id: &str) -> Result<()> {
         self.repository.delete(source_id).await
+    }
+
+    /// Returns the persisted override of one source identifier, if any.
+    ///
+    /// # Errors
+    /// Returns an error when the backing store cannot be read.
+    pub async fn override_for(&self, source_id: &str) -> Result<Option<SourceEnabledOverride>> {
+        self.repository.get(source_id).await
     }
 }
 

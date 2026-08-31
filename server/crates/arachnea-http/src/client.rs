@@ -3,7 +3,8 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use arachnea_core::persistence::{LegacyMemoryPersistenceStore, PersistenceStore};
+use crate::chaser_session::{memory_session_store, CachedChaserSession};
+use arachnea_core::persistence::TypedEntityStore;
 #[cfg(feature = "arachnea-proxy")]
 use arachnea_proxy::connectors::ArachneaRquestLoopback;
 use bytes::Bytes;
@@ -364,25 +365,25 @@ impl ArachneaHttpClient {
         cookies: Arc<RwLock<SharedCookieCache>>,
         browser_session_manager: Arc<BrowserSessionManager>,
     ) -> Result<Self, ArachneaHttpError> {
-        Self::new_with_cookie_cache_browser_session_manager_and_persistence_store(
+        Self::new_with_cookie_cache_browser_session_manager_and_session_store(
             config,
             cookies,
             browser_session_manager,
-            Arc::new(LegacyMemoryPersistenceStore::new()),
+            memory_session_store().expect("in-memory Cloudflare session store is valid"),
         )
         .await
     }
 
     /// Builds a new HTTP client with explicit cookies, shared browser sessions,
-    /// and a shared persistence store.
+    /// and a shared typed Cloudflare session store.
     ///
     /// Callers that derive clients with distinct request modes can pass the same
     /// manager to preserve pages for matching origin, profile, and proxy keys.
-    pub async fn new_with_cookie_cache_browser_session_manager_and_persistence_store(
+    pub async fn new_with_cookie_cache_browser_session_manager_and_session_store(
         config: ArachneaHttpConfig,
         cookies: Arc<RwLock<SharedCookieCache>>,
         browser_session_manager: Arc<BrowserSessionManager>,
-        persistence_store: Arc<dyn PersistenceStore>,
+        session_store: Arc<dyn TypedEntityStore<CachedChaserSession>>,
     ) -> Result<Self, ArachneaHttpError> {
         let proxy_runtime = Arc::new(PreparedProxyRuntime::new(&config).await?);
         let direct_engine = config.engine.direct_engine();
@@ -401,7 +402,7 @@ impl ArachneaHttpClient {
             &config,
             &config.cloudflare_browser_solver,
             proxy_runtime.chaser_cf_proxy_url(&config),
-            persistence_store,
+            session_store,
         )
         .await?;
         Ok(Self {
