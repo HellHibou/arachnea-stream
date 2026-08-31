@@ -445,6 +445,53 @@ pub fn program_name() -> String {
         .unwrap_or_else(|| String::from("?"))
 }
 
+/// Returns whether the process runs with elevated (root/administrator) privileges.
+///
+/// On Unix this checks for the superuser UID (`0`). On Windows this checks the
+/// process token elevation, which is the closest equivalent to running as root.
+///
+/// # Returns
+///
+/// `true` when the process can be considered privileged on its platform.
+pub fn is_running_elevated() -> bool {
+    #[cfg(unix)]
+    {
+        unsafe { libc::getuid() == 0 }
+    }
+
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::HANDLE;
+        use windows_sys::Win32::Security::{
+            GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
+        };
+        use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+        unsafe {
+            let mut token: HANDLE = std::ptr::null_mut();
+            if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
+                return false;
+            }
+            let mut elevation = TOKEN_ELEVATION { TokenIsElevated: 0 };
+            let mut returned_size: u32 = 0;
+            let succeeded = GetTokenInformation(
+                token,
+                TokenElevation,
+                &mut elevation as *mut TOKEN_ELEVATION as *mut core::ffi::c_void,
+                std::mem::size_of::<TOKEN_ELEVATION>() as u32,
+                &mut returned_size,
+            );
+            windows_sys::Win32::Foundation::CloseHandle(token);
+            succeeded != 0 && elevation.TokenIsElevated != 0
+        }
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    {
+        false
+    }
+}
+
 /// Performs application-level initialization before the main entry point logic.
 ///
 /// On Windows, when the process is launched from a console (e.g. `cmd.exe` or

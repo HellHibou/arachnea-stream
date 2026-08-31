@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "admin-window-capability",
+  "description": "Allows the dedicated administration window to invoke the admin API and open safe external URLs.",
+  "windows": ["admin"],
+  "permissions": ["core:default", "opener:allow-open-url", "opener:allow-default-urls"]
+}

@@ -9,3 +9,8 @@ credentials.json
 .kilo/
 server/data/*.json
 server/data/cache
+front/dist/
+front/node_modules/
+front/package-lock.json
+dist/
+server/data/

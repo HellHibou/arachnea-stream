@@ -1,0 +1,2931 @@
+import type { Collection, MediaItem } from '@/types/media'
+import type {
+  EntryDetails,
+  EntryEmbedFallback,
+  EntryEpisode,
+  EntryEpisodePage,
+  EntryPlayer,
+  EntryPlayerChapter,
+  EntryPlayerStoryboard,
+  EntryPlayerResolver,
+  EntryResolvedPlayerStream,
+  EntrySeason,
+  GetStreamResponse,
+} from '@/types/entry'
+import type {
+  HomeBanner,
+  HomeBannerPlayer,
+  HomeCatalogData,
+  HomeCategory,
+  HomeCategorySource,
+  HomeSection,
+  HomeSectionSource,
+} from '@/types/home'
+import { t, tm } from '@/i18n'
+import { resolveAppPath } from '@/services/baseUrl'
+import type { ServiceMetadata, ServiceThemeMetadata } from '@/types/serviceMetadata'
+import { enqueueErrorNotification } from '@/composables/useErrorNotifications'
+import type {
+  ScraperAggregationResult,
+  ScraperExecutionError,
+} from '@/types/scraperError'
+
+export type {
+  ScraperAggregationResult,
+  ScraperErrorOrigin,
+  ScraperExecutionError,
+} from '@/types/scraperError'
+
+/** Base URL for the REST API. Falls back to the `api` segment under the app base when not configured via environment. */
+const restApiBaseUrl = import.meta.env.VITE_RUSTIFY_API_BASE_URL ?? resolveAppPath('api')
+
+/** Supported media type values used for filtering. */
+export const mediaTypeValues = [
+  'video/movie',
+  'video/show/serie',
+  'video/show/anime',
+  'video/show/documentary',
+  'video/show/sport',
+  'video/news',
+  'video/show/other',
+  'video/live',
+  'images/manga',
+  'images/webtoon',
+  'audio/show',
+  'audio/show/serie',
+  'audio/other',
+] as const
+
+/**
+ * Option for a search filter dropdown.
+ */
+export interface SearchFilterOption {
+  /** The filter value to send to the backend. */
+  value: string
+  /** The display label for this filter option. */
+  label: string
+}
+
+/** Type alias for a JSON object record with string keys and unknown values. */
+type JsonRecord = Record<string, unknown>
+
+/**
+ * Search filters sent to the backend catalog endpoint.
+ */
+export interface SearchMediaItemsFilters {
+  mediaTypes?: string[]
+  themes?: string[]
+}
+
+/**
+ * Paginated search results page.
+ */
+export interface SearchMediaItemsPage {
+  /** The media items on this page. */
+  items: MediaItem[]
+  /** The current page number. */
+  currentPage: number
+  /** Whether there are more pages available. */
+  haveMore: boolean
+  /** Source-specific parameters for fetching the next page. */
+  sourceParams: Record<string, string>[]
+}
+
+/**
+ * Window type extension for Tauri-specific API access.
+ */
+interface TauriWindow extends Window {
+  /** Tauri-specific global object. */
+  __TAURI__?: {
+    /** Tauri invoke function (legacy path). */
+    invoke?: <T>(command: string, args?: Record<string, unknown>) => Promise<T>
+    /** Tauri core module. */
+    core?: {
+      /** Tauri invoke function (modern path). */
+      invoke?: <T>(command: string, args?: Record<string, unknown>) => Promise<T>
+    }
+  }
+}
+
+/** Returns whether the application is running in a Tauri desktop window. */
+export function isDesktopApp(): boolean {
+  const tauriWindow = window as TauriWindow
+  return Boolean(tauriWindow.__TAURI__?.core?.invoke ?? tauriWindow.__TAURI__?.invoke)
+}
+
+/** Opens or focuses the dedicated administration window in desktop mode. */
+export async function openAdministrationWindow(): Promise<void> {
+  const tauriWindow = window as TauriWindow
+  const tauriInvoke = tauriWindow.__TAURI__?.core?.invoke ?? tauriWindow.__TAURI__?.invoke
+
+  if (!tauriInvoke) {
+    return
+  }
+
+  await tauriInvoke('open_admin_window')
+}
+
+/** Cached conditional-validation entry keyed by command name and serialized parameters. */
+interface EtagCacheEntry {
+  /** Global ETag returned by the backend for this request. */
+  etag: string
+  /** Raw JSON envelope previously returned for this request. */
+  payload: unknown
+}
+
+/** In-memory conditional-validation cache shared by every REST GET call. */
+const etagCache = new Map<string, EtagCacheEntry>()
+
+/**
+ * Builds the cache key of one REST GET request from its command and parameters.
+ *
+ * @param fct_name Backend function name.
+ * @param queryString Serialized query string of the request.
+ * @returns Stable cache key scoped to this exact request.
+ */
+function buildEtagCacheKey(fct_name: string, queryString: string): string {
+  return `${fct_name}?${queryString}`
+}
+
+/**
+ * Calls a backend function through either Tauri or the REST bridge.
+ *
+ * The REST path issues a GET request whose parameters are JSON-encoded into
+ * the query string, and participates in conditional validation: the global
+ * ETag returned by the backend is cached per request shape and replayed as
+ * `If-None-Match` and `arachneaEtag`. The latter lets Scrapyfy validate the
+ * root response before it executes dependent sub-queries; a `304 Not Modified`
+ * answer resolves to the cached payload.
+ * The Tauri path keeps its original invoke semantics.
+ *
+ * @param fct_name Backend function name.
+ * @param params Function parameters.
+ * @returns Deserialized backend payload.
+ */
+export async function call_api<T = unknown>(
+  fct_name: string,
+  params: Record<string, unknown>,
+): Promise<T> {
+  const tauriWindow = window as TauriWindow
+  const tauriInvoke =
+    tauriWindow.__TAURI__?.core?.invoke ?? tauriWindow.__TAURI__?.invoke
+
+  try {
+    if (tauriInvoke) {
+      const payload = await tauriInvoke<unknown>(fct_name, params)
+      return unwrapAggregationPayload<T>(payload, fct_name)
+    }
+
+    // Serialize every parameter as JSON so complex values (arrays, objects,
+    // quoted strings) survive the query-string round trip; the backend
+    // JSON-decodes values that start with `[`, `{`, or `"`.
+    const searchParams = new URLSearchParams()
+    for (const [key, value] of Object.entries(params)) {
+      searchParams.append(key, JSON.stringify(value))
+    }
+    const queryString = searchParams.toString()
+    const cacheKey = buildEtagCacheKey(fct_name, queryString)
+    const cachedEntry = etagCache.get(cacheKey)
+
+    const headers: Record<string, string> = {}
+    if (cachedEntry) {
+      headers['If-None-Match'] = `"${cachedEntry.etag}"`
+      // Keep the validator out of cacheKey, otherwise every refresh would use
+      // a different cache entry. The backend uses this value to decode the
+      // source fragment before scheduling scraper sub-queries.
+      searchParams.append('arachneaEtag', JSON.stringify(cachedEntry.etag))
+    }
+    const requestQueryString = searchParams.toString()
+
+    const response = await fetch(
+      `${restApiBaseUrl}/${fct_name}${requestQueryString ? `?${requestQueryString}` : ''}`,
+      { method: 'GET', headers },
+    )
+
+    if (response.status === 304 && cachedEntry) {
+      return unwrapAggregationPayload<T>(cachedEntry.payload, fct_name)
+    }
+
+    const payload = await parseResponseBody(response)
+
+    if (!response.ok) {
+      handleFailedRestResponse(payload, fct_name, response.status)
+    }
+
+    const etagHeader = response.headers.get('ETag')
+    if (etagHeader) {
+      etagCache.set(cacheKey, {
+        etag: etagHeader.replace(/^W?"/, '').replace(/"$/, ''),
+        payload,
+      })
+    } else {
+      etagCache.delete(cacheKey)
+    }
+
+    return unwrapAggregationPayload<T>(payload, fct_name)
+  } catch (error) {
+    if (error instanceof ReportedApiError) {
+      throw error
+    }
+
+    const message = error instanceof Error ? error.message : String(error)
+    throwFrontendApiError(fct_name, message)
+  }
+}
+
+/**
+ * Validates a JSON command envelope, emits its errors, and returns its data.
+ * Bare payloads remain accepted temporarily during the backend rollout.
+ */
+function unwrapAggregationPayload<T>(payload: unknown, operation: string): T {
+  const aggregationPayload = readAggregationPayload<T>(payload)
+
+  if (aggregationPayload.kind === 'malformed') {
+    return throwFrontendApiError(operation, 'Malformed scraper aggregation response envelope.')
+  }
+
+  if (aggregationPayload.kind === 'bare') {
+    return payload as T
+  }
+
+  reportExecutionErrors(aggregationPayload.value.errors)
+  return aggregationPayload.value.data
+}
+
+/** Handles REST failures while preserving structured backend errors when available. */
+function handleFailedRestResponse(payload: unknown, operation: string, status: number): never {
+  const aggregationPayload = readAggregationPayload<unknown>(payload)
+
+  if (aggregationPayload.kind === 'envelope') {
+    const firstError = aggregationPayload.value.errors[0]
+    if (firstError) {
+      reportExecutionErrors(aggregationPayload.value.errors)
+      throw new ReportedApiError(firstError.message)
+    }
+  }
+
+  const message = extractErrorMessage(payload) ??
+    t('errors.restCallFailed', { function: operation, status })
+  return throwFrontendApiError(operation, message)
+}
+
+/** Distinguishes valid envelopes, transitional bare payloads, and malformed envelopes. */
+function readAggregationPayload<T>(payload: unknown): AggregationPayload<T> {
+  if (!isJsonRecord(payload) || (!('data' in payload) && !('errors' in payload))) {
+    return { kind: 'bare' }
+  }
+
+  if (!('data' in payload) || !Array.isArray(payload.errors)) {
+    return { kind: 'malformed' }
+  }
+
+  if (!payload.errors.every(isScraperExecutionError)) {
+    return { kind: 'malformed' }
+  }
+
+  return {
+    kind: 'envelope',
+    value: {
+      data: payload.data as T,
+      errors: payload.errors,
+    },
+  }
+}
+
+/** Returns whether a JSON value is a complete structured execution error. */
+function isScraperExecutionError(value: unknown): value is ScraperExecutionError {
+  if (!isJsonRecord(value)) {
+    return false
+  }
+
+  return typeof value.code === 'string' &&
+    typeof value.operation === 'string' &&
+    (typeof value.source === 'string' || value.source === null) &&
+    (value.origin === 'backend' || value.origin === 'frontend') &&
+    typeof value.message === 'string'
+}
+
+/** Logs and queues every structured execution error. */
+function reportExecutionErrors(errors: ScraperExecutionError[]): void {
+  errors.forEach((error) => {
+    console.error('Scraper API error', {
+      code: error.code,
+      operation: error.operation,
+      source: error.source,
+      origin: error.origin,
+      message: error.message,
+    })
+    enqueueErrorNotification(error)
+  })
+}
+
+/** Creates, logs, queues, and rejects a frontend-generated technical error. */
+function throwFrontendApiError(operation: string, message: string): never {
+  const error: ScraperExecutionError = {
+    code: nextFrontendErrorCode(),
+    operation,
+    source: null,
+    origin: 'frontend',
+    message,
+  }
+  reportExecutionErrors([error])
+  throw new ReportedApiError(message)
+}
+
+let lastFrontendErrorMillis = 0
+let frontendErrorSequence = 0
+
+/** Generates a monotonic browser-local diagnostic code matching the backend format. */
+function nextFrontendErrorCode(): string {
+  const currentMillis = Date.now()
+
+  if (currentMillis <= lastFrontendErrorMillis) {
+    frontendErrorSequence += 1
+    if (frontendErrorSequence > 99) {
+      lastFrontendErrorMillis += 1
+      frontendErrorSequence = 0
+    }
+  } else {
+    lastFrontendErrorMillis = currentMillis
+    frontendErrorSequence = 0
+  }
+
+  return `ARACHNEA_E${lastFrontendErrorMillis}${String(frontendErrorSequence).padStart(2, '0')}`
+}
+
+/**
+ * Executes the backend search endpoint and normalizes the response for the UI.
+ *
+ * @param query Raw search query sent to the Rust backend.
+ * @param filters Optional media type and theme filters sent with the search request.
+ * @returns Normalized media cards consumable by the frontend components.
+ */
+export async function searchMediaItems(
+  query: string,
+  filters: SearchMediaItemsFilters = {},
+): Promise<MediaItem[]> {
+  const page = await searchMediaItemsPage(query, filters)
+
+  return page.items
+}
+
+/**
+ * Executes one paged backend search and normalizes entries with pagination metadata.
+ *
+ * @param query Raw search query sent to the Rust backend.
+ * @param filters Optional media type and theme filters sent with the search request.
+ * @param page 1-based page requested by the frontend.
+ * @param sourceParams Source-specific pagination params returned by the previous page.
+ * @returns Normalized media cards and pagination metadata.
+ */
+export async function searchMediaItemsPage(
+  query: string,
+  filters: SearchMediaItemsFilters = {},
+  page = 1,
+  sourceParams: Record<string, string>[] = [],
+): Promise<SearchMediaItemsPage> {
+  const response = await call_api<unknown>('search', {
+    query,
+    page,
+    mediaTypes: filters.mediaTypes ?? [],
+    themes: filters.themes ?? [],
+    sourceParams,
+  })
+
+  const groups = readSearchGroups(response)
+  if (!groups) {
+    throw new Error(t('errors.unexpectedSearchResponse'))
+  }
+
+  const nextSourceParams = buildSearchNextSourceParams(groups, page)
+  const itemsBySource = groups.map((group) => {
+    const source = firstNonEmptyString([group.source, readPath(group, 'source', 'name')])
+
+    return readRecordList(group.entries).map((entry, entryIndex) =>
+      normalizeMediaItem(entry, entryIndex, source),
+    )
+  })
+
+  return {
+    items: interleaveLists(itemsBySource),
+    currentPage: Math.max(1, Math.trunc(page)),
+    haveMore: nextSourceParams.length > 0,
+    sourceParams: nextSourceParams,
+  }
+}
+
+/**
+ * Reads source-grouped search rows from the backend search response.
+ *
+ * The expected shape is one row per source, with source-level pagination fields and an `entries`
+ * array containing the media rows.
+ *
+ * @param response Raw backend search response.
+ * @returns Search source groups, or `null` when the payload shape is unsupported.
+ */
+function readSearchGroups(response: unknown): JsonRecord[] | null {
+  if (Array.isArray(response)) {
+    const rows = response.filter(isJsonRecord)
+    return rows.some((row) => 'entries' in row) ? rows : groupFlatSearchEntries(rows)
+  }
+
+  if (isJsonRecord(response) && 'entries' in response) {
+    return groupFlatSearchEntries(readRecordList(response.entries))
+  }
+
+  return null
+}
+
+/**
+ * Groups legacy flat search entries by source.
+ *
+ * @param entries Flat search rows.
+ * @returns Source-grouped search rows.
+ */
+function groupFlatSearchEntries(entries: JsonRecord[]): JsonRecord[] {
+  const groupsBySource = new Map<string, JsonRecord>()
+  const groups: JsonRecord[] = []
+
+  entries.forEach((entry) => {
+    const source = firstNonEmptyString([entry.source, readPath(entry, 'source', 'name')]) ?? ''
+    let group = groupsBySource.get(source)
+
+    if (!group) {
+      group = source ? { source, entries: [] } : { entries: [] }
+      groupsBySource.set(source, group)
+      groups.push(group)
+    }
+
+    const item = { ...entry }
+    delete item.source
+    const sourceGroupFields = [
+      'current_page',
+      'have_more',
+      'total_pages',
+      'next_value',
+      'next_param',
+      'source_params',
+    ]
+
+    sourceGroupFields.forEach((field) => {
+      if (field in item && !(field in group)) {
+        group[field] = item[field]
+      }
+      delete item[field]
+    })
+
+    const groupEntries = group.entries
+    if (Array.isArray(groupEntries)) {
+      groupEntries.push(item)
+    }
+  })
+
+  return groups
+}
+
+/**
+ * Builds next-page source params from pagination fields exposed by each search group.
+ *
+ * Pagination is intentionally source-scoped: each source may expose `total_pages`, `have_more`,
+ * `next_value`, or explicit `source_params` through YAML/actions.
+ *
+ * @param groups Search groups returned by the backend.
+ * @param fallbackPage Page requested by the frontend when a group does not expose `current_page`.
+ * @returns Source params to send to the next search request.
+ */
+function buildSearchNextSourceParams(
+  groups: JsonRecord[],
+  fallbackPage: number,
+): Record<string, string>[] {
+  return dedupeSearchSourceParams(
+    groups.flatMap((group) => buildNextParamsForSearchGroup(group, fallbackPage)),
+  )
+}
+
+/**
+ * Reads explicit next-source params emitted by YAML when a source needs custom pagination keys.
+ *
+ * @param group - The search group to read params from.
+ * @param source - The source identifier for the group.
+ * @returns Array of source param records for the next request.
+ */
+function readSearchExplicitSourceParams(
+  group: JsonRecord,
+  source: string,
+): Record<string, string>[] {
+  const rawSourceParams = readRecordList(group.source_params).map(readStringParamMap)
+
+  if (rawSourceParams.length === 0) {
+    rawSourceParams.push(...readRecordList(group.sourceParams).map(readStringParamMap))
+  }
+
+  return rawSourceParams
+    .map((params) => ({ source, ...params }))
+    .filter((params) => Object.keys(params).length > 1)
+}
+
+/**
+ * Converts one source search group into the params expected by the next backend request.
+ *
+ * @param group - The search group to build params for.
+ * @param fallbackPage - The page number to use when current_page is not available.
+ * @returns Array of param records for the next request.
+ */
+function buildNextParamsForSearchGroup(
+  group: JsonRecord,
+  fallbackPage: number,
+): Record<string, string>[] {
+  const source = firstNonEmptyString([group.source, readPath(group, 'source', 'name')])
+  if (!source) {
+    return []
+  }
+
+  const explicitSourceParams = readSearchExplicitSourceParams(group, source)
+  if (explicitSourceParams.length > 0) {
+    return explicitSourceParams
+  }
+
+  const currentPage =
+    toPositiveInteger(firstNumber(group.current_page)) ?? Math.max(1, Math.trunc(fallbackPage))
+  const totalPages = toPositiveInteger(firstNumber(group.total_pages))
+  const hasMoreFromTotal = totalPages !== null ? currentPage < totalPages : null
+  const hasMore = readOptionalBoolean(group.have_more) ?? hasMoreFromTotal ?? false
+
+  if (!hasMore) {
+    return []
+  }
+
+  const nextParams: Record<string, string> = { source }
+  const nextValue = firstNonEmptyString([group.next_value, group.nextValue])
+  const nextParam = firstNonEmptyString([group.next_param, group.nextParam])
+
+  if (nextValue) {
+    nextParams[nextParam ?? 'page'] = nextValue
+  } else {
+    nextParams.page = String(currentPage + 1)
+  }
+
+  return [nextParams]
+}
+
+/**
+ * Deduplicates search source params while preserving the first-seen order.
+ *
+ * @param paramsList - Array of param records to deduplicate.
+ * @returns Deduplicated array of param records.
+ */
+function dedupeSearchSourceParams(paramsList: Record<string, string>[]): Record<string, string>[] {
+  const seen = new Set<string>()
+  const dedupedParams: Record<string, string>[] = []
+
+  paramsList.forEach((params) => {
+    const serializedParams = JSON.stringify(
+      Object.entries(params).sort(([left], [right]) => left.localeCompare(right)),
+    )
+
+    if (seen.has(serializedParams)) {
+      return
+    }
+
+    seen.add(serializedParams)
+    dedupedParams.push({ ...params })
+  })
+
+  return dedupedParams
+}
+
+/**
+ * Loads the aggregated home payload exposed by the backend and normalizes it for the UI.
+ *
+ * @returns Featured banners, clickable categories, and grouped catalog rails.
+ */
+export async function loadHomeCatalog(): Promise<HomeCatalogData> {
+  const response = await call_api<unknown>('load_home', {})
+
+  return normalizeHomeCatalog(response)
+}
+
+/**
+ * Loads display metadata for all configured backend services.
+ *
+ * @returns Normalized service metadata records indexed by their `id` field.
+ */
+export async function loadServiceMetadata(): Promise<ServiceMetadata[]> {
+  const response = await call_api<unknown>('get_service', {})
+
+  if (!Array.isArray(response)) {
+    throw new Error(t('errors.unexpectedMetadataResponse'))
+  }
+
+  return response
+    .map(normalizeServiceMetadata)
+    .filter((metadata): metadata is ServiceMetadata => Boolean(metadata))
+}
+
+/**
+ * Loads one aggregated category payload exposed by the backend and normalizes it for the UI.
+ *
+ * @param category Category descriptor previously returned by `loadHomeCatalog`.
+ * @param page 1-based category page requested by the frontend.
+ * @returns Normalized banners, categories, and grouped catalog rails for the selected category.
+ */
+export async function getCategoryCatalog(category: HomeCategory, page = 1): Promise<HomeCatalogData> {
+  if (category.sources.length === 0) {
+    throw new Error(t('errors.categoryMissingBackendSourceDescriptors'))
+  }
+
+  const response = await call_api<unknown>('get_category', {
+    sources: category.sources,
+    page,
+    sourceParams: category.sources.map((source) => ({
+      source: source.name,
+      page: String(page),
+    })),
+  })
+
+  return normalizeHomeCatalog(response)
+}
+
+/**
+ * Loads one additional page for a lazily loaded home section.
+ *
+ * @param section Section descriptor previously returned by `loadHomeCatalog`.
+ * @param sources Source descriptors to load for the section.
+ * @returns Normalized section payload assembled from every fulfilled source response.
+ */
+export async function loadHomeSectionPage(
+  section: HomeSection,
+  sources: HomeSectionSource[],
+): Promise<HomeSection> {
+  if (sources.length === 0) {
+    return section
+  }
+
+  const isInitialLoad = sources.some((source) => !source.hasInitialItems)
+  const settledSources = await Promise.allSettled(sources.map(async (source) => {
+    const page = source.hasInitialItems ? source.currentPage + 1 : 1
+    const response = await call_api<unknown>('get_section', {
+      source: source.name,
+      link: source.link,
+      page,
+      sourceParams: [{
+        source: source.name,
+        link: source.link,
+        ...source.params,
+        page: String(page),
+      }],
+    })
+    const responseRecord: JsonRecord = isJsonRecord(response) ? response : {}
+    const responseSection = readRecordList(responseRecord.sections)[0] ?? responseRecord
+    const normalizedSection = normalizeHomeSection(
+      {
+        label: section.label,
+        entries: readRecordList(responseSection.entries),
+        current_page: responseSection.current_page ?? page,
+        have_more: responseSection.have_more ?? false,
+      },
+      0,
+      source.name,
+    )
+
+    return { source, normalizedSection }
+  }))
+  const loadedSources = settledSources
+    .filter((result): result is PromiseFulfilledResult<{
+      source: HomeSectionSource
+      normalizedSection: HomeSection
+    }> => result.status === 'fulfilled')
+    .map((result) => result.value)
+  const loadedSourcesByKey = new Map(
+    loadedSources.map(({ source, normalizedSection }) => [
+      buildHomeSectionSourceKey(source),
+      normalizedSection,
+    ]),
+  )
+
+  return {
+    ...section,
+    items: isInitialLoad
+      ? interleaveInitialSectionItems(section, loadedSources)
+      : dedupeMediaItems([
+          ...section.items,
+          ...interleaveLists(
+            loadedSources.map(({ normalizedSection }) => normalizedSection.items),
+          ),
+        ]),
+    currentPage: Math.max(
+      section.currentPage,
+      ...loadedSources.map(({ normalizedSection }) => normalizedSection.currentPage),
+    ),
+    haveMore: loadedSources.some(({ normalizedSection }) => normalizedSection.haveMore) ||
+      section.sources.some((source) =>
+        !loadedSourcesByKey.has(buildHomeSectionSourceKey(source)) && source.haveMore,
+      ),
+    sources: section.sources.map((source) => {
+      const normalizedSection = loadedSourcesByKey.get(buildHomeSectionSourceKey(source))
+      if (!normalizedSection) {
+        return source
+      }
+
+      return {
+        ...source,
+        currentPage: normalizedSection.currentPage,
+        haveMore: normalizedSection.haveMore,
+        hasInitialItems: true,
+      }
+    }),
+  }
+}
+
+/**
+ * Loads every deferred first page before sections are rendered and interleaved.
+ *
+ * @param catalog Normalized catalog returned by the home or category endpoint.
+ * @returns Catalog whose sections include every available initial source page.
+ */
+export async function loadInitialHomeSectionPages(
+  catalog: HomeCatalogData,
+): Promise<HomeCatalogData> {
+  const sections = await Promise.all(catalog.sections.map((section) => {
+    const initialSources = section.sources.filter((source) => !source.hasInitialItems)
+    return loadHomeSectionPage(section, initialSources)
+  }))
+
+  return { ...catalog, sections }
+}
+
+/**
+ * Executes the backend entry endpoint and normalizes the response for the featured detail UI.
+ *
+ * @param source Backend source name that owns the entry.
+ * @param entry Absolute entry URL sent to the Rust backend.
+ * @param webUrl Public web URL opened by the featured action when available.
+ * @returns Normalized detailed entry for the requested source.
+ */
+export async function getEntryDetails(
+  source: string,
+  entry: string,
+  webUrl: string | null = null,
+): Promise<EntryDetails> {
+  const response = await call_api<unknown>('get_entry', { source, entry })
+
+  if (!isJsonRecord(response)) {
+    throw new Error(t('errors.unexpectedEntryResponseFormat'))
+  }
+
+  return normalizeEntryDetails(response, source, webUrl ?? entry)
+}
+
+/**
+ * Executes the backend live listing endpoint and normalizes the response for the live details UI.
+ *
+ * @returns Normalized live media cards consumable by the shared collection components.
+ */
+export async function listLiveMediaItems(): Promise<MediaItem[]> {
+  const response = await call_api<unknown[]>('list_lives', {})
+
+  if (!Array.isArray(response)) {
+    throw new Error(t('errors.unexpectedLiveListResponseFormat'))
+  }
+
+  return response.map((entry, index) => normalizeMediaItem(entry, index))
+}
+
+/**
+ * Executes the backend live endpoint and normalizes the returned embedded players.
+ *
+ * @param source Backend source name that owns the live channel.
+ * @param channel Source-specific live channel identifier.
+ * @returns Normalized players available for the selected live channel.
+ */
+export async function getLivePlayers(source: string, channel: string): Promise<EntryPlayer[]> {
+  const response = await call_api<unknown>('get_live', { source, channel })
+
+  if (!isJsonRecord(response)) {
+    throw new Error(t('errors.unexpectedLiveResponseFormat'))
+  }
+
+  return normalizeEntryPlayers(response, source)
+}
+
+/**
+ * Converts one raw backend home/category payload into the frontend home catalog model.
+ *
+ * @param payload Raw backend home/category payload.
+ * @returns Normalized home catalog data ready for rendering.
+ */
+function normalizeHomeCatalog(payload: unknown): HomeCatalogData {
+  if (!Array.isArray(payload) && !isJsonRecord(payload)) {
+    throw new Error(t('errors.unexpectedHomeResponseFormat'))
+  }
+
+  const rows = readRecordList(payload)
+  const banners: Collection<HomeBanner> = { entries: [], source: '' }
+  const deferredBanners: Collection<HomeBanner>[] = []
+  const categories: HomeCategory[] = []
+  const sections: HomeSection[] = []
+
+  rows.forEach((row) => {
+    const rowSource = firstNonEmptyString([row.source, readPath(row, 'source', 'name')])
+    const bannerCollection = isJsonRecord(row.banners) ? row.banners : null
+    const bannerSource = firstNonEmptyString([bannerCollection?.source, rowSource])
+    const bannerLink = firstNonEmptyString([bannerCollection?.link])
+
+    const bannerEntries: HomeBanner[] = []
+    readBannerList(bannerCollection?.entries ?? row.banners).forEach((banner) => {
+      const normalizedBanner = normalizeHomeBanner(
+        banner,
+        banners.entries.length + bannerEntries.length,
+        bannerSource,
+      )
+      if (
+        normalizedBanner.entryUrl &&
+        (
+          normalizedBanner.imageUrl ||
+          normalizedBanner.title ||
+          normalizedBanner.videoUrl ||
+          normalizedBanner.player
+        )
+      ) {
+        bannerEntries.push(normalizedBanner)
+      }
+    })
+
+    banners.entries.push(...bannerEntries)
+
+    if (bannerSource && bannerLink) {
+      deferredBanners.push({ entries: [], source: bannerSource, link: bannerLink })
+    }
+
+    readRecordList(row.categories).forEach((category) => {
+      const normalizedCategory = normalizeHomeCategory(category, categories.length, rowSource)
+      if (normalizedCategory.sources.length > 0) {
+        categories.push(normalizedCategory)
+      }
+    })
+
+    readRecordList(row.sections).forEach((section) => {
+      const normalizedSection = normalizeHomeSection(section, sections.length, rowSource)
+      if (normalizedSection.items.length > 0 || normalizedSection.sources.length > 0) {
+        sections.push(normalizedSection)
+      }
+    })
+  })
+
+  return mergeNormalizedCatalogs([
+    {
+      banners,
+      deferredBanners,
+      categories,
+      sections,
+    },
+  ])
+}
+
+/**
+ * Converts one backend service row into frontend display metadata.
+ *
+ * @param payload Raw backend row returned by `get_service`.
+ * @returns Normalized service metadata, or `null` when the row does not expose an id.
+ */
+function normalizeServiceMetadata(payload: unknown): ServiceMetadata | null {
+  const record = isJsonRecord(payload) ? payload : {}
+  const id = firstNonEmptyString([record.id])
+
+  if (!id) {
+    return null
+  }
+
+  return {
+    id,
+    title: firstNonEmptyString([record.title]) ?? id,
+    logo: firstNonEmptyString([record.logo]),
+    description: normalizeServiceDescription(record.description),
+    themes: normalizeServiceThemes(record.themes ?? record.search_themes),
+  }
+}
+
+/**
+ * Reads localized service descriptions from the typed backend object.
+ *
+ * @param value Backend description node.
+ * @returns Language-keyed description strings.
+ */
+function normalizeServiceDescription(value: unknown): Record<string, string> {
+  if (isJsonRecord(value) && !Array.isArray(value)) {
+    return readStringMap(value)
+  }
+
+  return {}
+}
+
+/**
+ * Converts backend theme mapping rows into frontend service theme metadata.
+ *
+ * @param value Backend themes node.
+ * @returns Theme mappings declared by the service.
+ */
+function normalizeServiceThemes(value: unknown): ServiceThemeMetadata[] {
+  if (Array.isArray(value) && value.every((theme) => typeof theme === 'string')) {
+    return value
+      .map((theme) => theme.trim())
+      .filter((theme) => theme.length > 0)
+      .map((theme) => ({ code: theme, serviceCode: theme }))
+  }
+
+  return readRecordList(value)
+    .map((theme) => {
+      const code = firstNonEmptyString([theme.code])
+      const serviceCode = firstNonEmptyString([theme.service_code, theme.serviceCode])
+
+      if (!code || !serviceCode) {
+        return null
+      }
+
+      return { code, serviceCode }
+    })
+    .filter((theme): theme is ServiceThemeMetadata => Boolean(theme))
+}
+
+/**
+ * Merges multiple normalized catalogs into one display-ready payload.
+ *
+ * @param catalogs Normalized catalogs produced from one or more backend responses.
+ * @returns Aggregated catalog with merged categories and merged section rails.
+ */
+function mergeNormalizedCatalogs(catalogs: HomeCatalogData[]): HomeCatalogData {
+  const banners: Collection<HomeBanner> = {
+    entries: catalogs.flatMap((catalog) => catalog.banners.entries),
+    source: '',
+  }
+  const deferredBanners = catalogs.flatMap((catalog) => catalog.deferredBanners)
+  const categories = mergeHomeCategories(catalogs.flatMap((catalog) => catalog.categories))
+  const sections = mergeHomeSections(catalogs.flatMap((catalog) => catalog.sections))
+
+  return {
+    banners,
+    deferredBanners,
+    categories,
+    sections,
+  }
+}
+
+/**
+ * Converts one raw backend banner into the frontend featured banner model.
+ *
+ * @param payload Raw backend banner payload.
+ * @param index Stable fallback index used to build a unique banner id.
+ * @returns Normalized featured banner.
+ */
+function normalizeHomeBanner(
+  payload: unknown,
+  index: number,
+  inheritedSource: string | null = null,
+): HomeBanner {
+  const record = isJsonRecord(payload) ? payload : {}
+  const source = firstNonEmptyString([record.source, readPath(record, 'source', 'name'), inheritedSource])
+  const entryUrl = resolveEntryUrl(
+    firstNonEmptyString([record.entry_url, record.entryUrl, record.link]),
+    source,
+  )
+  const webUrl = resolveEntryUrl(
+    firstNonEmptyString([record.web_url, record.webUrl, record['web-link'], record.link]),
+    source,
+  )
+  const imageUrl = resolveAssetUrl(
+    firstNonEmptyString([record.image_url, record.imageUrl, record.image]),
+    source,
+  )
+  const logoUrl = resolveAssetUrl(
+    firstNonEmptyString([record.logo_url, record.logoUrl, record.logo]),
+    source,
+  )
+  const videoUrl = resolveAssetUrl(
+    firstNonEmptyString([record.video_url, record.videoUrl, record.video]),
+    source,
+  )
+  const title = firstNonEmptyString([record.title])
+
+  const player = extractBannerPlayer(record)
+
+  return {
+    id:
+      buildScopedId(firstNonEmptyString([record.id, record.key]), source) ??
+      buildMediaId(index, entryUrl ?? imageUrl, title, source),
+    title,
+    subtitle: firstNonEmptyString([record.subtitle]),
+    description: firstNonEmptyString([record.description]),
+    imageUrl,
+    logoUrl,
+    videoUrl,
+    player,
+    source,
+    entryUrl: entryUrl ?? webUrl,
+    webUrl: webUrl ?? entryUrl,
+  }
+}
+
+/**
+ * Extracts the first player resolver from a raw banner record.
+ *
+ * @param record Raw banner record returned by the backend.
+ * @returns Player descriptor or null when no player is available.
+ */
+function extractBannerPlayer(record: Record<string, unknown>): HomeBannerPlayer | null {
+  if (!Array.isArray(record.players)) {
+    return null
+  }
+
+  for (const player of record.players) {
+    const resolver = isJsonRecord(player) ? (player as Record<string, unknown>).resolver : null
+    const kind = isJsonRecord(resolver) ? firstNonEmptyString([(resolver as Record<string, unknown>).kind]) : null
+    const targetId = isJsonRecord(resolver) ? firstNonEmptyString([(resolver as Record<string, unknown>).target_id]) : null
+
+    if (kind && targetId) {
+      return { kind, targetId }
+    }
+  }
+
+  return null
+}
+
+/**
+ * Converts one raw backend `get_banners` response into a normalized banner array.
+ *
+ * @param payload Raw backend payload returned by `get_banners`.
+ * @param source Backend source name used to resolve banner asset URLs.
+ * @param startIndex Stable offset used to build banner ids when prepending or appending.
+ * @returns Normalized home banners.
+ */
+export function normalizeBannersResponse(
+  payload: unknown,
+  source: string | null,
+  startIndex = 0,
+): HomeBanner[] {
+  const record = isJsonRecord(payload) ? payload : {}
+  const banners = readBannerList(record.banners ?? record.entries ?? record)
+    .map((banner, index) => normalizeHomeBanner(banner, startIndex + index, source))
+    .filter(
+      (banner) =>
+        banner.entryUrl &&
+        (banner.imageUrl || banner.title || banner.videoUrl || banner.player),
+    )
+
+  return banners.sort((left, right) =>
+    Number(isBannerVideoPlayable(right)) - Number(isBannerVideoPlayable(left)),
+  )
+}
+
+/** Signals that a structured error has already been queued and logged. */
+class ReportedApiError extends Error {}
+
+type AggregationPayload<T> =
+  | { kind: 'envelope', value: ScraperAggregationResult<T> }
+  | { kind: 'bare' }
+  | { kind: 'malformed' }
+
+/**
+ * Returns whether a banner carries a directly playable video or a stream resolver.
+ *
+ * @param banner Normalized featured banner.
+ * @returns True when the banner can render video in the hero carousel.
+ */
+function isBannerVideoPlayable(banner: HomeBanner): boolean {
+  return Boolean(banner.videoUrl || banner.player)
+}
+
+/**
+ * Converts one raw backend category into the frontend clickable category model.
+ *
+ * @param payload Raw backend category payload.
+ * @param index Stable fallback index used to build a unique category id.
+ * @returns Normalized home category.
+ */
+function normalizeHomeCategory(
+  payload: unknown,
+  index: number,
+  inheritedSource: string | null = null,
+): HomeCategory {
+  const record = isJsonRecord(payload) ? payload : {}
+  const label = firstNonEmptyString([record.label]) ?? t('category.defaultLabel', { index: String(index + 1) })
+  const source = normalizeHomeCategorySource(record, inheritedSource)
+  const mergeKey = buildHomeCategoryMergeKey(firstNonEmptyString([record.key]), label, index)
+
+  return {
+    id:
+      buildScopedId(
+        firstNonEmptyString([record.id, record.key]) ?? mergeKey,
+        inheritedSource,
+      ) ??
+      `category-${index + 1}`,
+    label,
+    imageUrl: firstNonEmptyString([record.image_url, record.imageUrl, record.image]),
+    mergeKey,
+    sources: source ? [source] : [],
+  }
+}
+
+/**
+ * Merges categories that share the same semantic key across multiple sources.
+ *
+ * @param categories Normalized categories collected from one or more sources.
+ * @returns Categories merged by semantic key while preserving first-seen order.
+ */
+function mergeHomeCategories(categories: HomeCategory[]): HomeCategory[] {
+  const categoriesByMergeKey = new Map<string, HomeCategory>()
+  const mergedCategories: HomeCategory[] = []
+
+  categories.forEach((category) => {
+    const existingCategory = categoriesByMergeKey.get(category.mergeKey)
+    if (!existingCategory) {
+      const mergedCategory: HomeCategory = {
+        ...category,
+        sources: dedupeHomeCategorySources(category.sources),
+      }
+
+      categoriesByMergeKey.set(category.mergeKey, mergedCategory)
+      mergedCategories.push(mergedCategory)
+      return
+    }
+
+    existingCategory.label ||= category.label
+    existingCategory.imageUrl ??= category.imageUrl
+    existingCategory.sources = dedupeHomeCategorySources([
+      ...existingCategory.sources,
+      ...category.sources,
+    ])
+  })
+
+  return mergedCategories
+}
+
+/**
+ * Converts one raw backend category source into a frontend source descriptor.
+ *
+ * @param record Raw backend category payload.
+ * @param inheritedSource Source inherited from the parent scraper row.
+ * @returns Normalized category source, or `null` when the payload is unusable.
+ */
+function normalizeHomeCategorySource(
+  record: JsonRecord,
+  inheritedSource: string | null,
+): HomeCategorySource | null {
+  const source = readStringParamMap(record.source)
+
+  if (Object.keys(source).length > 0) {
+    return source
+  }
+
+  if (!inheritedSource) {
+    return null
+  }
+
+  return {
+    name: inheritedSource,
+    ...readStringParamMap(record.request),
+  }
+}
+
+/**
+ * Builds the semantic merge key used to collapse categories across sources.
+ *
+ * @param rawKey Backend category key when provided by the source config.
+ * @param label Display label used as a fallback merge input.
+ * @param index Stable fallback index used to guarantee a non-empty key.
+ * @returns Category merge key shared by equivalent categories.
+ */
+function buildHomeCategoryMergeKey(rawKey: string | null, label: string, index: number): string {
+  const normalizedKey = normalizeString(rawKey ?? '')?.toLocaleLowerCase()
+  if (normalizedKey) {
+    return normalizedKey
+  }
+
+  return slugify(label) || `category-${index + 1}`
+}
+
+/**
+ * Converts one raw backend section into the frontend grouped collection model.
+ *
+ * @param payload Raw backend section payload.
+ * @param index Stable fallback index used to build a unique section id.
+ * @returns Normalized home section.
+ */
+function normalizeHomeSection(
+  payload: unknown,
+  index: number,
+  inheritedSource: string | null = null,
+): HomeSection {
+  const record = isJsonRecord(payload) ? payload : {}
+  const rawItems = readRecordList(record.entries)
+  const label = firstNonEmptyString([record.label])
+  const currentPage = Math.max(1, Math.trunc(firstNumber(record.current_page) ?? 1))
+  const haveMore = readBoolean(record.have_more)
+  const sources = normalizeHomeSectionSources(
+    record,
+    inheritedSource,
+    currentPage,
+    haveMore,
+    rawItems.length > 0,
+  )
+  const id =
+    buildScopedId(
+      firstNonEmptyString([record.id, record.key]) ?? (slugify(label ?? '') || `section-${index + 1}`),
+      inheritedSource,
+    ) ??
+    `section-${index + 1}`
+
+  return {
+    id,
+    label,
+    preferenceKey: buildHomeSectionPreferenceKey(label, id),
+    items: rawItems.map((item, itemIndex) => normalizeMediaItem(item, itemIndex, inheritedSource)),
+    sourceOrder: [inheritedSource ?? id],
+    sources,
+    currentPage,
+    haveMore,
+  }
+}
+
+/**
+ * Converts one raw backend section link into frontend lazy-loading source descriptors.
+ *
+ * @param record Raw backend section payload.
+ * @param inheritedSource Source inherited from the parent scraper row.
+ * @param currentPage Current loaded page exposed by the backend.
+ * @param haveMore Whether the backend reports more items for this section.
+ * @param hasInitialItems Whether the initial page contains items from this source.
+ * @returns Section source descriptors usable by `get_section`.
+ */
+function normalizeHomeSectionSources(
+  record: JsonRecord,
+  inheritedSource: string | null,
+  currentPage: number,
+  haveMore: boolean,
+  hasInitialItems: boolean,
+): HomeSectionSource[] {
+  const link = firstNonEmptyString([record.link])
+
+  if (!link || !inheritedSource) {
+    return []
+  }
+
+  return [
+    {
+      name: inheritedSource,
+      link,
+      currentPage,
+      haveMore,
+      hasInitialItems,
+      params: readStringParamMap(record.request),
+    },
+  ]
+}
+
+/**
+ * Merges section rails that share the same visible label.
+ *
+ * @param sections Normalized section rails collected from one or more sources.
+ * @returns Aggregated section rails with deduplicated media items.
+ */
+function mergeHomeSections(sections: HomeSection[]): HomeSection[] {
+  const sectionsByPreferenceKey = new Map<string, HomeSection>()
+  const itemListsByPreferenceKey = new Map<string, MediaItem[][]>()
+  const mergedSections: HomeSection[] = []
+
+  const sectionsBySource = new Map<string, HomeSection[]>()
+  sections.forEach((section) => {
+    const sourceKey = section.sourceOrder[0] ?? section.id
+    const sourceSections = sectionsBySource.get(sourceKey) ?? []
+    sourceSections.push(section)
+    sectionsBySource.set(sourceKey, sourceSections)
+  })
+
+  interleaveLists([...sectionsBySource.values()]).forEach((section) => {
+    const existingSection = sectionsByPreferenceKey.get(section.preferenceKey)
+
+    if (!existingSection) {
+      const mergedSection: HomeSection = {
+        ...section,
+        items: dedupeMediaItems(section.items),
+        sourceOrder: [...section.sourceOrder],
+        sources: dedupeHomeSectionSources(section.sources),
+      }
+
+      sectionsByPreferenceKey.set(section.preferenceKey, mergedSection)
+      itemListsByPreferenceKey.set(section.preferenceKey, [section.items])
+      mergedSections.push(mergedSection)
+      return
+    }
+
+    existingSection.label ??= section.label
+    itemListsByPreferenceKey.get(section.preferenceKey)?.push(section.items)
+    existingSection.sourceOrder = dedupeDisplayStrings([
+      ...existingSection.sourceOrder,
+      ...section.sourceOrder,
+    ])
+    existingSection.sources = dedupeHomeSectionSources([
+      ...existingSection.sources,
+      ...section.sources,
+    ])
+    existingSection.currentPage = Math.max(existingSection.currentPage, section.currentPage)
+    existingSection.haveMore = existingSection.haveMore || section.haveMore
+  })
+
+  mergedSections.forEach((section) => {
+    section.items = dedupeMediaItems(
+      interleaveLists(itemListsByPreferenceKey.get(section.preferenceKey) ?? []),
+    )
+  })
+
+  return mergedSections
+}
+
+/**
+ * Alternates values from each source list while preserving each list's order.
+ *
+ * @param lists Ordered value lists, one for each source.
+ * @returns Values interleaved by their position in each source list.
+ */
+function interleaveLists<T>(lists: T[][]): T[] {
+  const longestListLength = Math.max(0, ...lists.map((items) => items.length))
+  const interleavedItems: T[] = []
+
+  for (let itemIndex = 0; itemIndex < longestListLength; itemIndex += 1) {
+    lists.forEach((items) => {
+      const item = items[itemIndex]
+      if (item !== undefined) {
+        interleavedItems.push(item)
+      }
+    })
+  }
+
+  return interleavedItems
+}
+
+/**
+ * Interleaves all initial source items, including deferred pages loaded before rendering.
+ *
+ * @param section Merged section before its deferred initial sources are loaded.
+ * @param loadedSources Results returned by the deferred sources.
+ * @returns Deduplicated initial section items in source round-robin order.
+ */
+function interleaveInitialSectionItems(
+  section: HomeSection,
+  loadedSources: Array<{ source: HomeSectionSource, normalizedSection: HomeSection }>,
+): MediaItem[] {
+  const itemsBySource = new Map<string, MediaItem[]>()
+  const sourceOrder = [...section.sourceOrder]
+
+  section.items.forEach((item) => {
+    const sourceKey = item.source ?? item.id
+    if (!itemsBySource.has(sourceKey)) {
+      itemsBySource.set(sourceKey, [])
+      sourceOrder.push(sourceKey)
+    }
+
+    itemsBySource.get(sourceKey)?.push(item)
+  })
+
+  loadedSources.forEach(({ source, normalizedSection }) => {
+    if (!itemsBySource.has(source.name)) {
+      itemsBySource.set(source.name, [])
+      sourceOrder.push(source.name)
+    }
+
+    itemsBySource.get(source.name)?.push(...normalizedSection.items)
+  })
+
+  return dedupeMediaItems(
+    interleaveLists(sourceOrder.map((source) => itemsBySource.get(source) ?? [])),
+  )
+}
+
+/**
+ * Deduplicates section source descriptors while preserving their first-seen order.
+ *
+ * @param sources Source descriptors attached to one merged section.
+ * @returns Deduplicated section source descriptors.
+ */
+function dedupeHomeSectionSources(sources: HomeSectionSource[]): HomeSectionSource[] {
+  const seen = new Set<string>()
+  const dedupedSources: HomeSectionSource[] = []
+
+  sources.forEach((source) => {
+    const serializedSource = buildHomeSectionSourceKey(source)
+
+    if (seen.has(serializedSource)) {
+      return
+    }
+
+    seen.add(serializedSource)
+    dedupedSources.push({ ...source, params: { ...source.params } })
+  })
+
+  return dedupedSources
+}
+
+/**
+ * Builds the stable preference key used to collapse equivalent section rails.
+ *
+ * @param label Visible section label when available.
+ * @param id Unique section identifier used as fallback for unlabeled rails.
+ * @returns Case-insensitive label key, or a unique fallback for unlabeled rails.
+ */
+function buildHomeSectionPreferenceKey(label: string | null, id: string): string {
+  const normalizedLabel = normalizeString(label ?? '')
+  return normalizedLabel ? `label:${normalizedLabel.toLocaleLowerCase()}` : `id:${id}`
+}
+
+/**
+ * Executes the backend banners endpoint and returns the raw banners payload.
+ *
+ * @param source Backend source name that owns the banners.
+ * @param link Source-specific banner link or API endpoint.
+ * @returns Raw banners payload returned by the backend.
+ */
+export async function getBanners(
+  source: string,
+  link: string,
+): Promise<unknown> {
+  return call_api<unknown>('get_banners', { source, link })
+}
+
+/**
+ * Executes the backend players endpoint and returns the raw players payload.
+ *
+ * @param source Backend source name that owns the players.
+ * @param link Source-specific player link or API endpoint.
+ * @returns Raw players payload returned by the backend.
+ */
+export async function getPlayers(
+  source: string,
+  link: string,
+): Promise<unknown> {
+  return call_api<unknown>('get_players', { source, link })
+}
+
+/**
+ * Executes the backend season endpoint and normalizes the response for the entry detail UI.
+ *
+ * @param source Backend source name that owns the season.
+ * @param season Absolute season URL sent to the Rust backend.
+ * @param page 1-based page number requested from the backend.
+ * @param seasonName Season label used when the backend payload does not expose one per episode.
+ * @returns Normalized paged season payload for the requested season.
+ */
+export async function getSeasonEpisodes(
+  source: string,
+  season: string,
+  page = 1,
+  seasonName: string | null = null,
+): Promise<EntryEpisodePage> {
+  const response = await call_api<unknown>('get_season', { source, season, page })
+
+  return normalizeSeasonEpisodePage(response, source, seasonName, page)
+}
+
+/**
+ * Resolves one backend player into a directly playable stream when the source needs a custom
+ * playback handshake such as DRM token retrieval.
+ *
+ * @param player Normalized player descriptor selected in the UI.
+ * @returns Resolved stream payload, or `null` when the player does not need extra resolution.
+ */
+export async function getStream(
+  player: EntryPlayer,
+): Promise<GetStreamResponse | null> {
+  if (!player.resolver) {
+    return null
+  }
+
+  const response = await call_api<unknown>('get_stream', {
+    resolver: player.resolver.kind,
+    target: player.resolver.targetId,
+  })
+
+  return normalizeGetStreamResponse(response)
+}
+
+/**
+ * Parses a REST response body while tolerating empty payloads.
+ *
+ * @param response Fetch response returned by the REST bridge.
+ * @returns Parsed JSON payload or `null` when the body is empty.
+ */
+async function parseResponseBody(response: Response): Promise<unknown> {
+  const body = await response.text()
+
+  if (!body) {
+    throw new Error('Empty JSON response body.')
+  }
+
+  try {
+    return JSON.parse(body)
+  } catch {
+    throw new Error('Invalid JSON response body.')
+  }
+}
+
+/**
+ * Extracts a displayable message from an unknown backend error payload.
+ *
+ * @param payload Backend error payload.
+ * @returns Human-readable error text when available.
+ */
+function extractErrorMessage(payload: unknown): string | null {
+  if (typeof payload === 'string') {
+    return normalizeString(payload)
+  }
+
+  if (!isJsonRecord(payload)) {
+    return null
+  }
+
+  const directMessage = firstNonEmptyString([
+    payload.message,
+    payload.error,
+    payload.details,
+  ])
+
+  if (directMessage) {
+    return directMessage
+  }
+
+  return null
+}
+
+/**
+ * Converts one raw backend entry into the frontend media card model.
+ *
+ * @param entry Raw backend search entry.
+ * @param index Stable fallback index used to build a unique card id.
+ * @returns Normalized media item.
+ */
+function normalizeMediaItem(
+  entry: unknown,
+  index: number,
+  inheritedSource: string | null = null,
+): MediaItem {
+  const record = isJsonRecord(entry) ? entry : {}
+  const source = firstNonEmptyString([record.source, readPath(record, 'source', 'name'), inheritedSource])
+  const link = firstNonEmptyString([record.link])
+  const webLink = firstNonEmptyString([record['web-link'], record.webLink])
+  const rawTitle = firstNonEmptyString([record.title])
+  const altTitle = firstNonEmptyString([record['title/alt']])
+  const title = firstNonEmptyString([rawTitle, altTitle, record.label])
+  const alternativeTitleLabel =
+    rawTitle && altTitle && rawTitle.trim() !== altTitle.trim() ? altTitle : null
+  const imagePosterUrl = resolveAssetUrl(
+    readFirstLink(record, 'img/poster', ['img', 'poster']),
+    source,
+  )
+  const imagePortraitUrl = resolveAssetUrl(
+    readFirstLink(record, 'img/portrait', ['img', 'portrait']),
+    source,
+  )
+  const imageLandscapeUrl = resolveAssetUrl(
+    readFirstLink(record, 'img/landscape', ['img', 'landscape']),
+    source,
+  )
+  const imageUrl = resolveAssetUrl(
+    readFirstLink(record, 'img/url', ['img', 'url']) ?? readFirstLink(record, 'img', ['img']),
+    source,
+  )
+  const entryUrl = resolveEntryUrl(link, source)
+  const webUrl = resolveEntryUrl(webLink, source)
+  const mediaTypeValues = dedupeDisplayStrings(readStringList(record['media-type']))
+  const mediaTypeLabel = firstNonEmptyString(readStringList(record['media-type']).map(toDisplayMediaType))
+  const themeLabels = dedupeDisplayStrings(readStringList(record.theme))
+  const audioLabel = firstNonEmptyString([record.lang, record.audio, record.language])
+  const durationLabel = formatDurationLabel(firstNonEmptyString([record.duration]))
+  const rating = firstNumber(record.rating)
+  const overview = firstNonEmptyString([record.description, record.overview])
+  const episodeLabel = firstNonEmptyString([readPath(record, 'episode', 'label')])
+  const releaseDateLabel = formatReleaseDateLabel(firstNonEmptyString([record['release-date']]))
+  const expireLabel = formatReleaseDateLabel(firstNonEmptyString([record.expire]))
+  const metaLine = buildMetaLine(record)
+
+return {
+     id: buildMediaId(index, link, title, source),
+     title,
+     alternativeTitleLabel,
+     imagePosterUrl,
+     imagePortraitUrl,
+     imageLandscapeUrl,
+     imageUrl,
+     source,
+    entryUrl,
+    webUrl,
+    mediaTypeLabel,
+    mediaTypeValues,
+    themeLabels,
+    audioLabel,
+    durationLabel,
+    rating,
+    overview,
+    episodeLabel,
+    releaseDateLabel,
+    expireLabel,
+    metaLine,
+  }
+}
+
+/**
+ * Converts one raw backend entry into the frontend detail model.
+ *
+ * @param entry Raw backend entry returned by `get_entry`.
+ * @param source Source name used for the request.
+ * @param entryUrl Absolute entry URL used for the request.
+ * @returns Normalized detailed media entry.
+ */
+function normalizeEntryDetails(entry: unknown, source: string, entryUrl: string): EntryDetails {
+  const record = isJsonRecord(entry) ? entry : {}
+  const seasons = normalizeEntrySeasons(record, source)
+  const players: Collection<EntryPlayer> = {
+    entries: normalizeEntryPlayers(record, source),
+    source,
+  }
+  const imagePosterUrl = resolveAssetUrl(readFirstLink(record, 'img/poster', ['img', 'poster']), source)
+  const imagePortraitUrl = resolveAssetUrl(readFirstLink(record, 'img/portrait', ['img', 'portrait']), source)
+  const imageLandscapeUrl = resolveAssetUrl(readFirstLink(record, 'img/landscape', ['img', 'landscape']), source)
+  const imageUrl = resolveAssetUrl(
+    readFirstLink(record, 'img/url', ['img', 'url']) ?? readFirstLink(record, 'img', ['img']),
+    source,
+  )
+  const trailerUrl = firstNonEmptyString([record['video/trailer']])
+  const webLink = resolveEntryUrl(
+    firstNonEmptyString([record['web-link'], record.webLink, record.web_url, record.webUrl]),
+    source,
+  )
+
+  return {
+    source,
+    entryUrl: webLink ?? entryUrl,
+    title: firstNonEmptyString([record.title]),
+    alternativeTitleLabel: firstNonEmptyString([record['title/alt']]),
+    trailerUrl,
+    players,
+    description: firstNonEmptyString([record.description]),
+    imagePosterUrl,
+    imagePortraitUrl,
+    imageLandscapeUrl,
+    imageUrl,
+    logoUrl: resolveAssetUrl(readFirstLink(record, 'img/logo', ['img', 'logo']), source),
+    heroImageUrl: imagePortraitUrl ?? imagePosterUrl ?? imageUrl,
+    yearLabel: formatNumberLabel(firstNumber(record.year)),
+    releaseDateLabel: formatReleaseDateLabel(firstNonEmptyString([record['release-date']])),
+    expireLabel: formatReleaseDateLabel(firstNonEmptyString([record.expire])),
+    durationLabel: formatDurationLabel(firstNonEmptyString([record.duration])),
+    seasonCountLabel: formatSeasonCount(firstNumber(record['count-season'])),
+    audioLanguageLabel: buildAudioLanguageLabel(record),
+    subtitleLanguageLabel: buildSubtitleLanguageLabel(record),
+    contentAdvisorLabel: firstNonEmptyString([record['content-advisor']]),
+    themeLabels: dedupeDisplayStrings(readStringList(record.theme)),
+    genreLabels: dedupeDisplayStrings(readStringList(record.genre)),
+    castingLabels: dedupeDisplayStrings(readStringList(record.casting)),
+    directorLabels: dedupeDisplayStrings(readStringList(record.director)),
+    seasons,
+    score: firstNumber(record.rating),
+  }
+}
+
+/**
+ * Converts raw backend player records into normalized embedded player entries.
+ *
+ * @param players Raw backend player entries.
+ * @param source Source name used to resolve embed URLs.
+ * @returns Normalized embedded players.
+ */
+function normalizePlayers(
+  players: JsonRecord[],
+  source: string,
+): EntryPlayer[] {
+  return players
+    .map((player, index) => normalizeEntryPlayer(player, index, source))
+    .filter((player): player is EntryPlayer => Boolean(player))
+}
+
+/**
+ * Converts backend player lists into normalized embedded player entries.
+ *
+ * @param entry Raw backend entry returned by `get_entry`.
+ * @param source Source name used to resolve embed URLs.
+ * @returns Normalized embedded players.
+ */
+function normalizeEntryPlayers(entry: JsonRecord, source: string): EntryPlayer[] {
+  return normalizePlayers(readRecordList(entry.players), source)
+}
+
+/**
+ * Converts one raw backend get_players response into normalized player entries.
+ *
+ * @param payload Raw backend payload returned by get_players.
+ * @param source Backend source name used to resolve player URLs.
+ * @returns Normalized players.
+ */
+export function normalizePlayersResponse(payload: unknown, source: string): EntryPlayer[] {
+  const record = isJsonRecord(payload) ? payload : {}
+  return normalizePlayers(readRecordList(record.players ?? record.entries ?? record), source)
+}
+
+/**
+ * Converts one raw backend player entry into the frontend detail model.
+ *
+ * @param entry Raw backend player entry.
+ * @param index Stable fallback index used to build a unique player id.
+ * @param source Source name used to resolve embed URLs.
+ * @returns Normalized player, or `null` when no usable embed URL exists.
+ */
+function normalizeEntryPlayer(
+  entry: JsonRecord,
+  index: number,
+  source: string,
+): EntryPlayer | null {
+  const embedLink = resolveEntryUrl(firstNonEmptyString([entry['embed-link']]), source)
+  const directLink = resolveEntryUrl(
+    firstNonEmptyString([entry['direct-link'], entry.directLink]),
+    source,
+  )
+  const webLink = resolveEntryUrl(
+    firstNonEmptyString([entry['web-link'], entry.webLink]),
+    source,
+  )
+  const resolver = normalizeEntryPlayerResolver(entry) ?? (embedLink
+    ? { kind: 'stream-resolver', targetId: embedLink }
+    : null)
+  const name = firstNonEmptyString([entry.name])
+  const lang = firstNonEmptyString([entry.lang])
+  const label = buildPlayerLabel(name, lang, index)
+  const storyboard = normalizeEntryPlayerStoryboard(entry, source)
+
+  if (!embedLink && !directLink && !resolver) {
+    return null
+  }
+
+  if (!embedLink && !directLink) {
+    return {
+      id: buildMediaId(index, resolver?.targetId ?? null, label, source),
+      label,
+      directLink: null,
+      webLink,
+      name,
+      lang,
+      resolver,
+      storyboard,
+    }
+  }
+
+  return {
+    id: buildMediaId(index, directLink ?? embedLink, label, source),
+    label,
+    directLink,
+    webLink,
+    name,
+    lang,
+    resolver,
+    storyboard,
+  }
+}
+
+/**
+ * Converts one backend player descriptor into a frontend resolver model.
+ *
+ * Supports two formats:
+ * 1. YAML flat format (Phase 5): `resolver` and `target` as top-level player fields.
+ *    - `resolver`: string value such as `"stream-resolver"` (YAML key `resolver > value`)
+ *    - `target`: string URL extracted from the page (YAML key `target > value`)
+ * 2. Legacy object format: `resolver` as an array of objects with `kind`, `target_id`/`targetId`,
+ *    and no longer exposes a stream-kind override.
+ *
+ * @param entry Raw backend player entry.
+ * @returns Normalized resolver descriptor, or `null` when the player is self-contained.
+ */
+function normalizeEntryPlayerResolver(entry: JsonRecord): EntryPlayerResolver | null {
+  // Try flat format first: resolver is a direct string value, target is a direct string value.
+  const flatKind = firstNonEmptyString([entry.resolver])
+  const flatTarget = firstNonEmptyString([entry.target, entry['target']])
+
+  if (flatKind && flatTarget) {
+    return { kind: flatKind, targetId: flatTarget }
+  }
+
+  // Fall back to the legacy object format (resolver as an array of objects).
+  const resolver = readRecordList(entry.resolver)[0] ?? null
+
+  const kind = firstNonEmptyString([
+    readPath(resolver, 'kind'),
+    readPath(entry, 'resolverKind'),
+  ])
+  const targetId = firstNonEmptyString([
+    readPath(resolver, 'target_id'),
+    readPath(resolver, 'targetId'),
+    readPath(entry, 'resolverTarget'),
+    // Also check flat target from legacy top-level key
+    flatTarget,
+  ])
+
+  if (!kind || !targetId) {
+    return null
+  }
+
+  return { kind, targetId }
+}
+
+/**
+ * Builds a stable identity key for a section source descriptor.
+ *
+ * @param source Source descriptor attached to a home section.
+ * @returns Source identity key excluding mutable pagination state.
+ */
+function buildHomeSectionSourceKey(source: HomeSectionSource): string {
+  return JSON.stringify([
+    source.name,
+    source.link,
+    Object.entries(source.params).sort(([left], [right]) => left.localeCompare(right)),
+  ])
+}
+
+/**
+ * Converts backend storyboard metadata into a Video.js sprite thumbnail configuration.
+ *
+ * @param entry Raw backend player entry.
+ * @param source Source name used to resolve storyboard assets.
+ * @returns Normalized storyboard configuration, or `null` when incomplete.
+ */
+function normalizeEntryPlayerStoryboard(
+  entry: JsonRecord,
+  source: string,
+): EntryPlayerStoryboard | null {
+  const url = resolveAssetUrl(
+    firstNonEmptyString([
+      readPath(entry, 'storyboard', 'link'),
+      readPath(entry, 'storyboard', 'url'),
+    ]),
+    source,
+  )
+  const width = toPositiveInteger(firstNumber(readPath(entry, 'storyboard', 'width')))
+  const height = toPositiveInteger(firstNumber(readPath(entry, 'storyboard', 'height')))
+  const columns = toPositiveInteger(firstNumber(readPath(entry, 'storyboard', 'columns')))
+  const rows = toPositiveInteger(firstNumber(readPath(entry, 'storyboard', 'rows'))) ?? 1
+  const firstPageIndex = toNonNegativeInteger(firstNumber(readPath(entry, 'storyboard', 'first_page_index'))) ?? 0
+  const configuredInterval = firstNumber(readPath(entry, 'storyboard', 'interval'))
+
+  if (!url || !columns) {
+    return null
+  }
+
+  const interval =
+    configuredInterval !== null && Number.isFinite(configuredInterval) && configuredInterval > 0
+      ? configuredInterval
+      : null
+
+  return {
+    url,
+    width: width ?? undefined,
+    height: height ?? undefined,
+    columns,
+    rows,
+    firstPageIndex,
+    interval: interval !== null && Number.isFinite(interval) && interval > 0 ? interval : null,
+  }
+}
+
+/**
+ * Normalizes one backend player resolution payload into the frontend stream model.
+ *
+ * `stream_url` is now a string array; a plain string is wrapped into a single‑element array.
+ *
+ * @param payload Raw backend payload returned by `get_stream`.
+ * @returns Normalized stream payload, or `null` when the backend returned nothing usable.
+ */
+function normalizeResolvedPlayerStream(payload: unknown): EntryResolvedPlayerStream | null {
+  if (!isJsonRecord(payload)) {
+    return null
+  }
+
+  const streamUrlRaw = payload.stream_url
+  const streamUrl: string[] = Array.isArray(streamUrlRaw)
+    ? streamUrlRaw.filter((url: unknown): url is string => typeof url === 'string' && url.trim().length > 0)
+    : (typeof streamUrlRaw === 'string' && streamUrlRaw.trim().length > 0
+        ? [streamUrlRaw.trim()]
+        : [])
+
+  if (streamUrl.length === 0 || !payload.manifest_type) {
+    return null
+  }
+
+  return {
+    streamUrl,
+    manifestType: payload.manifest_type as string,
+    imageTitleLink: firstNonEmptyString([readPath(payload, 'image/title', 'link')]),
+    licenseUrl: payload.license_url as string ?? null,
+    licenseHeaders: readStringMap(payload.license_headers ?? payload.licenseHeaders),
+    storyboardVttUrl:payload.storyboard_vtt_url as string ?? null,
+    storyboard: normalizeRustifyStoryboard(payload.storyboard),
+    chapters: normalizeRustifyChapters(payload.chapters),
+  }
+}
+
+/**
+ * Normalizes the optional chapters array returned by the backend.
+ *
+ * @param value Backend chapters array.
+ * @returns Normalized chapters array, or `null` when absent or empty.
+ */
+function normalizeRustifyChapters(value: unknown): EntryPlayerChapter[] | null {
+  if (!Array.isArray(value)) {
+    return null
+  }
+
+  const chapters: EntryPlayerChapter[] = []
+
+  for (const item of value) {
+    if (!isJsonRecord(item)) {
+      continue
+    }
+
+    const start = item.start ?? item.tc_in
+    const end = item.end ?? item.tc_out
+    const title = item.title ?? null
+    const chapterType = item.type ?? item.chapter_type
+
+    if (
+      typeof start !== 'number' ||
+      typeof end !== 'number' ||
+      typeof chapterType !== 'string'
+    ) {
+      continue
+    }
+
+    chapters.push({
+      start,
+      end,
+      title: typeof title === 'string' ? title.trim() : '',
+      type: chapterType,
+    })
+  }
+
+  return chapters.length > 0 ? chapters : null
+}
+function normalizeRustifyStoryboard(value: unknown): EntryPlayerStoryboard | null {
+  if (!isJsonRecord(value)) {
+    return null
+  }
+
+  const url = firstNonEmptyString([value.url, value.link])
+  const width = toPositiveInteger(firstNumber(value.width))
+  const height = toPositiveInteger(firstNumber(value.height))
+  const columns = toPositiveInteger(firstNumber(value.columns))
+  const rows = toPositiveInteger(firstNumber(value.rows)) ?? 1
+  const firstPageIndex = toNonNegativeInteger(firstNumber(value.first_page_index ?? value.firstPageIndex)) ?? 0
+  const interval = firstNumber(value.interval)
+
+  if (!url || !columns) {
+    return null
+  }
+
+  return {
+    url,
+    width: width ?? undefined,
+    height: height ?? undefined,
+    columns,
+    rows,
+    firstPageIndex,
+    interval: interval !== null && Number.isFinite(interval) && interval > 0 ? interval : null,
+  }
+}
+
+/**
+ * Normalizes one `get_stream` backend response into the frontend union type.
+ *
+ * The response can be either a resolved stream payload (`stream_url[]`, manifest type, etc.)
+ * or an iframe fallback (`embed-link`). The two branches are mutually exclusive.
+ *
+ * @param payload Raw backend payload returned by `get_stream`.
+ * @returns Normalized union response, or `null` when the payload is unusable.
+ */
+function normalizeGetStreamResponse(payload: unknown): GetStreamResponse | null {
+  if (!isJsonRecord(payload)) {
+    return null
+  }
+
+  // Prefer embed-link fallback when stream_url is absent
+  const embedLink = firstNonEmptyString([payload['embed-link'], payload.embedLink])
+  const streamUrl = payload.stream_url ?? payload.streamUrl
+
+  if (embedLink && !streamUrl) {
+    return { embedLink }
+  }
+
+  const resolvedStream = normalizeResolvedPlayerStream(payload)
+  if (resolvedStream) {
+    return resolvedStream
+  }
+
+  return null
+}
+
+/**
+ * Converts the backend season lists into normalized season entries.
+ *
+ * Reads the canonical `seasons[]` field produced by `get_entry`. Each season may contain
+ * embedded `episodes[]` (eager) and/or a `link` (lazy through `get_season`). When both are
+ * present, the frontend prefers the embedded episodes.
+ *
+ * @param entry Raw backend entry returned by `get_entry`.
+ * @param source Source name used to resolve the season links.
+ * @returns Normalized season entries.
+ */
+function normalizeEntrySeasons(entry: JsonRecord, source: string): EntrySeason[] {
+  return readRecordList(entry.seasons)
+    .map((season, index) => {
+      const label = firstNonEmptyString([season.label])
+      const normalizedLabel = label ? normalizeString(label) : null
+      const link = resolveEntryUrl(firstNonEmptyString([season.link]), source)
+      const rawEpisodes = readRecordList(season.episodes)
+      const episodes = rawEpisodes.length > 0
+        ? rawEpisodes
+            .map((episode, epIndex) => normalizeEntryEpisode(episode, epIndex, source, normalizedLabel))
+            .filter((episode) => !isUnavailableEpisode(episode))
+        : []
+
+      // A season without label is only acceptable when it is the only season.
+      // Let the caller decide the final filtering strategy.
+      return {
+        id: buildMediaId(index, link, normalizedLabel ?? 'season', source),
+        label: normalizedLabel,
+        link,
+        episodes,
+      }
+    })
+}
+
+/**
+ * Converts eager episode lists returned directly by `get_entry`.
+ *
+ * @param entry Raw backend entry returned by `get_entry`.
+ * @param source Source name used to resolve episode links and media.
+ * @returns Normalized episodes embedded in the entry payload.
+ */
+function normalizeEntryEpisodes(entry: JsonRecord, source: string): EntryEpisode[] {
+  return readRecordList(entry.episode)
+    .map((episode, index) => normalizeEntryEpisode(episode, index, source))
+    .filter((episode) => !isUnavailableEpisode(episode))
+}
+
+/**
+ * Converts one raw backend episode into the frontend episode detail model.
+ *
+ * @param entry Raw backend episode entry.
+ * @param index Stable fallback index used to build a unique episode id.
+ * @param source Source name used to resolve media assets.
+ * @param fallbackSeasonName Season label used when the backend response omits it.
+ * @returns Normalized episode detail.
+ */
+function normalizeEntryEpisode(
+  entry: JsonRecord,
+  index: number,
+  source: string,
+  fallbackSeasonName: string | null = null,
+): EntryEpisode {
+  const previewEntries = readRecordList(readPath(entry, 'img/preview'))
+  const imagePosterUrl = readFirstLink(entry, 'img/poster', ['img', 'poster'])
+  const link = resolveEntryUrl(firstNonEmptyString([entry.link]), source)
+  const duration = firstNonEmptyString([entry.duration])
+  const playersLink = link
+  const players: Collection<EntryPlayer> = {
+    entries: normalizePlayers(readRecordList(entry.players), source),
+    source,
+    ...(playersLink ? { link: playersLink } : {}),
+  }
+  const rawTitle = firstNonEmptyString([entry.title])
+  const altTitle = firstNonEmptyString([entry['title/alt']])
+  const title = rawTitle || altTitle
+  const alternativeTitleLabel =
+    rawTitle && altTitle && rawTitle.trim() !== altTitle.trim() ? altTitle : null
+
+  return {
+    id: buildMediaId(index, link, title, source),
+    link,
+    players,
+    seasonName: firstNonEmptyString([entry['season-name'], fallbackSeasonName]),
+    title,
+    alternativeTitleLabel,
+    description: firstNonEmptyString([entry.description]),
+    releaseDateLabel: formatReleaseDateLabel(firstNonEmptyString([entry['release-date']])),
+    expireLabel: formatReleaseDateLabel(firstNonEmptyString([entry.expire])),
+    durationLabel: formatDurationLabel(duration),
+    previewUrl: resolveAssetUrl(
+      firstNonEmptyString([imagePosterUrl, ...previewEntries.map((preview) => preview.link)]),
+      source,
+    ),
+  }
+}
+
+/**
+ * Builds a display-ready player label from the backend player metadata.
+ *
+ * @param name Player host or backend-provided display name.
+ * @param lang Optional player language label.
+ * @param index Stable fallback index used when no metadata is available.
+ * @returns Display-ready player label.
+ */
+function buildPlayerLabel(name: string | null, lang: string | null, index: number): string {
+  if (name) {
+    return name
+  }
+
+  return t('player.defaultLabel', { index: String(index + 1) })
+}
+
+/**
+ * Converts one paged backend season response into normalized episode data and pagination metadata.
+ *
+ * @param payload Raw backend payload returned by `get_season`.
+ * @param source Source name used to resolve episode media.
+ * @param seasonName Season label used when the backend payload does not expose one per episode.
+ * @param fallbackPage Requested page number used when the backend omits page metadata.
+ * @returns Normalized paged season response.
+ */
+function normalizeSeasonEpisodePage(
+  payload: unknown,
+  source: string,
+  seasonName: string | null,
+  fallbackPage: number,
+): EntryEpisodePage {
+  if (!isJsonRecord(payload)) {
+    throw new Error(t('errors.unexpectedSeasonResponseFormat'))
+  }
+
+  const episodes = Array.isArray(payload.episodes) ? payload.episodes : []
+
+  return {
+    currentPage: Math.max(1, Math.trunc(firstNumber(payload.current_page) ?? fallbackPage)),
+    haveMore: readBoolean(payload.have_more),
+    episodes: episodes
+      .map((entry, index) =>
+        normalizeEntryEpisode(isJsonRecord(entry) ? entry : {}, index, source, seasonName),
+      )
+      .filter((episode) => !isUnavailableEpisode(episode)),
+  }
+}
+
+/**
+ * Builds a display title for one episode.
+ *
+ * @param entry Raw backend episode entry.
+ * @returns Normalized episode title.
+ */
+function buildEpisodeTitle(entry: JsonRecord): string | null {
+  return firstNonEmptyString([entry.title, entry['title/alt']])
+}
+
+/**
+ * Returns whether one normalized episode should be hidden from the UI.
+ *
+ * @param episode Normalized episode entry.
+ * @returns `true` when the episode title is empty or marked unavailable.
+ */
+function isUnavailableEpisode(episode: EntryEpisode): boolean {
+  const title = episode.title?.trim().toLocaleLowerCase()
+  return !title || title === 'titre indisponible'
+}
+
+/**
+ * Builds a compact metadata line from the backend fields available on a result.
+ *
+ * @param entry Raw backend entry.
+ * @returns Short metadata line displayed in the preview panel.
+ */
+function buildMetaLine(entry: JsonRecord): string | null {
+  const topicValues = [
+    ...readStringList(entry.genre),
+    ...readStringList(entry.theme),
+  ]
+  const mediaTypeValues = readStringList(entry['media-type']).flatMap((value) => {
+    const label = toDisplayMediaType(value)
+    return label ? [label] : []
+  })
+  const languageValues = readStringList(entry.lang)
+  const values = dedupeDisplayStrings([...topicValues, ...mediaTypeValues, ...languageValues])
+
+  return values.length > 0 ? values.join(' • ') : null
+}
+
+/**
+ * Reads a nested property from an unknown JSON-like object.
+ *
+ * @param value Root value to inspect.
+ * @param path Nested property path.
+ * @returns Nested value or `null` when the path does not exist.
+ */
+function readPath(value: unknown, ...path: string[]): unknown {
+  let current: unknown = value
+
+  for (const segment of path) {
+    if (!isJsonRecord(current)) {
+      return null
+    }
+
+    current = current[segment]
+  }
+
+  return current
+}
+
+/**
+ * Collects typed string values from a backend scalar or array.
+ *
+ * @param value Unknown backend node.
+ * @returns Flat list of trimmed non-empty strings.
+ */
+function readStringList(value: unknown): string[] {
+  if (typeof value === 'string') {
+    const normalized = normalizeString(value)
+    return normalized ? [normalized] : []
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => {
+      if (typeof item !== 'string') {
+        return []
+      }
+
+      const normalized = normalizeString(item)
+      return normalized ? [normalized] : []
+    })
+  }
+
+  return []
+}
+
+/**
+ * Reads a string-only record from an unknown backend object shape.
+ *
+ * @param value Unknown backend object that may contain scraper scalar nodes.
+ * @returns Plain string record containing the first non-empty value for each key.
+ */
+function readStringMap(value: unknown): Record<string, string> {
+  if (!isJsonRecord(value)) {
+    return {}
+  }
+
+  const output: Record<string, string> = {}
+
+  Object.entries(value).forEach(([key, entryValue]) => {
+    const normalizedValue = typeof entryValue === 'string' ? normalizeString(entryValue) : null
+
+    if (normalizedValue) {
+      output[key] = normalizedValue
+    }
+  })
+
+  return output
+}
+
+/**
+ * Reads primitive backend values into request parameter strings.
+ *
+ * @param value Unknown backend object used as source/request params.
+ * @returns String-only parameter record accepted by backend calls.
+ */
+function readStringParamMap(value: unknown): Record<string, string> {
+  if (!isJsonRecord(value)) {
+    return {}
+  }
+
+  const output: Record<string, string> = {}
+
+  Object.entries(value).forEach(([key, entryValue]) => {
+    if (typeof entryValue === 'string') {
+      const normalizedValue = normalizeString(entryValue)
+      if (normalizedValue) {
+        output[key] = normalizedValue
+      }
+      return
+    }
+
+    if (typeof entryValue === 'number' && Number.isFinite(entryValue)) {
+      output[key] = String(entryValue)
+      return
+    }
+
+    if (typeof entryValue === 'boolean') {
+      output[key] = String(entryValue)
+    }
+  })
+
+  return output
+}
+
+/**
+ * Collects plain-object records from a serialized scraper node.
+ *
+ * @param value Unknown backend node.
+ * @returns Flat list of JSON-like records.
+ */
+function readRecordList(value: unknown): JsonRecord[] {
+  if (Array.isArray(value)) {
+    return value.filter(isJsonRecord)
+  }
+
+  return isJsonRecord(value) ? [value] : []
+}
+
+/**
+ * Reads home banners while tolerating both arrays of banner objects and one indexed object payload.
+ *
+ * Some scraper outputs can serialize repeated banner fields into one object whose properties are
+ * aligned arrays. When that happens, the frontend must rebuild one record per index instead of
+ * treating the whole object as a single banner.
+ *
+ * @param value Unknown backend banner node.
+ * @returns Banner records ready for normalization.
+ */
+function readBannerList(value: unknown): JsonRecord[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => {
+      if (isJsonRecord(entry)) {
+        return expandIndexedBannerRecords([entry])
+      }
+
+      if (Array.isArray(entry)) {
+        const fragments = entry.filter(isJsonRecord)
+        return fragments.length > 0 ? [mergeBannerFragments(fragments)] : []
+      }
+
+      return []
+    })
+  }
+
+  return expandIndexedBannerRecords(readRecordList(value))
+}
+
+/**
+ * Expands one banner payload when the backend aligned several banner fields in one indexed object.
+ *
+ * @param records Candidate banner records extracted from the backend node.
+ * @returns One or more banner records ready for normalization.
+ */
+function expandIndexedBannerRecords(records: JsonRecord[]): JsonRecord[] {
+  if (records.length !== 1) {
+    return records
+  }
+
+  const candidate = records[0]
+  if (!candidate) {
+    return []
+  }
+
+  const entries = Object.entries(candidate)
+  const maxFieldLength = entries.reduce(
+    (maxLength, [, fieldValue]) => Math.max(maxLength, readIndexedFieldValues(fieldValue).length),
+    0,
+  )
+
+  if (maxFieldLength <= 1) {
+    return records
+  }
+
+  return Array.from({ length: maxFieldLength }, (_, index) => {
+    const record: JsonRecord = {}
+
+    entries.forEach(([key, fieldValue]) => {
+      const indexedValue = readIndexedFieldValues(fieldValue)[index]
+      if (indexedValue !== undefined && indexedValue !== null) {
+        record[key] = indexedValue
+      }
+    })
+
+    return record
+  }).filter((record) => Object.keys(record).length > 0)
+}
+
+/**
+ * Rebuilds one banner record from several partial fragments emitted for the same backend item.
+ *
+ * Some Rust-serialized banner items are emitted as an array of partial objects when one field
+ * contains more values than the others. The frontend only needs one consolidated record.
+ *
+ * @param fragments Partial records that all belong to the same banner item.
+ * @returns Consolidated banner record.
+ */
+function mergeBannerFragments(fragments: JsonRecord[]): JsonRecord {
+  const record: JsonRecord = {}
+
+  fragments.forEach((fragment) => {
+    Object.entries(fragment).forEach(([key, value]) => {
+      if (!(key in record) && value !== null && value !== undefined) {
+        record[key] = value
+      }
+    })
+  })
+
+  return record
+}
+
+/**
+ * Returns the aligned values attached to one potentially indexed backend field.
+ *
+ * @param value Unknown backend field value.
+ * @returns Raw values that can be consumed by one indexed banner record.
+ */
+function readIndexedFieldValues(value: unknown): unknown[] {
+  if (Array.isArray(value)) {
+    return value
+  }
+
+  if (isJsonRecord(value) && Array.isArray(value._)) {
+    return value._
+  }
+
+  return value === null || value === undefined ? [] : [value]
+}
+
+/**
+ * Reads the first available string value from a list of backend nodes.
+ *
+ * @param values Candidate backend nodes.
+ * @returns First non-empty string value.
+ */
+function firstNonEmptyString(values: unknown[]): string | null {
+  for (const value of values) {
+    const candidate = readStringList(value)[0]
+
+    if (candidate) {
+      return candidate
+    }
+  }
+
+  return null
+}
+
+/**
+ * Reads a typed numeric backend value.
+ *
+ * @param value Backend value.
+ * @returns Number when the backend emitted one.
+ */
+function firstNumber(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null
+  }
+
+  return null
+}
+
+/**
+ * Normalizes one numeric backend value into a positive integer.
+ *
+ * @param value Parsed numeric backend value.
+ * @returns Positive integer when available.
+ */
+function toPositiveInteger(value: number | null): number | null {
+  if (value === null) {
+    return null
+  }
+
+  const normalizedValue = Math.trunc(value)
+  return Number.isFinite(normalizedValue) && normalizedValue > 0 ? normalizedValue : null
+}
+
+/**
+ * Normalizes one numeric backend value into a non-negative integer.
+ *
+ * @param value Parsed numeric backend value.
+ * @returns Non-negative integer when available.
+ */
+function toNonNegativeInteger(value: number | null): number | null {
+  if (value === null) {
+    return null
+  }
+
+  const normalizedValue = Math.trunc(value)
+  return Number.isFinite(normalizedValue) && normalizedValue >= 0 ? normalizedValue : null
+}
+
+/**
+ * Reads a typed boolean backend value.
+ *
+ * @param value Backend value.
+ * @returns Boolean when available, otherwise `false`.
+ */
+function readBoolean(value: unknown): boolean {
+  if (typeof value === 'boolean') {
+    return value
+  }
+
+  return false
+}
+
+/**
+ * Reads a boolean only when the backend explicitly emitted a typed boolean.
+ *
+ * @param value Backend value.
+ * @returns Boolean, or `null` when the field is absent/unknown.
+ */
+function readOptionalBoolean(value: unknown): boolean | null {
+  if (typeof value === 'boolean') {
+    return value
+  }
+
+  return null
+}
+
+/**
+ * Reads a media link from either the flat scraper key shape or a nested object shape.
+ *
+ * @param record Raw backend record.
+ * @param flatKey Flat field name such as `img/poster`.
+ * @param nestedPath Fallback nested path when the payload is object-shaped.
+ * @returns First resolved raw link string.
+ */
+function readFirstLink(record: JsonRecord, flatKey: string, nestedPath: string[]): string | null {
+  return firstNonEmptyString([
+    readPath(record, flatKey, 'link'),
+    readPath(record, ...nestedPath, 'link'),
+  ])
+}
+
+/**
+ * Builds the displayable audio language label from the backend language-related fields.
+ *
+ * @param record Raw backend record.
+ * @returns Combined audio language label when available.
+ */
+function buildAudioLanguageLabel(record: JsonRecord): string | null {
+  const values = dedupeDisplayStrings([
+    ...readStringList(record.language),
+    ...readStringList(readPath(record, 'lang/audio')),
+  ])
+
+  return values.length > 0 ? values.join(' • ') : null
+}
+
+/**
+ * Builds the displayable subtitle language label from the backend language-related fields.
+ *
+ * @param record Raw backend record.
+ * @returns Combined subtitle language label when available.
+ */
+function buildSubtitleLanguageLabel(record: JsonRecord): string | null {
+  const values = dedupeDisplayStrings(readStringList(readPath(record, 'lang/subtitles')))
+
+  return values.length > 0 ? values.join(' • ') : null
+}
+
+/**
+ * Resolves a media asset URL against the source base URL when the backend returns a relative path.
+ *
+ * @param value Raw asset URL returned by the backend.
+ * @param source Source name associated with the asset.
+ * @returns Absolute asset URL when it can be resolved.
+ */
+function resolveAssetUrl(value: string | null, source: string | null): string | null {
+  if (!value) {
+    return null
+  }
+
+  if (/^https?:\/\//i.test(value)) {
+    return value
+  }
+
+  if (value.startsWith('//')) {
+    return `https:${value}`
+  }
+
+  return value
+}
+
+/**
+ * Resolves an entry URL against the source base URL when the backend returns a relative path.
+ *
+ * @param value Raw entry link returned by the backend search query.
+ * @param source Source name associated with the entry.
+ * @returns Absolute entry URL when it can be resolved.
+ */
+function resolveEntryUrl(value: string | null, source: string | null): string | null {
+  if (!value) {
+    return null
+  }
+
+  const normalizedValue = normalizeString(value)
+  if (!normalizedValue) {
+    return null
+  }
+
+  if (/^https?:\/\//i.test(normalizedValue)) {
+    return normalizedValue
+  }
+
+  if (normalizedValue.startsWith('//')) {
+    return `https:${normalizedValue}`
+  }
+
+  return normalizedValue
+}
+
+
+/**
+ * Formats a typed number for display.
+ *
+ * @param value Typed backend number.
+ * @returns Display-ready numeric label.
+ */
+function formatNumberLabel(value: number | null): string | null {
+  return value === null ? null : String(value)
+}
+
+/**
+ * Formats a season count extracted from the backend entry.
+ *
+ * @param value Typed season count.
+ * @returns Display-ready season count label.
+ */
+function formatSeasonCount(value: number | null): string | null {
+  const count = toPositiveInteger(value)
+  if (count === null) {
+    return null
+  }
+
+  return count > 1
+    ? t('entry.seasonCountPlural', { count: String(count) })
+    : t('entry.seasonCountSingular', { count: String(count) })
+}
+
+/**
+ * Formats a backend duration expressed in seconds into `h:mm:ss` or `mm:ss`.
+ *
+ * @param value Raw duration string returned by the backend.
+ * @returns Display-ready duration label.
+ */
+function formatDurationLabel(value: string | null): string | null {
+  if (!value) {
+    return null
+  }
+
+  const totalSeconds = parseDurationSeconds(value)
+
+  if (totalSeconds === null) {
+    return value
+  }
+
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  const minutesLabel = String(minutes).padStart(2, '0')
+  const secondsLabel = String(seconds).padStart(2, '0')
+
+  if (hours > 0) {
+    return `${hours}:${minutesLabel}:${secondsLabel}`
+  }
+
+  return `${minutesLabel}:${secondsLabel}`
+}
+
+/**
+ * Parses a backend duration expressed in seconds.
+ *
+ * @param value Raw duration string returned by the backend.
+ * @returns Parsed duration in seconds when valid.
+ */
+function parseDurationSeconds(value: string | null): number | null {
+  if (!value || !/^\d+$/.test(value)) {
+    return null
+  }
+
+  const totalSeconds = Number.parseInt(value, 10)
+  return Number.isFinite(totalSeconds) && totalSeconds >= 0 ? totalSeconds : null
+}
+
+/**
+ * Formats a backend release date expressed as `YYYY-MM-DD` into `DD/MM/YYYY`.
+ *
+ * @param value Raw release date returned by the backend.
+ * @returns Display-ready release date label.
+ */
+function formatReleaseDateLabel(value: string | null): string | null {
+  if (!value) {
+    return null
+  }
+
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (match) {
+      const [, year, month, day] = match
+      return `${day}/${month}/${year}`
+  }
+
+  const match2 = value.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/)
+  if (match2) {
+      const [, year, month, day, hh, mm] = match2
+      return `${day}/${month}/${year} ${hh}:${mm}`
+  }
+
+  return value;
+}
+
+/**
+ * Produces a stable frontend id from the backend result contents.
+ *
+ * @param index Search result index.
+ * @param link Canonical entry URL when available.
+ * @param title Display title used as a fallback.
+ * @param source Backend source associated with the item.
+ * @returns Stable card identifier.
+ */
+function buildMediaId(
+  index: number,
+  link: string | null,
+  title: string | null,
+  source: string | null = null,
+): string {
+  const baseValue = [normalizeString(source ?? ''), link, title, `media-${index + 1}`]
+    .filter((value): value is string => Boolean(value))
+    .join('-')
+  const normalizedBaseValue = slugify(baseValue) || `media-${index + 1}`
+
+  return `${normalizedBaseValue}-${index + 1}`
+}
+
+/**
+ * Deduplicates category source descriptors while preserving their first-seen order.
+ *
+ * @param sources Category source descriptors attached to one merged category.
+ * @returns Deduplicated source descriptors.
+ */
+function dedupeHomeCategorySources(sources: HomeCategorySource[]): HomeCategorySource[] {
+  const seen = new Set<string>()
+  const dedupedSources: HomeCategorySource[] = []
+
+  sources.forEach((source) => {
+    const serializedSource = serializeHomeCategorySource(source)
+    if (seen.has(serializedSource)) {
+      return
+    }
+
+    seen.add(serializedSource)
+    dedupedSources.push({ ...source })
+  })
+
+  return dedupedSources
+}
+
+/**
+ * Serializes one category source descriptor into a stable comparison key.
+ *
+ * @param source Category source descriptor.
+ * @returns Stable string representation used for deduplication.
+ */
+function serializeHomeCategorySource(source: HomeCategorySource): string {
+  return JSON.stringify(
+    Object.entries(source).sort(([left], [right]) => left.localeCompare(right)),
+  )
+}
+
+/**
+ * Deduplicates media items while preserving their first-seen order.
+ *
+ * @param items Media items collected inside one merged section rail.
+ * @returns Deduplicated media items.
+ */
+function dedupeMediaItems(items: MediaItem[]): MediaItem[] {
+  const seen = new Set<string>()
+  const dedupedItems: MediaItem[] = []
+
+  items.forEach((item) => {
+    const dedupeKey = buildMediaDeduplicationKey(item)
+    if (seen.has(dedupeKey)) {
+      return
+    }
+
+    seen.add(dedupeKey)
+    dedupedItems.push(item)
+  })
+
+  return dedupedItems
+}
+
+/**
+ * Builds the comparison key used to collapse duplicate media items in merged rails.
+ *
+ * @param item Media item rendered inside a catalog rail.
+ * @returns Stable deduplication key.
+ */
+function buildMediaDeduplicationKey(item: MediaItem): string {
+  const normalizedSource = normalizeString(item.source ?? '')
+  const normalizedEntryUrl = normalizeString(item.entryUrl ?? '')
+  if (normalizedSource && normalizedEntryUrl) {
+    return `entry:${normalizedSource}:${normalizedEntryUrl}`
+  }
+
+  const normalizedWebUrl = normalizeString(item.webUrl ?? '')
+  if (normalizedSource && normalizedWebUrl) {
+    return `web:${normalizedSource}:${normalizedWebUrl}`
+  }
+
+  const normalizedTitle = normalizeString(item.title ?? '')
+  const normalizedPosterUrl = normalizeString(item.imagePosterUrl ?? item.imageUrl ?? '')
+  if (normalizedSource && normalizedTitle && normalizedPosterUrl) {
+    return `poster:${normalizedSource}:${normalizedTitle.toLocaleLowerCase()}:${normalizedPosterUrl}`
+  }
+
+  return `id:${item.id}`
+}
+
+/**
+ * Prefixes a backend identifier with its source to avoid cross-source collisions.
+ *
+ * @param id Raw identifier returned by the backend.
+ * @param source Backend source associated with the item.
+ * @returns Scoped identifier or `null` when no id is available.
+ */
+function buildScopedId(id: string | null, source: string | null): string | null {
+  const normalizedId = normalizeString(id ?? '')
+  if (!normalizedId) {
+    return null
+  }
+
+  const normalizedSource = normalizeString(source ?? '')
+  return normalizedSource ? `${normalizedSource}:${normalizedId}` : normalizedId
+}
+
+/**
+ * Normalizes a display string by trimming surrounding whitespace.
+ *
+ * @param value Raw string value.
+ * @returns Trimmed string or `null` when empty.
+ */
+function normalizeString(value: string): string | null {
+  const normalized = value.trim()
+  return normalized.length > 0 ? normalized : null
+}
+
+/**
+ * Converts backend media-type identifiers into user-facing labels.
+ *
+ * @param value Raw media type returned by the backend.
+ * @returns Display-ready media type label.
+ */
+function toDisplayMediaType(value: string): string | undefined {
+  if (value.startsWith("video/other/")) {
+    return value.split("video/other/")[1];
+  } if (value.startsWith("video/show/other/")) {
+    return value.split("video/show/other/")[1];
+  } else {
+    return tm('mediaTypes')[value] ?? value
+  }
+}
+
+/**
+ * Deduplicates display strings while preserving their original casing.
+ *
+ * @param values Candidate display strings.
+ * @returns Deduplicated list that preserves the first display value.
+ */
+function dedupeDisplayStrings(values: string[]): string[] {
+  const seen = new Set<string>()
+  const returnValue: string[] = []
+
+  values.forEach((value) => {
+    const normalizedValue = normalizeString(value)
+
+    if (!normalizedValue) {
+      return false
+    }
+
+    const key = normalizedValue.toLocaleLowerCase()
+
+    if (seen.has(key)) {
+      return false
+    }
+
+    seen.add(key)
+    returnValue.push(normalizedValue)
+    return true
+  })
+
+  return returnValue
+}
+
+/**
+ * Creates a URL-safe identifier fragment from a backend string.
+ *
+ * @param value Raw identifier source.
+ * @returns Slugified identifier fragment.
+ */
+function slugify(value: string): string {
+  return value
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+/**
+ * Checks whether an unknown value is a plain object record.
+ *
+ * @param value Value to inspect.
+ * @returns `true` when the value can be accessed as a key/value record.
+ */
+function isJsonRecord(value: unknown): value is JsonRecord {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}

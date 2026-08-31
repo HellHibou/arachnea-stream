@@ -4,6 +4,9 @@ title: M6 Play
 logo: https://www.groupem6.fr/app/uploads/sites/3/cache/2024/07/logo-m6-groupe/883637834.png
 description:
   fr: "M6 Play est la plateforme de streaming du groupe audiovisuel français M6, offrant un large catalogue de programmes télévisés, films, séries, documentaires et contenus exclusifs en ligne. Les utilisateurs peuvent accéder à leurs émissions préférées en direct ou à la demande, avec des fonctionnalités de recherche avancées et une interface conviviale pour une expérience de visionnage optimale."
+credentials:
+  required: true
+  signup_url: https://auth.m6.fr/inscription?ad_targeting=true&multi_device_matching=false&personalization=true&tracking=true&pixel_email_deliverability=false&pixel_email_marketing=false&redirect_uri=https%3A%2F%2Fwww.m6.fr%2F&auth_flow_type=login&redirect_reason=OIDC+Login
 http:
   mode: direct
   user_agent_profile: firefox

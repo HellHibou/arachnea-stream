@@ -5,6 +5,21 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ## Unreleased
 
 ### Added
+- **Admin web application (`front/admin-app/`)**: Independent Vite/Vue/Vuetify SPA served under `/admin`, built separately from the public frontend. Features include:
+  - Conditional login screen driven by `/api/admin/status` (`auth_required`/`authenticated`).
+  - Service catalog with localized descriptions, fallback logos, and enable/disable toggles (override persistence via `arachnea-services` namespace).
+  - Credentials dialog with masked login display and signup URL opener (`window.open`).
+  - Settings page for port, network mode (local/private/public), entrypoint root, and administrator password change.
+  - Reload button with detailed result display (`applied`, `loaded`, `disabled`, `ignored`, `errors`).
+  - Theme system (system/light/dark) with `system` default, persisted to localStorage.
+  - i18n (en/fr) with browser detection and `en` fallback.
+  - All API calls centralized in `useAdminApi` composable with normalized error handling (`AdminApiException`, `{error:{code,message}}`).
+  - Build outputs to `dist/admin/` without conflicting with public frontend (`dist/`).
+  - Left navigation drawer holding the Services and Settings links (moved from the app bar tabs).
+  - Popup notification stack for backend errors (network failure, invalid response, HTTP error statuses including 401/403 access-denied) with dismiss, Escape handling, and copyable error code.
+  - Dev proxy rewrites the `Origin` header to the backend target so admin write-origin checks (Origin vs Host) pass under `npm run dev` (admin-app and public-app Vite configs).
+  - Credentials key button stacked below the status chip in the service list; credentials dialog title shows the service title with its source code in parentheses, and the signup link on its own line.
+  - Enabling a service that requires credentials but has none configured now asks how to proceed: add credentials (activation resumes after save, cancelled dialog keeps the service disabled), activate without credentials, or leave the service disabled.
 - **Linux installers (.deb/.rpm/.AppImage) from the Docker cross image (`build-release/`)**:
   On hosts that cannot natively bundle them (macOS/Windows), the `linux-x86_64`
   and `linux-arm64` platforms are now fully produced inside the cross image: a
@@ -1000,3 +1015,87 @@ non-interactive terminal) throws the same error, unchanged. The release and
 install-tools flows no longer prompt for a cross-image build that would crash
 afterwards on a raw named-pipe connection error.
 
+## Unreleased — persistent Stream configuration (server)
+
+Arachnéa Stream now loads its persistent application configuration from
+data/config.json. It validates the port, public root, network mode and
+administrator password-hash field, supports atomic owner-only writes on Unix,
+and applies these values only when the equivalent CLI option is absent.
+Server starts without a persisted administrator hash now print a new temporary
+remote-administration password to the console.
+
+## Unreleased — persistent service activation (server)
+
+Scrapyfy now supports a persistence-backed source-activation policy. Arachnéa
+Stream synchronizes every declared stream service into the arachnea-services
+namespace, preserves administrator overrides, and applies them while loading
+the YAML collections. Service YAML files can now declare optional credentials
+metadata for required and signup_url.
+
+## Unreleased - reloadable stream scraper and encrypted service credentials (server)
+
+Arachnéa Stream now registers all of its routes against a new
+`ReloadableStreamScraper` facade: every request resolves the active scraper
+instance at call time, so future admin reloads can swap the instance without
+re-registering routes or interrupting in-flight requests. The facade builds
+and validates a replacement off the request path, synchronizes missing service
+states in `arachnea-services` without overwriting existing overrides, and swaps
+atomically only after validation succeeds, returning a detailed report of
+loaded, disabled, ignored, and failing services. The registration-time proxy
+core and public proxy/DRM paths are shared with rebuilt instances so the
+generic `proxy` command and DRM licenses keep working across reloads.
+
+Service credentials used by player resolvers are now persisted in the encrypted
+`data/credentials` store instead of the clear JSON store. Scrapyfy also gained
+`load_service_catalog_detailed`, a tolerant catalog loader that reports
+per-source missing, invalid, or duplicate entries instead of aborting on the
+first broken YAML file.
+## Unreleased - administration API and security (server)
+
+A new administration API is now served under `api/admin/<operation>` over HTTP
+and through the Tauri invoke handler under the same command names. It exposes
+status, login/logout with opaque sessions, the full service catalog (including
+disabled and unavailable sources), persistent service activation and reset,
+service credentials state (never the secrets themselves) with set/clear, server
+settings with provenance and restart hints, permanent administrator password
+management, and an atomic configuration reload reporting loaded, disabled,
+ignored, and failing services.
+
+Access control follows the local/remote rule: desktop and loopback clients
+do not need authentication; any other client must hold a session obtained with
+the administrator password. Passwords are hashed with Argon2id; a temporary
+password is generated, printed once, and kept in memory when no permanent hash
+is configured. Sessions use an HttpOnly SameSite=Strict cookie, admin
+responses are `Cache-Control: no-store`, all writes require POST and reject
+cross-site origins, and failed logins are rate-limited per client address.
+The REST controller context now carries the remote TCP peer address, and the
+latest response describes the provenance (command line, configuration file, or
+default) of every effective setting.
+
+## Unreleased — administration refinements (frontend)
+
+The public desktop settings now expose an **Open administration** action that
+opens or focuses the dedicated Tauri administration window. The admin reload
+request now includes its required empty JSON object, preventing the previous
+HTTP 400 EOF deserialization error. The shell refreshes its authentication
+state after login so its app bar and navigation drawer appear immediately;
+the Local network option is shown only on loopback hosts; and the credentials
+dialog warns that provider accounts must use a username/email and password,
+not OAuth sign-in.
+
+## Unreleased — validation and scraper reliability
+
+The targeted Core, Scrapyfy and Stream test suites now run without warnings or
+failures in their deterministic mode. Scrapyfy restores the documented
+`exec_js` output of numeric global variables, validates and resolves the
+reserved `@` dynamic-variable namespace, and isolates its test data directory.
+The HTTP rquest engine now ignores implicit system proxy settings unless an
+Arachnéa proxy is explicitly configured, avoiding a macOS system-configuration
+panic. Stream tests initialize their data-directory identifier and keep the
+full live-provider sweep as an explicit ignored test because third-party
+catalogues are inherently volatile.
+
+## Unreleased — public settings order
+
+The desktop-only **Administration** section is now the final section in the
+public settings screen.

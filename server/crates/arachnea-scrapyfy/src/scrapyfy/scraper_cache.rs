@@ -75,7 +75,6 @@ pub enum ServerCacheInteraction {
     ForceRefresh,
 }
 
-
 /// Configuration of the server-side result cache.
 #[derive(Debug, Clone)]
 pub struct ScraperCacheConfig {
@@ -412,4 +411,3 @@ impl ScraperServerCache {
         handle.remove(key);
     }
 }
-

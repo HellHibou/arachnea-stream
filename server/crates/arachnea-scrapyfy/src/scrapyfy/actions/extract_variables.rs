@@ -144,7 +144,7 @@ mod tests {
         let out = apply(
             texts.clone(),
             r"\b([A-Za-z][A-Za-z0-9_]*)\s*=\s*(\d+)\s*;",
-            "{1}",
+            "@{1}",
             "{2}",
             ExtractVariablesDuplicatePolicy::Error,
             &params,
@@ -158,7 +158,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .as_map()
-                .get("A")
+                .get("@A")
                 .map(String::as_str),
             Some("80")
         );
@@ -167,7 +167,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .as_map()
-                .get("B")
+                .get("@B")
                 .map(String::as_str),
             Some("443")
         );
@@ -182,7 +182,7 @@ mod tests {
         let error = apply(
             texts,
             r"\b([A-Za-z][A-Za-z0-9_]*)\s*=\s*(\d+)\s*;",
-            "{1}",
+            "@{1}",
             "{2}",
             ExtractVariablesDuplicatePolicy::Error,
             &params,
@@ -204,7 +204,7 @@ mod tests {
         apply(
             texts,
             r"\b([A-Za-z][A-Za-z0-9_]*)\s*=\s*(\d+)\s*;",
-            "{1}",
+            "@{1}",
             "{2}",
             ExtractVariablesDuplicatePolicy::Replace,
             &params,
@@ -217,7 +217,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .as_map()
-                .get("A")
+                .get("@A")
                 .map(String::as_str),
             Some("81")
         );

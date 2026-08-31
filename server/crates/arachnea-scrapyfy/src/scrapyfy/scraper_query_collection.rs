@@ -46,6 +46,17 @@ impl ScraperQueryCollectionParameter {
     }
 }
 
+/// Optional account requirements declared by a service YAML file.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ScraperServiceCredentials {
+    /// Whether the service requires credentials before it can be used.
+    #[serde(default)]
+    pub required: bool,
+    /// Optional public URL where a user can create a service account.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signup_url: Option<String>,
+}
+
 /// Raw configuration structure describing the queries available for one source.
 #[derive(Serialize, Deserialize)]
 pub struct ScraperQueryCollectionRaw {
@@ -61,6 +72,9 @@ pub struct ScraperQueryCollectionRaw {
     /// Optional multi-language description map.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub description: HashMap<String, String>,
+    /// Optional credentials requirements exposed to administration clients.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credentials: Option<ScraperServiceCredentials>,
     /// Collection-level default parameters merged into every query execution.
     #[serde(default, alias = "parametres", skip_serializing_if = "Vec::is_empty")]
     pub parameters: Vec<ScraperQueryCollectionParameter>,
@@ -1115,6 +1129,7 @@ impl TryFrom<ScraperQueryCollectionRaw> for ScraperQueryCollection {
             title,
             logo,
             description,
+            credentials: _,
             parameters,
             http,
             proxy_insecure_tls_hosts,
@@ -1180,6 +1195,7 @@ impl From<&ScraperQueryCollection> for ScraperQueryCollectionRaw {
                 Some(collection.logo.clone())
             },
             description: collection.description.clone(),
+            credentials: None,
             parameters: collection.parameters.clone(),
             http: ScraperHttpConfig::default(),
             proxy_insecure_tls_hosts: collection.proxy_insecure_tls_hosts.clone(),
@@ -1202,13 +1218,14 @@ impl Serialize for ScraperQueryCollection {
 mod tests {
 
     use anyhow::Context;
-    use arachnea_core::application;
-
     /// Verifies that the YAML configuration can be deserialized
     /// into a query collection and serialized back as JSON.
     #[test]
     fn config_yaml_to_json() -> super::Result<()> {
-        let services_path = format!("{}/services", arachnea_core::application::get_application_root());
+        let services_path = format!(
+            "{}/services",
+            arachnea_core::application::get_application_root()
+        );
 
         for entry in std::fs::read_dir(services_path)? {
             let path = entry?.path();

@@ -42,17 +42,15 @@ mod tests {
     fn apply_replaces_only_dynamic_placeholders() {
         let params = HashMap::new();
         let dynamic = Mutex::new(DynamicTemplateVariables::new());
-        dynamic.lock().unwrap().insert(&params, "A", "80").unwrap();
+        dynamic.lock().unwrap().insert(&params, "@A", "80").unwrap();
 
-        let values = apply(vec!["{A}:{country}:{Missing}".to_string()], &dynamic);
+        let values = apply(vec!["{@A}:{country}:{Missing}".to_string()], &dynamic);
 
         assert_eq!(values, vec!["80:{country}:{Missing}".to_string()]);
     }
 
     #[test]
-    fn validate_rejects_non_dynamic_prefix() {
-        let error = validate("port", "entry").unwrap_err();
-
-        assert!(error.to_string().contains("unsupported replace_variables"));
+    fn validate_accepts_action_without_prefix_configuration() {
+        validate("port", "entry").unwrap();
     }
 }

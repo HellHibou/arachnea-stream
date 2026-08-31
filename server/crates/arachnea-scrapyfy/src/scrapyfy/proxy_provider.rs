@@ -113,7 +113,9 @@ impl ProxyDataProvider for ScrapyfyProxyDataProvider {
         let results = agregator
             .execute_query_async(
                 &RequestControlerContext::default(),
-                QueryParameters { cache_type: CacheType::NoCache },
+                QueryParameters {
+                    cache_type: CacheType::NoCache,
+                },
                 PROXIES_GROUP_NAME,
                 "list_proxies_for_country",
                 &params,
@@ -123,7 +125,6 @@ impl ProxyDataProvider for ScrapyfyProxyDataProvider {
                 None,
                 None,
                 "load_proxies",
-                
             )
             .await
             .data;
@@ -154,7 +155,9 @@ impl ProxyDataProvider for ScrapyfyProxyDataProvider {
                 let rows = agregator
                     .execute_query_async(
                         &RequestControlerContext::default(),
-                        QueryParameters { cache_type: CacheType::NoCache },
+                        QueryParameters {
+                            cache_type: CacheType::NoCache,
+                        },
                         IP_COUNTRY_GROUP_NAME,
                         "resolve_ip_country",
                         &ip_params,
@@ -164,7 +167,6 @@ impl ProxyDataProvider for ScrapyfyProxyDataProvider {
                         None,
                         None,
                         "resolve_ip_country",
-                        
                     )
                     .await
                     .data;

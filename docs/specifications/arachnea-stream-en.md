@@ -769,3 +769,48 @@ The backend entry point is `StreamScraper` in
 On the frontend, normalisers in `front/src/services/rustify.ts` transform
 YAML fields (kebab-case, `img/poster > link` paths) into typed TypeScript
 objects.
+
+## 9. Administration API
+
+The backend exposes an administration API independent from the browsing
+frontend. Over HTTP it is mounted under `/api/admin/<operation>` (after the
+optional entrypoint root); on desktop it is callable through the Tauri invoke
+handler under the same `<operation>` command names.
+
+### 9.1 Access control
+
+- Desktop clients are always authorized.
+- In server mode, loopback clients are authorized without authentication.
+- Any other client must authenticate with the administrator password to
+  obtain a session cookie (`Set-Cookie: arachnea_admin_session=...;
+  Path=/; HttpOnly; SameSite=Strict`).
+- Writes must be sent with the `POST` method; requests carrying an `Origin`
+  or `Referer` header are refused when that origin does not match the `Host`
+  header.
+- Failed logins are rate-limited per client address.
+- Every response carries `Cache-Control: no-store`.
+
+### 9.2 Operations
+
+| Operation | Method | Purpose |
+|---|---|---|
+| `status` | GET | Runtime mode, capabilities, whether authentication is required for the caller, and whether the caller passes access control. |
+| `login` | POST | Validates the administrator password and issues a session cookie. |
+| `logout` | POST | Invalidates the current session. |
+| `services` | GET | Full service catalog (including disabled and unavailable sources), localized descriptions, logos resolved from known parameters, and effective activation state. |
+| `set-service-enabled` | POST | Persists an activation override for one service. |
+| `reset-service-enabled` | POST | Removes the override, falling back to the manifest default. |
+| `credentials` | GET | Credential state per service (presence and masked login only). |
+| `set-credentials` | POST | Stores service credentials in the encrypted store. |
+| `clear-credentials` | POST | Removes stored service credentials. |
+| `settings` | GET | Effective server port, network mode and root with their provenance. |
+| `update-settings` | POST | Persists port/root/network; answers `restart_required` because these take effect at the next restart. |
+| `set-admin-password` | POST | Sets or changes the permanent administrator password (Argon2id). |
+| `reload` | POST | Builds and validates a replacement scraper, then swaps it atomically; returns a detailed report. Send the empty JSON object `{}` as its request body. |
+
+### 9.3 Error format
+
+Errors use a stable shape: `{"error":{"code":"<code>","message":"<message>"}}`
+with HTTP statuses such as `400 bad_request`, `401 unauthorized`,
+`403 forbidden`, `404 not_found`, `405 method_not_allowed`, and
+`429 rate_limited`.

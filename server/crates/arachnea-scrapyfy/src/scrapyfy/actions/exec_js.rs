@@ -53,7 +53,6 @@ pub(super) fn apply(
     inject_html_scripts: bool,
     scripts: &[String],
 ) -> Result<Vec<String>> {
-    let mut result = Vec::new();
     let mut js_ctx = build_context(timeout_ms)?;
     let mut all_sources = Vec::<String>::new();
     all_sources.extend(scripts.iter().cloned());
@@ -72,7 +71,20 @@ pub(super) fn apply(
     for text in &texts {
         let exec_result = exec_js_source(&mut js_ctx.ctx, text)?;
         trace!("{} return {}", text, exec_result);
-        result.push(exec_result);
+    }
+
+    let mut result = exec_js_source(
+        &mut js_ctx.ctx,
+        "Object.keys(globalThis)\n            .filter((key) => typeof globalThis[key] === 'number')\n            .map((key) => `${key}=${globalThis[key]}`)\n            .join('\\n')",
+    )?
+    .lines()
+    .filter(|line| !line.is_empty())
+    .map(str::to_owned)
+    .collect::<Vec<_>>();
+
+    let document_content = js_ctx.document_content.borrow();
+    if !document_content.is_empty() {
+        result.push(format!("document_write={document_content}"));
     }
 
     Ok(result)

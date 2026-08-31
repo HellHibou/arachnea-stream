@@ -112,6 +112,13 @@ pub const HEADER_ETAG: &str = "etag";
 pub struct RequestControlerContext {
     /// Incoming request headers as key-value pairs.
     headers: HashMap<String, String>,
+    /// TCP address of the remote peer, when the transport exposes one.
+    ///
+    /// The REST backend fills this from the connection socket address; the
+    /// desktop Tauri IPC context leaves it `None`.
+    remote_addr: Option<std::net::SocketAddr>,
+    /// HTTP method of the incoming request, when the transport exposes one.
+    method: Option<String>,
 }
 
 impl RequestControlerContext {
@@ -120,7 +127,29 @@ impl RequestControlerContext {
     /// # Arguments
     /// * `headers` - Incoming HTTP request headers as key-value pairs.
     pub fn new(headers: HashMap<String, String>) -> Self {
-        Self { headers }
+        Self {
+            headers,
+            remote_addr: None,
+            method: None,
+        }
+    }
+
+    /// Sets the TCP address of the remote peer.
+    ///
+    /// # Arguments
+    /// * `remote_addr` - Socket address of the client connection.
+    pub fn with_remote_addr(mut self, remote_addr: std::net::SocketAddr) -> Self {
+        self.remote_addr = Some(remote_addr);
+        self
+    }
+
+    /// Sets the HTTP method of the incoming request.
+    ///
+    /// # Arguments
+    /// * `method` - HTTP method name, such as `GET` or `POST`.
+    pub fn with_method(mut self, method: impl Into<String>) -> Self {
+        self.method = Some(method.into());
+        self
     }
 
     /// Returns the optional value of the given header.
@@ -134,6 +163,19 @@ impl RequestControlerContext {
             .iter()
             .find(|(header_name, _)| header_name.eq_ignore_ascii_case(name))
             .map(|(_, value)| value.as_str())
+    }
+
+    /// Returns the TCP address of the remote peer, when known.
+    ///
+    /// `None` means the transport does not expose a peer address, such as the
+    /// desktop Tauri IPC context; such requests are local by construction.
+    pub fn remote_addr(&self) -> Option<std::net::SocketAddr> {
+        self.remote_addr
+    }
+
+    /// Returns the HTTP method of the incoming request, when known.
+    pub fn method(&self) -> Option<&str> {
+        self.method.as_deref()
     }
 }
 
@@ -336,7 +378,7 @@ pub trait ControlerService {
 /// # Returns
 /// `Ok(I)` if deserialization succeeds.
 /// `Err(String)` if deserialization fails.
-fn deserialize_input<I>(payload: ControlerFunctionInput) -> Result<I, String>
+pub fn deserialize_input<I>(payload: ControlerFunctionInput) -> Result<I, String>
 where
     I: DeserializeOwned,
 {
@@ -676,6 +718,19 @@ pub struct CoreApplicationOptions {
     /// tray icon if a GUI is available. Set to `false` to force-disable the tray
     /// even on a graphical environment.
     pub tray_enabled: bool,
+
+    /// Callback reloading the application configuration from the server tray.
+    ///
+    /// Invoked on a background thread by the tray "Reload configuration"
+    /// action; the returned summary is written to the application log.
+    pub reload_configuration: Option<Arc<dyn Fn() -> String + Send + Sync>>,
+
+    /// Additional web-asset mount paths served below the application root.
+    ///
+    /// Each path mounts the shared embedded asset pool scoped to that
+    /// subdirectory (e.g. `admin` to serve the administration bundle at
+    /// `/admin/`). Dedicated mounts take precedence over the root bundle.
+    pub web_mount_paths: Vec<String>,
 }
 
 impl CoreApplicationOptions {
@@ -707,6 +762,8 @@ impl CoreApplicationOptions {
             api_prefix,
             server_tray_factory: None,
             tray_enabled: true,
+            reload_configuration: None,
+            web_mount_paths: Vec::new(),
         }
     }
 
@@ -737,6 +794,39 @@ impl CoreApplicationOptions {
         self.tray_enabled = tray_enabled;
         self
     }
+
+    /// Sets the callback reloading the application configuration from the tray.
+    ///
+    /// # Arguments
+    /// * `reload_configuration` - Called on a background thread by the tray
+    ///   "Reload configuration" action, returning a log summary.
+    ///
+    /// # Returns
+    /// The modified options for chaining.
+    pub fn with_reload_configuration(
+        mut self,
+        reload_configuration: Arc<dyn Fn() -> String + Send + Sync>,
+    ) -> Self {
+        self.reload_configuration = Some(reload_configuration);
+        self
+    }
+
+    /// Adds a web-asset mount path served below the application root.
+    ///
+    /// # Arguments
+    /// * `mount_path` - Relative path (e.g. `admin`) under the application
+    ///   root where the shared embedded asset pool is mounted scoped to that
+    ///   subdirectory.
+    ///
+    /// # Returns
+    /// The modified options for chaining.
+    pub fn with_web_mount_path(mut self, mount_path: impl Into<String>) -> Self {
+        let mount_path = mount_path.into().trim_matches('/').to_string();
+        if !mount_path.is_empty() {
+            self.web_mount_paths.push(mount_path);
+        }
+        self
+    }
 }
 
 impl Default for CoreApplicationOptions {
@@ -751,6 +841,8 @@ impl Default for CoreApplicationOptions {
             api_prefix: None,
             server_tray_factory: None,
             tray_enabled: true,
+            reload_configuration: None,
+            web_mount_paths: Vec::new(),
         }
     }
 }
@@ -891,6 +983,10 @@ pub fn create_application_controler_from_config(
                     .server_tray_factory(Arc::clone(tray_factory))
                     .tray_enabled(true);
             }
+            if let Some(reload_configuration) = &options.reload_configuration {
+                configuration = configuration
+                    .reload_configuration(Arc::clone(reload_configuration));
+            }
 
             Box::new(RestControlerService::new(configuration))
         } else {
@@ -904,6 +1000,11 @@ pub fn create_application_controler_from_config(
             ))
         };
 
+    // Mount dedicated bundles (e.g. the administration app) before the root so
+    // they win over the root fallback for their own paths.
+    for mount_path in &options.web_mount_paths {
+        controler.register_embedded_web_assets(Arc::clone(&desktop.web_assets), mount_path);
+    }
     controler.register_embedded_web_assets(desktop.web_assets, "");
 
     controler

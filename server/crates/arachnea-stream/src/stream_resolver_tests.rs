@@ -9,7 +9,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::{ResolvedStream, STREAM_RESOLVER_GROUP_NAME, StreamResolver};
 
+fn configure_test_application_data_dir() {
+    let _ = arachnea_core::application::configure_application_data_dir_name("arachnea-stream-tests");
+}
+
 fn block_on<F: std::future::Future>(future: F) -> F::Output {
+    configure_test_application_data_dir();
     tokio::runtime::Runtime::new()
         .expect("Failed to create tokio runtime for tests")
         .block_on(future)
@@ -268,7 +273,10 @@ queries:
             assert!(stream.stream_url[0].starts_with("/api/proxy/opts_"));
             assert!(stream.stream_url[0].contains("/https://cdn.test/fallback.m3u8"));
             let opts = decode_proxy_opts(&stream.stream_url[0]);
-            assert_eq!(opts["headers"], serde_json::json!([["Referer", url]]));
+            assert_eq!(
+                opts["headers"],
+                serde_json::json!([["Referer", format!("{url}/")]])
+            );
             let public_json = serde_json::to_string(&stream).expect("stream should serialize");
             assert!(!public_json.contains(html_body));
             assert!(!public_json.contains("DETECTME"));

@@ -39,6 +39,63 @@ pub trait EmbeddedWebAssets: Send + Sync {
 /// parts of the application.
 pub type SharedWebAssets = Arc<dyn EmbeddedWebAssets>;
 
+/// Web asset provider scoped to a subdirectory of an outer asset pool.
+///
+/// Used to mount one bundle embedded inside a shared asset pool: the release
+/// build embeds every frontend under the configured `frontendDist` root, so
+/// the admin bundle lives under `admin/` inside the same pool. Paths are
+/// translated into the outer pool and the SPA fallback stays inside the
+/// scoped bundle (its own `index.html`) instead of leaking to the outer root
+/// document.
+pub(crate) struct ScopedWebAssets {
+    /// Outer asset pool containing the scoped bundle.
+    outer: SharedWebAssets,
+    /// Normalized subdirectory of the outer pool holding the bundle.
+    asset_root: String,
+}
+
+impl ScopedWebAssets {
+    /// Creates a scoped asset provider over an outer pool.
+    ///
+    /// # Arguments
+    /// * `outer` - Asset pool containing the scoped bundle.
+    /// * `asset_root` - Subdirectory of the outer pool holding the bundle.
+    ///
+    /// # Returns
+    /// A scoped embedded asset provider.
+    pub(crate) fn new(outer: SharedWebAssets, asset_root: &str) -> Self {
+        Self {
+            outer,
+            asset_root: normalize_mount_path(asset_root),
+        }
+    }
+}
+
+impl EmbeddedWebAssets for ScopedWebAssets {
+    /// Loads an asset from the scoped bundle inside the outer pool.
+    ///
+    /// # Arguments
+    /// * `path` - The normalized relative path inside the scoped bundle.
+    ///
+    /// # Returns
+    /// `Some(Vec<u8>)` containing the asset bytes if found.
+    /// `None` if the asset does not exist inside the scoped bundle.
+    fn get(&self, path: &str) -> Option<Vec<u8>> {
+        let path = path.trim_start_matches('/');
+        if path.is_empty() || self.asset_root.is_empty() {
+            return None;
+        }
+        let sanitized = sanitize_relative_path(path).ok()?;
+        let mut key = self.asset_root.clone();
+        for segment in sanitized.components() {
+            let segment = segment.as_os_str().to_str()?;
+            key.push('/');
+            key.push_str(segment);
+        }
+        self.outer.get(&key)
+    }
+}
+
 /// Frontend asset source shared by the REST and Tauri controllers.
 ///
 /// This enum represents the different sources from which frontend assets
@@ -115,6 +172,30 @@ impl WebAssetSource {
             Self::Directory(directory_path) => load_directory_asset(directory_path, candidate),
             Self::Embedded(assets) => Ok(assets.get(candidate)),
         }
+    }
+}
+
+/// Scopes an embedded asset source to a subdirectory mount inside the pool.
+///
+/// Embedded bundles mounted below the root live inside the shared asset pool
+/// under the mount path (e.g. `admin/`). Scoping the provider keeps asset
+/// lookup and the SPA fallback inside the bundle instead of falling back to
+/// the root bundle document. Directory sources and root mounts are returned
+/// unchanged (directory sources already resolve their own subtree).
+///
+/// # Arguments
+/// * `source` - The web asset source to scope.
+/// * `mount_path` - The mount path being served (already normalized).
+///
+/// # Returns
+/// The scoped source when applicable, otherwise the original source.
+pub(crate) fn scope_web_asset_source(source: WebAssetSource, mount_path: &str) -> WebAssetSource {
+    let mount_path = normalize_mount_path(mount_path);
+    match source {
+        WebAssetSource::Embedded(assets) if !mount_path.is_empty() => {
+            WebAssetSource::embedded(Arc::new(ScopedWebAssets::new(assets, &mount_path)))
+        }
+        other => other,
     }
 }
 

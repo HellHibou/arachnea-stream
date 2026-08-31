@@ -1,4 +1,4 @@
-[workspace]
+﻿[workspace]
 resolver = "2"
 members = [
     "crates/arachnea-core",
@@ -18,6 +18,8 @@ license = "MIT OR Apache-2.0"
 aes-gcm = "0.10"
 aes = "0.8"
 anyhow = "1.0"
+argon2 = { version = "0.5", features = ["std"] }
+libc = "0.2"
 async-trait = "0.1"
 base64 = "0.22"
 boa_engine = "0.21"

@@ -68,8 +68,6 @@ pub trait ScraperManager {
 }
 
 #[cfg(any(test, feature = "test-support"))]
-use arachnea_core::application;
-#[cfg(any(test, feature = "test-support"))]
 use tracing::debug;
 use tracing::Level;
 
@@ -105,7 +103,6 @@ pub mod tests {
 
     use super::*;
     use anyhow::{Context, Result};
-    use arachnea_core::application;
     use serde::Deserialize;
     use serde_json;
     use std::collections::HashMap;

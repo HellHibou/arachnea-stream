@@ -7,7 +7,9 @@ use warp::filters::BoxedFilter;
 use warp::http::StatusCode;
 use warp::{reply, Filter, Rejection, Reply};
 
-use crate::controler::web_assets::{normalize_mount_path, replace_html_base, WebAssetSource};
+use crate::controler::web_assets::{
+    normalize_mount_path, replace_html_base, scope_web_asset_source, WebAssetSource,
+};
 use crate::controler::{
     install_global_main_thread_dispatcher, main_thread::MainThreadDispatchLoop,
     main_thread::QueuedMainThreadDispatcher, ControlerFunctionInput, ControlerJsonInput,
@@ -46,6 +48,8 @@ pub struct RestControlerService {
     tray_factory: Option<Arc<dyn ServerTrayFactory>>,
     /// Whether the server tray should be shown when a GUI is available.
     tray_enabled: bool,
+    /// Callback reloading the application configuration from the tray.
+    reload_configuration: Option<Arc<dyn Fn() -> String + Send + Sync>>,
 }
 
 impl RestControlerService {
@@ -88,6 +92,7 @@ impl RestControlerService {
             main_thread_loop: Some(main_thread_loop),
             tray_factory: configuration.tray_factory,
             tray_enabled: configuration.tray_enabled,
+            reload_configuration: configuration.reload_configuration,
         }
     }
 
@@ -119,11 +124,23 @@ impl RestControlerService {
             None
         };
         let entrypoint_root = self.entrypoint_root.clone();
-        let web_base = if entrypoint_root.is_empty() {
+        // HTML `<base>` used by this mount: the entrypoint root plus the mount
+        // path, so a bundle mounted below the root rewrites its base marker to
+        // its own mount point instead of the application root.
+        let mut base_segments = entrypoint_root.clone();
+        if !mount_path.is_empty() {
+            base_segments.push(mount_path.clone());
+        }
+        let web_base = if base_segments.is_empty() {
             "/".to_string()
         } else {
-            format!("/{}/", entrypoint_root.join("/"))
+            format!("/{}/", base_segments.join("/"))
         };
+        // Embedded bundles mounted below the root live inside the shared asset
+        // pool under the mount path (e.g. `admin/`); scope the provider so
+        // asset lookup and the SPA fallback stay inside the bundle instead of
+        // falling back to the root bundle document.
+        let source = scope_web_asset_source(source, &mount_path);
         let source = Arc::new(source);
         let new_filter = self
             .make_base_filter(false, &mount_path)
@@ -233,7 +250,13 @@ impl RestControlerService {
         }
 
         if !last_path.is_empty() {
-            path.push(last_path.to_string());
+            path.extend(
+                last_path
+                    .split('/')
+                    .map(str::trim)
+                    .filter(|segment| !segment.is_empty())
+                    .map(ToString::to_string),
+            );
         }
 
         let mut base_filter;
@@ -371,6 +394,20 @@ impl RestControlerService {
         map
     }
 
+    /// Returns the peer address of a request, falling back to the unspecified
+    /// address when the transport does not expose one.
+    ///
+    /// The unspecified address is never loopback, so transports without a peer
+    /// address are always treated as remote (untrusted) clients.
+    fn remote_peer(addr: Option<std::net::SocketAddr>) -> std::net::SocketAddr {
+        addr.unwrap_or_else(|| {
+            std::net::SocketAddr::new(
+                std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
+                0,
+            )
+        })
+    }
+
     /// Runs the Warp server to completion on a dedicated Tokio runtime.
     ///
     /// The server shuts down gracefully once the provided shutdown signal is
@@ -463,45 +500,63 @@ impl ControlerService for RestControlerService {
         let post_filter = base_filter
             .clone()
             .and(warp::post())
+            .and(warp::addr::remote())
             .and(warp::body::json::<Value>())
             .and(warp::header::headers_cloned())
-            .and_then(move |input: Value, headers: warp::http::HeaderMap| {
-                let post_call = Arc::clone(&post_call);
-                async move {
-                    Ok::<(Box<dyn Reply + Send>,), Rejection>(
-                        Self::call_and_reply_json(
-                            &post_call,
-                            ControlerJsonInput {
-                                payload: ControlerFunctionInput::Json(input),
-                                context: RequestControlerContext::new(Self::headers_to_map(&headers)),
-                            },
+            .and_then(
+                move |addr: Option<std::net::SocketAddr>,
+                      input: Value,
+                      headers: warp::http::HeaderMap| {
+                    let post_call = Arc::clone(&post_call);
+                    async move {
+                        Ok::<(Box<dyn Reply + Send>,), Rejection>(
+                            Self::call_and_reply_json(
+                                &post_call,
+                                ControlerJsonInput {
+                                    payload: ControlerFunctionInput::Json(input),
+                                    context: RequestControlerContext::new(
+                                        Self::headers_to_map(&headers),
+                                    )
+                                    .with_remote_addr(Self::remote_peer(addr))
+                                    .with_method("POST"),
+                                },
+                            )
+                            .await,
                         )
-                        .await,
-                    )
-                }
-            });
+                    }
+                },
+            );
 
         let get_call = call.clone();
         let get_filter = base_filter
             .clone()
             .and(warp::get())
+            .and(warp::addr::remote())
             .and(warp::query::raw().or(warp::any().map(String::new)).unify())
             .and(warp::header::headers_cloned())
-            .and_then(move |input: String, headers: warp::http::HeaderMap| {
-                let get_call = Arc::clone(&get_call);
-                async move {
-                    Ok::<(Box<dyn Reply + Send>,), Rejection>(
-                        Self::call_and_reply_json(
-                            &get_call,
-                            ControlerJsonInput {
-                                payload: ControlerFunctionInput::Query(input),
-                                context: RequestControlerContext::new(Self::headers_to_map(&headers)),
-                            },
+            .and_then(
+                move |addr: Option<std::net::SocketAddr>,
+                      input: String,
+                      headers: warp::http::HeaderMap| {
+                    let get_call = Arc::clone(&get_call);
+                    async move {
+                        Ok::<(Box<dyn Reply + Send>,), Rejection>(
+                            Self::call_and_reply_json(
+                                &get_call,
+                                ControlerJsonInput {
+                                    payload: ControlerFunctionInput::Query(input),
+                                    context: RequestControlerContext::new(
+                                        Self::headers_to_map(&headers),
+                                    )
+                                    .with_remote_addr(Self::remote_peer(addr))
+                                    .with_method("GET"),
+                                },
+                            )
+                            .await,
                         )
-                        .await,
-                    )
-                }
-            });
+                    }
+                },
+            );
 
         self.add_route(post_filter.or(get_filter).unify().boxed());
     }
@@ -672,6 +727,15 @@ impl ControlerService for RestControlerService {
                 };
                 let configuration = ServerTrayConfiguration {
                     server_url: build_public_url(self.socket_addr, &self.entrypoint_root),
+                    admin_url: {
+                        let mut admin_url =
+                            build_public_url(self.socket_addr, &self.entrypoint_root);
+                        if !admin_url.ends_with('/') {
+                            admin_url.push('/');
+                        }
+                        admin_url.push_str("admin/");
+                        admin_url
+                    },
                     server_display_url: format!(
                         "http://{}:{}{}",
                         display_server_host(self.socket_addr),
@@ -687,6 +751,7 @@ impl ControlerService for RestControlerService {
                     },
                     log_cache: crate::logger::global_log_cache(),
                     shutdown: shutdown.clone(),
+                    reload_configuration: self.reload_configuration.clone(),
                 };
                 (Arc::clone(factory), configuration)
             })

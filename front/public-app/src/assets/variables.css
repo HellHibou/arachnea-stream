@@ -1,0 +1,121 @@
+/* Shared frontend design tokens */
+
+:root {
+
+  --h-primary: 210;
+  --s-primary: 100%;
+  --l-primary: 60%;
+
+  --color-primary: hsl(var(--h-primary), var(--s-primary), var(--l-primary));
+
+  /* Breakpoint references */
+  --bp-xs: 640px;
+  --bp-sm: 720px;
+  --bp-md: 820px;
+  --bp-lg: 960px;
+  --bp-xl: 1120px;
+
+  /* Text colors */
+  --text-primary: #ffffff;
+  --text-secondary: #cdd4df;
+  --text-disabled: #8f98a8;
+  --text-shadow-primary:
+    -1px -1px 0 rgba(0, 0, 0, 0.32),
+    1px -1px 0 rgba(0, 0, 0, 0.32),
+    -1px 1px 0 rgba(0, 0, 0, 0.32),
+    1px 1px 0 rgba(0, 0, 0, 1);
+
+  /* Backgrounds */
+  --bg-base: #12151b;
+  --bg-transparent: transparent;
+  --bg-surface-soft: rgba(16, 20, 28, 0.20);
+  --bg-surface: rgba(16, 20, 28, 0.40);
+  --bg-surface-strong: rgba(16, 20, 28, 0.80);
+
+
+  /* Accent backgrounds */
+  --bg-accent-primary: linear-gradient(
+    180deg,
+    var(--color-primary) 0%,
+    hsl(
+      var(--h-primary),
+      calc(var(--s-primary) - 26%),
+      calc(var(--l-primary) - 9%)
+    ) 100%
+  );
+
+  --bg-accent-red: linear-gradient(180deg, #ff4f5f 0%, #ea293d 100%);
+
+  /* Borders */
+  --border-color-primary: rgba(255, 255, 255, 0.1);
+
+  /* Radius */
+  --radius: 12px;
+
+  /* Control heights */
+  --control-height: 50px;
+
+  /* Focus and shared alphas */
+  --inset-light: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --shadow-color: rgba(0, 0, 0, 0.32);
+  --focus-ring-color: hsla(
+    var(--h-primary),
+    var(--s-primary),
+    calc(var(--l-primary) + 15%),
+    0.86
+  );
+  --focus-ring-danger-color: rgba(255, 212, 217, 0.92);
+  --duration-fast: 160ms;
+
+  /* Effect intensity */
+  --backdrop-filter-soft: blur(5px);
+  --backdrop-filter-medium: blur(12px);
+  --backdrop-filter-strong: blur(18px) saturate(0.9);
+  --blur-background-aurora: 52px;
+  --filter-media-card-backdrop: blur(10px) saturate(0.88);
+  --filter-media-card-preview-open: saturate(0.9) blur(1px);
+
+  --box-shadow-elevated: 0 18px 28px rgba(6, 10, 18, 0.26);
+  --shadow-heavy: 0 20px 50px var(--shadow-color);
+  --shadow-card: 0 14px 24px var(--shadow-color);
+  --shadow-poster: 0 26px 42px var(--shadow-color);
+  --shadow-frame: 0 22px 36px var(--shadow-color);
+  --common-focus-ring: 2px solid var(--focus-ring-color);
+  --common-focus-ring-danger: 2px solid var(--focus-ring-danger-color);
+
+  /* Semantic accents */
+  --bg-rating-good: linear-gradient(180deg, #13c261 0%, #0ca24f 100%);
+  --bg-rating-average: linear-gradient(180deg, #ff8a2b 0%, #f06a0d 100%);
+  --bg-rating-low: linear-gradient(180deg, #ff5b5b 0%, #d53e3e 100%);
+
+  --bg-accent-marker-primary: linear-gradient(
+    180deg,
+    hsl(var(--h-primary), var(--s-primary), calc(var(--l-primary) + 3.7%)) 0%,
+    hsl(
+      var(--h-primary),
+      calc(var(--s-primary) - 31.75%),
+      calc(var(--l-primary) - 9.4%)
+    ) 100%
+  );
+
+  /* Reusable overlays */
+  --bg-overlay-media-card-shade: linear-gradient(180deg, transparent 0%, rgba(9, 11, 16, 0.82) 100%);
+  --bg-overlay-media-card-preview:
+    linear-gradient(180deg, rgba(12, 15, 21, 0.52), rgba(12, 15, 21, 0.88)),
+    linear-gradient(145deg, rgba(36, 91, 148, 0.22), rgba(213, 127, 49, 0.14));
+
+  /** Card Background */
+  --bg-card-opacity: 0.6;
+  --bg-card-background: var(--bg-accent-primary); /* Basic color */
+  /* --bg-card-background: var(--bg-surface); */ /* No color contrast */
+}
+
+@media (max-width: 960px), (prefers-reduced-motion: reduce) {
+  :root {
+    --shadow-heavy: 0 14px 28px rgba(0, 0, 0, 0.28);
+    --box-shadow-elevated: 0 12px 20px rgba(6, 10, 18, 0.22);
+    --shadow-card: 0 10px 16px rgba(0, 0, 0, 0.28);
+    --shadow-poster: 0 18px 28px rgba(0, 0, 0, 0.28);
+    --shadow-frame: 0 16px 24px rgba(0, 0, 0, 0.28);
+  }
+}

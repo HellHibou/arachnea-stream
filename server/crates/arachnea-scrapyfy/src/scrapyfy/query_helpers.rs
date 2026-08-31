@@ -14,6 +14,9 @@ use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
 /// Compiled regex matching `{placeholder}` tokens in template strings.
 static PLACEHOLDER_REGEX: OnceLock<Regex> = OnceLock::new();
 
+/// Reserved prefix of request-scoped dynamic template variables.
+pub const DYNAMIC_TEMPLATE_VARIABLE_PREFIX: char = '@';
+
 /// Request-scoped template variables produced by extraction actions.
 ///
 /// Dynamic variables are intentionally separated from collection/runtime
@@ -114,6 +117,12 @@ pub fn validate_dynamic_template_variable_name(name: &str) -> Result<()> {
         anyhow::bail!("Dynamic template variable name cannot be empty");
     }
 
+    if !name.starts_with(DYNAMIC_TEMPLATE_VARIABLE_PREFIX) {
+        anyhow::bail!(
+            "Dynamic template variable {name} must start with {DYNAMIC_TEMPLATE_VARIABLE_PREFIX}"
+        );
+    }
+
     Ok(())
 }
 
@@ -131,6 +140,13 @@ pub fn build_template_params_with_dynamic_variables(
     standard_params: &HashMap<String, String>,
     dynamic_variables: &DynamicTemplateVariables,
 ) -> Result<HashMap<String, String>> {
+    if let Some(key) = standard_params
+        .keys()
+        .find(|key| key.starts_with(DYNAMIC_TEMPLATE_VARIABLE_PREFIX))
+    {
+        anyhow::bail!("Standard parameter {key} cannot use reserved dynamic prefix");
+    }
+
     let mut merged = standard_params.clone();
 
     for (key, value) in dynamic_variables.as_map() {
@@ -289,7 +305,7 @@ pub fn replace_template_placeholders(
     params: &HashMap<String, String>,
 ) -> (String, Vec<String>) {
     let placeholder_re = PLACEHOLDER_REGEX
-        .get_or_init(|| Regex::new(r"\{([A-Za-z0-9_]+)\}").expect("Invalid placeholder regex"));
+        .get_or_init(|| Regex::new(r"\{(@?[A-Za-z0-9_]+)\}").expect("Invalid placeholder regex"));
     let mut missing_keys: Vec<String> = Vec::new();
 
     let rendered = placeholder_re

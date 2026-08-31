@@ -3,6 +3,9 @@ title: TF1+
 logo: "https://www.tf1.fr/_next/static/media/tf1-plus-logo-white.107m~.6am38d6.svg"
 description:
   fr: "TF1+ est la plateforme de streaming du groupe audiovisuel français TF1, offrant un large catalogue de programmes télévisés, films, séries, documentaires et contenus exclusifs en ligne. Les utilisateurs peuvent accéder à leurs émissions préférées en direct ou à la demande, avec des fonctionnalités de recherche avancées et une interface conviviale pour une expérience de visionnage optimale."
+credentials:
+  required: true
+  signup_url: https://www.tf1.fr/compte/inscription
 http:
   mode: direct
   user_agent_profile: firefox
