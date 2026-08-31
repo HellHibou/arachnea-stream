@@ -12,13 +12,25 @@ pub mod file_store;
 pub mod memory_store;
 /// Generic asynchronous persistence contract for application records.
 pub mod store;
+/// Schema-declared, entity-typed persistence contracts and backends.
+pub mod typed_store;
 
 pub use credentials_store::CredentialsStore;
 pub use encrypted_file_credentials_store::EncryptedFileCredentialsStore;
 pub use file_codec::{JsonPersistenceFileCodec, PersistenceFileCodec};
 pub use file_credentials_store::FileCredentialsStore;
-pub use file_store::{FilePersistenceStore, PersistenceFileDocument};
-pub use memory_store::MemoryPersistenceStore;
+pub use file_store::{LegacyFilePersistenceStore, PersistenceFileDocument};
+pub use memory_store::LegacyMemoryPersistenceStore;
 pub use store::{PersistedRecord, PersistenceKey, PersistenceStore, PersistenceTransaction};
+pub use typed_store::{
+    EntityKey, EntityQuery, EntityReader, EntitySchema, EntityWriter, Field, FieldRole, FieldType,
+    FileEntityStore, LegacyTypedEntityStore, MemoryEntityStore, PersistenceStoreConfig,
+    PersistentEntity, TypedEntityStore,
+};
+
+/// Typed file persistence store configured for exactly one entity schema.
+pub type FilePersistenceStore<E, C = JsonPersistenceFileCodec> = FileEntityStore<E, C>;
+/// Typed in-memory persistence store configured for exactly one entity schema.
+pub type MemoryPersistenceStore<E> = MemoryEntityStore<E>;
 
 pub(crate) use store::{PersistenceBackend, record_matches_filters};

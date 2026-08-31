@@ -112,7 +112,10 @@ pub mod scraper_agregator;
 pub use scraper_agregator::{resolve_manifest_sources, ScraperAgregator, ScraperSourceParams};
 /// Source activation policy contracts and persistence-backed implementation.
 pub mod source_enabled;
-pub use source_enabled::{PersistenceSourceEnabled, ScraperSourceDescriptor, ScraperSourceEnabled};
+pub use source_enabled::{
+    PersistenceSourceEnabled, ScraperSourceDescriptor, ScraperSourceEnabled, SourceEnabledOverride,
+    SourceEnabledRepository, TypedSourceEnabledRepository,
+};
 /// Complete read-only service catalog loading.
 pub mod service_catalog;
 pub use service_catalog::{

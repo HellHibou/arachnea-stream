@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use arachnea_core::persistence::{MemoryPersistenceStore, PersistenceStore};
+use arachnea_core::persistence::{LegacyMemoryPersistenceStore, PersistenceStore};
 use arachnea_http::{
     global_cookie_cache, header_map_from_strings, ArachneaHttpClient, ArachneaHttpConfig,
     ArachneaResponse, BrowserProfile, BrowserSessionConfig, BrowserSessionManager, CookieEntry,
@@ -480,7 +480,7 @@ impl HttpClient {
             http_config,
             proxy_handle,
             local_country,
-            Arc::new(MemoryPersistenceStore::new()),
+            Arc::new(LegacyMemoryPersistenceStore::new()),
         )
     }
 

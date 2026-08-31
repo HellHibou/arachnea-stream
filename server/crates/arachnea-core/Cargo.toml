@@ -20,6 +20,7 @@ tauri = { workspace = true, features = [] }
 tauri-plugin-opener.workspace = true
 tokio = { workspace = true, features = ["full"] }
 urlencoding.workspace = true
+uuid.workspace = true
 warp.workspace = true
 xxhash-rust.workspace = true
 tracing.workspace = true

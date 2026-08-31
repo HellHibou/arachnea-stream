@@ -193,7 +193,7 @@ impl StaticScraperQuery {
         self.set_runtime_handles_with_persistence_store(
             proxy_handle,
             local_country,
-            Arc::new(arachnea_core::persistence::MemoryPersistenceStore::new()),
+            Arc::new(arachnea_core::persistence::LegacyMemoryPersistenceStore::new()),
         );
     }
 

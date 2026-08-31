@@ -44,17 +44,17 @@ impl MemoryRecords {
     }
 }
 
-/// In-memory [`PersistenceStore`] implementation.
+/// Legacy in-memory [`PersistenceStore`] implementation.
 ///
 /// Preserves the behavior of a system without external persistence. Useful
 /// as a default value and for deterministic tests. `commit` is a no-op:
 /// writes are visible immediately.
 #[derive(Debug, Default)]
-pub struct MemoryPersistenceStore {
+pub struct LegacyMemoryPersistenceStore {
     records: Arc<MemoryRecords>,
 }
 
-impl MemoryPersistenceStore {
+impl LegacyMemoryPersistenceStore {
     /// Creates an empty in-memory store.
     pub fn new() -> Self {
         Self::default()
@@ -62,7 +62,7 @@ impl MemoryPersistenceStore {
 }
 
 #[async_trait]
-impl PersistenceStore for MemoryPersistenceStore {
+impl PersistenceStore for LegacyMemoryPersistenceStore {
     async fn transaction(&self, namespace: &str) -> anyhow::Result<PersistenceTransaction> {
         Ok(PersistenceTransaction::new(
             namespace.to_string(),

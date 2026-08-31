@@ -9,7 +9,7 @@ use arachnea_core::{
         ControlerService, ControlerStreamInput, ControlerStreamOutput, RequestControlerContext,
         ResponseBody,
     },
-    persistence::{CredentialsStore, FileCredentialsStore, FilePersistenceStore, PersistenceStore},
+    persistence::{CredentialsStore, FileCredentialsStore, LegacyFilePersistenceStore, PersistenceStore},
 };
 use arachnea_proxy::core::{ArachneaProxyCore, ProxyConfig};
 use arachnea_scrapyfy::{scraper_result::ScraperAggregationResult, *};
@@ -254,7 +254,7 @@ impl StreamScraper {
     pub fn new(credentials_store: Arc<dyn CredentialsStore>) -> Self {
         Self::new_with_persistence_store(
             credentials_store,
-            Arc::new(FilePersistenceStore::default_data_dir()),
+            Arc::new(LegacyFilePersistenceStore::default_data_dir()),
         )
     }
 
@@ -357,7 +357,7 @@ impl StreamScraper {
     pub fn from_json(json_path: Option<&str>) -> Result<Self> {
         let options = StreamScraperBuildOptions::new(
             FileCredentialsStore::default().as_arc(),
-            Arc::new(FilePersistenceStore::default_data_dir()),
+            Arc::new(LegacyFilePersistenceStore::default_data_dir()),
         )
         .with_services_config_path(json_path.unwrap_or(DEFAULT_SERVICES_CONFIG_PATH));
         Self::from_options(&options)

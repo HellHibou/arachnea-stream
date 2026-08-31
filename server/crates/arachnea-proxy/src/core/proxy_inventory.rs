@@ -6,12 +6,7 @@ use std::time::{Duration, Instant, SystemTime};
 use tokio::sync::RwLock;
 
 #[cfg(feature = "persistence")]
-use arachnea_core::persistence::{PersistedRecord, PersistenceStore};
-#[cfg(feature = "persistence")]
-use serde_json::{Map as JsonMap, Value as JsonValue};
-
-#[cfg(feature = "persistence")]
-use crate::core::proxy_persistence::PROXY_NAMESPACE;
+use crate::core::ProxyRepository;
 use crate::core::{
     Destination, IpCountryResolver, ProxyDataProvider, ProxyError, ProxyProbe, ProxyProtocol,
     ProxyRecord, ProxyRuntimeStatus, Result,
@@ -90,7 +85,7 @@ pub struct ProxyInventory {
     probe: Option<Arc<ProxyProbe>>,
     /// Persistent cache for dynamic proxy records, when configured.
     #[cfg(feature = "persistence")]
-    persistence: Option<Arc<dyn PersistenceStore>>,
+    persistence: Option<Arc<dyn ProxyRepository>>,
     config: InventoryConfig,
     ip_country_resolver: Option<Arc<IpCountryResolver>>,
 }
@@ -125,15 +120,14 @@ impl ProxyInventory {
         }
     }
 
-    /// Attaches a persistence store used as a persistent cache for dynamic
-    /// proxies.
+    /// Attaches a typed proxy repository used as a persistent cache.
     ///
     /// When configured, selection falls back to the store (filtered by country)
     /// before triggering a provider load, and mutations are written back
     /// through namespace-bound transactions committed at the end of each
     /// processing batch.
     #[cfg(feature = "persistence")]
-    pub fn with_persistence_store(mut self, persistence: Arc<dyn PersistenceStore>) -> Self {
+    pub fn with_proxy_repository(mut self, persistence: Arc<dyn ProxyRepository>) -> Self {
         self.persistence = Some(persistence);
         self
     }
@@ -188,9 +182,9 @@ impl ProxyInventory {
         self.probe.as_ref()
     }
 
-    /// Returns the persistence store, if one is configured.
+    /// Returns the proxy repository, if one is configured.
     #[cfg(feature = "persistence")]
-    pub fn persistence(&self) -> Option<&Arc<dyn PersistenceStore>> {
+    pub fn persistence(&self) -> Option<&Arc<dyn ProxyRepository>> {
         self.persistence.as_ref()
     }
 
@@ -213,12 +207,7 @@ impl ProxyInventory {
         let Some(persistence) = &self.persistence else {
             return;
         };
-        let result = async {
-            let transaction = persistence.transaction(PROXY_NAMESPACE).await?;
-            transaction.delete(authority).await?;
-            transaction.commit().await
-        }
-        .await;
+        let result = persistence.delete(authority).await;
         if let Err(error) = result {
             tracing::warn!(authority = %authority, %error, "failed to delete persisted proxy record");
         }
@@ -355,17 +344,14 @@ impl ProxyInventory {
     pub async fn remove(&self, authority: &str) {
         let existed = {
             let mut inner = self.inner.write().await;
-            inner
-                .records
-                .remove(authority)
-                .is_some_and(|record| {
-                    if let Some(ref country) = record.country {
-                        if let Some(keys) = inner.country_records.get_mut(country) {
-                            keys.retain(|k| k != authority);
-                        }
+            inner.records.remove(authority).is_some_and(|record| {
+                if let Some(ref country) = record.country {
+                    if let Some(keys) = inner.country_records.get_mut(country) {
+                        keys.retain(|k| k != authority);
                     }
-                    true
-                })
+                }
+                true
+            })
         };
         #[cfg(feature = "persistence")]
         if existed {
@@ -497,26 +483,7 @@ impl ProxyInventory {
         let Some(persistence) = &self.persistence else {
             return false;
         };
-        let result = async {
-            let transaction = persistence.transaction(PROXY_NAMESPACE).await?;
-            let mut filters = JsonMap::new();
-            filters.insert(
-                "country".to_string(),
-                JsonValue::String(country.to_string()),
-            );
-            let records = transaction.find_by_fields(&filters).await?;
-            let mut converted = Vec::with_capacity(records.len());
-            for (key, record) in &records {
-                match ProxyRecord::try_from(record) {
-                    Ok(proxy_record) => converted.push(proxy_record),
-                    Err(error) => {
-                        tracing::warn!(key = %key, %error, "skipping invalid cached proxy record");
-                    }
-                }
-            }
-            anyhow::Ok(converted)
-        }
-        .await;
+        let result = persistence.find_by_country(country).await;
         let converted = match result {
             Ok(converted) => converted,
             Err(error) => {
@@ -885,20 +852,13 @@ impl ProxyInventory {
     }
 }
 
-/// Writes `records` into the proxy namespace through one transaction committed
-/// after the whole batch has been written.
+/// Writes `records` through the typed proxy repository.
 #[cfg(feature = "persistence")]
 async fn persist_proxy_records(
-    persistence: &Arc<dyn PersistenceStore>,
+    persistence: &Arc<dyn ProxyRepository>,
     records: &[ProxyRecord],
 ) -> anyhow::Result<()> {
-    let transaction = persistence.transaction(PROXY_NAMESPACE).await?;
-    for record in records {
-        transaction
-            .put(record.authority(), PersistedRecord::from(record))
-            .await?;
-    }
-    transaction.commit().await
+    persistence.save_many(records).await
 }
 
 // ── Eligibility helpers ───────────────────────────────────────────────

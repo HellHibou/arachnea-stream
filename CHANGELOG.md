@@ -1099,3 +1099,23 @@ catalogues are inherently volatile.
 
 The desktop-only **Administration** section is now the final section in the
 public settings screen.
+
+## Unreleased — typed persistence foundation
+
+`arachnea-core::persistence` now exposes the schema-declared typed-store
+foundation: `PersistentEntity`, schema fields and roles, typed readers/writers,
+typed equality queries, and explicit per-store configuration. The new
+`MemoryPersistenceStore<E>` keeps entities directly in memory and
+`FilePersistenceStore<E>` atomically writes validated entity documents. The
+pre-existing map-based stores remain temporarily available as
+`LegacyMemoryPersistenceStore` and `LegacyFilePersistenceStore` until their
+phase-2 domain consumers are migrated.
+
+## Unreleased — typed persistence repositories
+
+Dynamic proxies, Cloudflare sessions and source activation overrides now use
+typed repositories. `ProxyRecord`, `CachedChaserSession`, and
+`SourceEnabledOverride` declare explicit schemas and keys; the former
+`ProxyRecord`/`PersistedRecord` conversion bridge has been removed. Existing
+namespace stores are isolated behind `LegacyTypedEntityStore` during the
+transition to SQLite, so no domain code manipulates persistence maps.

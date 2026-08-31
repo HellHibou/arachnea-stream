@@ -10,7 +10,7 @@ use std::sync::{Arc, LazyLock};
 
 use arachnea_core::controler::{RequestControlerContext, HEADER_IF_NONE_MATCH};
 use arachnea_core::error_code::ErrorCodeGenerator;
-use arachnea_core::persistence::{MemoryPersistenceStore, PersistenceStore};
+use arachnea_core::persistence::{LegacyMemoryPersistenceStore, PersistenceStore};
 use scraper_result::{
     ScraperAggregationResult, ScraperErrorOrigin, ScraperExecutionError, ScraperSourceStatus,
     ScraperSourceValidation,
@@ -84,7 +84,7 @@ impl ScraperAgregator {
     /// and tries to create a dynamic proxy core backed by the scrapyfy proxy
     /// provider for country-based routing.
     pub fn new() -> Self {
-        Self::new_with_persistence_store(Arc::new(MemoryPersistenceStore::new()))
+        Self::new_with_persistence_store(Arc::new(LegacyMemoryPersistenceStore::new()))
     }
 
     /// Creates an empty aggregator with default proxy setup and a shared
@@ -153,7 +153,7 @@ impl ScraperAgregator {
     pub fn new_with_proxy_handle(proxy_handle: SharedProxyConfigHandle) -> Self {
         Self::new_with_proxy_handle_and_persistence_store(
             proxy_handle,
-            Arc::new(MemoryPersistenceStore::new()),
+            Arc::new(LegacyMemoryPersistenceStore::new()),
         )
     }
 
@@ -1354,8 +1354,10 @@ mod tests {
 
     fn configure_test_application_data_dir() {
         TEST_APPLICATION_DATA_DIR.call_once(|| {
-            arachnea_core::application::configure_application_data_dir_name("arachnea-scrapyfy-tests")
-                .expect("test application data directory should be configured");
+            arachnea_core::application::configure_application_data_dir_name(
+                "arachnea-scrapyfy-tests",
+            )
+            .expect("test application data directory should be configured");
         });
     }
     use arachnea_core::error_code::ErrorCodeGenerator;

@@ -47,7 +47,7 @@ struct FileState<C> {
     namespaces: Mutex<HashMap<String, NamespaceCache>>,
 }
 
-/// File-backed [`PersistenceStore`] implementation.
+/// Legacy file-backed [`PersistenceStore`] implementation.
 ///
 /// One file per namespace, stored under the application data directory by
 /// default (`data/store-NAMESPACE.json`). The store keeps an in-memory cache
@@ -58,13 +58,13 @@ struct FileState<C> {
 /// pruned when a namespace is loaded or read; pruning marks the namespace
 /// dirty so the next commit persists it.
 ///
-/// The default codec is JSON. Call [`FilePersistenceStore::new_with_codec`] to
+/// The default codec is JSON. Call [`LegacyFilePersistenceStore::new_with_codec`] to
 /// select another codec.
-pub struct FilePersistenceStore<C = JsonPersistenceFileCodec> {
+pub struct LegacyFilePersistenceStore<C = JsonPersistenceFileCodec> {
     state: Arc<FileState<C>>,
 }
 
-impl FilePersistenceStore<JsonPersistenceFileCodec> {
+impl LegacyFilePersistenceStore<JsonPersistenceFileCodec> {
     /// Creates a file store rooted at `directory`.
     ///
     /// # Arguments
@@ -89,7 +89,7 @@ impl FilePersistenceStore<JsonPersistenceFileCodec> {
     }
 }
 
-impl<C: PersistenceFileCodec> FilePersistenceStore<C> {
+impl<C: PersistenceFileCodec> LegacyFilePersistenceStore<C> {
     /// Creates a file store using `codec` and its file extension per namespace.
     pub fn new_with_codec(directory: impl Into<PathBuf>, codec: C) -> Self {
         let extension = codec.file_extension().trim_start_matches('.').to_string();
@@ -248,7 +248,7 @@ fn load_document<C: PersistenceFileCodec>(
 }
 
 #[async_trait]
-impl<C: PersistenceFileCodec> PersistenceStore for FilePersistenceStore<C> {
+impl<C: PersistenceFileCodec> PersistenceStore for LegacyFilePersistenceStore<C> {
     async fn transaction(&self, namespace: &str) -> anyhow::Result<PersistenceTransaction> {
         Ok(PersistenceTransaction::new(
             namespace.to_string(),
@@ -352,9 +352,9 @@ impl<C: PersistenceFileCodec> PersistenceBackend for FileState<C> {
     }
 }
 
-impl<C> std::fmt::Debug for FilePersistenceStore<C> {
+impl<C> std::fmt::Debug for LegacyFilePersistenceStore<C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("FilePersistenceStore")
+        f.debug_struct("LegacyFilePersistenceStore")
             .field("directory", &self.state.directory)
             .field("extension", &self.state.extension)
             .finish()
@@ -390,7 +390,7 @@ mod tests {
     #[tokio::test]
     async fn put_commit_get_roundtrip() {
         let dir = unique_dir("roundtrip");
-        let store = FilePersistenceStore::new(&dir);
+        let store = LegacyFilePersistenceStore::new(&dir);
         let transaction = store.transaction("test-ns").await.expect("transaction");
         transaction
             .put("entry-1".to_string(), record(json!({"value": "hello"}), None))
@@ -399,7 +399,7 @@ mod tests {
         transaction.commit().await.expect("commit succeeds");
 
         // A fresh store instance reads the committed document from disk.
-        let reloaded = FilePersistenceStore::new(&dir);
+        let reloaded = LegacyFilePersistenceStore::new(&dir);
         let reloaded_transaction = reloaded.transaction("test-ns").await.expect("transaction");
         let got = reloaded_transaction
             .get("entry-1")
@@ -417,7 +417,7 @@ mod tests {
     #[tokio::test]
     async fn put_defers_write_until_commit() {
         let dir = unique_dir("deferred");
-        let store = FilePersistenceStore::new(&dir);
+        let store = LegacyFilePersistenceStore::new(&dir);
         let transaction = store.transaction("test-ns").await.expect("transaction");
         transaction
             .put("entry-1".to_string(), record(json!({"value": 1}), None))
@@ -432,7 +432,7 @@ mod tests {
     #[tokio::test]
     async fn commit_clean_namespace_writes_nothing() {
         let dir = unique_dir("clean-commit");
-        let store = FilePersistenceStore::new(&dir);
+        let store = LegacyFilePersistenceStore::new(&dir);
         let transaction = store.transaction("missing-ns").await.expect("transaction");
         transaction.commit().await.expect("commit succeeds");
         assert!(!namespace_path(&dir, "missing-ns", "json").exists());
@@ -444,7 +444,7 @@ mod tests {
     #[tokio::test]
     async fn get_missing_returns_none() {
         let dir = unique_dir("missing");
-        let store = FilePersistenceStore::new(&dir);
+        let store = LegacyFilePersistenceStore::new(&dir);
         let transaction = store.transaction("test-ns").await.expect("transaction");
         assert!(transaction.get("missing").await.expect("get succeeds").is_none());
         if dir.exists() {
@@ -455,7 +455,7 @@ mod tests {
     #[tokio::test]
     async fn delete_removes_record_after_commit() {
         let dir = unique_dir("delete");
-        let store = FilePersistenceStore::new(&dir);
+        let store = LegacyFilePersistenceStore::new(&dir);
         let transaction = store.transaction("test-ns").await.expect("transaction");
         transaction
             .put("entry-1".to_string(), record(json!({"value": 1}), None))
@@ -466,7 +466,7 @@ mod tests {
         transaction.commit().await.expect("commit succeeds");
         assert!(transaction.get("entry-1").await.expect("get succeeds").is_none());
 
-        let reloaded = FilePersistenceStore::new(&dir);
+        let reloaded = LegacyFilePersistenceStore::new(&dir);
         let reloaded_transaction = reloaded.transaction("test-ns").await.expect("transaction");
         assert!(reloaded_transaction
             .get("entry-1")
@@ -479,7 +479,7 @@ mod tests {
     #[tokio::test]
     async fn expired_record_is_pruned_on_read() {
         let dir = unique_dir("expired");
-        let store = FilePersistenceStore::new(&dir);
+        let store = LegacyFilePersistenceStore::new(&dir);
         let transaction = store.transaction("test-ns").await.expect("transaction");
         let past = SystemTime::now() - Duration::from_secs(60);
         transaction
@@ -494,7 +494,7 @@ mod tests {
     #[tokio::test]
     async fn find_by_fields_filters_records() {
         let dir = unique_dir("find");
-        let store = FilePersistenceStore::new(&dir);
+        let store = LegacyFilePersistenceStore::new(&dir);
         let transaction = store.transaction("test-ns").await.expect("transaction");
         transaction
             .put("fr-1".to_string(), record(json!({"country": "FR"}), None))
@@ -537,7 +537,7 @@ mod tests {
     #[tokio::test]
     async fn commits_are_isolated_per_namespace() {
         let dir = unique_dir("isolated");
-        let store = FilePersistenceStore::new(&dir);
+        let store = LegacyFilePersistenceStore::new(&dir);
         let proxies = store.transaction("proxy-inventory").await.expect("transaction");
         let sessions = store
             .transaction("cloudflare-session")

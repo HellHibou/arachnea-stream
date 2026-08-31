@@ -11,7 +11,7 @@ use arachnea_core::{
     application,
     controler::{ApplicationMode, CoreApplicationOptions, ServerNetworkMode, DEFAULT_SERVER_PORT},
     persistence::{
-        CredentialsStore, EncryptedFileCredentialsStore, FilePersistenceStore, PersistenceStore,
+        CredentialsStore, EncryptedFileCredentialsStore, LegacyFilePersistenceStore, PersistenceStore,
     },
 };
 use arachnea_scrapyfy::*;
@@ -385,7 +385,7 @@ async fn main() -> Result<()> {
         DEFAULT_SERVER_CREDENTIALS_KEY,
     ));
     let persistence_store: Arc<dyn PersistenceStore> =
-        Arc::new(FilePersistenceStore::default_data_dir());
+        Arc::new(LegacyFilePersistenceStore::default_data_dir());
 
     let mut build_options =
         StreamScraperBuildOptions::new(credentials_store, persistence_store);

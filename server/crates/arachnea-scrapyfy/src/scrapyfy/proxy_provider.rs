@@ -327,7 +327,10 @@ pub fn default_scrapyfy_proxy_inventory(
         Some(Arc::new(ProxyProbe::new(probe_config))),
     )
     .with_ip_country_resolver(Arc::new(resolver))
-    .with_persistence_store(persistence_store)
+    .with_proxy_repository(Arc::new(
+        arachnea_proxy::TypedProxyRepository::from_legacy_store(persistence_store)
+            .expect("proxy persistence schema is valid"),
+    ))
 }
 
 /// Builds a default [`ArachneaProxyCore`] with dynamic country routing backed

@@ -335,73 +335,75 @@ impl<R: AsyncRead + Unpin> ChunkedBodyReader<R> {
     }
 }
 
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-        use std::pin::pin;
-        use tokio::io::AsyncReadExt;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::pin::pin;
+    use tokio::io::AsyncReadExt;
 
-        struct Piecewise {
-            data: Vec<u8>,
-            pos: usize,
-            step: usize,
-            pend_every: usize,
-            calls: usize,
-            already_pending: bool,
-        }
-        impl AsyncRead for Piecewise {
-            fn poll_read(
-                mut self: Pin<&mut Self>,
-                cx: &mut Context<'_>,
-                buf: &mut ReadBuf<'_>,
-            ) -> Poll<io::Result<()>> {
-                let this = self.as_mut().get_mut();
-                this.calls += 1;
-                if !this.already_pending && this.calls % this.pend_every == 0 {
-                    this.already_pending = true;
-                    cx.waker().wake_by_ref();
-                    return Poll::Pending;
-                }
-                this.already_pending = false;
-                if this.pos >= this.data.len() {
-                    return Poll::Ready(Ok(()));
-                }
-                let n = (this.data.len() - this.pos).min(this.step).min(buf.remaining());
-                buf.put_slice(&this.data[this.pos..this.pos + n]);
-                this.pos += n;
-                Poll::Ready(Ok(()))
+    struct Piecewise {
+        data: Vec<u8>,
+        pos: usize,
+        step: usize,
+        pend_every: usize,
+        calls: usize,
+        already_pending: bool,
+    }
+    impl AsyncRead for Piecewise {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            let this = self.as_mut().get_mut();
+            this.calls += 1;
+            if !this.already_pending && this.calls % this.pend_every == 0 {
+                this.already_pending = true;
+                cx.waker().wake_by_ref();
+                return Poll::Pending;
             }
+            this.already_pending = false;
+            if this.pos >= this.data.len() {
+                return Poll::Ready(Ok(()));
+            }
+            let n = (this.data.len() - this.pos)
+                .min(this.step)
+                .min(buf.remaining());
+            buf.put_slice(&this.data[this.pos..this.pos + n]);
+            this.pos += n;
+            Poll::Ready(Ok(()))
         }
+    }
 
-        #[tokio::test]
-        async fn chunked_fragmented_lossy() {
-            let data: Vec<u8> = (0..120_000u32).map(|i| (i % 251) as u8).collect();
-            let mut raw = Vec::new();
-            for part in data.chunks(4093) {
-                raw.extend_from_slice(format!("{:x}\r\n", part.len()).as_bytes());
-                raw.extend_from_slice(part);
-                raw.extend_from_slice(b"\r\n");
-            }
-            raw.extend_from_slice(b"0\r\n\r\n");
-            let source = Piecewise {
-                data: raw.clone(),
-                pos: 0,
-                step: 7,
-                pend_every: 3,
-                calls: 0,
-                already_pending: false,
-            };
-            let reader = ChunkedBodyReader::new(source);
-            let mut buf = Vec::new();
-            let mut reader = pin!(reader);
-            let r = reader.read_to_end(&mut buf).await;
-            match &r {
-                Ok(_) => eprintln!("OK decoded len={}", buf.len()),
-                Err(e) => eprintln!("ERR: {e:?} decoded len={}", buf.len()),
-            }
-            assert_eq!(data.len(), buf.len());
-            assert_eq!(data, buf);
+    #[tokio::test]
+    async fn chunked_fragmented_lossy() {
+        let data: Vec<u8> = (0..120_000u32).map(|i| (i % 251) as u8).collect();
+        let mut raw = Vec::new();
+        for part in data.chunks(4093) {
+            raw.extend_from_slice(format!("{:x}\r\n", part.len()).as_bytes());
+            raw.extend_from_slice(part);
+            raw.extend_from_slice(b"\r\n");
         }
+        raw.extend_from_slice(b"0\r\n\r\n");
+        let source = Piecewise {
+            data: raw.clone(),
+            pos: 0,
+            step: 7,
+            pend_every: 3,
+            calls: 0,
+            already_pending: false,
+        };
+        let reader = ChunkedBodyReader::new(source);
+        let mut buf = Vec::new();
+        let mut reader = pin!(reader);
+        let r = reader.read_to_end(&mut buf).await;
+        match &r {
+            Ok(_) => eprintln!("OK decoded len={}", buf.len()),
+            Err(e) => eprintln!("ERR: {e:?} decoded len={}", buf.len()),
+        }
+        assert_eq!(data.len(), buf.len());
+        assert_eq!(data, buf);
+    }
 
     #[tokio::test]
     async fn content_length_reads_exact_bytes() {

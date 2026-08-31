@@ -68,6 +68,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json",
 time = { version = "0.3", features = ["formatting", "macros"] }
 tao = "0.35.2"
 url = "2"
+uuid = "1.26"
 urlencoding = "2.1"
 warp = "0.3"
 webpki-roots = "1.0"

@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use arachnea_core::persistence::{MemoryPersistenceStore, PersistenceStore};
+use arachnea_core::persistence::{LegacyMemoryPersistenceStore, PersistenceStore};
 #[cfg(feature = "arachnea-proxy")]
 use arachnea_proxy::connectors::ArachneaRquestLoopback;
 use bytes::Bytes;
@@ -368,7 +368,7 @@ impl ArachneaHttpClient {
             config,
             cookies,
             browser_session_manager,
-            Arc::new(MemoryPersistenceStore::new()),
+            Arc::new(LegacyMemoryPersistenceStore::new()),
         )
         .await
     }
