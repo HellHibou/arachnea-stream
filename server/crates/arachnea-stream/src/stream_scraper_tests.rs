@@ -14,7 +14,8 @@ static DEFAULT_SEARCH_TERM: &str = "inf";
 static DEFAULT_QUERY_SOURCE: &str = "arachnea-stream/dark-stream/anime-sama.yaml";
 
 fn configure_test_application_data_dir() {
-    let _ = arachnea_core::application::configure_application_data_dir_name("arachnea-stream-tests");
+    let _ =
+        arachnea_core::application::configure_application_data_dir_name("arachnea-stream-tests");
 }
 
 fn test_params() -> TestParams {

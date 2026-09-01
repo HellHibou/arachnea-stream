@@ -173,7 +173,24 @@ pub struct ProxyRecord {
     pub cooldown_until: Option<SystemTime>,
 }
 
+/// Native persisted identity of a proxy endpoint.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct ProxyKey {
+    /// Proxy host, preserved exactly as recorded.
+    pub host: String,
+    /// Proxy TCP port.
+    pub port: u16,
+}
+
 impl ProxyRecord {
+    /// Returns the native endpoint key used by persistent stores.
+    pub fn key(&self) -> ProxyKey {
+        ProxyKey {
+            host: self.host.clone(),
+            port: self.port,
+        }
+    }
+
     /// Returns the endpoint authority with IPv6 bracketing applied.
     ///
     /// # Returns

@@ -14,7 +14,7 @@ use arachnea_core::{
         PersistentEntity, SqliteEntityStore, TypedEntityStore,
     },
 };
-use arachnea_http::chaser_session::{CLOUDFLARE_SESSION_STORE_NAME, CachedChaserSession};
+use arachnea_http::chaser_session::{CachedChaserSession, CLOUDFLARE_SESSION_STORE_NAME};
 use arachnea_proxy::core::{ArachneaProxyCore, ProxyConfig, ProxyRecord};
 use arachnea_scrapyfy::{scraper_result::ScraperAggregationResult, *};
 
@@ -62,8 +62,13 @@ pub struct ApplicationStores {
 /// # Errors
 ///
 /// Returns an error when a database cannot be opened or its physical schema is
-/// incompatible with the declared entity schema.
-pub fn sqlite_application_stores(application_data_path: impl Into<PathBuf>) -> Result<ApplicationStores> {
+/// incompatible with the declared entity schema. The legacy proxy inventory
+/// cache uses an incompatible primary key and must be deleted manually at
+/// `<application-data>/data/persistence/proxy-inventory/` before opening this
+/// version; it is intentionally never migrated.
+pub fn sqlite_application_stores(
+    application_data_path: impl Into<PathBuf>,
+) -> Result<ApplicationStores> {
     let root = application_data_path.into().join(PERSISTENCE_DATA_ROOT);
     Ok(ApplicationStores {
         proxy_inventory: Arc::new(SqliteEntityStore::new(
@@ -94,21 +99,18 @@ pub fn sqlite_application_stores(application_data_path: impl Into<PathBuf>) -> R
 /// Returns an error when a store configuration is invalid.
 pub fn memory_application_stores() -> Result<ApplicationStores> {
     Ok(ApplicationStores {
-        proxy_inventory: Arc::new(MemoryEntityStore::new(
-            PersistenceStoreConfig::new("proxy-inventory", ProxyRecord::schema())?,
-        )?),
-        cloudflare_session: Arc::new(MemoryEntityStore::new(
-            PersistenceStoreConfig::new(
-                CLOUDFLARE_SESSION_STORE_NAME,
-                CachedChaserSession::schema(),
-            )?,
-        )?),
-        source_enabled: Arc::new(MemoryEntityStore::new(
-            PersistenceStoreConfig::new(
-                STREAM_SERVICES_STORE_NAME,
-                SourceEnabledOverride::schema(),
-            )?,
-        )?),
+        proxy_inventory: Arc::new(MemoryEntityStore::new(PersistenceStoreConfig::new(
+            "proxy-inventory",
+            ProxyRecord::schema(),
+        )?)?),
+        cloudflare_session: Arc::new(MemoryEntityStore::new(PersistenceStoreConfig::new(
+            CLOUDFLARE_SESSION_STORE_NAME,
+            CachedChaserSession::schema(),
+        )?)?),
+        source_enabled: Arc::new(MemoryEntityStore::new(PersistenceStoreConfig::new(
+            STREAM_SERVICES_STORE_NAME,
+            SourceEnabledOverride::schema(),
+        )?)?),
     })
 }
 
@@ -424,7 +426,6 @@ impl StreamScraper {
         Ok(instance)
     }
 
-
     /// Creates a instance of the scraper facade using a file-based credentials store and the default services configuration.
     ///
     /// The typed persistence stores are SQLite databases under the default
@@ -439,9 +440,7 @@ impl StreamScraper {
     pub fn from_json(json_path: Option<&str>) -> Result<Self> {
         let options = StreamScraperBuildOptions::new(
             FileCredentialsStore::default().as_arc(),
-            sqlite_application_stores(&arachnea_core::application::get_application_data_path(
-                "",
-            ))?,
+            sqlite_application_stores(&arachnea_core::application::get_application_data_path(""))?,
         )
         .with_services_config_path(json_path.unwrap_or(DEFAULT_SERVICES_CONFIG_PATH));
         Self::from_options(&options)
@@ -1223,7 +1222,10 @@ impl StreamScraper {
         Ok(ScraperAggregationResult::ok(resolved))
     }
 
-    pub(crate) async fn get_drm_license(&self, input: ControlerStreamInput) -> Result<ControlerStreamOutput> {
+    pub(crate) async fn get_drm_license(
+        &self,
+        input: ControlerStreamInput,
+    ) -> Result<ControlerStreamOutput> {
         let stream_token = input.path.trim_matches('/').trim();
         if stream_token.is_empty() {
             bail!("Missing stream token.");
@@ -1279,11 +1281,7 @@ impl StreamScraper {
             );
             let proxy_public_path = controler.stream_public_path(HTTP_PROXY_COMMAND);
             self.player_resolver_endpoints.http_proxy_public_path = Some(proxy_public_path);
-            arachnea_proxy::core::http::register_service(
-                controler,
-                proxy_core,
-                HTTP_PROXY_COMMAND,
-            );
+            arachnea_proxy::core::http::register_service(controler, proxy_core, HTTP_PROXY_COMMAND);
         } else {
             tracing::warn!("proxy_http handler not registered: no proxy core available");
         }

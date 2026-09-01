@@ -38,7 +38,7 @@ pub enum FieldType {
 /// Extra semantics assigned to a schema field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FieldRole {
-    /// The single scalar primary key of the entity.
+    /// A component of the entity primary key.
     PrimaryKey,
     /// Timestamp after which the entity is no longer returned.
     Expiration,
@@ -133,7 +133,7 @@ impl EntitySchema {
     pub fn new() -> Self {
         Self { fields: Vec::new() }
     }
-    /// Adds the schema primary key.
+    /// Adds one primary-key component in declaration order.
     pub fn primary_key(mut self, mut field: Field) -> Self {
         field.nullable = false;
         field.role = Some(FieldRole::PrimaryKey);
@@ -153,11 +153,12 @@ impl EntitySchema {
     pub fn field_named(&self, name: &str) -> Option<&Field> {
         self.fields.iter().find(|field| field.name == name)
     }
-    /// Returns the primary key declaration.
-    pub fn primary_key_field(&self) -> Option<&Field> {
+    /// Returns the primary-key declarations in component order.
+    pub fn primary_key_fields(&self) -> Vec<&Field> {
         self.fields
             .iter()
-            .find(|field| field.role == Some(FieldRole::PrimaryKey))
+            .filter(|field| field.role == Some(FieldRole::PrimaryKey))
+            .collect()
     }
     /// Returns the expiration declaration, when the entity has a TTL.
     pub fn expiration_field(&self) -> Option<&Field> {
@@ -173,8 +174,8 @@ impl EntitySchema {
             .iter()
             .filter(|field| field.role == Some(FieldRole::PrimaryKey))
             .count();
-        if primary_keys != 1 {
-            anyhow::bail!("an entity schema must declare exactly one primary key");
+        if primary_keys == 0 {
+            anyhow::bail!("an entity schema must declare at least one primary key field");
         }
         for field in &self.fields {
             if field.name.is_empty() {
@@ -222,32 +223,32 @@ impl PersistenceStoreConfig {
     }
 }
 
-/// Scalar key supported by the first typed persistence implementation.
+/// Stable typed identity used by an entity store.
 pub trait EntityKey: Clone + Eq + Hash + Debug + Send + Sync + 'static {
-    /// Logical schema type of this key.
-    fn field_type() -> FieldType;
-    /// Stable representation used in file documents.
+    /// Logical types of the primary-key components, in schema declaration order.
+    fn field_types() -> &'static [FieldType];
+    /// Canonical, unambiguous representation used in file documents.
     fn storage_key(&self) -> String;
 }
 impl EntityKey for String {
-    fn field_type() -> FieldType {
-        FieldType::String
+    fn field_types() -> &'static [FieldType] {
+        &[FieldType::String]
     }
     fn storage_key(&self) -> String {
         self.clone()
     }
 }
 impl EntityKey for i64 {
-    fn field_type() -> FieldType {
-        FieldType::Integer
+    fn field_types() -> &'static [FieldType] {
+        &[FieldType::Integer]
     }
     fn storage_key(&self) -> String {
         self.to_string()
     }
 }
 impl EntityKey for Uuid {
-    fn field_type() -> FieldType {
-        FieldType::String
+    fn field_types() -> &'static [FieldType] {
+        &[FieldType::String]
     }
     fn storage_key(&self) -> String {
         self.to_string()
@@ -256,9 +257,9 @@ impl EntityKey for Uuid {
 
 /// Typed entity stored by a [`TypedEntityStore`].
 pub trait PersistentEntity: Clone + Send + Sync + Sized + 'static {
-    /// Scalar type used by the entity primary key.
+    /// Type used by the entity primary key.
     type Key: EntityKey;
-    /// Returns the entity primary key.
+    /// Returns the entity primary key value.
     fn key(&self) -> Self::Key;
     /// Returns the complete, stable schema for this entity.
     fn schema() -> EntitySchema;
@@ -524,14 +525,15 @@ pub(crate) fn checked_schema<E: PersistentEntity>(
             config.name
         );
     }
-    if schema
-        .primary_key_field()
-        .expect("validated schema")
-        .field_type
-        != E::Key::field_type()
+    let primary_key_fields = schema.primary_key_fields();
+    if primary_key_fields.len() != E::Key::field_types().len()
+        || primary_key_fields
+            .iter()
+            .zip(E::Key::field_types())
+            .any(|(field, field_type)| field.field_type != *field_type)
     {
         anyhow::bail!(
-            "store '{}' primary key type does not match the entity key",
+            "store '{}' primary key fields do not match the entity key",
             config.name
         );
     }

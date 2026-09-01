@@ -92,8 +92,15 @@ impl ScraperAgregator {
     /// and tries to create a dynamic proxy core backed by the scrapyfy proxy
     /// provider for country-based routing.
     pub fn new() -> Self {
+        #[cfg(feature = "arachnea-proxy")]
+        {
+            return Self::new_with_typed_stores(
+                memory_proxy_store().expect("in-memory proxy store is valid"),
+                memory_session_store().expect("in-memory Cloudflare session store is valid"),
+            );
+        }
+        #[cfg(not(feature = "arachnea-proxy"))]
         Self::new_with_typed_stores(
-            memory_proxy_store().expect("in-memory proxy store is valid"),
             memory_session_store().expect("in-memory Cloudflare session store is valid"),
         )
     }
@@ -106,9 +113,7 @@ impl ScraperAgregator {
     /// * `session_store` - Typed store used as the Cloudflare session cache of
     ///   created HTTP clients.
     pub fn new_with_typed_stores(
-        #[cfg(feature = "arachnea-proxy")] proxy_store: Arc<
-            dyn TypedEntityStore<ProxyRecord>,
-        >,
+        #[cfg(feature = "arachnea-proxy")] proxy_store: Arc<dyn TypedEntityStore<ProxyRecord>>,
         session_store: Arc<dyn TypedEntityStore<CachedChaserSession>>,
     ) -> Self {
         let proxy_handle = SharedProxyConfigHandle::new();
@@ -170,9 +175,17 @@ impl ScraperAgregator {
     /// This constructor does not attempt any default proxy setup. Use it when
     /// the caller wants full control over the proxy configuration.
     pub fn new_with_proxy_handle(proxy_handle: SharedProxyConfigHandle) -> Self {
+        #[cfg(feature = "arachnea-proxy")]
+        {
+            return Self::new_with_proxy_handle_and_typed_stores(
+                proxy_handle,
+                memory_proxy_store().expect("in-memory proxy store is valid"),
+                memory_session_store().expect("in-memory Cloudflare session store is valid"),
+            );
+        }
+        #[cfg(not(feature = "arachnea-proxy"))]
         Self::new_with_proxy_handle_and_typed_stores(
             proxy_handle,
-            memory_proxy_store().expect("in-memory proxy store is valid"),
             memory_session_store().expect("in-memory Cloudflare session store is valid"),
         )
     }
@@ -191,9 +204,7 @@ impl ScraperAgregator {
     ///   created HTTP clients.
     pub fn new_with_proxy_handle_and_typed_stores(
         proxy_handle: SharedProxyConfigHandle,
-        #[cfg(feature = "arachnea-proxy")] proxy_store: Arc<
-            dyn TypedEntityStore<ProxyRecord>,
-        >,
+        #[cfg(feature = "arachnea-proxy")] proxy_store: Arc<dyn TypedEntityStore<ProxyRecord>>,
         session_store: Arc<dyn TypedEntityStore<CachedChaserSession>>,
     ) -> Self {
         ScraperAgregator {

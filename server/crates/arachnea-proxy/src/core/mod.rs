@@ -73,7 +73,7 @@ pub use proxy_inventory::{CoexistencePolicy, InventoryConfig, ProxyInventory};
 pub use proxy_probe::{ProbeConfig, ProbeMode, ProxyProbe};
 pub use proxy_record::{
     ProxyAvailabilityHint, ProxyDataProvider, ProxyDestinationFailure,
-    ProxyDestinationFailureReason, ProxyLoadRequest, ProxyProtocol, ProxyRecord,
+    ProxyDestinationFailureReason, ProxyKey, ProxyLoadRequest, ProxyProtocol, ProxyRecord,
     ProxyRuntimeStatus,
 };
 #[cfg(feature = "persistence")]

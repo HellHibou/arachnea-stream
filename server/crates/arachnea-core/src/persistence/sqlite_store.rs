@@ -32,26 +32,25 @@ const INDEXES_META_TABLE: &str = "arachnea_indexes";
 
 /// SQLite physical representation of an entity primary key.
 ///
-/// This is an internal implementation detail of [`SqliteEntityStore`], not a
-/// domain-facing contract: callers only use the store with the key types
-/// already implemented here (`String`, `i64`, `Uuid`).
-#[doc(hidden)]
+/// Composite domain keys implement this trait with components ordered like
+/// their entity schema. Scalar key implementations are provided for `String`,
+/// `i64`, and `Uuid`.
 pub trait SqlKey: Send + Sync + 'static {
-    /// Physical SQLite column type declared for the primary key column.
-    fn physical_type() -> &'static str;
-    /// SQL value bound when addressing this key.
-    fn to_sql(&self) -> SqlValue;
-    /// Normalized SQL value read back from the primary key cell.
-    fn from_sql(cell: ValueRef<'_>) -> anyhow::Result<SqlValue>;
+    /// Physical SQLite types declared for primary-key components.
+    fn physical_types() -> &'static [&'static str];
+    /// SQL values bound when addressing this key, in component order.
+    fn to_sql_values(&self) -> Vec<SqlValue>;
+    /// Normalizes one primary-key cell read from SQLite.
+    fn from_sql_value(index: usize, cell: ValueRef<'_>) -> anyhow::Result<SqlValue>;
 }
 impl SqlKey for String {
-    fn physical_type() -> &'static str {
-        "TEXT"
+    fn physical_types() -> &'static [&'static str] {
+        &["TEXT"]
     }
-    fn to_sql(&self) -> SqlValue {
-        SqlValue::Text(self.clone())
+    fn to_sql_values(&self) -> Vec<SqlValue> {
+        vec![SqlValue::Text(self.clone())]
     }
-    fn from_sql(cell: ValueRef<'_>) -> anyhow::Result<SqlValue> {
+    fn from_sql_value(_index: usize, cell: ValueRef<'_>) -> anyhow::Result<SqlValue> {
         match cell {
             ValueRef::Text(value) => Ok(SqlValue::Text(std::str::from_utf8(value)?.to_string())),
             _ => anyhow::bail!("string primary key cell has an unexpected SQLite type"),
@@ -59,13 +58,13 @@ impl SqlKey for String {
     }
 }
 impl SqlKey for i64 {
-    fn physical_type() -> &'static str {
-        "INTEGER"
+    fn physical_types() -> &'static [&'static str] {
+        &["INTEGER"]
     }
-    fn to_sql(&self) -> SqlValue {
-        SqlValue::Integer(*self)
+    fn to_sql_values(&self) -> Vec<SqlValue> {
+        vec![SqlValue::Integer(*self)]
     }
-    fn from_sql(cell: ValueRef<'_>) -> anyhow::Result<SqlValue> {
+    fn from_sql_value(_index: usize, cell: ValueRef<'_>) -> anyhow::Result<SqlValue> {
         match cell {
             ValueRef::Integer(value) => Ok(SqlValue::Integer(value)),
             _ => anyhow::bail!("integer primary key cell has an unexpected SQLite type"),
@@ -73,14 +72,14 @@ impl SqlKey for i64 {
     }
 }
 impl SqlKey for uuid::Uuid {
-    fn physical_type() -> &'static str {
+    fn physical_types() -> &'static [&'static str] {
         // UUID primary keys are stored as 16-byte blobs (confirmed decision).
-        "BLOB"
+        &["BLOB"]
     }
-    fn to_sql(&self) -> SqlValue {
-        SqlValue::Blob(self.as_bytes().to_vec())
+    fn to_sql_values(&self) -> Vec<SqlValue> {
+        vec![SqlValue::Blob(self.as_bytes().to_vec())]
     }
-    fn from_sql(cell: ValueRef<'_>) -> anyhow::Result<SqlValue> {
+    fn from_sql_value(_index: usize, cell: ValueRef<'_>) -> anyhow::Result<SqlValue> {
         match cell {
             ValueRef::Blob(value) => Ok(SqlValue::Text(uuid::Uuid::from_slice(value)?.to_string())),
             _ => anyhow::bail!("uuid primary key cell has an unexpected SQLite type"),
@@ -121,6 +120,12 @@ where
         data_root: impl Into<PathBuf>,
     ) -> anyhow::Result<Self> {
         checked_schema::<E>(&config)?;
+        if E::Key::physical_types().len() != config.schema.primary_key_fields().len() {
+            anyhow::bail!(
+                "store '{}' SQLite key representation does not match the declared primary key",
+                config.name
+            );
+        }
         let directory = data_root.into().join(safe_name(&config.name));
         std::fs::create_dir_all(&directory).map_err(|error| {
             anyhow::anyhow!(
@@ -184,6 +189,23 @@ fn column_list(schema: &EntitySchema) -> String {
         .collect::<Vec<_>>()
         .join(", ")
 }
+fn primary_key_clause(schema: &EntitySchema) -> String {
+    schema
+        .primary_key_fields()
+        .iter()
+        .map(|field| format!("\"{}\"", field.name()))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+fn primary_key_predicate(schema: &EntitySchema) -> String {
+    schema
+        .primary_key_fields()
+        .iter()
+        .enumerate()
+        .map(|(index, field)| format!("\"{}\" = ?{}", field.name(), index + 1))
+        .collect::<Vec<_>>()
+        .join(" AND ")
+}
 fn to_sql_value(value: &StoredValue) -> anyhow::Result<SqlValue> {
     Ok(match value {
         StoredValue::String(value) => SqlValue::Text(value.clone()),
@@ -236,14 +258,17 @@ fn read_row<E: PersistentEntity>(
 where
     E::Key: SqlKey,
 {
-    let primary_key = schema.primary_key_field().expect("validated schema");
+    let primary_key_fields = schema.primary_key_fields();
     let mut fields = BTreeMap::new();
     for (index, field) in schema.fields().iter().enumerate() {
         let cell = row.get_ref(index)?;
-        let stored = if field.name() == primary_key.name() {
+        let stored = if let Some(key_index) = primary_key_fields
+            .iter()
+            .position(|key| key.name() == field.name())
+        {
             Some(stored_from_key_sql(
-                primary_key.name(),
-                <E::Key as SqlKey>::from_sql(cell)?,
+                field.name(),
+                <E::Key as SqlKey>::from_sql_value(key_index, cell)?,
             )?)
         } else {
             stored_from_cell(field.name(), field.field_type(), cell)?
@@ -373,15 +398,15 @@ where
     E::Key: SqlKey,
 {
     let schema = &config.schema;
-    let primary_key = schema.primary_key_field().expect("validated schema");
+    let primary_key_fields = schema.primary_key_fields();
+    let physical_types = <E::Key as SqlKey>::physical_types();
     let mut definitions = Vec::new();
     for field in schema.fields() {
-        let definition = if field.name() == primary_key.name() {
-            format!(
-                "\"{}\" {} NOT NULL PRIMARY KEY",
-                field.name(),
-                <E::Key as SqlKey>::physical_type()
-            )
+        let definition = if let Some(index) = primary_key_fields
+            .iter()
+            .position(|key| key.name() == field.name())
+        {
+            format!("\"{}\" {} NOT NULL", field.name(), physical_types[index])
         } else {
             let mut definition = format!("\"{}\" {}", field.name(), sql_type(field.field_type()));
             if field.field_type() == FieldType::Boolean {
@@ -394,6 +419,7 @@ where
         };
         definitions.push(definition);
     }
+    definitions.push(format!("PRIMARY KEY ({})", primary_key_clause(schema)));
     connection.execute(
         &format!(
             "CREATE TABLE \"{table}\" ({}) STRICT",
@@ -417,9 +443,13 @@ fn evolve_table<E: PersistentEntity>(
     connection: &Connection,
     table: &str,
     config: &PersistenceStoreConfig,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<()>
+where
+    E::Key: SqlKey,
+{
     let schema = &config.schema;
-    let primary_key = schema.primary_key_field().expect("validated schema");
+    let primary_key_fields = schema.primary_key_fields();
+    let physical_types = <E::Key as SqlKey>::physical_types();
     let managed = managed_columns(connection)?;
     let mut statement = connection.prepare(&format!("PRAGMA table_info(\"{table}\")"))?;
     let existing = statement
@@ -433,17 +463,32 @@ fn evolve_table<E: PersistentEntity>(
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(|error| anyhow::anyhow!("failed to read sqlite table info: {error}"))?;
     drop(statement);
-    let primary_key_columns: Vec<&(String, String, i64)> =
+    let mut primary_key_columns: Vec<&(String, String, i64)> =
         existing.iter().filter(|(_, _, pk)| *pk > 0).collect();
-    if primary_key_columns.len() != 1 {
-        anyhow::bail!("sqlite table '{table}' must declare exactly one primary key column");
-    }
-    let (pk_name, _, _) = primary_key_columns[0];
-    if pk_name != primary_key.name() {
+    primary_key_columns.sort_by_key(|(_, _, position)| *position);
+    if primary_key_columns.len() != primary_key_fields.len() {
         anyhow::bail!(
-            "sqlite table '{table}' primary key is '{pk_name}' but the entity declares '{}'",
-            primary_key.name()
+            "sqlite table '{table}' has {} primary key columns but the entity declares {}; primary keys are never migrated automatically",
+            primary_key_columns.len(),
+            primary_key_fields.len()
         );
+    }
+    for (index, ((name, physical_type, position), declared)) in primary_key_columns
+        .iter()
+        .zip(primary_key_fields.iter())
+        .enumerate()
+    {
+        if *position != i64::try_from(index + 1).expect("primary key position fits i64")
+            || name != declared.name()
+            || !physical_type.eq_ignore_ascii_case(physical_types[index])
+        {
+            anyhow::bail!(
+                "sqlite table '{table}' primary key does not match declared component {} ('{}' {}); primary keys are never migrated automatically",
+                index + 1,
+                declared.name(),
+                physical_types[index]
+            );
+        }
     }
     let existing_names: HashSet<&str> = existing.iter().map(|(name, _, _)| name.as_str()).collect();
     for field in schema.fields() {
@@ -525,17 +570,16 @@ where
         let connection = self.connection.clone();
         let table = self.table.clone();
         let config = self.config.clone();
-        let key_value = key.to_sql();
+        let key_values = key.to_sql_values();
         let task = tokio::task::spawn_blocking(move || {
             let connection = connection.lock().map_err(|_| lock_poisoned())?;
             let schema = &config.schema;
-            let primary_key = schema.primary_key_field().expect("validated schema");
+            let key_predicate = primary_key_predicate(schema);
             let mut statement = connection.prepare(&format!(
-                "SELECT {} FROM \"{table}\" WHERE \"{}\" = ?1",
+                "SELECT {} FROM \"{table}\" WHERE {key_predicate}",
                 column_list(schema),
-                primary_key.name()
             ))?;
-            let mut rows = statement.query(rusqlite::params![key_value])?;
+            let mut rows = statement.query(rusqlite::params_from_iter(key_values.clone()))?;
             let Some(row) = rows.next()? else {
                 return Ok(None);
             };
@@ -544,11 +588,8 @@ where
             drop(statement);
             if expired(schema, &document)? {
                 connection.execute(
-                    &format!(
-                        "DELETE FROM \"{table}\" WHERE \"{}\" = ?1",
-                        primary_key.name()
-                    ),
-                    rusqlite::params![key_value],
+                    &format!("DELETE FROM \"{table}\" WHERE {key_predicate}",),
+                    rusqlite::params_from_iter(key_values),
                 )?;
                 return Ok(None);
             }
@@ -594,16 +635,15 @@ where
         let connection = self.connection.clone();
         let table = self.table.clone();
         let config = self.config.clone();
-        let key_value = key.to_sql();
+        let key_values = key.to_sql_values();
         let task = tokio::task::spawn_blocking(move || {
             let connection = connection.lock().map_err(|_| lock_poisoned())?;
-            let primary_key = config.schema.primary_key_field().expect("validated schema");
             connection.execute(
                 &format!(
-                    "DELETE FROM \"{table}\" WHERE \"{}\" = ?1",
-                    primary_key.name()
+                    "DELETE FROM \"{table}\" WHERE {}",
+                    primary_key_predicate(&config.schema)
                 ),
-                rusqlite::params![key_value],
+                rusqlite::params_from_iter(key_values),
             )?;
             Ok(())
         });

@@ -200,16 +200,16 @@ impl ProxyInventory {
         }
     }
 
-    /// Deletes the persisted record of an authority, if persistence is
+    /// Deletes the persisted record of an endpoint key, if persistence is
     /// configured.
     #[cfg(feature = "persistence")]
-    async fn delete_persisted_record(&self, authority: &str) {
+    async fn delete_persisted_record(&self, key: &crate::core::ProxyKey) {
         let Some(persistence) = &self.persistence else {
             return;
         };
-        let result = persistence.delete(authority).await;
+        let result = persistence.delete(key).await;
         if let Err(error) = result {
-            tracing::warn!(authority = %authority, %error, "failed to delete persisted proxy record");
+            tracing::warn!(host = %key.host, port = key.port, %error, "failed to delete persisted proxy record");
         }
     }
 
@@ -227,15 +227,21 @@ impl ProxyInventory {
     /// `None` and whose `host` is a valid IP address are resolved through the
     /// resolver before insertion. The resolution is bounded by the resolver's
     /// timeout.
-    pub async fn add_or_update(&self, records: Vec<ProxyRecord>) {
+    ///
+    /// # Returns
+    ///
+    /// The canonical records retained by the inventory after merge and
+    /// country-index updates, in input order.
+    pub async fn add_or_update(&self, records: Vec<ProxyRecord>) -> Vec<ProxyRecord> {
         // Resolve missing countries for records whose host is an IP address
         let records = self.resolve_ip_countries(records).await;
 
         let mut inner = self.inner.write().await;
+        let mut retained = Vec::with_capacity(records.len());
         for record in records {
             let key = record.authority();
             let old_country = inner.records.get(&key).and_then(|r| r.country.clone());
-            if let Some(existing) = inner.records.get(&key) {
+            let retained_record = if let Some(existing) = inner.records.get(&key) {
                 let mut merged = record.clone();
                 if should_preserve_runtime_exclusion(existing) || !has_fresh_runtime_update(&record)
                 {
@@ -257,19 +263,22 @@ impl ProxyInventory {
                     }
                 }
 
-                inner.records.insert(key.clone(), merged);
+                inner.records.insert(key.clone(), merged.clone());
+                merged
             } else {
                 inner.records.insert(key.clone(), record.clone());
-            }
+                record
+            };
 
-            if let Some(ref country) = record.country {
-                inner
-                    .country_records
-                    .entry(country.clone())
-                    .or_default()
-                    .push(key);
+            if let Some(country) = &retained_record.country {
+                let keys = inner.country_records.entry(country.clone()).or_default();
+                if !keys.contains(&key) {
+                    keys.push(key);
+                }
             }
+            retained.push(retained_record);
         }
+        retained
     }
 
     /// Resolves missing country codes for records whose host is a valid IP
@@ -342,23 +351,23 @@ impl ProxyInventory {
     /// The persisted record, when a persistence store is configured, is deleted
     /// as well.
     pub async fn remove(&self, authority: &str) {
-        let existed = {
+        let removed_key = {
             let mut inner = self.inner.write().await;
-            inner.records.remove(authority).is_some_and(|record| {
+            inner.records.remove(authority).map(|record| {
                 if let Some(ref country) = record.country {
                     if let Some(keys) = inner.country_records.get_mut(country) {
                         keys.retain(|k| k != authority);
                     }
                 }
-                true
+                record.key()
             })
         };
         #[cfg(feature = "persistence")]
-        if existed {
-            self.delete_persisted_record(authority).await;
+        if let Some(key) = removed_key {
+            self.delete_persisted_record(&key).await;
         }
         #[cfg(not(feature = "persistence"))]
-        let _ = existed;
+        let _ = removed_key;
     }
 
     /// Returns a snapshot of all stored records.
@@ -642,11 +651,7 @@ impl ProxyInventory {
                     auth_flag = probe_stats.authentication_required_flag,
                     "loaded dynamic proxies probed"
                 );
-                // Persist the loaded batch through one transaction committed
-                // after the whole list has been written.
-                #[cfg(feature = "persistence")]
-                let records_to_persist = records.clone();
-                self.add_or_update(records).await;
+                let records_to_persist = self.add_or_update(records).await;
 
                 let http_stats = self
                     .selection_stats_for_country(country, false)
@@ -680,6 +685,8 @@ impl ProxyInventory {
 
                 #[cfg(feature = "persistence")]
                 self.persist_records(&records_to_persist).await;
+                #[cfg(not(feature = "persistence"))]
+                let _ = records_to_persist;
             }
             Err(error) => {
                 tracing::warn!(country = %country, %error, "failed to load proxies");
@@ -859,6 +866,79 @@ async fn persist_proxy_records(
     records: &[ProxyRecord],
 ) -> anyhow::Result<()> {
     persistence.save_many(records).await
+}
+
+#[cfg(all(test, feature = "persistence"))]
+mod tests {
+    use super::*;
+    use crate::core::proxy_repository::memory_proxy_store;
+    use crate::core::{ProxyAvailabilityHint, ProxyDestinationFailure, TypedProxyRepository};
+    use anyhow::Result as AnyResult;
+    use async_trait::async_trait;
+
+    struct StaticProvider {
+        records: Vec<ProxyRecord>,
+    }
+
+    #[async_trait]
+    impl ProxyDataProvider for StaticProvider {
+        async fn load_proxies(
+            &self,
+            _request: crate::core::ProxyLoadRequest,
+        ) -> crate::core::Result<Vec<ProxyRecord>> {
+            Ok(self.records.clone())
+        }
+    }
+
+    fn record(status: ProxyRuntimeStatus) -> ProxyRecord {
+        ProxyRecord {
+            protocol: Some(ProxyProtocol::Socks5),
+            host: "merged.example".to_string(),
+            port: 1080,
+            country: Some("BE".to_string()),
+            supports_https: Some(true),
+            status,
+            latency_ms: Some(25),
+            failure_count: 0,
+            authentication_required: Some(false),
+            availability: ProxyAvailabilityHint::High,
+            destination_failures: Vec::new(),
+            last_checked: Some(SystemTime::now()),
+            cooldown_until: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn provider_reload_persists_post_merge_runtime_exclusion() -> AnyResult<()> {
+        let store = memory_proxy_store()?;
+        let repository = Arc::new(TypedProxyRepository::new(Arc::clone(&store)));
+        let provider = Arc::new(StaticProvider {
+            records: vec![record(ProxyRuntimeStatus::Ok)],
+        });
+        let inventory = ProxyInventory::new(InventoryConfig::default(), Some(provider), None)
+            .with_proxy_repository(repository);
+
+        let mut retained = record(ProxyRuntimeStatus::Ko);
+        retained.failure_count = 3;
+        retained.authentication_required = Some(true);
+        retained.cooldown_until = Some(SystemTime::now() + Duration::from_secs(60));
+        retained.destination_failures = vec![ProxyDestinationFailure {
+            scheme: "https".to_string(),
+            host: "origin.example".to_string(),
+            port: 443,
+            reason: crate::core::ProxyDestinationFailureReason::BlockedByOrigin,
+            failure_count: 2,
+            last_failed: SystemTime::now(),
+            cooldown_until: None,
+        }];
+        let key = retained.key();
+        inventory.add_or_update(vec![retained.clone()]).await;
+
+        inventory.load_if_needed("BE").await;
+
+        assert_eq!(store.get(&key).await?, Some(retained));
+        Ok(())
+    }
 }
 
 // ── Eligibility helpers ───────────────────────────────────────────────

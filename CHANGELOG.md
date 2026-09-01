@@ -1159,3 +1159,32 @@ indexes. The validation surfaced and fixed a file-backend defect: the untagged
 JSON encoding lost the logical type of `DateTime` values (and of scalar `Json`
 values), so reloaded documents were rejected on read; the file store now
 restores the declared types from its schema when loading a document.
+
+## Unreleased — composite typed persistence keys
+
+`arachnea-core` typed persistence schemas and SQLite stores now support ordered
+composite primary keys while retaining the existing scalar key APIs. SQLite
+creates and reconciles table-level primary keys, binds every component for
+lookups and deletion, and rejects incompatible primary-key shapes without
+attempting a migration.
+
+## Unreleased — flattened proxy inventory persistence
+
+Dynamic proxy records now persist by native `(host, port)` identity rather than
+a derived authority. The typed proxy store declares direct columns for all
+scalar record fields, retains only destination failures as JSON, and validates
+enum and integer conversions while decoding persisted records.
+
+The incompatible legacy `proxy-inventory` SQLite cache is disposable: it is
+never migrated or removed automatically. Operators must manually delete
+`<application-data>/data/persistence/proxy-inventory/` before starting this
+schema version.
+
+Provider reloads now persist the canonical proxy records retained after the
+inventory merge, preventing a fresh source batch from overwriting retained
+runtime exclusion, cooldown, authentication, or destination-failure state.
+
+Validation now covers proxy composite-key persistence across every backend,
+legacy-cache rejection and manual recreation, expiration and atomic batches,
+and post-merge provider reload persistence. The Scrapyfy no-proxy constructors
+also compile without the optional proxy feature.
