@@ -35,16 +35,24 @@ pub struct PersistenceSourceEnabled {
     repository: Arc<dyn SourceEnabledRepository>,
 }
 
-/// Explicit persisted activation override for one source.
+/// Persisted per-service record combining the activation override with the
+/// encrypted service credentials.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SourceEnabledOverride {
+pub struct SourceServiceRecord {
     /// Stable source identifier and primary key.
     pub source_id: String,
     /// Administrator-selected activation value.
     pub enabled: bool,
+    /// AES-256-GCM encrypted login (`base64(nonce || ciphertext)`), when set.
+    ///
+    /// The field is opaque to this crate: encryption lives in the application
+    /// adapter implementing [`arachnea_core::persistence::CredentialsStore`].
+    pub login: Option<String>,
+    /// AES-256-GCM encrypted password (`base64(nonce || ciphertext)`), when set.
+    pub password: Option<String>,
 }
 
-impl PersistentEntity for SourceEnabledOverride {
+impl PersistentEntity for SourceServiceRecord {
     type Key = String;
 
     fn key(&self) -> Self::Key {
@@ -54,54 +62,65 @@ impl PersistentEntity for SourceEnabledOverride {
         EntitySchema::new()
             .primary_key(Field::string("source_id"))
             .field(Field::boolean("enabled"))
+            .field(Field::string("login").nullable())
+            .field(Field::string("password").nullable())
     }
     fn write_to(&self, writer: &mut EntityWriter) -> Result<()> {
         writer.string("source_id", &self.source_id)?;
-        writer.boolean("enabled", self.enabled)
+        writer.boolean("enabled", self.enabled)?;
+        if let Some(login) = &self.login {
+            writer.string("login", login)?;
+        }
+        if let Some(password) = &self.password {
+            writer.string("password", password)?;
+        }
+        Ok(())
     }
     fn read_from(reader: &EntityReader<'_>) -> Result<Self> {
         Ok(Self {
             source_id: reader.string("source_id")?.to_string(),
             enabled: reader.boolean("enabled")?,
+            login: reader.optional_string("login")?.map(str::to_string),
+            password: reader.optional_string("password")?.map(str::to_string),
         })
     }
 }
 
-/// Repository for source activation overrides.
+/// Repository for source service records (activation and credentials).
 #[async_trait]
 pub trait SourceEnabledRepository: Send + Sync {
-    /// Returns the stored override, if any.
-    async fn get(&self, source_id: &str) -> Result<Option<SourceEnabledOverride>>;
-    /// Writes an override.
-    async fn save(&self, override_value: &SourceEnabledOverride) -> Result<()>;
-    /// Writes a batch of overrides atomically.
-    async fn save_all(&self, overrides: &[SourceEnabledOverride]) -> Result<()>;
-    /// Removes an override.
+    /// Returns the stored record, if any.
+    async fn get(&self, source_id: &str) -> Result<Option<SourceServiceRecord>>;
+    /// Writes a record.
+    async fn save(&self, record: &SourceServiceRecord) -> Result<()>;
+    /// Writes a batch of records atomically.
+    async fn save_all(&self, records: &[SourceServiceRecord]) -> Result<()>;
+    /// Removes a record.
     async fn delete(&self, source_id: &str) -> Result<()>;
 }
 
 /// Repository backed by any typed entity store.
 pub struct TypedSourceEnabledRepository {
-    store: Arc<dyn TypedEntityStore<SourceEnabledOverride>>,
+    store: Arc<dyn TypedEntityStore<SourceServiceRecord>>,
 }
 
 impl TypedSourceEnabledRepository {
     /// Creates a repository over a typed entity store.
-    pub fn new(store: Arc<dyn TypedEntityStore<SourceEnabledOverride>>) -> Self {
+    pub fn new(store: Arc<dyn TypedEntityStore<SourceServiceRecord>>) -> Self {
         Self { store }
     }
 }
 
 #[async_trait]
 impl SourceEnabledRepository for TypedSourceEnabledRepository {
-    async fn get(&self, source_id: &str) -> Result<Option<SourceEnabledOverride>> {
+    async fn get(&self, source_id: &str) -> Result<Option<SourceServiceRecord>> {
         Ok(self.store.get(&source_id.to_string()).await?)
     }
-    async fn save(&self, override_value: &SourceEnabledOverride) -> Result<()> {
-        Ok(self.store.put(override_value).await?)
+    async fn save(&self, record: &SourceServiceRecord) -> Result<()> {
+        Ok(self.store.put(record).await?)
     }
-    async fn save_all(&self, overrides: &[SourceEnabledOverride]) -> Result<()> {
-        Ok(self.store.put_all(overrides).await?)
+    async fn save_all(&self, records: &[SourceServiceRecord]) -> Result<()> {
+        Ok(self.store.put_all(records).await?)
     }
     async fn delete(&self, source_id: &str) -> Result<()> {
         Ok(self.store.delete(&source_id.to_string()).await?)
@@ -110,7 +129,7 @@ impl SourceEnabledRepository for TypedSourceEnabledRepository {
 
 impl PersistenceSourceEnabled {
     /// Creates a persistent activation policy over a typed entity store.
-    pub fn with_typed_store(store: Arc<dyn TypedEntityStore<SourceEnabledOverride>>) -> Self {
+    pub fn with_typed_store(store: Arc<dyn TypedEntityStore<SourceServiceRecord>>) -> Self {
         Self::with_repository(Arc::new(TypedSourceEnabledRepository::new(store)))
     }
 
@@ -120,13 +139,21 @@ impl PersistenceSourceEnabled {
     }
 
     /// Persists an explicit enabled override for a source identifier.
+    ///
+    /// Existing encrypted credentials recorded on the same service record are
+    /// preserved; only the activation value is updated.
     pub async fn set_enabled(&self, source_id: &str, enabled: bool) -> Result<()> {
-        self.repository
-            .save(&SourceEnabledOverride {
+        let mut record = match self.repository.get(source_id).await? {
+            Some(record) => record,
+            None => SourceServiceRecord {
                 source_id: source_id.to_string(),
                 enabled,
-            })
-            .await
+                login: None,
+                password: None,
+            },
+        };
+        record.enabled = enabled;
+        self.repository.save(&record).await
     }
 
     /// Creates missing source records while preserving existing administrator choices.
@@ -134,9 +161,11 @@ impl PersistenceSourceEnabled {
         let mut missing = Vec::new();
         for source in sources {
             if self.repository.get(&source.id).await?.is_none() {
-                missing.push(SourceEnabledOverride {
+                missing.push(SourceServiceRecord {
                     source_id: source.id.clone(),
                     enabled: source.default_enabled,
+                    login: None,
+                    password: None,
                 });
             }
         }
@@ -156,11 +185,11 @@ impl PersistenceSourceEnabled {
         self.repository.delete(source_id).await
     }
 
-    /// Returns the persisted override of one source identifier, if any.
+    /// Returns the persisted record of one source identifier, if any.
     ///
     /// # Errors
     /// Returns an error when the backing store cannot be read.
-    pub async fn override_for(&self, source_id: &str) -> Result<Option<SourceEnabledOverride>> {
+    pub async fn override_for(&self, source_id: &str) -> Result<Option<SourceServiceRecord>> {
         self.repository.get(source_id).await
     }
 }

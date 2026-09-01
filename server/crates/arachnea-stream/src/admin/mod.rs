@@ -19,7 +19,7 @@ use arachnea_core::controler::{
     JsonControlerFunction, RequestControlerContext,
 };
 use arachnea_core::persistence::{CredentialsStore, TypedEntityStore};
-use arachnea_scrapyfy::{PersistenceSourceEnabled, SourceEnabledOverride};
+use arachnea_scrapyfy::{PersistenceSourceEnabled, SourceServiceRecord};
 
 use crate::configuration::ApplicationConfiguration;
 use crate::reloadable_stream_scraper::ReloadableStreamScraper;
@@ -138,9 +138,7 @@ impl AdminState {
     }
 
     /// Returns the typed store used for activation overrides.
-    pub(crate) fn source_enabled_store(
-        &self,
-    ) -> Arc<dyn TypedEntityStore<SourceEnabledOverride>> {
+    pub(crate) fn source_enabled_store(&self) -> Arc<dyn TypedEntityStore<SourceServiceRecord>> {
         self.reloadable.source_enabled_store()
     }
 
@@ -177,18 +175,17 @@ fn register_admin_operation<I, F, Fut>(
     let name = format!("admin/{operation}");
     let state_ref = Arc::clone(state);
     let handler_ref = Arc::new(handler);
-    let call: JsonControlerFunction =
-        Arc::new(move |input: ControlerJsonInput| {
-            let state = Arc::clone(&state_ref);
-            let handler = Arc::clone(&handler_ref);
-            Box::pin(async move {
-                let reply = match deserialize_input::<I>(input.payload) {
-                    Ok(payload) => handler(state, input.context, payload).await,
-                    Err(error) => Err(AdminError::bad_request(error)),
-                };
-                Ok(reply_to_output(reply))
-            })
-        });
+    let call: JsonControlerFunction = Arc::new(move |input: ControlerJsonInput| {
+        let state = Arc::clone(&state_ref);
+        let handler = Arc::clone(&handler_ref);
+        Box::pin(async move {
+            let reply = match deserialize_input::<I>(input.payload) {
+                Ok(payload) => handler(state, input.context, payload).await,
+                Err(error) => Err(AdminError::bad_request(error)),
+            };
+            Ok(reply_to_output(reply))
+        })
+    });
     controler.register_json_function(&name, call);
 }
 
@@ -211,10 +208,7 @@ fn reply_to_output(reply: Result<AdminReply, AdminError>) -> ControlerJsonOutput
 /// # Arguments
 /// * `state` - Shared administration state.
 /// * `controler` - Controller receiving the `admin/*` routes.
-pub fn register_admin_service(
-    state: &Arc<AdminState>,
-    controler: &mut dyn ControlerService,
-) {
+pub fn register_admin_service(state: &Arc<AdminState>, controler: &mut dyn ControlerService) {
     register_admin_operation(controler, state, "status", ops::op_status);
     register_admin_operation(controler, state, "login", ops::op_login);
     register_admin_operation(controler, state, "logout", ops::op_logout);

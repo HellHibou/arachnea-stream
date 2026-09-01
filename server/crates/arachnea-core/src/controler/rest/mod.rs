@@ -55,7 +55,10 @@ pub(crate) fn local_networks() -> Vec<ipnet::IpNet> {
 ///
 /// # Returns
 /// The public URL, using bracket notation for IPv6 addresses.
-pub(crate) fn build_public_url(socket_addr: std::net::SocketAddr, entrypoint_root: &[String]) -> String {
+pub(crate) fn build_public_url(
+    socket_addr: std::net::SocketAddr,
+    entrypoint_root: &[String],
+) -> String {
     let ip = if socket_addr.ip().is_unspecified() {
         std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
     } else {

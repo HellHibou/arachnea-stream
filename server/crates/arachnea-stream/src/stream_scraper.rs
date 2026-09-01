@@ -50,8 +50,9 @@ pub struct ApplicationStores {
     pub proxy_inventory: Arc<dyn TypedEntityStore<ProxyRecord>>,
     /// Cached Cloudflare sessions (`cloudflare-session`).
     pub cloudflare_session: Arc<dyn TypedEntityStore<CachedChaserSession>>,
-    /// Administrator service activation overrides (`arachnea-services`).
-    pub source_enabled: Arc<dyn TypedEntityStore<SourceEnabledOverride>>,
+    /// Administrator service records: activation override and encrypted
+    /// credentials (`arachnea-services`).
+    pub source_enabled: Arc<dyn TypedEntityStore<SourceServiceRecord>>,
 }
 
 /// Opens the application SQLite stores under `application_data_path`.
@@ -92,10 +93,7 @@ pub fn sqlite_application_stores(
             &root,
         )?),
         source_enabled: Arc::new(SqliteEntityStore::new(
-            PersistenceStoreConfig::new(
-                STREAM_SERVICES_STORE_NAME,
-                SourceEnabledOverride::schema(),
-            )?,
+            PersistenceStoreConfig::new(STREAM_SERVICES_STORE_NAME, SourceServiceRecord::schema())?,
             &root,
         )?),
     })
@@ -118,7 +116,7 @@ pub fn memory_application_stores() -> Result<ApplicationStores> {
         )?)?),
         source_enabled: Arc::new(MemoryEntityStore::new(PersistenceStoreConfig::new(
             STREAM_SERVICES_STORE_NAME,
-            SourceEnabledOverride::schema(),
+            SourceServiceRecord::schema(),
         )?)?),
     })
 }
@@ -142,7 +140,7 @@ static FRANCETV_RESOLVER: FrancetvResolver = FrancetvResolver;
 
 /// Creates missing persistent service states without changing existing choices.
 async fn synchronize_service_defaults_async(
-    store: Arc<dyn TypedEntityStore<SourceEnabledOverride>>,
+    store: Arc<dyn TypedEntityStore<SourceServiceRecord>>,
     sources: Vec<ScraperSourceDescriptor>,
 ) -> Result<()> {
     PersistenceSourceEnabled::with_typed_store(store)
@@ -152,7 +150,7 @@ async fn synchronize_service_defaults_async(
 
 /// Blocking variant of [`synchronize_service_defaults_async`] for synchronous callers.
 fn synchronize_service_defaults(
-    store: Arc<dyn TypedEntityStore<SourceEnabledOverride>>,
+    store: Arc<dyn TypedEntityStore<SourceServiceRecord>>,
     sources: Vec<ScraperSourceDescriptor>,
 ) -> Result<()> {
     std::thread::spawn(move || {

@@ -314,11 +314,7 @@ impl RestControlerService {
                 } else {
                     serde_json::to_vec(&value).unwrap_or_else(|_| Vec::new())
                 };
-                Box::new(
-                    builder
-                        .body(body)
-                        .expect("Failed to build JSON response."),
-                )
+                Box::new(builder.body(body).expect("Failed to build JSON response."))
             }
             Err(error) => Box::new(reply::with_status(
                 reply::json(&error),
@@ -401,10 +397,7 @@ impl RestControlerService {
     /// address are always treated as remote (untrusted) clients.
     fn remote_peer(addr: Option<std::net::SocketAddr>) -> std::net::SocketAddr {
         addr.unwrap_or_else(|| {
-            std::net::SocketAddr::new(
-                std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
-                0,
-            )
+            std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED), 0)
         })
     }
 
@@ -514,9 +507,9 @@ impl ControlerService for RestControlerService {
                                 &post_call,
                                 ControlerJsonInput {
                                     payload: ControlerFunctionInput::Json(input),
-                                    context: RequestControlerContext::new(
-                                        Self::headers_to_map(&headers),
-                                    )
+                                    context: RequestControlerContext::new(Self::headers_to_map(
+                                        &headers,
+                                    ))
                                     .with_remote_addr(Self::remote_peer(addr))
                                     .with_method("POST"),
                                 },
@@ -545,9 +538,9 @@ impl ControlerService for RestControlerService {
                                 &get_call,
                                 ControlerJsonInput {
                                     payload: ControlerFunctionInput::Query(input),
-                                    context: RequestControlerContext::new(
-                                        Self::headers_to_map(&headers),
-                                    )
+                                    context: RequestControlerContext::new(Self::headers_to_map(
+                                        &headers,
+                                    ))
                                     .with_remote_addr(Self::remote_peer(addr))
                                     .with_method("GET"),
                                 },

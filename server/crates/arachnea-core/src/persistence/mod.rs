@@ -11,6 +11,8 @@ pub mod file_credentials_store;
 pub mod sqlite_store;
 /// Schema-declared, entity-typed persistence contracts and backends.
 pub mod typed_store;
+/// AES-GCM helpers encrypting single field values for typed entity stores.
+pub mod value_encryption;
 
 pub use credentials_store::CredentialsStore;
 pub use encrypted_file_credentials_store::EncryptedFileCredentialsStore;
@@ -20,6 +22,7 @@ pub use typed_store::{
     EntityKey, EntityQuery, EntityReader, EntitySchema, EntityWriter, Field, FieldRole, FieldType,
     FileEntityStore, MemoryEntityStore, PersistenceStoreConfig, PersistentEntity, TypedEntityStore,
 };
+pub use value_encryption::{decrypt_value, encrypt_value};
 
 /// Typed SQLite persistence store configured for exactly one entity schema.
 #[cfg(feature = "sqlite-persistence")]

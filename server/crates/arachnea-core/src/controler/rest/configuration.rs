@@ -158,7 +158,10 @@ impl RestControlerConfiguration {
     /// # Returns
     /// The updated configuration.
     #[allow(dead_code)]
-    pub fn reload_configuration(mut self, reload_configuration: Arc<dyn Fn() -> String + Send + Sync>) -> Self {
+    pub fn reload_configuration(
+        mut self,
+        reload_configuration: Arc<dyn Fn() -> String + Send + Sync>,
+    ) -> Self {
         self.reload_configuration = Some(reload_configuration);
         self
     }

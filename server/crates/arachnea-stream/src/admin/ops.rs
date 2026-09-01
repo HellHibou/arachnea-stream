@@ -360,10 +360,9 @@ pub(crate) async fn op_services(
 ) -> Result<AdminReply, AdminError> {
     require_authorized(&state, &context).await?;
 
-    let catalog = load_service_catalog_detailed(
-        &crate::stream_scraper::DEFAULT_SERVICES_CONFIG_PATH,
-    )
-    .map_err(admin_err)?;
+    let catalog =
+        load_service_catalog_detailed(&crate::stream_scraper::DEFAULT_SERVICES_CONFIG_PATH)
+            .map_err(admin_err)?;
 
     let policy = state.activation_policy();
     let requested_lang = input.lang.as_deref();
@@ -499,7 +498,10 @@ pub(crate) async fn op_reset_service_enabled(
     require_authorized(&state, &context).await?;
     verify_write(&state, &context)?;
 
-    let default_enabled = match service_default(&input.service_id).await.map_err(admin_err)? {
+    let default_enabled = match service_default(&input.service_id)
+        .await
+        .map_err(admin_err)?
+    {
         Some(default_enabled) => default_enabled,
         None => {
             return Err(AdminError::not_found(format!(
@@ -523,9 +525,8 @@ pub(crate) async fn op_reset_service_enabled(
 
 /// Returns whether an identifier belongs to the declared catalog.
 async fn service_exists(service_id: &str) -> Result<bool> {
-    let catalog = load_service_catalog_detailed(
-        &crate::stream_scraper::DEFAULT_SERVICES_CONFIG_PATH,
-    )?;
+    let catalog =
+        load_service_catalog_detailed(&crate::stream_scraper::DEFAULT_SERVICES_CONFIG_PATH)?;
     Ok(catalog
         .entries
         .iter()
@@ -534,9 +535,8 @@ async fn service_exists(service_id: &str) -> Result<bool> {
 
 /// Returns the manifest default activation of one service.
 async fn service_default(service_id: &str) -> Result<Option<bool>> {
-    let catalog = load_service_catalog_detailed(
-        &crate::stream_scraper::DEFAULT_SERVICES_CONFIG_PATH,
-    )?;
+    let catalog =
+        load_service_catalog_detailed(&crate::stream_scraper::DEFAULT_SERVICES_CONFIG_PATH)?;
     Ok(catalog
         .entries
         .iter()
@@ -552,10 +552,9 @@ pub(crate) async fn op_credentials(
 ) -> Result<AdminReply, AdminError> {
     require_authorized(&state, &_context).await?;
 
-    let catalog = load_service_catalog_detailed(
-        &crate::stream_scraper::DEFAULT_SERVICES_CONFIG_PATH,
-    )
-    .map_err(admin_err)?;
+    let catalog =
+        load_service_catalog_detailed(&crate::stream_scraper::DEFAULT_SERVICES_CONFIG_PATH)
+            .map_err(admin_err)?;
     if let Some(ref requested) = input.service_id {
         if !catalog
             .entries
@@ -759,8 +758,7 @@ pub(crate) async fn op_set_admin_password(
         ));
     }
 
-    let hash = super::auth::hash_admin_password(&input.new_password)
-        .map_err(admin_err)?;
+    let hash = super::auth::hash_admin_password(&input.new_password).map_err(admin_err)?;
     config.password_hash = Some(hash);
     config.save().map_err(admin_err)?;
     state.set_configuration(config);
@@ -777,11 +775,7 @@ pub(crate) async fn op_reload(
     require_authorized(&state, &context).await?;
     verify_write(&state, &context)?;
 
-    let report = state
-        .reloadable()
-        .reload()
-        .await
-        .map_err(admin_err)?;
+    let report = state.reloadable().reload().await.map_err(admin_err)?;
 
     Ok(AdminReply::ok(&ReloadResponse {
         applied: report.applied,

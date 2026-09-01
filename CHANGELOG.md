@@ -1203,3 +1203,22 @@ Validation now covers proxy composite-key persistence across every backend,
 legacy-cache rejection and manual recreation, expiration and atomic batches,
 and post-merge provider reload persistence. The Scrapyfy no-proxy constructors
 also compile without the optional proxy feature.
+
+## Unreleased — service credentials in the `arachnea-services` store
+
+Service login/password pairs no longer live in the standalone encrypted file
+`data/credentials`; they are stored, encrypted per field, in the typed
+`arachnea-services` SQLite store. `SourceEnabledOverride` is renamed to
+`SourceServiceRecord` and gains two nullable string columns (`login`,
+`password`) holding the encrypted values; the existing database is extended
+automatically at open time through schema reconciliation, with no manual
+migration.
+
+A new `TypedServiceCredentialsStore` adapter (`arachnea-stream`) implements the
+unchanged `CredentialsStore` contract: AES-256-GCM with a fresh random 12-byte
+nonce per field, stored as `base64(nonce || ciphertext)`; writes are
+read-modify-write so the activation override recorded on the same entity is
+never clobbered. The encryption key stays application-owned and is passed in
+from the executable. The admin HTTP contract, the admin frontend, and the
+service resolvers are unchanged; the legacy `data/credentials` file is no
+longer read or written.

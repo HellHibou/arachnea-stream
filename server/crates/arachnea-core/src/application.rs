@@ -317,12 +317,15 @@ fn init_app_data_root() -> PathBuf {
 
 /// Returns `true` when the executable runs from a system-managed install
 /// whose directory must not receive writable data.
- #[allow(unused_variables)]
+#[allow(unused_variables)]
 fn is_packaged_install(exe_dir: &Path) -> bool {
     #[cfg(target_os = "macos")]
     if exe_dir.file_name().is_some_and(|name| name == "MacOS") {
         if let Some(bundle_dir) = exe_dir.parent().and_then(Path::parent) {
-            if bundle_dir.extension().is_some_and(|extension| extension == "app") {
+            if bundle_dir
+                .extension()
+                .is_some_and(|extension| extension == "app")
+            {
                 return true;
             }
         }
@@ -512,6 +515,7 @@ pub fn application_init() {
 /// This is a no-op when the process was not launched from a console.
 #[cfg(target_os = "windows")]
 fn attach_parent_console_if_any() {
+    use windows_sys::core::w;
     use windows_sys::Win32::Foundation::{
         GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE,
     };
@@ -522,7 +526,6 @@ fn attach_parent_console_if_any() {
         AttachConsole, SetStdHandle, ATTACH_PARENT_PROCESS, STD_ERROR_HANDLE, STD_INPUT_HANDLE,
         STD_OUTPUT_HANDLE,
     };
-    use windows_sys::core::w;
 
     // Attach to the parent console if one exists. Fails with
     // ERROR_INVALID_HANDLE when there is no parent console (e.g. double-click).

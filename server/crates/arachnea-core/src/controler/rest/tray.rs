@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 use tauri::{
     menu::{MenuBuilder, MenuEvent, MenuItemBuilder},
     tray::TrayIconBuilder,
-    AppHandle, Manager, Wry, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Wry,
 };
 
 use crate::logger::LogCache;
@@ -90,7 +90,10 @@ pub trait ServerTrayFactory: Send + Sync + 'static {
     /// # Returns
     /// `Some(handle)` when the tray was created successfully, `None` when the
     /// platform refuses to expose a tray icon.
-    fn spawn_tray(&self, configuration: ServerTrayConfiguration) -> Option<Arc<dyn ServerTrayHandle>>;
+    fn spawn_tray(
+        &self,
+        configuration: ServerTrayConfiguration,
+    ) -> Option<Arc<dyn ServerTrayHandle>>;
 
     /// Builds and runs the tray on the calling thread, blocking until it exits.
     ///
@@ -435,7 +438,12 @@ impl ServerTrayHandleImpl {
 impl ServerTrayHandle for ServerTrayHandleImpl {
     fn request_shutdown(&self) {
         self.shutdown.request();
-        if let Some(app) = self.app_handle.lock().expect("tray app handle poisoned").clone() {
+        if let Some(app) = self
+            .app_handle
+            .lock()
+            .expect("tray app handle poisoned")
+            .clone()
+        {
             let _ = app.exit(0);
         }
     }
@@ -446,7 +454,12 @@ impl ServerTrayHandle for ServerTrayHandleImpl {
         // have closed the window (closing never exits the application), leaving
         // a stale handle on which `show()` is a no-op. Query the live window
         // from the app instead.
-        let app = match self.app_handle.lock().expect("tray app handle poisoned").clone() {
+        let app = match self
+            .app_handle
+            .lock()
+            .expect("tray app handle poisoned")
+            .clone()
+        {
             Some(app) => app,
             None => return,
         };
@@ -458,10 +471,11 @@ impl ServerTrayHandle for ServerTrayHandleImpl {
         }
 
         let url: tauri::Url = format!("{LOG_SCHEME}://localhost/").parse().unwrap();
-        let window = WebviewWindowBuilder::new(&app, LOG_WINDOW_LABEL, WebviewUrl::CustomProtocol(url))
-            .title(format!("{} - Logs", self.app_title))
-            .inner_size(720.0, 480.0)
-            .build();
+        let window =
+            WebviewWindowBuilder::new(&app, LOG_WINDOW_LABEL, WebviewUrl::CustomProtocol(url))
+                .title(format!("{} - Logs", self.app_title))
+                .inner_size(720.0, 480.0)
+                .build();
         match window {
             Ok(window) => {
                 // Clear the global log subscribers when the (single) logs
@@ -565,18 +579,14 @@ fn build_tauri_server_tray(
                 .expect("Failed to build the log window response.")
         })
         .setup(move |app| {
-            let server_info = MenuItemBuilder::with_id(
-                MENU_SERVER_INFO,
-                format!("Server: {server_display_url}"),
-            )
-            .enabled(false)
-            .build(app)?;
-            let network_info = MenuItemBuilder::with_id(
-                MENU_NETWORK_INFO,
-                format!("Network: {network_mode}"),
-            )
-            .enabled(false)
-            .build(app)?;
+            let server_info =
+                MenuItemBuilder::with_id(MENU_SERVER_INFO, format!("Server: {server_display_url}"))
+                    .enabled(false)
+                    .build(app)?;
+            let network_info =
+                MenuItemBuilder::with_id(MENU_NETWORK_INFO, format!("Network: {network_mode}"))
+                    .enabled(false)
+                    .build(app)?;
             let menu = MenuBuilder::new(app)
                 .item(&server_info)
                 .item(&network_info)

@@ -3,11 +3,11 @@
 //! The module installs the global `tracing` subscriber and exposes profile-aware
 //! macros for overriding the default fallback log level before initialization.
 
+use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::env;
 use std::io;
 use std::sync::{Arc, LazyLock, Mutex};
-use serde::{Deserialize, Serialize};
 use time::macros::format_description;
 use time::OffsetDateTime;
 use tracing::field::{Field, Visit};
@@ -310,7 +310,10 @@ impl LogCache {
     ///
     /// New log lines are still stored in the buffer, but no longer forwarded.
     pub fn clear_subscribers(&self) {
-        self.subscribers.lock().expect("log cache subscribers poisoned").clear();
+        self.subscribers
+            .lock()
+            .expect("log cache subscribers poisoned")
+            .clear();
     }
 }
 

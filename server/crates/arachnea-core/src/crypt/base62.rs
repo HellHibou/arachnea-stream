@@ -77,7 +77,8 @@ mod tests {
                     BASE62_ALPHABET
                         .iter()
                         .position(|candidate| *candidate == byte)
-                        .expect("encoded value must use the base62 alphabet") as u128
+                        .expect("encoded value must use the base62 alphabet")
+                        as u128
                 })
                 .fold(0u128, |accumulator, digit| accumulator * 62 + digit)
         }

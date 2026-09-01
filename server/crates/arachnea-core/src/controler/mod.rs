@@ -421,8 +421,8 @@ fn query_string_to_json_value(query: &str) -> Result<Value, String> {
     let mut object = Map::new();
 
     for (key, raw_value) in pairs {
-        let value = serde_json::from_str::<Value>(&raw_value)
-            .unwrap_or_else(|_| Value::String(raw_value));
+        let value =
+            serde_json::from_str::<Value>(&raw_value).unwrap_or_else(|_| Value::String(raw_value));
 
         match object.get_mut(&key) {
             Some(existing) => {
@@ -511,14 +511,19 @@ pub trait ControlerServiceExt: ControlerService {
                         return Ok(ControlerJsonOutput {
                             value: Value::Null,
                             status: 304,
-                            headers: HashMap::from([(HEADER_ETAG.to_string(), format!("\"{etag}\""))]),
+                            headers: HashMap::from([(
+                                HEADER_ETAG.to_string(),
+                                format!("\"{etag}\""),
+                            )]),
                         });
                     }
                 }
 
                 let mut output = ControlerJsonOutput::from(serialize_output(response)?);
                 if let Some(etag) = etag {
-                    output.headers.insert(HEADER_ETAG.to_string(), format!("\"{etag}\""));
+                    output
+                        .headers
+                        .insert(HEADER_ETAG.to_string(), format!("\"{etag}\""));
                 }
                 Ok(output)
             })
@@ -557,15 +562,11 @@ pub trait ControlerServiceExt: ControlerService {
         Fut: Future<Output = Result<(O, Option<String>), E>> + Send + 'static,
         E: std::fmt::Display,
     {
-        self.register_result_function(
-            name,
-            move |input: I, context: RequestControlerContext| {
-                let state = Arc::clone(&state);
-                fct(state, context, input)
-            },
-        );
+        self.register_result_function(name, move |input: I, context: RequestControlerContext| {
+            let state = Arc::clone(&state);
+            fct(state, context, input)
+        });
     }
-
 
     /// Registers an async binary stream callback bound to shared state without per-call boilerplate.
     ///
@@ -613,8 +614,6 @@ fn normalize_etag(value: Option<&str>) -> Option<String> {
 }
 
 impl<T: ControlerService + ?Sized> ControlerServiceExt for T {}
-
-
 
 /// Runtime mode the application controller runs under.
 #[derive(PartialEq)]
@@ -669,13 +668,11 @@ macro_rules! default_application_mode {
     };
 }
 
-
 /// Runtime options parsed from command line arguments.
 pub struct CoreApplicationOptions {
-
     /// Backend mode (desktop or server).
     pub application_mode: Option<ApplicationMode>,
-   
+
     /// REST server port used in server mode.
     ///
     /// Falls back to [`DEFAULT_SERVER_PORT`] when `None`.
@@ -686,22 +683,22 @@ pub struct CoreApplicationOptions {
     /// Defaults to [`ServerNetworkMode::Private`], which binds to all
     /// interfaces and only accepts clients belonging to a local network range.
     pub network_mode: ServerNetworkMode,
-    
+
     /// Optional public root path prefix for server mode.
     ///
     /// When set to a non-root prefix, a bare `GET /` on the REST server answers
     /// a `302 Found` redirect to the mounted application path (for example
     /// `/prefix/`) instead of `404 Not Found`.
     pub entrypoint_root: Option<String>,
-    
+
     /// Optional public API path segment for server mode.
     pub entrypoint_api: Option<String>,
-    
+
     /// Custom URI scheme used by the desktop frontend.
     ///
     /// Falls back to [`DEFAULT_TAURI_WEB_SCHEME`] when `None`.
     pub web_scheme: Option<String>,
-    
+
     /// API path prefix used by the desktop binary stream routes.
     ///
     /// Falls back to [`DEFAULT_TAURI_API_PREFIX`] when `None`.
@@ -734,7 +731,6 @@ pub struct CoreApplicationOptions {
 }
 
 impl CoreApplicationOptions {
-    
     /// Creates runtime options for the application controller.
     ///
     /// # Arguments
@@ -873,20 +869,15 @@ pub struct DesktopApplicationConfig {
 struct EmptyTauriAssets;
 
 impl ::tauri::Assets<::tauri::Wry> for EmptyTauriAssets {
-    fn get(
-        &self,
-        _key: &::tauri::utils::assets::AssetKey,
-    ) -> Option<std::borrow::Cow<'_, [u8]>> {
+    fn get(&self, _key: &::tauri::utils::assets::AssetKey) -> Option<std::borrow::Cow<'_, [u8]>> {
         None
     }
 
     fn iter(&self) -> Box<::tauri::utils::assets::AssetsIter<'_>> {
-        Box::new(
-            std::iter::empty::<(
-                std::borrow::Cow<'static, str>,
-                std::borrow::Cow<'static, [u8]>,
-            )>(),
-        )
+        Box::new(std::iter::empty::<(
+            std::borrow::Cow<'static, str>,
+            std::borrow::Cow<'static, [u8]>,
+        )>())
     }
 
     fn csp_hashes(
@@ -946,59 +937,54 @@ pub fn create_application_controler_from_config(
     options: CoreApplicationOptions,
     desktop: DesktopApplicationConfig,
 ) -> Box<dyn ControlerService> {
-
     // #[cfg(not(debug_assertions))] // Release mode defaults.
     // let application_mode = options.application_mode.unwrap_or(ApplicationMode::Desktop);
- 
+
     // #[cfg(debug_assertions)] // Debug mode defaults.
     let application_mode = options.application_mode.unwrap_or(ApplicationMode::Server);
 
-    let mut controler: Box<dyn ControlerService> =
-        if application_mode == ApplicationMode::Server {
-            let server_port = options.server_port.unwrap_or(DEFAULT_SERVER_PORT);
-            let mut configuration =
-                RestControlerConfiguration::default().server_port(server_port);
-            match options.network_mode {
-                ServerNetworkMode::Local => {}
-                ServerNetworkMode::Private => {
-                    configuration =
-                        configuration.server_ip(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED));
-                    configuration = configuration.allowed_networks(
-                        crate::controler::rest::local_networks(),
-                    );
-                }
-                ServerNetworkMode::Public => {
-                    configuration =
-                        configuration.server_ip(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED));
-                }
+    let mut controler: Box<dyn ControlerService> = if application_mode == ApplicationMode::Server {
+        let server_port = options.server_port.unwrap_or(DEFAULT_SERVER_PORT);
+        let mut configuration = RestControlerConfiguration::default().server_port(server_port);
+        match options.network_mode {
+            ServerNetworkMode::Local => {}
+            ServerNetworkMode::Private => {
+                configuration =
+                    configuration.server_ip(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED));
+                configuration =
+                    configuration.allowed_networks(crate::controler::rest::local_networks());
             }
-            if let Some(entrypoint_root) = &options.entrypoint_root {
-                configuration = configuration.entrypoint_root(entrypoint_root);
+            ServerNetworkMode::Public => {
+                configuration =
+                    configuration.server_ip(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED));
             }
-            if let Some(entrypoint_api) = &options.entrypoint_api {
-                configuration = configuration.entrypoint_api(entrypoint_api);
-            }
-            if let Some(tray_factory) = &options.server_tray_factory {
-                configuration = configuration
-                    .server_tray_factory(Arc::clone(tray_factory))
-                    .tray_enabled(true);
-            }
-            if let Some(reload_configuration) = &options.reload_configuration {
-                configuration = configuration
-                    .reload_configuration(Arc::clone(reload_configuration));
-            }
+        }
+        if let Some(entrypoint_root) = &options.entrypoint_root {
+            configuration = configuration.entrypoint_root(entrypoint_root);
+        }
+        if let Some(entrypoint_api) = &options.entrypoint_api {
+            configuration = configuration.entrypoint_api(entrypoint_api);
+        }
+        if let Some(tray_factory) = &options.server_tray_factory {
+            configuration = configuration
+                .server_tray_factory(Arc::clone(tray_factory))
+                .tray_enabled(true);
+        }
+        if let Some(reload_configuration) = &options.reload_configuration {
+            configuration = configuration.reload_configuration(Arc::clone(reload_configuration));
+        }
 
-            Box::new(RestControlerService::new(configuration))
-        } else {
-            let context = desktop.context.expect(
-                "desktop mode requires the Tauri context routed by the application crate",
-            );
-            Box::new(tauri_controler_service(
-                context,
-                options.web_scheme,
-                options.api_prefix,
-            ))
-        };
+        Box::new(RestControlerService::new(configuration))
+    } else {
+        let context = desktop
+            .context
+            .expect("desktop mode requires the Tauri context routed by the application crate");
+        Box::new(tauri_controler_service(
+            context,
+            options.web_scheme,
+            options.api_prefix,
+        ))
+    };
 
     // Mount dedicated bundles (e.g. the administration app) before the root so
     // they win over the root fallback for their own paths.

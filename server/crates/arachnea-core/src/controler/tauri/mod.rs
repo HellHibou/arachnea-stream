@@ -154,10 +154,7 @@ impl TauriWebAssets {
         let mount_path = normalize_mount_path(path);
         Self {
             mount_path: mount_path.clone(),
-            source: scope_web_asset_source(
-                WebAssetSource::directory(directory_path),
-                &mount_path,
-            ),
+            source: scope_web_asset_source(WebAssetSource::directory(directory_path), &mount_path),
         }
     }
 
@@ -785,14 +782,11 @@ fn open_admin_window(app: AppHandle<Wry>, admin_url: String) {
     }
 
     let url: ::tauri::Url = admin_url.parse().expect("Invalid Tauri admin URL.");
-    let window = WebviewWindowBuilder::new(
-        &app,
-        ADMIN_WINDOW_LABEL,
-        WebviewUrl::CustomProtocol(url),
-    )
-    .title("Arachnéa - Administration")
-    .inner_size(980.0, 680.0)
-    .build();
+    let window =
+        WebviewWindowBuilder::new(&app, ADMIN_WINDOW_LABEL, WebviewUrl::CustomProtocol(url))
+            .title("Arachnéa - Administration")
+            .inner_size(980.0, 680.0)
+            .build();
 
     if let Err(error) = window {
         tracing::warn!(error = %error, "failed to open the administration window");

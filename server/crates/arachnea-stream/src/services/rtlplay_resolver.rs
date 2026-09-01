@@ -18,7 +18,9 @@ use arachnea_scrapyfy::{
 };
 
 use crate::services::player_resolver::{
-    Chapter, PlayerResolverEndpoints, PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream, normalize_stream_kind, proxy_drm_today_license_request, save_drm_today_license_proxy_url,
+    normalize_stream_kind, proxy_drm_today_license_request, save_drm_today_license_proxy_url,
+    Chapter, PlayerResolverEndpoints, PlayerStreamResolver, ProxiedStreamResponse,
+    ResolvedPlayerStream,
 };
 
 const RTLPLAY_SERVICE_ID: &str = "rtlplay-be";
@@ -577,50 +579,50 @@ fn select_dash_stream(payload: &Value) -> Option<ResolvedRtlPlayVideo> {
             .filter(|value| !value.is_empty())
             .map(str::to_string);
 
-            let mut chapters = Vec::new(); 
+        let mut chapters = Vec::new();
 
-            if let Some(markers) = payload
-                .get("video")
-                .and_then(|v| v.get("metadata"))
-                .and_then(|v| v.get("markers"))
-                .and_then(|m| m.as_array())
-            {
-                for entry in markers.iter() {
-                    chapters.push(Chapter {
-                        chapter_type: entry
-                            .get("type")
-                            .and_then(|v| v.as_str())
-                            .map(|s| match s {
-                                "content" => "chapter",
-                                "endCredits" => "outro",
-                                _ => s,
-                            })
-                            .unwrap_or("chapter") 
-                            .to_string(), 
+        if let Some(markers) = payload
+            .get("video")
+            .and_then(|v| v.get("metadata"))
+            .and_then(|v| v.get("markers"))
+            .and_then(|m| m.as_array())
+        {
+            for entry in markers.iter() {
+                chapters.push(Chapter {
+                    chapter_type: entry
+                        .get("type")
+                        .and_then(|v| v.as_str())
+                        .map(|s| match s {
+                            "content" => "chapter",
+                            "endCredits" => "outro",
+                            _ => s,
+                        })
+                        .unwrap_or("chapter")
+                        .to_string(),
 
-                        start: entry
-                            .get("start")
-                            .and_then(|v| v.as_i64())
-                            .map(|v| v as f64)
-                            .unwrap_or(0.0),
+                    start: entry
+                        .get("start")
+                        .and_then(|v| v.as_i64())
+                        .map(|v| v as f64)
+                        .unwrap_or(0.0),
 
-                        end: entry
-                            .get("end")
-                            .and_then(|v| v.as_i64())
-                            .map(|v| v as f64)
-                            .unwrap_or(0.0),
+                    end: entry
+                        .get("end")
+                        .and_then(|v| v.as_i64())
+                        .map(|v| v as f64)
+                        .unwrap_or(0.0),
 
-                        title: None,
-                    });
-                }
+                    title: None,
+                });
             }
+        }
 
         return Some(ResolvedRtlPlayVideo {
             manifest_url: manifest_url.to_string(),
             license_url,
             license_token,
             storyboard_vtt_url: storyboard_vtt_url,
-            chapters
+            chapters,
         });
     }
 

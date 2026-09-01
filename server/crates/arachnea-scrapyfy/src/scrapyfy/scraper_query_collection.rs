@@ -439,12 +439,11 @@ impl ScraperQueryDefinition {
                 &local_country,
                 &session_store,
             ),
-            ScraperQueryDefinition::Static(query) => query
-                .set_runtime_handles_with_session_store(
-                    proxy_handle,
-                    local_country,
-                    session_store,
-                ),
+            ScraperQueryDefinition::Static(query) => query.set_runtime_handles_with_session_store(
+                proxy_handle,
+                local_country,
+                session_store,
+            ),
             ScraperQueryDefinition::Text(query) => bind_text_query_runtime_handles(
                 query,
                 &proxy_handle,

@@ -10,15 +10,16 @@ use std::sync::Arc;
 use arachnea_core::{
     application,
     controler::{ApplicationMode, CoreApplicationOptions, ServerNetworkMode, DEFAULT_SERVER_PORT},
-    persistence::{
-        CredentialsStore, EncryptedFileCredentialsStore,
-    },
+    persistence::CredentialsStore,
 };
 use arachnea_scrapyfy::*;
 use arachnea_stream::{
-    admin::{dto::SettingSource, register_admin_service, AdminMode, AdminRuntimeSettings, AdminState},
-    configuration::ApplicationConfiguration, ReloadableStreamScraper, StreamScraper,
-    StreamScraperBuildOptions,
+    admin::{
+        dto::SettingSource, register_admin_service, AdminMode, AdminRuntimeSettings, AdminState,
+    },
+    configuration::ApplicationConfiguration,
+    ReloadableStreamScraper, StreamScraper, StreamScraperBuildOptions,
+    TypedServiceCredentialsStore,
 };
 
 /// Runtime options parsed from command line arguments.
@@ -32,10 +33,8 @@ struct RuntimeOptions {
     entrypoint_root_specified: bool,
 }
 
-/// Default path used by the encrypted server credentials store.
-const DEFAULT_ENCRYPTED_FILE_CREDENTIALS_STORE_PATH: &str = "data/credentials";
-
-/// Static AES-256-GCM key reserved for the encrypted file store.
+/// Static AES-256-GCM key used to encrypt service credentials stored in the
+/// `arachnea-services` persistence store.
 const DEFAULT_SERVER_CREDENTIALS_KEY: [u8; 32] = *b"hell_hibou-arachnea-key-20260422";
 
 /// Result of parsing command line arguments.
@@ -368,30 +367,27 @@ async fn main() -> Result<()> {
     // A temporary password is generated once when no permanent hash is
     // configured and kept in memory for the login operation; it is never
     // persisted and printed a single time to the console.
-    let temp_password = if configuration.password_hash.is_none()
-        && effective_mode == AdminMode::Server
-    {
-        let password = generate_temporary_admin_password();
-        println!("Temporary administrator password for remote administration: {password}");
-        Some(password)
-    } else {
-        None
-    };
+    let temp_password =
+        if configuration.password_hash.is_none() && effective_mode == AdminMode::Server {
+            let password = generate_temporary_admin_password();
+            println!("Temporary administrator password for remote administration: {password}");
+            Some(password)
+        } else {
+            None
+        };
 
-    // Service credentials are persisted in the encrypted store configured here;
-    // the activation overrides, Cloudflare sessions and proxy inventory live in
-    // the typed SQLite persistence stores.
-    let credentials_store: Arc<dyn CredentialsStore> = Arc::new(EncryptedFileCredentialsStore::new(
-        application::get_application_data_path(DEFAULT_ENCRYPTED_FILE_CREDENTIALS_STORE_PATH),
+    // Service credentials are stored encrypted (per-field AES-256-GCM) in the
+    // typed `arachnea-services` SQLite store; the activation overrides,
+    // Cloudflare sessions and proxy inventory live in the same typed stores.
+    let stores = arachnea_stream::stream_scraper::sqlite_application_stores(
+        &application::get_application_data_path(""),
+    )?;
+    let credentials_store: Arc<dyn CredentialsStore> = Arc::new(TypedServiceCredentialsStore::new(
+        Arc::clone(&stores.source_enabled),
         DEFAULT_SERVER_CREDENTIALS_KEY,
     ));
-    let stores =
-        arachnea_stream::stream_scraper::sqlite_application_stores(&application::get_application_data_path(
-            "",
-        ))?;
 
-    let mut build_options =
-        StreamScraperBuildOptions::new(credentials_store, stores);
+    let mut build_options = StreamScraperBuildOptions::new(credentials_store, stores);
     if options.cache_max_disk_bytes.is_some() || options.cache_max_memory_bytes.is_some() {
         let mut cache_config = ScraperCacheConfig::default();
         if let Some(bytes) = options.cache_max_disk_bytes {
@@ -408,11 +404,15 @@ async fn main() -> Result<()> {
         reloadable.set_current_country(current_country).await;
     }
 
-    let admin_runtime_settings = build_admin_runtime_settings(&options, &configuration, effective_mode);
+    let admin_runtime_settings =
+        build_admin_runtime_settings(&options, &configuration, effective_mode);
 
     // Mount the administration bundle below the application root (`/admin/`),
     // in both server and desktop backends.
-    options.application_option.web_mount_paths.push("admin".to_string());
+    options
+        .application_option
+        .web_mount_paths
+        .push("admin".to_string());
 
     // Wire the server tray "Reload configuration" action to the reloadable
     // facade. The facade is only registered once the controller exists, so the
@@ -420,12 +420,11 @@ async fn main() -> Result<()> {
     let late_reload: Arc<std::sync::OnceLock<Arc<ReloadableStreamScraper>>> =
         Arc::new(std::sync::OnceLock::new());
     let late_reload_callback = Arc::clone(&late_reload);
-    let reload_configuration: Arc<dyn Fn() -> String + Send + Sync> = Arc::new(move || {
-        match late_reload_callback.get() {
+    let reload_configuration: Arc<dyn Fn() -> String + Send + Sync> =
+        Arc::new(move || match late_reload_callback.get() {
             Some(reloadable) => tray_reload_summary(Arc::clone(reloadable)),
             None => "reload unavailable: scraper not initialized yet".to_string(),
-        }
-    });
+        });
     options.application_option.reload_configuration = Some(reload_configuration);
 
     let mut controler = arachnea_core::create_application_controler!(options.application_option);
