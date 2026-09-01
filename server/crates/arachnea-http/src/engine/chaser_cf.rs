@@ -31,7 +31,9 @@ use crate::{
         BrowserPageSession, BrowserSessionMetadata, PageClickRequest, PageClickResponse,
         PageFetchRequest, PageFetchResponse, PageNavigationRequest, PageNavigationResponse,
     },
-    chaser_session::{memory_session_store, CachedChaserSession, StructuredCookie},
+    chaser_session::{
+        memory_session_store, CachedChaserSession, StructuredCookie, CACHE_TTL_NO_EXPIRY,
+    },
     config::ArachneaHttpConfig,
     engine::{EngineRequest, EngineResponse, HttpEngine, SOLVER_USER_AGENT_HEADER},
     error::ArachneaHttpError,
@@ -59,10 +61,6 @@ const CLICK_SOLVE_TIMEOUT: Duration = Duration::from_secs(90);
 /// How long `read_turnstile_token` polls for the token produced by the
 /// automatically solved Cloudflare captcha before returning `None`.
 const TURNSTILE_WAIT_TIMEOUT: Duration = Duration::from_secs(300);
-
-/// Upper bound for a cached session whose expiration could not be determined,
-/// matching the typical Cloudflare `cf_clearance` lifetime.
-const CACHE_TTL_NO_EXPIRY: Duration = Duration::from_secs(1_800);
 
 /// Passive wait before Cloudflare's invisible challenge JS starts its PoW.
 const CLEARANCE_PASSIVE_WAIT_MS: u64 = 2_000;
@@ -1705,20 +1703,7 @@ impl CachedChaserSession {
         }
         Some(Self {
             origin: String::new(),
-            cookies: session
-                .cookies
-                .iter()
-                .map(|cookie| StructuredCookie {
-                    name: cookie.name.clone(),
-                    value: cookie.value.clone(),
-                    domain: cookie.domain.clone(),
-                    path: cookie.path.clone(),
-                    expires: cookie.expires,
-                    http_only: cookie.http_only,
-                    secure: cookie.secure,
-                    same_site: cookie.same_site.clone(),
-                })
-                .collect(),
+            cookies: session.cookies.iter().map(StructuredCookie::from).collect(),
             user_agent: session
                 .headers
                 .get("user-agent")
@@ -1735,6 +1720,36 @@ impl CachedChaserSession {
                 expires_at > unix_timestamp().saturating_add(refresh_margin.as_secs())
             }
             None => self.stored_at.saturating_add(CACHE_TTL_NO_EXPIRY.as_secs()) > unix_timestamp(),
+        }
+    }
+}
+
+impl From<&ChaserCookie> for StructuredCookie {
+    fn from(cookie: &ChaserCookie) -> Self {
+        Self {
+            name: cookie.name.clone(),
+            value: cookie.value.clone(),
+            domain: cookie.domain.clone(),
+            path: cookie.path.clone(),
+            expires: cookie.expires,
+            http_only: cookie.http_only,
+            secure: cookie.secure,
+            same_site: cookie.same_site.clone(),
+        }
+    }
+}
+
+impl From<&StructuredCookie> for ChaserCookie {
+    fn from(cookie: &StructuredCookie) -> Self {
+        Self {
+            name: cookie.name.clone(),
+            value: cookie.value.clone(),
+            domain: cookie.domain.clone(),
+            path: cookie.path.clone(),
+            expires: cookie.expires,
+            http_only: cookie.http_only,
+            secure: cookie.secure,
+            same_site: cookie.same_site.clone(),
         }
     }
 }
@@ -1775,16 +1790,7 @@ fn chaser_proxy_from_url(
 fn cached_session_headers(session: &CachedChaserSession) -> Result<HeaderMap, ArachneaHttpError> {
     let mut headers = HeaderMap::new();
     for cookie in &session.cookies {
-        let chaser_cookie = ChaserCookie {
-            name: cookie.name.clone(),
-            value: cookie.value.clone(),
-            domain: cookie.domain.clone(),
-            path: cookie.path.clone(),
-            expires: cookie.expires,
-            http_only: cookie.http_only,
-            secure: cookie.secure,
-            same_site: cookie.same_site.clone(),
-        };
+        let chaser_cookie = ChaserCookie::from(cookie);
         headers.append(
             SET_COOKIE,
             HeaderValue::from_str(&set_cookie_header(&chaser_cookie))

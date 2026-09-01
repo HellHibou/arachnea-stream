@@ -176,6 +176,21 @@ All notable changes to the server workspace are recorded here. Add new entries a
   `ERR_get_error_all`, ...) undefined at link time.
 
 ### Changed
+- **Cloudflare session store schema flattened**: `CachedChaserSession` no longer
+  persists a JSON `session` blob in the typed `cloudflare-session` store. The
+  schema now declares `origin` (primary key), `cookies` (the only JSON column),
+  nullable `user_agent`, nullable `clearance_expires_at`, required `stored_at`,
+  and the derived indexed `expires_at` (unchanged fallback: `stored_at +
+  CACHE_TTL_NO_EXPIRY` when `cf_clearance` carries no expiration). Reads and
+  writes use checked `u64`/`i64` conversions with contextualized errors that
+  never include cookie values. `CACHE_TTL_NO_EXPIRY` now has a single
+  definition in `chaser_session` shared with the chaser-cf engine, and the
+  `StructuredCookie`/`ChaserCookie` conversions moved to local `From`
+  implementations. **Operator action required**: the schema is incompatible
+  with an existing SQLite cache — delete
+  `<application-data>/data/persistence/cloudflare-session/` (including WAL/SHM
+  files) before starting this version; legacy Cloudflare sessions are disposable
+  cache data and are never migrated.
 - **Background Ken Burns pans exactly to the real image borders**: the animated background image now measures each source's natural dimensions on load and derives its true rendered overflow under `object-fit: cover` (`--ken-burns-max-x` / `--ken-burns-max-y` CSS variables per image), so the pan sweeps from one image corner to the opposite one regardless of the picture's aspect ratio — portrait images finally use their full vertical headroom while landscape ones stay capped at their own edges. A zoom breathing from `1x` to `1.22x` mid-cycle keeps the effect clearly visible even when the picture closely matches the screen ratio; every frame stays fully covered since translations never exceed the measured overflow. Bounds are recomputed on viewport resize, pruned when the media list changes, and fall back to a static frame until an image has loaded.
 - **Bookmarks persist the generic `img.url` snapshot**: `EntryBookmark` gains an `imageUrl` field (the un-oriented image from `get_entry`), saved alongside `imagePosterUrl`/`imageLandscapeUrl` in `ProgramEntryDetails`, carried through the bookmark lookup and sanitization in `storage.ts`, and exposed by the bookmarks home section so favorite cards fall back to it when no poster or landscape image is available. Existing bookmarks without the field load as `imageUrl: null` with no migration needed.
 - **URL slugs are now centralized and accent-free**: added `buildUrlSlug()` in `front/src/services/textUtils.ts` which lower-cases text, strips diacritics through Unicode NFD normalization (`é` -> `e`, `Ü` -> `u`), replaces every remaining character outside `[0-9a-z]` with `_`, and strips trailing underscores. The category and entry route slugs use this helper; empty slugs fall back to a fixed segment (`category` / `entry`).

@@ -62,10 +62,19 @@ pub struct ApplicationStores {
 /// # Errors
 ///
 /// Returns an error when a database cannot be opened or its physical schema is
-/// incompatible with the declared entity schema. The legacy proxy inventory
-/// cache uses an incompatible primary key and must be deleted manually at
-/// `<application-data>/data/persistence/proxy-inventory/` before opening this
-/// version; it is intentionally never migrated.
+/// incompatible with the declared entity schema. Legacy caches whose recorded
+/// schema no longer matches the declared entity must be deleted manually and
+/// are intentionally never migrated:
+///
+/// - the legacy proxy inventory cache uses an incompatible primary key; delete
+///   `<application-data>/data/persistence/proxy-inventory/` before opening
+///   this version;
+/// - the legacy Cloudflare session cache keeps a `session TEXT NOT NULL`
+///   column that the flattened `CachedChaserSession` schema no longer writes,
+///   so every insert into an existing database fails and legacy rows fail to
+///   decode; delete
+///   `<application-data>/data/persistence/cloudflare-session/` (including the
+///   SQLite WAL/SHM auxiliary files) before starting this version.
 pub fn sqlite_application_stores(
     application_data_path: impl Into<PathBuf>,
 ) -> Result<ApplicationStores> {
