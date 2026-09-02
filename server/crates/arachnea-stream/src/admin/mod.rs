@@ -16,7 +16,7 @@ use serde::de::DeserializeOwned;
 
 use arachnea_core::controler::{
     deserialize_input, ControlerJsonInput, ControlerJsonOutput, ControlerService,
-    JsonControlerFunction, RequestControlerContext,
+    JsonControlerFunction, RequestControlerContext, RestServerHandle,
 };
 use arachnea_core::persistence::{CredentialsStore, TypedEntityStore};
 use arachnea_scrapyfy::{PersistenceSourceEnabled, SourceServiceRecord};
@@ -68,6 +68,7 @@ pub struct AdminState {
     sessions: SessionStore,
     login_limiter: LoginRateLimiter,
     reloadable: Arc<ReloadableStreamScraper>,
+    rest_server: Option<Arc<RestServerHandle>>,
 }
 
 impl AdminState {
@@ -79,11 +80,14 @@ impl AdminState {
     /// * `temp_password` - One-shot temporary password when no permanent hash
     ///   is configured, kept in memory only.
     /// * `reloadable` - Reloadable scraper facade exposed to the admin API.
+    /// * `rest_server` - Hot-reload handle of the REST server, when running
+    ///   behind the REST controller (server mode).
     pub fn new(
         settings: AdminRuntimeSettings,
         configuration: ApplicationConfiguration,
         temp_password: Option<String>,
         reloadable: Arc<ReloadableStreamScraper>,
+        rest_server: Option<Arc<RestServerHandle>>,
     ) -> Self {
         Self {
             settings: RwLock::new(settings),
@@ -92,6 +96,7 @@ impl AdminState {
             sessions: SessionStore::new(),
             login_limiter: LoginRateLimiter::new(),
             reloadable,
+            rest_server,
         }
     }
 
@@ -109,7 +114,7 @@ impl AdminState {
     }
 
     /// Returns the persisted application configuration.
-    pub(crate) fn configuration(&self) -> ApplicationConfiguration {
+    pub fn configuration(&self) -> ApplicationConfiguration {
         self.configuration
             .read()
             .expect("admin configuration lock poisoned")
@@ -125,6 +130,36 @@ impl AdminState {
             .configuration
             .write()
             .expect("admin configuration lock poisoned") = configuration;
+    }
+
+    /// Returns the hot-reload handle of the REST server, when available.
+    pub(crate) fn rest_server(&self) -> Option<Arc<RestServerHandle>> {
+        self.rest_server.clone()
+    }
+
+    /// Updates the effective server settings after a hot application.
+    ///
+    /// Only the values that actually changed are updated, and their provenance
+    /// becomes `Configuration`; command-line pinned values stay untouched.
+    pub(crate) fn update_effective_server_settings(
+        &self,
+        server_port: u16,
+        network_mode: String,
+        entrypoint_root: Option<String>,
+    ) {
+        let mut settings = self.settings.write().expect("admin settings lock poisoned");
+        if settings.server_port != server_port {
+            settings.server_port = server_port;
+            settings.server_port_source = SettingSource::Configuration;
+        }
+        if settings.network_mode != network_mode {
+            settings.network_mode = network_mode;
+            settings.network_mode_source = SettingSource::Configuration;
+        }
+        if settings.entrypoint_root != entrypoint_root {
+            settings.entrypoint_root = entrypoint_root;
+            settings.entrypoint_root_source = SettingSource::Configuration;
+        }
     }
 
     /// Returns the session store.

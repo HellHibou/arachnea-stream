@@ -50,6 +50,25 @@ pub struct ServerTrayConfiguration {
     /// reload problems stay diagnosable from the log window and the admin
     /// interface.
     pub reload_configuration: Option<Arc<dyn Fn() -> String + Send + Sync>>,
+    /// Optional sink receiving the live tray handle once created.
+    ///
+    /// The REST server supervisor uses it to update the tray information in
+    /// place after a hot settings application (on macOS the tray blocks in
+    /// its `run` call, so the handle is only reachable through this sink).
+    pub handle_sink: Option<Arc<std::sync::OnceLock<Arc<dyn ServerTrayHandle>>>>,
+}
+
+/// In-place update of the tray information after a hot settings application.
+#[derive(Clone, Debug)]
+pub struct ServerTrayUpdate {
+    /// Public URL of the running HTTP server, opened by the browser action.
+    pub server_url: String,
+    /// Public URL of the administration interface, opened by the admin action.
+    pub admin_url: String,
+    /// Full server URL displayed in the tray menu.
+    pub server_display_url: String,
+    /// Network access mode displayed in the tray menu.
+    pub network_mode: String,
 }
 
 /// Handle to a live server tray, used to trigger lifecycle actions.
@@ -75,6 +94,13 @@ pub trait ServerTrayHandle: Send + Sync + 'static {
     /// The reload runs off the Tauri UI thread so a slow reload never blocks
     /// the tray; the outcome summary is written to the application log.
     fn reload_configuration(&self);
+
+    /// Updates the stored URLs and information menu items in place.
+    ///
+    /// Called after a hot application of the server settings so the tray keeps
+    /// reflecting the configuration actually active. The default
+    /// implementation does nothing.
+    fn update_configuration(&self, _update: &ServerTrayUpdate) {}
 }
 
 /// Factory responsible for creating the server tray icon.
@@ -363,9 +389,9 @@ const LOG_HTML: &str = r#"<!DOCTYPE html>
 /// Shared handle used to drive the live tray from the REST controller.
 struct ServerTrayHandleImpl {
     /// Public server URL opened by the browser action.
-    server_url: String,
+    server_url: Mutex<String>,
     /// Public administration URL opened by the admin action.
-    admin_url: String,
+    admin_url: Mutex<String>,
     /// Shared signal requesting the HTTP server to shut down gracefully.
     shutdown: ShutdownSignal,
     /// The running Tauri application handle.
@@ -376,6 +402,9 @@ struct ServerTrayHandleImpl {
     app_title: String,
     /// Optional configuration reload callback invoked on a background thread.
     reload_configuration: Option<Arc<dyn Fn() -> String + Send + Sync>>,
+    /// Handles of the disabled information menu items, kept so their text can
+    /// be updated in place when the server settings are applied hot.
+    info_items: Mutex<Option<(tauri::menu::MenuItem<Wry>, tauri::menu::MenuItem<Wry>)>>,
 }
 
 impl ServerTrayHandleImpl {
@@ -398,13 +427,14 @@ impl ServerTrayHandleImpl {
         reload_configuration: Option<Arc<dyn Fn() -> String + Send + Sync>>,
     ) -> Self {
         Self {
-            server_url,
-            admin_url,
+            server_url: Mutex::new(server_url),
+            admin_url: Mutex::new(admin_url),
             shutdown,
             app_handle: Mutex::new(None),
             log_window: Mutex::new(None),
             app_title,
             reload_configuration,
+            info_items: Mutex::new(None),
         }
     }
 
@@ -414,6 +444,16 @@ impl ServerTrayHandleImpl {
     /// * `app_handle` - The Tauri application handle.
     fn set_app_handle(&self, app_handle: AppHandle<Wry>) {
         *self.app_handle.lock().expect("tray app handle poisoned") = Some(app_handle);
+    }
+
+    /// Stores the handles of the information menu items for in-place updates.
+    fn set_info_items(
+        &self,
+        server_info: tauri::menu::MenuItem<Wry>,
+        network_info: tauri::menu::MenuItem<Wry>,
+    ) {
+        *self.info_items.lock().expect("tray info items poisoned") =
+            Some((server_info, network_info));
     }
 
     /// Dispatches a tray menu event to the matching action.
@@ -495,11 +535,13 @@ impl ServerTrayHandle for ServerTrayHandleImpl {
     }
 
     fn open_browser(&self) {
-        let _ = tauri_plugin_opener::open_url(self.server_url.clone(), None::<&str>);
+        let server_url = self.server_url.lock().expect("tray server url poisoned").clone();
+        let _ = tauri_plugin_opener::open_url(server_url, None::<&str>);
     }
 
     fn open_admin(&self) {
-        let _ = tauri_plugin_opener::open_url(self.admin_url.clone(), None::<&str>);
+        let admin_url = self.admin_url.lock().expect("tray admin url poisoned").clone();
+        let _ = tauri_plugin_opener::open_url(admin_url, None::<&str>);
     }
 
     fn reload_configuration(&self) {
@@ -511,6 +553,38 @@ impl ServerTrayHandle for ServerTrayHandleImpl {
         std::thread::spawn(move || {
             let summary = callback();
             tracing::info!("Tray configuration reload: {summary}");
+        });
+    }
+
+    fn update_configuration(&self, update: &ServerTrayUpdate) {
+        *self.server_url.lock().expect("tray server url poisoned") = update.server_url.clone();
+        *self.admin_url.lock().expect("tray admin url poisoned") = update.admin_url.clone();
+
+        // Menu operations are bound to the Tauri main thread; marshal the text
+        // updates there (required on macOS where the tray runs on the main
+        // thread, prudent on the other platforms).
+        let app = match self
+            .app_handle
+            .lock()
+            .expect("tray app handle poisoned")
+            .clone()
+        {
+            Some(app) => app,
+            None => return,
+        };
+        let info_items = self
+            .info_items
+            .lock()
+            .expect("tray info items poisoned")
+            .clone();
+        let Some((server_info, network_info)) = info_items else {
+            return;
+        };
+        let server_text = format!("Server: {}", update.server_display_url);
+        let network_text = format!("Network: {}", update.network_mode);
+        let _ = app.run_on_main_thread(move || {
+            let _ = server_info.set_text(server_text);
+            let _ = network_info.set_text(network_text);
         });
     }
 }
@@ -562,6 +636,15 @@ fn build_tauri_server_tray(
         configuration.reload_configuration,
     ));
 
+    // Publish the live handle into the optional sink so the REST server
+    // supervisor can update the tray information in place after a hot
+    // settings application (on macOS the handle is only reachable through
+    // this sink because `run` blocks the calling thread).
+    if let Some(sink) = &configuration.handle_sink {
+        let published: Arc<dyn ServerTrayHandle> = handle.clone();
+        let _ = sink.set(published);
+    }
+
     let handle_setup = Arc::clone(&handle);
     let handle_events = Arc::clone(&handle);
     let embedded_icon = icon;
@@ -612,6 +695,7 @@ fn build_tauri_server_tray(
             tray.build(app)?;
 
             handle_setup.set_app_handle(app.handle().clone());
+            handle_setup.set_info_items(server_info, network_info);
             Ok(())
         });
 

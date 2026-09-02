@@ -19,9 +19,12 @@ use crate::controler::{
 };
 
 use super::configuration::RestControlerConfiguration;
+#[cfg(target_os = "macos")]
 use super::shutdown::ShutdownSignal;
+use super::supervisor::{RestServerHandle, RestServerSettings, RestServerSupervisor};
 use super::tray::{gui_available, ServerTrayConfiguration, ServerTrayFactory};
 use super::{build_public_url, display_server_host, RestReply, RestRouter};
+use crate::controler::ServerNetworkMode;
 
 /// REST controller service.
 ///
@@ -50,6 +53,85 @@ pub struct RestControlerService {
     tray_enabled: bool,
     /// Callback reloading the application configuration from the tray.
     reload_configuration: Option<Arc<dyn Fn() -> String + Send + Sync>>,
+    /// Supervisor owning the server lifecycle and its hot reconfiguration.
+    ///
+    /// `None` on rebuilt instances created by the supervisor itself.
+    supervisor: Option<Arc<RestServerSupervisor>>,
+    /// Whether registration calls are recorded as replayable steps.
+    recording: bool,
+}
+
+/// Registration step replayed when the supervisor rebuilds a router.
+pub(crate) type ReplayStep = Box<dyn Fn(&mut RestControlerService) + Send + Sync>;
+
+/// Configuration pieces required to rebuild a [`RestControlerService`].
+///
+/// The supervisor keeps the snapshot of the original configuration and derives
+/// the rebuilt snapshots from the dynamic settings (port, network mode,
+/// entrypoint root).
+#[derive(Clone)]
+pub(crate) struct RestServiceSnapshot {
+    /// IP address the server binds to (`None` means loopback).
+    pub(crate) server_ip: Option<std::net::IpAddr>,
+    /// Server port.
+    pub(crate) server_port: u16,
+    /// Networks whose clients are allowed to connect to the server.
+    pub(crate) allowed_networks: Vec<ipnet::IpNet>,
+    /// Public root path prefix, when set.
+    pub(crate) entrypoint_root: Option<String>,
+    /// API path segment mounted under the root prefix.
+    pub(crate) entrypoint_api: Option<String>,
+    /// Tray factory supplied by the application crate.
+    pub(crate) tray_factory: Option<Arc<dyn ServerTrayFactory>>,
+    /// Whether the server tray should be shown when a GUI is available.
+    pub(crate) tray_enabled: bool,
+    /// Callback reloading the application configuration from the tray.
+    pub(crate) reload_configuration: Option<Arc<dyn Fn() -> String + Send + Sync>>,
+}
+
+impl RestServiceSnapshot {
+    /// Returns the socket address the server binds to.
+    pub(crate) fn socket_addr(&self) -> std::net::SocketAddr {
+        std::net::SocketAddr::new(
+            self.server_ip
+                .unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1))),
+            self.server_port,
+        )
+    }
+
+    /// Returns the parsed entry point root path segments.
+    ///
+    /// Empty segments produced by leading, trailing or doubled slashes are
+    /// dropped so every segment is safe to feed to `warp::path`.
+    pub(crate) fn root_segments(&self) -> Vec<String> {
+        self.entrypoint_root
+            .as_deref()
+            .filter(|root| !root.is_empty())
+            .map(|root| {
+                root.split('/')
+                    .map(str::trim)
+                    .filter(|segment| !segment.is_empty())
+                    .map(ToString::to_string)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Returns the dynamic settings describing this snapshot.
+    pub(crate) fn initial_settings(&self) -> RestServerSettings {
+        let network_mode = if self.server_ip.map_or(true, |ip| ip.is_loopback()) {
+            ServerNetworkMode::Local
+        } else if self.allowed_networks.is_empty() {
+            ServerNetworkMode::Public
+        } else {
+            ServerNetworkMode::Private
+        };
+        RestServerSettings {
+            server_port: self.server_port,
+            network_mode,
+            entrypoint_root: self.entrypoint_root.clone(),
+        }
+    }
 }
 
 impl RestControlerService {
@@ -71,16 +153,39 @@ impl RestControlerService {
             std::net::SocketAddr::new(ip, port)
         };
 
+        // Empty segments produced by leading, trailing or doubled slashes are
+        // dropped so every segment is safe to feed to `warp::path`.
         let entrypoint_root = configuration
             .entrypoint_root
             .as_deref()
             .filter(|root| !root.is_empty())
-            .map(|root| root.split('/').map(ToString::to_string).collect())
+            .map(|root| {
+                root.split('/')
+                    .map(str::trim)
+                    .filter(|segment| !segment.is_empty())
+                    .map(ToString::to_string)
+                    .collect()
+            })
             .unwrap_or_default();
 
         let entrypoint_api: String = configuration.entrypoint_api.unwrap_or("api".to_string());
 
         let (main_thread_dispatcher, main_thread_loop) = QueuedMainThreadDispatcher::new_pair();
+
+        let snapshot = RestServiceSnapshot {
+            server_ip: Some(socket_addr.ip()),
+            server_port: socket_addr.port(),
+            allowed_networks: configuration.allowed_networks.clone(),
+            entrypoint_root: configuration.entrypoint_root.clone(),
+            entrypoint_api: Some(entrypoint_api.clone()),
+            tray_factory: configuration.tray_factory.clone(),
+            tray_enabled: configuration.tray_enabled,
+            reload_configuration: configuration.reload_configuration.clone(),
+        };
+        let supervisor = Arc::new(RestServerSupervisor::new(
+            snapshot,
+            Arc::clone(&main_thread_dispatcher),
+        ));
 
         RestControlerService {
             socket_addr,
@@ -93,7 +198,72 @@ impl RestControlerService {
             tray_factory: configuration.tray_factory,
             tray_enabled: configuration.tray_enabled,
             reload_configuration: configuration.reload_configuration,
+            supervisor: Some(supervisor),
+            recording: true,
         }
+    }
+
+    /// Builds a rebuilt instance for the supervisor from the given snapshot.
+    ///
+    /// Rebuilt instances reuse the shared main-thread dispatcher and do not
+    /// record replay steps (the supervisor replays the recorded ones).
+    pub(crate) fn from_snapshot(
+        snapshot: RestServiceSnapshot,
+        dispatcher: Arc<QueuedMainThreadDispatcher>,
+    ) -> Self {
+        let entrypoint_root = snapshot.root_segments();
+        RestControlerService {
+            socket_addr: snapshot.socket_addr(),
+            router: None,
+            allowed_networks: snapshot.allowed_networks.clone(),
+            entrypoint_root,
+            entrypoint_api: snapshot.entrypoint_api.clone(),
+            main_thread_dispatcher: dispatcher,
+            main_thread_loop: None,
+            tray_factory: snapshot.tray_factory.clone(),
+            tray_enabled: snapshot.tray_enabled,
+            reload_configuration: snapshot.reload_configuration.clone(),
+            supervisor: None,
+            recording: false,
+        }
+    }
+
+    /// Records a registration step so the supervisor can replay it.
+    fn record_step(&mut self, step: ReplayStep) {
+        if self.recording {
+            if let Some(supervisor) = &self.supervisor {
+                supervisor.record_step(step);
+            }
+        }
+    }
+
+    /// Finalizes a rebuilt router: adds the root redirect when the entrypoint
+    /// root is configured and returns the combined router.
+    pub(crate) fn finalize_router(&mut self) -> RestRouter {
+        if !self.entrypoint_root.is_empty() {
+            self.add_root_redirect();
+        }
+        self.router
+            .clone()
+            .expect("REST router replay produced no route.")
+    }
+
+    /// Returns the peer address of a request.
+    ///
+    /// The accept loop forwards the transport-level peer address through a
+    /// controlled header (stripped and re-injected per connection, so it
+    /// cannot be spoofed); `warp::addr::remote()` is used as the fallback.
+    fn peer_addr_filter() -> BoxedFilter<(Option<std::net::SocketAddr>,)> {
+        warp::header::optional::<String>(super::supervisor::PEER_ADDR_HEADER)
+            .and(warp::addr::remote())
+            .map(
+                |injected: Option<String>, remote: Option<std::net::SocketAddr>| {
+                    injected
+                        .and_then(|value| value.parse::<std::net::SocketAddr>().ok())
+                        .or(remote)
+                },
+            )
+            .boxed()
     }
 
     /// Mounts a static directory under the configured root entry point.
@@ -191,7 +361,7 @@ impl RestControlerService {
         if networks.is_empty() {
             warp::any().boxed()
         } else {
-            warp::addr::remote()
+            Self::peer_addr_filter()
                 .and_then(move |addr: Option<std::net::SocketAddr>| {
                     let networks = networks.clone();
                     async move {
@@ -401,48 +571,6 @@ impl RestControlerService {
         })
     }
 
-    /// Runs the Warp server to completion on a dedicated Tokio runtime.
-    ///
-    /// The server shuts down gracefully once the provided shutdown signal is
-    /// requested: it stops accepting new connections and drains in-flight ones.
-    ///
-    /// # Arguments
-    ///
-    /// * `router` - Fully configured Warp router.
-    /// * `socket_addr` - Socket address to bind to.
-    /// * `entrypoint_root` - Root path segments used for display purposes.
-    /// * `shutdown` - Shared signal that starts the graceful shutdown.
-    fn run_server(
-        router: RestRouter,
-        socket_addr: std::net::SocketAddr,
-        entrypoint_root: Vec<String>,
-        shutdown: ShutdownSignal,
-    ) {
-        let rt = tokio::runtime::Runtime::new().expect("Failed to create the REST runtime.");
-        rt.block_on(async move {
-            let server_shutdown = shutdown.clone();
-            let (addr, server) =
-                warp::serve(router).bind_with_graceful_shutdown(socket_addr, async move {
-                    server_shutdown.wait().await;
-                });
-            let mut enpoint: String;
-            if entrypoint_root.is_empty() {
-                enpoint = "".to_string()
-            } else {
-                enpoint = entrypoint_root.join("/");
-                enpoint.push('/')
-            }
-            let display_host = display_server_host(addr);
-            println!(
-                "Web Server Application launched: http://{}:{}/{}",
-                display_host,
-                addr.port(),
-                enpoint
-            );
-            server.await;
-            tracing::info!("HTTP server stopped");
-        });
-    }
 }
 
 impl Default for RestControlerService {
@@ -453,6 +581,16 @@ impl Default for RestControlerService {
 
 impl ControlerService for RestControlerService {
     fn register_serialized_function(&mut self, command: &str, call: SerializedControlerFunction) {
+        let replay_command = command.to_string();
+        let replay_call = Arc::clone(&call);
+        self.record_step(Box::new(move |svc| {
+            ControlerService::register_serialized_function(
+                svc,
+                &replay_command,
+                Arc::clone(&replay_call),
+            );
+        }));
+
         let base_filter = self.make_base_filter(true, command);
 
         let post_call = call.clone();
@@ -487,13 +625,19 @@ impl ControlerService for RestControlerService {
     }
 
     fn register_json_function(&mut self, command: &str, call: JsonControlerFunction) {
+        let replay_command = command.to_string();
+        let replay_call = Arc::clone(&call);
+        self.record_step(Box::new(move |svc| {
+            ControlerService::register_json_function(svc, &replay_command, Arc::clone(&replay_call));
+        }));
+
         let base_filter = self.make_base_filter(true, command);
 
         let post_call = call.clone();
         let post_filter = base_filter
             .clone()
             .and(warp::post())
-            .and(warp::addr::remote())
+            .and(Self::peer_addr_filter())
             .and(warp::body::json::<Value>())
             .and(warp::header::headers_cloned())
             .and_then(
@@ -524,7 +668,7 @@ impl ControlerService for RestControlerService {
         let get_filter = base_filter
             .clone()
             .and(warp::get())
-            .and(warp::addr::remote())
+            .and(Self::peer_addr_filter())
             .and(warp::query::raw().or(warp::any().map(String::new)).unify())
             .and(warp::header::headers_cloned())
             .and_then(
@@ -589,6 +733,16 @@ impl ControlerService for RestControlerService {
     }
 
     fn register_stream_function(&mut self, command: &str, call: StreamControlerFunction) {
+        let replay_command = command.to_string();
+        let replay_call = Arc::clone(&call);
+        self.record_step(Box::new(move |svc| {
+            ControlerService::register_stream_function(
+                svc,
+                &replay_command,
+                Arc::clone(&replay_call),
+            );
+        }));
+
         let base_filter = self.make_base_filter(true, command);
 
         // Build the entry-point URL prefix for this command
@@ -666,10 +820,20 @@ impl ControlerService for RestControlerService {
     }
 
     fn register_web_directory(&mut self, directory_path: &str, path: &str) {
+        let replay_directory = directory_path.to_string();
+        let replay_path = path.to_string();
+        self.record_step(Box::new(move |svc| {
+            ControlerService::register_web_directory(svc, &replay_directory, &replay_path);
+        }));
         RestControlerService::register_web_directory(self, directory_path, path);
     }
 
     fn register_embedded_web_assets(&mut self, assets: SharedWebAssets, path: &str) {
+        let replay_path = path.to_string();
+        let replay_assets = Arc::clone(&assets);
+        self.record_step(Box::new(move |svc| {
+            ControlerService::register_embedded_web_assets(svc, Arc::clone(&replay_assets), &replay_path);
+        }));
         RestControlerService::register_embedded_web_assets(self, assets, path);
     }
 
@@ -678,7 +842,26 @@ impl ControlerService for RestControlerService {
         Some(dispatcher)
     }
 
+    fn rest_server_handle(&self) -> Option<Arc<RestServerHandle>> {
+        self.supervisor
+            .as_ref()
+            .map(|supervisor| Arc::new(RestServerHandle::for_supervisor(Arc::clone(supervisor))))
+    }
+
     fn launch(&mut self) {
+        let supervisor = self
+            .supervisor
+            .clone()
+            .expect("REST controller supervisor is missing.");
+
+        // Record the root redirect so router replays include it, with the
+        // root active at replay time.
+        supervisor.record_step(Box::new(|svc: &mut RestControlerService| {
+            if !svc.entrypoint_root.is_empty() {
+                svc.add_root_redirect();
+            }
+        }));
+
         // When the web application is served under a path prefix, redirect the
         // bare server root to the configured entry point. The redirect is added
         // last so every registered route keeps priority.
@@ -700,12 +883,8 @@ impl ControlerService for RestControlerService {
         install_global_main_thread_dispatcher(dispatcher)
             .expect("Failed to install the REST main-thread dispatcher.");
 
-        let shutdown = ShutdownSignal::new();
-
-        let server_shutdown = shutdown.clone();
-        let server_thread = std::thread::spawn(move || {
-            Self::run_server(router, socket_addr, entrypoint_root, server_shutdown);
-        });
+        // The supervisor owns the listener and the accept loop from now on.
+        let shutdown = supervisor.launch_controller(router, socket_addr, &entrypoint_root);
 
         // Show a tray icon in server mode only, and only when a graphical
         // environment is available (e.g. not a headless Linux server) and an
@@ -745,6 +924,7 @@ impl ControlerService for RestControlerService {
                     log_cache: crate::logger::global_log_cache(),
                     shutdown: shutdown.clone(),
                     reload_configuration: self.reload_configuration.clone(),
+                    handle_sink: Some(supervisor.tray_handle_sink()),
                 };
                 (Arc::clone(factory), configuration)
             })
@@ -773,7 +953,7 @@ impl ControlerService for RestControlerService {
             }
 
             let _ = main_thread_thread.join();
-            let _ = server_thread.join();
+            supervisor.join_server();
             return;
         }
 
@@ -787,7 +967,7 @@ impl ControlerService for RestControlerService {
         #[cfg(not(target_os = "macos"))]
         {
             main_thread_loop.run_until(|| shutdown.is_requested());
-            let _ = server_thread.join();
+            supervisor.join_server();
         }
     }
 }

@@ -804,7 +804,7 @@ handler under the same `<operation>` command names.
 | `set-credentials` | POST | Stores service credentials in the encrypted store. |
 | `clear-credentials` | POST | Removes stored service credentials. |
 | `settings` | GET | Effective server port, network mode and root with their provenance. |
-| `update-settings` | POST | Persists port/root/network; answers `restart_required` because these take effect at the next restart. |
+| `update-settings` | POST | Persists port/root/network, then applies them hot to the running server when possible (server mode): answers `applied: true` and `admin_url` when the port or the root changes; otherwise `restart_required: true`. Response detail: `{restart_required, applied, apply_error, admin_url}`. |
 | `set-admin-password` | POST | Sets or changes the permanent administrator password (Argon2id). |
 | `reload` | POST | Builds and validates a replacement scraper, then swaps it atomically; returns a detailed report. Send the empty JSON object `{}` as its request body. |
 

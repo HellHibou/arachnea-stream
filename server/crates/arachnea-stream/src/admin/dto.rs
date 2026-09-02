@@ -141,8 +141,19 @@ pub struct UpdateSettingsRequest {
 /// Response of `update-settings`.
 #[derive(Debug, Serialize)]
 pub struct UpdateSettingsResponse {
-    /// Whether the change requires a server restart to take effect.
+    /// Whether a process restart is still required to apply the changes.
+    ///
+    /// Kept for backward compatibility: it stays `true` only when hot
+    /// application is not available (desktop mode or missing REST handle).
     pub restart_required: bool,
+    /// Whether hot application of the settings has been scheduled on the
+    /// running server (the definitive outcome is observable via `settings`).
+    pub applied: bool,
+    /// Scheduling failure context, when hot application could not be planned.
+    pub apply_error: Option<String>,
+    /// Target administration URL when the port or the entrypoint root change,
+    /// so the UI can redirect once the new listener is up.
+    pub admin_url: Option<String>,
 }
 
 /// Request body of `set-admin-password`.

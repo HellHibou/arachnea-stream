@@ -798,7 +798,7 @@ mêmes noms de commande.
 | `set-credentials` | POST | Enregistre les credentials d’un service dans le store chiffré. |
 | `clear-credentials` | POST | Supprime les credentials stockés d’un service. |
 | `settings` | GET | Port, réseau et root effectifs avec leur provenance. |
-| `update-settings` | POST | Persiste port/root/réseau ; répond `restart_required` car ces réglages ne prennent effet qu’au redémarrage. |
+| `update-settings` | POST | Persiste port/root/réseau, puis les applique à chaud au serveur en cours quand c’est possible (mode serveur) : réponse `applied: true` et `admin_url` si le port ou la racine change ; sinon `restart_required: true`. Détail de la réponse : `{restart_required, applied, apply_error, admin_url}`. |
 | `set-admin-password` | POST | Définit ou change le mot de passe administrateur permanent (Argon2id). |
 | `reload` | POST | Construit et valide un scraper de remplacement, puis l’échange atomiquement ; renvoie un rapport détaillé. Le corps doit être l’objet JSON vide `{}`. |
 

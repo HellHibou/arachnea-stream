@@ -4,6 +4,10 @@
  */
 interface Props {
   /**
+   * Optional status code displayed above the state title.
+   */
+  code?: string
+  /**
    * Main state title displayed to the user.
    */
   title: string
@@ -19,6 +23,7 @@ defineProps<Props>()
 <template>
   <main class="route-state">
     <article class="route-state__panel">
+      <p v-if="code" class="route-state__code">{{ code }}</p>
       <h1 class="route-state__title">{{ title }}</h1>
       <p class="route-state__message">{{ message }}</p>
     </article>
@@ -51,6 +56,14 @@ defineProps<Props>()
   margin-bottom: 8px;
   color: var(--text-primary);
   font-size: 1.4rem;
+}
+
+.route-state__code {
+  margin-bottom: 8px;
+  color: var(--text-secondary);
+  font-size: 2.5rem;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .route-state__message {

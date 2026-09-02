@@ -67,7 +67,7 @@
   },
   "settings": {
     "title": "Settings",
-    "description": "Server configuration. Changes require a restart to take effect.",
+    "description": "Server configuration. Changes are applied to the running server without a restart.",
     "serverPort": "Server Port",
     "serverPortPlaceholder": "e.g., 8080",
     "networkMode": "Network Mode",
@@ -75,9 +75,11 @@
     "networkModePrivate": "Private",
     "networkModePublic": "Public",
     "entrypointRoot": "Entrypoint Root",
-    "entrypointRootPlaceholder": "e.g., /admin",
+    "entrypointRootPlaceholder": "e.g., arachnea",
     "save": "Save Settings",
-    "saved": "Settings saved. Restart required.",
+    "saved": "Settings saved. A restart is required to apply them.",
+    "appliedHot": "Settings saved and applied to the running server.",
+    "redirectNotice": "The server address changed. Redirecting to {url}…",
     "source": "Source: {source}",
     "sourceCommandLine": "Command line",
     "sourceConfiguration": "Configuration",
@@ -87,7 +89,7 @@
     "localModeDisabled": "Local mode is only available with elevated privileges.",
     "restartRequired": "Restart required to apply changes.",
     "portInvalid": "Port must be between 1 and 65535.",
-    "rootInvalid": "Root must start with / and contain no unsafe characters."
+    "rootInvalid": "Root must be a relative path with non-empty segments, for example arachnea or arachnea/admin."
   },
   "adminPassword": {
     "title": "Change Admin Password",
@@ -121,6 +123,10 @@
   "theme": {
     "switchToDark": "Switch to dark mode",
     "switchToLight": "Switch to light mode"
+  },
+  "notFound": {
+    "title": "Page not found",
+    "message": "The requested page does not exist."
   },
   "common": {
     "loading": "Loading...",

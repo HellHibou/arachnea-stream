@@ -24,9 +24,12 @@ pub use main_thread::{
 pub use web_assets::{EmbeddedWebAssets, SharedWebAssets};
 
 pub use rest::shutdown::ShutdownSignal;
+pub use rest::supervisor::{
+    RestServerApplyReport, RestServerHandle, RestServerSettings, RestSettingsSource,
+};
 pub use rest::tray::{
     gui_available, spawn_tauri_server_tray, ServerTrayConfiguration, ServerTrayFactory,
-    ServerTrayHandle,
+    ServerTrayHandle, ServerTrayUpdate,
 };
 
 use crate::controler::rest::{RestControlerConfiguration, RestControlerService};
@@ -171,6 +174,14 @@ impl RequestControlerContext {
     /// desktop Tauri IPC context; such requests are local by construction.
     pub fn remote_addr(&self) -> Option<std::net::SocketAddr> {
         self.remote_addr
+    }
+
+    /// Returns the value of a request header, when present.
+    ///
+    /// # Arguments
+    /// * `name` - Header name, case-sensitive as captured from the transport.
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers.get(name).map(|value| value.as_str())
     }
 
     /// Returns the HTTP method of the incoming request, when known.
@@ -365,6 +376,16 @@ pub trait ControlerService {
     /// This method begins processing requests and typically blocks until the
     /// application is shut down.
     fn launch(&mut self);
+
+    /// Returns the hot-reload handle of the REST server, when supported.
+    ///
+    /// Only the REST backend exposes one; the default implementation returns
+    /// `None` (desktop backend). The handle lets the application apply the
+    /// port, network mode and entrypoint root settings to the running server
+    /// without restarting the process.
+    fn rest_server_handle(&self) -> Option<Arc<RestServerHandle>> {
+        None
+    }
 }
 
 /// Deserializes controller input into a specific type.

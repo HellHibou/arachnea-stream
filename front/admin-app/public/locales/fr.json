@@ -67,7 +67,7 @@
   },
   "settings": {
     "title": "Paramètres",
-    "description": "Configuration du serveur. Les changements nécessitent un redémarrage.",
+    "description": "Configuration du serveur. Les changements sont appliqués à chaud au serveur en cours.",
     "serverPort": "Port du serveur",
     "serverPortPlaceholder": "ex : 8080",
     "networkMode": "Mode réseau",
@@ -75,9 +75,11 @@
     "networkModePrivate": "Privé",
     "networkModePublic": "Public",
     "entrypointRoot": "Racine d'entrée",
-    "entrypointRootPlaceholder": "ex : /admin",
+    "entrypointRootPlaceholder": "ex : arachnea",
     "save": "Enregistrer",
-    "saved": "Paramètres enregistrés. Redémarrage requis.",
+    "saved": "Paramètres enregistrés. Redémarrage requis pour les appliquer.",
+    "appliedHot": "Paramètres enregistrés et appliqués au serveur en cours.",
+    "redirectNotice": "L'adresse du serveur a changé. Redirection vers {url}…",
     "source": "Source : {source}",
     "sourceCommandLine": "Ligne de commande",
     "sourceConfiguration": "Configuration",
@@ -87,7 +89,7 @@
     "localModeDisabled": "Le mode local n'est disponible qu'avec des privilèges élevés.",
     "restartRequired": "Redémarrage requis pour appliquer les changements.",
     "portInvalid": "Le port doit être entre 1 et 65535.",
-    "rootInvalid": "La racine doit commencer par / et ne pas contenir de caractères dangereux."
+    "rootInvalid": "La racine doit être un chemin relatif à segments non vides, par exemple arachnea ou arachnea/admin."
   },
   "adminPassword": {
     "title": "Changer le mot de passe admin",
@@ -121,6 +123,10 @@
   "theme": {
     "switchToDark": "Passer en mode sombre",
     "switchToLight": "Passer en mode clair"
+  },
+  "notFound": {
+    "title": "Page introuvable",
+    "message": "La page demandée n'existe pas."
   },
   "common": {
     "loading": "Chargement...",

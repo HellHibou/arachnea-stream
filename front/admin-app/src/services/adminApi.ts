@@ -267,7 +267,14 @@ export interface UpdateSettingsRequest {
 }
 
 export interface UpdateSettingsResponse {
+  /** Kept for backward compatibility: true only when hot apply is unavailable. */
   restart_required: boolean
+  /** Whether hot application of the settings has been scheduled on the running server. */
+  applied: boolean
+  /** Scheduling failure context, when hot application could not be planned. */
+  apply_error?: string | null
+  /** Target admin URL when the port or the entrypoint root change. */
+  admin_url?: string | null
 }
 
 export interface SetAdminPasswordRequest {
@@ -366,7 +373,7 @@ export function fetchSettings(): Promise<SettingsResponse> {
   return apiCall<SettingsResponse>('settings')
 }
 
-/** Updates persisted settings (requires restart to take effect). */
+/** Updates persisted settings and schedules their hot application. */
 export function updateSettings(settings: UpdateSettingsRequest): Promise<UpdateSettingsResponse> {
   return apiCall<UpdateSettingsResponse>('update-settings', {
     method: 'POST',

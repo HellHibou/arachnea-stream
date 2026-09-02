@@ -3,15 +3,23 @@ import { computed, onMounted, ref } from 'vue'
 
 import { useAdminApi } from '@/composables/useAdminApi'
 import { useI18n } from '@/i18n'
+import { getAppBasePath } from '@/services/baseUrl'
 import type { SettingsResponse, SettingSource } from '@/services/adminApi'
 
 const { t } = useI18n()
 const { getStatus, getSettings, updateSettings, setAdminPassword, isLoading, error } = useAdminApi()
 
+/**
+ * Wait for the deferred application (1 s) and its bounded connection drain
+ * (2 s) before navigating to the newly bound listener.
+ */
+const REDIRECT_DELAY_MS = 4000
+
 const settings = ref<SettingsResponse | null>(null)
 const passwordConfigured = ref(false)
 const localError = ref<string | null>(null)
 const successMessage = ref<string | null>(null)
+const redirectTarget = ref<string | null>(null)
 
 const port = ref<number | null>(null)
 const networkMode = ref<string>('private')
@@ -62,16 +70,41 @@ async function loadSettings(): Promise<void> {
   }
 }
 
+/**
+ * Schedules the navigation to the new administration URL once the running
+ * server has re-bound its listener (port or entrypoint root change).
+ */
+function scheduleRedirect(target: string): void {
+  redirectTarget.value = target
+  setTimeout(() => {
+    window.location.assign(target)
+  }, REDIRECT_DELAY_MS)
+}
+
+/**
+ * Returns whether the target admin URL differs from the one currently serving
+ * this page (port or entrypoint root change).
+ */
+function redirectToAnotherBase(target: string): boolean {
+  const normalized = new URL(target)
+  normalized.pathname = `${normalized.pathname.replace(/\/+$/, '')}/`
+  const current = new URL(window.location.origin + getAppBasePath())
+  current.pathname = `${current.pathname.replace(/\/+$/, '')}/`
+  return normalized.toString() !== current.toString()
+}
+
 async function handleSaveSettings(): Promise<void> {
   localError.value = null
   successMessage.value = null
+  redirectTarget.value = null
 
   if (port.value && (port.value < 1 || port.value > 65535)) {
     localError.value = t('settings.portInvalid')
     return
   }
 
-  if (entrypointRoot.value && !entrypointRoot.value.startsWith('/')) {
+  const root = entrypointRoot.value.trim()
+  if (root && (root.startsWith('/') || root.split('/').some((segment) => !segment))) {
     localError.value = t('settings.rootInvalid')
     return
   }
@@ -79,14 +112,33 @@ async function handleSaveSettings(): Promise<void> {
   const result = await updateSettings({
     server_port: port.value ?? undefined,
     network_mode: networkMode.value as 'local' | 'private' | 'public',
-    entrypoint_root: entrypointRoot.value || undefined,
+    // An explicit empty string tells the backend to clear the persisted root.
+    entrypoint_root: root,
   })
 
-  if (result) {
+  if (!result) {
+    localError.value = error.value?.message ?? t('error.unknown')
+    return
+  }
+
+  if (result.restart_required) {
+    // Hot application unavailable (desktop mode or no REST handle).
     successMessage.value = t('settings.saved')
     await loadSettings()
+    return
+  }
+
+  if (result.apply_error) {
+    localError.value = result.apply_error
+    await loadSettings()
+    return
+  }
+
+  successMessage.value = t('settings.appliedHot')
+  if (result.admin_url && redirectToAnotherBase(result.admin_url)) {
+    scheduleRedirect(result.admin_url)
   } else {
-    localError.value = error.value?.message ?? t('error.unknown')
+    await loadSettings()
   }
 }
 
@@ -141,6 +193,7 @@ onMounted(() => {
         </p>
         <v-alert v-if="localError" type="error" variant="tonal" class="mb-4" :text="localError" />
         <v-alert v-if="successMessage" type="success" variant="tonal" class="mb-4" :text="successMessage" />
+        <v-alert v-if="redirectTarget" type="info" variant="tonal" class="mb-4" :text="t('settings.redirectNotice', { url: redirectTarget })" />
         <v-card variant="outlined" class="mb-6">
           <v-card-title>{{ t('settings.title') }}</v-card-title>
           <v-card-text>

@@ -1222,3 +1222,49 @@ never clobbered. The encryption key stays application-owned and is passed in
 from the executable. The admin HTTP contract, the admin frontend, and the
 service resolvers are unchanged; the legacy `data/credentials` file is no
 longer read or written.
+## Unreleased — Hot application of server settings
+
+Les réglages « Port du serveur », « Mode réseau » et « Racine d'entrée »
+sont désormais appliqués à chaud au serveur REST en mode serveur, sans
+redémarrage du processus ni du systray :
+
+- Nouveau supervisor REST dans `arachnea-core` (`controler::rest::supervisor`) :
+  il possède le listener TCP et la boucle d'acceptation, rejoue les
+  enregistrements des services lors d'un re-bind, pré-vérifie le nouveau bind
+  et se replie sur l'ancienne configuration en cas d'échec.
+- Application conditionnelle : si le port et l'adresse de bind sont inchangés,
+  les routes sont reconstruites sur le même listener (aucune coupure HTTP),
+  même quand le mode réseau ou la racine change ; sinon cycle complet (arrêt
+  gracieux borné, rejeu, re-bind).
+- `update-settings` répond `{restart_required, applied, apply_error, admin_url}` ;
+  en mode serveur `applied: true`, avec redirection de l'UI admin vers la
+  nouvelle URL quand le port ou la racine change réellement. En mode desktop
+  la réponse reste `restart_required: true`.
+- Le systray est mis à jour sur place après application (`Server: url`,
+  `Network: mode`, actions « Open in browser » / « Open administration »),
+  sans recréation du tray.
+- Frontend admin : message « appliqué à chaud », affichage des erreurs
+  d'application et redirection vers `admin_url` le cas échéant.
+
+## Unreleased — Admin settings follow-up
+
+- **Admin web application (`front/admin-app/`)**: Entrypoint roots now use a
+  relative, non-empty-segment format (for example `arachnea` or
+  `arachnea/admin`). After a port re-bind, navigation waits for the deferred
+  application and bounded connection drain to finish before loading the new
+  administration URL.
+- **Web frontend bundles (`front/public-app/`, `front/admin-app/`)**: Production
+  asset references are now relative so the runtime-injected entrypoint root
+  applies to JavaScript and CSS assets as well as the HTML document.
+- **Admin settings**: Clearing the entrypoint-root field now sends an explicit
+  empty value so the persisted root is removed rather than preserved.
+- **Hot server settings**: The delayed application now uses the effective
+  settings snapshot resolved with the update response, ensuring a simultaneous
+  port and entrypoint-root change rebuilds the admin mount at its new path.
+- **Hot server settings**: The active REST route snapshot is now selected for
+  each HTTP request. Entrypoint-root updates therefore apply to keep-alive
+  clients without stopping the Tokio runtime that owns the scraper cache.
+- **Admin web application (`front/admin-app/`)**: Unknown URLs now render a
+  localized 404 page instead of an empty route.
+- **Public web application (`front/public-app/`)**: The fallback route now
+  presents an explicit localized 404 error state above the decorative background.

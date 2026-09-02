@@ -7,6 +7,7 @@ const { t } = useI18n()
 
 <template>
   <RouteStateMessage
+    code="404"
     :title="t('notFound.title')"
     :message="t('notFound.message')"
   />

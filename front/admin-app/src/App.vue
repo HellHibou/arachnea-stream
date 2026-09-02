@@ -39,7 +39,9 @@ async function checkAuth(): Promise<void> {
     authRequired.value = result.auth_required
     isAuthenticated.value = result.authenticated
 
-    if (result.auth_required && !result.authenticated) {
+    if (router.currentRoute.value.name === 'not-found') {
+      // Keep unknown URLs on the localized error page, even when authentication is required.
+    } else if (result.auth_required && !result.authenticated) {
       router.push({ name: 'login' })
     } else if (router.currentRoute.value.name === 'login') {
       router.push({ name: 'services' })

@@ -9,7 +9,10 @@ use std::sync::Arc;
 
 use arachnea_core::{
     application,
-    controler::{ApplicationMode, CoreApplicationOptions, ServerNetworkMode, DEFAULT_SERVER_PORT},
+    controler::{
+        ApplicationMode, CoreApplicationOptions, RestServerSettings, ServerNetworkMode,
+        DEFAULT_SERVER_PORT,
+    },
     persistence::CredentialsStore,
 };
 use arachnea_scrapyfy::*;
@@ -184,7 +187,13 @@ fn apply_persistent_configuration(
         options.application_option.server_port = configuration.server_port;
     }
     if !options.entrypoint_root_specified {
-        options.application_option.entrypoint_root = configuration.entrypoint_root.clone();
+        // An empty persisted root means "no prefix": normalize it to `None` so
+        // the effective settings and the hot-apply target agree.
+        options.application_option.entrypoint_root = configuration
+            .entrypoint_root
+            .as_deref()
+            .filter(|root| !root.is_empty())
+            .map(ToString::to_string);
     }
     if !options.network_mode_specified {
         if let Some(network_mode) = configuration.network_mode.as_deref() {
@@ -427,16 +436,65 @@ async fn main() -> Result<()> {
         });
     options.application_option.reload_configuration = Some(reload_configuration);
 
+    // Command-line overrides of the dynamic server settings, captured before
+    // the application options are moved into the controller constructor.
+    let cli_port = options.application_option.server_port;
+    let port_pinned = options.server_port_specified;
+    let cli_network = options.application_option.network_mode;
+    let network_pinned = options.network_mode_specified;
+    let cli_root = options.application_option.entrypoint_root.clone();
+    let root_pinned = options.entrypoint_root_specified;
+
     let mut controler = arachnea_core::create_application_controler!(options.application_option);
     let reloadable = reloadable.register_service(controler.as_mut());
     let _ = late_reload.set(Arc::clone(&reloadable));
+
+    // Hot application of the server settings: expose the REST supervisor
+    // handle to the admin state and feed it a settings resolver combining the
+    // command-line overrides with the persisted configuration.
+    let rest_server_handle = controler.rest_server_handle();
+    let admin_state_slot: Arc<std::sync::OnceLock<Arc<AdminState>>> =
+        Arc::new(std::sync::OnceLock::new());
+    if let Some(rest_server) = &rest_server_handle {
+        let slot = Arc::clone(&admin_state_slot);
+        rest_server.set_settings_source(Arc::new(move || {
+            let state = slot.get()?;
+            let config = state.configuration();
+            let server_port = if port_pinned {
+                cli_port?
+            } else {
+                config.server_port.unwrap_or(DEFAULT_SERVER_PORT)
+            };
+            let network_mode = if network_pinned {
+                cli_network
+            } else {
+                match config.network_mode.as_deref() {
+                    Some("local") => ServerNetworkMode::Local,
+                    Some("public") => ServerNetworkMode::Public,
+                    _ => ServerNetworkMode::Private,
+                }
+            };
+            let entrypoint_root = if root_pinned {
+                cli_root.clone()
+            } else {
+                config.entrypoint_root.clone()
+            };
+            Some(RestServerSettings {
+                server_port,
+                network_mode,
+                entrypoint_root,
+            })
+        }));
+    }
 
     let admin_state = Arc::new(AdminState::new(
         admin_runtime_settings,
         configuration,
         temp_password,
         reloadable,
+        rest_server_handle,
     ));
+    let _ = admin_state_slot.set(Arc::clone(&admin_state));
     register_admin_service(&admin_state, controler.as_mut());
     controler.launch();
 

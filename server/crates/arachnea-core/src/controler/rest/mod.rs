@@ -6,11 +6,16 @@ pub mod configuration;
 mod service;
 /// Cooperative shutdown signal shared by the server and the tray.
 pub mod shutdown;
+/// Hot application of REST server settings (supervisor).
+pub mod supervisor;
 /// Generic server tray integration points (contract and GUI detection).
 pub mod tray;
 
 pub use configuration::RestControlerConfiguration;
 pub use service::RestControlerService;
+pub use supervisor::{
+    RestServerApplyReport, RestServerHandle, RestServerSettings, RestSettingsSource,
+};
 
 use warp::filters::BoxedFilter;
 use warp::Reply;

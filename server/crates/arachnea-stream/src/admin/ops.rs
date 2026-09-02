@@ -9,6 +9,7 @@ use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
 use std::net::IpAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use arachnea_core::application;
 use arachnea_core::controler::RequestControlerContext;
@@ -24,6 +25,11 @@ use super::auth::{
 };
 use super::dto::*;
 use super::{AdminMode, AdminState};
+
+/// Delay between the `update-settings` response and the hot application of
+/// the new server settings, so the response flows on the listener still alive
+/// before it is stopped and re-bound.
+const APPLY_SETTINGS_DELAY: Duration = Duration::from_millis(1000);
 
 /// Stable HTTP status error returned by administration operations.
 #[derive(Debug)]
@@ -731,9 +737,98 @@ pub(crate) async fn op_update_settings(
     config.save().map_err(admin_err)?;
     state.set_configuration(config);
 
+    // Hot application path: in server mode with a REST handle, the port,
+    // network mode and entrypoint root are applied to the running server
+    // without restarting the process. The response is sent first; the
+    // application runs APPLY_SETTINGS_DELAY later so the response flows on
+    // the listener still alive. The definitive outcome is observable via the
+    // `settings` operation and the application log.
+    if effective_mode == AdminMode::Server {
+        if let Some(rest_server) = state.rest_server() {
+            // Only advertise an URL change when the port or the entrypoint
+            // root will actually move, so the UI never redirects to a URL that
+            // stays pinned by a command-line override.
+            let admin_url = rest_server.target_settings().and_then(|target| {
+                let current = state.settings();
+                let port_changes = target.server_port != current.server_port;
+                // An empty root is equivalent to "no prefix".
+                let current_root = current.entrypoint_root.as_deref().filter(|root| !root.is_empty());
+                let root_changes = target.entrypoint_root.as_deref() != current_root;
+                if port_changes || root_changes {
+                    hot_apply_admin_url(
+                        &context,
+                        target.entrypoint_root.as_deref(),
+                        target.server_port,
+                    )
+                } else {
+                    None
+                }
+            });
+            let state_for_apply = Arc::clone(&state);
+            std::thread::spawn(move || {
+                std::thread::sleep(APPLY_SETTINGS_DELAY);
+                let report = rest_server.apply_settings();
+                state_for_apply.update_effective_server_settings(
+                    report.server_port,
+                    report.network_mode.clone(),
+                    report.entrypoint_root.clone(),
+                );
+                match &report.apply_error {
+                    Some(error) => tracing::error!(
+                        error = %error,
+                        "hot application of server settings failed"
+                    ),
+                    None => tracing::info!(
+                        port = report.server_port,
+                        network = %report.network_mode,
+                        root = ?report.entrypoint_root,
+                        "server settings applied to the running server"
+                    ),
+                }
+            });
+
+            return Ok(AdminReply::ok(&UpdateSettingsResponse {
+                restart_required: false,
+                applied: true,
+                apply_error: None,
+                admin_url,
+            }));
+        }
+    }
+
     Ok(AdminReply::ok(&UpdateSettingsResponse {
         restart_required: true,
+        applied: false,
+        apply_error: None,
+        admin_url: None,
     }))
+}
+
+/// Builds the target administration URL of a hot settings application.
+///
+/// The host name comes from the request `Host` header so the URL keeps the
+/// origin the administrator is talking to; the target port replaces the port
+/// of the header, and the target root prefixes the admin path. Returns `None`
+/// when the header is missing.
+fn hot_apply_admin_url(
+    context: &RequestControlerContext,
+    entrypoint_root: Option<&str>,
+    target_port: u16,
+) -> Option<String> {
+    let host = context.header("host")?;
+    let hostname = match host.rsplit_once(':') {
+        // Host header forms: `hostname:port`, `[ipv6]:port` or bare `ipv6`.
+        Some((lhs, port)) if port.chars().all(|c| c.is_ascii_digit()) && !port.is_empty() => lhs,
+        _ => host,
+    };
+    let root = entrypoint_root.unwrap_or("").trim_matches('/');
+    if root.is_empty() {
+        Some(format!("http://{hostname}:{target_port}/admin/"))
+    } else {
+        Some(format!(
+            "http://{hostname}:{target_port}/{root}/admin/"
+        ))
+    }
 }
 
 /// Builds the `set-admin-password` reply.

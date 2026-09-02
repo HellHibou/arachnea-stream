@@ -300,6 +300,8 @@ function handleBackNavigation() {
 }
 
 .app-content {
+  position: relative;
+  z-index: 1;
   display: grid;
   min-width: 0;
   min-height: 0;
