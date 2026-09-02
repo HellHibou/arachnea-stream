@@ -4,6 +4,13 @@ All notable changes to the server workspace are recorded here. Add new entries a
 
 ## Unreleased
 
+### Fixed
+- **macOS Windows ARM64 cross-compilation (`build-release/`)**: the
+  `aarch64-pc-windows-msvc` build now uses a macOS-only compiler wrapper.
+  It preserves cargo-xwin's `clang-cl` backend for BoringSSL, while translating
+  its `/imsvc` flags to Unix `clang` flags when `ring` invokes `clang`
+  directly; all other hosts and targets retain their existing toolchain.
+
 ### Added
 - **Admin web application (`front/admin-app/`)**: Independent Vite/Vue/Vuetify SPA served under `/admin`, built separately from the public frontend. Features include:
   - Conditional login screen driven by `/api/admin/status` (`auth_required`/`authenticated`).

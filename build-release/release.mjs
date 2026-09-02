@@ -552,7 +552,20 @@ async function buildPlatform(platform, config, version, releaseDir, tauriDir, sk
     if (platform.runner) args.push('--runner', platform.runner);
     // Augment PATH so cargo-xwin finds llvm-rc installed by install-tools
     // even when the Homebrew LLVM directory is not on the shell PATH.
-    run('cargo', args, { cwd: tauriDir, env: buildEnvWithLlvm() });
+    const buildEnv = buildEnvWithLlvm();
+    // ring invokes `clang` directly on Windows ARM64 while cargo-xwin supplies
+    // clang-cl-only `/imsvc` flags. Keep clang-cl for CMake/BoringSSL and route
+    // ring through a wrapper that translates those flags for the Unix driver.
+    if (process.platform === 'darwin' && platform.target === 'aarch64-pc-windows-msvc') {
+      const llvmBin = ['/opt/homebrew/opt/llvm/bin', '/usr/local/opt/llvm/bin']
+        .find((dir) => existsSync(path.join(dir, 'clang')));
+      if (!llvmBin) {
+        throw new Error('Homebrew LLVM `clang` was not found for the macOS Windows ARM64 cross-build.');
+      }
+      buildEnv.ARACHNEA_XWIN_REAL_CLANG = path.join(llvmBin, 'clang');
+      buildEnv.PATH = `${path.join(ROOT, 'build-release')}:${buildEnv.PATH}`;
+    }
+    run('cargo', args, { cwd: tauriDir, env: buildEnv });
   } else if (!skipBuild && platform.method === 'docker') {
     await assertDocker();
     await ensureCrossImage();

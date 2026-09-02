@@ -4,6 +4,7 @@ set -e
 # Change to the script directory
 cd "$(dirname "$0")"
 SCRIPT_DIR="$(pwd)"
+chmod +x "$SCRIPT_DIR/clang"
 
 # Check if Node is already installed
 if command -v node >/dev/null 2>&1; then

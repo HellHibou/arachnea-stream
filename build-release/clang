@@ -1,0 +1,18 @@
+#!/bin/bash
+# cargo-xwin invokes this wrapper as clang-cl and ring invokes it as clang.
+if [ "$(basename "$0")" = "clang-cl" ]; then
+  exec "$ARACHNEA_XWIN_REAL_CLANG" --driver-mode=cl "$@"
+fi
+
+args=()
+while (($#)); do
+  if [ "$1" = "/imsvc" ] && [ "$#" -gt 1 ]; then
+    shift
+    args+=('-isystem' "$1")
+  else
+    args+=("$1")
+  fi
+  shift
+done
+
+exec "$ARACHNEA_XWIN_REAL_CLANG" "${args[@]}"
