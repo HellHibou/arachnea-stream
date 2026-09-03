@@ -7,6 +7,8 @@ pub mod rest;
 /// Tauri controller backend.
 pub mod tauri;
 mod web_assets;
+/// Options shared by controller backends.
+pub mod options;
 
 use std::sync::Arc;
 use std::{future::Future, pin::Pin};
@@ -32,19 +34,17 @@ pub use rest::tray::{
     ServerTrayHandle, ServerTrayUpdate,
 };
 
+use crate::controler::options::{ApplicationMode, DEFAULT_SERVER_PORT, DEFAULT_TAURI_API_PREFIX, DEFAULT_TAURI_WEB_SCHEME, ServerNetworkMode};
 use crate::controler::rest::{RestControlerConfiguration, RestControlerService};
 use crate::controler::tauri::{
     TauriControlerConfiguration, TauriControlerService, TauriEmbeddedWebAssets,
 };
 
-/// Default port used by the REST controller when no CLI override is provided.
-pub const DEFAULT_SERVER_PORT: u16 = 8080;
+/// Header carrying the client validator (`If-None-Match`) for conditional requests.
+pub const HEADER_IF_NONE_MATCH: &str = "if-none-match";
 
-/// Custom URI scheme used by the desktop frontend.
-pub const DEFAULT_TAURI_WEB_SCHEME: &str = "arachnea-core";
-
-/// API prefix used by the desktop binary stream routes.
-pub const DEFAULT_TAURI_API_PREFIX: &str = "api";
+/// Header carrying the server validator echoed back to clients.
+pub const HEADER_ETAG: &str = "etag";
 
 /// Serialized payload received by controller backends.
 ///
@@ -99,12 +99,6 @@ impl From<Value> for ControlerJsonOutput {
         }
     }
 }
-
-/// Header carrying the client validator (`If-None-Match`) for conditional requests.
-pub const HEADER_IF_NONE_MATCH: &str = "if-none-match";
-
-/// Header carrying the server validator echoed back to clients.
-pub const HEADER_ETAG: &str = "etag";
 
 /// Context of an incoming controller request.
 ///
@@ -636,234 +630,6 @@ fn normalize_etag(value: Option<&str>) -> Option<String> {
 
 impl<T: ControlerService + ?Sized> ControlerServiceExt for T {}
 
-/// Runtime mode the application controller runs under.
-#[derive(PartialEq)]
-pub enum ApplicationMode {
-    /// Desktop application mode backed by the Tauri controller.
-    Desktop,
-    /// Headless HTTP server mode backed by the REST controller.
-    Server,
-}
-
-/// Which client connections the REST server accepts.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum ServerNetworkMode {
-    /// Loopback only: the server binds to `127.0.0.1`.
-    Local,
-    /// Loopback plus the machine's local networks, detected from the interface
-    /// netmasks. The server binds to all interfaces and rejects clients whose
-    /// address does not belong to a local network range.
-    #[default]
-    Private,
-    /// Any network: the server binds to all interfaces and accepts every client.
-    Public,
-}
-
-impl std::str::FromStr for ServerNetworkMode {
-    type Err = String;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "local" => Ok(Self::Local),
-            "private" => Ok(Self::Private),
-            "public" => Ok(Self::Public),
-            _ => Err(format!(
-                "expected one of `local`, `private` or `public`, got `{value}`"
-            )),
-        }
-    }
-}
-
-/// Default runtime mode used when no CLI mode flag is provided.
-///
-/// In release builds the backend defaults to server mode; in debug builds it
-/// defaults to desktop mode.
-#[macro_export]
-macro_rules! default_application_mode {
-    () => {
-        if cfg!(debug_assertions) {
-            return ApplicationMode::Desktop;
-        } else {
-            return ApplicationMode::Server;
-        }
-    };
-}
-
-/// Runtime options parsed from command line arguments.
-pub struct CoreApplicationOptions {
-    /// Backend mode (desktop or server).
-    pub application_mode: Option<ApplicationMode>,
-
-    /// REST server port used in server mode.
-    ///
-    /// Falls back to [`DEFAULT_SERVER_PORT`] when `None`.
-    pub server_port: Option<u16>,
-
-    /// Which client connections the REST server accepts.
-    ///
-    /// Defaults to [`ServerNetworkMode::Private`], which binds to all
-    /// interfaces and only accepts clients belonging to a local network range.
-    pub network_mode: ServerNetworkMode,
-
-    /// Optional public root path prefix for server mode.
-    ///
-    /// When set to a non-root prefix, a bare `GET /` on the REST server answers
-    /// a `302 Found` redirect to the mounted application path (for example
-    /// `/prefix/`) instead of `404 Not Found`.
-    pub entrypoint_root: Option<String>,
-
-    /// Optional public API path segment for server mode.
-    pub entrypoint_api: Option<String>,
-
-    /// Custom URI scheme used by the desktop frontend.
-    ///
-    /// Falls back to [`DEFAULT_TAURI_WEB_SCHEME`] when `None`.
-    pub web_scheme: Option<String>,
-
-    /// API path prefix used by the desktop binary stream routes.
-    ///
-    /// Falls back to [`DEFAULT_TAURI_API_PREFIX`] when `None`.
-    pub api_prefix: Option<String>,
-
-    /// Optional factory creating the server tray icon in server mode.
-    ///
-    /// When set and a GUI is available, the REST controller shows a tray icon.
-    pub server_tray_factory: Option<Arc<dyn ServerTrayFactory>>,
-
-    /// Whether a server tray icon should be shown in server mode.
-    ///
-    /// When `true` a tray factory is installed and the REST controller shows a
-    /// tray icon if a GUI is available. Set to `false` to force-disable the tray
-    /// even on a graphical environment.
-    pub tray_enabled: bool,
-
-    /// Callback reloading the application configuration from the server tray.
-    ///
-    /// Invoked on a background thread by the tray "Reload configuration"
-    /// action; the returned summary is written to the application log.
-    pub reload_configuration: Option<Arc<dyn Fn() -> String + Send + Sync>>,
-
-    /// Additional web-asset mount paths served below the application root.
-    ///
-    /// Each path mounts the shared embedded asset pool scoped to that
-    /// subdirectory (e.g. `admin` to serve the administration bundle at
-    /// `/admin/`). Dedicated mounts take precedence over the root bundle.
-    pub web_mount_paths: Vec<String>,
-}
-
-impl CoreApplicationOptions {
-    /// Creates runtime options for the application controller.
-    ///
-    /// # Arguments
-    /// * `application_mode` - Backend mode (desktop or server).
-    /// * `server_port` - Optional REST server port used in server mode.
-    /// * `entrypoint_root` - Optional public root path prefix for server mode.
-    /// * `entrypoint_api` - Optional public API path segment for server mode.
-    /// * `web_scheme` - Optional custom URI scheme for the desktop frontend.
-    /// * `api_prefix` - Optional API path prefix for desktop binary stream routes.
-    pub fn new(
-        application_mode: Option<ApplicationMode>,
-        server_port: Option<u16>,
-        entrypoint_root: Option<String>,
-        entrypoint_api: Option<String>,
-        web_scheme: Option<String>,
-        api_prefix: Option<String>,
-    ) -> Self {
-        Self {
-            application_mode,
-            server_port,
-            network_mode: ServerNetworkMode::default(),
-            entrypoint_root,
-            entrypoint_api,
-            web_scheme,
-            api_prefix,
-            server_tray_factory: None,
-            tray_enabled: true,
-            reload_configuration: None,
-            web_mount_paths: Vec::new(),
-        }
-    }
-
-    /// Sets the factory creating the server tray icon in server mode.
-    ///
-    /// # Arguments
-    /// * `server_tray_factory` - Application-supplied tray factory.
-    ///
-    /// # Returns
-    /// The modified options for chaining.
-    pub fn with_server_tray_factory(
-        mut self,
-        server_tray_factory: Arc<dyn ServerTrayFactory>,
-    ) -> Self {
-        self.server_tray_factory = Some(server_tray_factory);
-        self
-    }
-
-    /// Sets whether a server tray icon should be shown in server mode.
-    ///
-    /// # Arguments
-    /// * `tray_enabled` - `true` to show a tray icon when a GUI is available,
-    ///   `false` to force-disable it.
-    ///
-    /// # Returns
-    /// The modified options for chaining.
-    pub fn with_tray_enabled(mut self, tray_enabled: bool) -> Self {
-        self.tray_enabled = tray_enabled;
-        self
-    }
-
-    /// Sets the callback reloading the application configuration from the tray.
-    ///
-    /// # Arguments
-    /// * `reload_configuration` - Called on a background thread by the tray
-    ///   "Reload configuration" action, returning a log summary.
-    ///
-    /// # Returns
-    /// The modified options for chaining.
-    pub fn with_reload_configuration(
-        mut self,
-        reload_configuration: Arc<dyn Fn() -> String + Send + Sync>,
-    ) -> Self {
-        self.reload_configuration = Some(reload_configuration);
-        self
-    }
-
-    /// Adds a web-asset mount path served below the application root.
-    ///
-    /// # Arguments
-    /// * `mount_path` - Relative path (e.g. `admin`) under the application
-    ///   root where the shared embedded asset pool is mounted scoped to that
-    ///   subdirectory.
-    ///
-    /// # Returns
-    /// The modified options for chaining.
-    pub fn with_web_mount_path(mut self, mount_path: impl Into<String>) -> Self {
-        let mount_path = mount_path.into().trim_matches('/').to_string();
-        if !mount_path.is_empty() {
-            self.web_mount_paths.push(mount_path);
-        }
-        self
-    }
-}
-
-impl Default for CoreApplicationOptions {
-    fn default() -> Self {
-        Self {
-            application_mode: None,
-            server_port: Some(DEFAULT_SERVER_PORT),
-            network_mode: ServerNetworkMode::default(),
-            entrypoint_root: None,
-            entrypoint_api: Some(DEFAULT_TAURI_API_PREFIX.to_string()),
-            web_scheme: Some(DEFAULT_TAURI_WEB_SCHEME.to_string()),
-            api_prefix: None,
-            server_tray_factory: None,
-            tray_enabled: true,
-            reload_configuration: None,
-            web_mount_paths: Vec::new(),
-        }
-    }
-}
-
 /// Configuration required to build the desktop (Tauri) controller backend.
 ///
 /// This groups the application-owned pieces that only the application crate can
@@ -955,23 +721,26 @@ fn tauri_controler_service(
 /// # Returns
 /// A boxed `ControlerService` ready for `register_service` and `launch`.
 pub fn create_application_controler_from_config(
-    options: CoreApplicationOptions,
+    options: options::CoreApplicationOptions,
     desktop: DesktopApplicationConfig,
 ) -> Box<dyn ControlerService> {
     // #[cfg(not(debug_assertions))] // Release mode defaults.
     // let application_mode = options.application_mode.unwrap_or(ApplicationMode::Desktop);
 
     // #[cfg(debug_assertions)] // Debug mode defaults.
-    let application_mode = options.application_mode.unwrap_or(ApplicationMode::Server);
+    let application_mode = options.application_mode.unwrap_or(ApplicationMode::default());
 
     let mut controler: Box<dyn ControlerService> = if application_mode == ApplicationMode::Server {
         let server_port = options.server_port.unwrap_or(DEFAULT_SERVER_PORT);
-        let mut configuration = RestControlerConfiguration::default().server_port(server_port);
+        let mut configuration = RestControlerConfiguration::default()
+            .server_port(server_port);
+
         match options.network_mode {
             ServerNetworkMode::Local => {}
             ServerNetworkMode::Private => {
                 configuration =
                     configuration.server_ip(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED));
+
                 configuration =
                     configuration.allowed_networks(crate::controler::rest::local_networks());
             }
@@ -1055,7 +824,7 @@ macro_rules! create_application_controler {
         // Tauri context is handed to the one component that will consume it.
         let is_server = match &options.application_mode {
             ::std::option::Option::Some(mode) => {
-                ::core::matches!(mode, $crate::controler::ApplicationMode::Server)
+                ::core::matches!(mode, crate::ApplicationMode::Server)
             }
             ::std::option::Option::None => {
                 #[cfg(not(debug_assertions))]

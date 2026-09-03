@@ -2,17 +2,14 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 //! Arachnea backend executable: wires scraper sources and controller backends.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use std::net::IpAddr;
 use std::sync::Arc;
 
 use arachnea_core::{
-    application,
-    controler::{
-        ApplicationMode, CoreApplicationOptions, RestServerSettings, ServerNetworkMode,
-        DEFAULT_SERVER_PORT,
-    },
-    persistence::CredentialsStore,
+    application::{self, ApplicationOptionsProvider}, controler::{
+        RestServerSettings, options::{ApplicationMode, CoreApplicationOptions, DEFAULT_SERVER_PORT, ServerNetworkMode},
+    }, persistence::CredentialsStore,
 };
 use arachnea_scrapyfy::admin::{
     dto::SettingSource, register_admin_service, AdminMode, AdminRuntimeSettings,
@@ -25,153 +22,57 @@ use arachnea_stream::{
     TypedServiceCredentialsStore,
 };
 
-/// Runtime options parsed from command line arguments.
-struct RuntimeOptions {
-    application_option: CoreApplicationOptions,
-    current_country: Option<String>,
-    cache_max_disk_bytes: Option<u64>,
-    cache_max_memory_bytes: Option<u64>,
-    server_port_specified: bool,
-    network_mode_specified: bool,
-    entrypoint_root_specified: bool,
-}
-
 /// Static AES-256-GCM key used to encrypt service credentials stored in the
 /// `arachnea-services` persistence store.
 const DEFAULT_SERVER_CREDENTIALS_KEY: [u8; 32] = *b"hell_hibou-arachnea-key-20260422";
 
 /// Result of parsing command line arguments.
 enum CliAction {
-    Run(RuntimeOptions),
+    Run(SrcapyfyApplicationOptions),
     RefreshIpCountries,
     ExitSuccess,
 }
 
-/// Prints the command line help in English.
-fn help_message() -> String {
-    let program_name = application::program_name();
-    format!(
-        "Usage: {program_name} [OPTIONS]
-
-Options:
-  --help                        Show this help message and exit
-  --desktop                     Run in desktop application mode (forces mode_server to false)
-  --server                      Run in server mode (forces mode_server to true)
-  --server-port <PORT>          Override the server port (default: {DEFAULT_SERVER_PORT})
-  --network <MODE>              Client access rule: local, private or public (default: private)
-  --entrypoint-root <PATH>      Public root path used before API routes in server mode
-  --no-tray                     Disable the server tray icon even when a GUI is available
-  --current-country <ISO_CODE>  Explicit local country used for geo proxy decisions
-  --cache-max-disk-bytes <BYTES>  Override the maximum on-disk size of the server cache (default: 100 MiB)
-  --cache-max-memory-bytes <BYTES>  Override the maximum in-memory size of the server cache (default: 32 MiB)
-  --refresh-ip-countries        Refresh IP-to-country geolocation data and exit"
+/// Builds the command-line help message in English.
+///
+/// # Arguments
+///
+/// * `aop` - Option provider supplying the core options.
+///
+/// # Returns
+///
+/// The formatted help message, extended with the executable-specific options.
+fn help_message(aop: Box<dyn ApplicationOptionsProvider>) -> String {
+    format!("{}{}", application::get_application_help_message(vec![aop]),"
+  --refresh-ip-countries    Refresh IP-to-country geolocation data and exit"
     )
 }
 
 /// Parses supported command line arguments for the backend executable.
 ///
-/// Supported flags:
-/// - `--desktop`: forces desktop mode
-/// - `--server`: forces server mode
-/// - `--server-port <port>`: overrides the REST server port
-/// - `--network <local|private|public>`: sets which client connections the
-///   server accepts. `local` binds to loopback only, `private` binds to all
-///   interfaces and rejects clients outside the local network ranges, and
-///   `public` binds to all interfaces and accepts every client. Defaults to
-///   `private`.
-/// - `--current-country <ISO_CODE>`: sets the explicit local country
-/// - `--cache-max-disk-bytes <BYTES>`: overrides the server cache on-disk size
-/// - `--cache-max-memory-bytes <BYTES>`: overrides the server cache in-memory size
-/// - `--help`: prints help and exits successfully
-/// - macOS Finder process serial number arguments (`-psn_...`) are ignored
-///
-/// When both `--desktop` and `--server` are provided, the last one wins.
-///
 /// # Errors
 /// Returns an error when an argument is unknown, when `--server-port` is missing
 /// its value, or when the provided port is invalid.
 fn parse_runtime_options() -> Result<CliAction> {
-    let mut application_option = CoreApplicationOptions::default();
-    application_option.web_scheme = Some("arachnea-stream".to_string());
-    let mut options = RuntimeOptions {
-        application_option,
-        current_country: None,
-        cache_max_disk_bytes: None,
-        cache_max_memory_bytes: None,
-        server_port_specified: false,
-        network_mode_specified: false,
-        entrypoint_root_specified: false,
-    };
+
+    let options = SrcapyfyApplicationOptions::from_args()?
+        .with_web_scheme("arachnea-stream");
 
     let mut args = std::env::args().skip(1);
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--desktop" => {
-                options.application_option.application_mode = Some(ApplicationMode::Desktop)
-            }
-            "--server" => {
-                options.application_option.application_mode = Some(ApplicationMode::Server)
-            }
             "--help" => {
-                println!("{}", help_message());
+                println!("{}", help_message(Box::new(options)));
                 return Ok(CliAction::ExitSuccess);
             }
             "--refresh-ip-countries" => {
                 return Ok(CliAction::RefreshIpCountries);
             }
-            "--server-port" => {
-                let port = args.next().context("missing value for `--server-port`")?;
-
-                options.application_option.server_port = Some(
-                    port.parse::<u16>()
-                        .with_context(|| format!("invalid value for `--server-port`: `{port}`"))?,
-                );
-                options.server_port_specified = true;
-            }
-            "--network" => {
-                let value = args.next().context("missing value for `--network`")?;
-                options.application_option.network_mode = value
-                    .parse::<ServerNetworkMode>()
-                    .map_err(|error| anyhow::anyhow!("invalid value for `--network`: {error}"))?;
-                options.network_mode_specified = true;
-            }
-            "--entrypoint-root" => {
-                options.application_option.entrypoint_root = Some(
-                    args.next()
-                        .context("missing value for `--entrypoint-root`")?,
-                );
-                options.entrypoint_root_specified = true;
-            }
-            "--no-tray" => options.application_option.tray_enabled = false,
-            "--current-country" => {
-                options.current_country = Some(
-                    args.next()
-                        .context("missing value for `--current-country`")?,
-                );
-            }
-            "--cache-max-disk-bytes" => {
-                let value = args
-                    .next()
-                    .context("missing value for `--cache-max-disk-bytes`")?;
-
-                options.cache_max_disk_bytes = Some(value.parse::<u64>().with_context(|| {
-                    format!("invalid value for `--cache-max-disk-bytes`: `{value}`")
-                })?);
-            }
-            "--cache-max-memory-bytes" => {
-                let value = args
-                    .next()
-                    .context("missing value for `--cache-max-memory-bytes`")?;
-
-                options.cache_max_memory_bytes = Some(value.parse::<u64>().with_context(|| {
-                    format!("invalid value for `--cache-max-memory-bytes`: `{value}`")
-                })?);
-            }
             // Finder passes this process serial number argument when opening a
             // macOS application bundle. It is not an application option.
-            arg if cfg!(target_os = "macos") && arg.starts_with("-psn_") => {}
-            _ => bail!("unknown argument: `{arg}`"),
+            arg if options.application_option.contains_option(arg.to_string()) => {}
+            _ =>  bail!("unknown argument: `{arg}`"),
         }
     }
 
@@ -180,7 +81,7 @@ fn parse_runtime_options() -> Result<CliAction> {
 
 /// Applies persisted values when the equivalent command-line option is absent.
 fn apply_persistent_configuration(
-    options: &mut RuntimeOptions,
+    options: &mut SrcapyfyApplicationOptions,
     configuration: &ApplicationConfiguration,
 ) -> Result<()> {
     if !options.server_port_specified {
@@ -208,7 +109,7 @@ fn apply_persistent_configuration(
 /// Builds the effective administration settings from CLI options and the
 /// persisted configuration, with the provenance of each value.
 fn build_admin_runtime_settings(
-    options: &RuntimeOptions,
+    options: &SrcapyfyApplicationOptions,
     configuration: &ApplicationConfiguration,
     mode: AdminMode,
 ) -> AdminRuntimeSettings {
@@ -332,7 +233,7 @@ async fn main() -> Result<()> {
         Ok(CliAction::ExitSuccess) => return Ok(()),
         Err(error) => {
             eprintln!("Error: {error}\n");
-            eprintln!("{}", help_message());
+            eprintln!("{}", help_message(Box::new(CoreApplicationOptions::default())));
             return Err(error);
         }
     };

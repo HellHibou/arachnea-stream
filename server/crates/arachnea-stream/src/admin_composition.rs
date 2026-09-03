@@ -4,7 +4,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use std::sync::{Arc, RwLock};
 
-use arachnea_core::controler::{RestServerHandle, ServerNetworkMode};
+use arachnea_core::controler::{RestServerHandle, options::ServerNetworkMode};
 use arachnea_scrapyfy::admin::{
     AdminGroupReload, AdminPersistedSettings, AdminRuntimeAdapter, AdminServerSettings,
     AdminServerSettingsReport, PlaintextCredentials,

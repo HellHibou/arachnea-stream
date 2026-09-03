@@ -133,3 +133,7 @@ pub use scraper_manager::ScraperManager;
 
 /// Serializable envelope for JSON command responses with per-source errors.
 pub mod scraper_result;
+
+/// Runtime options parsed from command line arguments.
+pub mod application_opts;
+pub use application_opts::SrcapyfyApplicationOptions;

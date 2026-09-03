@@ -567,3 +567,154 @@ fn attach_parent_console_if_any() {
         unsafe { SetStdHandle(STD_INPUT_HANDLE, input) };
     }
 }
+
+
+/// Declares a single CLI option exposed by an application.
+///
+/// Used by [`ApplicationOptionsProvider::get_options`] to describe the
+/// supported options so callers can build help messages or documentation.
+pub struct ApplicationOptionDefinition {
+    /// Option name without the leading dashes (e.g. `server-port`).
+    pub name: String,
+    /// Human-readable description of what the option does.
+    pub description: String,
+}
+
+impl ApplicationOptionDefinition {
+    /// Creates a new option definition.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Option name without the leading dashes.
+    /// * `description` - Human-readable description of the option.
+    ///
+    /// # Returns
+    ///
+    /// The newly created option definition.
+    pub fn new(name: &str, description: &str) -> Self {
+        Self { 
+            name: name.to_string(), 
+            description: description.to_string() 
+        }
+    }
+}
+
+/// Contract implemented by application option holders parsed from CLI
+/// arguments.
+///
+/// Implementors declare the options they support through
+/// [`ApplicationOptionsProvider::get_options`], define how raw arguments are
+/// turned into an instance through [`ApplicationOptionsProvider::from_vect`],
+/// and get process-argument parsing for free through
+/// [`ApplicationOptionsProvider::from_args`].
+pub trait ApplicationOptionsProvider {
+    /// Lists the CLI options supported by this application.
+    ///
+    /// # Returns
+    ///
+    /// One [`ApplicationOptionDefinition`] per supported option.
+    fn get_options(&self) -> Vec<ApplicationOptionDefinition>;
+
+    /// Builds the options from raw CLI argument strings.
+    ///
+    /// # Arguments
+    ///
+    /// * `args` - Command-line arguments (without the program name).
+    ///
+    /// # Returns
+    ///
+    /// The parsed application options, boxed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when an option is missing its value or when a
+    /// provided value is invalid.
+    fn from_vect(args: Vec<String>) -> anyhow::Result<Box<Self>>
+    where
+        Self: Sized;
+
+    /// Builds the options from the process command-line arguments.
+    ///
+    /// Collects `std::env::args` (skipping the program name is left to
+    /// implementations) and delegates to
+    /// [`ApplicationOptionsProvider::from_vect`].
+    ///
+    /// # Returns
+    ///
+    /// The parsed application options, boxed.
+    ///
+    /// # Errors
+    ///
+    /// Returns the errors reported by
+    /// [`ApplicationOptionsProvider::from_vect`].
+    fn from_args() -> anyhow::Result<Box<Self>>
+    where
+        Self: Sized,
+    {
+        Self::from_vect(std::env::args().skip(1).collect())
+    }
+
+    /// Checks if the given option is supported by this application.
+    ///
+    /// # Arguments
+    ///
+    /// * `option` - Option name without the leading dashes.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the option is supported, `false` otherwise.
+    fn contains_option(&self, option: String) -> bool {
+        // OSX Option
+        if cfg!(target_os = "macos") && option.starts_with("-psn_") {
+            return true;
+        }
+
+        self.get_options().iter().any(|opt| opt.name == option)
+    }
+}
+
+
+/// Builds the command-line help message in English.
+///
+/// One line is emitted per option definition: the option name left aligned in
+/// a field as wide as the longest option name, followed by the description.
+///
+/// # Arguments
+///
+/// * `options` - Option providers contributing to the message; their
+///   [`get_options`](ApplicationOptionsProvider::get_options) results are
+///   concatenated in the given order.
+///
+/// # Returns
+///
+/// The formatted help message, starting with the `Usage` line.
+pub fn get_application_help_message(options: Vec<Box<dyn ApplicationOptionsProvider>>) -> String {
+    let options: Vec<ApplicationOptionDefinition> = options
+        .iter()
+        .flat_map(|provider| provider.get_options())
+        .collect();
+
+    let name_width = options
+        .iter()
+        .map(|definition| definition.name.chars().count())
+        .max()
+        .unwrap_or(0);
+
+    let option_lines: Vec<String> = options
+        .iter()
+        .map(|definition| {
+            format!(
+                "  {:<width$}  {}",
+                definition.name,
+                definition.description,
+                width = name_width
+            )
+        })
+        .collect();
+
+    format!(
+        "Usage: {} [OPTIONS]\n\nOptions:\n{}",
+        program_name(),
+        option_lines.join("\n")
+    )
+}
