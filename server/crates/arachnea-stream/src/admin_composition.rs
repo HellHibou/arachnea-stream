@@ -125,27 +125,6 @@ impl AdminRuntimeAdapter for StreamAdminRuntimeAdapter {
         let report = self.reloadable.reload().await?;
         Ok(Some(AdminGroupReload {
             applied: report.applied,
-            loaded: report.loaded,
-            disabled: report.disabled,
-            ignored: report
-                .ignored
-                .into_iter()
-                .map(
-                    |s| arachnea_scrapyfy::admin::dto::AdminReloadSkippedSource {
-                        id: s.id,
-                        path: s.path,
-                    },
-                )
-                .collect(),
-            errors: report
-                .errors
-                .into_iter()
-                .map(|e| arachnea_scrapyfy::admin::dto::AdminReloadSourceError {
-                    id: e.id,
-                    path: e.path,
-                    message: e.message,
-                })
-                .collect(),
             build_error: report.build_error,
         }))
     }

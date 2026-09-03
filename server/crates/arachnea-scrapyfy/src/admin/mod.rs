@@ -27,7 +27,7 @@ use arachnea_core::persistence::TypedEntityStore;
 use crate::scrapyfy::{PersistenceSourceEnabled, SourceServiceKey, SourceServiceRecord};
 
 use auth::{LoginRateLimiter, SessionStore};
-use dto::{AdminReloadSkippedSource, AdminReloadSourceError, SettingSource};
+use dto::SettingSource;
 use ops::AdminError;
 
 pub use auth::ADMIN_SESSION_COOKIE;
@@ -116,14 +116,6 @@ pub struct AdminPersistedSettings {
 pub struct AdminGroupReload {
     /// Whether the group runtime accepted the new catalog state.
     pub applied: bool,
-    /// Service identifiers loaded for this group.
-    pub loaded: Vec<String>,
-    /// Service identifiers left disabled by their activation state.
-    pub disabled: Vec<String>,
-    /// Enabled sources skipped because their YAML file is missing.
-    pub ignored: Vec<AdminReloadSkippedSource>,
-    /// Sources that could not be validated or loaded.
-    pub errors: Vec<AdminReloadSourceError>,
     /// Build failure message when the group runtime could not be rebuilt.
     pub build_error: Option<String>,
 }

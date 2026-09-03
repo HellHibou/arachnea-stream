@@ -43,7 +43,8 @@ const services = ref<AdminServiceEntry[]>([])
 const unavailable = ref<AdminUnavailableSource[]>([])
 const needsReload = ref(false)
 const reloadResult = ref<string | null>(null)
-const reloadDetails = ref<ReloadSummary | null>(null)
+/** Whether the last manual reload applied cleanly (drives the alert color). */
+const reloadSucceeded = ref(false)
 /** Composite key of the service currently opened in the credentials dialog. */
 const activeDialogKey = ref<string | null>(null)
 /** Composite key of a service awaiting activation after credentials are saved (null otherwise). */
@@ -52,19 +53,6 @@ const pendingActivationKey = ref<string | null>(null)
 const enableConfirmKey = ref<string | null>(null)
 /** Bumped to force switch re-creation so cancelled toggles revert visually. */
 const switchEpoch = ref(0)
-
-/**
- * Summary of a configuration reload result for display in the admin UI.
- */
-interface ReloadSummary {
-  applied: boolean
-  loaded: number
-  disabled: number
-  ignored: number
-  errors: number
-  errorDetails: string[]
-  buildError?: string
-}
 
 const servicesWithCredentials = computed(() =>
   services.value.filter((s) => s.credentials?.required),
@@ -108,31 +96,27 @@ async function loadServices(): Promise<void> {
 /**
  * Updates the displayed group data from the `services` catalog response.
  *
- * Prefers the grouped `service_stores` contract; falls back to grouping the
- * flat `services` list when an older backend omits the grouped sections.
- * Groups reported by the backend but absent from `config.json` are hidden and
+ * Each service store section carries its own services and unavailable list;
+ * groups reported by the backend but absent from `config.json` are hidden and
  * only signalled in the console, exposing a frontend/backend divergence.
  */
 function updateGroupData(result: ServicesResponse): void {
   reportUnexplainedGroups(result)
 
-  const store = (result.service_stores ?? []).find(
+  const store = result.service_stores.find(
     (candidate) => candidate.service_store_id === serviceStoreId.value,
   )
   if (store) {
     services.value = store.services
     unavailable.value = store.unavailable ?? []
-    return
+  } else {
+    services.value = []
+    unavailable.value = []
   }
-
-  services.value = result.services.filter(
-    (service) => service.service_store_id === serviceStoreId.value,
-  )
-  unavailable.value = result.unavailable ?? []
 }
 
 function reportUnexplainedGroups(result: ServicesResponse): void {
-  for (const store of result.service_stores ?? []) {
+  for (const store of result.service_stores) {
     if (!hasConfiguredServiceStore(store.service_store_id)) {
       console.warn(
         `[admin] The backend reports service group "${store.service_store_id}" which is not declared in config.json; it is hidden from the UI.`,
@@ -240,29 +224,13 @@ async function handleResetEnabled(service: AdminServiceEntry): Promise<void> {
 
 async function handleReload(): Promise<void> {
   const result = await reload()
-  reloadDetails.value = null
   if (result?.applied) {
     needsReload.value = false
+    reloadSucceeded.value = true
     reloadResult.value = t('reload.success')
-    reloadDetails.value = {
-      applied: true,
-      loaded: result.loaded?.length ?? 0,
-      disabled: result.disabled?.length ?? 0,
-      ignored: result.ignored?.length ?? 0,
-      errors: result.errors?.length ?? 0,
-      errorDetails: result.errors?.map((e) => `${e.path}: ${e.message}`) ?? [],
-    }
   } else {
+    reloadSucceeded.value = false
     reloadResult.value = result?.build_error ?? t('reload.failed')
-    reloadDetails.value = {
-      applied: false,
-      loaded: result?.loaded?.length ?? 0,
-      disabled: result?.disabled?.length ?? 0,
-      ignored: result?.ignored?.length ?? 0,
-      errors: result?.errors?.length ?? 0,
-      errorDetails: result?.errors?.map((e) => `${e.path}: ${e.message}`) ?? [],
-      buildError: result?.build_error,
-    }
   }
   await loadServices()
 }
@@ -353,27 +321,12 @@ watch(serviceStoreId, () => {
 
         <v-alert
           v-else-if="reloadResult"
-          :type="reloadDetails?.applied ? 'success' : 'error'"
+          :type="reloadSucceeded ? 'success' : 'error'"
           variant="tonal"
           class="mb-4"
         >
-          <div class="d-flex align-center justify-space-between mb-2">
+          <div class="d-flex align-center justify-space-between">
             <span>{{ reloadResult }}</span>
-          </div>
-          <div v-if="reloadDetails" class="text-body-2">
-            <div>
-              {{ t('reload.details', {
-                loaded: reloadDetails.loaded,
-                disabled: reloadDetails.disabled,
-                ignored: reloadDetails.ignored,
-                errors: reloadDetails.errors,
-              }) }}
-            </div>
-            <ul v-if="reloadDetails.errorDetails.length > 0" class="mt-2">
-              <li v-for="(error, index) in reloadDetails.errorDetails" :key="index">
-                {{ error }}
-              </li>
-            </ul>
           </div>
         </v-alert>
 
@@ -397,7 +350,7 @@ watch(serviceStoreId, () => {
             :subtitle="service.description"
           >
             <template #prepend>
-              <div class="d-flex align-start" style="gap: 10px;">
+              <div class="service-item-prepend">
                 <v-switch
                   :key="`${serviceKey(service)}-${switchEpoch}`"
                   :model-value="service.enabled"
@@ -409,14 +362,6 @@ watch(serviceStoreId, () => {
                 />
                 <div v-if="service.logo" class="service-logo">
                   <v-img :src="service.logo" :alt="service.title ?? service.id" contain />
-                </div>
-                <div v-else class="service-logo service-fallback">
-                  <span v-if="service.title" >
-                    {{ service.title.charAt(0).toUpperCase() }}
-                  </span>
-                  <span v-else >
-                    {{ t('services.fallbackLogo') }}
-                  </span>
                 </div>
               </div>
             </template>
@@ -529,7 +474,7 @@ watch(serviceStoreId, () => {
 
 
 <style scoped>
-/* Logo and fallback logo - shared styles */
+/* Logo rendering when an icon is configured - shared styles */
 .service-logo {
   width: 120px;
   height: 120px;
@@ -539,7 +484,6 @@ watch(serviceStoreId, () => {
   align-items: center;
   justify-content: center;
   padding: 4px;
-  margin: 0 10px;
 }
 
 .service-logo .v-img {
@@ -547,9 +491,11 @@ watch(serviceStoreId, () => {
   max-height: 100%;
 }
 
-.service-fallback {
-  font-size: 3rem;
-  font-weight: bold;
+/* Space between the enable switch and the logo (or the description). */
+.service-item-prepend {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
 }
 
 /* Align list item content to top and prevent text truncation */
@@ -559,6 +505,14 @@ watch(serviceStoreId, () => {
   overflow: visible !important;
   text-overflow: unset !important;
   white-space: normal !important;
+}
+
+/* Space right after the switch is always 20px, between logo and content 10px. */
+:deep(.v-list-item__prepend:has(.service-logo) ~ .v-list-item__content) {
+  margin-left: 10px !important;
+}
+:deep(.v-list-item__prepend:not(:has(.service-logo)) ~ .v-list-item__content) {
+  margin-left: 20px !important;
 }
 
 /* Description on multiple lines: override Vuetify 3 subtitle clamping */

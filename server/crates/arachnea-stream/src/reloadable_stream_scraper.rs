@@ -40,39 +40,11 @@ pub(crate) struct RegistrationEndpoints {
     pub(crate) proxy_core: Option<ArachneaProxyCore>,
 }
 
-/// One source skipped during a reload, with the reason it was skipped.
-#[derive(Clone, Debug, Serialize)]
-pub struct StreamReloadSkippedSource {
-    /// Parsed identifier, when available.
-    pub id: Option<String>,
-    /// YAML file path involved.
-    pub path: String,
-}
-
-/// One source whose reload failed, with the error context.
-#[derive(Clone, Debug, Serialize)]
-pub struct StreamReloadSourceError {
-    /// Parsed identifier, when available.
-    pub id: Option<String>,
-    /// YAML file path involved.
-    pub path: String,
-    /// Human-readable error message.
-    pub message: String,
-}
-
 /// Detailed outcome of one reload attempt.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct StreamReloadReport {
     /// Whether the new instance replaced the active one.
     pub applied: bool,
-    /// Service identifiers loaded in the replacement instance.
-    pub loaded: Vec<String>,
-    /// Service identifiers left disabled by their activation state.
-    pub disabled: Vec<String>,
-    /// Enabled sources skipped because their YAML file is missing.
-    pub ignored: Vec<StreamReloadSkippedSource>,
-    /// Sources that could not be validated or loaded.
-    pub errors: Vec<StreamReloadSourceError>,
     /// Build failure message when the replacement could not be constructed.
     pub build_error: Option<String>,
 }
@@ -208,9 +180,10 @@ impl ReloadableStreamScraper {
     /// instance keeps serving requests while the replacement is built.
     ///
     /// # Returns
-    /// A [`StreamReloadReport`] detailing loaded, disabled, ignored, and
-    /// failing services. `applied` is `false` when validation or construction
-    /// failed, in which case the active instance is left untouched.
+    /// A [`StreamReloadReport`] stating whether the replacement instance was
+    /// applied and, when applicable, the build failure context. `applied` is
+    /// `false` when validation or construction failed, in which case the
+    /// active instance is left untouched.
     ///
     /// # Errors
     /// Returns an error only for unexpected internal failures such as a fatal
@@ -244,33 +217,21 @@ impl ReloadableStreamScraper {
             .await
             .context("Failed to synchronize service activation defaults during reload.")?;
 
-        let mut report = StreamReloadReport::default();
+        let mut failures: Vec<String> = Vec::new();
         for entry in &catalog.entries {
-            match policy.is_enabled(&entry.source).await {
-                Ok(true) => report.loaded.push(entry.source.id.clone()),
-                Ok(false) => report.disabled.push(entry.source.id.clone()),
-                Err(error) => report.errors.push(StreamReloadSourceError {
-                    id: Some(entry.source.id.clone()),
-                    path: entry.source.path.display().to_string(),
-                    message: format!("Failed to read activation state: {error:#}"),
-                }),
+            if let Err(error) = policy.is_enabled(&entry.source).await {
+                failures.push(format!(
+                    "{}: failed to read activation state: {error:#}",
+                    entry.source.path.display()
+                ));
             }
         }
         for failure in &catalog.failures {
-            match failure.reason {
-                ServiceCatalogFailureReason::Missing => {
-                    report.ignored.push(StreamReloadSkippedSource {
-                        id: failure.id.clone(),
-                        path: failure.path.display().to_string(),
-                    });
-                }
-                ServiceCatalogFailureReason::Invalid | ServiceCatalogFailureReason::Duplicate => {
-                    report.errors.push(StreamReloadSourceError {
-                        id: failure.id.clone(),
-                        path: failure.path.display().to_string(),
-                        message: failure.message.clone(),
-                    });
-                }
+            if matches!(
+                failure.reason,
+                ServiceCatalogFailureReason::Invalid | ServiceCatalogFailureReason::Duplicate
+            ) {
+                failures.push(format!("{}: {}", failure.path.display(), failure.message));
             }
         }
 
@@ -282,8 +243,12 @@ impl ReloadableStreamScraper {
                 .await
                 .map_err(|error| anyhow::anyhow!("Reload build task failed: {error}"))?;
 
+        let mut report = StreamReloadReport {
+            applied: false,
+            build_error: None,
+        };
         match built {
-            Ok(mut scraper) if report.errors.is_empty() => {
+            Ok(mut scraper) if failures.is_empty() => {
                 if let Some(endpoints) = self
                     .registration
                     .read()
@@ -297,19 +262,12 @@ impl ReloadableStreamScraper {
                 }
                 *self.inner.write().expect("stream scraper lock poisoned") = Arc::new(scraper);
                 report.applied = true;
-                tracing::info!(
-                    loaded = report.loaded.len(),
-                    disabled = report.disabled.len(),
-                    ignored = report.ignored.len(),
-                    "stream scraper reloaded"
-                );
+                tracing::info!("stream scraper reloaded");
             }
             Ok(_) => {
                 report.applied = false;
-                tracing::warn!(
-                    errors = report.errors.len(),
-                    "stream scraper reload refused: validation failed"
-                );
+                report.build_error = Some(format!("Validation failed: {}", failures.join("; ")));
+                tracing::warn!("stream scraper reload refused: validation failed");
             }
             Err(error) => {
                 report.applied = false;

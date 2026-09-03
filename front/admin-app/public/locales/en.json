@@ -37,7 +37,6 @@
     "signupUrl": "Create account",
     "loginMasked": "Login: {login}",
     "reloadRequired": "Reload required to apply changes",
-    "fallbackLogo": "Service",
     "enableWarning": {
       "title": "Credentials required for {service}",
       "message": "This service requires credentials and none are configured. How do you want to proceed?",
@@ -111,15 +110,8 @@
     "button": "Reload Configuration",
     "confirm": "Reload configuration now?",
     "success": "Configuration reloaded successfully.",
-    "failed": "Reload failed. See errors below.",
-    "reloadRequired": "Changes applied. Please reload to activate.",
-    "loaded": "Loaded: {count}",
-    "disabled": "Disabled: {count}",
-    "ignored": "Ignipped: {count}",
-    "errors": "Errors: {count}",
-    "buildError": "Build error: {error}",
-    "noChanges": "No changes to apply.",
-    "details": "Loaded: {loaded}, Disabled: {disabled}, Ignored: {ignored}, Errors: {errors}"
+    "failed": "Reload failed.",
+    "reloadRequired": "Changes applied. Please reload to activate."
   },
   "theme": {
     "switchToDark": "Switch to dark mode",
@@ -144,8 +136,8 @@
   },
   "service-store": {
     "arachnea-stream": {
-      "title": "Arachnéa stream",
-      "description": "Streaming video services."
+      "title": "Stream services",
+      "description": "Video streaming and indexing services."
     },
     "arachnea-stream-hoster": {
       "title": "Streaming hosters",
@@ -153,7 +145,7 @@
     },
     "arachnea-proxies": {
       "title": "Proxies",
-      "description": "Proxy inventory services."
+      "description": "Geolocation-based proxy inventory services."
     },
     "arachnea-ip-countries": {
       "title": "IP countries",

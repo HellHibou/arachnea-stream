@@ -5,6 +5,20 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ## Unreleased
 
 ### Fixed
+- **Service reload counters removed from front and backend**: the admin
+  reload flow no longer reports the erroneous `loaded`/`disabled`/`ignored`/
+  `errors` counts. `ReloadResponse` and the internal `AdminGroupReload`
+  report now only carry `applied` and `build_error`, validation failures are
+  collapsed into the `build_error` message, and the admin UI shows a simple
+  success/failure alert. The tray reload log line and `StreamReloadReport`
+  were reduced to the same outcome fields.
+- **Service management list letter fallback removed**: services without a
+  configured logo in the admin catalog no longer render a first-letter or
+  "Service" text placeholder in their logo slot; the logo box is omitted
+  entirely when no icon is present. The horizontal spacing once applied
+  around the logo now sits between the enable switch and the logo (20px)
+  and between the logo and the description (10px), keeping the switch and
+  the description readable even when no icon exists.
 - **macOS Windows ARM64 cross-compilation (`build-release/`)**: the
   `aarch64-pc-windows-msvc` build now uses a macOS-only compiler wrapper.
   It preserves cargo-xwin's `clang-cl` backend for BoringSSL, while translating
@@ -14,10 +28,10 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ### Added
 - **Admin web application (`front/admin-app/`)**: Independent Vite/Vue/Vuetify SPA served under `/admin`, built separately from the public frontend. Features include:
   - Conditional login screen driven by `/api/admin/status` (`auth_required`/`authenticated`).
-  - Service catalog with localized descriptions, fallback logos, and enable/disable toggles (override persistence via `arachnea-services` namespace).
+  - Service catalog with localized descriptions, configured logos, and enable/disable toggles (override persistence via `arachnea-services` namespace).
   - Credentials dialog with masked login display and signup URL opener (`window.open`).
   - Settings page for port, network mode (local/private/public), entrypoint root, and administrator password change.
-  - Reload button with detailed result display (`applied`, `loaded`, `disabled`, `ignored`, `errors`).
+  - Reload button with simplified success/failure feedback.
   - Theme system (system/light/dark) with `system` default, persisted to localStorage.
   - i18n (en/fr) with browser detection and `en` fallback.
   - All API calls centralized in `useAdminApi` composable with normalized error handling (`AdminApiException`, `{error:{code,message}}`).

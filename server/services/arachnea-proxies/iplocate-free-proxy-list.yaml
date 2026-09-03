@@ -1,4 +1,4 @@
-id: free-proxy-list
+id: iplocate
 title: IPLocate - Free proxy list
 description:
   en : "This repository provides lists of working, tested, free (open), anonymizing proxies for HTTP, HTTPS, SOCKS4, SOCKS5. Updates every 30 minutes. Contains thousands of working proxies collected from various sources."

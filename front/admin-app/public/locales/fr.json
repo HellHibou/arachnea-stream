@@ -37,7 +37,6 @@
     "signupUrl": "Créer un compte",
     "loginMasked": "Login : {login}",
     "reloadRequired": "Rechargement requis pour appliquer",
-    "fallbackLogo": "Service",
     "enableWarning": {
       "title": "Identifiants requis pour {service}",
       "message": "Ce service nécessite des identifiants et aucun n'est configuré. Comment souhaitez-vous continuer ?",
@@ -111,15 +110,8 @@
     "button": "Recharger la configuration",
     "confirm": "Recharger la configuration maintenant ?",
     "success": "Configuration rechargée avec succès.",
-    "failed": "Échec du rechargement. Voir les erreurs ci-dessous.",
-    "reloadRequired": "Changements appliqués. Veuillez recharger pour activer.",
-    "loaded": "Chargés : {count}",
-    "disabled": "Désactivés : {count}",
-    "ignored": "Ignorés : {count}",
-    "errors": "Erreurs : {count}",
-    "buildError": "Erreur de construction : {error}",
-    "noChanges": "Aucun changement à appliquer.",
-    "details": "Chargés : {loaded}, Désactivés : {disabled}, Ignorés : {ignored}, Erreurs : {errors}"
+    "failed": "Échec du rechargement.",
+    "reloadRequired": "Changements appliqués. Veuillez recharger pour activer."
   },
   "theme": {
     "switchToDark": "Passer en mode sombre",
@@ -144,8 +136,8 @@
   },
   "service-store": {
     "arachnea-stream": {
-      "title": "Arachnéa stream",
-      "description": "Services de streaming vidéo."
+      "title": "Services de streaming",
+      "description": "Services de streaming et d'indexeurs vidéo."
     },
     "arachnea-stream-hoster": {
       "title": "Hébergeurs de streaming",
@@ -153,7 +145,7 @@
     },
     "arachnea-proxies": {
       "title": "Proxys",
-      "description": "Services de l'inventaire de proxys."
+      "description": "Services d'inventaire de proxys géolocalisés."
     },
     "arachnea-ip-countries": {
       "title": "Pays IP",

@@ -211,9 +211,6 @@ export interface AdminServiceStore {
 export interface ServicesResponse {
   /** Service store sections, in the declared group order. */
   service_stores: AdminServiceStore[]
-  /** Declared services, including disabled ones (flat view across groups). */
-  services: AdminServiceEntry[]
-  unavailable: AdminUnavailableSource[]
 }
 
 export interface StatusCapabilities {
@@ -313,23 +310,10 @@ export interface SetAdminPasswordRequest {
   new_password: string
 }
 
-export interface AdminReloadSkippedSource {
-  id?: string
-  path: string
-}
-
-export interface AdminReloadSourceError {
-  id?: string
-  path: string
-  message: string
-}
-
 export interface ReloadResponse {
+  /** Whether the primary group replaced its runtime instance. */
   applied: boolean
-  loaded: string[]
-  disabled: string[]
-  ignored: AdminReloadSkippedSource[]
-  errors: AdminReloadSourceError[]
+  /** Build failure message when the replacement could not be constructed. */
   build_error?: string
 }
 

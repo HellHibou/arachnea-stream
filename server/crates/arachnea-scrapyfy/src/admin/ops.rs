@@ -467,8 +467,6 @@ pub(crate) async fn op_services(
     let adapter = Arc::clone(state.adapter());
     let requested_lang = input.lang.as_deref();
     let mut service_stores = Vec::with_capacity(state.groups().len());
-    let mut all_services = Vec::new();
-    let mut all_unavailable = Vec::new();
 
     for group in state.groups() {
         let catalog = load_service_catalog_detailed(&group.manifest_path, &group.service_store_id)
@@ -515,8 +513,6 @@ pub(crate) async fn op_services(
             })
             .collect::<Vec<_>>();
 
-        all_services.extend(services.iter().cloned());
-        all_unavailable.extend(unavailable.iter().cloned());
         service_stores.push(AdminServiceStore {
             service_store_id: group.service_store_id.clone(),
             services,
@@ -524,11 +520,7 @@ pub(crate) async fn op_services(
         });
     }
 
-    Ok(AdminReply::ok(&ServicesResponse {
-        service_stores,
-        services: all_services,
-        unavailable: all_unavailable,
-    }))
+    Ok(AdminReply::ok(&ServicesResponse { service_stores }))
 }
 
 /// Builds the `set-service-enabled` reply.
@@ -944,39 +936,33 @@ async fn generic_group_reload(
 
     let policy = state.activation_policy();
     let mut defaults = Vec::new();
+    let mut failures: Vec<String> = Vec::new();
     for entry in &catalog.entries {
         defaults.push(entry.source.clone());
-        match policy.is_enabled(&entry.source).await {
-            Ok(true) => report.loaded.push(entry.source.id.clone()),
-            Ok(false) => report.disabled.push(entry.source.id.clone()),
-            Err(error) => report.errors.push(AdminReloadSourceError {
-                id: Some(entry.source.id.clone()),
-                path: entry.source.path.display().to_string(),
-                message: format!("Failed to read activation state: {error:#}"),
-            }),
+        if let Err(error) = policy.is_enabled(&entry.source).await {
+            failures.push(format!(
+                "{}: failed to read activation state: {error:#}",
+                entry.source.path.display()
+            ));
         }
     }
     if let Err(error) = policy.register_defaults(&defaults).await {
-        report.build_error = Some(format!(
+        failures.push(format!(
             "Failed to synchronize service activation defaults: {error:#}"
         ));
     }
     for failure in &catalog.failures {
-        match failure.reason {
-            ServiceCatalogFailureReason::Missing => report.ignored.push(AdminReloadSkippedSource {
-                id: failure.id.clone(),
-                path: failure.path.display().to_string(),
-            }),
-            ServiceCatalogFailureReason::Invalid | ServiceCatalogFailureReason::Duplicate => {
-                report.errors.push(AdminReloadSourceError {
-                    id: failure.id.clone(),
-                    path: failure.path.display().to_string(),
-                    message: failure.message.clone(),
-                })
-            }
+        if matches!(
+            failure.reason,
+            ServiceCatalogFailureReason::Invalid | ServiceCatalogFailureReason::Duplicate
+        ) {
+            failures.push(format!("{}: {}", failure.path.display(), failure.message));
         }
     }
-    report.applied = report.errors.is_empty() && report.build_error.is_none();
+    if !failures.is_empty() {
+        report.build_error = Some(failures.join("; "));
+    }
+    report.applied = report.build_error.is_none();
     report
 }
 
@@ -995,7 +981,7 @@ pub(crate) async fn op_reload(
     verify_write(&state, &context)?;
 
     let adapter = Arc::clone(state.adapter());
-    let mut groups = Vec::with_capacity(state.groups().len());
+    let mut reloads: Vec<(String, AdminGroupReload)> = Vec::with_capacity(state.groups().len());
     for group in state.groups() {
         let reload = match adapter.rebuild_group(&group.service_store_id).await {
             Ok(Some(reload)) => reload,
@@ -1006,54 +992,19 @@ pub(crate) async fn op_reload(
                 ..Default::default()
             },
         };
-        groups.push((group.service_store_id.clone(), reload));
+        reloads.push((group.service_store_id.clone(), reload));
     }
 
     // Legacy flat view: report the first declared group so single-group
-    // clients keep their contract while every group stays inspectable.
-    let mut response = ReloadResponse {
-        applied: false,
-        loaded: Vec::new(),
-        disabled: Vec::new(),
-        ignored: Vec::new(),
-        errors: Vec::new(),
-        build_error: None,
-        groups: Vec::with_capacity(groups.len()),
+    // clients keep their contract.
+    let first = reloads.into_iter().next();
+    let response = ReloadResponse {
+        applied: first
+            .as_ref()
+            .map(|(_, reload)| reload.applied)
+            .unwrap_or(false),
+        build_error: first.and_then(|(_, reload)| reload.build_error),
     };
-    for (index, (service_store_id, reload)) in groups.into_iter().enumerate() {
-        if index == 0 {
-            response.applied = reload.applied;
-            response.loaded.clone_from(&reload.loaded);
-            response.disabled.clone_from(&reload.disabled);
-            response.ignored = reload
-                .ignored
-                .iter()
-                .map(|source| AdminReloadSkippedSource {
-                    id: source.id.clone(),
-                    path: source.path.clone(),
-                })
-                .collect();
-            response.errors = reload
-                .errors
-                .iter()
-                .map(|error| AdminReloadSourceError {
-                    id: error.id.clone(),
-                    path: error.path.clone(),
-                    message: error.message.clone(),
-                })
-                .collect();
-            response.build_error = reload.build_error.clone();
-        }
-        response.groups.push(AdminGroupReloadResponse {
-            service_store_id,
-            applied: reload.applied,
-            loaded: reload.loaded,
-            disabled: reload.disabled,
-            ignored: reload.ignored,
-            errors: reload.errors,
-            build_error: reload.build_error,
-        });
-    }
 
     Ok(AdminReply::ok(&response))
 }

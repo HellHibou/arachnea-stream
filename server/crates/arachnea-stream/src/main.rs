@@ -258,27 +258,11 @@ fn build_admin_runtime_settings(
 ///
 /// # Returns
 /// A single-line summary reporting the outcome and, when applicable, the
-/// per-source error details.
+/// build failure context.
 fn tray_reload_summary(reloadable: Arc<ReloadableStreamScraper>) -> String {
     match reloadable.reload_blocking() {
         Ok(report) => {
-            let mut summary = format!(
-                "applied={}; loaded={}; disabled={}; ignored={}; errors={}",
-                report.applied,
-                report.loaded.len(),
-                report.disabled.len(),
-                report.ignored.len(),
-                report.errors.len(),
-            );
-            if !report.errors.is_empty() {
-                let details = report
-                    .errors
-                    .iter()
-                    .map(|error| format!("{}: {}", error.path, error.message))
-                    .collect::<Vec<_>>()
-                    .join("; ");
-                summary.push_str(&format!("; error_details=[{details}]"));
-            }
+            let mut summary = format!("applied={}", report.applied);
             if let Some(build_error) = &report.build_error {
                 summary.push_str(&format!("; build_error={build_error}"));
             }

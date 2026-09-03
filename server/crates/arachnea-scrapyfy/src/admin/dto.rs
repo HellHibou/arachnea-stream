@@ -72,10 +72,6 @@ pub struct AdminServiceStore {
 pub struct ServicesResponse {
     /// Service store sections, in the declared group order.
     pub service_stores: Vec<AdminServiceStore>,
-    /// Declared services, including disabled ones (flat view across groups).
-    pub services: Vec<AdminServiceEntry>,
-    /// Sources that could not be loaded, with their error context.
-    pub unavailable: Vec<AdminUnavailableSource>,
 }
 /// Response of the `status` operation.
 #[derive(Debug, Serialize)]
@@ -290,58 +286,8 @@ pub struct LoginResponse {
 pub struct ReloadResponse {
     /// Whether the primary group replaced its runtime instance.
     pub applied: bool,
-    /// Service identifiers loaded in the replacement instance of the primary
-    /// group.
-    pub loaded: Vec<String>,
-    /// Service identifiers left disabled by their activation state.
-    pub disabled: Vec<String>,
-    /// Enabled sources skipped because their YAML file is missing.
-    pub ignored: Vec<AdminReloadSkippedSource>,
-    /// Sources that could not be validated or loaded.
-    pub errors: Vec<AdminReloadSourceError>,
     /// Build failure message when the replacement could not be constructed.
     pub build_error: Option<String>,
-    /// Per-service-store reload outcome, one entry per declared group.
-    pub groups: Vec<AdminGroupReloadResponse>,
-}
-
-/// Reload outcome of one service store (group).
-#[derive(Debug, Serialize)]
-pub struct AdminGroupReloadResponse {
-    /// Service store (group) identifier the report belongs to.
-    pub service_store_id: String,
-    /// Whether the group accepted the new catalog state.
-    pub applied: bool,
-    /// Service identifiers loaded for this group.
-    pub loaded: Vec<String>,
-    /// Service identifiers left disabled by their activation state.
-    pub disabled: Vec<String>,
-    /// Enabled sources skipped because their YAML file is missing.
-    pub ignored: Vec<AdminReloadSkippedSource>,
-    /// Sources that could not be validated or loaded.
-    pub errors: Vec<AdminReloadSourceError>,
-    /// Build failure message when the group runtime could not be rebuilt.
-    pub build_error: Option<String>,
-}
-
-/// One source skipped during a reload.
-#[derive(Clone, Debug, Serialize)]
-pub struct AdminReloadSkippedSource {
-    /// Parsed identifier, when available.
-    pub id: Option<String>,
-    /// YAML file path involved.
-    pub path: String,
-}
-
-/// One source whose reload failed.
-#[derive(Clone, Debug, Serialize)]
-pub struct AdminReloadSourceError {
-    /// Parsed identifier, when available.
-    pub id: Option<String>,
-    /// YAML file path involved.
-    pub path: String,
-    /// Human-readable error message.
-    pub message: String,
 }
 
 /// Request body of the `services` operation.
