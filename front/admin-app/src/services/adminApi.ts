@@ -182,6 +182,8 @@ export interface CredentialInfo {
 }
 
 export interface AdminServiceEntry {
+  /** Service store (group) identifier owning the service. */
+  service_store_id: string
   id: string
   title?: string
   logo?: string
@@ -199,7 +201,17 @@ export interface AdminUnavailableSource {
   message: string
 }
 
+/** One service store (group) section of the administration catalog. */
+export interface AdminServiceStore {
+  service_store_id: string
+  services: AdminServiceEntry[]
+  unavailable: AdminUnavailableSource[]
+}
+
 export interface ServicesResponse {
+  /** Service store sections, in the declared group order. */
+  service_stores: AdminServiceStore[]
+  /** Declared services, including disabled ones (flat view across groups). */
   services: AdminServiceEntry[]
   unavailable: AdminUnavailableSource[]
 }
@@ -229,23 +241,42 @@ export interface LoginResponse {
 }
 
 export interface ServiceEnabledResponse {
+  service_store_id: string
   service_id: string
   enabled?: boolean
   reload_required: boolean
 }
 
 export interface SetCredentialsRequest {
+  service_store_id: string
   service_id: string
   login: string
   password: string
 }
 
 export interface ClearCredentialsRequest {
+  service_store_id: string
   service_id: string
 }
 
 export interface CredentialsResponse {
   credentials: Record<string, CredentialInfo>
+}
+
+/**
+ * Locates the credential entry of one source inside a `credentials` response.
+ *
+ * The backend reports a bare `service_id` key when the identifier is unique
+ * across the declared stores, and a `service_store_id/service_id` composite
+ * key when several stores declare the same identifier. Both forms are checked
+ * so the frontend never has to parse group identity out of a token.
+ */
+export function lookupCredential(
+  credentials: Record<string, CredentialInfo>,
+  serviceStoreId: string,
+  serviceId: string,
+): CredentialInfo | undefined {
+  return credentials[`${serviceStoreId}/${serviceId}`] ?? credentials[serviceId]
 }
 
 export type SettingSource = 'command_line' | 'configuration' | 'default'
@@ -330,41 +361,61 @@ export function fetchServices(lang?: string): Promise<ServicesResponse> {
 }
 
 /** Sets the enabled override for a service. */
-export function setServiceEnabled(serviceId: string, enabled: boolean): Promise<ServiceEnabledResponse> {
+export function setServiceEnabled(
+  serviceStoreId: string,
+  serviceId: string,
+  enabled: boolean,
+): Promise<ServiceEnabledResponse> {
   return apiCall<ServiceEnabledResponse>('set-service-enabled', {
     method: 'POST',
-    body: { service_id: serviceId, enabled },
+    body: { service_store_id: serviceStoreId, service_id: serviceId, enabled },
   })
 }
 
 /** Resets the enabled override for a service. */
-export function resetServiceEnabled(serviceId: string): Promise<ServiceEnabledResponse> {
+export function resetServiceEnabled(
+  serviceStoreId: string,
+  serviceId: string,
+): Promise<ServiceEnabledResponse> {
   return apiCall<ServiceEnabledResponse>('reset-service-enabled', {
     method: 'POST',
-    body: { service_id: serviceId },
+    body: { service_store_id: serviceStoreId, service_id: serviceId },
   })
 }
 
-/** Fetches credential information for all services or a specific one. */
-export function fetchCredentials(serviceId?: string): Promise<CredentialsResponse> {
+/** Fetches credential information for one or every service. */
+export function fetchCredentials(
+  serviceStoreId?: string,
+  serviceId?: string,
+): Promise<CredentialsResponse> {
   return apiCall<CredentialsResponse>('credentials', {
-    params: serviceId ? { serviceId } : undefined,
+    params: serviceStoreId || serviceId
+      ? { serviceStoreId, serviceId }
+      : undefined,
   })
 }
 
 /** Sets credentials for a service. */
-export function setCredentials(serviceId: string, login: string, password: string): Promise<void> {
+export function setCredentials(
+  serviceStoreId: string,
+  serviceId: string,
+  login: string,
+  password: string,
+): Promise<void> {
   return apiCall<void>('set-credentials', {
     method: 'POST',
-    body: { service_id: serviceId, login, password } satisfies SetCredentialsRequest,
+    body: { service_store_id: serviceStoreId, service_id: serviceId, login, password } satisfies SetCredentialsRequest,
   })
 }
 
 /** Clears stored credentials for a service. */
-export function clearCredentials(serviceId: string): Promise<void> {
+export function clearCredentials(
+  serviceStoreId: string,
+  serviceId: string,
+): Promise<void> {
   return apiCall<void>('clear-credentials', {
     method: 'POST',
-    body: { service_id: serviceId } satisfies ClearCredentialsRequest,
+    body: { service_store_id: serviceStoreId, service_id: serviceId } satisfies ClearCredentialsRequest,
   })
 }
 

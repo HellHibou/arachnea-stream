@@ -411,14 +411,15 @@ non de la façade Stream.
    admin Scrapyfy à l'exécutable appelant.
 4. [x] Faire construire par la composition Stream les quatre groupes et un
    `AdminRuntimeAdapter` minimal vers sa configuration et ses runtimes concrets.
-5. [ ] Faire évoluer le contrat API et le frontend simultanément pour transporter
+5. [x] Faire évoluer le contrat API et le frontend simultanément pour transporter
    `service_store_id` dans toutes les opérations de source.
-6. [ ] Ajouter `config.json`, les clés de locale anglaises et françaises, la route
+
+6. [x] Ajouter `config.json`, les clés de locale anglaises et françaises, la route
    paramétrée et les entrées de navigation par groupe.
 7. [x] Supprimer les données `arachnea-services` existantes sans migration lors de
    l'introduction du schéma incompatible, puis documenter cette action
    destructive dans le `CHANGELOG.md`.
-8. [ ] Mettre à jour les tests existants affectés et la documentation publique, puis
+8. [x] Mettre à jour les tests existants affectés et la documentation publique, puis
    exécuter les vérifications Rust et frontend pertinentes.
 
 La demande ne requiert pas de nouvelle infrastructure de test. Il n'existe pas
@@ -453,6 +454,41 @@ s'ils couvrent les contrats modifiés.
 - Validation exécutée : `cargo check -p arachnea-stream` et
   `cargo test -p arachnea-stream --lib` (13 réussis, 1 test fournisseur live
   ignoré).
+
+## Implémentation - Phase 2 frontend (2026-09-03)
+
+- Le frontend `front/admin-app` transporte désormais `service_store_id` dans
+  toutes les opérations de source : catalogue (`AdminServiceEntry`,
+  `AdminServiceStore`, `ServicesResponse`), `set-service-enabled`,
+  `reset-service-enabled`, `credentials`, `set-credentials` et
+  `clear-credentials`. La recherche d'une entrée `credentials` accepte la clé
+  composite `store/service` ou la clé nue `service`, sans jamais déduire le groupe
+  d'un jeton.
+- Ajout de `public/config.json` (`title` + `service-store` ordonné des quatre
+  groupes) et de `services/appConfig.ts`, qui valide la ressource au chargement
+  (titre non vide, tableau de chaînes non vides et sans doublon). Une
+  configuration absente ou invalide affiche une erreur localisée
+  (`config.loadFailed`) au lieu de présenter une administration incomplète. La
+  barre applicative tire son titre de `config.title` (repli sur la locale
+  statique).
+- La locale anglaise définit les quatre groupes; la française en définit
+  également quatre. Les titres/descriptions de groupe suivent les deux chaînes
+  de fallback (locale sélectionnée puis `en`; titre : identifiant du groupe en
+  dernier recours, description : absence) via `serviceStoreTitle` /
+  `serviceStoreDescription` exposés par le module i18n, réactifs aux
+  changements de langue.
+- La navigation latérale crée une entrée par groupe configuré, menant à une route
+  paramétrée unique `/services/:serviceStoreId` qui préserve les liens directs.
+
+  La vue Services filtre les sources et les sources indisponibles sur le groupe de
+  la route, affiche titre/description résolus et garde le flux d'activation /
+  identifiants existant. Les groupes reçus de l'API mais absents de
+  `config.json` restent masqués et sont signalés dans la console; une valeur de
+  route inconnue redirige vers le premier groupe configuré.
+- Validation exécutée : `npm run build` (type-check + build Vite) de
+  `front/admin-app`, vérification que `config.json` est bien copié dans le
+  bundle `dist/admin/`, et `cargo check -p arachnea-stream` (backend inchangé
+  en cette phase, toujours compilable).
 
 ## Décisions confirmées
 

@@ -3,16 +3,19 @@ import { computed, ref, watch } from 'vue'
 
 import { useAdminApi } from '@/composables/useAdminApi'
 import { useI18n } from '@/i18n'
-import type { AdminServiceEntry } from '@/services/adminApi'
+import { lookupCredential, type AdminServiceEntry } from '@/services/adminApi'
 
 const props = withDefaults(
   defineProps<{
+    /** Service store (group) identifier owning the service. */
+    serviceStoreId: string | null
     /** Service ID to show credentials for, or null to hide dialog. */
     serviceId: string | null
     /** Display label for the dialog title: service title with source code. */
     serviceTitle?: string | null
   }>(),
   {
+    serviceStoreId: null,
     serviceTitle: null,
   },
 )
@@ -43,24 +46,25 @@ const service = ref<AdminServiceEntry | null>(null)
 watch(
   () => props.serviceId,
   async (newId) => {
-    if (newId) {
-      await loadCredentials(newId)
+    if (newId && props.serviceStoreId) {
+      await loadCredentials(props.serviceStoreId, newId)
     } else {
       resetForm()
     }
   },
 )
 
-async function loadCredentials(serviceId: string): Promise<void> {
+async function loadCredentials(serviceStoreId: string, serviceId: string): Promise<void> {
   resetForm()
-  const result = await getCredentials(serviceId)
-  if (result?.credentials && result.credentials[serviceId]) {
-    const cred = result.credentials[serviceId]
+  const result = await getCredentials(serviceStoreId, serviceId)
+  if (result?.credentials) {
+    const cred = lookupCredential(result.credentials, serviceStoreId, serviceId)
     if (cred?.login_masked) {
       login.value = cred.login_masked
     }
     service.value = {
       id: serviceId,
+      service_store_id: serviceStoreId,
       default_enabled: true,
       enabled: true,
       has_override: false,
@@ -80,11 +84,13 @@ function resetForm(): void {
 }
 
 async function handleSave(): Promise<void> {
-  if (!props.serviceId) return
+  const storeId = props.serviceStoreId
+  const serviceId = props.serviceId
+  if (!storeId || !serviceId) return
   localError.value = null
   successMessage.value = null
 
-  const success = await setCredentials(props.serviceId, login.value, password.value)
+  const success = await setCredentials(storeId, serviceId, login.value, password.value)
   if (success) {
     successMessage.value = t('credentials.saved')
     password.value = ''
@@ -96,11 +102,13 @@ async function handleSave(): Promise<void> {
 }
 
 async function handleClear(): Promise<void> {
-  if (!props.serviceId) return
+  const storeId = props.serviceStoreId
+  const serviceId = props.serviceId
+  if (!storeId || !serviceId) return
   localError.value = null
   successMessage.value = null
 
-  const success = await clearCredentials(props.serviceId)
+  const success = await clearCredentials(storeId, serviceId)
   if (success) {
     successMessage.value = t('credentials.cleared')
     login.value = ''

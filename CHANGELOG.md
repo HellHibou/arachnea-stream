@@ -1293,3 +1293,16 @@ redémarrage du processus ni du systray :
   `arachnea-stream`, `arachnea-stream-hoster`, `arachnea-proxies`, and
   `arachnea-ip-countries`; source API identities now include
   `service_store_id`.
+## Unreleased — Frontend multi-group service administration
+
+- **Admin web application — multi-group service administration**: the
+  admin catalog now addresses every source by the composite pair
+  `(service_store_id, service_id)`, and the frontend transports the group
+  identifier in every source operation (catalog, activation overrides,
+  credentials). A public `config.json` declares the app title and the ordered
+  list of the four administrable groups; its absence or invalidity displays a
+  localized error instead of an incomplete administration. The left navigation
+  exposes one entry per group (en/fr titles/descriptions with the
+  locale → `en` → identifier fallback chain), the app bar title comes from
+  `config.json`, and the services view uses a single parametrized route
+  `/services/:serviceStoreId` preserving direct links.

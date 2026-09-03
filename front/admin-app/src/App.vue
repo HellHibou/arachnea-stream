@@ -7,15 +7,17 @@ import { useAdminApi } from '@/composables/useAdminApi'
 import { useErrorNotifications } from '@/composables/useErrorNotifications'
 import { useI18n, setLanguage } from '@/i18n'
 import { loadStoredTheme, persistTheme, findThemePreset } from '@/services/theme'
+import { useAppConfig, defaultServicesPath } from '@/services/appConfig'
 import type { ThemeMode } from '@/services/theme'
 import type { StatusResponse } from '@/services/adminApi'
 import ErrorNotificationStack from '@/components/errors/ErrorNotificationStack.vue'
 
 const router = useRouter()
 const vuetifyTheme = useTheme()
-const { t, availableLanguages, selectedLanguage, resolvedLanguage } = useI18n()
+const { t, serviceStoreTitle, availableLanguages, selectedLanguage, resolvedLanguage } = useI18n()
 const { getStatus, logout } = useAdminApi()
 const { notifications: errorNotifications, dismiss: dismissError } = useErrorNotifications()
+const { title: appConfigTitle, serviceStores, errorMessage: configError } = useAppConfig()
 
 const isLoading = ref(true)
 const isAuthenticated = ref(false)
@@ -44,7 +46,7 @@ async function checkAuth(): Promise<void> {
     } else if (result.auth_required && !result.authenticated) {
       router.push({ name: 'login' })
     } else if (router.currentRoute.value.name === 'login') {
-      router.push({ name: 'services' })
+      router.push(defaultServicesPath())
     }
   }
   isLoading.value = false
@@ -83,8 +85,19 @@ onMounted(() => {
 
 <template>
   <v-app>
+    <v-alert
+      v-if="configError"
+      type="error"
+      variant="tonal"
+      class="ma-4"
+    >
+      <div class="text-h6">{{ t('config.loadFailed') }}</div>
+      <div class="text-body-2 mt-1">{{ configError }}</div>
+    </v-alert>
+
+    <template v-else>
     <v-app-bar v-if="isAuthenticated" color="primary" density="compact">
-      <v-app-bar-title>{{ t('app.title') }}</v-app-bar-title>
+      <v-app-bar-title>{{ appConfigTitle || t('app.title') }}</v-app-bar-title>
 
       <v-spacer />
 
@@ -147,7 +160,13 @@ onMounted(() => {
 
     <v-navigation-drawer v-if="isAuthenticated">
       <v-list nav>
-        <v-list-item :to="{ name: 'services' }" prepend-icon="mdi-server" :title="t('nav.services')" />
+        <v-list-item
+          v-for="storeId in serviceStores"
+          :key="storeId"
+          :to="{ path: `/services/${storeId}` }"
+          prepend-icon="mdi-server"
+          :title="serviceStoreTitle(storeId)"
+        />
         <v-list-item :to="{ name: 'settings' }" prepend-icon="mdi-cog" :title="t('nav.settings')" />
       </v-list>
     </v-navigation-drawer>
@@ -160,6 +179,8 @@ onMounted(() => {
       />
       <router-view v-else />
     </v-main>
+
+    </template>
 
     <ErrorNotificationStack
       :notifications="errorNotifications"

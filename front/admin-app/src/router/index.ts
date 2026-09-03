@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 import { getAppBasePath } from '@/services/baseUrl'
+import { defaultServicesPath } from '@/services/appConfig'
 
 const router = createRouter({
   history: createWebHistory(getAppBasePath()),
@@ -8,19 +9,25 @@ const router = createRouter({
     {
       path: '/',
       name: 'home',
-      redirect: { name: 'services' },
+      redirect: '/services',
+    },
+    {
+      path: '/services',
+      // Redirects to the first configured service group; `/services/<id>`
+      // below is the canonical parametrized route used for direct links.
+      redirect: () => defaultServicesPath(),
+    },
+    {
+      path: '/services/:serviceStoreId',
+      name: 'services',
+      component: () => import('@/views/ServicesView.vue'),
+      meta: { requiresAuth: true },
     },
     {
       path: '/login',
       name: 'login',
       component: () => import('@/views/LoginView.vue'),
       meta: { requiresAuth: false },
-    },
-    {
-      path: '/services',
-      name: 'services',
-      component: () => import('@/views/ServicesView.vue'),
-      meta: { requiresAuth: true },
     },
     {
       path: '/settings',

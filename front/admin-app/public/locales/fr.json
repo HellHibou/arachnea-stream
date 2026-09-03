@@ -24,6 +24,7 @@
     "enabled": "Activé",
     "disabled": "Désactivé",
     "unavailable": "Indisponible",
+    "unavailableTitle": "Sources indisponibles",
     "hasOverride": "Personnalisé",
     "enable": "Activer",
     "disable": "Désactiver",
@@ -137,6 +138,27 @@
     "retry": "Réessayer",
     "refresh": "Rafraîchir",
     "actions": "Actions"
+  },
+  "config": {
+    "loadFailed": "La configuration de l'application n'a pas pu être chargée. La console d'administration nécessite un fichier config.json valide."
+  },
+  "service-store": {
+    "arachnea-stream": {
+      "title": "Arachnéa stream",
+      "description": "Services de streaming vidéo."
+    },
+    "arachnea-stream-hoster": {
+      "title": "Hébergeurs de streaming",
+      "description": "Services de résolution des lecteurs vidéo."
+    },
+    "arachnea-proxies": {
+      "title": "Proxys",
+      "description": "Services de l'inventaire de proxys."
+    },
+    "arachnea-ip-countries": {
+      "title": "Pays IP",
+      "description": "Services de résolution IP vers pays."
+    }
   },
   "error": {
     "unknown": "Une erreur inconnue est survenue.",

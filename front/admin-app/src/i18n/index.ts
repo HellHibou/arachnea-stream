@@ -61,6 +61,8 @@ export function useI18n() {
     isLoading: readonly(isLoading),
     errorMessage: readonly(errorMessage),
     t,
+    serviceStoreTitle,
+    serviceStoreDescription,
     setLanguage,
   }
 }
@@ -81,6 +83,63 @@ export function t(key: string, params?: TranslationParams): string {
     return formatMessage(fallbackValue, params ?? {})
   }
   return key
+}
+
+/**
+ * Resolves the localized title of one service group.
+ *
+ * Fallback chain: selected locale, then English, then the technical group
+ * identifier. The result is reactive and recomputes when the active language
+ * changes.
+ *
+ * @param storeId - Technical `service_store_id` of the group.
+ * @returns The localized title, or the group identifier when absent.
+ */
+export function serviceStoreTitle(storeId: string): string {
+  return resolveServiceStoreTexts(storeId).title
+}
+
+/**
+ * Resolves the localized description of one service group.
+ *
+ * Fallback chain: selected locale, then English, then no description. The
+ * result is reactive and recomputes when the active language changes.
+ *
+ * @param storeId - Technical `service_store_id` of the group.
+ * @returns The localized description, or `undefined` when absent.
+ */
+export function serviceStoreDescription(storeId: string): string | undefined {
+  return resolveServiceStoreTexts(storeId).description
+}
+
+/**
+ * Reads the group title/description across the active and fallback
+ * dictionaries. A missing, non-textual or empty value is treated as absent.
+ */
+function resolveServiceStoreTexts(
+  storeId: string,
+): { title: string; description: string | undefined } {
+  let title: string | undefined
+  let description: string | undefined
+  for (const dictionary of [activeMessages.value, fallbackMessages.value]) {
+    const storeTexts = readMessage(dictionary, `service-store.${storeId}`)
+    if (!isRecord(storeTexts)) {
+      continue
+    }
+    const rawTitle = storeTexts.title
+    const rawDescription = storeTexts.description
+    if (title === undefined && typeof rawTitle === 'string' && rawTitle.trim().length > 0) {
+      title = rawTitle
+    }
+    if (
+      description === undefined
+      && typeof rawDescription === 'string'
+      && rawDescription.trim().length > 0
+    ) {
+      description = rawDescription
+    }
+  }
+  return { title: title ?? storeId, description }
 }
 
 async function loadInitialI18n(): Promise<void> {

@@ -7,6 +7,7 @@ import '@mdi/font/css/materialdesignicons.css'
 import App from './App.vue'
 import router from './router'
 import { initializeI18n } from './i18n'
+import { initializeAppConfig } from './services/appConfig'
 
 const vuetify = createVuetify({
   icons: {
@@ -46,6 +47,7 @@ const vuetify = createVuetify({
 
 async function bootstrap(): Promise<void> {
   await initializeI18n()
+  await initializeAppConfig()
 
   const app = createApp(App)
   app.use(vuetify)

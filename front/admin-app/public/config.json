@@ -1,0 +1,9 @@
+{
+  "title": "Arachnéa Stream",
+  "service-store": [
+    "arachnea-stream",
+    "arachnea-stream-hoster",
+    "arachnea-proxies",
+    "arachnea-ip-countries"
+  ]
+}

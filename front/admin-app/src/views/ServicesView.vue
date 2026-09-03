@@ -1,12 +1,21 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 import { useAdminApi } from '@/composables/useAdminApi'
 import { useI18n } from '@/i18n'
-import type { AdminServiceEntry } from '@/services/adminApi'
+import { hasConfiguredServiceStore, defaultServicesPath } from '@/services/appConfig'
+import type {
+  AdminServiceEntry,
+  AdminUnavailableSource,
+  ServicesResponse,
+} from '@/services/adminApi'
 import CredentialsDialog from '@/components/CredentialsDialog.vue'
 
-const { t } = useI18n()
+const route = useRoute()
+const router = useRouter()
+
+const { t, serviceStoreTitle, serviceStoreDescription } = useI18n()
 const {
   getServices,
   setServiceEnabled,
@@ -16,15 +25,31 @@ const {
   error,
 } = useAdminApi()
 
+/** The service store (group) displayed, from the `/services/:serviceStoreId` route parameter. */
+const serviceStoreId = computed(() => {
+  const raw = route.params.serviceStoreId
+  return Array.isArray(raw) ? (raw[0] ?? '') : (raw ?? '')
+})
+
+/** Composite identity of a source within the administration catalog. */
+function serviceKey(service: AdminServiceEntry): string {
+  return `${service.service_store_id}/${service.id}`
+}
+
+const groupTitle = computed(() => serviceStoreTitle(serviceStoreId.value))
+const groupDescription = computed(() => serviceStoreDescription(serviceStoreId.value))
+
 const services = ref<AdminServiceEntry[]>([])
+const unavailable = ref<AdminUnavailableSource[]>([])
 const needsReload = ref(false)
 const reloadResult = ref<string | null>(null)
 const reloadDetails = ref<ReloadSummary | null>(null)
-const activeDialog = ref<string | null>(null)
-/** Service awaiting activation after credentials are saved (null otherwise). */
-const pendingActivation = ref<string | null>(null)
-/** Service for which the "credentials required" confirmation dialog is open. */
-const enableConfirmServiceId = ref<string | null>(null)
+/** Composite key of the service currently opened in the credentials dialog. */
+const activeDialogKey = ref<string | null>(null)
+/** Composite key of a service awaiting activation after credentials are saved (null otherwise). */
+const pendingActivationKey = ref<string | null>(null)
+/** Composite key of the service for which the "credentials required" confirmation dialog is open. */
+const enableConfirmKey = ref<string | null>(null)
 /** Bumped to force switch re-creation so cancelled toggles revert visually. */
 const switchEpoch = ref(0)
 
@@ -46,9 +71,12 @@ const servicesWithCredentials = computed(() =>
 )
 
 /** Catalog entry currently opened in the credentials dialog. */
-const activeService = computed(() =>
-  services.value.find((s) => s.id === activeDialog.value) ?? null,
-)
+const activeService = computed(() => {
+  if (!activeDialogKey.value) {
+    return null
+  }
+  return services.value.find((s) => serviceKey(s) === activeDialogKey.value) ?? null
+})
 
 /** Dialog heading: service title followed by its source code in parentheses. */
 const activeDialogTitle = computed(() => {
@@ -61,7 +89,9 @@ const activeDialogTitle = computed(() => {
 
 /** Confirmation heading: required-credentials message with service and source. */
 const enableConfirmDialogTitle = computed(() => {
-  const service = services.value.find((s) => s.id === enableConfirmServiceId.value)
+  const service = enableConfirmKey.value
+    ? services.value.find((s) => serviceKey(s) === enableConfirmKey.value)
+    : undefined
   const label = service
     ? (service.title ? `${service.title} (${service.id})` : service.id)
     : ''
@@ -71,12 +101,56 @@ const enableConfirmDialogTitle = computed(() => {
 async function loadServices(): Promise<void> {
   const result = await getServices()
   if (result) {
-    services.value = result.services
+    updateGroupData(result)
   }
 }
 
-async function handleSetEnabled(serviceId: string, enabled: boolean): Promise<void> {
-  const result = await setServiceEnabled(serviceId, enabled)
+/**
+ * Updates the displayed group data from the `services` catalog response.
+ *
+ * Prefers the grouped `service_stores` contract; falls back to grouping the
+ * flat `services` list when an older backend omits the grouped sections.
+ * Groups reported by the backend but absent from `config.json` are hidden and
+ * only signalled in the console, exposing a frontend/backend divergence.
+ */
+function updateGroupData(result: ServicesResponse): void {
+  reportUnexplainedGroups(result)
+
+  const store = (result.service_stores ?? []).find(
+    (candidate) => candidate.service_store_id === serviceStoreId.value,
+  )
+  if (store) {
+    services.value = store.services
+    unavailable.value = store.unavailable ?? []
+    return
+  }
+
+  services.value = result.services.filter(
+    (service) => service.service_store_id === serviceStoreId.value,
+  )
+  unavailable.value = result.unavailable ?? []
+}
+
+function reportUnexplainedGroups(result: ServicesResponse): void {
+  for (const store of result.service_stores ?? []) {
+    if (!hasConfiguredServiceStore(store.service_store_id)) {
+      console.warn(
+        `[admin] The backend reports service group "${store.service_store_id}" which is not declared in config.json; it is hidden from the UI.`,
+      )
+    }
+  }
+}
+
+/** Redirects unknown `serviceStoreId` route values to the first configured group. */
+function ensureKnownGroup(): void {
+  const id = serviceStoreId.value
+  if (id && !hasConfiguredServiceStore(id)) {
+    router.replace(defaultServicesPath())
+  }
+}
+
+async function handleSetEnabled(service: AdminServiceEntry, enabled: boolean): Promise<void> {
+  const result = await setServiceEnabled(service.service_store_id, service.id, enabled)
   if (result?.reload_required) {
     needsReload.value = true
     reloadResult.value = t('services.reloadRequired')
@@ -92,49 +166,54 @@ async function handleSetEnabled(serviceId: string, enabled: boolean): Promise<vo
  * Intercepts switch activation: when the service requires credentials and
  * none are configured, ask the user how to proceed before enabling.
  */
-function requestEnable(serviceId: string): void {
-  const service = services.value.find((s) => s.id === serviceId)
-  if (service?.credentials?.required && !service.credentials?.configured) {
-    enableConfirmServiceId.value = serviceId
+function requestEnable(service: AdminServiceEntry): void {
+  if (service.credentials?.required && !service.credentials?.configured) {
+    enableConfirmKey.value = serviceKey(service)
     return
   }
-  void handleSetEnabled(serviceId, true)
+  void handleSetEnabled(service, true)
 }
 
 /** Leaves the service disabled (user dismissed the confirmation dialog). */
 async function cancelEnable(): Promise<void> {
-  enableConfirmServiceId.value = null
+  enableConfirmKey.value = null
   switchEpoch.value += 1
   await loadServices()
 }
 
 /** Opens the credentials dialog; activation resumes after a successful save. */
 function enableWithCredentials(): void {
-  const serviceId = enableConfirmServiceId.value
-  enableConfirmServiceId.value = null
-  if (!serviceId) {
+  const key = enableConfirmKey.value
+  enableConfirmKey.value = null
+  if (!key) {
     return
   }
-  pendingActivation.value = serviceId
-  activeDialog.value = serviceId
+  pendingActivationKey.value = key
+  activeDialogKey.value = key
 }
 
 /** Activates the service without configuring credentials. */
 function enableWithoutCredentials(): void {
-  const serviceId = enableConfirmServiceId.value
-  enableConfirmServiceId.value = null
-  if (!serviceId) {
+  const key = enableConfirmKey.value
+  enableConfirmKey.value = null
+  if (!key) {
     return
   }
-  void handleSetEnabled(serviceId, true)
+  const service = services.value.find((candidate) => serviceKey(candidate) === key)
+  if (service) {
+    void handleSetEnabled(service, true)
+  }
 }
 
 /** Activates the pending service after credentials were saved. */
 async function onCredentialsSaved(): Promise<void> {
-  const serviceId = pendingActivation.value
-  pendingActivation.value = null
-  if (serviceId) {
-    await handleSetEnabled(serviceId, true)
+  const key = pendingActivationKey.value
+  pendingActivationKey.value = null
+  if (key) {
+    const service = services.value.find((candidate) => serviceKey(candidate) === key)
+    if (service) {
+      await handleSetEnabled(service, true)
+    }
     return
   }
   await loadServices()
@@ -142,16 +221,16 @@ async function onCredentialsSaved(): Promise<void> {
 
 /** Drops the pending activation when the credentials dialog is cancelled. */
 async function onCredentialsClosed(): Promise<void> {
-  if (pendingActivation.value) {
-    pendingActivation.value = null
+  if (pendingActivationKey.value) {
+    pendingActivationKey.value = null
     switchEpoch.value += 1
     await loadServices()
   }
   closeCredentials()
 }
 
-async function handleResetEnabled(serviceId: string): Promise<void> {
-  const result = await resetServiceEnabled(serviceId)
+async function handleResetEnabled(service: AdminServiceEntry): Promise<void> {
+  const result = await resetServiceEnabled(service.service_store_id, service.id)
   if (result?.reload_required) {
     needsReload.value = true
     reloadResult.value = t('services.reloadRequired')
@@ -188,12 +267,12 @@ async function handleReload(): Promise<void> {
   await loadServices()
 }
 
-function openCredentials(serviceId: string): void {
-  activeDialog.value = serviceId
+function openCredentials(service: AdminServiceEntry): void {
+  activeDialogKey.value = serviceKey(service)
 }
 
 function closeCredentials(): void {
-  activeDialog.value = null
+  activeDialogKey.value = null
 }
 
 function getServiceName(service: AdminServiceEntry): string {
@@ -221,6 +300,13 @@ function getCredentialsTitle(service: AdminServiceEntry): string {
 }
 
 onMounted(() => {
+  ensureKnownGroup()
+  loadServices()
+})
+
+// Reload the group data when navigation switches between service groups.
+watch(serviceStoreId, () => {
+  ensureKnownGroup()
   loadServices()
 })
 </script>
@@ -229,9 +315,12 @@ onMounted(() => {
   <v-container fluid>
     <v-row>
       <v-col cols="12">
-        <h1 class="text-h4 mb-2">{{ t('services.title') }}</h1>
-        <p class="text-body-1 text-medium-emphasis mb-4">
-          {{ t('services.description') }}
+        <h1 class="text-h4 mb-2">{{ groupTitle }}</h1>
+        <p
+          v-if="groupDescription"
+          class="text-body-1 text-medium-emphasis mb-4"
+        >
+          {{ groupDescription }}
         </p>
 
         <v-alert
@@ -303,20 +392,20 @@ onMounted(() => {
         <v-list v-else class="align-start">
           <v-list-item
             v-for="service in services"
-            :key="service.id"
+            :key="serviceKey(service)"
             :title="getServiceName(service)"
             :subtitle="service.description"
           >
             <template #prepend>
               <div class="d-flex align-start" style="gap: 10px;">
                 <v-switch
-                  :key="`${service.id}-${switchEpoch}`"
+                  :key="`${serviceKey(service)}-${switchEpoch}`"
                   :model-value="service.enabled"
                   color="success"
                   hide-details
                   density="compact"
                   :disabled="service.unavailable"
-                  @update:model-value="$event === true ? requestEnable(service.id) : handleSetEnabled(service.id, false)"
+                  @update:model-value="$event === true ? requestEnable(service) : handleSetEnabled(service, false)"
                 />
                 <div v-if="service.logo" class="service-logo">
                   <v-img :src="service.logo" :alt="service.title ?? service.id" contain />
@@ -367,7 +456,7 @@ onMounted(() => {
                   class="credentials-btn"
                   :color="getCredentialsColor(service)"
                   :title="getCredentialsTitle(service)"
-                  @click="openCredentials(service.id)"
+                  @click="openCredentials(service)"
                 />
               </div>
             </template>
@@ -375,7 +464,7 @@ onMounted(() => {
         </v-list>
 
         <v-dialog
-          :model-value="enableConfirmServiceId !== null"
+          :model-value="enableConfirmKey !== null"
           max-width="480"
           @update:model-value="!$event && cancelEnable()"
         >
@@ -411,11 +500,26 @@ onMounted(() => {
         </v-dialog>
 
         <CredentialsDialog
-          :service-id="activeDialog"
+          :service-store-id="activeService?.service_store_id ?? null"
+          :service-id="activeService?.id ?? null"
           :service-title="activeDialogTitle"
           @close="onCredentialsClosed"
           @saved="onCredentialsSaved"
         />
+
+        <v-alert
+          v-if="unavailable.length > 0"
+          type="warning"
+          variant="tonal"
+          class="mt-4"
+        >
+          <div class="font-weight-medium mb-1">{{ t('services.unavailableTitle') }}</div>
+          <ul class="mb-0">
+            <li v-for="(source, index) in unavailable" :key="index">
+              {{ source.path }}{{ source.message ? ` — ${source.message}` : '' }}
+            </li>
+          </ul>
+        </v-alert>
       </v-col>
     </v-row>
   </v-container>

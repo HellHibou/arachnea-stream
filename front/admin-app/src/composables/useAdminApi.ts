@@ -113,26 +113,41 @@ export function useAdminApi() {
     return withApiState(() => fetchServices(lang))
   }
 
-  async function setServiceEnabled(serviceId: string, enabled: boolean): Promise<ServiceEnabledResponse | undefined> {
-    return withApiState(() => apiSetServiceEnabled(serviceId, enabled))
+  async function setServiceEnabled(
+    serviceStoreId: string,
+    serviceId: string,
+    enabled: boolean,
+  ): Promise<ServiceEnabledResponse | undefined> {
+    return withApiState(() => apiSetServiceEnabled(serviceStoreId, serviceId, enabled))
   }
 
-  async function resetServiceEnabled(serviceId: string): Promise<ServiceEnabledResponse | undefined> {
-    return withApiState(() => apiResetServiceEnabled(serviceId))
+  async function resetServiceEnabled(
+    serviceStoreId: string,
+    serviceId: string,
+  ): Promise<ServiceEnabledResponse | undefined> {
+    return withApiState(() => apiResetServiceEnabled(serviceStoreId, serviceId))
   }
 
   // ─── Credentials ──────────────────────────────────────────────────────────
 
-  async function getCredentials(serviceId?: string): Promise<CredentialsResponse | undefined> {
-    return withApiState(() => fetchCredentials(serviceId))
+  async function getCredentials(
+    serviceStoreId?: string,
+    serviceId?: string,
+  ): Promise<CredentialsResponse | undefined> {
+    return withApiState(() => fetchCredentials(serviceStoreId, serviceId))
   }
 
-  async function setCredentials(serviceId: string, login: string, password: string): Promise<boolean> {
-    return withApiState(() => apiSetCredentials(serviceId, login, password)) !== undefined
+  async function setCredentials(
+    serviceStoreId: string,
+    serviceId: string,
+    login: string,
+    password: string,
+  ): Promise<boolean> {
+    return withApiState(() => apiSetCredentials(serviceStoreId, serviceId, login, password)) !== undefined
   }
 
-  async function clearCredentials(serviceId: string): Promise<boolean> {
-    return withApiState(() => apiClearCredentials(serviceId)) !== undefined
+  async function clearCredentials(serviceStoreId: string, serviceId: string): Promise<boolean> {
+    return withApiState(() => apiClearCredentials(serviceStoreId, serviceId)) !== undefined
   }
 
   // ─── Settings ─────────────────────────────────────────────────────────────

@@ -24,6 +24,7 @@
     "enabled": "Enabled",
     "disabled": "Disabled",
     "unavailable": "Unavailable",
+    "unavailableTitle": "Unavailable sources",
     "hasOverride": "Custom override",
     "enable": "Enable",
     "disable": "Disable",
@@ -137,6 +138,27 @@
     "retry": "Retry",
     "refresh": "Refresh",
     "actions": "Actions"
+  },
+  "config": {
+    "loadFailed": "The application configuration could not be loaded. The administration console requires a valid config.json file."
+  },
+  "service-store": {
+    "arachnea-stream": {
+      "title": "Arachnéa stream",
+      "description": "Streaming video services."
+    },
+    "arachnea-stream-hoster": {
+      "title": "Streaming hosters",
+      "description": "Services resolving video player pages."
+    },
+    "arachnea-proxies": {
+      "title": "Proxies",
+      "description": "Proxy inventory services."
+    },
+    "arachnea-ip-countries": {
+      "title": "IP countries",
+      "description": "Services resolving IP to country."
+    }
   },
   "error": {
     "unknown": "An unknown error occurred.",
