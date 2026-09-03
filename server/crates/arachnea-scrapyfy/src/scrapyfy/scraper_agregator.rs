@@ -442,6 +442,7 @@ impl ScraperAgregator {
             })?;
             let source_id = raw.id.clone();
             let descriptor = ScraperSourceDescriptor {
+                service_store_id: group_name.to_string(),
                 id: source_id.clone(),
                 path: source_path.clone(),
                 default_enabled: source.enabled,

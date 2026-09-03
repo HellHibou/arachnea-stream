@@ -1,18 +1,30 @@
 //! Persistent source-activation policies.
+//!
+//! Administrable sources are identified by the composite pair
+//! `(service_store_id, source_id)` so two service stores (groups) may declare
+//! the same source identifier without colliding in persistence.
 
 use anyhow::{Context, Result};
 use arachnea_core::persistence::{
-    EntityReader, EntitySchema, EntityWriter, Field, PersistentEntity, TypedEntityStore,
+    EntityKey, EntityReader, EntitySchema, EntityWriter, Field, FieldType, PersistentEntity,
+    TypedEntityStore,
 };
 use async_trait::async_trait;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+#[cfg(feature = "sqlite-persistence")]
+use arachnea_core::persistence::SqlKey;
+#[cfg(feature = "sqlite-persistence")]
+use rusqlite::types::{Value as SqlValue, ValueRef};
 
 use super::ScraperQueryCollectionParameter;
 
 /// Immutable source information provided to an activation policy.
 #[derive(Clone, Debug)]
 pub struct ScraperSourceDescriptor {
+    /// Service store (group) owning the source.
+    pub service_store_id: String,
     /// Stable identifier declared by the YAML source.
     pub id: String,
     /// Fully resolved path of the YAML source.
@@ -21,6 +33,67 @@ pub struct ScraperSourceDescriptor {
     pub default_enabled: bool,
     /// Manifest parameter overrides for this source.
     pub parameters: Vec<ScraperQueryCollectionParameter>,
+}
+
+/// Composite identity of one administrable source.
+///
+/// The pair is ordered like the entity schema primary key:
+/// `service_store_id` first, then `source_id`.
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub struct SourceServiceKey {
+    /// Service store (group) identifier owning the source.
+    pub service_store_id: String,
+    /// Stable YAML identifier of the source.
+    pub source_id: String,
+}
+
+impl SourceServiceKey {
+    /// Creates a composite source identity.
+    pub fn new(service_store_id: impl Into<String>, source_id: impl Into<String>) -> Self {
+        Self {
+            service_store_id: service_store_id.into(),
+            source_id: source_id.into(),
+        }
+    }
+}
+
+impl EntityKey for SourceServiceKey {
+    fn field_types() -> &'static [FieldType] {
+        &[FieldType::String, FieldType::String]
+    }
+
+    fn storage_key(&self) -> String {
+        // Length-prefixed first component keeps the encoding unambiguous.
+        format!(
+            "{}:{}:{}",
+            self.service_store_id.len(),
+            self.service_store_id,
+            self.source_id
+        )
+    }
+}
+
+#[cfg(feature = "sqlite-persistence")]
+impl SqlKey for SourceServiceKey {
+    fn physical_types() -> &'static [&'static str] {
+        &["TEXT", "TEXT"]
+    }
+
+    fn to_sql_values(&self) -> Vec<SqlValue> {
+        vec![
+            SqlValue::Text(self.service_store_id.clone()),
+            SqlValue::Text(self.source_id.clone()),
+        ]
+    }
+
+    fn from_sql_value(index: usize, cell: ValueRef<'_>) -> anyhow::Result<SqlValue> {
+        match (index, cell) {
+            (0 | 1, ValueRef::Text(value)) => {
+                Ok(SqlValue::Text(std::str::from_utf8(value)?.to_string()))
+            }
+            _ => anyhow::bail!("source service primary key cell has an unexpected SQLite type"),
+        }
+    }
 }
 
 /// Determines whether a configured source must be loaded.
@@ -37,9 +110,14 @@ pub struct PersistenceSourceEnabled {
 
 /// Persisted per-service record combining the activation override with the
 /// encrypted service credentials.
+///
+/// The record is keyed by `(service_store_id, source_id)` so the same source
+/// identifier may exist in several service stores.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SourceServiceRecord {
-    /// Stable source identifier and primary key.
+    /// Service store (group) identifier; first primary-key component.
+    pub service_store_id: String,
+    /// Stable source identifier; second primary-key component.
     pub source_id: String,
     /// Administrator-selected activation value.
     pub enabled: bool,
@@ -53,19 +131,24 @@ pub struct SourceServiceRecord {
 }
 
 impl PersistentEntity for SourceServiceRecord {
-    type Key = String;
+    type Key = SourceServiceKey;
 
     fn key(&self) -> Self::Key {
-        self.source_id.clone()
+        SourceServiceKey {
+            service_store_id: self.service_store_id.clone(),
+            source_id: self.source_id.clone(),
+        }
     }
     fn schema() -> EntitySchema {
         EntitySchema::new()
+            .primary_key(Field::string("service_store_id"))
             .primary_key(Field::string("source_id"))
             .field(Field::boolean("enabled"))
             .field(Field::string("login").nullable())
             .field(Field::string("password").nullable())
     }
     fn write_to(&self, writer: &mut EntityWriter) -> Result<()> {
+        writer.string("service_store_id", &self.service_store_id)?;
         writer.string("source_id", &self.source_id)?;
         writer.boolean("enabled", self.enabled)?;
         if let Some(login) = &self.login {
@@ -78,6 +161,7 @@ impl PersistentEntity for SourceServiceRecord {
     }
     fn read_from(reader: &EntityReader<'_>) -> Result<Self> {
         Ok(Self {
+            service_store_id: reader.string("service_store_id")?.to_string(),
             source_id: reader.string("source_id")?.to_string(),
             enabled: reader.boolean("enabled")?,
             login: reader.optional_string("login")?.map(str::to_string),
@@ -90,13 +174,13 @@ impl PersistentEntity for SourceServiceRecord {
 #[async_trait]
 pub trait SourceEnabledRepository: Send + Sync {
     /// Returns the stored record, if any.
-    async fn get(&self, source_id: &str) -> Result<Option<SourceServiceRecord>>;
+    async fn get(&self, key: &SourceServiceKey) -> Result<Option<SourceServiceRecord>>;
     /// Writes a record.
     async fn save(&self, record: &SourceServiceRecord) -> Result<()>;
     /// Writes a batch of records atomically.
     async fn save_all(&self, records: &[SourceServiceRecord]) -> Result<()>;
     /// Removes a record.
-    async fn delete(&self, source_id: &str) -> Result<()>;
+    async fn delete(&self, key: &SourceServiceKey) -> Result<()>;
 }
 
 /// Repository backed by any typed entity store.
@@ -113,8 +197,8 @@ impl TypedSourceEnabledRepository {
 
 #[async_trait]
 impl SourceEnabledRepository for TypedSourceEnabledRepository {
-    async fn get(&self, source_id: &str) -> Result<Option<SourceServiceRecord>> {
-        Ok(self.store.get(&source_id.to_string()).await?)
+    async fn get(&self, key: &SourceServiceKey) -> Result<Option<SourceServiceRecord>> {
+        Ok(self.store.get(key).await?)
     }
     async fn save(&self, record: &SourceServiceRecord) -> Result<()> {
         Ok(self.store.put(record).await?)
@@ -122,8 +206,8 @@ impl SourceEnabledRepository for TypedSourceEnabledRepository {
     async fn save_all(&self, records: &[SourceServiceRecord]) -> Result<()> {
         Ok(self.store.put_all(records).await?)
     }
-    async fn delete(&self, source_id: &str) -> Result<()> {
-        Ok(self.store.delete(&source_id.to_string()).await?)
+    async fn delete(&self, key: &SourceServiceKey) -> Result<()> {
+        Ok(self.store.delete(key).await?)
     }
 }
 
@@ -138,15 +222,16 @@ impl PersistenceSourceEnabled {
         Self { repository }
     }
 
-    /// Persists an explicit enabled override for a source identifier.
+    /// Persists an explicit enabled override for one namespaced source.
     ///
     /// Existing encrypted credentials recorded on the same service record are
     /// preserved; only the activation value is updated.
-    pub async fn set_enabled(&self, source_id: &str, enabled: bool) -> Result<()> {
-        let mut record = match self.repository.get(source_id).await? {
+    pub async fn set_enabled(&self, key: &SourceServiceKey, enabled: bool) -> Result<()> {
+        let mut record = match self.repository.get(key).await? {
             Some(record) => record,
             None => SourceServiceRecord {
-                source_id: source_id.to_string(),
+                service_store_id: key.service_store_id.clone(),
+                source_id: key.source_id.clone(),
                 enabled,
                 login: None,
                 password: None,
@@ -160,8 +245,10 @@ impl PersistenceSourceEnabled {
     pub async fn register_defaults(&self, sources: &[ScraperSourceDescriptor]) -> Result<()> {
         let mut missing = Vec::new();
         for source in sources {
-            if self.repository.get(&source.id).await?.is_none() {
+            let key = SourceServiceKey::new(&source.service_store_id, &source.id);
+            if self.repository.get(&key).await?.is_none() {
                 missing.push(SourceServiceRecord {
+                    service_store_id: source.service_store_id.clone(),
                     source_id: source.id.clone(),
                     enabled: source.default_enabled,
                     login: None,
@@ -172,36 +259,41 @@ impl PersistenceSourceEnabled {
         self.repository.save_all(&missing).await
     }
 
-    /// Removes the persisted override of one source identifier.
+    /// Removes the persisted override of one namespaced source.
     ///
     /// The source falls back to its manifest default after this call.
     ///
     /// # Arguments
-    /// * `source_id` - Stable source identifier to reset.
+    /// * `key` - Composite identity of the source to reset.
     ///
     /// # Errors
     /// Returns an error when the backing store cannot be updated.
-    pub async fn clear_enabled(&self, source_id: &str) -> Result<()> {
-        self.repository.delete(source_id).await
+    pub async fn clear_enabled(&self, key: &SourceServiceKey) -> Result<()> {
+        self.repository.delete(key).await
     }
 
-    /// Returns the persisted record of one source identifier, if any.
+    /// Returns the persisted record of one namespaced source, if any.
     ///
     /// # Errors
     /// Returns an error when the backing store cannot be read.
-    pub async fn override_for(&self, source_id: &str) -> Result<Option<SourceServiceRecord>> {
-        self.repository.get(source_id).await
+    pub async fn override_for(
+        &self,
+        key: &SourceServiceKey,
+    ) -> Result<Option<SourceServiceRecord>> {
+        self.repository.get(key).await
     }
 }
 
 #[async_trait]
 impl ScraperSourceEnabled for PersistenceSourceEnabled {
     async fn is_enabled(&self, source: &ScraperSourceDescriptor) -> Result<bool> {
-        let record = self
-            .repository
-            .get(&source.id)
-            .await
-            .with_context(|| format!("Failed to read source activation for {}.", source.id))?;
+        let key = SourceServiceKey::new(&source.service_store_id, &source.id);
+        let record = self.repository.get(&key).await.with_context(|| {
+            format!(
+                "Failed to read source activation for {}/{}.",
+                source.service_store_id, source.id
+            )
+        })?;
         Ok(record
             .map(|record| record.enabled)
             .unwrap_or(source.default_enabled))

@@ -1,8 +1,9 @@
 #![warn(missing_docs)]
 //! Arachnea stream service facade and player resolvers.
 
-/// Administration API (state, security, operations).
-pub mod admin;
+/// Composition adapter between the generic Scrapyfy administration service and
+/// this executable's configuration, credentials and stream runtime.
+pub mod admin_composition;
 /// Persistent application configuration.
 pub mod configuration;
 /// Global ETag construction and decoding for aggregated responses.

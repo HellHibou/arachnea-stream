@@ -1,7 +1,7 @@
 use anyhow::{bail, Result};
 use const_format::concatcp;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
 use urlencoding::encode;
 
 use arachnea_core::{
@@ -39,6 +39,8 @@ pub const STREAM_SERVICES_STORE_NAME: &str = "arachnea-services";
 /// Root directory, relative to the application data directory, of the SQLite
 /// persistence stores.
 pub const PERSISTENCE_DATA_ROOT: &str = "data/persistence";
+/// Marker written after the namespaced service-record schema is initialized.
+const SERVICE_STORE_SCHEMA_V2_MARKER: &str = ".source-service-schema-v2";
 
 /// Typed persistence stores composing the application backends.
 ///
@@ -63,9 +65,13 @@ pub struct ApplicationStores {
 /// # Errors
 ///
 /// Returns an error when a database cannot be opened or its physical schema is
-/// incompatible with the declared entity schema. Legacy caches whose recorded
-/// schema no longer matches the declared entity must be deleted manually and
-/// are intentionally never migrated:
+/// incompatible with the declared entity schema. The incompatible pre-v2
+/// `arachnea-services` schema is deliberately reset once: the store directory
+/// (including SQLite WAL/SHM files) is removed before the v2 composite primary
+/// key is created. Existing service activation overrides and credentials are
+/// therefore lost. Other legacy caches whose recorded schema no longer matches
+/// the declared entity must be deleted manually and are intentionally never
+/// migrated:
 ///
 /// - the legacy proxy inventory cache uses an incompatible primary key; delete
 ///   `<application-data>/data/persistence/proxy-inventory/` before opening
@@ -80,7 +86,8 @@ pub fn sqlite_application_stores(
     application_data_path: impl Into<PathBuf>,
 ) -> Result<ApplicationStores> {
     let root = application_data_path.into().join(PERSISTENCE_DATA_ROOT);
-    Ok(ApplicationStores {
+    reset_legacy_service_store(&root)?;
+    let stores = ApplicationStores {
         proxy_inventory: Arc::new(SqliteEntityStore::new(
             PersistenceStoreConfig::new("proxy-inventory", ProxyRecord::schema())?,
             &root,
@@ -96,7 +103,24 @@ pub fn sqlite_application_stores(
             PersistenceStoreConfig::new(STREAM_SERVICES_STORE_NAME, SourceServiceRecord::schema())?,
             &root,
         )?),
-    })
+    };
+    fs::create_dir_all(root.join(STREAM_SERVICES_STORE_NAME))?;
+    fs::write(
+        root.join(STREAM_SERVICES_STORE_NAME)
+            .join(SERVICE_STORE_SCHEMA_V2_MARKER),
+        b"v2",
+    )?;
+    Ok(stores)
+}
+
+/// Removes the pre-v2 service-record database before opening the incompatible
+/// composite-key schema. The marker ensures the reset happens only once.
+fn reset_legacy_service_store(root: &std::path::Path) -> Result<()> {
+    let directory = root.join(STREAM_SERVICES_STORE_NAME);
+    if directory.exists() && !directory.join(SERVICE_STORE_SCHEMA_V2_MARKER).exists() {
+        fs::remove_dir_all(&directory)?;
+    }
+    Ok(())
 }
 
 /// Builds the in-memory application stores used by compatibility constructors.
@@ -408,7 +432,7 @@ impl StreamScraper {
             options.stores.clone(),
         );
         let services_path = options.services_config_path.as_str();
-        let catalog = load_service_catalog(services_path)?;
+        let catalog = load_service_catalog(services_path, STREAM_SERVICE_GROUP_NAME)?;
         synchronize_service_defaults(
             Arc::clone(&instance.stores.source_enabled),
             catalog.iter().map(|entry| entry.source.clone()).collect(),
@@ -458,7 +482,10 @@ impl StreamScraper {
         &self,
         json_path: Option<&str>,
     ) -> Result<Vec<ScraperServiceCatalogEntry>> {
-        load_service_catalog(json_path.unwrap_or(DEFAULT_SERVICES_CONFIG_PATH))
+        load_service_catalog(
+            json_path.unwrap_or(DEFAULT_SERVICES_CONFIG_PATH),
+            STREAM_SERVICE_GROUP_NAME,
+        )
     }
 
     /// Returns the mutable proxy handle shared by this scraper instance.

@@ -12,19 +12,20 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use arachnea_core::application;
-use arachnea_core::controler::RequestControlerContext;
+use arachnea_core::controler::{ControlerService, RequestControlerContext};
 use arachnea_core::persistence::credentials_store::StoredCredentials;
-use arachnea_core::persistence::CredentialsStore;
-use arachnea_scrapyfy::{
-    load_service_catalog_detailed, ScraperQueryCollectionParameter, ScraperServiceCatalogEntry,
-};
 
 use super::auth::{
-    cleared_session_cookie, constant_time_eq, session_cookie, session_token_from_cookie,
-    verify_admin_password,
+    cleared_session_cookie, constant_time_eq, hash_admin_password, session_cookie,
+    session_token_from_cookie, verify_admin_password,
 };
 use super::dto::*;
-use super::{AdminMode, AdminState};
+use super::register_admin_operation;
+use super::{AdminGroupReload, AdminMode, AdminServiceGroupConfig, AdminState};
+use crate::scrapyfy::{
+    load_service_catalog_detailed, ScraperQueryCollectionParameter, ScraperServiceCatalogEntry,
+    ScraperServiceCredentials, ScraperSourceEnabled, ServiceCatalogFailureReason,
+};
 
 /// Delay between the `update-settings` response and the hot application of
 /// the new server settings, so the response flows on the listener still alive
@@ -33,7 +34,7 @@ const APPLY_SETTINGS_DELAY: Duration = Duration::from_millis(1000);
 
 /// Stable HTTP status error returned by administration operations.
 #[derive(Debug)]
-pub(crate) struct AdminError {
+pub struct AdminError {
     /// HTTP status code to return.
     status: u16,
     /// Stable machine-readable error code.
@@ -44,7 +45,7 @@ pub(crate) struct AdminError {
 
 impl AdminError {
     /// Builds a `400 Bad Request` error.
-    pub(crate) fn bad_request(message: impl Into<String>) -> Self {
+    pub fn bad_request(message: impl Into<String>) -> Self {
         Self {
             status: 400,
             code: "bad_request",
@@ -53,7 +54,7 @@ impl AdminError {
     }
 
     /// Builds a `401 Unauthorized` error.
-    pub(crate) fn unauthorized(message: impl Into<String>) -> Self {
+    pub fn unauthorized(message: impl Into<String>) -> Self {
         Self {
             status: 401,
             code: "unauthorized",
@@ -62,7 +63,7 @@ impl AdminError {
     }
 
     /// Builds a `403 Forbidden` error.
-    pub(crate) fn forbidden(message: impl Into<String>) -> Self {
+    pub fn forbidden(message: impl Into<String>) -> Self {
         Self {
             status: 403,
             code: "forbidden",
@@ -71,7 +72,7 @@ impl AdminError {
     }
 
     /// Builds a `404 Not Found` error.
-    pub(crate) fn not_found(message: impl Into<String>) -> Self {
+    pub fn not_found(message: impl Into<String>) -> Self {
         Self {
             status: 404,
             code: "not_found",
@@ -80,7 +81,7 @@ impl AdminError {
     }
 
     /// Builds a `405 Method Not Allowed` error.
-    pub(crate) fn method_not_allowed(message: impl Into<String>) -> Self {
+    pub fn method_not_allowed(message: impl Into<String>) -> Self {
         Self {
             status: 405,
             code: "method_not_allowed",
@@ -89,7 +90,7 @@ impl AdminError {
     }
 
     /// Builds a `429 Too Many Requests` error.
-    pub(crate) fn rate_limited(message: impl Into<String>) -> Self {
+    pub fn rate_limited(message: impl Into<String>) -> Self {
         Self {
             status: 429,
             code: "rate_limited",
@@ -114,7 +115,7 @@ impl AdminError {
 }
 
 /// One success reply of an administration operation.
-pub(crate) struct AdminReply {
+pub struct AdminReply {
     /// HTTP status code to return.
     pub(crate) status: u16,
     /// JSON payload to serialize.
@@ -125,7 +126,7 @@ pub(crate) struct AdminReply {
 
 impl AdminReply {
     /// Builds a `200 OK` reply from a serializable payload.
-    pub(crate) fn ok<T: Serialize>(value: &T) -> Self {
+    pub fn ok<T: Serialize>(value: &T) -> Self {
         Self {
             status: 200,
             value: serde_json::to_value(value).expect("admin responses must serialize"),
@@ -134,10 +135,7 @@ impl AdminReply {
     }
 
     /// Builds a `200 OK` reply with custom response headers.
-    pub(crate) fn ok_with_headers<T: Serialize>(
-        value: &T,
-        headers: HashMap<String, String>,
-    ) -> Self {
+    pub fn ok_with_headers<T: Serialize>(value: &T, headers: HashMap<String, String>) -> Self {
         Self {
             status: 200,
             value: serde_json::to_value(value).expect("admin responses must serialize"),
@@ -251,6 +249,53 @@ fn split_host(host: &str) -> (String, Option<u16>) {
     }
 }
 
+/// One source resolved against the declared service stores.
+struct ResolvedSource {
+    /// Service store (group) owning the source.
+    service_store_id: String,
+    /// Catalog entry of the source.
+    entry: ScraperServiceCatalogEntry,
+}
+
+/// Resolves a source across the declared service stores.
+///
+/// When `service_store_id` is given, only that group is searched; otherwise
+/// every group is searched in declaration order and an identifier present in
+/// several groups is rejected with a bad request asking for qualification.
+async fn resolve_source(
+    state: &AdminState,
+    service_store_id: Option<&str>,
+    service_id: &str,
+) -> Result<ResolvedSource, AdminError> {
+    let mut found: Option<ResolvedSource> = None;
+    for group in state.groups() {
+        if let Some(requested) = service_store_id {
+            if group.service_store_id != requested {
+                continue;
+            }
+        }
+        let catalog = load_service_catalog_detailed(&group.manifest_path, &group.service_store_id)
+            .map_err(admin_err)?;
+        if let Some(entry) = catalog
+            .entries
+            .into_iter()
+            .find(|entry| entry.source.id == service_id)
+        {
+            if found.is_some() {
+                return Err(AdminError::bad_request(format!(
+                    "Service identifier {service_id} exists in several service stores; \
+                     specify service_store_id."
+                )));
+            }
+            found = Some(ResolvedSource {
+                service_store_id: group.service_store_id.clone(),
+                entry,
+            });
+        }
+    }
+    found.ok_or_else(|| AdminError::not_found(format!("Unknown service {service_id}.")))
+}
+
 /// Builds the `status` operation reply.
 pub(crate) async fn op_status(
     state: Arc<AdminState>,
@@ -266,6 +311,12 @@ pub(crate) async fn op_status(
         || session_token_from_cookie(context.get_header("cookie"))
             .map(|token| state.sessions().validate(&token))
             .unwrap_or(false);
+    let password_configured = state
+        .adapter()
+        .persisted_settings()
+        .map_err(admin_err)?
+        .password_hash
+        .is_some();
 
     let response = StatusResponse {
         mode: match state.mode() {
@@ -275,7 +326,7 @@ pub(crate) async fn op_status(
         .to_string(),
         auth_required: state.mode() == AdminMode::Server && !peer_local,
         authenticated,
-        password_configured: state.configuration().password_hash.is_some(),
+        password_configured,
         capabilities: StatusCapabilities {
             services: true,
             credentials: true,
@@ -309,10 +360,14 @@ pub(crate) async fn op_login(
         }
     }
 
-    let config = state.configuration();
-    let valid = if let Some(hash) = config.password_hash.as_deref() {
+    let stored_hash = state
+        .adapter()
+        .persisted_settings()
+        .map_err(admin_err)?
+        .password_hash;
+    let valid = if let Some(hash) = stored_hash.as_deref() {
         verify_admin_password(&input.password, hash)
-    } else if let Some(temp) = &state.temp_password {
+    } else if let Some(temp) = state.temp_password() {
         constant_time_eq(&input.password, temp)
     } else {
         false
@@ -358,58 +413,6 @@ pub(crate) async fn op_logout(
     ))
 }
 
-/// Builds the `services` catalog reply.
-pub(crate) async fn op_services(
-    state: Arc<AdminState>,
-    context: RequestControlerContext,
-    input: ServicesRequest,
-) -> Result<AdminReply, AdminError> {
-    require_authorized(&state, &context).await?;
-
-    let catalog =
-        load_service_catalog_detailed(&crate::stream_scraper::DEFAULT_SERVICES_CONFIG_PATH)
-            .map_err(admin_err)?;
-
-    let policy = state.activation_policy();
-    let requested_lang = input.lang.as_deref();
-    let mut services = Vec::with_capacity(catalog.entries.len());
-    for entry in catalog.entries {
-        let id = entry.source.id.clone();
-        let override_value = policy.override_for(&id).await.map_err(admin_err)?;
-        let has_override = override_value.is_some();
-        let enabled = override_value
-            .map(|record| record.enabled)
-            .unwrap_or(entry.source.default_enabled);
-
-        services.push(AdminServiceEntry {
-            id,
-            title: entry.title.clone(),
-            logo: resolve_logo(entry.logo.as_deref(), &entry.source.parameters),
-            description: localized_description(&entry.description, requested_lang),
-            credentials: build_credential_info(&entry, state.credentials_store().as_ref()),
-            default_enabled: entry.source.default_enabled,
-            enabled,
-            has_override,
-            unavailable: false,
-        });
-    }
-
-    let unavailable = catalog
-        .failures
-        .into_iter()
-        .map(|failure| AdminUnavailableSource {
-            id: failure.id,
-            path: failure.path.display().to_string(),
-            message: failure.message,
-        })
-        .collect();
-
-    Ok(AdminReply::ok(&ServicesResponse {
-        services,
-        unavailable,
-    }))
-}
-
 /// Selects the description for the requested language.
 ///
 /// Prefers the requested language, then English, then French, then the first
@@ -446,25 +449,86 @@ fn resolve_logo(
     }
 }
 
-/// Builds the credential state for one catalog entry.
-fn build_credential_info(
-    entry: &ScraperServiceCatalogEntry,
-    store: &dyn CredentialsStore,
-) -> Option<CredentialInfo> {
-    let declared = entry.credentials.as_ref()?;
-    let stored = store.get_credentials(&entry.source.id).ok().flatten();
-    Some(CredentialInfo {
-        required: declared.required,
-        signup_url: declared.signup_url.clone(),
-        configured: stored.is_some(),
-        login_masked: stored.map(|credentials| mask_login(&credentials.login)),
-    })
-}
-
 /// Masks a stored login, keeping the first character.
 fn mask_login(login: &str) -> String {
     let first = login.chars().next().unwrap_or('*');
     format!("{first}***")
+}
+
+/// Builds the `services` catalog reply across every declared service store.
+pub(crate) async fn op_services(
+    state: Arc<AdminState>,
+    context: RequestControlerContext,
+    input: ServicesRequest,
+) -> Result<AdminReply, AdminError> {
+    require_authorized(&state, &context).await?;
+
+    let policy = state.activation_policy();
+    let adapter = Arc::clone(state.adapter());
+    let requested_lang = input.lang.as_deref();
+    let mut service_stores = Vec::with_capacity(state.groups().len());
+    let mut all_services = Vec::new();
+    let mut all_unavailable = Vec::new();
+
+    for group in state.groups() {
+        let catalog = load_service_catalog_detailed(&group.manifest_path, &group.service_store_id)
+            .map_err(admin_err)?;
+        let mut services = Vec::with_capacity(catalog.entries.len());
+        for entry in catalog.entries {
+            let key = state.source_key(&group.service_store_id, &entry.source.id);
+            let override_value = policy.override_for(&key).await.map_err(admin_err)?;
+            let has_override = override_value.is_some();
+            let enabled = override_value
+                .map(|record| record.enabled)
+                .unwrap_or(entry.source.default_enabled);
+            let stored = adapter
+                .stored_credentials(&group.service_store_id, &entry.source.id)
+                .ok()
+                .flatten();
+
+            services.push(AdminServiceEntry {
+                service_store_id: group.service_store_id.clone(),
+                id: entry.source.id.clone(),
+                title: entry.title.clone(),
+                logo: resolve_logo(entry.logo.as_deref(), &entry.source.parameters),
+                description: localized_description(&entry.description, requested_lang),
+                credentials: entry.credentials.as_ref().map(|declared| CredentialInfo {
+                    required: declared.required,
+                    signup_url: declared.signup_url.clone(),
+                    configured: stored.is_some(),
+                    login_masked: stored.as_ref().map(|value| mask_login(&value.login)),
+                }),
+                default_enabled: entry.source.default_enabled,
+                enabled,
+                has_override,
+                unavailable: false,
+            });
+        }
+
+        let unavailable = catalog
+            .failures
+            .into_iter()
+            .map(|failure| AdminUnavailableSource {
+                id: failure.id,
+                path: failure.path.display().to_string(),
+                message: failure.message,
+            })
+            .collect::<Vec<_>>();
+
+        all_services.extend(services.iter().cloned());
+        all_unavailable.extend(unavailable.iter().cloned());
+        service_stores.push(AdminServiceStore {
+            service_store_id: group.service_store_id.clone(),
+            services,
+            unavailable,
+        });
+    }
+
+    Ok(AdminReply::ok(&ServicesResponse {
+        service_stores,
+        services: all_services,
+        unavailable: all_unavailable,
+    }))
 }
 
 /// Builds the `set-service-enabled` reply.
@@ -476,20 +540,20 @@ pub(crate) async fn op_set_service_enabled(
     require_authorized(&state, &context).await?;
     verify_write(&state, &context)?;
 
-    if !service_exists(&input.service_id).await.map_err(admin_err)? {
-        return Err(AdminError::not_found(format!(
-            "Unknown service {}.",
-            input.service_id
-        )));
-    }
+    let resolved =
+        resolve_source(&state, input.service_store_id.as_deref(), &input.service_id).await?;
     state
         .activation_policy()
-        .set_enabled(&input.service_id, input.enabled)
+        .set_enabled(
+            &state.source_key(&resolved.service_store_id, &resolved.entry.source.id),
+            input.enabled,
+        )
         .await
         .map_err(admin_err)?;
 
     Ok(AdminReply::ok(&ServiceEnabledResponse {
-        service_id: input.service_id,
+        service_store_id: resolved.service_store_id,
+        service_id: resolved.entry.source.id,
         enabled: Some(input.enabled),
         reload_required: true,
     }))
@@ -504,97 +568,90 @@ pub(crate) async fn op_reset_service_enabled(
     require_authorized(&state, &context).await?;
     verify_write(&state, &context)?;
 
-    let default_enabled = match service_default(&input.service_id)
-        .await
-        .map_err(admin_err)?
-    {
-        Some(default_enabled) => default_enabled,
-        None => {
-            return Err(AdminError::not_found(format!(
-                "Unknown service {}.",
-                input.service_id
-            )))
-        }
-    };
+    let resolved =
+        resolve_source(&state, input.service_store_id.as_deref(), &input.service_id).await?;
     state
         .activation_policy()
-        .clear_enabled(&input.service_id)
+        .clear_enabled(&state.source_key(&resolved.service_store_id, &resolved.entry.source.id))
         .await
         .map_err(admin_err)?;
 
     Ok(AdminReply::ok(&ServiceEnabledResponse {
-        service_id: input.service_id,
-        enabled: Some(default_enabled),
+        service_store_id: resolved.service_store_id,
+        service_id: resolved.entry.source.id,
+        enabled: Some(resolved.entry.source.default_enabled),
         reload_required: true,
     }))
-}
-
-/// Returns whether an identifier belongs to the declared catalog.
-async fn service_exists(service_id: &str) -> Result<bool> {
-    let catalog =
-        load_service_catalog_detailed(&crate::stream_scraper::DEFAULT_SERVICES_CONFIG_PATH)?;
-    Ok(catalog
-        .entries
-        .iter()
-        .any(|entry| entry.source.id == service_id))
-}
-
-/// Returns the manifest default activation of one service.
-async fn service_default(service_id: &str) -> Result<Option<bool>> {
-    let catalog =
-        load_service_catalog_detailed(&crate::stream_scraper::DEFAULT_SERVICES_CONFIG_PATH)?;
-    Ok(catalog
-        .entries
-        .iter()
-        .find(|entry| entry.source.id == service_id)
-        .map(|entry| entry.source.default_enabled))
 }
 
 /// Builds the `credentials` operation reply.
 pub(crate) async fn op_credentials(
     state: Arc<AdminState>,
-    _context: RequestControlerContext,
+    context: RequestControlerContext,
     input: CredentialsRequest,
 ) -> Result<AdminReply, AdminError> {
-    require_authorized(&state, &_context).await?;
+    require_authorized(&state, &context).await?;
 
-    let catalog =
-        load_service_catalog_detailed(&crate::stream_scraper::DEFAULT_SERVICES_CONFIG_PATH)
+    let adapter = Arc::clone(state.adapter());
+    let mut credentials = BTreeMap::new();
+    let mut key_counts: HashMap<String, usize> = HashMap::new();
+    let mut pairs: Vec<(
+        String,
+        String,
+        Option<ScraperServiceCredentials>,
+        Option<StoredCredentials>,
+    )> = Vec::new();
+
+    for group in state.groups() {
+        if let Some(requested_store) = input.service_store_id.as_deref() {
+            if group.service_store_id != requested_store {
+                continue;
+            }
+        }
+        let catalog = load_service_catalog_detailed(&group.manifest_path, &group.service_store_id)
             .map_err(admin_err)?;
-    if let Some(ref requested) = input.service_id {
-        if !catalog
-            .entries
-            .iter()
-            .any(|entry| &entry.source.id == requested)
-        {
+        for entry in catalog.entries {
+            if let Some(requested) = input.service_id.as_deref() {
+                if entry.source.id != requested {
+                    continue;
+                }
+            }
+            let stored = adapter
+                .stored_credentials(&group.service_store_id, &entry.source.id)
+                .ok()
+                .flatten();
+            key_counts
+                .entry(entry.source.id.clone())
+                .and_modify(|count| *count += 1)
+                .or_insert(1);
+            pairs.push((
+                group.service_store_id.clone(),
+                entry.source.id,
+                entry.credentials,
+                stored,
+            ));
+        }
+    }
+
+    if let Some(requested) = input.service_id.as_deref() {
+        if pairs.is_empty() {
             return Err(AdminError::not_found(format!(
-                "Unknown service {}.",
-                requested
+                "Unknown service {requested}."
             )));
         }
     }
 
-    let store = state.credentials_store();
-    let mut credentials = BTreeMap::new();
-    for entry in catalog.entries {
-        if let Some(ref requested) = input.service_id {
-            if &entry.source.id != requested {
-                continue;
-            }
-        }
-        let stored = store.get_credentials(&entry.source.id).ok().flatten();
+    for (store, id, declared, stored) in pairs {
+        let key = if key_counts.get(&id).copied().unwrap_or(1) > 1 {
+            format!("{store}/{id}")
+        } else {
+            id.clone()
+        };
         credentials.insert(
-            entry.source.id.clone(),
+            key,
             CredentialInfo {
-                required: entry
-                    .credentials
-                    .as_ref()
-                    .map(|declared| declared.required)
-                    .unwrap_or(false),
-                signup_url: entry
-                    .credentials
-                    .as_ref()
-                    .and_then(|declared| declared.signup_url.clone()),
+                required: declared.as_ref().map(|d| d.required).unwrap_or(false),
+                signup_url: declared.and_then(|d| d.signup_url),
                 configured: stored.is_some(),
                 login_masked: stored.map(|value| mask_login(&value.login)),
             },
@@ -613,12 +670,8 @@ pub(crate) async fn op_set_credentials(
     require_authorized(&state, &context).await?;
     verify_write(&state, &context)?;
 
-    if !service_exists(&input.service_id).await.map_err(admin_err)? {
-        return Err(AdminError::not_found(format!(
-            "Unknown service {}.",
-            input.service_id
-        )));
-    }
+    let resolved =
+        resolve_source(&state, input.service_store_id.as_deref(), &input.service_id).await?;
     if input.login.trim().is_empty() || input.password.trim().is_empty() {
         return Err(AdminError::bad_request(
             "Service login and password must not be empty.",
@@ -626,9 +679,10 @@ pub(crate) async fn op_set_credentials(
     }
 
     state
-        .credentials_store()
-        .set_credentials(
-            &input.service_id,
+        .adapter()
+        .set_stored_credentials(
+            &resolved.service_store_id,
+            &resolved.entry.source.id,
             StoredCredentials {
                 login: input.login,
                 password: input.password,
@@ -637,7 +691,8 @@ pub(crate) async fn op_set_credentials(
         .map_err(admin_err)?;
 
     Ok(AdminReply::ok(&ServiceEnabledResponse {
-        service_id: input.service_id,
+        service_store_id: resolved.service_store_id,
+        service_id: resolved.entry.source.id,
         enabled: None,
         reload_required: false,
     }))
@@ -652,19 +707,16 @@ pub(crate) async fn op_clear_credentials(
     require_authorized(&state, &context).await?;
     verify_write(&state, &context)?;
 
-    if !service_exists(&input.service_id).await.map_err(admin_err)? {
-        return Err(AdminError::not_found(format!(
-            "Unknown service {}.",
-            input.service_id
-        )));
-    }
+    let resolved =
+        resolve_source(&state, input.service_store_id.as_deref(), &input.service_id).await?;
     state
-        .credentials_store()
-        .clear_credentials(&input.service_id)
+        .adapter()
+        .clear_stored_credentials(&resolved.service_store_id, &resolved.entry.source.id)
         .map_err(admin_err)?;
 
     Ok(AdminReply::ok(&ServiceEnabledResponse {
-        service_id: input.service_id,
+        service_store_id: resolved.service_store_id,
+        service_id: resolved.entry.source.id,
         enabled: None,
         reload_required: false,
     }))
@@ -679,6 +731,12 @@ pub(crate) async fn op_settings(
     require_authorized(&state, &context).await?;
 
     let effective = state.settings();
+    let password_configured = state
+        .adapter()
+        .persisted_settings()
+        .map_err(admin_err)?
+        .password_hash
+        .is_some();
     Ok(AdminReply::ok(&SettingsResponse {
         server_port: effective.server_port,
         server_port_source: effective.server_port_source,
@@ -686,7 +744,7 @@ pub(crate) async fn op_settings(
         network_mode_source: effective.network_mode_source,
         entrypoint_root: effective.entrypoint_root.clone(),
         entrypoint_root_source: effective.entrypoint_root_source,
-        password_configured: state.configuration().password_hash.is_some(),
+        password_configured,
         public_http_warning: effective.network_mode == "public",
     }))
 }
@@ -701,17 +759,17 @@ pub(crate) async fn op_update_settings(
     verify_write(&state, &context)?;
 
     let effective_mode = state.mode();
-    let mut config = state.configuration();
+    let mut persisted = state.adapter().persisted_settings().map_err(admin_err)?;
 
     if let Some(port) = input.server_port {
         if port == 0 {
             return Err(AdminError::bad_request("Server port cannot be zero."));
         }
-        config.server_port = Some(port);
+        persisted.server_port = Some(port);
     }
     if let Some(root) = input.entrypoint_root {
         let root = root.trim().to_string();
-        config.entrypoint_root = if root.is_empty() { None } else { Some(root) };
+        persisted.entrypoint_root = if root.is_empty() { None } else { Some(root) };
     }
     if let Some(network) = input.network_mode {
         let network = network.trim().to_lowercase();
@@ -731,11 +789,13 @@ pub(crate) async fn op_update_settings(
                 ));
             }
         }
-        config.network_mode = Some(network);
+        persisted.network_mode = Some(network);
     }
 
-    config.save().map_err(admin_err)?;
-    state.set_configuration(config);
+    state
+        .adapter()
+        .save_persisted_settings(&persisted)
+        .map_err(admin_err)?;
 
     // Hot application path: in server mode with a REST handle, the port,
     // network mode and entrypoint root are applied to the running server
@@ -744,30 +804,31 @@ pub(crate) async fn op_update_settings(
     // the listener still alive. The definitive outcome is observable via the
     // `settings` operation and the application log.
     if effective_mode == AdminMode::Server {
-        if let Some(rest_server) = state.rest_server() {
+        if let Some(target) = state.adapter().target_server_settings() {
             // Only advertise an URL change when the port or the entrypoint
             // root will actually move, so the UI never redirects to a URL that
             // stays pinned by a command-line override.
-            let admin_url = rest_server.target_settings().and_then(|target| {
-                let current = state.settings();
-                let port_changes = target.server_port != current.server_port;
-                // An empty root is equivalent to "no prefix".
-                let current_root = current.entrypoint_root.as_deref().filter(|root| !root.is_empty());
-                let root_changes = target.entrypoint_root.as_deref() != current_root;
-                if port_changes || root_changes {
-                    hot_apply_admin_url(
-                        &context,
-                        target.entrypoint_root.as_deref(),
-                        target.server_port,
-                    )
-                } else {
-                    None
-                }
-            });
+            let current = state.settings();
+            let port_changes = target.server_port != current.server_port;
+            let current_root = current
+                .entrypoint_root
+                .as_deref()
+                .filter(|root| !root.is_empty());
+            let root_changes = target.entrypoint_root.as_deref() != current_root;
+            let admin_url = if port_changes || root_changes {
+                hot_apply_admin_url(
+                    &context,
+                    target.entrypoint_root.as_deref(),
+                    target.server_port,
+                )
+            } else {
+                None
+            };
+            let adapter = Arc::clone(state.adapter());
             let state_for_apply = Arc::clone(&state);
             std::thread::spawn(move || {
                 std::thread::sleep(APPLY_SETTINGS_DELAY);
-                let report = rest_server.apply_settings();
+                let report = adapter.apply_server_settings();
                 state_for_apply.update_effective_server_settings(
                     report.server_port,
                     report.network_mode.clone(),
@@ -825,9 +886,7 @@ fn hot_apply_admin_url(
     if root.is_empty() {
         Some(format!("http://{hostname}:{target_port}/admin/"))
     } else {
-        Some(format!(
-            "http://{hostname}:{target_port}/{root}/admin/"
-        ))
+        Some(format!("http://{hostname}:{target_port}/{root}/admin/"))
     }
 }
 
@@ -840,8 +899,8 @@ pub(crate) async fn op_set_admin_password(
     require_authorized(&state, &context).await?;
     verify_write(&state, &context)?;
 
-    let mut config = state.configuration();
-    if let Some(existing) = config.password_hash.as_deref() {
+    let mut persisted = state.adapter().persisted_settings().map_err(admin_err)?;
+    if let Some(existing) = persisted.password_hash.as_deref() {
         let current = input.current_password.as_deref().unwrap_or("");
         if !verify_admin_password(current, existing) {
             return Err(AdminError::unauthorized("Current password is incorrect."));
@@ -853,15 +912,80 @@ pub(crate) async fn op_set_admin_password(
         ));
     }
 
-    let hash = super::auth::hash_admin_password(&input.new_password).map_err(admin_err)?;
-    config.password_hash = Some(hash);
-    config.save().map_err(admin_err)?;
-    state.set_configuration(config);
+    persisted.password_hash = Some(hash_admin_password(&input.new_password).map_err(admin_err)?);
+    state
+        .adapter()
+        .save_persisted_settings(&persisted)
+        .map_err(admin_err)?;
 
     Ok(AdminReply::ok(&AdminEmptyRequest {}))
 }
 
+/// Builds the generic validation reload of one service store.
+///
+/// Groups without an application-specific runtime are validated by rebuilding
+/// their catalog and activation view; no live runtime is replaced.
+async fn generic_group_reload(
+    state: &AdminState,
+    group: &AdminServiceGroupConfig,
+) -> AdminGroupReload {
+    let mut report = AdminGroupReload {
+        applied: false,
+        ..Default::default()
+    };
+    let catalog = match load_service_catalog_detailed(&group.manifest_path, &group.service_store_id)
+    {
+        Ok(catalog) => catalog,
+        Err(error) => {
+            report.build_error = Some(format!("{error:#}"));
+            return report;
+        }
+    };
+
+    let policy = state.activation_policy();
+    let mut defaults = Vec::new();
+    for entry in &catalog.entries {
+        defaults.push(entry.source.clone());
+        match policy.is_enabled(&entry.source).await {
+            Ok(true) => report.loaded.push(entry.source.id.clone()),
+            Ok(false) => report.disabled.push(entry.source.id.clone()),
+            Err(error) => report.errors.push(AdminReloadSourceError {
+                id: Some(entry.source.id.clone()),
+                path: entry.source.path.display().to_string(),
+                message: format!("Failed to read activation state: {error:#}"),
+            }),
+        }
+    }
+    if let Err(error) = policy.register_defaults(&defaults).await {
+        report.build_error = Some(format!(
+            "Failed to synchronize service activation defaults: {error:#}"
+        ));
+    }
+    for failure in &catalog.failures {
+        match failure.reason {
+            ServiceCatalogFailureReason::Missing => report.ignored.push(AdminReloadSkippedSource {
+                id: failure.id.clone(),
+                path: failure.path.display().to_string(),
+            }),
+            ServiceCatalogFailureReason::Invalid | ServiceCatalogFailureReason::Duplicate => {
+                report.errors.push(AdminReloadSourceError {
+                    id: failure.id.clone(),
+                    path: failure.path.display().to_string(),
+                    message: failure.message.clone(),
+                })
+            }
+        }
+    }
+    report.applied = report.errors.is_empty() && report.build_error.is_none();
+    report
+}
+
 /// Builds the `reload` reply.
+///
+/// Every declared group is reloaded: groups with an application-specific
+/// runtime go through the adapter hook, the others are validated generically.
+/// A failing group keeps its runtime untouched and is reported with its
+/// identifier.
 pub(crate) async fn op_reload(
     state: Arc<AdminState>,
     context: RequestControlerContext,
@@ -870,29 +994,102 @@ pub(crate) async fn op_reload(
     require_authorized(&state, &context).await?;
     verify_write(&state, &context)?;
 
-    let report = state.reloadable().reload().await.map_err(admin_err)?;
+    let adapter = Arc::clone(state.adapter());
+    let mut groups = Vec::with_capacity(state.groups().len());
+    for group in state.groups() {
+        let reload = match adapter.rebuild_group(&group.service_store_id).await {
+            Ok(Some(reload)) => reload,
+            Ok(None) => generic_group_reload(&state, group).await,
+            Err(error) => AdminGroupReload {
+                applied: false,
+                build_error: Some(format!("{error:#}")),
+                ..Default::default()
+            },
+        };
+        groups.push((group.service_store_id.clone(), reload));
+    }
 
-    Ok(AdminReply::ok(&ReloadResponse {
-        applied: report.applied,
-        loaded: report.loaded,
-        disabled: report.disabled,
-        ignored: report
-            .ignored
-            .into_iter()
-            .map(|source| AdminReloadSkippedSource {
-                id: source.id,
-                path: source.path,
-            })
-            .collect(),
-        errors: report
-            .errors
-            .into_iter()
-            .map(|error| AdminReloadSourceError {
-                id: error.id,
-                path: error.path,
-                message: error.message,
-            })
-            .collect(),
-        build_error: report.build_error,
-    }))
+    // Legacy flat view: report the first declared group so single-group
+    // clients keep their contract while every group stays inspectable.
+    let mut response = ReloadResponse {
+        applied: false,
+        loaded: Vec::new(),
+        disabled: Vec::new(),
+        ignored: Vec::new(),
+        errors: Vec::new(),
+        build_error: None,
+        groups: Vec::with_capacity(groups.len()),
+    };
+    for (index, (service_store_id, reload)) in groups.into_iter().enumerate() {
+        if index == 0 {
+            response.applied = reload.applied;
+            response.loaded.clone_from(&reload.loaded);
+            response.disabled.clone_from(&reload.disabled);
+            response.ignored = reload
+                .ignored
+                .iter()
+                .map(|source| AdminReloadSkippedSource {
+                    id: source.id.clone(),
+                    path: source.path.clone(),
+                })
+                .collect();
+            response.errors = reload
+                .errors
+                .iter()
+                .map(|error| AdminReloadSourceError {
+                    id: error.id.clone(),
+                    path: error.path.clone(),
+                    message: error.message.clone(),
+                })
+                .collect();
+            response.build_error = reload.build_error.clone();
+        }
+        response.groups.push(AdminGroupReloadResponse {
+            service_store_id,
+            applied: reload.applied,
+            loaded: reload.loaded,
+            disabled: reload.disabled,
+            ignored: reload.ignored,
+            errors: reload.errors,
+            build_error: reload.build_error,
+        });
+    }
+
+    Ok(AdminReply::ok(&response))
+}
+
+/// Registers every administration operation against the controller.
+///
+/// # Arguments
+/// * `state` - Shared administration state.
+/// * `controler` - Controller receiving the `admin/*` routes.
+pub fn register_admin_service(state: &Arc<AdminState>, controler: &mut dyn ControlerService) {
+    register_admin_operation(controler, state, "status", op_status);
+    register_admin_operation(controler, state, "login", op_login);
+    register_admin_operation(controler, state, "logout", op_logout);
+    register_admin_operation(controler, state, "services", op_services);
+    register_admin_operation(
+        controler,
+        state,
+        "set-service-enabled",
+        op_set_service_enabled,
+    );
+    register_admin_operation(
+        controler,
+        state,
+        "reset-service-enabled",
+        op_reset_service_enabled,
+    );
+    register_admin_operation(controler, state, "credentials", op_credentials);
+    register_admin_operation(controler, state, "set-credentials", op_set_credentials);
+    register_admin_operation(controler, state, "clear-credentials", op_clear_credentials);
+    register_admin_operation(controler, state, "settings", op_settings);
+    register_admin_operation(controler, state, "update-settings", op_update_settings);
+    register_admin_operation(
+        controler,
+        state,
+        "set-admin-password",
+        op_set_admin_password,
+    );
+    register_admin_operation(controler, state, "reload", op_reload);
 }

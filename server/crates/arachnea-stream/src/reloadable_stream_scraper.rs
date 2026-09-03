@@ -221,13 +221,16 @@ impl ReloadableStreamScraper {
             .read()
             .expect("stream scraper options lock poisoned")
             .clone();
-        let catalog =
-            load_service_catalog_detailed(&options.services_config_path).with_context(|| {
-                format!(
-                    "Failed to reload service catalog {}.",
-                    options.services_config_path
-                )
-            })?;
+        let catalog = load_service_catalog_detailed(
+            &options.services_config_path,
+            crate::stream_scraper::STREAM_SERVICE_GROUP_NAME,
+        )
+        .with_context(|| {
+            format!(
+                "Failed to reload service catalog {}.",
+                options.services_config_path
+            )
+        })?;
 
         let policy =
             PersistenceSourceEnabled::with_typed_store(Arc::clone(&options.stores.source_enabled));

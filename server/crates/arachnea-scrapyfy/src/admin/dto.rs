@@ -1,4 +1,9 @@
 //! Request and response DTOs of the administration API.
+//!
+//! Sources are addressed by the composite pair
+//! `(service_store_id, service_id)`; write operations accept an optional
+//! `service_store_id` and resolve a bare identifier across the declared
+//! service stores for backward compatibility with single-group clients.
 
 use serde::{Deserialize, Serialize};
 
@@ -18,6 +23,8 @@ pub struct CredentialInfo {
 /// One service entry of the administration catalog.
 #[derive(Clone, Debug, Serialize)]
 pub struct AdminServiceEntry {
+    /// Service store (group) identifier owning the service.
+    pub service_store_id: String,
     /// Stable YAML identifier of the service.
     pub id: String,
     /// Human-readable title, when declared.
@@ -38,15 +45,6 @@ pub struct AdminServiceEntry {
     pub unavailable: bool,
 }
 
-/// Response of the `services` catalog operation.
-#[derive(Debug, Serialize)]
-pub struct ServicesResponse {
-    /// Declared services, including disabled ones.
-    pub services: Vec<AdminServiceEntry>,
-    /// Sources that could not be loaded, with their error context.
-    pub unavailable: Vec<AdminUnavailableSource>,
-}
-
 /// One source that failed to load, with its error context.
 #[derive(Clone, Debug, Serialize)]
 pub struct AdminUnavailableSource {
@@ -58,6 +56,27 @@ pub struct AdminUnavailableSource {
     pub message: String,
 }
 
+/// One service store (group) section of the administration catalog.
+#[derive(Debug, Serialize)]
+pub struct AdminServiceStore {
+    /// Service store (group) identifier.
+    pub service_store_id: String,
+    /// Declared services of this store, including disabled ones.
+    pub services: Vec<AdminServiceEntry>,
+    /// Sources of this store that could not be loaded, with their error context.
+    pub unavailable: Vec<AdminUnavailableSource>,
+}
+
+/// Response of the `services` catalog operation.
+#[derive(Debug, Serialize)]
+pub struct ServicesResponse {
+    /// Service store sections, in the declared group order.
+    pub service_stores: Vec<AdminServiceStore>,
+    /// Declared services, including disabled ones (flat view across groups).
+    pub services: Vec<AdminServiceEntry>,
+    /// Sources that could not be loaded, with their error context.
+    pub unavailable: Vec<AdminUnavailableSource>,
+}
 /// Response of the `status` operation.
 #[derive(Debug, Serialize)]
 pub struct StatusResponse {
@@ -170,6 +189,10 @@ pub struct SetAdminPasswordRequest {
 /// Request body of `set-service-enabled`.
 #[derive(Debug, Deserialize)]
 pub struct SetServiceEnabledRequest {
+    /// Service store (group) identifier; when absent, the service identifier
+    /// is resolved across the declared service stores.
+    #[serde(default, alias = "serviceStoreId")]
+    pub service_store_id: Option<String>,
     /// Stable service identifier.
     #[serde(alias = "serviceId")]
     pub service_id: String,
@@ -180,6 +203,10 @@ pub struct SetServiceEnabledRequest {
 /// Request body of `reset-service-enabled`.
 #[derive(Debug, Deserialize)]
 pub struct ResetServiceEnabledRequest {
+    /// Service store (group) identifier; optional like
+    /// [`SetServiceEnabledRequest::service_store_id`].
+    #[serde(default, alias = "serviceStoreId")]
+    pub service_store_id: Option<String>,
     /// Stable service identifier.
     #[serde(alias = "serviceId")]
     pub service_id: String,
@@ -188,6 +215,8 @@ pub struct ResetServiceEnabledRequest {
 /// Response of activation operations.
 #[derive(Debug, Serialize)]
 pub struct ServiceEnabledResponse {
+    /// Service store (group) identifier owning the service.
+    pub service_store_id: String,
     /// Stable service identifier.
     pub service_id: String,
     /// Effective activation state after the operation, when known.
@@ -199,6 +228,10 @@ pub struct ServiceEnabledResponse {
 /// Request body of `set-credentials`.
 #[derive(Debug, Deserialize)]
 pub struct SetCredentialsRequest {
+    /// Service store (group) identifier; optional like
+    /// [`SetServiceEnabledRequest::service_store_id`].
+    #[serde(default, alias = "serviceStoreId")]
+    pub service_store_id: Option<String>,
     /// Stable service identifier.
     #[serde(alias = "serviceId")]
     pub service_id: String,
@@ -211,6 +244,10 @@ pub struct SetCredentialsRequest {
 /// Request body of `clear-credentials`.
 #[derive(Debug, Deserialize)]
 pub struct ClearCredentialsRequest {
+    /// Service store (group) identifier; optional like
+    /// [`SetServiceEnabledRequest::service_store_id`].
+    #[serde(default, alias = "serviceStoreId")]
+    pub service_store_id: Option<String>,
     /// Stable service identifier.
     #[serde(alias = "serviceId")]
     pub service_id: String,
@@ -219,6 +256,9 @@ pub struct ClearCredentialsRequest {
 /// Request body of the `credentials` operation.
 #[derive(Debug, Default, Deserialize)]
 pub struct CredentialsRequest {
+    /// Optional service store (group) identifier restricting the query.
+    #[serde(default, alias = "serviceStoreId")]
+    pub service_store_id: Option<String>,
     /// Optional service identifier; when absent, every service is returned.
     #[serde(default, alias = "serviceId")]
     pub service_id: Option<String>,
@@ -248,9 +288,10 @@ pub struct LoginResponse {
 /// Response of `reload`.
 #[derive(Debug, Serialize)]
 pub struct ReloadResponse {
-    /// Whether the new scraper instance replaced the active one.
+    /// Whether the primary group replaced its runtime instance.
     pub applied: bool,
-    /// Service identifiers loaded in the replacement instance.
+    /// Service identifiers loaded in the replacement instance of the primary
+    /// group.
     pub loaded: Vec<String>,
     /// Service identifiers left disabled by their activation state.
     pub disabled: Vec<String>,
@@ -260,10 +301,31 @@ pub struct ReloadResponse {
     pub errors: Vec<AdminReloadSourceError>,
     /// Build failure message when the replacement could not be constructed.
     pub build_error: Option<String>,
+    /// Per-service-store reload outcome, one entry per declared group.
+    pub groups: Vec<AdminGroupReloadResponse>,
+}
+
+/// Reload outcome of one service store (group).
+#[derive(Debug, Serialize)]
+pub struct AdminGroupReloadResponse {
+    /// Service store (group) identifier the report belongs to.
+    pub service_store_id: String,
+    /// Whether the group accepted the new catalog state.
+    pub applied: bool,
+    /// Service identifiers loaded for this group.
+    pub loaded: Vec<String>,
+    /// Service identifiers left disabled by their activation state.
+    pub disabled: Vec<String>,
+    /// Enabled sources skipped because their YAML file is missing.
+    pub ignored: Vec<AdminReloadSkippedSource>,
+    /// Sources that could not be validated or loaded.
+    pub errors: Vec<AdminReloadSourceError>,
+    /// Build failure message when the group runtime could not be rebuilt.
+    pub build_error: Option<String>,
 }
 
 /// One source skipped during a reload.
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct AdminReloadSkippedSource {
     /// Parsed identifier, when available.
     pub id: Option<String>,
@@ -272,7 +334,7 @@ pub struct AdminReloadSkippedSource {
 }
 
 /// One source whose reload failed.
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct AdminReloadSourceError {
     /// Parsed identifier, when available.
     pub id: Option<String>,

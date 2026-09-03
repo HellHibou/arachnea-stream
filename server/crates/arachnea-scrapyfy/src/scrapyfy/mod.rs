@@ -114,7 +114,7 @@ pub use scraper_agregator::{resolve_manifest_sources, ScraperAgregator, ScraperS
 pub mod source_enabled;
 pub use source_enabled::{
     PersistenceSourceEnabled, ScraperSourceDescriptor, ScraperSourceEnabled,
-    SourceEnabledRepository, SourceServiceRecord, TypedSourceEnabledRepository,
+    SourceEnabledRepository, SourceServiceKey, SourceServiceRecord, TypedSourceEnabledRepository,
 };
 /// Complete read-only service catalog loading.
 pub mod service_catalog;

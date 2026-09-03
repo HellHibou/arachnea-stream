@@ -3,7 +3,6 @@
 //! Arachnea backend executable: wires scraper sources and controller backends.
 
 use anyhow::{bail, Context, Result};
-use rand::{distr::Alphanumeric, Rng};
 use std::net::IpAddr;
 use std::sync::Arc;
 
@@ -15,12 +14,13 @@ use arachnea_core::{
     },
     persistence::CredentialsStore,
 };
+use arachnea_scrapyfy::admin::{
+    dto::SettingSource, register_admin_service, AdminMode, AdminRuntimeSettings,
+    AdminServiceGroupConfig, AdminState,
+};
 use arachnea_scrapyfy::*;
 use arachnea_stream::{
-    admin::{
-        dto::SettingSource, register_admin_service, AdminMode, AdminRuntimeSettings, AdminState,
-    },
-    configuration::ApplicationConfiguration,
+    admin_composition::StreamAdminRuntimeAdapter, configuration::ApplicationConfiguration,
     ReloadableStreamScraper, StreamScraper, StreamScraperBuildOptions,
     TypedServiceCredentialsStore,
 };
@@ -248,15 +248,6 @@ fn build_admin_runtime_settings(
     }
 }
 
-/// Generates the one-time administrator password used until one is persisted.
-fn generate_temporary_admin_password() -> String {
-    rand::rng()
-        .sample_iter(&Alphanumeric)
-        .take(24)
-        .map(char::from)
-        .collect()
-}
-
 /// Builds a compact, log-friendly summary of a configuration reload.
 ///
 /// Used by the server tray "Reload configuration" action so reload problems
@@ -373,30 +364,20 @@ async fn main() -> Result<()> {
     } else {
         AdminMode::Server
     };
-    // A temporary password is generated once when no permanent hash is
-    // configured and kept in memory for the login operation; it is never
-    // persisted and printed a single time to the console.
-    let temp_password =
-        if configuration.password_hash.is_none() && effective_mode == AdminMode::Server {
-            let password = generate_temporary_admin_password();
-            println!("Temporary administrator password for remote administration: {password}");
-            Some(password)
-        } else {
-            None
-        };
-
     // Service credentials are stored encrypted (per-field AES-256-GCM) in the
     // typed `arachnea-services` SQLite store; the activation overrides,
     // Cloudflare sessions and proxy inventory live in the same typed stores.
     let stores = arachnea_stream::stream_scraper::sqlite_application_stores(
         &application::get_application_data_path(""),
     )?;
-    let credentials_store: Arc<dyn CredentialsStore> = Arc::new(TypedServiceCredentialsStore::new(
+    let typed_credentials_store = Arc::new(TypedServiceCredentialsStore::new(
         Arc::clone(&stores.source_enabled),
         DEFAULT_SERVER_CREDENTIALS_KEY,
+        arachnea_stream::stream_scraper::STREAM_SERVICE_GROUP_NAME,
     ));
+    let credentials_store: Arc<dyn CredentialsStore> = typed_credentials_store.clone();
 
-    let mut build_options = StreamScraperBuildOptions::new(credentials_store, stores);
+    let mut build_options = StreamScraperBuildOptions::new(credentials_store, stores.clone());
     if options.cache_max_disk_bytes.is_some() || options.cache_max_memory_bytes.is_some() {
         let mut cache_config = ScraperCacheConfig::default();
         if let Some(bytes) = options.cache_max_disk_bytes {
@@ -449,17 +430,19 @@ async fn main() -> Result<()> {
     let reloadable = reloadable.register_service(controler.as_mut());
     let _ = late_reload.set(Arc::clone(&reloadable));
 
-    // Hot application of the server settings: expose the REST supervisor
-    // handle to the admin state and feed it a settings resolver combining the
-    // command-line overrides with the persisted configuration.
+    // Hot application of server settings is still performed by Core's REST
+    // supervisor; the configuration source is owned by the Stream adapter.
     let rest_server_handle = controler.rest_server_handle();
-    let admin_state_slot: Arc<std::sync::OnceLock<Arc<AdminState>>> =
-        Arc::new(std::sync::OnceLock::new());
+    let adapter = Arc::new(StreamAdminRuntimeAdapter::new(
+        configuration.clone(),
+        typed_credentials_store,
+        Arc::clone(&reloadable),
+        rest_server_handle.clone(),
+    ));
     if let Some(rest_server) = &rest_server_handle {
-        let slot = Arc::clone(&admin_state_slot);
+        let configuration = adapter.configuration();
         rest_server.set_settings_source(Arc::new(move || {
-            let state = slot.get()?;
-            let config = state.configuration();
+            let config = configuration.read().ok()?.clone();
             let server_port = if port_pinned {
                 cli_port?
             } else {
@@ -487,14 +470,33 @@ async fn main() -> Result<()> {
         }));
     }
 
-    let admin_state = Arc::new(AdminState::new(
+    let admin_state = AdminState::build(
         admin_runtime_settings,
-        configuration,
-        temp_password,
-        reloadable,
-        rest_server_handle,
-    ));
-    let _ = admin_state_slot.set(Arc::clone(&admin_state));
+        vec![
+            AdminServiceGroupConfig {
+                service_store_id: "arachnea-stream".to_string(),
+                manifest_path: "services/arachnea-stream/services.json".to_string(),
+            },
+            AdminServiceGroupConfig {
+                service_store_id: "arachnea-stream-hoster".to_string(),
+                manifest_path: "services/arachnea-stream-hoster/services.json".to_string(),
+            },
+            AdminServiceGroupConfig {
+                service_store_id: "arachnea-proxies".to_string(),
+                manifest_path: "services/arachnea-proxies/services.json".to_string(),
+            },
+            AdminServiceGroupConfig {
+                service_store_id: "arachnea-ip-countries".to_string(),
+                manifest_path: "services/arachnea-ip-countries/services.json".to_string(),
+            },
+        ],
+        Arc::clone(&stores.source_enabled),
+        adapter,
+    )?;
+    if let Some(password) = &admin_state.temporary_password {
+        println!("Temporary administrator password for remote administration: {password}");
+    }
+    let admin_state = admin_state.state;
     register_admin_service(&admin_state, controler.as_mut());
     controler.launch();
 

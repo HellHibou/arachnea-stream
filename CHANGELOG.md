@@ -1275,3 +1275,21 @@ redémarrage du processus ni du systray :
   localized 404 page instead of an empty route.
 - **Public web application (`front/public-app/`)**: The fallback route now
   presents an explicit localized 404 error state above the decorative background.
+
+## Unreleased — Namespaced service administration backend
+
+- **Breaking operator action — `arachnea-services` persistence**: The service
+  administration store now keys records by `(service_store_id, source_id)` to
+  permit the same service identifier in independent groups. On first launch of
+  this schema, `data/persistence/arachnea-services/` is deleted deliberately,
+  including `records.sqlite3`, `records.sqlite3-wal`, and
+  `records.sqlite3-shm`; existing service activation overrides and encrypted
+  credentials are lost and defaults are recreated. No migration is provided.
+- **Scrapyfy administration**: `admin/*` routes, authentication, sessions,
+  DTOs, source activation and catalog orchestration now live in
+  `arachnea-scrapyfy::admin`. Stream supplies configuration, encrypted
+  credentials, REST hot application and runtime hooks through a narrow adapter.
+- **Service groups**: The backend administration service declares and exposes
+  `arachnea-stream`, `arachnea-stream-hoster`, `arachnea-proxies`, and
+  `arachnea-ip-countries`; source API identities now include
+  `service_store_id`.

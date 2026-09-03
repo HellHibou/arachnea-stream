@@ -6,6 +6,7 @@ edition = "2021"
 [features]
 test-support = []
 default = ["ghostwire"]
+sqlite-persistence = ["arachnea-core/sqlite-persistence", "dep:rusqlite"]
 ghostwire = ["arachnea-http/ghostwire"]
 tauri-cloudflare-solver = ["arachnea-http/ghostwire", "arachnea-http/tauri-cloudflare-solver"]
 chaser-cf = ["arachnea-http/ghostwire", "arachnea-http/chaser-cf"]
@@ -14,6 +15,7 @@ arachnea-proxy = ["arachnea-http/arachnea-proxy", "dep:arachnea-proxy"]
 [dependencies]
 quick_html2md.workspace = true
 anyhow.workspace = true
+argon2.workspace = true
 aes.workspace = true
 arachnea-core = { path = "../arachnea-core" }
 arachnea-http = { path = "../arachnea-http", default-features = false }
@@ -24,11 +26,13 @@ futures.workspace = true
 foyer.workspace = true
 http.workspace = true
 evalexpr.workspace = true
+rand.workspace = true
 regex.workspace = true
 base64.workspace = true
 boa_engine.workspace = true
 cbc.workspace = true
 scopeguard.workspace = true
+rusqlite = { workspace = true, optional = true }
 scraper.workspace = true
 serde.workspace = true
 serde_json.workspace = true

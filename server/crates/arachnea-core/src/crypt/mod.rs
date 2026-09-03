@@ -1,5 +1,6 @@
 //! Cryptographic and hashing helpers shared by backend crates.
 
+use rand::Rng;
 use xxhash_rust::xxh3::xxh3_64;
 
 /// Base62 encoding primitives.
@@ -26,6 +27,29 @@ pub use base62::encode as encode_base62;
 /// ```
 pub fn hash62_64(data: &[u8]) -> String {
     base62::encode(xxh3_64(data) as u128)
+}
+
+/// Generates a random alphanumeric password of the requested length.
+///
+/// The value is produced from the operating-system entropy and is intended for
+/// short-lived secrets printed once to the operator, such as the temporary
+/// administrator password used until a permanent hash is configured.
+///
+/// # Arguments
+/// * `length` - Number of alphanumeric characters to produce.
+///
+/// # Returns
+/// A random alphanumeric string of exactly `length` characters.
+///
+/// # Panics
+/// Panics when `length` is zero; callers must request a non-empty secret.
+pub fn generate_random_password(length: usize) -> String {
+    assert!(length > 0, "random password length must be positive");
+    rand::rng()
+        .sample_iter(&rand::distr::Alphanumeric)
+        .take(length)
+        .map(char::from)
+        .collect()
 }
 
 #[cfg(test)]

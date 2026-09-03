@@ -58,8 +58,13 @@ pub struct ServiceCatalogLoad {
 }
 
 /// Loads every YAML source declared by a recursive services manifest.
+///
+/// # Arguments
+/// * `config_path` - Path to the root services manifest JSON file.
+/// * `service_store_id` - Service store (group) identifier owning the sources.
 pub fn load_service_catalog(
     config_path: impl AsRef<Path>,
+    service_store_id: &str,
 ) -> Result<Vec<ScraperServiceCatalogEntry>> {
     let config_path = config_path.as_ref();
     let config_path: PathBuf = if config_path.is_relative() {
@@ -83,6 +88,7 @@ pub fn load_service_catalog(
             }
             Ok(ScraperServiceCatalogEntry {
                 source: ScraperSourceDescriptor {
+                    service_store_id: service_store_id.to_string(),
                     id: raw.id,
                     path,
                     default_enabled: source.enabled,
@@ -104,6 +110,7 @@ pub fn load_service_catalog(
 ///
 /// # Arguments
 /// * `config_path` - Path to the root services manifest JSON file.
+/// * `service_store_id` - Service store (group) identifier owning the sources.
 ///
 /// # Returns
 /// A [`ServiceCatalogLoad`] with the successfully parsed entries and the
@@ -111,7 +118,10 @@ pub fn load_service_catalog(
 ///
 /// # Errors
 /// Returns an error when the manifest itself cannot be resolved.
-pub fn load_service_catalog_detailed(config_path: impl AsRef<Path>) -> Result<ServiceCatalogLoad> {
+pub fn load_service_catalog_detailed(
+    config_path: impl AsRef<Path>,
+    service_store_id: &str,
+) -> Result<ServiceCatalogLoad> {
     let config_path = config_path.as_ref();
     let config_path: PathBuf = if config_path.is_relative() {
         arachnea_core::application::get_application_resource_path(&config_path.to_string_lossy())
@@ -170,6 +180,7 @@ pub fn load_service_catalog_detailed(config_path: impl AsRef<Path>) -> Result<Se
         }
         load.entries.push(ScraperServiceCatalogEntry {
             source: ScraperSourceDescriptor {
+                service_store_id: service_store_id.to_string(),
                 id: raw.id,
                 path,
                 default_enabled: source.enabled,

@@ -13,13 +13,14 @@ use arachnea_core::persistence::credentials_store::StoredCredentials;
 use arachnea_core::persistence::{
     decrypt_value, encrypt_value, CredentialsStore, TypedEntityStore,
 };
-use arachnea_scrapyfy::SourceServiceRecord;
+use arachnea_scrapyfy::{SourceServiceKey, SourceServiceRecord};
 
 /// Credentials store persisting encrypted credentials in the typed
 /// `arachnea-services` entity store.
 pub struct TypedServiceCredentialsStore {
     store: Arc<dyn TypedEntityStore<SourceServiceRecord>>,
     encryption_key: [u8; 32],
+    default_service_store_id: String,
 }
 
 impl TypedServiceCredentialsStore {
@@ -34,10 +35,12 @@ impl TypedServiceCredentialsStore {
     pub fn new(
         store: Arc<dyn TypedEntityStore<SourceServiceRecord>>,
         encryption_key: [u8; 32],
+        default_service_store_id: impl Into<String>,
     ) -> Self {
         Self {
             store,
             encryption_key,
+            default_service_store_id: default_service_store_id.into(),
         }
     }
 
@@ -54,16 +57,77 @@ impl TypedServiceCredentialsStore {
     }
 
     /// Reads one service record from the typed store.
-    fn read_record(&self, service_id: &str) -> Result<Option<SourceServiceRecord>> {
+    fn read_record(
+        &self,
+        service_store_id: &str,
+        service_id: &str,
+    ) -> Result<Option<SourceServiceRecord>> {
         let store = Arc::clone(&self.store);
-        let service_id = service_id.to_string();
-        self.wait(store.get(&service_id))?
+        let key = SourceServiceKey::new(service_store_id, service_id);
+        self.wait(store.get(&key))?
     }
 
     /// Writes one service record to the typed store.
     fn write_record(&self, record: SourceServiceRecord) -> Result<()> {
         let store = Arc::clone(&self.store);
         self.wait(store.put(&record))?
+    }
+
+    /// Reads credentials for a source identified by its service store and ID.
+    pub fn get_credentials_for(
+        &self,
+        service_store_id: &str,
+        service_id: &str,
+    ) -> Result<Option<StoredCredentials>> {
+        let service_id = normalize_service_id(service_id)?;
+        let Some(record) = self.read_record(service_store_id, &service_id)? else {
+            return Ok(None);
+        };
+        let (Some(login), Some(password)) = (record.login, record.password) else {
+            return Ok(None);
+        };
+        Ok(Some(StoredCredentials {
+            login: decrypt_value(&self.encryption_key, &login)?,
+            password: decrypt_value(&self.encryption_key, &password)?,
+        }))
+    }
+
+    /// Persists credentials for a source identified by its service store and ID.
+    pub fn set_credentials_for(
+        &self,
+        service_store_id: &str,
+        service_id: &str,
+        credentials: StoredCredentials,
+    ) -> Result<()> {
+        let service_id = normalize_service_id(service_id)?;
+        let login = credentials.login.trim();
+        let password = credentials.password.trim();
+        if login.is_empty() || password.is_empty() {
+            bail!("Missing credentials login or password.");
+        }
+        let mut record = self
+            .read_record(service_store_id, &service_id)?
+            .unwrap_or_else(|| SourceServiceRecord {
+                service_store_id: service_store_id.to_string(),
+                source_id: service_id.clone(),
+                enabled: true,
+                login: None,
+                password: None,
+            });
+        record.login = Some(encrypt_value(&self.encryption_key, login)?);
+        record.password = Some(encrypt_value(&self.encryption_key, password)?);
+        self.write_record(record)
+    }
+
+    /// Removes credentials for a source identified by its service store and ID.
+    pub fn clear_credentials_for(&self, service_store_id: &str, service_id: &str) -> Result<()> {
+        let service_id = normalize_service_id(service_id)?;
+        let Some(mut record) = self.read_record(service_store_id, &service_id)? else {
+            return Ok(());
+        };
+        record.login = None;
+        record.password = None;
+        self.write_record(record)
     }
 }
 
@@ -78,53 +142,14 @@ fn normalize_service_id(service_id: &str) -> Result<String> {
 
 impl CredentialsStore for TypedServiceCredentialsStore {
     fn get_credentials(&self, service_id: &str) -> Result<Option<StoredCredentials>> {
-        let service_id = normalize_service_id(service_id)?;
-        let Some(record) = self.read_record(&service_id)? else {
-            return Ok(None);
-        };
-        let (Some(login), Some(password)) = (record.login, record.password) else {
-            return Ok(None);
-        };
-
-        Ok(Some(StoredCredentials {
-            login: decrypt_value(&self.encryption_key, &login)?,
-            password: decrypt_value(&self.encryption_key, &password)?,
-        }))
+        self.get_credentials_for(&self.default_service_store_id, service_id)
     }
 
     fn set_credentials(&self, service_id: &str, credentials: StoredCredentials) -> Result<()> {
-        let service_id = normalize_service_id(service_id)?;
-        let login = credentials.login.trim();
-        let password = credentials.password.trim();
-        if login.is_empty() || password.is_empty() {
-            bail!("Missing credentials login or password.");
-        }
-
-        // Read-modify-write keeps the activation override stored on the same
-        // entity intact.
-        let mut record = self.read_record(&service_id)?.unwrap_or_else(|| {
-            // Defensive default: catalog services already get a record at
-            // startup; an enabled default keeps an unregistered but
-            // credential-configured service usable.
-            SourceServiceRecord {
-                source_id: service_id.clone(),
-                enabled: true,
-                login: None,
-                password: None,
-            }
-        });
-        record.login = Some(encrypt_value(&self.encryption_key, login)?);
-        record.password = Some(encrypt_value(&self.encryption_key, password)?);
-        self.write_record(record)
+        self.set_credentials_for(&self.default_service_store_id, service_id, credentials)
     }
 
     fn clear_credentials(&self, service_id: &str) -> Result<()> {
-        let service_id = normalize_service_id(service_id)?;
-        let Some(mut record) = self.read_record(&service_id)? else {
-            return Ok(());
-        };
-        record.login = None;
-        record.password = None;
-        self.write_record(record)
+        self.clear_credentials_for(&self.default_service_store_id, service_id)
     }
 }
