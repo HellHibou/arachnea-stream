@@ -23,6 +23,6 @@
   },
   {
     "path": "papadustream-v2.yaml",
-    "enabled": true
+    "enabled": false
   }
 ]
