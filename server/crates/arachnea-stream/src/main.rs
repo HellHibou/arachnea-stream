@@ -14,7 +14,7 @@ use arachnea_core::{
     },
     persistence::CredentialsStore,
 };
-use arachnea_scrapyfy::admin::register_admin_service;
+use arachnea_scrapyfy::admin::{register_admin_service, ReloadCoordinator};
 use arachnea_scrapyfy::*;
 use arachnea_stream::{
     admin_composition::StreamAdminRuntimeAdapter, ReloadableStreamScraper, StreamScraper,
@@ -108,30 +108,6 @@ fn build_admin_runtime_settings(
     settings
 }
 
-/// Builds a compact, log-friendly summary of a configuration reload.
-///
-/// Used by the server tray "Reload configuration" action so reload problems
-/// stay diagnosable from the log window and the administration interface.
-///
-/// # Arguments
-/// * `reloadable` - Reloadable scraper facade to reload.
-///
-/// # Returns
-/// A single-line summary reporting the outcome and, when applicable, the
-/// build failure context.
-fn tray_reload_summary(reloadable: Arc<ReloadableStreamScraper>) -> String {
-    match reloadable.reload_blocking() {
-        Ok(report) => {
-            let mut summary = format!("applied={}", report.applied);
-            if let Some(build_error) = &report.build_error {
-                summary.push_str(&format!("; build_error={build_error}"));
-            }
-            summary
-        }
-        Err(error) => format!("reload failed: {error}"),
-    }
-}
-
 /// Runs the IP-country geolocation refresh and exits.
 ///
 /// Initialises the scraper aggregator, collects proxy IPs from the dynamic
@@ -203,11 +179,6 @@ async fn main() -> Result<()> {
         }
     };
 
-    // The controller macro treats a `None` application mode as server mode.
-    let effective_mode = options
-        .application_option
-        .application_mode
-        .unwrap_or_default();
     // Service credentials are stored encrypted (per-field AES-256-GCM) in the
     // typed `arachnea-services` SQLite store; the activation overrides,
     // Cloudflare sessions and proxy inventory live in the same typed stores.
@@ -220,6 +191,12 @@ async fn main() -> Result<()> {
         arachnea_stream::stream_scraper::STREAM_SERVICE_GROUP_NAME,
     ));
     let credentials_store: Arc<dyn CredentialsStore> = typed_credentials_store.clone();
+
+    // The controller macro treats a `None` application mode as server mode.
+    let effective_mode = options
+        .application_option
+        .application_mode
+        .unwrap_or_default();
 
     let mut build_options = StreamScraperBuildOptions::new(credentials_store, stores.clone());
     if options.cache_max_disk_bytes.is_some() || options.cache_max_memory_bytes.is_some() {
@@ -247,16 +224,21 @@ async fn main() -> Result<()> {
         .web_mount_paths
         .push("admin".to_string());
 
-    // Wire the server tray "Reload configuration" action to the reloadable
-    // facade. The facade is only registered once the controller exists, so the
-    // callback resolves it lazily through a shared slot filled just after.
-    let late_reload: Arc<std::sync::OnceLock<Arc<ReloadableStreamScraper>>> =
+    // Wire the server tray "Reload configuration" action to Scrapyfy's shared
+    // coordinator. The coordinator exists only after the administration service
+    // has been registered, so the callback resolves it through a late slot.
+    let late_reload: Arc<std::sync::OnceLock<Arc<ReloadCoordinator>>> =
         Arc::new(std::sync::OnceLock::new());
     let late_reload_callback = Arc::clone(&late_reload);
     let reload_configuration: Arc<dyn Fn() -> String + Send + Sync> =
         Arc::new(move || match late_reload_callback.get() {
-            Some(reloadable) => tray_reload_summary(Arc::clone(reloadable)),
-            None => "reload unavailable: scraper not initialized yet".to_string(),
+            Some(coordinator) => {
+                match coordinator.reload_all_and_apply_server_settings_blocking() {
+                    Ok(summary) => summary.log_summary(),
+                    Err(error) => format!("reload failed: {error}"),
+                }
+            }
+            None => "reload unavailable: administration not initialized yet".to_string(),
         });
     options.application_option.reload_configuration = Some(reload_configuration);
 
@@ -273,7 +255,6 @@ async fn main() -> Result<()> {
 
     let mut controler = arachnea_core::create_application_controler!(options.application_option);
     let reloadable = reloadable.register_service(controler.as_mut());
-    let _ = late_reload.set(Arc::clone(&reloadable));
 
     // Hot application of server settings is still performed by Core's REST
     // supervisor; the configuration source is owned by the Stream adapter.
@@ -313,13 +294,14 @@ async fn main() -> Result<()> {
     }
 
     let active_scraper = reloadable.current();
-    register_admin_service(
+    let admin_state = register_admin_service(
         admin_runtime_settings,
         active_scraper.scraper_agregator(),
         Arc::clone(&stores.source_enabled),
         adapter,
         controler.as_mut(),
     )?;
+    let _ = late_reload.set(admin_state.reload_coordinator);
 
     controler.launch();
 

@@ -111,6 +111,7 @@
     "confirm": "Recharger la configuration maintenant ?",
     "success": "Configuration rechargée avec succès.",
     "failed": "Échec du rechargement.",
+    "groupApplied": "Rechargé avec succès.",
     "reloadRequired": "Changements appliqués. Veuillez recharger pour activer."
   },
   "theme": {

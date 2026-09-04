@@ -315,6 +315,18 @@ export interface ReloadResponse {
   applied: boolean
   /** Build failure message when the replacement could not be constructed. */
   build_error?: string
+  /** Result of every administrable service group, in configured display order. */
+  groups: ReloadGroupReport[]
+}
+
+/** Outcome of one group within an administration reload. */
+export interface ReloadGroupReport {
+  /** Technical identifier of the service group. */
+  service_store_id: string
+  /** Whether this group's validated state was accepted. */
+  applied: boolean
+  /** Validation or runtime rebuild failure context. */
+  build_error?: string
 }
 
 // ─── API Operations ────────────────────────────────────────────────────────

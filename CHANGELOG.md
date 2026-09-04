@@ -1356,3 +1356,42 @@ redémarrage du processus ni du systray :
   `AdminServiceGroupConfig` values from those loaded groups and builds the
   administration state itself, removing the Stream executable's hard-coded
   service-group manifest list.
+
+## Unreleased — Generic reload validation foundation
+
+- **Shared reload validation**: `arachnea-scrapyfy::admin::reload` now owns the
+  generic service-group manifest and activation validation previously embedded
+  in the admin request handler. `RuntimeReloadReport` replaces the duplicate
+  internal `AdminGroupReload` and Stream-specific `StreamReloadReport` types;
+  Stream uses the shared report through its runtime adapter while the existing
+  flat `reload` API response remains unchanged. Runtime-specific Stream rebuild
+  validation remains in place temporarily for the following migration phase.
+
+## Unreleased — Validated Stream runtime rebuild
+
+- **Reload validation boundary**: Scrapyfy now validates each manifest and its
+  activation state before invoking an application runtime hook. The adapter hook
+  receives `ValidatedReloadGroup` through `rebuild_validated_group`; Stream's
+  `rebuild_validated` now only constructs and atomically swaps a replacement,
+  restores proxy/DRM endpoints, and reapplies the current country. The temporary
+  Stream tray wrapper delegates its validation to Scrapyfy pending coordinator
+  unification.
+
+## Unreleased — Shared reload coordinator
+
+- **Unified reload entry points**: `ReloadCoordinator` in Scrapyfy now owns the
+  group reload loop used by both `admin/reload` and the server tray. The tray no
+  longer calls `ReloadableStreamScraper` directly; it logs every coordinated
+  group outcome, while the existing HTTP response remains backward-compatible
+  through its first-group projection.
+
+## Unreleased — Multi-group reload reports and tray server application
+
+- **Reload outcomes**: `admin/reload` now returns a `groups` array with the
+  `{service_store_id, applied, build_error}` outcome of every administrable
+  group, while retaining the historical first-group `applied` and `build_error`
+  fields. The administration UI displays every group outcome after a reload.
+- **Tray reload completion**: the server tray now applies pending REST port,
+  network and root settings after coordinated group reloads whenever a REST
+  target is available. Its log summary reports the server application result
+  independently, so a rebind failure does not hide successful group reloads.

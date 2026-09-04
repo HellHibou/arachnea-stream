@@ -427,16 +427,46 @@ impl StreamScraper {
     /// Returns an error when the catalog or one of the source files cannot be
     /// loaded or parsed, or when service-state synchronization fails.
     pub fn from_options(options: &StreamScraperBuildOptions) -> Result<Self> {
+        Self::from_options_with_activation_sync(options, true)
+    }
+
+    /// Creates a scraper facade from build options whose service group was
+    /// already validated by the administration reload coordinator.
+    ///
+    /// This constructor still loads the configured query collections for the
+    /// replacement instance, but it does not read or write source activation
+    /// defaults. The coordinator owns that generic validation and persistence
+    /// work before asking the Stream runtime to rebuild.
+    ///
+    /// # Arguments
+    ///
+    /// * `options` - Build options describing stores, manifest path, and sizing.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a configured source file cannot be loaded or
+    /// parsed.
+    pub(crate) fn from_validated_options(options: &StreamScraperBuildOptions) -> Result<Self> {
+        Self::from_options_with_activation_sync(options, false)
+    }
+
+    /// Creates a scraper facade with optional activation-default synchronization.
+    fn from_options_with_activation_sync(
+        options: &StreamScraperBuildOptions,
+        synchronize_activation_defaults: bool,
+    ) -> Result<Self> {
         let mut instance = Self::new_with_typed_stores(
             Arc::clone(&options.credentials_store),
             options.stores.clone(),
         );
         let services_path = options.services_config_path.as_str();
-        let catalog = load_service_catalog(services_path, STREAM_SERVICE_GROUP_NAME)?;
-        synchronize_service_defaults(
-            Arc::clone(&instance.stores.source_enabled),
-            catalog.iter().map(|entry| entry.source.clone()).collect(),
-        )?;
+        if synchronize_activation_defaults {
+            let catalog = load_service_catalog(services_path, STREAM_SERVICE_GROUP_NAME)?;
+            synchronize_service_defaults(
+                Arc::clone(&instance.stores.source_enabled),
+                catalog.iter().map(|entry| entry.source.clone()).collect(),
+            )?;
+        }
 
         instance
             .scraper_agregator

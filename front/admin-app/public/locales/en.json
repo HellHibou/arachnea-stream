@@ -111,6 +111,7 @@
     "confirm": "Reload configuration now?",
     "success": "Configuration reloaded successfully.",
     "failed": "Reload failed.",
+    "groupApplied": "Reloaded successfully.",
     "reloadRequired": "Changes applied. Please reload to activate."
   },
   "theme": {

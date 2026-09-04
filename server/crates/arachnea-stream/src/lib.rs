@@ -19,6 +19,6 @@ pub mod stream_scraper;
 /// Credentials adapter over the typed `arachnea-services` store.
 pub mod typed_service_credentials_store;
 
-pub use reloadable_stream_scraper::{ReloadableStreamScraper, StreamReloadReport};
+pub use reloadable_stream_scraper::ReloadableStreamScraper;
 pub use stream_scraper::{StreamScraper, StreamScraperBuildOptions};
 pub use typed_service_credentials_store::TypedServiceCredentialsStore;

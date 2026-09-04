@@ -9,7 +9,8 @@ use std::{
 
 use arachnea_core::controler::{options::CoreApplicationOptions, RestServerHandle};
 use arachnea_scrapyfy::admin::{
-    AdminGroupReload, AdminRuntimeAdapter, AdminServerSettingsReport, PlaintextCredentials,
+    AdminRuntimeAdapter, AdminServerSettingsReport, PlaintextCredentials, RuntimeReloadReport,
+    ValidatedReloadGroup,
 };
 
 use crate::{ReloadableStreamScraper, TypedServiceCredentialsStore};
@@ -116,14 +117,13 @@ impl AdminRuntimeAdapter for StreamAdminRuntimeAdapter {
         self.credentials.clear_credentials_for(store, id)
     }
 
-    async fn rebuild_group(&self, store: &str) -> Result<Option<AdminGroupReload>> {
-        if store != crate::stream_scraper::STREAM_SERVICE_GROUP_NAME {
+    async fn rebuild_validated_group(
+        &self,
+        group: &ValidatedReloadGroup,
+    ) -> Result<Option<RuntimeReloadReport>> {
+        if group.service_store_id != crate::stream_scraper::STREAM_SERVICE_GROUP_NAME {
             return Ok(None);
         }
-        let report = self.reloadable.reload().await?;
-        Ok(Some(AdminGroupReload {
-            applied: report.applied,
-            build_error: report.build_error,
-        }))
+        Ok(Some(self.reloadable.rebuild_validated().await?))
     }
 }

@@ -1,22 +1,19 @@
-//! Stable route facade with validated, atomic stream scraper reloads.
+//! Stable route facade with atomic stream scraper reconstruction.
 //!
 //! Routes are registered once against [`ReloadableStreamScraper`]; every
 //! request resolves the active [`StreamScraper`] instance at call time.
-//! Reloads build and validate a replacement off the request path and swap it
-//! in only when validation succeeds, producing a detailed report.
+//! Validated rebuilds construct a replacement off the request path and swap it
+//! in only when construction succeeds, producing a detailed report.
 
-use anyhow::{Context, Result};
-use serde::Serialize;
+use anyhow::Result;
 use std::sync::{Arc, RwLock};
 
 use arachnea_core::controler::{ControlerService, ControlerServiceExt};
 use arachnea_core::persistence::{CredentialsStore, TypedEntityStore};
 use arachnea_proxy::core::ArachneaProxyCore;
+use arachnea_scrapyfy::admin::RuntimeReloadReport;
+use arachnea_scrapyfy::source_params_from_entries;
 use arachnea_scrapyfy::SourceServiceRecord;
-use arachnea_scrapyfy::{
-    load_service_catalog_detailed, source_params_from_entries, PersistenceSourceEnabled,
-    ScraperSourceDescriptor, ScraperSourceEnabled, ServiceCatalogFailureReason,
-};
 
 use crate::stream_scraper::{
     category_sources_from_request, GetBannersRequest, GetCategoryRequest, GetEntryRequest,
@@ -38,15 +35,6 @@ pub(crate) struct RegistrationEndpoints {
     pub(crate) http_proxy_public_path: Option<String>,
     /// Proxy core shared with the registered `proxy` stream command.
     pub(crate) proxy_core: Option<ArachneaProxyCore>,
-}
-
-/// Detailed outcome of one reload attempt.
-#[derive(Clone, Debug, Default, Serialize)]
-pub struct StreamReloadReport {
-    /// Whether the new instance replaced the active one.
-    pub applied: bool,
-    /// Build failure message when the replacement could not be constructed.
-    pub build_error: Option<String>,
 }
 
 /// Stable facade holding the active [`StreamScraper`] instance.
@@ -172,83 +160,43 @@ impl ReloadableStreamScraper {
         shared
     }
 
-    /// Builds and validates a replacement instance, then swaps it in on success.
+    /// Builds a replacement from a group already validated by Scrapyfy, then swaps it in.
     ///
-    /// The sequence is: catalog inventory, activation-state synchronization
-    /// without overwriting existing overrides, replacement construction off the
-    /// request path, validation, and finally the atomic swap. The active
-    /// instance keeps serving requests while the replacement is built.
+    /// The sequence is replacement construction off the request path, restoration
+    /// of registration-time endpoints and runtime options, then the atomic swap.
+    /// The active instance keeps serving requests while the replacement is built.
     ///
     /// # Returns
-    /// A [`StreamReloadReport`] stating whether the replacement instance was
+    /// A [`RuntimeReloadReport`] stating whether the replacement instance was
     /// applied and, when applicable, the build failure context. `applied` is
-    /// `false` when validation or construction failed, in which case the
-    /// active instance is left untouched.
+    /// `false` when construction failed, in which case the active instance is
+    /// left untouched.
     ///
     /// # Errors
-    /// Returns an error only for unexpected internal failures such as a fatal
-    /// manifest resolution error or a panicked build task.
-    pub async fn reload(&self) -> Result<StreamReloadReport> {
+    /// Returns an error only for unexpected internal failures such as a panicked
+    /// build task.
+    pub async fn rebuild_validated(&self) -> Result<RuntimeReloadReport> {
         let options = self
             .options
             .read()
             .expect("stream scraper options lock poisoned")
             .clone();
-        let catalog = load_service_catalog_detailed(
-            &options.services_config_path,
-            crate::stream_scraper::STREAM_SERVICE_GROUP_NAME,
-        )
-        .with_context(|| {
-            format!(
-                "Failed to reload service catalog {}.",
-                options.services_config_path
-            )
-        })?;
-
-        let policy =
-            PersistenceSourceEnabled::with_typed_store(Arc::clone(&options.stores.source_enabled));
-        let descriptors: Vec<ScraperSourceDescriptor> = catalog
-            .entries
-            .iter()
-            .map(|entry| entry.source.clone())
-            .collect();
-        policy
-            .register_defaults(&descriptors)
-            .await
-            .context("Failed to synchronize service activation defaults during reload.")?;
-
-        let mut failures: Vec<String> = Vec::new();
-        for entry in &catalog.entries {
-            if let Err(error) = policy.is_enabled(&entry.source).await {
-                failures.push(format!(
-                    "{}: failed to read activation state: {error:#}",
-                    entry.source.path.display()
-                ));
-            }
-        }
-        for failure in &catalog.failures {
-            if matches!(
-                failure.reason,
-                ServiceCatalogFailureReason::Invalid | ServiceCatalogFailureReason::Duplicate
-            ) {
-                failures.push(format!("{}: {}", failure.path.display(), failure.message));
-            }
-        }
 
         // Build the replacement off the request path; the active instance
         // keeps serving while this runs.
         let build_options = options.clone();
-        let built =
-            tokio::task::spawn_blocking(move || StreamScraper::from_options(&build_options))
-                .await
-                .map_err(|error| anyhow::anyhow!("Reload build task failed: {error}"))?;
+        let built = tokio::task::spawn_blocking(move || {
+            StreamScraper::from_validated_options(&build_options)
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!("Reload build task failed: {error}"))?;
 
-        let mut report = StreamReloadReport {
+        let mut report = RuntimeReloadReport {
             applied: false,
             build_error: None,
         };
         match built {
-            Ok(mut scraper) if failures.is_empty() => {
+            Ok(mut scraper) => {
                 if let Some(endpoints) = self
                     .registration
                     .read()
@@ -264,11 +212,6 @@ impl ReloadableStreamScraper {
                 report.applied = true;
                 tracing::info!("stream scraper reloaded");
             }
-            Ok(_) => {
-                report.applied = false;
-                report.build_error = Some(format!("Validation failed: {}", failures.join("; ")));
-                tracing::warn!("stream scraper reload refused: validation failed");
-            }
             Err(error) => {
                 report.applied = false;
                 report.build_error = Some(format!("{error:#}"));
@@ -277,22 +220,6 @@ impl ReloadableStreamScraper {
         }
 
         Ok(report)
-    }
-
-    /// Blocking variant of [`ReloadableStreamScraper::reload`] for callers
-    /// outside an async runtime, such as tray callbacks.
-    ///
-    /// # Errors
-    /// Returns an error when the reload fails or the worker thread panics.
-    pub fn reload_blocking(self: &Arc<Self>) -> Result<StreamReloadReport> {
-        let shared = Arc::clone(self);
-        std::thread::spawn(move || {
-            tokio::runtime::Runtime::new()
-                .map_err(anyhow::Error::from)?
-                .block_on(shared.reload())
-        })
-        .join()
-        .map_err(|_| anyhow::anyhow!("stream scraper reload thread panicked"))?
     }
 }
 

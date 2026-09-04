@@ -24,13 +24,10 @@ use super::auth::{
 };
 use super::dto::*;
 use super::register_admin_operation;
-use super::{
-    AdminGroupReload, AdminRuntimeAdapter, AdminServiceGroupConfig, AdminState, AdminStateBuild,
-};
+use super::{AdminRuntimeAdapter, AdminServiceGroupConfig, AdminState, AdminStateBuild};
 use crate::scrapyfy::{
     load_service_catalog_detailed, ScraperAgregator, ScraperQueryCollectionParameter,
-    ScraperServiceCatalogEntry, ScraperServiceCredentials, ScraperSourceEnabled,
-    ServiceCatalogFailureReason, SourceServiceRecord,
+    ScraperServiceCatalogEntry, ScraperServiceCredentials, SourceServiceRecord,
 };
 
 /// Delay between the `update-settings` response and the hot application of
@@ -926,65 +923,11 @@ pub(crate) async fn op_set_admin_password(
     Ok(AdminReply::ok(&AdminEmptyRequest {}))
 }
 
-/// Builds the generic validation reload of one service store.
-///
-/// Groups without an application-specific runtime are validated by rebuilding
-/// their catalog and activation view; no live runtime is replaced.
-async fn generic_group_reload(
-    state: &AdminState,
-    group: &AdminServiceGroupConfig,
-) -> AdminGroupReload {
-    let mut report = AdminGroupReload {
-        applied: false,
-        ..Default::default()
-    };
-    let catalog = match load_service_catalog_detailed(&group.manifest_path, &group.service_store_id)
-    {
-        Ok(catalog) => catalog,
-        Err(error) => {
-            report.build_error = Some(format!("{error:#}"));
-            return report;
-        }
-    };
-
-    let policy = state.activation_policy();
-    let mut defaults = Vec::new();
-    let mut failures: Vec<String> = Vec::new();
-    for entry in &catalog.entries {
-        defaults.push(entry.source.clone());
-        if let Err(error) = policy.is_enabled(&entry.source).await {
-            failures.push(format!(
-                "{}: failed to read activation state: {error:#}",
-                entry.source.path.display()
-            ));
-        }
-    }
-    if let Err(error) = policy.register_defaults(&defaults).await {
-        failures.push(format!(
-            "Failed to synchronize service activation defaults: {error:#}"
-        ));
-    }
-    for failure in &catalog.failures {
-        if matches!(
-            failure.reason,
-            ServiceCatalogFailureReason::Invalid | ServiceCatalogFailureReason::Duplicate
-        ) {
-            failures.push(format!("{}: {}", failure.path.display(), failure.message));
-        }
-    }
-    if !failures.is_empty() {
-        report.build_error = Some(failures.join("; "));
-    }
-    report.applied = report.build_error.is_none();
-    report
-}
-
 /// Builds the `reload` reply.
 ///
-/// Every declared group is reloaded: groups with an application-specific
-/// runtime go through the adapter hook, the others are validated generically.
-/// A failing group keeps its runtime untouched and is reported with its
-/// identifier.
+/// Every declared group is validated before any application-specific runtime
+/// hook runs. A failing group keeps its runtime untouched and is reported with
+/// its identifier.
 pub(crate) async fn op_reload(
     state: Arc<AdminState>,
     context: RequestControlerContext,
@@ -993,30 +936,14 @@ pub(crate) async fn op_reload(
     require_authorized(&state, &context).await?;
     verify_write(&state, &context)?;
 
-    let adapter = Arc::clone(state.adapter());
-    let mut reloads: Vec<(String, AdminGroupReload)> = Vec::with_capacity(state.groups().len());
-    for group in state.groups() {
-        let reload = match adapter.rebuild_group(&group.service_store_id).await {
-            Ok(Some(reload)) => reload,
-            Ok(None) => generic_group_reload(&state, group).await,
-            Err(error) => AdminGroupReload {
-                applied: false,
-                build_error: Some(format!("{error:#}")),
-                ..Default::default()
-            },
-        };
-        reloads.push((group.service_store_id.clone(), reload));
-    }
-
     // Legacy flat view: report the first declared group so single-group
     // clients keep their contract.
-    let first = reloads.into_iter().next();
+    let summary = state.reload_coordinator().reload_all().await;
+    let first = summary.primary();
     let response = ReloadResponse {
-        applied: first
-            .as_ref()
-            .map(|(_, reload)| reload.applied)
-            .unwrap_or(false),
-        build_error: first.and_then(|(_, reload)| reload.build_error),
+        applied: first.as_ref().map(|report| report.applied).unwrap_or(false),
+        build_error: first.and_then(|report| report.build_error),
+        groups: summary.groups,
     };
 
     Ok(AdminReply::ok(&response))
@@ -1097,6 +1024,6 @@ pub fn register_admin_service(
     if let Some(password) = &state.temporary_password {
         println!("Temporary administrator password for remote administration: {password}");
     }
-    
+
     Ok(state)
 }

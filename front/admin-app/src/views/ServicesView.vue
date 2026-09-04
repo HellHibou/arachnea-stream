@@ -8,6 +8,7 @@ import { hasConfiguredServiceStore, defaultServicesPath } from '@/services/appCo
 import type {
   AdminServiceEntry,
   AdminUnavailableSource,
+  ReloadGroupReport,
   ServicesResponse,
 } from '@/services/adminApi'
 import CredentialsDialog from '@/components/CredentialsDialog.vue'
@@ -45,6 +46,8 @@ const needsReload = ref(false)
 const reloadResult = ref<string | null>(null)
 /** Whether the last manual reload applied cleanly (drives the alert color). */
 const reloadSucceeded = ref(false)
+/** Detailed outcome for every group returned by the last manual reload. */
+const reloadReports = ref<ReloadGroupReport[]>([])
 /** Composite key of the service currently opened in the credentials dialog. */
 const activeDialogKey = ref<string | null>(null)
 /** Composite key of a service awaiting activation after credentials are saved (null otherwise). */
@@ -224,15 +227,29 @@ async function handleResetEnabled(service: AdminServiceEntry): Promise<void> {
 
 async function handleReload(): Promise<void> {
   const result = await reload()
-  if (result?.applied) {
+  reloadReports.value = result?.groups ?? []
+  const allApplied = reloadReports.value.length > 0
+    ? reloadReports.value.every((report) => report.applied)
+    : result?.applied === true
+  if (allApplied) {
     needsReload.value = false
     reloadSucceeded.value = true
     reloadResult.value = t('reload.success')
   } else {
     reloadSucceeded.value = false
-    reloadResult.value = result?.build_error ?? t('reload.failed')
+    reloadResult.value = t('reload.failed')
   }
   await loadServices()
+}
+
+function reloadGroupLabel(report: ReloadGroupReport): string {
+  return serviceStoreTitle(report.service_store_id)
+}
+
+function reloadGroupMessage(report: ReloadGroupReport): string {
+  return report.applied
+    ? t('reload.groupApplied')
+    : (report.build_error ?? t('reload.failed'))
 }
 
 function openCredentials(service: AdminServiceEntry): void {
@@ -328,6 +345,17 @@ watch(serviceStoreId, () => {
           <div class="d-flex align-center justify-space-between">
             <span>{{ reloadResult }}</span>
           </div>
+          <v-list v-if="reloadReports.length > 0" density="compact" class="mt-2 bg-transparent">
+            <v-list-item v-for="report in reloadReports" :key="report.service_store_id" class="px-0">
+              <template #prepend>
+                <v-icon :color="report.applied ? 'success' : 'error'" size="small">
+                  {{ report.applied ? 'mdi-check-circle' : 'mdi-alert-circle' }}
+                </v-icon>
+              </template>
+              <v-list-item-title>{{ reloadGroupLabel(report) }}</v-list-item-title>
+              <v-list-item-subtitle>{{ reloadGroupMessage(report) }}</v-list-item-subtitle>
+            </v-list-item>
+          </v-list>
         </v-alert>
 
         <v-progress-circular

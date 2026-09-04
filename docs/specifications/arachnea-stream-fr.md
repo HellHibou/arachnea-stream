@@ -800,7 +800,7 @@ mêmes noms de commande.
 | `settings` | GET | Port, réseau et root effectifs avec leur provenance. |
 | `update-settings` | POST | Persiste port/root/réseau, puis les applique à chaud au serveur en cours quand c’est possible (mode serveur) : réponse `applied: true` et `admin_url` si le port ou la racine change ; sinon `restart_required: true`. Détail de la réponse : `{restart_required, applied, apply_error, admin_url}`. |
 | `set-admin-password` | POST | Définit ou change le mot de passe administrateur permanent (Argon2id). |
-| `reload` | POST | Construit et valide un scraper de remplacement, puis l’échange atomiquement ; renvoie un rapport détaillé. Le corps doit être l’objet JSON vide `{}`. |
+| `reload` | POST | Valide puis recharge tous les groupes administrables ; chaque runtime applicable est échangé atomiquement. Le corps doit être l’objet JSON vide `{}`. La réponse conserve `{applied, build_error}` pour le premier groupe et ajoute `groups: [{service_store_id, applied, build_error}]` pour tous les groupes. |
 
 ### 9.3 Format d’erreur
 

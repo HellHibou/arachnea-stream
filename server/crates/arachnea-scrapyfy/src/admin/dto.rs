@@ -7,6 +7,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::reload::ReloadGroupReport;
+
 use arachnea_core::controler::options::SettingSource;
 
 /// Credential metadata exposed to administrators (never the secret itself).
@@ -278,6 +280,8 @@ pub struct ReloadResponse {
     pub applied: bool,
     /// Build failure message when the replacement could not be constructed.
     pub build_error: Option<String>,
+    /// Result of every declared administrable service group, in display order.
+    pub groups: Vec<ReloadGroupReport>,
 }
 
 /// Request body of the `services` operation.

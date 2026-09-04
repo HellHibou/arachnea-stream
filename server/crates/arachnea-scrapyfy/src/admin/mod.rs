@@ -10,6 +10,8 @@
 pub mod auth;
 pub mod dto;
 mod ops;
+/// Generic validation and reporting primitives for service-group reloads.
+pub mod reload;
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -33,6 +35,10 @@ use ops::AdminError;
 
 pub use auth::ADMIN_SESSION_COOKIE;
 pub use ops::{register_admin_service, AdminReply};
+pub use reload::{
+    prepare_group_reload, ReloadCoordinator, ReloadGroupReport, ReloadSummary, RuntimeReloadReport,
+    TrayReloadSummary, ValidatedReloadGroup,
+};
 
 /// Length of the temporary administrator password generated when no permanent
 /// hash is configured.
@@ -51,15 +57,6 @@ pub struct AdminServerSettingsReport {
     pub network_mode: String,
     /// Effective entrypoint root after the application attempt.
     pub entrypoint_root: Option<String>,
-}
-
-/// Application-specific rebuild outcome for one service store (group).
-#[derive(Clone, Debug, Default)]
-pub struct AdminGroupReload {
-    /// Whether the group runtime accepted the new catalog state.
-    pub applied: bool,
-    /// Build failure message when the group runtime could not be rebuilt.
-    pub build_error: Option<String>,
 }
 
 /// Declaration of one administrable service store (group).
@@ -145,18 +142,19 @@ pub trait AdminRuntimeAdapter: Send + Sync {
         service_id: &str,
     ) -> anyhow::Result<()>;
 
-    /// Rebuilds the application-specific runtime of one service store.
+    /// Rebuilds the application-specific runtime of a validated service group.
     ///
-    /// Returns `Ok(None)` when the group has no application-specific runtime
-    /// and Scrapyfy's generic catalog validation is enough. The hook must
-    /// never partially apply a failed rebuild.
+    /// Scrapyfy only invokes this hook after validating the group manifest and
+    /// synchronizing its activation defaults. Returns `Ok(None)` when the group
+    /// has no application-specific runtime. The hook must never partially apply
+    /// a failed rebuild.
     ///
     /// # Errors
     /// Returns an error for unexpected internal failures only.
-    async fn rebuild_group(
+    async fn rebuild_validated_group(
         &self,
-        service_store_id: &str,
-    ) -> anyhow::Result<Option<AdminGroupReload>>;
+        group: &ValidatedReloadGroup,
+    ) -> anyhow::Result<Option<RuntimeReloadReport>>;
 }
 
 /// Shared administration state bound to the registered routes.
@@ -168,12 +166,15 @@ pub struct AdminState {
     source_enabled: Arc<dyn TypedEntityStore<SourceServiceRecord>>,
     groups: Vec<AdminServiceGroupConfig>,
     adapter: Arc<dyn AdminRuntimeAdapter>,
+    reload_coordinator: Arc<ReloadCoordinator>,
 }
 
 /// Outcome of the administration state construction.
 pub struct AdminStateBuild {
     /// Shared administration state.
     pub state: Arc<AdminState>,
+    /// Shared coordinator used by both the administration endpoint and tray callbacks.
+    pub reload_coordinator: Arc<ReloadCoordinator>,
     /// Newly generated temporary administrator password, when the server mode
     /// runs without a permanent password hash. It must be displayed once and
     /// never persisted.
@@ -211,6 +212,11 @@ impl AdminState {
         } else {
             None
         };
+        let reload_coordinator = Arc::new(ReloadCoordinator::new(
+            groups.clone(),
+            Arc::clone(&source_enabled),
+            Arc::clone(&adapter),
+        ));
         let state = Arc::new(Self {
             settings: RwLock::new(settings),
             temp_password: temporary_password.clone(),
@@ -219,9 +225,11 @@ impl AdminState {
             source_enabled,
             groups,
             adapter,
+            reload_coordinator: Arc::clone(&reload_coordinator),
         });
         Ok(AdminStateBuild {
             state,
+            reload_coordinator,
             temporary_password,
         })
     }
@@ -252,6 +260,11 @@ impl AdminState {
     /// Returns the application runtime adapter.
     pub(crate) fn adapter(&self) -> &Arc<dyn AdminRuntimeAdapter> {
         &self.adapter
+    }
+
+    /// Returns the shared reload coordinator used by every reload entry point.
+    pub(crate) fn reload_coordinator(&self) -> &Arc<ReloadCoordinator> {
+        &self.reload_coordinator
     }
 
     /// Updates the effective server settings after a hot application.
