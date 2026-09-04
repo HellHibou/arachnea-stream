@@ -493,6 +493,11 @@ impl StreamScraper {
         self.proxy_handle.clone()
     }
 
+    /// Returns the query aggregator backing this scraper instance.
+    pub fn scraper_agregator(&self) -> &ScraperAgregator {
+        &self.scraper_agregator
+    }
+
     /// Stores the explicitly configured local country used by geo proxy decisions.
     ///
     /// # Arguments

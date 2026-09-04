@@ -1,6 +1,7 @@
 use anyhow::Context;
 use arachnea_core::application::{ApplicationOptionDefinition, ApplicationOptionsProvider};
-use arachnea_core::controler::options::CoreApplicationOptions;
+use arachnea_core::controler::options::{CoreApplicationOptions, SettingSource};
+use std::collections::BTreeMap;
 
 /// Runtime options parsed from command line arguments.
 pub struct SrcapyfyApplicationOptions {
@@ -12,16 +13,9 @@ pub struct SrcapyfyApplicationOptions {
     pub cache_max_disk_bytes: Option<u64>,
     /// Override of the maximum in-memory server cache size in bytes.
     pub cache_max_memory_bytes: Option<u64>,
-    /// Whether `--server-port` was provided on the command line.
-    pub server_port_specified: bool,
-    /// Whether `--network` was provided on the command line.
-    pub network_mode_specified: bool,
-    /// Whether `--entrypoint-root` was provided on the command line.
-    pub entrypoint_root_specified: bool,
 }
 
 impl SrcapyfyApplicationOptions {
-
     /// Sets the application options.
     ///
     /// # Arguments
@@ -54,15 +48,11 @@ impl Default for SrcapyfyApplicationOptions {
             current_country: None,
             cache_max_disk_bytes: None,
             cache_max_memory_bytes: None,
-            server_port_specified: false,
-            network_mode_specified: false,
-            entrypoint_root_specified: false,
         }
     }
-} 
+}
 
 impl ApplicationOptionsProvider for SrcapyfyApplicationOptions {
-
     fn get_options(&self) -> Vec<ApplicationOptionDefinition> {
         let mut options = self.application_option.get_options();
         options.extend([
@@ -82,16 +72,34 @@ impl ApplicationOptionsProvider for SrcapyfyApplicationOptions {
         options
     }
 
-    fn from_vect(args: Vec<String>) -> anyhow::Result<Box<Self>> {
-        let mut instance = SrcapyfyApplicationOptions::default()
-            .with_application_option(*ApplicationOptionsProvider::from_vect(args.clone())?);
+    fn export(&self, output: &mut BTreeMap<String, Option<String>>) {
+        self.application_option.export(output);
+        if let Some(current_country) = &self.current_country {
+            output.insert("current-country".to_string(), Some(current_country.clone()));
+        }
+        if let Some(cache_max_disk_bytes) = self.cache_max_disk_bytes {
+            output.insert(
+                "cache-max-disk-bytes".to_string(),
+                Some(cache_max_disk_bytes.to_string()),
+            );
+        }
+        if let Some(cache_max_memory_bytes) = self.cache_max_memory_bytes {
+            output.insert(
+                "cache-max-memory-bytes".to_string(),
+                Some(cache_max_memory_bytes.to_string()),
+            );
+        }
+    }
+
+    fn parse_vect(&mut self, args: Vec<String>, source: SettingSource) -> anyhow::Result<()> {
+        self.application_option.parse_vect(args.clone(), source)?;
 
         let mut iter = args.iter();
 
         while let Some(arg) = iter.next() {
             match arg.as_str() {
                 "--current-country" => {
-                    instance.current_country = Some(
+                    self.current_country = Some(
                         iter.next()
                             .context("Missing value for `--current-country`")?
                             .clone(),
@@ -102,34 +110,24 @@ impl ApplicationOptionsProvider for SrcapyfyApplicationOptions {
                         .next()
                         .context("Missing value for `--cache-max-disk-bytes`")?;
 
-                    instance.cache_max_disk_bytes =
-                        Some(value.parse::<u64>().with_context(|| {
-                            format!("Invalid value for `--cache-max-disk-bytes`: `{value}`")
-                        })?);
+                    self.cache_max_disk_bytes = Some(value.parse::<u64>().with_context(|| {
+                        format!("Invalid value for `--cache-max-disk-bytes`: `{value}`")
+                    })?);
                 }
                 "--cache-max-memory-bytes" => {
                     let value = iter
                         .next()
                         .context("Missing value for `--cache-max-memory-bytes`")?;
 
-                    instance.cache_max_memory_bytes =
+                    self.cache_max_memory_bytes =
                         Some(value.parse::<u64>().with_context(|| {
                             format!("Invalid value for `--cache-max-memory-bytes`: `{value}`")
                         })?);
-                }
-                "--server-port" => {
-                    instance.server_port_specified = true;
-                }
-                "--network" => {
-                    instance.network_mode_specified = true;
-                }
-                "--entrypoint-root" => {
-                    instance.entrypoint_root_specified = true;
                 }
                 _ => {}
             }
         }
 
-        Ok(Box::new(instance))
+        Ok(())
     }
 }

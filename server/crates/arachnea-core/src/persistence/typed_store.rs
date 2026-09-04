@@ -5,7 +5,6 @@ use std::{
     fmt::Debug,
     fs,
     hash::Hash,
-    io::Write,
     marker::PhantomData,
     path::PathBuf,
     sync::Arc,
@@ -780,7 +779,7 @@ impl<E: PersistentEntity, C: PersistenceFileCodec> FileEntityStore<E, C> {
     async fn persist(&self, document: TypedFileDocument) -> anyhow::Result<()> {
         let path = self.path();
         let codec = Arc::clone(&self.codec);
-        tokio::task::spawn_blocking(move || persist_file(path, codec, document))
+        tokio::task::spawn_blocking(move || codec.save(path, &document))
             .await
             .map_err(|error| anyhow::anyhow!("typed persistence write task failed: {error}"))?
     }
@@ -895,44 +894,6 @@ fn normalize_loaded_documents(document: &mut TypedFileDocument, schema: &EntityS
         }
     }
 }
-fn persist_file<C: PersistenceFileCodec>(
-    path: PathBuf,
-    codec: Arc<C>,
-    document: TypedFileDocument,
-) -> anyhow::Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|error| {
-            anyhow::anyhow!(
-                "failed to create typed persistence directory {}: {error}",
-                parent.display()
-            )
-        })?;
-    }
-    let payload = codec.serialize(&document)?;
-    let temp_path = path.with_extension(format!(
-        "{}.{}.tmp",
-        path.extension()
-            .and_then(|value| value.to_str())
-            .unwrap_or("data"),
-        std::process::id()
-    ));
-    let mut file = fs::File::create(&temp_path).map_err(|error| {
-        anyhow::anyhow!(
-            "failed to create temporary typed persistence document {}: {error}",
-            temp_path.display()
-        )
-    })?;
-    file.write_all(&payload)?;
-    file.sync_all()?;
-    drop(file);
-    fs::rename(&temp_path, &path).map_err(|error| {
-        anyhow::anyhow!(
-            "failed to replace typed persistence document {}: {error}",
-            path.display()
-        )
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

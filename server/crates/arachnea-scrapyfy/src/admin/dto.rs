@@ -7,6 +7,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use arachnea_core::controler::options::SettingSource;
+
 /// Credential metadata exposed to administrators (never the secret itself).
 #[derive(Clone, Debug, Serialize)]
 pub struct CredentialInfo {
@@ -101,18 +103,6 @@ pub struct StatusCapabilities {
     pub admin_password: bool,
     /// Server configuration reload.
     pub reload: bool,
-}
-
-/// Provenance of one effective setting.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SettingSource {
-    /// Explicit command-line argument.
-    CommandLine,
-    /// Persisted application configuration file.
-    Configuration,
-    /// Built-in default.
-    Default,
 }
 
 /// Response of the `settings` operation.

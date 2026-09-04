@@ -7,28 +7,38 @@ use std::net::IpAddr;
 use std::sync::Arc;
 
 use arachnea_core::{
-    application::{self, ApplicationOptionsProvider}, controler::{
-        RestServerSettings, options::{ApplicationMode, CoreApplicationOptions, DEFAULT_SERVER_PORT, ServerNetworkMode},
-    }, persistence::CredentialsStore,
+    application::{self, ApplicationOptionsProvider},
+    controler::{
+        options::{ApplicationMode, CoreApplicationOptions, SettingSource, DEFAULT_SERVER_PORT},
+        RestServerSettings,
+    },
+    persistence::CredentialsStore,
 };
-use arachnea_scrapyfy::admin::{
-    dto::SettingSource, register_admin_service, AdminMode, AdminRuntimeSettings,
-    AdminServiceGroupConfig, AdminState,
-};
+use arachnea_scrapyfy::admin::register_admin_service;
 use arachnea_scrapyfy::*;
 use arachnea_stream::{
-    admin_composition::StreamAdminRuntimeAdapter, configuration::ApplicationConfiguration,
-    ReloadableStreamScraper, StreamScraper, StreamScraperBuildOptions,
-    TypedServiceCredentialsStore,
+    admin_composition::StreamAdminRuntimeAdapter, ReloadableStreamScraper, StreamScraper,
+    StreamScraperBuildOptions, TypedServiceCredentialsStore,
 };
 
 /// Static AES-256-GCM key used to encrypt service credentials stored in the
 /// `arachnea-services` persistence store.
 const DEFAULT_SERVER_CREDENTIALS_KEY: [u8; 32] = *b"hell_hibou-arachnea-key-20260422";
 
+/// Relative configuration path in the writable application data directory.
+const CONFIGURATION_PATH: &str = "data/config.json";
+
+/// Returns the absolute persisted application configuration path.
+fn configuration_path() -> std::path::PathBuf {
+    std::path::PathBuf::from(application::get_application_data_path(CONFIGURATION_PATH))
+}
+
 /// Result of parsing command line arguments.
 enum CliAction {
-    Run(SrcapyfyApplicationOptions),
+    Run {
+        options: SrcapyfyApplicationOptions,
+        configuration: CoreApplicationOptions,
+    },
     RefreshIpCountries,
     ExitSuccess,
 }
@@ -43,7 +53,10 @@ enum CliAction {
 ///
 /// The formatted help message, extended with the executable-specific options.
 fn help_message(aop: Box<dyn ApplicationOptionsProvider>) -> String {
-    format!("{}{}", application::get_application_help_message(vec![aop]),"
+    format!(
+        "{}{}",
+        application::get_application_help_message(vec![aop]),
+        "
   --refresh-ip-countries    Refresh IP-to-country geolocation data and exit"
     )
 }
@@ -54,8 +67,10 @@ fn help_message(aop: Box<dyn ApplicationOptionsProvider>) -> String {
 /// Returns an error when an argument is unknown, when `--server-port` is missing
 /// its value, or when the provided port is invalid.
 fn parse_runtime_options() -> Result<CliAction> {
-
-    let options = SrcapyfyApplicationOptions::from_args()?
+    let persisted_options = SrcapyfyApplicationOptions::default().load_file(configuration_path())?;
+    let configuration = persisted_options.application_option.clone();
+    let options = persisted_options
+        .load_args()?
         .with_web_scheme("arachnea-stream");
 
     let mut args = std::env::args().skip(1);
@@ -72,81 +87,25 @@ fn parse_runtime_options() -> Result<CliAction> {
             // Finder passes this process serial number argument when opening a
             // macOS application bundle. It is not an application option.
             arg if options.application_option.contains_option(arg.to_string()) => {}
-            _ =>  bail!("unknown argument: `{arg}`"),
+            _ => bail!("unknown argument: `{arg}`"),
         }
     }
 
-    Ok(CliAction::Run(options))
+    Ok(CliAction::Run {
+        options,
+        configuration,
+    })
 }
 
-/// Applies persisted values when the equivalent command-line option is absent.
-fn apply_persistent_configuration(
-    options: &mut SrcapyfyApplicationOptions,
-    configuration: &ApplicationConfiguration,
-) -> Result<()> {
-    if !options.server_port_specified {
-        options.application_option.server_port = configuration.server_port;
-    }
-    if !options.entrypoint_root_specified {
-        // An empty persisted root means "no prefix": normalize it to `None` so
-        // the effective settings and the hot-apply target agree.
-        options.application_option.entrypoint_root = configuration
-            .entrypoint_root
-            .as_deref()
-            .filter(|root| !root.is_empty())
-            .map(ToString::to_string);
-    }
-    if !options.network_mode_specified {
-        if let Some(network_mode) = configuration.network_mode.as_deref() {
-            options.application_option.network_mode = network_mode
-                .parse::<ServerNetworkMode>()
-                .map_err(|error| anyhow::anyhow!("invalid configured network mode: {error}"))?;
-        }
-    }
-    Ok(())
-}
-
-/// Builds the effective administration settings from CLI options and the
-/// persisted configuration, with the provenance of each value.
+/// Builds the effective application options reported by the administration API.
 fn build_admin_runtime_settings(
     options: &SrcapyfyApplicationOptions,
-    configuration: &ApplicationConfiguration,
-    mode: AdminMode,
-) -> AdminRuntimeSettings {
-    AdminRuntimeSettings {
-        mode,
-        server_port: options
-            .application_option
-            .server_port
-            .unwrap_or(DEFAULT_SERVER_PORT),
-        server_port_source: if options.server_port_specified {
-            SettingSource::CommandLine
-        } else if configuration.server_port.is_some() {
-            SettingSource::Configuration
-        } else {
-            SettingSource::Default
-        },
-        network_mode: match options.application_option.network_mode {
-            ServerNetworkMode::Local => "local".to_string(),
-            ServerNetworkMode::Private => "private".to_string(),
-            ServerNetworkMode::Public => "public".to_string(),
-        },
-        network_mode_source: if options.network_mode_specified {
-            SettingSource::CommandLine
-        } else if configuration.network_mode.is_some() {
-            SettingSource::Configuration
-        } else {
-            SettingSource::Default
-        },
-        entrypoint_root: options.application_option.entrypoint_root.clone(),
-        entrypoint_root_source: if options.entrypoint_root_specified {
-            SettingSource::CommandLine
-        } else if configuration.entrypoint_root.is_some() {
-            SettingSource::Configuration
-        } else {
-            SettingSource::Default
-        },
-    }
+    mode: ApplicationMode,
+) -> CoreApplicationOptions {
+    let mut settings = options.application_option.clone();
+    settings.application_mode = Some(mode);
+    settings.server_port = Some(settings.server_port.unwrap_or(DEFAULT_SERVER_PORT));
+    settings
 }
 
 /// Builds a compact, log-friendly summary of a configuration reload.
@@ -225,30 +184,30 @@ async fn main() -> Result<()> {
     StreamScraper::init_sub_logger_levels();
     arachnea_core::logger::init_logger();
 
-    let mut options = match parse_runtime_options() {
-        Ok(CliAction::Run(options)) => options,
+    let (mut options, configuration) = match parse_runtime_options() {
+        Ok(CliAction::Run {
+            options,
+            configuration,
+        }) => (options, configuration),
         Ok(CliAction::RefreshIpCountries) => {
             return refresh_ip_countries_cli().await;
         }
         Ok(CliAction::ExitSuccess) => return Ok(()),
         Err(error) => {
             eprintln!("Error: {error}\n");
-            eprintln!("{}", help_message(Box::new(CoreApplicationOptions::default())));
+            eprintln!(
+                "{}",
+                help_message(Box::new(CoreApplicationOptions::default()))
+            );
             return Err(error);
         }
     };
 
-    let configuration = ApplicationConfiguration::load()?;
-    apply_persistent_configuration(&mut options, &configuration)?;
     // The controller macro treats a `None` application mode as server mode.
-    let effective_mode = if matches!(
-        options.application_option.application_mode,
-        Some(ApplicationMode::Desktop)
-    ) {
-        AdminMode::Desktop
-    } else {
-        AdminMode::Server
-    };
+    let effective_mode = options
+        .application_option
+        .application_mode
+        .unwrap_or_default();
     // Service credentials are stored encrypted (per-field AES-256-GCM) in the
     // typed `arachnea-services` SQLite store; the activation overrides,
     // Cloudflare sessions and proxy inventory live in the same typed stores.
@@ -279,8 +238,7 @@ async fn main() -> Result<()> {
         reloadable.set_current_country(current_country).await;
     }
 
-    let admin_runtime_settings =
-        build_admin_runtime_settings(&options, &configuration, effective_mode);
+    let admin_runtime_settings = build_admin_runtime_settings(&options, effective_mode);
 
     // Mount the administration bundle below the application root (`/admin/`),
     // in both server and desktop backends.
@@ -305,11 +263,13 @@ async fn main() -> Result<()> {
     // Command-line overrides of the dynamic server settings, captured before
     // the application options are moved into the controller constructor.
     let cli_port = options.application_option.server_port;
-    let port_pinned = options.server_port_specified;
+    let port_pinned = options.application_option.server_port_source == SettingSource::CommandLine;
     let cli_network = options.application_option.network_mode;
-    let network_pinned = options.network_mode_specified;
+    let network_pinned =
+        options.application_option.network_mode_source == SettingSource::CommandLine;
     let cli_root = options.application_option.entrypoint_root.clone();
-    let root_pinned = options.entrypoint_root_specified;
+    let root_pinned =
+        options.application_option.entrypoint_root_source == SettingSource::CommandLine;
 
     let mut controler = arachnea_core::create_application_controler!(options.application_option);
     let reloadable = reloadable.register_service(controler.as_mut());
@@ -320,6 +280,7 @@ async fn main() -> Result<()> {
     let rest_server_handle = controler.rest_server_handle();
     let adapter = Arc::new(StreamAdminRuntimeAdapter::new(
         configuration.clone(),
+        configuration_path(),
         typed_credentials_store,
         Arc::clone(&reloadable),
         rest_server_handle.clone(),
@@ -336,11 +297,7 @@ async fn main() -> Result<()> {
             let network_mode = if network_pinned {
                 cli_network
             } else {
-                match config.network_mode.as_deref() {
-                    Some("local") => ServerNetworkMode::Local,
-                    Some("public") => ServerNetworkMode::Public,
-                    _ => ServerNetworkMode::Private,
-                }
+                config.network_mode
             };
             let entrypoint_root = if root_pinned {
                 cli_root.clone()
@@ -355,34 +312,15 @@ async fn main() -> Result<()> {
         }));
     }
 
-    let admin_state = AdminState::build(
+    let active_scraper = reloadable.current();
+    register_admin_service(
         admin_runtime_settings,
-        vec![
-            AdminServiceGroupConfig {
-                service_store_id: "arachnea-stream".to_string(),
-                manifest_path: "services/arachnea-stream/services.json".to_string(),
-            },
-            AdminServiceGroupConfig {
-                service_store_id: "arachnea-stream-hoster".to_string(),
-                manifest_path: "services/arachnea-stream-hoster/services.json".to_string(),
-            },
-            AdminServiceGroupConfig {
-                service_store_id: "arachnea-proxies".to_string(),
-                manifest_path: "services/arachnea-proxies/services.json".to_string(),
-            },
-            AdminServiceGroupConfig {
-                service_store_id: "arachnea-ip-countries".to_string(),
-                manifest_path: "services/arachnea-ip-countries/services.json".to_string(),
-            },
-        ],
+        active_scraper.scraper_agregator(),
         Arc::clone(&stores.source_enabled),
         adapter,
+        controler.as_mut(),
     )?;
-    if let Some(password) = &admin_state.temporary_password {
-        println!("Temporary administrator password for remote administration: {password}");
-    }
-    let admin_state = admin_state.state;
-    register_admin_service(&admin_state, controler.as_mut());
+
     controler.launch();
 
     Ok(())

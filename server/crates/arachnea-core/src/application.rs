@@ -9,9 +9,16 @@
 //! - the **data root** (writable `data/`, credentials): executable directory
 //!   for portable layouts, per-OS standard directory for packaged installs.
 
+use std::collections::BTreeMap;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::{env, fs};
+
+use anyhow::{bail, Context};
+
+use crate::controler::options::SettingSource;
+use crate::persistence::{JsonPersistenceFileCodec, PersistenceFileCodec};
 
 static APP_ROOT: OnceLock<PathBuf> = OnceLock::new();
 static APP_RESOURCE_ROOT: OnceLock<PathBuf> = OnceLock::new();
@@ -568,7 +575,6 @@ fn attach_parent_console_if_any() {
     }
 }
 
-
 /// Declares a single CLI option exposed by an application.
 ///
 /// Used by [`ApplicationOptionsProvider::get_options`] to describe the
@@ -592,21 +598,20 @@ impl ApplicationOptionDefinition {
     ///
     /// The newly created option definition.
     pub fn new(name: &str, description: &str) -> Self {
-        Self { 
-            name: name.to_string(), 
-            description: description.to_string() 
+        Self {
+            name: name.to_string(),
+            description: description.to_string(),
         }
     }
 }
 
-/// Contract implemented by application option holders parsed from CLI
-/// arguments.
+/// Contract implemented by application option holders parsed from command-line
+/// arguments and persisted configuration files.
 ///
 /// Implementors declare the options they support through
 /// [`ApplicationOptionsProvider::get_options`], define how raw arguments are
-/// turned into an instance through [`ApplicationOptionsProvider::from_vect`],
-/// and get process-argument parsing for free through
-/// [`ApplicationOptionsProvider::from_args`].
+/// applied to an existing instance through [`ApplicationOptionsProvider::parse_vect`],
+/// and export persisted values through [`ApplicationOptionsProvider::export`].
 pub trait ApplicationOptionsProvider {
     /// Lists the CLI options supported by this application.
     ///
@@ -615,43 +620,116 @@ pub trait ApplicationOptionsProvider {
     /// One [`ApplicationOptionDefinition`] per supported option.
     fn get_options(&self) -> Vec<ApplicationOptionDefinition>;
 
-    /// Builds the options from raw CLI argument strings.
+    /// Exports persisted options using names without their leading `--` prefix.
     ///
     /// # Arguments
     ///
-    /// * `args` - Command-line arguments (without the program name).
+    /// * `output` - Map receiving option names and their optional values.
+    fn export(&self, output: &mut BTreeMap<String, Option<String>>);
+
+    /// Applies raw option strings to this instance.
     ///
-    /// # Returns
+    /// # Arguments
     ///
-    /// The parsed application options, boxed.
+    /// * `args` - CLI-style arguments, with each option prefixed by `--`.
+    /// * `source` - Provenance assigned to values supplied by `args`.
     ///
     /// # Errors
     ///
     /// Returns an error when an option is missing its value or when a
     /// provided value is invalid.
-    fn from_vect(args: Vec<String>) -> anyhow::Result<Box<Self>>
-    where
-        Self: Sized;
+    fn parse_vect(&mut self, args: Vec<String>, source: SettingSource) -> anyhow::Result<()>;
 
-    /// Builds the options from the process command-line arguments.
+    /// Applies the process command-line arguments to this instance.
     ///
-    /// Collects `std::env::args` (skipping the program name is left to
-    /// implementations) and delegates to
-    /// [`ApplicationOptionsProvider::from_vect`].
+    /// Collects `std::env::args` without the program name and delegates to
+    /// [`ApplicationOptionsProvider::parse_vect`].
     ///
     /// # Returns
     ///
-    /// The parsed application options, boxed.
+    /// This instance with command-line values applied.
     ///
     /// # Errors
     ///
     /// Returns the errors reported by
-    /// [`ApplicationOptionsProvider::from_vect`].
-    fn from_args() -> anyhow::Result<Box<Self>>
+    /// [`ApplicationOptionsProvider::parse_vect`].
+    fn load_args(mut self) -> anyhow::Result<Self>
     where
         Self: Sized,
     {
-        Self::from_vect(std::env::args().skip(1).collect())
+        self.parse_vect(
+            std::env::args().skip(1).collect(),
+            SettingSource::CommandLine,
+        )?;
+        Ok(self)
+    }
+
+    /// Applies persisted options from a JSON configuration file to this instance.
+    ///
+    /// The document must be a JSON object whose keys are option names without
+    /// their `--` prefix. Values are strings, numbers, booleans, or `null` for
+    /// flags without a value. A missing file leaves this instance unchanged.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Configuration file path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the file cannot be read, is not a supported JSON
+    /// option map, or contains invalid option values.
+    fn load_file(mut self, path: impl AsRef<Path>) -> anyhow::Result<Self>
+    where
+        Self: Sized,
+    {
+        let path = path.as_ref();
+        let payload = match fs::read(path) {
+            Ok(payload) => payload,
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(self),
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!(
+                        "Failed to read application configuration {}.",
+                        path.display()
+                    )
+                })
+            }
+        };
+        let entries: BTreeMap<String, Option<serde_json::Value>> = JsonPersistenceFileCodec
+            .deserialize(&payload)
+            .with_context(|| {
+                format!(
+                    "Failed to parse application configuration {}.",
+                    path.display()
+                )
+            })?;
+        let mut args = Vec::new();
+        for (name, value) in entries {
+            if name.is_empty() || name.starts_with("--") {
+                bail!("Invalid application configuration option name `{name}`.");
+            }
+            let name = match name.as_str() {
+                "server_port" => "server-port",
+                "network_mode" => "network",
+                "entrypoint_root" => "entrypoint-root",
+                name => name,
+            };
+            args.push(format!("--{name}"));
+            if let Some(value) = value {
+                let value = match value {
+                    serde_json::Value::String(value) => value,
+                    serde_json::Value::Number(value) => value.to_string(),
+                    serde_json::Value::Bool(value) => value.to_string(),
+                    serde_json::Value::Null => continue,
+                    _ => bail!(
+                        "Application configuration option `{name}` must have a scalar value or null."
+                    ),
+                };
+                args.push(value);
+            }
+        }
+        self.parse_vect(args, SettingSource::Configuration)?;
+        Ok(self)
     }
 
     /// Checks if the given option is supported by this application.
@@ -672,7 +750,6 @@ pub trait ApplicationOptionsProvider {
         self.get_options().iter().any(|opt| opt.name == option)
     }
 }
-
 
 /// Builds the command-line help message in English.
 ///

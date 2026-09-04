@@ -3,10 +3,9 @@
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::ffi::OsString;
-use std::fs::{self, OpenOptions};
-use std::io::{ErrorKind, Write};
-use std::path::{Path, PathBuf};
+use std::fs;
+use std::io::ErrorKind;
+use std::path::Path;
 
 /// The current version of the credentials document format.
 ///
@@ -168,66 +167,6 @@ pub(crate) fn read_file_if_exists(path: &Path) -> Result<Option<Vec<u8>>> {
     }
 }
 
-/// Writes data to a file atomically.
-///
-/// This function writes data to a temporary file first, then renames it to the
-/// target path to ensure atomic updates.
-///
-/// # Arguments
-/// * `path` - The target path to write to.
-/// * `bytes` - The data to write.
-///
-/// # Returns
-/// `Ok(())` on successful write.
-/// `Err(anyhow::Error)` if any step of the atomic write process fails.
-#[allow(dead_code)]
-pub(crate) fn write_file_atomically(path: &Path, bytes: &[u8]) -> Result<()> {
-    if let Some(parent) = path.parent().filter(|value| !value.as_os_str().is_empty()) {
-        fs::create_dir_all(parent).with_context(|| {
-            format!(
-                "Failed to create credentials store directory `{}`.",
-                parent.display()
-            )
-        })?;
-    }
-
-    let temporary_path = temporary_path_for(path)?;
-    let mut options = OpenOptions::new();
-    options.create(true).truncate(true).write(true);
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-
-    let mut file = options.open(&temporary_path).with_context(|| {
-        format!(
-            "Failed to open temporary credentials store `{}`.",
-            temporary_path.display()
-        )
-    })?;
-    file.write_all(bytes).with_context(|| {
-        format!(
-            "Failed to write temporary credentials store `{}`.",
-            temporary_path.display()
-        )
-    })?;
-    file.sync_all().with_context(|| {
-        format!(
-            "Failed to flush temporary credentials store `{}`.",
-            temporary_path.display()
-        )
-    })?;
-    drop(file);
-
-    fs::rename(&temporary_path, path)
-        .with_context(|| format!("Failed to replace credentials store `{}`.", path.display()))?;
-    set_owner_only_permissions(path)?;
-
-    Ok(())
-}
-
 /// Removes a file if it exists.
 ///
 /// # Arguments
@@ -244,56 +183,4 @@ pub(crate) fn remove_file_if_exists(path: &Path) -> Result<()> {
         Err(error) => Err(error)
             .with_context(|| format!("Failed to delete credentials store `{}`.", path.display())),
     }
-}
-
-/// Creates a temporary path for atomic file operations.
-///
-/// # Arguments
-/// * `path` - The original file path.
-///
-/// # Returns
-/// `Ok(PathBuf)` containing the temporary path.
-/// `Err(anyhow::Error)` if the original path doesn't have a valid file name.
-#[allow(dead_code)]
-fn temporary_path_for(path: &Path) -> Result<PathBuf> {
-    let file_name = path.file_name().with_context(|| {
-        format!(
-            "Cannot derive a temporary credentials store path from `{}`.",
-            path.display()
-        )
-    })?;
-
-    let mut temporary_name = OsString::from(".");
-    temporary_name.push(file_name);
-    temporary_name.push(".tmp");
-
-    Ok(path.with_file_name(temporary_name))
-}
-
-/// Sets owner-only permissions on a file (Unix only).
-///
-/// # Arguments
-/// * `path` - The path to the file to set permissions on.
-///
-/// # Returns
-/// `Ok(())` on success (Unix) or no-op (non-Unix).
-/// `Err(anyhow::Error)` if permissions cannot be set on Unix.
-#[cfg(unix)]
-#[allow(dead_code)]
-fn set_owner_only_permissions(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600)).with_context(|| {
-        format!(
-            "Failed to restrict credentials store permissions for `{}`.",
-            path.display()
-        )
-    })
-}
-
-/// No-op implementation for non-Unix systems.
-#[cfg(not(unix))]
-#[allow(dead_code)]
-fn set_owner_only_permissions(_path: &Path) -> Result<()> {
-    Ok(())
 }

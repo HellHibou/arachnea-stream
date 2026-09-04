@@ -69,9 +69,19 @@ pub enum ScraperAggregatorConfigEntry {
     Import(ScraperAggregatorImport),
 }
 
+/// One named service group loaded by the scraper aggregator.
+pub struct ScraperQueryService {
+    /// Technical group identifier used to select this service collection.
+    pub name: String,
+    /// Query collections loaded from the group's configured sources.
+    pub services: Vec<ScraperQueryCollection>,
+    /// JSON manifest path used to load the group.
+    pub json_path: String,
+}
+
 /// Aggregates the same query across several configured sources.
 pub struct ScraperAgregator {
-    queries_collection: HashMap<String, Vec<ScraperQueryCollection>>,
+    queries_collection: HashMap<String, ScraperQueryService>,
     proxy_handle: SharedProxyConfigHandle,
     local_country: SharedLocalCountry,
     /// Typed store backing the dynamic proxy inventory cache.
@@ -276,6 +286,7 @@ impl ScraperAgregator {
         let collection = self
             .queries_collection
             .get(group_name)?
+            .services
             .iter()
             .find(|collection| collection.name() == source_name)?;
         // Replicates exactly the per-source parameter merge performed by
@@ -362,6 +373,7 @@ impl ScraperAgregator {
         E: std::error::Error + Send + Sync + 'static,
     {
         let config_path = config_path.as_ref();
+        let json_path = config_path.to_string_lossy().into_owned();
         tracing::debug!(
             group_name,
             config_path = %config_path.display(),
@@ -384,7 +396,11 @@ impl ScraperAgregator {
         let collections = self
             .queries_collection
             .entry(group_name.to_string())
-            .or_default();
+            .or_insert_with(|| ScraperQueryService {
+                name: group_name.to_string(),
+                services: Vec::new(),
+                json_path,
+            });
         let source_count = sources.len();
         let enabled_source_count = sources.iter().filter(|source| source.enabled).count();
         tracing::debug!(
@@ -392,7 +408,7 @@ impl ScraperAgregator {
             config_path = %config_path.display(),
             source_count,
             enabled_source_count,
-            existing_collection_count = collections.len(),
+            existing_collection_count = collections.services.len(),
             "parsed scraper query collection config"
         );
 
@@ -505,18 +521,18 @@ impl ScraperAgregator {
                 self.session_store.clone(),
             );
 
-            collections.push(collection);
+            collections.services.push(collection);
             tracing::debug!(
                 group_name,
                 source_index,
-                collection_count = collections.len(),
+                collection_count = collections.services.len(),
                 "registered scraper query collection source"
             );
         }
 
         tracing::debug!(
             group_name,
-            total_collection_count = collections.len(),
+            total_collection_count = collections.services.len(),
             "finished loading scraper query collection config"
         );
 
@@ -548,7 +564,11 @@ impl ScraperAgregator {
         let collections = self
             .queries_collection
             .entry(group_name.to_string())
-            .or_default();
+            .or_insert_with(|| ScraperQueryService {
+                name: group_name.to_string(),
+                services: Vec::new(),
+                json_path: String::new(),
+            });
 
         for path in paths {
             let source_bytes = fs::read(&path).map_err(|error| {
@@ -563,7 +583,7 @@ impl ScraperAgregator {
                 self.local_country.clone(),
                 self.session_store.clone(),
             );
-            collections.push(collection);
+            collections.services.push(collection);
         }
 
         Ok(self)
@@ -608,6 +628,11 @@ impl ScraperAgregator {
         Ok(self)
     }
 
+    /// Returns every loaded service group and its originating JSON manifest.
+    pub fn query_services(&self) -> impl Iterator<Item = &ScraperQueryService> {
+        self.queries_collection.values()
+    }
+
     /// Returns the source names within a group, in insertion (services.json) order.
     ///
     /// # Arguments
@@ -616,7 +641,13 @@ impl ScraperAgregator {
     pub fn source_names_in_group(&self, group_name: &str) -> Vec<String> {
         self.queries_collection
             .get(group_name)
-            .map(|collections| collections.iter().map(|c| c.name().to_string()).collect())
+            .map(|service| {
+                service
+                    .services
+                    .iter()
+                    .map(|collection| collection.name().to_string())
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -632,7 +663,8 @@ impl ScraperAgregator {
         name: &str,
     ) -> Option<&[ScraperQueryCollectionParameter]> {
         match self.queries_collection.get(group_name) {
-            Some(collections) => collections
+            Some(service) => service
+                .services
                 .iter()
                 .find(|query_collection| query_collection.name() == name)
                 .map(ScraperQueryCollection::parameters),
@@ -647,6 +679,7 @@ impl ScraperAgregator {
     pub fn proxy_insecure_tls_hosts(&self, group_name: &str, name: &str) -> Option<&[String]> {
         self.queries_collection
             .get(group_name)?
+            .services
             .iter()
             .find(|query_collection| query_collection.name() == name)
             .map(ScraperQueryCollection::proxy_insecure_tls_hosts)
@@ -658,7 +691,7 @@ impl ScraperAgregator {
             .queries_collection
             .get(group_name)
             .into_iter()
-            .flatten()
+            .flat_map(|service| service.services.iter())
             .flat_map(|collection| collection.proxy_insecure_tls_hosts().iter().cloned())
             .map(|host| host.trim().trim_end_matches('.').to_ascii_lowercase())
             .filter(|host| !host.is_empty())
@@ -671,7 +704,7 @@ impl ScraperAgregator {
     #[cfg(any(test, feature = "test-support"))]
     /// Returns the last loaded query collection within a group.
     pub fn get_last_query_collection(&self, group_name: &str) -> Option<&ScraperQueryCollection> {
-        self.queries_collection.get(group_name)?.last()
+        self.queries_collection.get(group_name)?.services.last()
     }
 
     #[cfg(any(test, feature = "test-support"))]
@@ -686,7 +719,7 @@ impl ScraperAgregator {
         group_name: &str,
         name: &str,
     ) -> Option<&ScraperQueryCollection> {
-        for entry in self.queries_collection.get(group_name)? {
+        for entry in &self.queries_collection.get(group_name)?.services {
             if entry.name() == name {
                 return Some(entry);
             }
@@ -735,7 +768,7 @@ impl ScraperAgregator {
         client_fragments: Option<&HashMap<String, String>>,
         server_cache_interaction: ServerCacheInteraction,
     ) -> ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>> {
-        let Some(queries_collection) = self.queries_collection.get(group_name) else {
+        let Some(query_service) = self.queries_collection.get(group_name) else {
             let code = ERROR_CODE_GEN.next_code();
             let message = format!("query group `{group_name}` not found");
             tracing::error!(
@@ -757,7 +790,8 @@ impl ScraperAgregator {
             );
         };
 
-        let filtered_queries: Vec<&ScraperQueryCollection> = queries_collection
+        let filtered_queries: Vec<&ScraperQueryCollection> = query_service
+            .services
             .iter()
             .filter(|query_collection| match scrapper_list {
                 Some(scrapper_list) => scrapper_list

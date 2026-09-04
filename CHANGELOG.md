@@ -5,6 +5,19 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ## Unreleased
 
 ### Fixed
+- **Unified runtime option loading**: application option providers now apply
+  JSON configuration-file values before command-line arguments, preserving the
+  common `default < configuration < command line` priority rule and setting
+  provenance during parsing. Stream no longer performs its own post-parse
+  persisted-settings merge. Configuration files now use option names without
+  `--` (such as `server-port`); legacy underscore keys remain readable, while
+  the administrator `password_hash` remains configuration-only.
+- **Unified persisted core options**: `ApplicationConfiguration` was removed in
+  favor of `arachnea-core::controler::options::CoreApplicationOptions`, which
+  now owns JSON loading, validation, atomic saving, and owner-only file
+  permissions for the persisted server port, network mode, entrypoint root,
+  and administrator password hash. The Stream executable continues to provide
+  its application-specific `data/config.json` path to Core.
 - **Service reload counters removed from front and backend**: the admin
   reload flow no longer reports the erroneous `loaded`/`disabled`/`ignored`/
   `errors` counts. `ReloadResponse` and the internal `AdminGroupReload`
@@ -1320,3 +1333,26 @@ redémarrage du processus ni du systray :
   locale → `en` → identifier fallback chain), the app bar title comes from
   `config.json`, and the services view uses a single parametrized route
   `/services/:serviceStoreId` preserving direct links.
+
+## Unreleased — Application option exports and shared file saving
+
+- **Application options**: `ApplicationOptionsProvider` now requires an
+  `export` method that emits persisted option names without their `--` prefix.
+  Core and Scrapyfy option holders export their supported persisted values, and
+  `CoreApplicationOptions::save` now obtains its JSON document through this
+  contract.
+- **File persistence**: `PersistenceFileCodec::save` centralizes document
+  serialization, parent-directory creation, randomized temporary files,
+  and synchronized atomic replacement. Owner-only Unix permissions are exposed
+  separately by `persistence::set_owner_only_permissions`; core configuration
+  and credential stores apply that policy explicitly, while typed file stores
+  retain their existing permission behavior.
+
+## Unreleased — Dynamic admin service groups
+
+- **Dynamic admin service groups**: `ScraperAgregator` now retains each loaded
+  group as a `ScraperQueryService` containing its name, query collections, and
+  JSON manifest path. `register_admin_service` derives
+  `AdminServiceGroupConfig` values from those loaded groups and builds the
+  administration state itself, removing the Stream executable's hard-coded
+  service-group manifest list.

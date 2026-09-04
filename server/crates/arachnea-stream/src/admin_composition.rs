@@ -2,20 +2,22 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
-use std::sync::{Arc, RwLock};
-
-use arachnea_core::controler::{RestServerHandle, options::ServerNetworkMode};
-use arachnea_scrapyfy::admin::{
-    AdminGroupReload, AdminPersistedSettings, AdminRuntimeAdapter, AdminServerSettings,
-    AdminServerSettingsReport, PlaintextCredentials,
+use std::{
+    path::PathBuf,
+    sync::{Arc, RwLock},
 };
 
-use crate::configuration::ApplicationConfiguration;
+use arachnea_core::controler::{options::CoreApplicationOptions, RestServerHandle};
+use arachnea_scrapyfy::admin::{
+    AdminGroupReload, AdminRuntimeAdapter, AdminServerSettingsReport, PlaintextCredentials,
+};
+
 use crate::{ReloadableStreamScraper, TypedServiceCredentialsStore};
 
 /// Application-specific adapter injected into Scrapyfy's admin service.
 pub struct StreamAdminRuntimeAdapter {
-    configuration: Arc<RwLock<ApplicationConfiguration>>,
+    configuration: Arc<RwLock<CoreApplicationOptions>>,
+    configuration_path: PathBuf,
     credentials: Arc<TypedServiceCredentialsStore>,
     reloadable: Arc<ReloadableStreamScraper>,
     rest_server: Option<Arc<RestServerHandle>>,
@@ -24,13 +26,15 @@ pub struct StreamAdminRuntimeAdapter {
 impl StreamAdminRuntimeAdapter {
     /// Creates the Stream runtime adapter.
     pub fn new(
-        configuration: ApplicationConfiguration,
+        configuration: CoreApplicationOptions,
+        configuration_path: PathBuf,
         credentials: Arc<TypedServiceCredentialsStore>,
         reloadable: Arc<ReloadableStreamScraper>,
         rest_server: Option<Arc<RestServerHandle>>,
     ) -> Self {
         Self {
             configuration: Arc::new(RwLock::new(configuration)),
+            configuration_path,
             credentials,
             reloadable,
             rest_server,
@@ -38,47 +42,41 @@ impl StreamAdminRuntimeAdapter {
     }
 
     /// Returns the shared persisted configuration for the REST settings resolver.
-    pub fn configuration(&self) -> Arc<RwLock<ApplicationConfiguration>> {
+    pub fn configuration(&self) -> Arc<RwLock<CoreApplicationOptions>> {
         Arc::clone(&self.configuration)
     }
 }
 
 #[async_trait]
 impl AdminRuntimeAdapter for StreamAdminRuntimeAdapter {
-    fn persisted_settings(&self) -> Result<AdminPersistedSettings> {
-        let config = self
+    fn persisted_settings(&self) -> Result<CoreApplicationOptions> {
+        Ok(self
             .configuration
             .read()
             .expect("configuration lock poisoned")
-            .clone();
-        Ok(AdminPersistedSettings {
-            server_port: config.server_port,
-            entrypoint_root: config.entrypoint_root,
-            network_mode: config.network_mode,
-            password_hash: config.password_hash,
-        })
+            .clone())
     }
 
-    fn save_persisted_settings(&self, settings: &AdminPersistedSettings) -> Result<()> {
+    fn save_persisted_settings(&self, settings: &CoreApplicationOptions) -> Result<()> {
         let mut config = self
             .configuration
             .write()
             .expect("configuration lock poisoned");
         config.server_port = settings.server_port;
         config.entrypoint_root = settings.entrypoint_root.clone();
-        config.network_mode = settings.network_mode.clone();
+        config.network_mode = settings.network_mode;
         config.password_hash = settings.password_hash.clone();
-        config.save()
+        config.save(&self.configuration_path)
     }
 
-    fn target_server_settings(&self) -> Option<AdminServerSettings> {
+    fn target_server_settings(&self) -> Option<CoreApplicationOptions> {
         let rest_server = self.rest_server.as_ref()?;
         let target = rest_server.target_settings()?;
-        Some(AdminServerSettings {
-            server_port: target.server_port,
-            network_mode: network_mode_name(target.network_mode).to_string(),
-            entrypoint_root: target.entrypoint_root,
-        })
+        let mut settings = CoreApplicationOptions::default();
+        settings.server_port = Some(target.server_port);
+        settings.network_mode = target.network_mode;
+        settings.entrypoint_root = target.entrypoint_root;
+        Some(settings)
     }
 
     fn apply_server_settings(&self) -> AdminServerSettingsReport {
@@ -127,14 +125,5 @@ impl AdminRuntimeAdapter for StreamAdminRuntimeAdapter {
             applied: report.applied,
             build_error: report.build_error,
         }))
-    }
-}
-
-/// Serializes Core's network mode for the generic administration DTO.
-fn network_mode_name(mode: ServerNetworkMode) -> &'static str {
-    match mode {
-        ServerNetworkMode::Local => "local",
-        ServerNetworkMode::Private => "private",
-        ServerNetworkMode::Public => "public",
     }
 }

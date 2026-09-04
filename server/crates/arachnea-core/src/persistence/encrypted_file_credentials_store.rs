@@ -7,9 +7,10 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 use super::credentials_store::{
-    normalize_service_id, read_file_if_exists, remove_file_if_exists, write_file_atomically,
-    CredentialsDocument, CredentialsStore, StoredCredentials,
+    normalize_service_id, read_file_if_exists, remove_file_if_exists, CredentialsDocument,
+    CredentialsStore, StoredCredentials,
 };
+use super::{set_owner_only_permissions, JsonPersistenceFileCodec, PersistenceFileCodec};
 
 /// The current version of the encrypted credentials document format.
 const CURRENT_ENCRYPTED_DOCUMENT_VERSION: u32 = 1;
@@ -181,14 +182,15 @@ impl EncryptedFileCredentialsStore {
             nonce: BASE64_STANDARD.encode(nonce),
             ciphertext: BASE64_STANDARD.encode(ciphertext),
         };
-        let bytes = serde_json::to_vec_pretty(&encrypted_document).with_context(|| {
-            format!(
-                "Failed to serialize encrypted credentials envelope `{}`.",
-                self.path.display()
-            )
-        })?;
-
-        write_file_atomically(&self.path, &bytes)
+        JsonPersistenceFileCodec
+            .save(&self.path, &encrypted_document)
+            .with_context(|| {
+                format!(
+                    "Failed to save encrypted credentials envelope `{}`.",
+                    self.path.display()
+                )
+            })?;
+        set_owner_only_permissions(&self.path)
     }
 }
 

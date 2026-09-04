@@ -1,4 +1,7 @@
 //! Persistence contracts and helpers for credentials storage and resource paths.
+use anyhow::{Context, Result};
+use std::path::Path;
+
 pub mod credentials_store;
 /// AES-GCM encrypted credentials store used for server-side persistence.
 pub mod encrypted_file_credentials_store;
@@ -35,3 +38,31 @@ pub type SqlitePersistenceStore<E> = SqliteEntityStore<E>;
 pub type FilePersistenceStore<E, C = JsonPersistenceFileCodec> = FileEntityStore<E, C>;
 /// Typed in-memory persistence store configured for exactly one entity schema.
 pub type MemoryPersistenceStore<E> = MemoryEntityStore<E>;
+
+/// Restricts a persisted file to its owner on Unix platforms.
+///
+/// # Arguments
+///
+/// * `path` - Path of the persisted file whose permissions must be restricted.
+///
+/// # Errors
+///
+/// Returns an error when Unix file permissions cannot be updated.
+#[cfg(unix)]
+pub fn set_owner_only_permissions(path: impl AsRef<Path>) -> Result<()> {
+    use std::{fs, os::unix::fs::PermissionsExt};
+
+    let path = path.as_ref();
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600)).with_context(|| {
+        format!(
+            "Failed to restrict persistence document permissions for {}.",
+            path.display()
+        )
+    })
+}
+
+/// Does nothing on platforms without Unix file permissions.
+#[cfg(not(unix))]
+pub fn set_owner_only_permissions(_path: impl AsRef<Path>) -> Result<()> {
+    Ok(())
+}

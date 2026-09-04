@@ -18,8 +18,10 @@ use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 
 use arachnea_core::controler::{
-    deserialize_input, ControlerJsonInput, ControlerJsonOutput, ControlerService,
-    JsonControlerFunction, RequestControlerContext,
+    deserialize_input,
+    options::{ApplicationMode, CoreApplicationOptions, ServerNetworkMode, SettingSource},
+    ControlerJsonInput, ControlerJsonOutput, ControlerService, JsonControlerFunction,
+    RequestControlerContext,
 };
 use arachnea_core::crypt::generate_random_password;
 use arachnea_core::persistence::TypedEntityStore;
@@ -27,7 +29,6 @@ use arachnea_core::persistence::TypedEntityStore;
 use crate::scrapyfy::{PersistenceSourceEnabled, SourceServiceKey, SourceServiceRecord};
 
 use auth::{LoginRateLimiter, SessionStore};
-use dto::SettingSource;
 use ops::AdminError;
 
 pub use auth::ADMIN_SESSION_COOKIE;
@@ -36,49 +37,6 @@ pub use ops::{register_admin_service, AdminReply};
 /// Length of the temporary administrator password generated when no permanent
 /// hash is configured.
 const TEMPORARY_PASSWORD_LENGTH: usize = 24;
-
-/// Runtime mode exposed by the administration API.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AdminMode {
-    /// Desktop application mode backed by the Tauri controller.
-    Desktop,
-    /// Headless HTTP server mode backed by the REST controller.
-    Server,
-}
-
-/// Effective runtime settings used by the running server.
-///
-/// These values reflect what the running process actually uses; they are the
-/// source of truth reported by the `settings` operation even when the persisted
-/// configuration file was changed and a restart is pending.
-#[derive(Clone)]
-pub struct AdminRuntimeSettings {
-    /// Backend runtime mode.
-    pub mode: AdminMode,
-    /// Effective REST server port.
-    pub server_port: u16,
-    /// Where the effective port comes from.
-    pub server_port_source: SettingSource,
-    /// Effective network mode: `local`, `private` or `public`.
-    pub network_mode: String,
-    /// Where the effective network mode comes from.
-    pub network_mode_source: SettingSource,
-    /// Effective public root path, when set.
-    pub entrypoint_root: Option<String>,
-    /// Where the effective root comes from.
-    pub entrypoint_root_source: SettingSource,
-}
-
-/// Settings the running REST server would apply right now.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AdminServerSettings {
-    /// Effective HTTP port.
-    pub server_port: u16,
-    /// Effective network access mode: `local`, `private` or `public`.
-    pub network_mode: String,
-    /// Effective public root path, when set.
-    pub entrypoint_root: Option<String>,
-}
 
 /// Report of a hot application attempt of the server settings.
 #[derive(Clone, Debug)]
@@ -93,22 +51,6 @@ pub struct AdminServerSettingsReport {
     pub network_mode: String,
     /// Effective entrypoint root after the application attempt.
     pub entrypoint_root: Option<String>,
-}
-
-/// Persisted application settings owned by the executable configuration.
-///
-/// Scrapyfy reads and writes them through [`AdminRuntimeAdapter`] without
-/// knowing the concrete configuration file format.
-#[derive(Clone, Debug, Default)]
-pub struct AdminPersistedSettings {
-    /// Optional REST listener port.
-    pub server_port: Option<u16>,
-    /// Optional public root path prefix.
-    pub entrypoint_root: Option<String>,
-    /// Optional network mode: `local`, `private` or `public`.
-    pub network_mode: Option<String>,
-    /// Argon2id encoded administrator password hash.
-    pub password_hash: Option<String>,
 }
 
 /// Application-specific rebuild outcome for one service store (group).
@@ -152,19 +94,19 @@ pub trait AdminRuntimeAdapter: Send + Sync {
     ///
     /// # Errors
     /// Returns an error when the persisted configuration cannot be read.
-    fn persisted_settings(&self) -> anyhow::Result<AdminPersistedSettings>;
+    fn persisted_settings(&self) -> anyhow::Result<CoreApplicationOptions>;
 
     /// Validates and persists the application settings.
     ///
     /// # Errors
     /// Returns an error when a value is invalid or the configuration cannot
     /// be written.
-    fn save_persisted_settings(&self, settings: &AdminPersistedSettings) -> anyhow::Result<()>;
+    fn save_persisted_settings(&self, settings: &CoreApplicationOptions) -> anyhow::Result<()>;
 
     /// Returns the settings the running REST server would apply right now, or
     /// `None` when hot application is unavailable (desktop mode or no REST
     /// handle).
-    fn target_server_settings(&self) -> Option<AdminServerSettings>;
+    fn target_server_settings(&self) -> Option<CoreApplicationOptions>;
 
     /// Applies the target server settings to the running REST server.
     ///
@@ -219,7 +161,7 @@ pub trait AdminRuntimeAdapter: Send + Sync {
 
 /// Shared administration state bound to the registered routes.
 pub struct AdminState {
-    settings: RwLock<AdminRuntimeSettings>,
+    settings: RwLock<CoreApplicationOptions>,
     temp_password: Option<String>,
     sessions: SessionStore,
     login_limiter: LoginRateLimiter,
@@ -256,12 +198,13 @@ impl AdminState {
     /// # Errors
     /// Returns an error when the persisted settings cannot be read.
     pub fn build(
-        settings: AdminRuntimeSettings,
+        settings: CoreApplicationOptions,
         groups: Vec<AdminServiceGroupConfig>,
         source_enabled: Arc<dyn TypedEntityStore<SourceServiceRecord>>,
         adapter: Arc<dyn AdminRuntimeAdapter>,
     ) -> anyhow::Result<AdminStateBuild> {
-        let temporary_password = if settings.mode == AdminMode::Server
+        let temporary_password = if settings.application_mode.unwrap_or_default()
+            == ApplicationMode::Server
             && adapter.persisted_settings()?.password_hash.is_none()
         {
             Some(generate_random_password(TEMPORARY_PASSWORD_LENGTH))
@@ -284,7 +227,7 @@ impl AdminState {
     }
 
     /// Returns the effective runtime settings.
-    pub(crate) fn settings(&self) -> AdminRuntimeSettings {
+    pub(crate) fn settings(&self) -> CoreApplicationOptions {
         self.settings
             .read()
             .expect("admin settings lock poisoned")
@@ -292,8 +235,8 @@ impl AdminState {
     }
 
     /// Returns the runtime mode.
-    pub(crate) fn mode(&self) -> AdminMode {
-        self.settings().mode
+    pub(crate) fn mode(&self) -> ApplicationMode {
+        self.settings().application_mode.unwrap_or_default()
     }
 
     /// Returns the temporary administrator password, when one was generated.
@@ -318,12 +261,12 @@ impl AdminState {
     pub(crate) fn update_effective_server_settings(
         &self,
         server_port: u16,
-        network_mode: String,
+        network_mode: ServerNetworkMode,
         entrypoint_root: Option<String>,
     ) {
         let mut settings = self.settings.write().expect("admin settings lock poisoned");
-        if settings.server_port != server_port {
-            settings.server_port = server_port;
+        if settings.server_port != Some(server_port) {
+            settings.server_port = Some(server_port);
             settings.server_port_source = SettingSource::Configuration;
         }
         if settings.network_mode != network_mode {

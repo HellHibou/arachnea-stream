@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::watch;
 
-use super::service::{RestControlerService, RestServiceSnapshot, ReplayStep};
+use super::service::{ReplayStep, RestControlerService, RestServiceSnapshot};
 use super::tray::{ServerTrayHandle, ServerTrayUpdate};
 use super::{build_public_url, display_server_host, local_networks, RestRouter};
 use crate::controler::main_thread::QueuedMainThreadDispatcher;
@@ -151,7 +151,10 @@ pub(crate) struct RestServerSupervisor {
 
 impl RestServerSupervisor {
     /// Creates the supervisor from the initial service configuration.
-    pub(crate) fn new(base: RestServiceSnapshot, dispatcher: Arc<QueuedMainThreadDispatcher>) -> Self {
+    pub(crate) fn new(
+        base: RestServiceSnapshot,
+        dispatcher: Arc<QueuedMainThreadDispatcher>,
+    ) -> Self {
         let settings = base.initial_settings();
         let socket_addr = base.socket_addr();
         let allowed_networks = base.allowed_networks.clone();
@@ -177,12 +180,18 @@ impl RestServerSupervisor {
 
     /// Records a registration step replayed when the router is rebuilt.
     pub(crate) fn record_step(&self, step: ReplayStep) {
-        self.steps.lock().expect("supervisor steps poisoned").push(step);
+        self.steps
+            .lock()
+            .expect("supervisor steps poisoned")
+            .push(step);
     }
 
     /// Sets the resolver used to compute the target settings.
     pub(crate) fn set_settings_source(&self, source: RestSettingsSource) {
-        *self.settings_source.lock().expect("supervisor settings source poisoned") = Some(source);
+        *self
+            .settings_source
+            .lock()
+            .expect("supervisor settings source poisoned") = Some(source);
     }
 
     /// Resolves the target settings with the same normalization as `apply`.
@@ -244,12 +253,8 @@ impl RestServerSupervisor {
             .lock()
             .expect("supervisor app shutdown poisoned") = Some(app_shutdown.clone());
 
-        let server_thread = spawn_accept_thread(
-            listener,
-            router_rx,
-            shutdown.clone(),
-            app_shutdown.clone(),
-        );
+        let server_thread =
+            spawn_accept_thread(listener, router_rx, shutdown.clone(), app_shutdown.clone());
 
         let prefix = if entrypoint_root.is_empty() {
             "/".to_string()
@@ -276,7 +281,10 @@ impl RestServerSupervisor {
     /// changes. ACL and root changes swap the router on the existing listener;
     /// each request resolves the latest router snapshot.
     pub(crate) fn apply(&self) -> RestServerApplyReport {
-        let _apply_guard = self.apply_lock.lock().expect("supervisor apply lock poisoned");
+        let _apply_guard = self
+            .apply_lock
+            .lock()
+            .expect("supervisor apply lock poisoned");
 
         let source = self
             .settings_source
@@ -402,12 +410,8 @@ impl RestServerSupervisor {
             .expect("supervisor app shutdown poisoned")
             .clone()
             .expect("REST supervisor re-bind before launch");
-        let server_thread = spawn_accept_thread(
-            listener,
-            router_rx,
-            shutdown.clone(),
-            app_shutdown,
-        );
+        let server_thread =
+            spawn_accept_thread(listener, router_rx, shutdown.clone(), app_shutdown);
 
         runtime.settings = settings.clone();
         runtime.socket_addr = addr;
@@ -469,11 +473,7 @@ impl RestServerSupervisor {
             applied,
             apply_error,
             server_port: runtime.settings.server_port,
-            network_mode: match runtime.settings.network_mode {
-                ServerNetworkMode::Local => "local".to_string(),
-                ServerNetworkMode::Private => "private".to_string(),
-                ServerNetworkMode::Public => "public".to_string(),
-            },
+            network_mode: runtime.settings.network_mode.to_string(),
             entrypoint_root: runtime.settings.entrypoint_root.clone(),
             server_url: build_public_url(runtime.socket_addr, &root),
             admin_url,
@@ -583,7 +583,8 @@ fn spawn_accept_thread(
             }
             // Bounded drain: in-flight requests may complete, streams still
             // running after the deadline are cut with the runtime shutdown.
-            let _ = tokio::time::timeout(ACCEPT_DRAIN, futures::future::join_all(connections)).await;
+            let _ =
+                tokio::time::timeout(ACCEPT_DRAIN, futures::future::join_all(connections)).await;
         });
         runtime.shutdown_timeout(Duration::from_millis(500));
     })

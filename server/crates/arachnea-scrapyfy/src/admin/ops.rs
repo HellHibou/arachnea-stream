@@ -12,8 +12,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use arachnea_core::application;
-use arachnea_core::controler::{ControlerService, RequestControlerContext};
-use arachnea_core::persistence::credentials_store::StoredCredentials;
+use arachnea_core::controler::{
+    options::{ApplicationMode, CoreApplicationOptions, ServerNetworkMode},
+    ControlerService, RequestControlerContext,
+};
+use arachnea_core::persistence::{credentials_store::StoredCredentials, TypedEntityStore};
 
 use super::auth::{
     cleared_session_cookie, constant_time_eq, hash_admin_password, session_cookie,
@@ -21,10 +24,13 @@ use super::auth::{
 };
 use super::dto::*;
 use super::register_admin_operation;
-use super::{AdminGroupReload, AdminMode, AdminServiceGroupConfig, AdminState};
+use super::{
+    AdminGroupReload, AdminRuntimeAdapter, AdminServiceGroupConfig, AdminState, AdminStateBuild,
+};
 use crate::scrapyfy::{
-    load_service_catalog_detailed, ScraperQueryCollectionParameter, ScraperServiceCatalogEntry,
-    ScraperServiceCredentials, ScraperSourceEnabled, ServiceCatalogFailureReason,
+    load_service_catalog_detailed, ScraperAgregator, ScraperQueryCollectionParameter,
+    ScraperServiceCatalogEntry, ScraperServiceCredentials, ScraperSourceEnabled,
+    ServiceCatalogFailureReason, SourceServiceRecord,
 };
 
 /// Delay between the `update-settings` response and the hot application of
@@ -158,8 +164,8 @@ pub(crate) async fn require_authorized(
     context: &RequestControlerContext,
 ) -> Result<(), AdminError> {
     match state.mode() {
-        AdminMode::Desktop => Ok(()),
-        AdminMode::Server => {
+        ApplicationMode::Desktop => Ok(()),
+        ApplicationMode::Server => {
             let is_loopback = context
                 .remote_addr()
                 .map(|addr| addr.ip().is_loopback())
@@ -188,7 +194,7 @@ pub(crate) fn verify_write(
     state: &AdminState,
     context: &RequestControlerContext,
 ) -> Result<(), AdminError> {
-    if state.mode() == AdminMode::Desktop {
+    if state.mode() == ApplicationMode::Desktop {
         return Ok(());
     }
     if let Some(method) = context.method() {
@@ -302,7 +308,7 @@ pub(crate) async fn op_status(
     context: RequestControlerContext,
     _input: AdminEmptyRequest,
 ) -> Result<AdminReply, AdminError> {
-    let peer_local = state.mode() == AdminMode::Desktop
+    let peer_local = state.mode() == ApplicationMode::Desktop
         || context
             .remote_addr()
             .map(|addr| addr.ip().is_loopback())
@@ -320,17 +326,17 @@ pub(crate) async fn op_status(
 
     let response = StatusResponse {
         mode: match state.mode() {
-            AdminMode::Desktop => "desktop",
-            AdminMode::Server => "server",
+            ApplicationMode::Desktop => "desktop",
+            ApplicationMode::Server => "server",
         }
         .to_string(),
-        auth_required: state.mode() == AdminMode::Server && !peer_local,
+        auth_required: state.mode() == ApplicationMode::Server && !peer_local,
         authenticated,
         password_configured,
         capabilities: StatusCapabilities {
             services: true,
             credentials: true,
-            settings: state.mode() == AdminMode::Server,
+            settings: state.mode() == ApplicationMode::Server,
             admin_password: true,
             reload: true,
         },
@@ -344,7 +350,7 @@ pub(crate) async fn op_login(
     context: RequestControlerContext,
     input: LoginRequest,
 ) -> Result<AdminReply, AdminError> {
-    if state.mode() == AdminMode::Desktop {
+    if state.mode() == ApplicationMode::Desktop {
         // No authentication is required from a desktop client.
         return Ok(AdminReply::ok(&LoginResponse {
             authenticated: true,
@@ -730,14 +736,16 @@ pub(crate) async fn op_settings(
         .password_hash
         .is_some();
     Ok(AdminReply::ok(&SettingsResponse {
-        server_port: effective.server_port,
+        server_port: effective
+            .server_port
+            .expect("runtime administration settings must have an effective server port"),
         server_port_source: effective.server_port_source,
-        network_mode: effective.network_mode.clone(),
+        network_mode: effective.network_mode.to_string(),
         network_mode_source: effective.network_mode_source,
         entrypoint_root: effective.entrypoint_root.clone(),
         entrypoint_root_source: effective.entrypoint_root_source,
         password_configured,
-        public_http_warning: effective.network_mode == "public",
+        public_http_warning: effective.network_mode == ServerNetworkMode::Public,
     }))
 }
 
@@ -770,7 +778,7 @@ pub(crate) async fn op_update_settings(
                 "Invalid network mode {network}; expected local, private or public."
             )));
         }
-        if network == "local" && effective_mode == AdminMode::Server {
+        if network == "local" && effective_mode == ApplicationMode::Server {
             let loopback = context
                 .remote_addr()
                 .map(|addr| addr.ip().is_loopback())
@@ -781,7 +789,7 @@ pub(crate) async fn op_update_settings(
                 ));
             }
         }
-        persisted.network_mode = Some(network);
+        persisted.network_mode = network.parse().expect("validated network mode must parse");
     }
 
     state
@@ -795,24 +803,26 @@ pub(crate) async fn op_update_settings(
     // application runs APPLY_SETTINGS_DELAY later so the response flows on
     // the listener still alive. The definitive outcome is observable via the
     // `settings` operation and the application log.
-    if effective_mode == AdminMode::Server {
+    if effective_mode == ApplicationMode::Server {
         if let Some(target) = state.adapter().target_server_settings() {
             // Only advertise an URL change when the port or the entrypoint
             // root will actually move, so the UI never redirects to a URL that
             // stays pinned by a command-line override.
             let current = state.settings();
-            let port_changes = target.server_port != current.server_port;
+            let target_port = target
+                .server_port
+                .expect("REST server target settings must have an effective server port");
+            let port_changes = target_port
+                != current
+                    .server_port
+                    .expect("runtime administration settings must have an effective server port");
             let current_root = current
                 .entrypoint_root
                 .as_deref()
                 .filter(|root| !root.is_empty());
             let root_changes = target.entrypoint_root.as_deref() != current_root;
             let admin_url = if port_changes || root_changes {
-                hot_apply_admin_url(
-                    &context,
-                    target.entrypoint_root.as_deref(),
-                    target.server_port,
-                )
+                hot_apply_admin_url(&context, target.entrypoint_root.as_deref(), target_port)
             } else {
                 None
             };
@@ -823,7 +833,10 @@ pub(crate) async fn op_update_settings(
                 let report = adapter.apply_server_settings();
                 state_for_apply.update_effective_server_settings(
                     report.server_port,
-                    report.network_mode.clone(),
+                    report
+                        .network_mode
+                        .parse()
+                        .expect("REST server report must contain a valid network mode"),
                     report.entrypoint_root.clone(),
                 );
                 match &report.apply_error {
@@ -1012,35 +1025,78 @@ pub(crate) async fn op_reload(
 /// Registers every administration operation against the controller.
 ///
 /// # Arguments
-/// * `state` - Shared administration state.
+/// * `settings` - Effective runtime settings of the running server.
+/// * `scraper_agregator` - Aggregator supplying the administrable service groups.
+/// * `source_enabled` - Typed store holding source activation overrides.
+/// * `adapter` - Application adapter for settings, credentials, and reloads.
 /// * `controler` - Controller receiving the `admin/*` routes.
-pub fn register_admin_service(state: &Arc<AdminState>, controler: &mut dyn ControlerService) {
-    register_admin_operation(controler, state, "status", op_status);
-    register_admin_operation(controler, state, "login", op_login);
-    register_admin_operation(controler, state, "logout", op_logout);
-    register_admin_operation(controler, state, "services", op_services);
+///
+/// # Errors
+///
+/// Returns an error when the administration state cannot be built.
+pub fn register_admin_service(
+    settings: CoreApplicationOptions,
+    scraper_agregator: &ScraperAgregator,
+    source_enabled: Arc<dyn TypedEntityStore<SourceServiceRecord>>,
+    adapter: Arc<dyn AdminRuntimeAdapter>,
+    controler: &mut dyn ControlerService,
+) -> Result<AdminStateBuild> {
+    let groups = scraper_agregator
+        .query_services()
+        .map(|service| AdminServiceGroupConfig {
+            service_store_id: service.name.clone(),
+            manifest_path: service.json_path.clone(),
+        })
+        .collect();
+    let state = AdminState::build(settings, groups, source_enabled, adapter)?;
+
+    register_admin_operation(controler, &state.state, "status", op_status);
+    register_admin_operation(controler, &state.state, "login", op_login);
+    register_admin_operation(controler, &state.state, "logout", op_logout);
+    register_admin_operation(controler, &state.state, "services", op_services);
     register_admin_operation(
         controler,
-        state,
+        &state.state,
         "set-service-enabled",
         op_set_service_enabled,
     );
     register_admin_operation(
         controler,
-        state,
+        &state.state,
         "reset-service-enabled",
         op_reset_service_enabled,
     );
-    register_admin_operation(controler, state, "credentials", op_credentials);
-    register_admin_operation(controler, state, "set-credentials", op_set_credentials);
-    register_admin_operation(controler, state, "clear-credentials", op_clear_credentials);
-    register_admin_operation(controler, state, "settings", op_settings);
-    register_admin_operation(controler, state, "update-settings", op_update_settings);
+    register_admin_operation(controler, &state.state, "credentials", op_credentials);
     register_admin_operation(
         controler,
-        state,
+        &state.state,
+        "set-credentials",
+        op_set_credentials,
+    );
+    register_admin_operation(
+        controler,
+        &state.state,
+        "clear-credentials",
+        op_clear_credentials,
+    );
+    register_admin_operation(controler, &state.state, "settings", op_settings);
+    register_admin_operation(
+        controler,
+        &state.state,
+        "update-settings",
+        op_update_settings,
+    );
+    register_admin_operation(
+        controler,
+        &state.state,
         "set-admin-password",
         op_set_admin_password,
     );
-    register_admin_operation(controler, state, "reload", op_reload);
+    register_admin_operation(controler, &state.state, "reload", op_reload);
+
+    if let Some(password) = &state.temporary_password {
+        println!("Temporary administrator password for remote administration: {password}");
+    }
+    
+    Ok(state)
 }

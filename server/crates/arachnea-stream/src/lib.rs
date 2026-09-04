@@ -4,8 +4,6 @@
 /// Composition adapter between the generic Scrapyfy administration service and
 /// this executable's configuration, credentials and stream runtime.
 pub mod admin_composition;
-/// Persistent application configuration.
-pub mod configuration;
 /// Global ETag construction and decoding for aggregated responses.
 pub mod stream_etag;
 pub use stream_etag::{build_global_etag, decode_client_fragments};

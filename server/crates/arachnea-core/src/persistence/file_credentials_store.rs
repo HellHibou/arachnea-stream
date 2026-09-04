@@ -13,10 +13,10 @@ pub const DEFAULT_FILE_CREDENTIALS_STORE_PATH: &str = "data/credentials.json";
 use crate::application;
 
 use super::credentials_store::{
-    normalize_service_id, read_file_if_exists, remove_file_if_exists, write_file_atomically,
-    CredentialsDocument, CredentialsStore, StoredCredentials,
+    normalize_service_id, read_file_if_exists, remove_file_if_exists, CredentialsDocument,
+    CredentialsStore, StoredCredentials,
 };
-use super::{JsonPersistenceFileCodec, PersistenceFileCodec};
+use super::{set_owner_only_permissions, JsonPersistenceFileCodec, PersistenceFileCodec};
 
 /// JSON-backed credentials store kept in clear text on disk.
 ///
@@ -100,14 +100,13 @@ impl FileCredentialsStore {
     /// `Ok(())` on successful write.
     /// `Err(anyhow::Error)` if the document cannot be serialized or written.
     fn write_document(&self, document: &CredentialsDocument) -> Result<()> {
-        let bytes = self.codec.serialize(document).with_context(|| {
+        self.codec.save(&self.path, document).with_context(|| {
             format!(
-                "Failed to serialize JSON credentials store `{}`.",
+                "Failed to save JSON credentials store `{}`.",
                 self.path.display()
             )
         })?;
-
-        write_file_atomically(&self.path, &bytes)
+        set_owner_only_permissions(&self.path)
     }
 }
 
