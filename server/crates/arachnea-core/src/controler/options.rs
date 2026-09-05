@@ -116,10 +116,11 @@ pub struct CoreApplicationOptions {
 
     /// Which client connections the REST server accepts.
     ///
-    /// Defaults to [`ServerNetworkMode::Private`], which binds to all
-    /// interfaces and only accepts clients belonging to a local network range.
-    #[serde(default)]
-    pub network_mode: ServerNetworkMode,
+    /// `None` means the built-in default ([`ServerNetworkMode::Private`]);
+    /// only an explicit `--network` flag or a persisted configuration entry
+    /// fills this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network_mode: Option<ServerNetworkMode>,
 
     /// Where the effective REST network mode comes from.
     #[serde(skip)]
@@ -209,7 +210,7 @@ impl CoreApplicationOptions {
             application_mode,
             server_port,
             server_port_source: SettingSource::Default,
-            network_mode: ServerNetworkMode::default(),
+            network_mode: None,
             network_mode_source: SettingSource::Default,
             entrypoint_root,
             entrypoint_root_source: SettingSource::Default,
@@ -329,7 +330,7 @@ impl Default for CoreApplicationOptions {
             application_mode: None,
             server_port: Some(DEFAULT_SERVER_PORT),
             server_port_source: SettingSource::Default,
-            network_mode: ServerNetworkMode::default(),
+            network_mode: None,
             network_mode_source: SettingSource::Default,
             entrypoint_root: None,
             entrypoint_root_source: SettingSource::Default,
@@ -384,7 +385,9 @@ impl ApplicationOptionsProvider for CoreApplicationOptions {
         if let Some(server_port) = self.server_port {
             output.insert("server-port".to_string(), Some(server_port.to_string()));
         }
-        output.insert("network".to_string(), Some(self.network_mode.to_string()));
+        if let Some(network_mode) = self.network_mode {
+            output.insert("network".to_string(), Some(network_mode.to_string()));
+        }
         if let Some(entrypoint_root) = &self.entrypoint_root {
             output.insert("entrypoint-root".to_string(), Some(entrypoint_root.clone()));
         }
@@ -411,9 +414,9 @@ impl ApplicationOptionsProvider for CoreApplicationOptions {
                 }
                 "--network" => {
                     let value = iter.next().context("Missing value for `--network`")?;
-                    self.network_mode = value.parse::<ServerNetworkMode>().map_err(|error| {
+                    self.network_mode = Some(value.parse::<ServerNetworkMode>().map_err(|error| {
                         anyhow::anyhow!("Invalid value for `--network`: {error}")
-                    })?;
+                    })?);
                     self.network_mode_source = source;
                 }
                 "--entrypoint-root" => {

@@ -1,6 +1,7 @@
 use anyhow::Context;
 use arachnea_core::application::{ApplicationOptionDefinition, ApplicationOptionsProvider};
 use arachnea_core::controler::options::{CoreApplicationOptions, SettingSource};
+use crate::scrapyfy::ScraperCacheConfig;
 use std::collections::BTreeMap;
 
 /// Runtime options parsed from command line arguments.
@@ -38,6 +39,31 @@ impl SrcapyfyApplicationOptions {
     pub fn with_web_scheme(mut self, web_scheme: &str) -> Self {
         self.application_option.web_scheme = Some(web_scheme.to_string());
         self
+    }
+
+    /// Resolves the command-line cache overrides into an effective
+    /// [`ScraperCacheConfig`].
+    ///
+    /// Returns `None` when no `--cache-max-*` option is present, so consumers
+    /// keep the scraper runtime default cache configuration untouched. When
+    /// only one limit is provided, the other limit falls back to its default.
+    ///
+    /// # Returns
+    ///
+    /// The effective cache configuration, or `None` when no override applies.
+    pub fn scraper_cache_config(&self) -> Option<ScraperCacheConfig> {
+        if self.cache_max_disk_bytes.is_none() && self.cache_max_memory_bytes.is_none() {
+            return None;
+        }
+
+        let mut config = ScraperCacheConfig::default();
+        if let Some(bytes) = self.cache_max_disk_bytes {
+            config.max_disk_bytes = bytes;
+        }
+        if let Some(bytes) = self.cache_max_memory_bytes {
+            config.max_memory_bytes = bytes;
+        }
+        Some(config)
     }
 }
 

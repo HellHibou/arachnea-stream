@@ -13,7 +13,7 @@ use arachnea_core::persistence::{CredentialsStore, TypedEntityStore};
 use arachnea_proxy::core::ArachneaProxyCore;
 use arachnea_scrapyfy::admin::RuntimeReloadReport;
 use arachnea_scrapyfy::source_params_from_entries;
-use arachnea_scrapyfy::SourceServiceRecord;
+use arachnea_scrapyfy::{ScraperRuntimeOptions, SourceServiceRecord};
 
 use crate::stream_scraper::{
     category_sources_from_request, GetBannersRequest, GetCategoryRequest, GetEntryRequest,
@@ -44,6 +44,10 @@ pub(crate) struct RegistrationEndpoints {
 /// requests or re-registering routes.
 pub struct ReloadableStreamScraper {
     options: RwLock<StreamScraperBuildOptions>,
+    /// Scrapyfy runtime options (cache sizing) reapplied to every built
+    /// instance, so reloads keep the effective configuration of the initial
+    /// build.
+    runtime_options: ScraperRuntimeOptions,
     registration: RwLock<Option<RegistrationEndpoints>>,
     inner: RwLock<Arc<StreamScraper>>,
 }
@@ -52,17 +56,24 @@ impl ReloadableStreamScraper {
     /// Creates the facade and builds the initial instance from the options.
     ///
     /// # Arguments
-    /// * `options` - Build options describing stores, manifest path, and sizing.
+    /// * `options` - Build options describing stores and manifest path.
+    /// * `runtime_options` - Scrapyfy runtime options (cache sizing) applied to
+    ///   the initial instance and to every reloaded instance.
     ///
     /// # Returns
     /// A reloadable facade with the initial instance active.
     ///
     /// # Errors
     /// Returns an error when the initial instance cannot be built.
-    pub fn new(options: StreamScraperBuildOptions) -> Result<Self> {
-        let instance = StreamScraper::from_options(&options)?;
+    pub fn new(
+        options: StreamScraperBuildOptions,
+        runtime_options: ScraperRuntimeOptions,
+    ) -> Result<Self> {
+        let mut instance = StreamScraper::from_options(&options)?;
+        runtime_options.apply_to(&mut instance.scraper_agregator);
         Ok(Self {
             options: RwLock::new(options),
+            runtime_options,
             registration: RwLock::new(None),
             inner: RwLock::new(Arc::new(instance)),
         })
@@ -79,6 +90,7 @@ impl ReloadableStreamScraper {
     ) -> Self {
         Self {
             options: RwLock::new(options),
+            runtime_options: ScraperRuntimeOptions::default(),
             registration: RwLock::new(None),
             inner: RwLock::new(Arc::new(scraper)),
         }
@@ -208,6 +220,7 @@ impl ReloadableStreamScraper {
                 if let Some(country) = &options.current_country {
                     scraper.set_current_country(country).await;
                 }
+                self.runtime_options.apply_to(&mut scraper.scraper_agregator);
                 *self.inner.write().expect("stream scraper lock poisoned") = Arc::new(scraper);
                 report.applied = true;
                 tracing::info!("stream scraper reloaded");

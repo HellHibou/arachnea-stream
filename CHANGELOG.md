@@ -1385,6 +1385,39 @@ redémarrage du processus ni du systray :
   group outcome, while the existing HTTP response remains backward-compatible
   through its first-group projection.
 
+## Unreleased — Scrapyfy-owned cache resolution and Core-owned REST settings
+
+- **Scraper cache options resolved by Scrapyfy**: the
+  `--cache-max-disk-bytes` / `--cache-max-memory-bytes` overrides are now
+  resolved by `SrcapyfyApplicationOptions::scraper_cache_config()` inside
+  `arachnea-scrapyfy` (`None` when no option is present, so the runtime default
+  cache configuration is untouched; a missing limit falls back to its default).
+  The Stream executable no longer builds `ScraperCacheConfig` by hand.
+- **`ScraperRuntimeOptions` applied by Scrapyfy**: Scrapyfy exposes a generic
+  runtime options struct (`cache_config`) with an `apply_to(&mut
+  ScraperAgregator)` primitive. `StreamScraperBuildOptions` no longer carries a
+  cache configuration (`cache_config` and `with_cache_config` were removed);
+  the reloadable facade owns the resolved `ScraperRuntimeOptions` and reapplies
+  it to every rebuilt instance, so reloads keep the effective cache policy of
+  the initial build.
+- **REST settings resolution owned by Core**: Core now provides
+  `arachnea_core::controler::rest_settings_source(persisted, cli)`, which
+  projects the command-line-pinned values (`*_source ==
+  SettingSource::CommandLine`) internally and applies the
+  `command line > persisted configuration > built-in default` priority rule,
+  including the `DEFAULT_SERVER_PORT` fallback. The Stream executable no longer
+  captures CLI values manually nor resolves `RestServerSettings` itself.
+- **`CoreApplicationOptions::network_mode` is now optional**:
+  `Option<ServerNetworkMode>` where `None` means the built-in `Private`
+  default, with `skip_serializing_if` keeping `config.json` free of the field
+  at the default value (existing files remain readable). The administration
+  settings DTO still reports the effective resolved network mode, so the admin
+  API contract and the frontend are unchanged.
+- **Unit tests for the settings priority rule**: Core tests cover CLI pins
+  winning over the persisted configuration, persisted values overriding
+  defaults, defaults alone, configuration-file values not being pinned, and an
+  unavailable persisted reader disabling hot application.
+
 ## Unreleased — Multi-group reload reports and tray server application
 
 - **Reload outcomes**: `admin/reload` now returns a `groups` array with the

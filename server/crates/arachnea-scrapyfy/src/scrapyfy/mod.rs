@@ -110,7 +110,8 @@ pub use ip_country_provider::{
 /// Multi-source query aggregator.
 pub mod scraper_agregator;
 pub use scraper_agregator::{
-    resolve_manifest_sources, ScraperAgregator, ScraperQueryService, ScraperSourceParams,
+    resolve_manifest_sources, ScraperAgregator, ScraperQueryService, ScraperRuntimeOptions,
+    ScraperSourceParams,
 };
 /// Source activation policy contracts and persistence-backed implementation.
 pub mod source_enabled;

@@ -75,7 +75,7 @@ impl AdminRuntimeAdapter for StreamAdminRuntimeAdapter {
         let target = rest_server.target_settings()?;
         let mut settings = CoreApplicationOptions::default();
         settings.server_port = Some(target.server_port);
-        settings.network_mode = target.network_mode;
+        settings.network_mode = Some(target.network_mode);
         settings.entrypoint_root = target.entrypoint_root;
         Some(settings)
     }

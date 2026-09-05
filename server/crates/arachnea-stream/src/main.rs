@@ -9,8 +9,7 @@ use std::sync::Arc;
 use arachnea_core::{
     application::{self, ApplicationOptionsProvider},
     controler::{
-        options::{ApplicationMode, CoreApplicationOptions, SettingSource, DEFAULT_SERVER_PORT},
-        RestServerSettings,
+        options::{ApplicationMode, CoreApplicationOptions, DEFAULT_SERVER_PORT},
     },
     persistence::CredentialsStore,
 };
@@ -198,19 +197,12 @@ async fn main() -> Result<()> {
         .application_mode
         .unwrap_or_default();
 
-    let mut build_options = StreamScraperBuildOptions::new(credentials_store, stores.clone());
-    if options.cache_max_disk_bytes.is_some() || options.cache_max_memory_bytes.is_some() {
-        let mut cache_config = ScraperCacheConfig::default();
-        if let Some(bytes) = options.cache_max_disk_bytes {
-            cache_config.max_disk_bytes = bytes;
-        }
-        if let Some(bytes) = options.cache_max_memory_bytes {
-            cache_config.max_memory_bytes = bytes;
-        }
-        build_options = build_options.with_cache_config(cache_config);
-    }
+    let build_options = StreamScraperBuildOptions::new(credentials_store, stores.clone());
+    let runtime_options = ScraperRuntimeOptions {
+        cache_config: options.scraper_cache_config(),
+    };
 
-    let reloadable = ReloadableStreamScraper::new(build_options)?;
+    let reloadable = ReloadableStreamScraper::new(build_options, runtime_options)?;
     if let Some(current_country) = &options.current_country {
         reloadable.set_current_country(current_country).await;
     }
@@ -244,20 +236,14 @@ async fn main() -> Result<()> {
 
     // Command-line overrides of the dynamic server settings, captured before
     // the application options are moved into the controller constructor.
-    let cli_port = options.application_option.server_port;
-    let port_pinned = options.application_option.server_port_source == SettingSource::CommandLine;
-    let cli_network = options.application_option.network_mode;
-    let network_pinned =
-        options.application_option.network_mode_source == SettingSource::CommandLine;
-    let cli_root = options.application_option.entrypoint_root.clone();
-    let root_pinned =
-        options.application_option.entrypoint_root_source == SettingSource::CommandLine;
+    let cli_options = options.application_option.clone();
 
     let mut controler = arachnea_core::create_application_controler!(options.application_option);
     let reloadable = reloadable.register_service(controler.as_mut());
 
-    // Hot application of server settings is still performed by Core's REST
-    // supervisor; the configuration source is owned by the Stream adapter.
+    // Hot application of server settings is owned by Core's REST supervisor;
+    // Core's factory combines the Stream-owned persisted configuration reader
+    // with the command-line overrides.
     let rest_server_handle = controler.rest_server_handle();
     let adapter = Arc::new(StreamAdminRuntimeAdapter::new(
         configuration.clone(),
@@ -268,29 +254,12 @@ async fn main() -> Result<()> {
     ));
     if let Some(rest_server) = &rest_server_handle {
         let configuration = adapter.configuration();
-        rest_server.set_settings_source(Arc::new(move || {
-            let config = configuration.read().ok()?.clone();
-            let server_port = if port_pinned {
-                cli_port?
-            } else {
-                config.server_port.unwrap_or(DEFAULT_SERVER_PORT)
-            };
-            let network_mode = if network_pinned {
-                cli_network
-            } else {
-                config.network_mode
-            };
-            let entrypoint_root = if root_pinned {
-                cli_root.clone()
-            } else {
-                config.entrypoint_root.clone()
-            };
-            Some(RestServerSettings {
-                server_port,
-                network_mode,
-                entrypoint_root,
-            })
-        }));
+        let persisted: Arc<dyn Fn() -> Option<CoreApplicationOptions> + Send + Sync> =
+            Arc::new(move || configuration.read().ok().map(|config| config.clone()));
+        rest_server.set_settings_source(arachnea_core::controler::rest_settings_source(
+            persisted,
+            cli_options,
+        ));
     }
 
     let active_scraper = reloadable.current();

@@ -95,6 +95,36 @@ pub struct ScraperAgregator {
     proxy_core: Option<ArachneaProxyCore>,
 }
 
+/// Runtime options applied to a [`ScraperAgregator`] after construction.
+///
+/// They carry the effective Scrapyfy configuration resolved from application
+/// options (CLI or programmatic) and are applied before the first query
+/// execution, so a rebuilt aggregator ends up with the same effective
+/// configuration as the initial one.
+#[derive(Debug, Clone, Default)]
+pub struct ScraperRuntimeOptions {
+    /// Optional server cache sizing applied before the first query execution.
+    ///
+    /// `None` keeps the aggregator default cache configuration untouched.
+    pub cache_config: Option<ScraperCacheConfig>,
+}
+
+impl ScraperRuntimeOptions {
+    /// Applies these options to the aggregator.
+    ///
+    /// Must be called before any query execution; options left at their default
+    /// value leave the aggregator configuration untouched.
+    ///
+    /// # Arguments
+    ///
+    /// * `scraper` - Aggregator to configure.
+    pub fn apply_to(&self, scraper: &mut ScraperAgregator) {
+        if let Some(config) = &self.cache_config {
+            scraper.set_cache_config(config.clone());
+        }
+    }
+}
+
 impl ScraperAgregator {
     /// Creates an empty aggregator with default proxy setup.
     ///

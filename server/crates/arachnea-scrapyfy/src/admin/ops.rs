@@ -737,12 +737,12 @@ pub(crate) async fn op_settings(
             .server_port
             .expect("runtime administration settings must have an effective server port"),
         server_port_source: effective.server_port_source,
-        network_mode: effective.network_mode.to_string(),
+        network_mode: effective.network_mode.unwrap_or_default().to_string(),
         network_mode_source: effective.network_mode_source,
         entrypoint_root: effective.entrypoint_root.clone(),
         entrypoint_root_source: effective.entrypoint_root_source,
         password_configured,
-        public_http_warning: effective.network_mode == ServerNetworkMode::Public,
+        public_http_warning: effective.network_mode == Some(ServerNetworkMode::Public),
     }))
 }
 
@@ -786,7 +786,8 @@ pub(crate) async fn op_update_settings(
                 ));
             }
         }
-        persisted.network_mode = network.parse().expect("validated network mode must parse");
+        persisted.network_mode =
+            Some(network.parse().expect("validated network mode must parse"));
     }
 
     state

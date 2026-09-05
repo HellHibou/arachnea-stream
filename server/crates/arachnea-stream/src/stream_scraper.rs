@@ -300,8 +300,6 @@ pub struct StreamScraperBuildOptions {
     /// Typed persistence stores used by activation overrides, HTTP clients, and
     /// the proxy inventory.
     pub stores: ApplicationStores,
-    /// Optional server cache sizing applied after loading the sources.
-    pub cache_config: Option<ScraperCacheConfig>,
     /// Optional explicit local country used for geo proxy decisions.
     pub current_country: Option<String>,
 }
@@ -317,7 +315,6 @@ impl StreamScraperBuildOptions {
             services_config_path: DEFAULT_SERVICES_CONFIG_PATH.to_string(),
             credentials_store,
             stores,
-            cache_config: None,
             current_country: None,
         }
     }
@@ -325,12 +322,6 @@ impl StreamScraperBuildOptions {
     /// Overrides the services manifest path.
     pub fn with_services_config_path(mut self, path: impl Into<String>) -> Self {
         self.services_config_path = path.into();
-        self
-    }
-
-    /// Sets the server cache sizing applied to built instances.
-    pub fn with_cache_config(mut self, config: ScraperCacheConfig) -> Self {
-        self.cache_config = Some(config);
         self
     }
 }
@@ -478,11 +469,6 @@ impl StreamScraper {
                 STREAM_RESOLVER_CONFIG_PATH,
             )?;
         instance.configure_proxy_insecure_tls_hosts();
-        if let Some(cache_config) = &options.cache_config {
-            instance
-                .scraper_agregator
-                .set_cache_config(cache_config.clone());
-        }
 
         Ok(instance)
     }
@@ -1474,7 +1460,6 @@ impl ScraperManager for StreamScraper {
             services_config_path: DEFAULT_SERVICES_CONFIG_PATH.to_string(),
             credentials_store: Arc::clone(&self.credentials_store),
             stores: self.stores.clone(),
-            cache_config: None,
             current_country: None,
         };
         ReloadableStreamScraper::from_instance(self, options).register_service(controler);

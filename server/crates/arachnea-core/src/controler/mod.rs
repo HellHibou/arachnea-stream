@@ -34,7 +34,7 @@ pub use rest::tray::{
     ServerTrayHandle, ServerTrayUpdate,
 };
 
-use crate::controler::options::{ApplicationMode, DEFAULT_SERVER_PORT, DEFAULT_TAURI_API_PREFIX, DEFAULT_TAURI_WEB_SCHEME, ServerNetworkMode};
+use crate::controler::options::{ApplicationMode, CoreApplicationOptions, SettingSource, DEFAULT_SERVER_PORT, DEFAULT_TAURI_API_PREFIX, DEFAULT_TAURI_WEB_SCHEME, ServerNetworkMode};
 use crate::controler::rest::{RestControlerConfiguration, RestControlerService};
 use crate::controler::tauri::{
     TauriControlerConfiguration, TauriControlerService, TauriEmbeddedWebAssets,
@@ -735,7 +735,7 @@ pub fn create_application_controler_from_config(
         let mut configuration = RestControlerConfiguration::default()
             .server_port(server_port);
 
-        match options.network_mode {
+        match options.network_mode.unwrap_or_default() {
             ServerNetworkMode::Local => {}
             ServerNetworkMode::Private => {
                 configuration =
@@ -863,4 +863,209 @@ macro_rules! create_application_controler {
             },
         )
     }};
+}
+
+/// Builds the dynamic REST settings resolver of an application.
+///
+/// Combines the application-supplied reader of the persisted configuration
+/// with the command-line overrides captured from the options provenances
+/// (`server_port_source`, `network_mode_source`, `entrypoint_root_source`),
+/// applying the priority rule `command line > persisted configuration >
+/// built-in default`:
+///
+/// - a `SettingSource::CommandLine` value is pinned and always wins over the
+///   persisted configuration (including values changed later through the
+///   administration service);
+/// - otherwise the persisted value is used, falling back to the built-in
+///   defaults (`DEFAULT_SERVER_PORT`, `ServerNetworkMode::Private`, no root).
+///
+/// The returned resolver returns `None` when the persisted reader itself
+/// returns `None`, which signals that hot application is unavailable.
+///
+/// # Arguments
+///
+/// * `persisted` - Reader of the persisted application configuration; the
+///   application owns the file lifecycle, Core never opens it directly.
+/// * `cli` - Effective application options captured before they are moved into
+///   the controller constructor.
+pub fn rest_settings_source(
+    persisted: Arc<dyn Fn() -> Option<CoreApplicationOptions> + Send + Sync>,
+    cli: CoreApplicationOptions,
+) -> RestSettingsSource {
+    let port_pinned = cli.server_port_source == SettingSource::CommandLine;
+    let cli_port = cli.server_port;
+    let network_pinned = cli.network_mode_source == SettingSource::CommandLine;
+    let cli_network = cli.network_mode;
+    let root_pinned = cli.entrypoint_root_source == SettingSource::CommandLine;
+    let cli_root = cli.entrypoint_root;
+
+    Arc::new(move || {
+        let config = persisted()?;
+        let server_port = if port_pinned {
+            cli_port?
+        } else {
+            config.server_port.unwrap_or(DEFAULT_SERVER_PORT)
+        };
+        let network_mode = if network_pinned {
+            cli_network?
+        } else {
+            config.network_mode.unwrap_or_default()
+        };
+        let entrypoint_root = if root_pinned {
+            cli_root.clone()
+        } else {
+            config.entrypoint_root.clone()
+        };
+        Some(RestServerSettings {
+            server_port,
+            network_mode,
+            entrypoint_root,
+        })
+    })
+}
+
+#[cfg(test)]
+mod rest_settings_tests {
+    use super::*;
+
+    /// Builds options with explicit port, network and root values/provenances.
+    fn options_with(
+        port: Option<u16>,
+        port_source: SettingSource,
+        network: Option<ServerNetworkMode>,
+        network_source: SettingSource,
+        root: Option<&str>,
+        root_source: SettingSource,
+    ) -> CoreApplicationOptions {
+        let mut options = CoreApplicationOptions::new(
+            None,
+            port,
+            root.map(str::to_string),
+            None,
+            None,
+            None,
+        );
+        options.server_port_source = port_source;
+        options.network_mode = network;
+        options.network_mode_source = network_source;
+        options.entrypoint_root_source = root_source;
+        options
+    }
+
+    fn reader_of(
+        port: Option<u16>,
+        network: Option<ServerNetworkMode>,
+        root: Option<&str>,
+    ) -> Arc<dyn Fn() -> Option<CoreApplicationOptions> + Send + Sync> {
+        let mut persisted =
+            CoreApplicationOptions::new(None, port, root.map(str::to_string), None, None, None);
+        persisted.network_mode = network;
+        Arc::new(move || Some(persisted.clone()))
+    }
+
+    #[test]
+    fn command_line_pins_win_over_persisted_configuration() {
+        let cli = options_with(
+            Some(9000),
+            SettingSource::CommandLine,
+            Some(ServerNetworkMode::Public),
+            SettingSource::CommandLine,
+            Some("/cli-root"),
+            SettingSource::CommandLine,
+        );
+        let reader = reader_of(Some(1234), Some(ServerNetworkMode::Local), Some("/config-root"));
+        let settings = rest_settings_source(reader, cli)().expect("settings must resolve");
+        assert_eq!(settings.server_port, 9000);
+        assert_eq!(settings.network_mode, ServerNetworkMode::Public);
+        assert_eq!(settings.entrypoint_root.as_deref(), Some("/cli-root"));
+    }
+
+    #[test]
+    fn persisted_configuration_wins_over_defaults() {
+        let cli = options_with(
+            None,
+            SettingSource::Default,
+            None,
+            SettingSource::Default,
+            None,
+            SettingSource::Default,
+        );
+        let reader = reader_of(Some(1234), Some(ServerNetworkMode::Local), Some("/config-root"));
+        let settings = rest_settings_source(reader, cli)().expect("settings must resolve");
+        assert_eq!(settings.server_port, 1234);
+        assert_eq!(settings.network_mode, ServerNetworkMode::Local);
+        assert_eq!(settings.entrypoint_root.as_deref(), Some("/config-root"));
+    }
+
+    #[test]
+    fn defaults_apply_when_neither_cli_nor_configuration_provide_values() {
+        let cli = options_with(
+            None,
+            SettingSource::Default,
+            None,
+            SettingSource::Default,
+            None,
+            SettingSource::Default,
+        );
+        let reader = reader_of(None, None, None);
+        let settings = rest_settings_source(reader, cli)().expect("settings must resolve");
+        assert_eq!(settings.server_port, DEFAULT_SERVER_PORT);
+        assert_eq!(settings.network_mode, ServerNetworkMode::Private);
+        assert_eq!(settings.entrypoint_root, None);
+    }
+
+    #[test]
+    fn configuration_source_values_are_not_pinned() {
+        // Values coming from the configuration file (not the command line)
+        // must never block a later persisted update through the admin.
+        let cli = options_with(
+            Some(9000),
+            SettingSource::Configuration,
+            Some(ServerNetworkMode::Public),
+            SettingSource::Configuration,
+            Some("/config-root"),
+            SettingSource::Configuration,
+        );
+        let reader = reader_of(Some(1234), Some(ServerNetworkMode::Local), Some("/updated-root"));
+        let settings = rest_settings_source(reader, cli)().expect("settings must resolve");
+        assert_eq!(settings.server_port, 1234);
+        assert_eq!(settings.network_mode, ServerNetworkMode::Local);
+        assert_eq!(settings.entrypoint_root.as_deref(), Some("/updated-root"));
+    }
+
+    #[test]
+    fn pinned_port_survives_persisted_update_while_other_settings_follow_config() {
+        let cli = options_with(
+            Some(9000),
+            SettingSource::CommandLine,
+            None,
+            SettingSource::Default,
+            None,
+            SettingSource::Default,
+        );
+        // Simulates an administration update of the persisted configuration.
+        let mut persisted =
+            CoreApplicationOptions::new(None, Some(1234), None, None, None, None);
+        persisted.network_mode = Some(ServerNetworkMode::Local);
+        let reader: Arc<dyn Fn() -> Option<CoreApplicationOptions> + Send + Sync> =
+            Arc::new(move || Some(persisted.clone()));
+        let settings = rest_settings_source(reader, cli)().expect("settings must resolve");
+        assert_eq!(settings.server_port, 9000);
+        assert_eq!(settings.network_mode, ServerNetworkMode::Local);
+    }
+
+    #[test]
+    fn unavailable_persisted_configuration_disables_hot_application() {
+        let cli = options_with(
+            None,
+            SettingSource::Default,
+            None,
+            SettingSource::Default,
+            None,
+            SettingSource::Default,
+        );
+        let reader: Arc<dyn Fn() -> Option<CoreApplicationOptions> + Send + Sync> =
+            Arc::new(|| None);
+        assert!(rest_settings_source(reader, cli)().is_none());
+    }
 }

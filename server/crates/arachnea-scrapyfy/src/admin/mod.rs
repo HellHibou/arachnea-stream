@@ -282,8 +282,8 @@ impl AdminState {
             settings.server_port = Some(server_port);
             settings.server_port_source = SettingSource::Configuration;
         }
-        if settings.network_mode != network_mode {
-            settings.network_mode = network_mode;
+        if settings.network_mode != Some(network_mode) {
+            settings.network_mode = Some(network_mode);
             settings.network_mode_source = SettingSource::Configuration;
         }
         if settings.entrypoint_root != entrypoint_root {
