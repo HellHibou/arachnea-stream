@@ -65,6 +65,39 @@ function getTauriInvoke(): TauriInvoke | undefined {
   const tauriWindow = window as TauriWindow
   return tauriWindow.__TAURI__?.core?.invoke ?? tauriWindow.__TAURI__?.invoke
 }
+
+/**
+ * Returns whether the admin bundle is running inside a Tauri desktop window
+ * (the dedicated administration window opened from the desktop application),
+ * as opposed to a plain browser tab hitting the server URL.
+ */
+export function isDesktopApp(): boolean {
+  return getTauriInvoke() !== undefined
+}
+
+/**
+ * Opens an external URL in the system default browser.
+ *
+ * In the desktop administration window, `window.open` would target the Tauri
+ * webview and not reach the browser, so the call is routed through the
+ * `tauri-plugin-opener` command (`plugin:opener|open_url`, whose
+ * `opener:allow-open-url` permission is granted to the `admin` window). In a
+ * plain browser the URL is opened in a new tab as a regular anchor navigation.
+ *
+ * @param url - Absolute external URL to open.
+ */
+export async function openExternalUrl(url: string): Promise<void> {
+  const tauriInvoke = getTauriInvoke()
+  if (tauriInvoke) {
+    try {
+      await tauriInvoke('plugin:opener|open_url', { url })
+      return
+    } catch {
+      // Fall through to the browser-style opener on IPC failure.
+    }
+  }
+  window.open(url, '_blank', 'noopener,noreferrer')
+}
 /**
  * Performs a typed admin API call with normalized error handling.
  *

@@ -158,7 +158,8 @@ onMounted(() => {
       />
     </v-app-bar>
 
-    <v-navigation-drawer v-if="isAuthenticated">
+    <!-- Always visible regardless of the window size. -->
+    <v-navigation-drawer v-if="isAuthenticated" permanent>
       <v-list nav>
         <v-list-item
           v-for="storeId in serviceStores"

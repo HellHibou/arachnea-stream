@@ -1,8 +1,9 @@
 ﻿<script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, type ComputedRef } from 'vue'
 import { useRoute } from 'vue-router'
 
 import { useAdminApi } from '@/composables/useAdminApi'
+import { isDesktopApp } from '@/services/adminApi'
 import { useI18n } from '@/i18n'
 import { getAppBasePath } from '@/services/baseUrl'
 import type { SettingsResponse, SettingSource } from '@/services/adminApi'
@@ -39,8 +40,18 @@ const CACHE_UNIT_FACTORS: Record<CacheUnit, number> = { K: 1, M: 1024, G: 104857
 
 const DEFAULT_CACHE_BLOCK_SIZE_KIB = 16 * 1024
 
-/** Per-field state: the reference value stays in K, the display converts. */
-function createCacheField(initialKib: number) {
+/**
+ * Per-field state: the reference value stays in K, the display converts.
+ *
+ * `stepMode` drives the spinner step: `fourKib` steps the block size by
+ * ± 4 K; `oneUnitOrBlock` steps the bounds by one display unit, unless the
+ * block size converted in that unit is >= 1, in which case one step adds or
+ * subtracts exactly one block size (already a block multiple).
+ */
+function createCacheField(
+  initialKib: number,
+  stepMode: 'fourKib' | 'oneUnitOrBlock',
+) {
   const kib = ref<number | null>(initialKib)
   const unit = ref<CacheUnit>('K')
   const dirty = ref(false)
@@ -49,15 +60,45 @@ function createCacheField(initialKib: number) {
     get: () => (kib.value === null ? null : kib.value / factor.value),
     set: (value) => {
       dirty.value = true
-      kib.value = value === null || Number.isNaN(value) ? null : Math.round(value * factor.value)
+      if (value === null || Number.isNaN(value)) {
+        kib.value = null
+        return
+      }
+      let raw = value * factor.value
+      // Cache sizes are never negative: the spinner and manual input clamp at
+      // 0, which clears the override.
+      if (raw < 0) {
+        raw = 0
+      }
+      // Snap the disk/memory bounds to the nearest multiple of the block
+      // size: the spinner steps by one display unit, then the difference is
+      // absorbed (added or subtracted) to land on a block multiple. A bound
+      // may be 0 (override cleared) but never strictly between 0 and the
+      // block size.
+      if (stepMode === 'oneUnitOrBlock') {
+        const blockKib = effectiveBlockKib.value
+        if (blockKib > 0) {
+          raw = Math.round(raw / blockKib) * blockKib
+        }
+      }
+      kib.value = Math.round(raw)
     },
   })
-  return { kib, unit, dirty, display }
+  /** Spinner step expressed in the currently selected display unit. */
+  const stepDisplay = computed(() => {
+    if (stepMode === 'fourKib') {
+      return 4 / factor.value
+    }
+    const blockKib = effectiveBlockKib.value
+    return blockKib / factor.value >= 1 ? blockKib / factor.value : 1
+  })
+  return { kib, unit, dirty, display, stepDisplay }
 }
 
-const cacheMaxDisk = createCacheField(100 * 1024)
-const cacheMaxMemory = createCacheField(32 * 1024)
-const cacheBlockSize = createCacheField(DEFAULT_CACHE_BLOCK_SIZE_KIB)
+const cacheMaxDisk = createCacheField(100 * 1024, 'oneUnitOrBlock')
+const cacheMaxMemory = createCacheField(32 * 1024, 'oneUnitOrBlock')
+// The block size steps by ± 4 K.
+const cacheBlockSize = createCacheField(DEFAULT_CACHE_BLOCK_SIZE_KIB, 'fourKib')
 
 const cacheFields = [cacheMaxDisk, cacheMaxMemory, cacheBlockSize] as const
 
@@ -86,21 +127,6 @@ function resetCacheFields(settings: SettingsResponse): void {
   }
 }
 
-/** Steps the cache block size by ± 4 K. */
-function stepBlockSize(delta: number): void {
-  cacheBlockSize.dirty.value = true
-  cacheBlockSize.kib.value = Math.max(4, (cacheBlockSize.kib.value || 0) + delta)
-}
-
-/**
- * Steps a cache bound by ± the block size, keeping the value non-negative.
- */
-function stepCacheBound(field: (typeof cacheFields)[number], delta: number): void {
-  field.dirty.value = true
-  const step = cacheBlockSize.kib.value || DEFAULT_CACHE_BLOCK_SIZE_KIB
-  field.kib.value = Math.max(0, (field.kib.value || 0) + delta * step)
-}
-
 /**
  * Returns the request value of a cache field: the current K value when
  * edited, or `undefined` to leave the setting untouched.
@@ -113,7 +139,9 @@ function cacheRequestValue(field: (typeof cacheFields)[number]): number | undefi
 }
 
 /** Effective K bounds used by the local cross-field validation. */
-const effectiveBlockKib = computed(() => cacheBlockSize.kib.value ?? DEFAULT_CACHE_BLOCK_SIZE_KIB)
+const effectiveBlockKib: ComputedRef<number> = computed(
+  () => cacheBlockSize.kib.value ?? DEFAULT_CACHE_BLOCK_SIZE_KIB,
+)
 const effectiveDiskKib = computed(() => cacheMaxDisk.kib.value ?? 100 * 1024)
 const effectiveMemoryKib = computed(() => cacheMaxMemory.kib.value ?? 32 * 1024)
 
@@ -126,9 +154,10 @@ const passwordSuccess = ref<string | null>(null)
 /**
  * Restricted popup variant: the full shell stays visible, but the "Server"
  * and "Password" cards are hidden and only the application settings are
- * submitted.
+ * submitted. Applies to the dedicated desktop administration window (always)
+ * and to the legacy `settings-popup` route.
  */
-const popupMode = computed(() => route.name === POPUP_ROUTE_NAME)
+const popupMode = computed(() => isDesktopApp() || route.name === POPUP_ROUTE_NAME)
 
 const isLocalModeAllowed = computed(() => {
   return ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname)
@@ -154,6 +183,16 @@ function sourceLabel(source: SettingSource): string {
     default:
       return t('settings.sourceDefault')
   }
+}
+
+/**
+ * Source hint of a field, or `undefined` when the effective value comes from
+ * the runtime default (nothing worth reporting).
+ */
+function sourceHint(source: SettingSource | undefined): string | undefined {
+  return source && source !== 'default'
+    ? t('settings.source', { source: sourceLabel(source) })
+    : undefined
 }
 
 async function loadSettings(): Promise<void> {
@@ -347,34 +386,27 @@ onMounted(() => {
         <v-card v-if="!popupMode" variant="outlined" class="mb-6">
           <v-card-title>{{ t('settings.serverGroup') }}</v-card-title>
           <v-card-text>
-            <v-text-field v-model.number="port" :label="t('settings.serverPort')" :placeholder="t('settings.serverPortPlaceholder')" type="number" variant="outlined" :hint="settings ? t('settings.source', { source: sourceLabel(settings.server_port_source) }) : undefined" persistent-hint />
-            <v-select v-model="networkMode" :label="t('settings.networkMode')" :items="networkModes" variant="outlined" class="mt-4" :hint="settings ? t('settings.source', { source: sourceLabel(settings.network_mode_source) }) : undefined" persistent-hint />
+            <v-text-field v-model.number="port" :label="t('settings.serverPort')" :placeholder="t('settings.serverPortPlaceholder')" type="number" variant="outlined" :hint="settings ? sourceHint(settings.server_port_source) : undefined" persistent-hint />
+            <v-select v-model="networkMode" :label="t('settings.networkMode')" :items="networkModes" variant="outlined" class="mt-4" :hint="settings ? sourceHint(settings.network_mode_source) : undefined" persistent-hint />
             <v-alert v-if="networkMode === 'public'" type="warning" variant="tonal" class="mt-2" :text="t('settings.publicHttpWarning')" />
             <v-alert v-if="networkMode === 'local'" type="info" variant="tonal" class="mt-2" :text="t('settings.localModeWarning')" />
-            <v-text-field v-model="entrypointRoot" :label="t('settings.entrypointRoot')" :placeholder="t('settings.entrypointRootPlaceholder')" variant="outlined" class="mt-4" :hint="settings ? t('settings.source', { source: sourceLabel(settings.entrypoint_root_source) }) : undefined" persistent-hint />
+            <v-text-field v-model="entrypointRoot" :label="t('settings.entrypointRoot')" :placeholder="t('settings.entrypointRootPlaceholder')" variant="outlined" class="mt-4" :hint="settings ? sourceHint(settings.entrypoint_root_source) : undefined" persistent-hint />
           </v-card-text>
         </v-card>
         <v-card variant="outlined" class="mb-6">
           <v-card-title>{{ t('settings.applicationGroup') }}</v-card-title>
           <v-card-text>
-            <v-text-field v-model="currentCountry" :label="t('settings.currentCountry')" :placeholder="t('settings.currentCountryPlaceholder')" variant="outlined" :hint="settings ? t('settings.source', { source: sourceLabel(settings.current_country_source) }) : undefined" persistent-hint />
+            <v-text-field v-model="currentCountry" :label="t('settings.currentCountry')" :placeholder="t('settings.currentCountryPlaceholder')" variant="outlined" :hint="settings ? sourceHint(settings.current_country_source) : undefined" persistent-hint />
             <v-row v-for="field in [
-              { id: 'disk', label: 'cacheMaxDiskBytes', state: cacheMaxDisk, source: settings?.cache_max_disk_bytes_source, step: (delta: number) => stepCacheBound(cacheMaxDisk, delta) },
-              { id: 'memory', label: 'cacheMaxMemoryBytes', state: cacheMaxMemory, source: settings?.cache_max_memory_bytes_source, step: (delta: number) => stepCacheBound(cacheMaxMemory, delta) },
-              { id: 'block', label: 'cacheBlockSizeBytes', state: cacheBlockSize, source: settings?.cache_block_size_bytes_source, step: (delta: number) => stepBlockSize(delta) },
+              { id: 'block', label: 'cacheBlockSizeBytes', state: cacheBlockSize, source: settings?.cache_block_size_bytes_source },
+              { id: 'disk', label: 'cacheMaxDiskBytes', state: cacheMaxDisk, source: settings?.cache_max_disk_bytes_source },
+              { id: 'memory', label: 'cacheMaxMemoryBytes', state: cacheMaxMemory, source: settings?.cache_max_memory_bytes_source },
             ]" :key="field.id" align="center" class="mt-4" dense>
+              <v-col cols="12" sm="7">
+                <v-text-field v-model.number="field.state.display.value" :label="t(`settings.${field.label}`)" :min="0" :step="field.state.stepDisplay.value" type="number" variant="outlined" hide-details />
+              </v-col>
               <v-col cols="12" sm="5">
-                <v-text-field v-model.number="field.state.display.value" :label="t(`settings.${field.label}`)" type="number" variant="outlined" hide-details />
-              </v-col>
-              <v-col cols="4" sm="2">
                 <v-select v-model="field.state.unit.value" :items="cacheUnitItems" variant="outlined" hide-details />
-              </v-col>
-              <v-col cols="8" sm="3">
-                <v-btn icon="mdi-minus" variant="tonal" class="mr-1" @click="field.step(-1)" />
-                <v-btn icon="mdi-plus" variant="tonal" @click="field.step(1)" />
-              </v-col>
-              <v-col cols="12" sm="12" class="text-caption text-medium-emphasis">
-                {{ field.source ? t('settings.source', { source: sourceLabel(field.source) }) : t('settings.cacheBytesHint') }}
               </v-col>
             </v-row>
           </v-card-text>

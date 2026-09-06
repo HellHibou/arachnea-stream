@@ -3,7 +3,11 @@ import { computed, ref, watch } from 'vue'
 
 import { useAdminApi } from '@/composables/useAdminApi'
 import { useI18n } from '@/i18n'
-import { lookupCredential, type AdminServiceEntry } from '@/services/adminApi'
+import {
+  lookupCredential,
+  openExternalUrl,
+  type AdminServiceEntry,
+} from '@/services/adminApi'
 
 const props = withDefaults(
   defineProps<{
@@ -125,7 +129,7 @@ function handleClose(): void {
 
 function openSignupUrl(): void {
   if (service.value?.credentials?.signup_url) {
-    window.open(service.value.credentials.signup_url, '_blank', 'noopener,noreferrer')
+    void openExternalUrl(service.value.credentials.signup_url)
   }
 }
 </script>

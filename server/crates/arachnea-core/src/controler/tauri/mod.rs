@@ -1,7 +1,10 @@
 //! Tauri controller backend.
 
 use std::borrow::Cow;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc, Mutex,
+};
 
 use ::tauri::{
     ipc::{Invoke, InvokeBody, InvokeError},
@@ -10,6 +13,7 @@ use ::tauri::{
 };
 use anyhow::anyhow;
 use serde_json::Value;
+use tauri_plugin_opener::OpenerExt;
 
 use super::web_assets::{
     normalize_mount_path, replace_html_base, scope_web_asset_source, strip_mount_path,
@@ -29,8 +33,11 @@ const DEFAULT_TAURI_WEB_SCHEME: &str = "arachnea";
 /// The default API path prefix used by Tauri binary stream routes.
 const DEFAULT_TAURI_API_PREFIX: &str = "/api/";
 
-/// Relative `<base>` used when serving the desktop frontend, which lives at the scheme root.
-const TAURI_WEB_BASE: &str = "./";
+/// Absolute `<base>` keeping deep desktop routes rooted at the frontend mount.
+const TAURI_WEB_BASE: &str = "/";
+
+/// Process-wide sequence for independently opened frontend windows.
+static FRONTEND_WINDOW_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 /// Label of the dedicated administration window, created on demand.
 const ADMIN_WINDOW_LABEL: &str = "admin";
@@ -40,9 +47,9 @@ const ADMIN_WINDOW_OPEN_COMMAND: &str = "open_admin_window";
 
 /// Default in-bundle route opened by the dedicated administration window.
 ///
-/// Points at the restricted settings view, which keeps the full admin shell
-/// while hiding the "Server" and "Password" sections.
-const ADMIN_WINDOW_DEFAULT_ROUTE: &str = "settings/app";
+/// Points at the administration bundle root, which the admin router resolves to
+/// the first configured service group (mirroring `GET /admin` in server mode).
+const ADMIN_WINDOW_DEFAULT_ROUTE: &str = "";
 
 /// Mount path (inside the scheme root) serving the administration bundle.
 const ADMIN_WEB_MOUNT: &str = "admin";
@@ -538,7 +545,21 @@ impl ControlerService for TauriControlerService {
         let web_assets = self.web_assets.clone();
         let web_scheme = self.web_scheme.clone();
         let api_prefix = self.api_prefix.clone();
-        let context = self.build_context();
+        let mut context = self.build_context();
+        let main_window_config = context
+            .config_mut()
+            .app
+            .windows
+            .first_mut()
+            .and_then(|window| {
+                if !window.create {
+                    return None;
+                }
+                let config = window.clone();
+                window.create = false;
+                Some(config)
+            });
+        let setup_web_scheme = web_scheme.clone();
         let setup_dispatcher = Arc::clone(&self.main_thread_dispatcher);
         let global_dispatcher: Arc<dyn MainThreadDispatcher> = self.main_thread_dispatcher.clone();
         install_global_main_thread_dispatcher(global_dispatcher)
@@ -546,6 +567,16 @@ impl ControlerService for TauriControlerService {
         let mut builder = ::tauri::Builder::default()
             .setup(move |app| {
                 setup_dispatcher.attach_app_handle(app.handle().clone())?;
+                if let Some(config) = main_window_config {
+                    let builder = WebviewWindowBuilder::from_config(app.handle(), &config)?;
+                    with_frontend_window_requests(
+                        builder,
+                        app.handle().clone(),
+                        config.label,
+                        setup_web_scheme,
+                    )
+                    .build()?;
+                }
                 Ok(())
             })
             .plugin(
@@ -678,10 +709,7 @@ impl ControlerService for TauriControlerService {
                     });
                 match selected {
                     Some((mount_path, Ok(asset))) => {
-                        // Scoped bundles live below a fixed mount path, so their
-                        // HTML documents must carry an absolute base rooted at
-                        // the mount; a relative base would resolve against the
-                        // current page URL and break deep History-API routes.
+                        // Every bundle needs an absolute mount base for direct History-API routes.
                         let html_base = if mount_path.is_empty() {
                             TAURI_WEB_BASE.to_string()
                         } else {
@@ -709,14 +737,34 @@ impl ControlerService for TauriControlerService {
             .invoke_handler(move |invoke: Invoke| {
                 let command = invoke.message.command().to_string();
                 if command == ADMIN_WINDOW_OPEN_COMMAND {
-                    let app = invoke.message.webview().app_handle().clone();
-                    let admin_url = format!(
-                        "{}://localhost/{}/{}/",
-                        invoke_web_scheme.trim_end_matches(':'),
-                        ADMIN_WEB_MOUNT,
-                        ADMIN_WINDOW_DEFAULT_ROUTE
-                    );
-                    open_admin_window(app, admin_url);
+                    let source_window = invoke.message.webview().window();
+                    let title = match source_window.title() {
+                        Ok(title) => title,
+                        Err(error) => {
+                            invoke.resolver.respond(Err::<(), InvokeError>(
+                                InvokeError::from_anyhow(anyhow!(
+                                    "Failed to read source window title: {error}"
+                                )),
+                            ));
+                            return true;
+                        }
+                    };
+                    let app = source_window.app_handle().clone();
+                    let scheme = invoke_web_scheme.trim_end_matches(':');
+                    // Open the bundle root by default; the admin router resolves
+                    // it to the first configured service group.
+                    let default_route = ADMIN_WINDOW_DEFAULT_ROUTE.trim_matches('/');
+                    let admin_url = if default_route.is_empty() {
+                        format!("{scheme}://localhost/{ADMIN_WEB_MOUNT}/")
+                    } else {
+                        format!("{scheme}://localhost/{ADMIN_WEB_MOUNT}/{default_route}/")
+                    };
+                    // build() must not run synchronously inside the IPC handler:
+                    // it waits on the main-thread event loop, which is currently
+                    // processing this invoke (hard deadlock on Windows, UI freeze
+                    // on macOS/Linux). Spawning a thread lets Tauri dispatch the
+                    // window creation to the main loop on all platforms.
+                    std::thread::spawn(move || open_admin_window(app, admin_url, title));
                     invoke.resolver.respond(Ok::<(), InvokeError>(()));
                     return true;
                 }
@@ -785,6 +833,60 @@ impl ControlerService for TauriControlerService {
     }
 }
 
+/// Installs native new-window handling for a frontend window and its descendants.
+///
+/// # Arguments
+/// * `builder` - Window builder retaining the application-owned configuration.
+/// * `app` - Running application handle.
+/// * `source_label` - Window whose current title is inherited by each new window.
+/// * `web_scheme` - Application-owned protocol used for internal frontend URLs.
+fn with_frontend_window_requests<'a>(
+    builder: WebviewWindowBuilder<'a, Wry, AppHandle<Wry>>,
+    app: AppHandle<Wry>,
+    source_label: String,
+    web_scheme: String,
+) -> WebviewWindowBuilder<'a, Wry, AppHandle<Wry>> {
+    builder.on_new_window(move |url, _features| {
+        let app = app.clone();
+        let source_label = source_label.clone();
+        let web_scheme = web_scheme.clone();
+        // Build outside the native callback to avoid blocking the UI event loop.
+        std::thread::spawn(move || {
+            let internal = (url.scheme() == web_scheme && url.host_str() == Some("localhost"))
+                || (matches!(url.scheme(), "http" | "https")
+                    && url.host_str() == Some(format!("{web_scheme}.localhost").as_str()));
+            if !internal {
+                if matches!(url.scheme(), "http" | "https" | "mailto" | "tel") {
+                    if let Err(error) = app.opener().open_url(url.as_str(), None::<&str>) {
+                        tracing::warn!(error = %error, "failed to open external URL");
+                    }
+                }
+                return;
+            }
+            let result = (|| -> ::tauri::Result<()> {
+                let source = app
+                    .get_webview_window(&source_label)
+                    .ok_or(::tauri::Error::WindowNotFound)?;
+                let title = source.title()?;
+                let label = format!(
+                    "frontend-{}",
+                    FRONTEND_WINDOW_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+                );
+                let builder =
+                    WebviewWindowBuilder::new(&app, &label, WebviewUrl::CustomProtocol(url))
+                        .title(title)
+                        .inner_size(980.0, 680.0);
+                with_frontend_window_requests(builder, app.clone(), label, web_scheme).build()?;
+                Ok(())
+            })();
+            if let Err(error) = result {
+                tracing::warn!(error = %error, "failed to open frontend window");
+            }
+        });
+        ::tauri::webview::NewWindowResponse::Deny
+    })
+}
+
 /// Opens the dedicated administration window, reusing it when it still exists.
 ///
 /// The window loads the admin bundle through the custom web scheme (whose
@@ -794,7 +896,8 @@ impl ControlerService for TauriControlerService {
 /// # Arguments
 /// * `app` - The running Tauri application handle.
 /// * `admin_url` - Custom-scheme URL of the administration bundle.
-fn open_admin_window(app: AppHandle<Wry>, admin_url: String) {
+/// * `title` - Current title of the window requesting administration.
+fn open_admin_window(app: AppHandle<Wry>, admin_url: String, title: String) {
     if let Some(window) = app.get_webview_window(ADMIN_WINDOW_LABEL) {
         let _ = window.show();
         let _ = window.set_focus();
@@ -804,7 +907,7 @@ fn open_admin_window(app: AppHandle<Wry>, admin_url: String) {
     let url: ::tauri::Url = admin_url.parse().expect("Invalid Tauri admin URL.");
     let window =
         WebviewWindowBuilder::new(&app, ADMIN_WINDOW_LABEL, WebviewUrl::CustomProtocol(url))
-            .title("Arachnéa - Administration")
+            .title(title)
             .inner_size(980.0, 680.0)
             .build();
 

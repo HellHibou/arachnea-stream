@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 
 import { useAdminApi } from '@/composables/useAdminApi'
 import { useI18n } from '@/i18n'
+import { defaultServicesPath } from '@/services/appConfig'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -21,7 +22,7 @@ async function handleLogin(): Promise<void> {
 
   const success = await login(password.value)
   if (success) {
-    router.push({ name: 'services' })
+    router.push(defaultServicesPath())
   } else {
     loginError.value = error.value?.message ?? t('auth.loginFailed')
     password.value = ''

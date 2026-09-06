@@ -1,5 +1,9 @@
 //! Persistence contracts and helpers for credentials storage and resource paths.
 use anyhow::Result;
+
+#[cfg(unix)]
+use anyhow::Context;
+
 use std::path::Path;
 
 pub mod credentials_store;

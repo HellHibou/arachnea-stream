@@ -23,6 +23,33 @@ All notable changes to the server workspace are recorded here. Add new entries a
   messages (see `docs/dev-tracking/cache-block-size-analysis.md`).
 
 ### Fixed
+- **Admin UI navigation**: the admin sidebar is now always displayed regardless
+  of the window size (`permanent` navigation drawer instead of the Vuetify
+  default that hides it below the `lg` breakpoint), and after a successful
+  login the app now lands on the first configured service group
+  (`defaultServicesPath()`) instead of a failed navigation to the
+  parameterized `services` route. The dedicated desktop administration window
+  now also opens on the admin bundle root (`/admin/`) instead of the restricted
+  `/admin/settings/app/` popup, so it resolves to the first configured service
+  group just like the server URL. The Settings screen of the dedicated desktop
+  window now hides the "Server" group and the "Change admin password" card (the
+  restricted behavior is driven by desktop detection, not just the legacy
+  `settings-popup` route). The credentials dialog's sign-up link (\"Create
+  account\") now opens the target URL in the system default browser even from
+  the desktop administration window, by routing through `tauri-plugin-opener`
+  (`plugin:opener|open_url`, permitted for the `admin` window) instead of
+  `window.open`, which would only target the webview.
+
+
+### Fixed
+- **Desktop administration window deadlock**: the `open_admin_window` invoke
+  command no longer creates the Tauri administration window synchronously
+  inside the IPC handler. `WebviewWindowBuilder::build()` waits on the
+  main-thread event loop, which is busy processing the invoke, deadlocking on
+  Windows (blank unresponsive window, impossible to close) and risking a UI
+  freeze on macOS/Linux. The creation now runs on a spawned thread on all
+  platforms, letting Tauri dispatch it to the main loop.
+### Fixed
 - **Unified runtime option loading**: application option providers now apply
   JSON configuration-file values before command-line arguments, preserving the
   common `default < configuration < command line` priority rule and setting
@@ -1483,3 +1510,6 @@ redémarrage du processus ni du systray :
   scoped bundles (e.g. `/admin/`) now carry an absolute base (`/admin/`)
   instead of `./`, so deep History-API routes resolve assets, locales, and the
   API base correctly instead of inheriting the page URL directory.
+
+### Fixed
+- Desktop public frontend links opened from the native new-window menu now create independent Tauri windows, including from secondary windows. New windows inherit the requesting window title; administration window creation also uses that title instead of an application name in core. Absolute frontend mount bases support direct deep routes, and secondary frontend windows receive the main frontend capabilities.
