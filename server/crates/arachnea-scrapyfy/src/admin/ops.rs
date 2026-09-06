@@ -29,6 +29,7 @@ use crate::scrapyfy::{
     load_service_catalog_detailed, ScraperAdminSettings, ScraperAgregator,
     ScraperQueryCollectionParameter, ScraperServiceCatalogEntry, ScraperServiceCredentials,
     SourceServiceRecord,
+    DEFAULT_CACHE_BLOCK_SIZE_KIB, DEFAULT_CACHE_MAX_DISK_KIB, DEFAULT_CACHE_MAX_MEMORY_KIB,
 };
 
 /// Delay between the `update-settings` response and the hot application of
@@ -756,8 +757,27 @@ pub(crate) async fn op_settings(
             cli.current_country.is_some(),
             persisted_scraper.current_country.is_some(),
         ),
-        cache_max_disk_bytes: effective_scraper.cache_max_disk_bytes,
-        cache_max_memory_bytes: effective_scraper.cache_max_memory_bytes,
+        cache_max_disk_bytes: effective_scraper
+            .cache_max_disk_bytes
+            .unwrap_or(DEFAULT_CACHE_MAX_DISK_KIB),
+        cache_max_disk_bytes_source: source_for(
+            cli.cache_max_disk_bytes.is_some(),
+            persisted_scraper.cache_max_disk_bytes.is_some(),
+        ),
+        cache_max_memory_bytes: effective_scraper
+            .cache_max_memory_bytes
+            .unwrap_or(DEFAULT_CACHE_MAX_MEMORY_KIB),
+        cache_max_memory_bytes_source: source_for(
+            cli.cache_max_memory_bytes.is_some(),
+            persisted_scraper.cache_max_memory_bytes.is_some(),
+        ),
+        cache_block_size_bytes: effective_scraper
+            .cache_block_size_bytes
+            .unwrap_or(DEFAULT_CACHE_BLOCK_SIZE_KIB),
+        cache_block_size_bytes_source: source_for(
+            cli.cache_block_size_bytes.is_some(),
+            persisted_scraper.cache_block_size_bytes.is_some(),
+        ),
     }))
 }
 
@@ -839,8 +859,20 @@ pub(crate) async fn op_update_settings(
         }
         scraper_settings.cache_max_memory_bytes = if bytes == 0 { None } else { Some(bytes) };
     }
+    if let Some(bytes) = input.cache_block_size_bytes {
+        scraper_input_changed = true;
+        if cli.cache_block_size_bytes.is_some() {
+            return Err(AdminError::bad_request(
+                "The cache block size is pinned by the command line and cannot be changed.",
+            ));
+        }
+        scraper_settings.cache_block_size_bytes = if bytes == 0 { None } else { Some(bytes) };
+    }
+    // Validate the persisted overrides and the effective (CLI-over-persisted)
+    // configuration: both must be internally consistent.
     scraper_settings.validate().map_err(admin_err)?;
     let effective_scraper = scraper_settings.clone().merged_overriding(cli);
+    effective_scraper.validate().map_err(admin_err)?;
     scraper_settings.apply_to_configuration(&mut persisted);
 
     state

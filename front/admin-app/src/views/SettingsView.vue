@@ -31,8 +31,91 @@ const networkMode = ref<string>('private')
 const entrypointRoot = ref('')
 
 const currentCountry = ref('')
-const cacheMaxDiskBytes = ref<number | null>(null)
-const cacheMaxMemoryBytes = ref<number | null>(null)
+
+/** Display units for the cache size fields, as multiples of one K (kilobyte). */
+type CacheUnit = 'K' | 'M' | 'G'
+
+const CACHE_UNIT_FACTORS: Record<CacheUnit, number> = { K: 1, M: 1024, G: 1048576 }
+
+const DEFAULT_CACHE_BLOCK_SIZE_KIB = 16 * 1024
+
+/** Per-field state: the reference value stays in K, the display converts. */
+function createCacheField(initialKib: number) {
+  const kib = ref<number | null>(initialKib)
+  const unit = ref<CacheUnit>('K')
+  const dirty = ref(false)
+  const factor = computed(() => CACHE_UNIT_FACTORS[unit.value])
+  const display = computed<number | null>({
+    get: () => (kib.value === null ? null : kib.value / factor.value),
+    set: (value) => {
+      dirty.value = true
+      kib.value = value === null || Number.isNaN(value) ? null : Math.round(value * factor.value)
+    },
+  })
+  return { kib, unit, dirty, display }
+}
+
+const cacheMaxDisk = createCacheField(100 * 1024)
+const cacheMaxMemory = createCacheField(32 * 1024)
+const cacheBlockSize = createCacheField(DEFAULT_CACHE_BLOCK_SIZE_KIB)
+
+const cacheFields = [cacheMaxDisk, cacheMaxMemory, cacheBlockSize] as const
+
+const cacheUnitItems: Array<{ value: CacheUnit; title: string }> = [
+  { value: 'K', title: 'K' },
+  { value: 'M', title: 'M' },
+  { value: 'G', title: 'G' },
+]
+
+/** Picks the largest unit that displays the value without a fraction. */
+function pickUnit(kib: number): CacheUnit {
+  if (kib % CACHE_UNIT_FACTORS.G === 0) return 'G'
+  if (kib % CACHE_UNIT_FACTORS.M === 0) return 'M'
+  return 'K'
+}
+
+function resetCacheFields(settings: SettingsResponse): void {
+  cacheMaxDisk.kib.value = settings.cache_max_disk_bytes
+  cacheMaxMemory.kib.value = settings.cache_max_memory_bytes
+  cacheBlockSize.kib.value = settings.cache_block_size_bytes
+  cacheMaxDisk.unit.value = pickUnit(settings.cache_max_disk_bytes)
+  cacheMaxMemory.unit.value = pickUnit(settings.cache_max_memory_bytes)
+  cacheBlockSize.unit.value = pickUnit(settings.cache_block_size_bytes)
+  for (const field of cacheFields) {
+    field.dirty.value = false
+  }
+}
+
+/** Steps the cache block size by ± 4 K. */
+function stepBlockSize(delta: number): void {
+  cacheBlockSize.dirty.value = true
+  cacheBlockSize.kib.value = Math.max(4, (cacheBlockSize.kib.value || 0) + delta)
+}
+
+/**
+ * Steps a cache bound by ± the block size, keeping the value non-negative.
+ */
+function stepCacheBound(field: (typeof cacheFields)[number], delta: number): void {
+  field.dirty.value = true
+  const step = cacheBlockSize.kib.value || DEFAULT_CACHE_BLOCK_SIZE_KIB
+  field.kib.value = Math.max(0, (field.kib.value || 0) + delta * step)
+}
+
+/**
+ * Returns the request value of a cache field: the current K value when
+ * edited, or `undefined` to leave the setting untouched.
+ */
+function cacheRequestValue(field: (typeof cacheFields)[number]): number | undefined {
+  if (!field.dirty.value) {
+    return undefined
+  }
+  return field.kib.value ?? 0
+}
+
+/** Effective K bounds used by the local cross-field validation. */
+const effectiveBlockKib = computed(() => cacheBlockSize.kib.value ?? DEFAULT_CACHE_BLOCK_SIZE_KIB)
+const effectiveDiskKib = computed(() => cacheMaxDisk.kib.value ?? 100 * 1024)
+const effectiveMemoryKib = computed(() => cacheMaxMemory.kib.value ?? 32 * 1024)
 
 const currentPassword = ref('')
 const newPassword = ref('')
@@ -84,8 +167,7 @@ async function loadSettings(): Promise<void> {
     networkMode.value = settingsResult.network_mode
     entrypointRoot.value = settingsResult.entrypoint_root ?? ''
     currentCountry.value = settingsResult.current_country ?? ''
-    cacheMaxDiskBytes.value = settingsResult.cache_max_disk_bytes ?? null
-    cacheMaxMemoryBytes.value = settingsResult.cache_max_memory_bytes ?? null
+    resetCacheFields(settingsResult)
   }
 }
 
@@ -122,21 +204,34 @@ async function handleSaveSettings(): Promise<void> {
     localError.value = t('settings.countryInvalid')
     return
   }
-  for (const value of [cacheMaxDiskBytes.value, cacheMaxMemoryBytes.value]) {
-    if (value !== null && (!Number.isInteger(value) || value < 0)) {
-      localError.value = t('settings.cacheInvalid')
-      return
-    }
+  const cacheValues = [cacheMaxDisk.kib.value, cacheMaxMemory.kib.value, cacheBlockSize.kib.value]
+  if (cacheValues.some((value) => value !== null && (!Number.isInteger(value) || value < 0))) {
+    localError.value = t('settings.cacheInvalid')
+    return
+  }
+  if (effectiveBlockKib.value <= 0 || effectiveBlockKib.value % 4 !== 0) {
+    localError.value = t('settings.cacheBlockMultiple')
+    return
+  }
+  if (
+    effectiveBlockKib.value >= effectiveDiskKib.value ||
+    effectiveBlockKib.value >= effectiveMemoryKib.value
+  ) {
+    localError.value = t('settings.cacheBlockTooLarge')
+    return
   }
 
   // The popup variant only submits the application settings; the full page
   // submits the server settings too (empty strings / zero clear overrides).
+  // Cache values are sent in K (kilobytes); an edited-but-empty field sends
+  // `0` to clear the override.
+  const cacheChanges = {
+    cache_max_disk_bytes: cacheRequestValue(cacheMaxDisk),
+    cache_max_memory_bytes: cacheRequestValue(cacheMaxMemory),
+    cache_block_size_bytes: cacheRequestValue(cacheBlockSize),
+  }
   const request = popupMode.value
-    ? {
-        current_country: country,
-        cache_max_disk_bytes: cacheMaxDiskBytes.value ?? 0,
-        cache_max_memory_bytes: cacheMaxMemoryBytes.value ?? 0,
-      }
+    ? { current_country: country, ...cacheChanges }
     : (() => {
         if (port.value && (port.value < 1 || port.value > 65535)) {
           localError.value = t('settings.portInvalid')
@@ -155,8 +250,7 @@ async function handleSaveSettings(): Promise<void> {
           // An explicit empty string tells the backend to clear the persisted root.
           entrypoint_root: root,
           current_country: country,
-          cache_max_disk_bytes: cacheMaxDiskBytes.value ?? 0,
-          cache_max_memory_bytes: cacheMaxMemoryBytes.value ?? 0,
+          ...cacheChanges,
         }
       })()
 
@@ -264,8 +358,25 @@ onMounted(() => {
           <v-card-title>{{ t('settings.applicationGroup') }}</v-card-title>
           <v-card-text>
             <v-text-field v-model="currentCountry" :label="t('settings.currentCountry')" :placeholder="t('settings.currentCountryPlaceholder')" variant="outlined" :hint="settings ? t('settings.source', { source: sourceLabel(settings.current_country_source) }) : undefined" persistent-hint />
-            <v-text-field v-model.number="cacheMaxDiskBytes" :label="t('settings.cacheMaxDiskBytes')" type="number" variant="outlined" class="mt-4" :hint="t('settings.cacheBytesHint')" persistent-hint />
-            <v-text-field v-model.number="cacheMaxMemoryBytes" :label="t('settings.cacheMaxMemoryBytes')" type="number" variant="outlined" class="mt-4" :hint="t('settings.cacheBytesHint')" persistent-hint />
+            <v-row v-for="field in [
+              { id: 'disk', label: 'cacheMaxDiskBytes', state: cacheMaxDisk, source: settings?.cache_max_disk_bytes_source, step: (delta: number) => stepCacheBound(cacheMaxDisk, delta) },
+              { id: 'memory', label: 'cacheMaxMemoryBytes', state: cacheMaxMemory, source: settings?.cache_max_memory_bytes_source, step: (delta: number) => stepCacheBound(cacheMaxMemory, delta) },
+              { id: 'block', label: 'cacheBlockSizeBytes', state: cacheBlockSize, source: settings?.cache_block_size_bytes_source, step: (delta: number) => stepBlockSize(delta) },
+            ]" :key="field.id" align="center" class="mt-4" dense>
+              <v-col cols="12" sm="5">
+                <v-text-field v-model.number="field.state.display.value" :label="t(`settings.${field.label}`)" type="number" variant="outlined" hide-details />
+              </v-col>
+              <v-col cols="4" sm="2">
+                <v-select v-model="field.state.unit.value" :items="cacheUnitItems" variant="outlined" hide-details />
+              </v-col>
+              <v-col cols="8" sm="3">
+                <v-btn icon="mdi-minus" variant="tonal" class="mr-1" @click="field.step(-1)" />
+                <v-btn icon="mdi-plus" variant="tonal" @click="field.step(1)" />
+              </v-col>
+              <v-col cols="12" sm="12" class="text-caption text-medium-emphasis">
+                {{ field.source ? t('settings.source', { source: sourceLabel(field.source) }) : t('settings.cacheBytesHint') }}
+              </v-col>
+            </v-row>
           </v-card-text>
         </v-card>
         <v-card v-if="!popupMode" variant="outlined">

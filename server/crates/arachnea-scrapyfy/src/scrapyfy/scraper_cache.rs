@@ -25,11 +25,22 @@ use super::{ScraperDataNode, ScraperOutputType};
 /// driven by ETag revalidation; entries older than this are dropped.
 pub const SERVER_CACHE_ENTRY_TTL: Duration = Duration::from_secs(365 * 24 * 60 * 60);
 
-/// Default maximum on-disk size of the server cache (100 MiB).
-pub const DEFAULT_CACHE_MAX_DISK_BYTES: u64 = 100 * 1024 * 1024;
+/// Default maximum on-disk size of the server cache, in K (kilobytes): 100 MiB.
+pub const DEFAULT_CACHE_MAX_DISK_KIB: u64 = 100 * 1024;
 
-/// Default maximum in-memory size of the server cache (32 MiB).
-pub const DEFAULT_CACHE_MAX_MEMORY_BYTES: u64 = 32 * 1024 * 1024;
+/// Default maximum in-memory size of the server cache, in K (kilobytes): 32 MiB.
+pub const DEFAULT_CACHE_MAX_MEMORY_KIB: u64 = 32 * 1024;
+
+/// Default cache block size, in K (kilobytes): 16 MiB (foyer 0.22 default).
+pub const DEFAULT_CACHE_BLOCK_SIZE_KIB: u64 = 16 * 1024;
+
+/// Default maximum on-disk size of the server cache, derived from
+/// [`DEFAULT_CACHE_MAX_DISK_KIB`].
+pub const DEFAULT_CACHE_MAX_DISK_BYTES: u64 = DEFAULT_CACHE_MAX_DISK_KIB * 1024;
+
+/// Default maximum in-memory size of the server cache, derived from
+/// [`DEFAULT_CACHE_MAX_MEMORY_KIB`].
+pub const DEFAULT_CACHE_MAX_MEMORY_BYTES: u64 = DEFAULT_CACHE_MAX_MEMORY_KIB * 1024;
 
 /// Cache behavior of one query execution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,6 +93,8 @@ pub struct ScraperCacheConfig {
     pub max_disk_bytes: u64,
     /// Maximum in-memory size of the cache.
     pub max_memory_bytes: u64,
+    /// Size of one block in the on-disk block engine.
+    pub block_size_bytes: u64,
     /// Directory holding the on-disk cache store.
     pub cache_dir: PathBuf,
 }
@@ -93,6 +106,7 @@ impl Default for ScraperCacheConfig {
         Self {
             max_disk_bytes: DEFAULT_CACHE_MAX_DISK_BYTES,
             max_memory_bytes: DEFAULT_CACHE_MAX_MEMORY_BYTES,
+            block_size_bytes: DEFAULT_CACHE_BLOCK_SIZE_KIB * 1024,
             cache_dir: PathBuf::from(get_application_data_path("data")).join("cache"),
         }
     }
@@ -275,7 +289,9 @@ async fn build_hybrid_cache(config: &ScraperCacheConfig) -> Result<ServerHybridC
         // reflect actual data volume instead of counting entries.
         .with_weighter(|_key: &String, value: &Vec<u8>| value.len().max(1))
         .storage()
-        .with_engine_config(BlockEngineConfig::new(device))
+        .with_engine_config(
+            BlockEngineConfig::new(device).with_block_size(config.block_size_bytes as usize),
+        )
         .build()
         .await?;
     Ok(hybrid)

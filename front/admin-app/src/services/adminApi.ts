@@ -288,8 +288,15 @@ export interface SettingsResponse {
   public_http_warning: boolean
   current_country?: string
   current_country_source: SettingSource
-  cache_max_disk_bytes?: number
-  cache_max_memory_bytes?: number
+  /** Effective maximum on-disk cache size in K (kilobytes). */
+  cache_max_disk_bytes: number
+  cache_max_disk_bytes_source: SettingSource
+  /** Effective maximum in-memory cache size in K (kilobytes). */
+  cache_max_memory_bytes: number
+  cache_max_memory_bytes_source: SettingSource
+  /** Effective cache block size in K (kilobytes). */
+  cache_block_size_bytes: number
+  cache_block_size_bytes_source: SettingSource
 }
 
 export interface UpdateSettingsRequest {
@@ -298,10 +305,12 @@ export interface UpdateSettingsRequest {
   entrypoint_root?: string
   /** New current-country override; an empty string clears it. */
   current_country?: string
-  /** New maximum on-disk cache size in bytes; `0` clears the override. */
+  /** New maximum on-disk cache size in K (kilobytes); `0` clears the override. */
   cache_max_disk_bytes?: number
-  /** New maximum in-memory cache size in bytes; `0` clears the override. */
+  /** New maximum in-memory cache size in K (kilobytes); `0` clears the override. */
   cache_max_memory_bytes?: number
+  /** New cache block size in K (kilobytes); `0` clears the override. */
+  cache_block_size_bytes?: number
 }
 
 export interface UpdateSettingsResponse {

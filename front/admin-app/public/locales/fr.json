@@ -94,11 +94,14 @@
     "applicationGroup": "Application",
     "currentCountry": "Pays courant",
     "currentCountryPlaceholder": "ex : FR (vide = détection automatique)",
-    "cacheMaxDiskBytes": "Cache : taille disque max (octets)",
-    "cacheMaxMemoryBytes": "Cache : taille mémoire max (octets)",
-    "cacheBytesHint": "Vide ou 0 restaure la valeur par défaut (100 Mio disque / 32 Mio mémoire).",
+    "cacheMaxDiskBytes": "Cache : taille disque max (K)",
+    "cacheMaxMemoryBytes": "Cache : taille mémoire max (K)",
+    "cacheBlockSizeBytes": "Cache : taille de bloc (K)",
+    "cacheBytesHint": "Tailles en K (kilooctets). Vide ou 0 restaure la valeur par défaut (100 Mio disque / 32 Mio mémoire / 16 Mio de bloc).",
     "countryInvalid": "Le pays doit être exactement deux lettres majuscules (ex : FR), ou vide pour la détection automatique.",
-    "cacheInvalid": "Les tailles de cache doivent être des entiers positifs (octets)."
+    "cacheInvalid": "Les tailles de cache doivent être des entiers positifs.",
+    "cacheBlockMultiple": "La taille de bloc du cache doit être un multiple positif de 4 K.",
+    "cacheBlockTooLarge": "La taille de bloc du cache doit être inférieure aux tailles disque et mémoire du cache."
   },
   "adminPassword": {
     "title": "Changer le mot de passe admin",

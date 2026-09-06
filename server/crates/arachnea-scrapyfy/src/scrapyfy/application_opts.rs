@@ -10,10 +10,12 @@ pub struct SrcapyfyApplicationOptions {
     pub application_option: CoreApplicationOptions,
     /// Explicit local country used for geo proxy decisions.
     pub current_country: Option<String>,
-    /// Override of the maximum on-disk server cache size in bytes.
+    /// Override of the maximum on-disk server cache size in K (kilobytes).
     pub cache_max_disk_bytes: Option<u64>,
-    /// Override of the maximum in-memory server cache size in bytes.
+    /// Override of the maximum in-memory server cache size in K (kilobytes).
     pub cache_max_memory_bytes: Option<u64>,
+    /// Override of the cache block size in K (kilobytes).
+    pub cache_block_size_bytes: Option<u64>,
     /// Command-line-pinned scraper overrides only, used by the administration
     /// API to compute effective values and to reject edits on pinned fields.
     cli_scraper: ScraperAdminSettings,
@@ -56,26 +58,50 @@ impl SrcapyfyApplicationOptions {
     /// Resolves the command-line cache overrides into an effective
     /// [`ScraperCacheConfig`].
     ///
-    /// Returns `None` when no `--cache-max-*` option is present, so consumers
-    /// keep the scraper runtime default cache configuration untouched. When
-    /// only one limit is provided, the other limit falls back to its default.
+    /// Returns `None` when no cache option is present, so consumers keep the
+    /// scraper runtime default cache configuration untouched. When only one
+    /// limit is provided, the other limits fall back to their default. The K
+    /// (kilobyte) values are converted to bytes here, at the very last step.
     ///
-    /// # Returns
-    ///
-    /// The effective cache configuration, or `None` when no override applies.
-    pub fn scraper_cache_config(&self) -> Option<ScraperCacheConfig> {
-        if self.cache_max_disk_bytes.is_none() && self.cache_max_memory_bytes.is_none() {
-            return None;
+    /// # Errors
+    /// Returns an error when the resulting cache sizing is inconsistent (the
+    /// block size must be a positive multiple of 4 K strictly smaller than the
+    /// effective disk and memory bounds).
+    pub fn scraper_cache_config(&self) -> anyhow::Result<Option<ScraperCacheConfig>> {
+        if self.cache_max_disk_bytes.is_none()
+            && self.cache_max_memory_bytes.is_none()
+            && self.cache_block_size_bytes.is_none()
+        {
+            return Ok(None);
         }
 
         let mut config = ScraperCacheConfig::default();
-        if let Some(bytes) = self.cache_max_disk_bytes {
-            config.max_disk_bytes = bytes;
+        if let Some(kib) = self.cache_max_disk_bytes {
+            config.max_disk_bytes = kib * 1024;
         }
-        if let Some(bytes) = self.cache_max_memory_bytes {
-            config.max_memory_bytes = bytes;
+        if let Some(kib) = self.cache_max_memory_bytes {
+            config.max_memory_bytes = kib * 1024;
         }
-        Some(config)
+        if let Some(kib) = self.cache_block_size_bytes {
+            config.block_size_bytes = kib * 1024;
+        }
+        if config.block_size_bytes == 0 {
+            anyhow::bail!("`--cache-block-size` must be greater than zero.");
+        }
+        if config.block_size_bytes % (4 * 1024) != 0 {
+            anyhow::bail!("`--cache-block-size` must be a multiple of 4 K.");
+        }
+        if config.block_size_bytes >= config.max_disk_bytes {
+            anyhow::bail!(
+                "`--cache-block-size` must be smaller than the disk cache size."
+            );
+        }
+        if config.block_size_bytes >= config.max_memory_bytes {
+            anyhow::bail!(
+                "`--cache-block-size` must be smaller than the memory cache size."
+            );
+        }
+        Ok(Some(config))
     }
 }
 
@@ -86,6 +112,7 @@ impl Default for SrcapyfyApplicationOptions {
             current_country: None,
             cache_max_disk_bytes: None,
             cache_max_memory_bytes: None,
+            cache_block_size_bytes: None,
             cli_scraper: ScraperAdminSettings::default(),
         }
     }
@@ -101,11 +128,15 @@ impl ApplicationOptionsProvider for SrcapyfyApplicationOptions {
             ),
             ApplicationOptionDefinition::new(
                 "--cache-max-disk-bytes",
-                "Override the maximum disk cache size in bytes.",
+                "Override the maximum disk cache size in K (kilobytes).",
             ),
             ApplicationOptionDefinition::new(
                 "--cache-max-memory-bytes",
-                "Override the maximum memory cache size in bytes.",
+                "Override the maximum memory cache size in K (kilobytes).",
+            ),
+            ApplicationOptionDefinition::new(
+                "--cache-block-size",
+                "Override the cache block size in K (kilobytes).",
             ),
         ]);
         options
@@ -126,6 +157,12 @@ impl ApplicationOptionsProvider for SrcapyfyApplicationOptions {
             output.insert(
                 "cache-max-memory-bytes".to_string(),
                 Some(cache_max_memory_bytes.to_string()),
+            );
+        }
+        if let Some(cache_block_size_bytes) = self.cache_block_size_bytes {
+            output.insert(
+                "cache-block-size".to_string(),
+                Some(cache_block_size_bytes.to_string()),
             );
         }
     }
@@ -170,6 +207,19 @@ impl ApplicationOptionsProvider for SrcapyfyApplicationOptions {
                         })?);
                     if source == SettingSource::CommandLine {
                         self.cli_scraper.cache_max_memory_bytes = self.cache_max_memory_bytes;
+                    }
+                }
+                "--cache-block-size" => {
+                    let value = iter
+                        .next()
+                        .context("Missing value for `--cache-block-size`")?;
+
+                    self.cache_block_size_bytes =
+                        Some(value.parse::<u64>().with_context(|| {
+                            format!("Invalid value for `--cache-block-size`: `{value}`")
+                        })?);
+                    if source == SettingSource::CommandLine {
+                        self.cli_scraper.cache_block_size_bytes = self.cache_block_size_bytes;
                     }
                 }
                 _ => {}

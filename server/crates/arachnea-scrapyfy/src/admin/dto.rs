@@ -130,17 +130,25 @@ pub struct SettingsResponse {
     pub current_country: Option<String>,
     /// Where the effective current-country override comes from.
     pub current_country_source: SettingSource,
-    /// Effective maximum on-disk server cache size in bytes, when overridden.
-    pub cache_max_disk_bytes: Option<u64>,
-    /// Effective maximum in-memory server cache size in bytes, when overridden.
-    pub cache_max_memory_bytes: Option<u64>,
+    /// Effective maximum on-disk server cache size in K (kilobytes).
+    pub cache_max_disk_bytes: u64,
+    /// Where the effective on-disk bound comes from.
+    pub cache_max_disk_bytes_source: SettingSource,
+    /// Effective maximum in-memory server cache size in K (kilobytes).
+    pub cache_max_memory_bytes: u64,
+    /// Where the effective in-memory bound comes from.
+    pub cache_max_memory_bytes_source: SettingSource,
+    /// Effective cache block size in K (kilobytes).
+    pub cache_block_size_bytes: u64,
+    /// Where the effective block size comes from.
+    pub cache_block_size_bytes_source: SettingSource,
 }
 
 /// Request body of `update-settings`.
 ///
 /// Absent fields keep their current value. An empty `entrypoint_root` clears
 /// the persisted root, as does an empty `current_country` or a zero cache
-/// size.
+/// size. Cache sizes are expressed in K (kilobytes).
 #[derive(Debug, Default, Deserialize)]
 pub struct UpdateSettingsRequest {
     /// New REST server port.
@@ -155,12 +163,15 @@ pub struct UpdateSettingsRequest {
     /// New current-country override; an empty string clears it.
     #[serde(default, alias = "currentCountry")]
     pub current_country: Option<String>,
-    /// New maximum on-disk server cache size in bytes; `0` clears it.
+    /// New maximum on-disk server cache size in K; `0` clears it.
     #[serde(default, alias = "cacheMaxDiskBytes")]
     pub cache_max_disk_bytes: Option<u64>,
-    /// New maximum in-memory server cache size in bytes; `0` clears it.
+    /// New maximum in-memory server cache size in K; `0` clears it.
     #[serde(default, alias = "cacheMaxMemoryBytes")]
     pub cache_max_memory_bytes: Option<u64>,
+    /// New cache block size in K; `0` clears it.
+    #[serde(default, alias = "cacheBlockSizeBytes")]
+    pub cache_block_size_bytes: Option<u64>,
 }
 
 /// Response of `update-settings`.

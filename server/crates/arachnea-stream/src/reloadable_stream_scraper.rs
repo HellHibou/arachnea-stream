@@ -155,6 +155,7 @@ impl ReloadableStreamScraper {
                 (Some(left), Some(right)) => {
                     left.max_disk_bytes != right.max_disk_bytes
                         || left.max_memory_bytes != right.max_memory_bytes
+                        || left.block_size_bytes != right.block_size_bytes
                 }
                 (None, None) => false,
                 _ => true,

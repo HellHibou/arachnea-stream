@@ -22,6 +22,7 @@ pub use query_parameters::QueryParameters;
 pub mod scraper_cache;
 pub use scraper_cache::{
     server_cache_key, CacheType, ScraperCacheConfig, ScraperServerCache, ServerCacheInteraction,
+    DEFAULT_CACHE_BLOCK_SIZE_KIB, DEFAULT_CACHE_MAX_DISK_KIB, DEFAULT_CACHE_MAX_MEMORY_KIB,
 };
 
 /// Tree-shaped output node model used by all scraper pipelines.
@@ -110,8 +111,8 @@ pub use ip_country_provider::{
 /// Scrapyfy administrator overrides owned by this crate.
 pub mod admin_settings;
 pub use admin_settings::{
-    validate_current_country, ScraperAdminSettings, CACHE_MAX_DISK_BYTES_KEY,
-    CACHE_MAX_MEMORY_BYTES_KEY, CURRENT_COUNTRY_KEY,
+    validate_current_country, ScraperAdminSettings, CACHE_BLOCK_SIZE_KEY,
+    CACHE_MAX_DISK_BYTES_KEY, CACHE_MAX_MEMORY_BYTES_KEY, CURRENT_COUNTRY_KEY,
 };
 
 /// Multi-source query aggregator.

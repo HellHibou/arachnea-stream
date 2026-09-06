@@ -4,6 +4,24 @@ All notable changes to the server workspace are recorded here. Add new entries a
 
 ## Unreleased
 
+### Added
+- **`--cache-block-size` CLI option and cache sizes in K (kilobytes)**: the
+  Scrapyfy executable accepts a new `--cache-block-size <K>` override applied
+  to the foyer block engine, alongside `--cache-max-disk-bytes` /
+  `--cache-max-memory-bytes` whose values are now expressed in K (kilobytes)
+  instead of bytes (breaking change: previously persisted byte values such as
+  `10485760` must be re-entered as K). The conversion to bytes happens only
+  when building the runtime `ScraperCacheConfig`. The admin `settings` API now
+  always reports the effective cache values (defaults included:
+  102400 / 32768 / 16384 K) with their provenance, and accepts a new
+  `cache_block_size_bytes` update field (`0` clears the override). Cross-field
+  validation rejects a block size that is not a positive multiple of 4 K or
+  not strictly smaller than the effective disk and memory bounds, both on the
+  command line and through the admin API. The admin UI Application card adds
+  the block-size field with K/M/G unit selectors, ± step buttons (± 4 K for
+  the block size, ± the block size for the bounds) and matching validation
+  messages (see `docs/dev-tracking/cache-block-size-analysis.md`).
+
 ### Fixed
 - **Unified runtime option loading**: application option providers now apply
   JSON configuration-file values before command-line arguments, preserving the

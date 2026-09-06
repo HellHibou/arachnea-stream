@@ -2,7 +2,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 //! Arachnea backend executable: wires scraper sources and controller backends.
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use std::net::IpAddr;
 use std::sync::Arc;
 
@@ -199,7 +199,9 @@ async fn main() -> Result<()> {
 
     let build_options = StreamScraperBuildOptions::new(credentials_store, stores.clone());
     let runtime_options = ScraperRuntimeOptions {
-        cache_config: options.scraper_cache_config(),
+        cache_config: options
+            .scraper_cache_config()
+            .context("invalid cache sizing command-line options")?,
     };
 
     let reloadable = ReloadableStreamScraper::new(build_options, runtime_options)?;
