@@ -28,7 +28,7 @@ use arachnea_core::controler::{
 use arachnea_core::crypt::generate_random_password;
 use arachnea_core::persistence::TypedEntityStore;
 
-use crate::scrapyfy::{PersistenceSourceEnabled, SourceServiceKey, SourceServiceRecord};
+use crate::scrapyfy::{PersistenceSourceEnabled, ScraperAdminSettings, SourceServiceKey, SourceServiceRecord};
 
 use auth::{LoginRateLimiter, SessionStore};
 use ops::AdminError;
@@ -155,6 +155,20 @@ pub trait AdminRuntimeAdapter: Send + Sync {
         &self,
         group: &ValidatedReloadGroup,
     ) -> anyhow::Result<Option<RuntimeReloadReport>>;
+
+    /// Applies the effective scraper runtime overrides (current country and
+    /// cache sizing) to the live runtime.
+    ///
+    /// Called after the overrides have been persisted. The hook applies the
+    /// effective merged values (command line wins over persisted). It must
+    /// never partially apply a failed update.
+    ///
+    /// # Errors
+    /// Returns an error for unexpected internal failures only.
+    async fn apply_scraper_settings(
+        &self,
+        settings: &ScraperAdminSettings,
+    ) -> anyhow::Result<()>;
 }
 
 /// Shared administration state bound to the registered routes.
@@ -167,6 +181,8 @@ pub struct AdminState {
     groups: Vec<AdminServiceGroupConfig>,
     adapter: Arc<dyn AdminRuntimeAdapter>,
     reload_coordinator: Arc<ReloadCoordinator>,
+    /// Command-line-pinned scraper overrides used to compute effective values.
+    cli_scraper: ScraperAdminSettings,
 }
 
 /// Outcome of the administration state construction.
@@ -203,6 +219,7 @@ impl AdminState {
         groups: Vec<AdminServiceGroupConfig>,
         source_enabled: Arc<dyn TypedEntityStore<SourceServiceRecord>>,
         adapter: Arc<dyn AdminRuntimeAdapter>,
+        cli_scraper: ScraperAdminSettings,
     ) -> anyhow::Result<AdminStateBuild> {
         let temporary_password = if settings.application_mode.unwrap_or_default()
             == ApplicationMode::Server
@@ -226,6 +243,7 @@ impl AdminState {
             groups,
             adapter,
             reload_coordinator: Arc::clone(&reload_coordinator),
+            cli_scraper,
         });
         Ok(AdminStateBuild {
             state,
@@ -260,6 +278,11 @@ impl AdminState {
     /// Returns the application runtime adapter.
     pub(crate) fn adapter(&self) -> &Arc<dyn AdminRuntimeAdapter> {
         &self.adapter
+    }
+
+    /// Returns the command-line-pinned scraper overrides.
+    pub(crate) fn cli_scraper_settings(&self) -> &ScraperAdminSettings {
+        &self.cli_scraper
     }
 
     /// Returns the shared reload coordinator used by every reload entry point.

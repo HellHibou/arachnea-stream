@@ -36,6 +36,14 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      // Restricted settings view used by the desktop administration popup:
+      // full shell, but only the application settings card is rendered.
+      path: '/settings/app',
+      name: 'settings-popup',
+      component: () => import('@/views/SettingsView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/:pathMatch(.*)*',
       name: 'not-found',
       component: () => import('@/views/NotFoundView.vue'),

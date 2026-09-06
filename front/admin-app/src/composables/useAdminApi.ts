@@ -21,6 +21,7 @@ import {
   type ReloadResponse,
   type ServiceEnabledResponse,
   type UpdateSettingsResponse,
+  type UpdateSettingsRequest,
   AdminApiException,
 } from '@/services/adminApi'
 import { useI18n } from '@/i18n'
@@ -156,11 +157,7 @@ export function useAdminApi() {
     return withApiState(() => fetchSettings())
   }
 
-  async function updateSettings(settings: {
-    server_port?: number
-    network_mode?: 'local' | 'private' | 'public'
-    entrypoint_root?: string
-  }): Promise<UpdateSettingsResponse | undefined> {
+  async function updateSettings(settings: UpdateSettingsRequest): Promise<UpdateSettingsResponse | undefined> {
     return withApiState(() => apiUpdateSettings(settings))
   }
 

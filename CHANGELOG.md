@@ -1428,3 +1428,40 @@ redémarrage du processus ni du systray :
   network and root settings after coordinated group reloads whenever a REST
   target is available. Its log summary reports the server application result
   independently, so a rebind failure does not hide successful group reloads.
+
+## Unreleased
+
+### Added
+- **Core configuration option passthrough**: `CoreApplicationOptions` now preserves
+  configuration-file entries it does not know in an `additional_options` map (read
+  with `additional_option`/`set_additional_option`), so owning crates can persist
+  application-specific settings in the shared `data/config.json` without Core
+  knowing their semantics. Unknown keys are kept verbatim on load and written
+  back unchanged on save.
+- **Scrapyfy administrator overrides**: the `--current-country`,
+  `--cache-max-disk-bytes` and `--cache-max-memory-bytes` settings are now
+  persisted in `data/config.json` (keys `current-country`,
+  `cache-max-disk-bytes`, `cache-max-memory-bytes`) through the new
+  `ScraperAdminSettings` (`arachnea-scrapyfy`). The admin settings API exposes
+  their effective values and provenance, accepts updates (empty country or
+  zero bytes clears the override), rejects edits pinned by the command line,
+  and hot-applies them to the running scraper (current country via the
+  reloadable facade, cache sizing via an instance rebuild with the new bounds).
+
+## Unreleased - admin application settings and popup window (server)
+
+- **Admin settings expose the scraper application options**: the `settings`
+  API and admin UI now cover `--current-country`, `--cache-max-disk-bytes`,
+  and `--cache-max-memory-bytes`. They are persisted as core additional
+  options in `data/config.json`, validated in `arachnea-scrapyfy`
+  (`ScraperAdminSettings`), and applied hot (country + cache rebuild). A new
+  "Application" card joins the renamed "Server" card in `SettingsView.vue`,
+  with a single page-level Save button.
+- **Restricted settings route for the desktop admin popup**: the Tauri
+  administration window now opens `/admin/settings/app/` (`settings-popup`
+  route), which keeps the full admin shell (left navigation) while hiding the
+  "Server" and "Password" cards.
+- **Absolute HTML base for scoped Tauri mounts**: HTML documents served by
+  scoped bundles (e.g. `/admin/`) now carry an absolute base (`/admin/`)
+  instead of `./`, so deep History-API routes resolve assets, locales, and the
+  API base correctly instead of inheriting the page URL directory.

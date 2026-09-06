@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use arachnea_core::application;
 use arachnea_core::controler::{
-    options::{ApplicationMode, CoreApplicationOptions, ServerNetworkMode},
+    options::{ApplicationMode, CoreApplicationOptions, ServerNetworkMode, SettingSource},
     ControlerService, RequestControlerContext,
 };
 use arachnea_core::persistence::{credentials_store::StoredCredentials, TypedEntityStore};
@@ -26,8 +26,9 @@ use super::dto::*;
 use super::register_admin_operation;
 use super::{AdminRuntimeAdapter, AdminServiceGroupConfig, AdminState, AdminStateBuild};
 use crate::scrapyfy::{
-    load_service_catalog_detailed, ScraperAgregator, ScraperQueryCollectionParameter,
-    ScraperServiceCatalogEntry, ScraperServiceCredentials, SourceServiceRecord,
+    load_service_catalog_detailed, ScraperAdminSettings, ScraperAgregator,
+    ScraperQueryCollectionParameter, ScraperServiceCatalogEntry, ScraperServiceCredentials,
+    SourceServiceRecord,
 };
 
 /// Delay between the `update-settings` response and the hot application of
@@ -726,12 +727,19 @@ pub(crate) async fn op_settings(
     require_authorized(&state, &context).await?;
 
     let effective = state.settings();
-    let password_configured = state
-        .adapter()
-        .persisted_settings()
-        .map_err(admin_err)?
-        .password_hash
-        .is_some();
+    let stored = state.adapter().persisted_settings().map_err(admin_err)?;
+    let persisted_scraper = ScraperAdminSettings::from_configuration(&stored);
+    let cli = state.cli_scraper_settings();
+    let effective_scraper = persisted_scraper.clone().merged_overriding(cli);
+    let source_for = |cli_set: bool, persisted_set: bool| {
+        if cli_set {
+            SettingSource::CommandLine
+        } else if persisted_set {
+            SettingSource::Configuration
+        } else {
+            SettingSource::Default
+        }
+    };
     Ok(AdminReply::ok(&SettingsResponse {
         server_port: effective
             .server_port
@@ -741,8 +749,15 @@ pub(crate) async fn op_settings(
         network_mode_source: effective.network_mode_source,
         entrypoint_root: effective.entrypoint_root.clone(),
         entrypoint_root_source: effective.entrypoint_root_source,
-        password_configured,
+        password_configured: stored.password_hash.is_some(),
         public_http_warning: effective.network_mode == Some(ServerNetworkMode::Public),
+        current_country: effective_scraper.current_country.clone(),
+        current_country_source: source_for(
+            cli.current_country.is_some(),
+            persisted_scraper.current_country.is_some(),
+        ),
+        cache_max_disk_bytes: effective_scraper.cache_max_disk_bytes,
+        cache_max_memory_bytes: effective_scraper.cache_max_memory_bytes,
     }))
 }
 
@@ -790,10 +805,59 @@ pub(crate) async fn op_update_settings(
             Some(network.parse().expect("validated network mode must parse"));
     }
 
+    // Scraper-specific overrides: current country and cache sizing. Empty
+    // values clear the persisted override (runtime default applies). Values
+    // pinned by the command line cannot be changed or cleared through the API.
+    let cli = state.cli_scraper_settings();
+    let mut scraper_settings = ScraperAdminSettings::from_configuration(&persisted);
+    let mut scraper_input_changed = false;
+    if let Some(country) = &input.current_country {
+        scraper_input_changed = true;
+        if cli.current_country.is_some() {
+            return Err(AdminError::bad_request(
+                "The current country is pinned by the command line and cannot be changed.",
+            ));
+        }
+        let country = country.trim().to_uppercase();
+        scraper_settings.current_country = if country.is_empty() { None } else { Some(country) };
+    }
+    if let Some(bytes) = input.cache_max_disk_bytes {
+        scraper_input_changed = true;
+        if cli.cache_max_disk_bytes.is_some() {
+            return Err(AdminError::bad_request(
+                "The disk cache size is pinned by the command line and cannot be changed.",
+            ));
+        }
+        scraper_settings.cache_max_disk_bytes = if bytes == 0 { None } else { Some(bytes) };
+    }
+    if let Some(bytes) = input.cache_max_memory_bytes {
+        scraper_input_changed = true;
+        if cli.cache_max_memory_bytes.is_some() {
+            return Err(AdminError::bad_request(
+                "The memory cache size is pinned by the command line and cannot be changed.",
+            ));
+        }
+        scraper_settings.cache_max_memory_bytes = if bytes == 0 { None } else { Some(bytes) };
+    }
+    scraper_settings.validate().map_err(admin_err)?;
+    let effective_scraper = scraper_settings.clone().merged_overriding(cli);
+    scraper_settings.apply_to_configuration(&mut persisted);
+
     state
         .adapter()
         .save_persisted_settings(&persisted)
         .map_err(admin_err)?;
+
+    // Hot-apply the scraper runtime overrides (current country and cache
+    // sizing) when they were changed. The adapter reloads the runtime with the
+    // effective merged values; the command-line-pinned ones stay authoritative.
+    if scraper_input_changed {
+        state
+            .adapter()
+            .apply_scraper_settings(&effective_scraper)
+            .await
+            .map_err(admin_err)?;
+    }
 
     // Hot application path: in server mode with a REST handle, the port,
     // network mode and entrypoint root are applied to the running server
@@ -957,6 +1021,8 @@ pub(crate) async fn op_reload(
 /// * `scraper_agregator` - Aggregator supplying the administrable service groups.
 /// * `source_enabled` - Typed store holding source activation overrides.
 /// * `adapter` - Application adapter for settings, credentials, and reloads.
+/// * `cli_scraper` - Command-line-pinned scraper overrides; used to compute
+///   effective values and to reject edits on pinned fields.
 /// * `controler` - Controller receiving the `admin/*` routes.
 ///
 /// # Errors
@@ -967,6 +1033,7 @@ pub fn register_admin_service(
     scraper_agregator: &ScraperAgregator,
     source_enabled: Arc<dyn TypedEntityStore<SourceServiceRecord>>,
     adapter: Arc<dyn AdminRuntimeAdapter>,
+    cli_scraper: ScraperAdminSettings,
     controler: &mut dyn ControlerService,
 ) -> Result<AdminStateBuild> {
     let groups = scraper_agregator
@@ -976,7 +1043,7 @@ pub fn register_admin_service(
             manifest_path: service.json_path.clone(),
         })
         .collect();
-    let state = AdminState::build(settings, groups, source_enabled, adapter)?;
+    let state = AdminState::build(settings, groups, source_enabled, adapter, cli_scraper)?;
 
     register_admin_operation(controler, &state.state, "status", op_status);
     register_admin_operation(controler, &state.state, "login", op_login);

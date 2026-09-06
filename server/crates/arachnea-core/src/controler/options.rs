@@ -179,6 +179,18 @@ pub struct CoreApplicationOptions {
     #[serde(skip)]
     pub reload_configuration: Option<Arc<dyn Fn() -> String + Send + Sync>>,
 
+    /// Persisted configuration entries owned by application layers.
+    ///
+    /// Core never interprets these entries: while loading a configuration file,
+    /// every option name unknown to core is captured here (with its optional
+    /// value), and `export` writes them back unchanged. Application crates read
+    /// and write their own keys through this map so the shared configuration
+    /// file stays the single persistence document without core knowing about
+    /// application-specific settings.
+    /// Application-specific settings.
+    #[serde(skip)]
+    pub additional_options: BTreeMap<String, Option<String>>,
+
     /// Additional web-asset mount paths served below the application root.
     ///
     /// Each path mounts the shared embedded asset pool scoped to that
@@ -222,6 +234,7 @@ impl CoreApplicationOptions {
             tray_enabled: true,
             reload_configuration: None,
             web_mount_paths: Vec::new(),
+            additional_options: BTreeMap::new(),
         }
     }
 
@@ -286,6 +299,35 @@ impl CoreApplicationOptions {
         self
     }
 
+    /// Returns an application-specific persisted option value.
+    ///
+    /// # Arguments
+    /// * `name` - Option name without the leading dashes.
+    pub fn additional_option(&self, name: &str) -> Option<&str> {
+        self.additional_options
+            .get(name)
+            .and_then(|value| value.as_deref())
+    }
+
+    /// Sets an application-specific persisted option value.
+    ///
+    /// A `None` value removes the option from the persisted document.
+    ///
+    /// # Arguments
+    /// * `name` - Option name without the leading dashes.
+    /// * `value` - Persisted value, or `None` to remove the option.
+    pub fn set_additional_option(&mut self, name: impl Into<String>, value: Option<String>) {
+        let name = name.into();
+        match value {
+            Some(value) => {
+                self.additional_options.insert(name, Some(value));
+            }
+            None => {
+                self.additional_options.remove(&name);
+            }
+        }
+    }
+
     /// Validates and writes the persisted options atomically as JSON.
     ///
     /// # Arguments
@@ -342,6 +384,7 @@ impl Default for CoreApplicationOptions {
             tray_enabled: true,
             reload_configuration: None,
             web_mount_paths: Vec::new(),
+            additional_options: BTreeMap::new(),
         }
     }
 }
@@ -394,10 +437,15 @@ impl ApplicationOptionsProvider for CoreApplicationOptions {
         if let Some(password_hash) = &self.password_hash {
             output.insert("password_hash".to_string(), Some(password_hash.clone()));
         }
+        for (name, value) in &self.additional_options {
+            if !name.is_empty() && !name.starts_with("--") {
+                output.insert(name.clone(), value.clone());
+            }
+        }
     }
 
     fn parse_vect(&mut self, args: Vec<String>, source: SettingSource) -> anyhow::Result<()> {
-        let mut iter = args.iter();
+        let mut iter = args.iter().peekable();
 
         while let Some(arg) = iter.next() {
             match arg.as_str() {
@@ -437,7 +485,24 @@ impl ApplicationOptionsProvider for CoreApplicationOptions {
                             .clone(),
                     );
                 }
-                _ => {}
+                _ => {
+                    // Application-specific persisted entries: core preserves
+                    // unknown configuration keys verbatim so owning crates can
+                    // read them back without core knowing their semantics.
+                    if source == SettingSource::Configuration {
+                        if let Some(name) = arg.strip_prefix("--") {
+                            if !name.is_empty() {
+                                let value = match iter.peek() {
+                                    Some(next) if !next.starts_with("--") => {
+                                        Some(iter.next().expect("peeked value").clone())
+                                    }
+                                    _ => None,
+                                };
+                                self.additional_options.insert(name.to_string(), value);
+                            }
+                        }
+                    }
+                }
             }
         }
 

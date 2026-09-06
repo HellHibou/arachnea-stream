@@ -1,5 +1,6 @@
 ﻿<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 
 import { useAdminApi } from '@/composables/useAdminApi'
 import { useI18n } from '@/i18n'
@@ -7,7 +8,11 @@ import { getAppBasePath } from '@/services/baseUrl'
 import type { SettingsResponse, SettingSource } from '@/services/adminApi'
 
 const { t } = useI18n()
+const route = useRoute()
 const { getStatus, getSettings, updateSettings, setAdminPassword, isLoading, error } = useAdminApi()
+
+/** Route name of the restricted popup variant rendered by the desktop window. */
+const POPUP_ROUTE_NAME = 'settings-popup'
 
 /**
  * Wait for the deferred application (1 s) and its bounded connection drain
@@ -25,11 +30,22 @@ const port = ref<number | null>(null)
 const networkMode = ref<string>('private')
 const entrypointRoot = ref('')
 
+const currentCountry = ref('')
+const cacheMaxDiskBytes = ref<number | null>(null)
+const cacheMaxMemoryBytes = ref<number | null>(null)
+
 const currentPassword = ref('')
 const newPassword = ref('')
 const confirmPassword = ref('')
 const passwordError = ref<string | null>(null)
 const passwordSuccess = ref<string | null>(null)
+
+/**
+ * Restricted popup variant: the full shell stays visible, but the "Server"
+ * and "Password" cards are hidden and only the application settings are
+ * submitted.
+ */
+const popupMode = computed(() => route.name === POPUP_ROUTE_NAME)
 
 const isLocalModeAllowed = computed(() => {
   return ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname)
@@ -67,6 +83,9 @@ async function loadSettings(): Promise<void> {
     port.value = settingsResult.server_port
     networkMode.value = settingsResult.network_mode
     entrypointRoot.value = settingsResult.entrypoint_root ?? ''
+    currentCountry.value = settingsResult.current_country ?? ''
+    cacheMaxDiskBytes.value = settingsResult.cache_max_disk_bytes ?? null
+    cacheMaxMemoryBytes.value = settingsResult.cache_max_memory_bytes ?? null
   }
 }
 
@@ -98,23 +117,54 @@ async function handleSaveSettings(): Promise<void> {
   successMessage.value = null
   redirectTarget.value = null
 
-  if (port.value && (port.value < 1 || port.value > 65535)) {
-    localError.value = t('settings.portInvalid')
+  const country = currentCountry.value.trim().toUpperCase()
+  if (country && !/^[A-Z]{2}$/.test(country)) {
+    localError.value = t('settings.countryInvalid')
+    return
+  }
+  for (const value of [cacheMaxDiskBytes.value, cacheMaxMemoryBytes.value]) {
+    if (value !== null && (!Number.isInteger(value) || value < 0)) {
+      localError.value = t('settings.cacheInvalid')
+      return
+    }
+  }
+
+  // The popup variant only submits the application settings; the full page
+  // submits the server settings too (empty strings / zero clear overrides).
+  const request = popupMode.value
+    ? {
+        current_country: country,
+        cache_max_disk_bytes: cacheMaxDiskBytes.value ?? 0,
+        cache_max_memory_bytes: cacheMaxMemoryBytes.value ?? 0,
+      }
+    : (() => {
+        if (port.value && (port.value < 1 || port.value > 65535)) {
+          localError.value = t('settings.portInvalid')
+          return null
+        }
+
+        const root = entrypointRoot.value.trim()
+        if (root && (root.startsWith('/') || root.split('/').some((segment) => !segment))) {
+          localError.value = t('settings.rootInvalid')
+          return null
+        }
+
+        return {
+          server_port: port.value ?? undefined,
+          network_mode: networkMode.value as 'local' | 'private' | 'public',
+          // An explicit empty string tells the backend to clear the persisted root.
+          entrypoint_root: root,
+          current_country: country,
+          cache_max_disk_bytes: cacheMaxDiskBytes.value ?? 0,
+          cache_max_memory_bytes: cacheMaxMemoryBytes.value ?? 0,
+        }
+      })()
+
+  if (request === null) {
     return
   }
 
-  const root = entrypointRoot.value.trim()
-  if (root && (root.startsWith('/') || root.split('/').some((segment) => !segment))) {
-    localError.value = t('settings.rootInvalid')
-    return
-  }
-
-  const result = await updateSettings({
-    server_port: port.value ?? undefined,
-    network_mode: networkMode.value as 'local' | 'private' | 'public',
-    // An explicit empty string tells the backend to clear the persisted root.
-    entrypoint_root: root,
-  })
+  const result = await updateSettings(request)
 
   if (!result) {
     localError.value = error.value?.message ?? t('error.unknown')
@@ -194,8 +244,14 @@ onMounted(() => {
         <v-alert v-if="localError" type="error" variant="tonal" class="mb-4" :text="localError" />
         <v-alert v-if="successMessage" type="success" variant="tonal" class="mb-4" :text="successMessage" />
         <v-alert v-if="redirectTarget" type="info" variant="tonal" class="mb-4" :text="t('settings.redirectNotice', { url: redirectTarget })" />
-        <v-card variant="outlined" class="mb-6">
-          <v-card-title>{{ t('settings.title') }}</v-card-title>
+        <v-row class="mb-2">
+          <v-spacer />
+          <v-btn color="primary" variant="elevated" :loading="isLoading" @click="handleSaveSettings">
+            {{ t('settings.save') }}
+          </v-btn>
+        </v-row>
+        <v-card v-if="!popupMode" variant="outlined" class="mb-6">
+          <v-card-title>{{ t('settings.serverGroup') }}</v-card-title>
           <v-card-text>
             <v-text-field v-model.number="port" :label="t('settings.serverPort')" :placeholder="t('settings.serverPortPlaceholder')" type="number" variant="outlined" :hint="settings ? t('settings.source', { source: sourceLabel(settings.server_port_source) }) : undefined" persistent-hint />
             <v-select v-model="networkMode" :label="t('settings.networkMode')" :items="networkModes" variant="outlined" class="mt-4" :hint="settings ? t('settings.source', { source: sourceLabel(settings.network_mode_source) }) : undefined" persistent-hint />
@@ -203,14 +259,16 @@ onMounted(() => {
             <v-alert v-if="networkMode === 'local'" type="info" variant="tonal" class="mt-2" :text="t('settings.localModeWarning')" />
             <v-text-field v-model="entrypointRoot" :label="t('settings.entrypointRoot')" :placeholder="t('settings.entrypointRootPlaceholder')" variant="outlined" class="mt-4" :hint="settings ? t('settings.source', { source: sourceLabel(settings.entrypoint_root_source) }) : undefined" persistent-hint />
           </v-card-text>
-          <v-card-actions>
-            <v-spacer />
-            <v-btn color="primary" variant="elevated" :loading="isLoading" @click="handleSaveSettings">
-              {{ t('settings.save') }}
-            </v-btn>
-          </v-card-actions>
         </v-card>
-        <v-card variant="outlined">
+        <v-card variant="outlined" class="mb-6">
+          <v-card-title>{{ t('settings.applicationGroup') }}</v-card-title>
+          <v-card-text>
+            <v-text-field v-model="currentCountry" :label="t('settings.currentCountry')" :placeholder="t('settings.currentCountryPlaceholder')" variant="outlined" :hint="settings ? t('settings.source', { source: sourceLabel(settings.current_country_source) }) : undefined" persistent-hint />
+            <v-text-field v-model.number="cacheMaxDiskBytes" :label="t('settings.cacheMaxDiskBytes')" type="number" variant="outlined" class="mt-4" :hint="t('settings.cacheBytesHint')" persistent-hint />
+            <v-text-field v-model.number="cacheMaxMemoryBytes" :label="t('settings.cacheMaxMemoryBytes')" type="number" variant="outlined" class="mt-4" :hint="t('settings.cacheBytesHint')" persistent-hint />
+          </v-card-text>
+        </v-card>
+        <v-card v-if="!popupMode" variant="outlined">
           <v-card-title>{{ t('adminPassword.title') }}</v-card-title>
           <v-card-text>
             <v-alert v-if="passwordError" type="error" variant="tonal" class="mb-4" :text="passwordError" />

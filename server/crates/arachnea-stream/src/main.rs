@@ -237,6 +237,9 @@ async fn main() -> Result<()> {
     // Command-line overrides of the dynamic server settings, captured before
     // the application options are moved into the controller constructor.
     let cli_options = options.application_option.clone();
+    // Command-line-pinned scraper overrides, captured before the application
+    // options field is moved into the controller constructor.
+    let cli_scraper = options.cli_scraper_settings().clone();
 
     let mut controler = arachnea_core::create_application_controler!(options.application_option);
     let reloadable = reloadable.register_service(controler.as_mut());
@@ -268,6 +271,7 @@ async fn main() -> Result<()> {
         active_scraper.scraper_agregator(),
         Arc::clone(&stores.source_enabled),
         adapter,
+        cli_scraper,
         controler.as_mut(),
     )?;
     let _ = late_reload.set(admin_state.reload_coordinator);

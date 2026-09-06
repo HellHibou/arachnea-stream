@@ -13,7 +13,7 @@ use arachnea_core::persistence::{CredentialsStore, TypedEntityStore};
 use arachnea_proxy::core::ArachneaProxyCore;
 use arachnea_scrapyfy::admin::RuntimeReloadReport;
 use arachnea_scrapyfy::source_params_from_entries;
-use arachnea_scrapyfy::{ScraperRuntimeOptions, SourceServiceRecord};
+use arachnea_scrapyfy::{ScraperAdminSettings, ScraperRuntimeOptions, SourceServiceRecord};
 
 use crate::stream_scraper::{
     category_sources_from_request, GetBannersRequest, GetCategoryRequest, GetEntryRequest,
@@ -47,7 +47,7 @@ pub struct ReloadableStreamScraper {
     /// Scrapyfy runtime options (cache sizing) reapplied to every built
     /// instance, so reloads keep the effective configuration of the initial
     /// build.
-    runtime_options: ScraperRuntimeOptions,
+    runtime_options: RwLock<ScraperRuntimeOptions>,
     registration: RwLock<Option<RegistrationEndpoints>>,
     inner: RwLock<Arc<StreamScraper>>,
 }
@@ -73,7 +73,7 @@ impl ReloadableStreamScraper {
         runtime_options.apply_to(&mut instance.scraper_agregator);
         Ok(Self {
             options: RwLock::new(options),
-            runtime_options,
+            runtime_options: RwLock::new(runtime_options),
             registration: RwLock::new(None),
             inner: RwLock::new(Arc::new(instance)),
         })
@@ -90,7 +90,7 @@ impl ReloadableStreamScraper {
     ) -> Self {
         Self {
             options: RwLock::new(options),
-            runtime_options: ScraperRuntimeOptions::default(),
+            runtime_options: RwLock::new(ScraperRuntimeOptions::default()),
             registration: RwLock::new(None),
             inner: RwLock::new(Arc::new(scraper)),
         }
@@ -133,6 +133,46 @@ impl ReloadableStreamScraper {
             .expect("stream scraper options lock poisoned")
             .current_country = Some(country.clone());
         self.current().set_current_country(country).await;
+    }
+
+    /// Applies the effective scraper runtime overrides to the live runtime.
+    ///
+    /// The current country is remembered (and reapplied on later reloads) and
+    /// the cache sizing is stored in the runtime options. When the cache
+    /// sizing changes, the instance is rebuilt so the new bounds apply to the
+    /// fresh aggregator.
+    ///
+    /// # Errors
+    /// Returns an error when the replacement instance cannot be built.
+    pub async fn apply_scraper_settings(&self, settings: &ScraperAdminSettings) -> Result<()> {
+        let new_config = settings.scraper_cache_config();
+        let cache_changed = {
+            let current = self
+                .runtime_options
+                .read()
+                .expect("stream scraper runtime options lock poisoned");
+            match (current.cache_config.as_ref(), new_config.as_ref()) {
+                (Some(left), Some(right)) => {
+                    left.max_disk_bytes != right.max_disk_bytes
+                        || left.max_memory_bytes != right.max_memory_bytes
+                }
+                (None, None) => false,
+                _ => true,
+            }
+        };
+        if cache_changed {
+            self.runtime_options
+                .write()
+                .expect("stream scraper runtime options lock poisoned")
+                .cache_config = new_config;
+        }
+        if let Some(country) = &settings.current_country {
+            self.set_current_country(country).await;
+        }
+        if cache_changed {
+            self.rebuild_validated().await?;
+        }
+        Ok(())
     }
 
     /// Prepares endpoints and registers every stream route against this facade.
@@ -220,7 +260,10 @@ impl ReloadableStreamScraper {
                 if let Some(country) = &options.current_country {
                     scraper.set_current_country(country).await;
                 }
-                self.runtime_options.apply_to(&mut scraper.scraper_agregator);
+                self.runtime_options
+                    .read()
+                    .expect("stream scraper runtime options lock poisoned")
+                    .apply_to(&mut scraper.scraper_agregator);
                 *self.inner.write().expect("stream scraper lock poisoned") = Arc::new(scraper);
                 report.applied = true;
                 tracing::info!("stream scraper reloaded");

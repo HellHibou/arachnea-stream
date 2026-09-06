@@ -38,6 +38,12 @@ const ADMIN_WINDOW_LABEL: &str = "admin";
 /// Invoke command opening (or refocusing) the dedicated administration window.
 const ADMIN_WINDOW_OPEN_COMMAND: &str = "open_admin_window";
 
+/// Default in-bundle route opened by the dedicated administration window.
+///
+/// Points at the restricted settings view, which keeps the full admin shell
+/// while hiding the "Server" and "Password" sections.
+const ADMIN_WINDOW_DEFAULT_ROUTE: &str = "settings/app";
+
 /// Mount path (inside the scheme root) serving the administration bundle.
 const ADMIN_WEB_MOUNT: &str = "admin";
 
@@ -664,12 +670,25 @@ impl ControlerService for TauriControlerService {
                     .iter()
                     .filter(|assets| assets.matches(&request_path))
                     .max_by_key(|assets| assets.mount_path.len())
-                    .map(|assets| assets.load_request(&request_path))
-                    .unwrap_or_else(|| Err("Web asset not found".to_string()));
+                    .map(|assets| {
+                        (
+                            assets.mount_path.clone(),
+                            assets.load_request(&request_path),
+                        )
+                    });
                 match selected {
-                    Ok(asset) => {
+                    Some((mount_path, Ok(asset))) => {
+                        // Scoped bundles live below a fixed mount path, so their
+                        // HTML documents must carry an absolute base rooted at
+                        // the mount; a relative base would resolve against the
+                        // current page URL and break deep History-API routes.
+                        let html_base = if mount_path.is_empty() {
+                            TAURI_WEB_BASE.to_string()
+                        } else {
+                            format!("/{mount_path}/")
+                        };
                         let bytes = if asset.mime_type.starts_with("text/html") {
-                            replace_html_base(asset.bytes, TAURI_WEB_BASE)
+                            replace_html_base(asset.bytes, &html_base)
                         } else {
                             asset.bytes
                         };
@@ -678,7 +697,7 @@ impl ControlerService for TauriControlerService {
                             .body(bytes)
                             .expect("Failed to build Tauri protocol response.")
                     }
-                    Err(_) => ::tauri::http::Response::builder()
+                    Some((_, Err(_))) | None => ::tauri::http::Response::builder()
                         .status(404)
                         .body(Vec::new())
                         .expect("Failed to build Tauri 404 protocol response."),
@@ -692,9 +711,10 @@ impl ControlerService for TauriControlerService {
                 if command == ADMIN_WINDOW_OPEN_COMMAND {
                     let app = invoke.message.webview().app_handle().clone();
                     let admin_url = format!(
-                        "{}://localhost/{}/",
+                        "{}://localhost/{}/{}/",
                         invoke_web_scheme.trim_end_matches(':'),
-                        ADMIN_WEB_MOUNT
+                        ADMIN_WEB_MOUNT,
+                        ADMIN_WINDOW_DEFAULT_ROUTE
                     );
                     open_admin_window(app, admin_url);
                     invoke.resolver.respond(Ok::<(), InvokeError>(()));

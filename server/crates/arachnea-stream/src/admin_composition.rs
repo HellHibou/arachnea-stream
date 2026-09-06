@@ -12,6 +12,7 @@ use arachnea_scrapyfy::admin::{
     AdminRuntimeAdapter, AdminServerSettingsReport, PlaintextCredentials, RuntimeReloadReport,
     ValidatedReloadGroup,
 };
+use arachnea_scrapyfy::ScraperAdminSettings;
 
 use crate::{ReloadableStreamScraper, TypedServiceCredentialsStore};
 
@@ -67,6 +68,11 @@ impl AdminRuntimeAdapter for StreamAdminRuntimeAdapter {
         config.entrypoint_root = settings.entrypoint_root.clone();
         config.network_mode = settings.network_mode;
         config.password_hash = settings.password_hash.clone();
+        // Preserve application-specific persisted entries (current country,
+        // cache sizing), merging so options owned by other crates stay intact.
+        for (name, value) in &settings.additional_options {
+            config.additional_options.insert(name.clone(), value.clone());
+        }
         config.save(&self.configuration_path)
     }
 
@@ -125,5 +131,9 @@ impl AdminRuntimeAdapter for StreamAdminRuntimeAdapter {
             return Ok(None);
         }
         Ok(Some(self.reloadable.rebuild_validated().await?))
+    }
+
+    async fn apply_scraper_settings(&self, settings: &ScraperAdminSettings) -> Result<()> {
+        self.reloadable.apply_scraper_settings(settings).await
     }
 }

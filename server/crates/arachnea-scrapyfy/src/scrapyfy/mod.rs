@@ -107,6 +107,13 @@ pub use ip_country_provider::{
     refresh_ip_country_store, IpCountryRefreshConfig, ScrapyfyIpCountryDataProvider,
 };
 
+/// Scrapyfy administrator overrides owned by this crate.
+pub mod admin_settings;
+pub use admin_settings::{
+    validate_current_country, ScraperAdminSettings, CACHE_MAX_DISK_BYTES_KEY,
+    CACHE_MAX_MEMORY_BYTES_KEY, CURRENT_COUNTRY_KEY,
+};
+
 /// Multi-source query aggregator.
 pub mod scraper_agregator;
 pub use scraper_agregator::{

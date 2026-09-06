@@ -126,12 +126,21 @@ pub struct SettingsResponse {
     pub password_configured: bool,
     /// Whether the network mode is public over plain HTTP.
     pub public_http_warning: bool,
+    /// Effective current-country override, when set.
+    pub current_country: Option<String>,
+    /// Where the effective current-country override comes from.
+    pub current_country_source: SettingSource,
+    /// Effective maximum on-disk server cache size in bytes, when overridden.
+    pub cache_max_disk_bytes: Option<u64>,
+    /// Effective maximum in-memory server cache size in bytes, when overridden.
+    pub cache_max_memory_bytes: Option<u64>,
 }
 
 /// Request body of `update-settings`.
 ///
 /// Absent fields keep their current value. An empty `entrypoint_root` clears
-/// the persisted root.
+/// the persisted root, as does an empty `current_country` or a zero cache
+/// size.
 #[derive(Debug, Default, Deserialize)]
 pub struct UpdateSettingsRequest {
     /// New REST server port.
@@ -143,6 +152,15 @@ pub struct UpdateSettingsRequest {
     /// New network mode: `local`, `private` or `public`.
     #[serde(default, alias = "networkMode")]
     pub network_mode: Option<String>,
+    /// New current-country override; an empty string clears it.
+    #[serde(default, alias = "currentCountry")]
+    pub current_country: Option<String>,
+    /// New maximum on-disk server cache size in bytes; `0` clears it.
+    #[serde(default, alias = "cacheMaxDiskBytes")]
+    pub cache_max_disk_bytes: Option<u64>,
+    /// New maximum in-memory server cache size in bytes; `0` clears it.
+    #[serde(default, alias = "cacheMaxMemoryBytes")]
+    pub cache_max_memory_bytes: Option<u64>,
 }
 
 /// Response of `update-settings`.

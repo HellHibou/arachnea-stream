@@ -89,7 +89,16 @@
     "localModeDisabled": "Le mode local n'est disponible qu'avec des privilèges élevés.",
     "restartRequired": "Redémarrage requis pour appliquer les changements.",
     "portInvalid": "Le port doit être entre 1 et 65535.",
-    "rootInvalid": "La racine doit être un chemin relatif à segments non vides, par exemple arachnea ou arachnea/admin."
+    "rootInvalid": "La racine doit être un chemin relatif à segments non vides, par exemple arachnea ou arachnea/admin.",
+    "serverGroup": "Serveur",
+    "applicationGroup": "Application",
+    "currentCountry": "Pays courant",
+    "currentCountryPlaceholder": "ex : FR (vide = détection automatique)",
+    "cacheMaxDiskBytes": "Cache : taille disque max (octets)",
+    "cacheMaxMemoryBytes": "Cache : taille mémoire max (octets)",
+    "cacheBytesHint": "Vide ou 0 restaure la valeur par défaut (100 Mio disque / 32 Mio mémoire).",
+    "countryInvalid": "Le pays doit être exactement deux lettres majuscules (ex : FR), ou vide pour la détection automatique.",
+    "cacheInvalid": "Les tailles de cache doivent être des entiers positifs (octets)."
   },
   "adminPassword": {
     "title": "Changer le mot de passe admin",
