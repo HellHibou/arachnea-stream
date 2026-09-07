@@ -392,13 +392,25 @@ fn entry_point_public_path(entry_point: &str) -> String {
     let mut path = match url.scheme() {
         "http" | "https" => url.path().to_string(),
         _ => {
-            let mut value = String::new();
-            if let Some(host) = url.host_str() {
-                value.push('/');
-                value.push_str(host.trim_matches('/'));
+            // Custom webview schemes serve URLs from a synthetic host: when
+            // that host is the webview's `localhost` host the URL path is the
+            // public path; any other host is a legacy path segment
+            // (`scheme://apiproxy`-style entry points).
+            let is_webview_host = url
+                .host_str()
+                .map(|host| host == "localhost" || host.ends_with(".localhost"))
+                .unwrap_or(false);
+            if is_webview_host {
+                url.path().to_string()
+            } else {
+                let mut value = String::new();
+                if let Some(host) = url.host_str() {
+                    value.push('/');
+                    value.push_str(host.trim_matches('/'));
+                }
+                value.push_str(url.path());
+                value
             }
-            value.push_str(url.path());
-            value
         }
     };
 

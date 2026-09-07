@@ -1531,3 +1531,10 @@ redémarrage du processus ni du systray :
 
 ### Fixed
 - Decorative background players now render inside a same-origin iframe so Firefox's video overlay detection cannot replace thumbnail and category link context menus with the background video's menu. The existing player and media rotation remain managed by Vue, with application styles synchronized into the frame.
+
+### Fixed
+- VidMoly resolver now embeds a full browser header set (`User-Agent`, `Referer`, `Origin` derived from the embed page) into its proxied stream URLs through `resolve_url` `proxy_headers`, and rewrites playlist entries through `{proxy_inherited}` — including `URI="…"` attributes such as `EXT-X-I-FRAME-STREAM-INF` and `EXT-X-MEDIA` — so variant, I-frame, and media playlists inherit the same proxy options instead of relying on the single `Referer` stream header.
+
+### Fixed
+- Desktop (Tauri) stream requests now preserve the incoming query string. The custom-scheme URI parser stripped everything after `?`, so proxied upstream targets lost their signed token query parameters (e.g. HLS manifests requiring `?t=…&s=…`) and CDNs answered `403 Forbidden` while the REST controller kept working. Web asset lookups still ignore the query string and fragment.
+- Desktop (Tauri) stream entry points now use the webview's canonical `scheme://localhost/api/<command>` URL form. The previous `scheme://apiproxy` form (API prefix and command concatenated into the synthetic host) leaked into `{proxy_inherited}`/`{proxy}` playlist rewrites as `/apiproxy/…` paths, producing `arachnea-stream://localhost/apiproxy/…` requests that no route served. Entry-point public path resolution maps `localhost` entry points to their URL path while keeping legacy host-as-segment entry points working.

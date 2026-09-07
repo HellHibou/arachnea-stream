@@ -48,6 +48,20 @@ queries:
             pattern: 'sources:\s*\[\s*\{\s*file:\s*["'']([^"'']+)["'']'
             format: "{1}"
           - type: resolve_url
+            proxy: true
+            proxy_headers:
+              User-Agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:154.0) Gecko/20100101 Firefox/154.0"
+              Referer: "{url}"
+              Origin: "{request_origin}"
+            proxy_replace_all:
+              - pattern: 'URI="(https?://[^"]+)"'
+                replacement: 'URI="{proxy_inherited}/$1"'
+                content_types:
+                  - application/vnd.apple.mpegurl
+              - pattern: '(?m)^(https?://[^\r\n]+)'
+                replacement: '{proxy_inherited}/$1'
+                content_types:
+                  - application/vnd.apple.mpegurl
       - name: stream_headers
         type: object
         select: first
@@ -57,6 +71,11 @@ queries:
              actions:
                - type: format_text
                  argument: "{url}"
+           - name: User-Agent
+             type: string
+             actions:
+               - type: format_text
+                 argument: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:154.0) Gecko/20100101 Firefox/154.0"
       - name: manifest_type
         type: string
         actions:

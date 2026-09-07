@@ -525,11 +525,14 @@ impl ControlerService for TauriControlerService {
 
     fn register_stream_function(&mut self, command: &str, call: StreamControlerFunction) {
         // Build the entry-point URL prefix for this command in the Tauri scheme.
+        // Custom-scheme webview URLs are served from the `localhost` host (see
+        // `window_url`), so the normalized API prefix and command form the URL
+        // path (`arachnea-stream://localhost/api/proxy`).
         let entry_point = format!(
-            "{}://{}{}",
+            "{}://localhost{}/{}",
             self.web_scheme.trim_end_matches(':'),
-            self.api_prefix.trim_matches('/'),
-            command
+            self.api_prefix.trim_end_matches('/'),
+            command.trim_matches('/')
         );
         self.stream_handlers
             .push((command.to_string(), call, entry_point));
@@ -720,14 +723,15 @@ impl ControlerService for TauriControlerService {
 
                 // Select the most specific mount serving this request: dedicated
                 // bundles (e.g. `/admin/`) take precedence over the root mount.
+                let asset_path = request_path.split(['?', '#']).next().unwrap_or_default();
                 let selected = web_assets
                     .iter()
-                    .filter(|assets| assets.matches(&request_path))
+                    .filter(|assets| assets.matches(asset_path))
                     .max_by_key(|assets| assets.mount_path.len())
                     .map(|assets| {
                         (
                             assets.mount_path.clone(),
-                            assets.load_request(&request_path),
+                            assets.load_request(asset_path),
                         )
                     });
                 match selected {
@@ -891,17 +895,19 @@ fn open_admin_window(app: AppHandle<Wry>, admin_url: String, title: String) {
 /// Extracts the request path from a Tauri URI.
 ///
 /// This function strips the custom scheme and host from Tauri URIs to extract
-/// the actual request path.
+/// the actual request path. The query string is preserved because stream
+/// handlers (e.g. the HTTP proxy) forward it to signed upstream targets; the
+/// fragment is client-side only and is dropped.
 ///
 /// # Arguments
 /// * `uri` - The Tauri HTTP URI.
 /// * `web_scheme` - The custom URI scheme to strip.
 ///
 /// # Returns
-/// The request path with the scheme and host removed.
+/// The request path (with its query string) and the scheme and host removed.
 fn request_path_from_tauri_uri(uri: &::tauri::http::Uri, web_scheme: &str) -> String {
     let uri = uri.to_string();
-    let uri = uri.split(&['?', '#'][..]).next().unwrap_or_default();
+    let uri = uri.split('#').next().unwrap_or_default();
 
     for prefix in [
         format!("{web_scheme}://localhost"),
