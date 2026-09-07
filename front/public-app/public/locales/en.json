@@ -301,5 +301,11 @@
       "message": "Technical message",
       "close": "Dismiss notification"
     }
+  },
+  "desktopTabs": {
+    "label": "Tabs",
+    "new": "New tab",
+    "close": "Close {title}",
+    "error": "Tab operation failed"
   }
 }

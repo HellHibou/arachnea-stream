@@ -1513,3 +1513,21 @@ redémarrage du processus ni du systray :
 
 ### Fixed
 - Desktop public frontend links opened from the native new-window menu now create independent Tauri windows, including from secondary windows. New windows inherit the requesting window title; administration window creation also uses that title instead of an application name in core. Absolute frontend mount bases support direct deep routes, and secondary frontend windows receive the main frontend capabilities.
+
+### Changed
+- Desktop public navigation now opens independent webview tabs within the configured native window instead of additional windows. A dedicated tab strip supports selection, creation, closing, and keyboard navigation; closing the last tab restores home. Tabs retain history, page state, and media playback while hidden. The generic Tauri host uses the unstable multiwebview API with explicit resize handling; administration retains its dedicated window.
+
+### Fixed
+- Desktop tab layout now reapplies display-scaled child bounds before showing pages and after closing tabs. The strip is hidden for a single tab, with the page using the full content height. Horizontal strip scrolling no longer introduces vertical overflow.
+
+### Added
+- `TauriControlerConfiguration::browsing_mode` selects `TauriBrowsingMode::Tabs` or `Windows` in source. `DEFAULT_TAURI_BROWSING_MODE` defaults to tabs; independent windows inherit their source window title.
+
+### Fixed
+- Desktop tab placement on macOS now derives the usable rectangle from AppKit `contentLayoutRect`, converted into the parent view coordinates, instead of assuming that child-view coordinates start below the native title bar. The strip and page bounds share that rectangle during creation and resizing.
+
+### Fixed
+- Public media thumbnails now wrap their poster and title in a native link instead of using a transparent overlay, keeping link interactions available during background video playback. Modified clicks retain native new-tab and new-window behavior.
+
+### Fixed
+- Decorative background players now render inside a same-origin iframe so Firefox's video overlay detection cannot replace thumbnail and category link context menus with the background video's menu. The existing player and media rotation remain managed by Vue, with application styles synchronized into the frame.

@@ -301,5 +301,11 @@
       "message": "Message technique",
       "close": "Fermer la notification"
     }
+  },
+  "desktopTabs": {
+    "label": "Onglets",
+    "new": "Nouvel onglet",
+    "close": "Fermer {title}",
+    "error": "Échec de l’action sur l’onglet"
   }
 }

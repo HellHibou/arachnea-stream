@@ -128,13 +128,17 @@ function handleSelect() {
 }
 
 /**
- * Handles the click on the card thumbnail.
+ * Handles plain clicks on the card while preserving native modified link clicks.
  *
  * @param event Click event emitted by the card root.
  */
 function handleCardClick(event: MouseEvent): void {
   if (!props.canSelectItem) {
     event.preventDefault()
+    return
+  }
+
+  if (props.href && (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey)) {
     return
   }
 
@@ -159,51 +163,49 @@ function handleCardClick(event: MouseEvent): void {
     @mouseenter="openPreview"
     @mouseleave="closePreview"
   >
-    <MediaCardPoster
-      :display-title="displayTitle"
-      :image-poster-url="item.imagePosterUrl"
-      :image-landscape-url="item.imageLandscapeUrl"
-      :image-url="item.imageUrl"
-      :thumbnail-orientation="thumbnailOrientation"
-      :thumbnail-image-fit="thumbnailImageFit"
-      :image-available="imageAvailable"
-      :media-type-label="item.mediaTypeLabel"
-      :audio-label="item.audioLabel"
-      :duration-label="item.durationLabel"
-      :formatted-rating="formattedRating"
-      :rating-class="ratingClass"
-      :service-title="serviceTitle"
-      :service-logo="showServiceLogo ? serviceLogo : null"
-      @image-error="$emit('imageError')"
-      @service-logo-error="$emit('serviceLogoError')"
-    />
-
-    <div v-if="item.title" class="media-card__content">
-      <p v-if="item.releaseDateLabel" class="media-card__release-date">
-        {{ item.releaseDateLabel }}
-      </p>
-
-      <h2 class="media-card__title">
-        {{ item.title }}
-      </h2>
-
-      <div v-if="item.episodeLabel" class="media-card__meta-row">
-        <p v-if="item.episodeLabel" class="media-card__episode">
-          {{ item.episodeLabel }}
-        </p>
-      </div>
-    </div>
-
-    <!-- Stretched native link covering the whole card: right-click / open-in-new-tab stays native while the left click is intercepted for SPA navigation. -->
-    <a
-      v-if="href"
+    <component
+      :is="href ? 'a' : 'div'"
       class="media-card__link"
-      :href="href"
+      :href="href ?? undefined"
       :aria-label="displayTitle"
       tabindex="-1"
-      aria-hidden="true"
       @click="handleCardClick"
-    />
+    >
+      <MediaCardPoster
+        :display-title="displayTitle"
+        :image-poster-url="item.imagePosterUrl"
+        :image-landscape-url="item.imageLandscapeUrl"
+        :image-url="item.imageUrl"
+        :thumbnail-orientation="thumbnailOrientation"
+        :thumbnail-image-fit="thumbnailImageFit"
+        :image-available="imageAvailable"
+        :media-type-label="item.mediaTypeLabel"
+        :audio-label="item.audioLabel"
+        :duration-label="item.durationLabel"
+        :formatted-rating="formattedRating"
+        :rating-class="ratingClass"
+        :service-title="serviceTitle"
+        :service-logo="showServiceLogo ? serviceLogo : null"
+        @image-error="$emit('imageError')"
+        @service-logo-error="$emit('serviceLogoError')"
+      />
+
+      <div v-if="item.title" class="media-card__content">
+        <p v-if="item.releaseDateLabel" class="media-card__release-date">
+          {{ item.releaseDateLabel }}
+        </p>
+
+        <h2 class="media-card__title">
+          {{ item.title }}
+        </h2>
+
+        <div v-if="item.episodeLabel" class="media-card__meta-row">
+          <p v-if="item.episodeLabel" class="media-card__episode">
+            {{ item.episodeLabel }}
+          </p>
+        </div>
+      </div>
+    </component>
 
     <MediaCardPreviewPanel
       :item="item"
@@ -234,13 +236,11 @@ function handleCardClick(event: MouseEvent): void {
     0 18px 30px var(--shadow-color);
 }
 
-/* The link is stretched over the whole card so the entire thumbnail is clickable. */
 .media-card__link {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
+  display: block;
   border-radius: inherit;
-  -webkit-touch-callout: none;
+  color: inherit;
+  text-decoration: none;
 }
 
 .media-card__content {

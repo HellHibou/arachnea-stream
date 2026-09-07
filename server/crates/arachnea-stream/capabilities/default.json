@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main-capability",
-  "description": "Allows the main and secondary frontend windows to access the Tauri core APIs and open safe external URLs.",
+  "description": "Allows the main frontend window and its tab webviews to access the Tauri core APIs and open safe external URLs.",
   "windows": ["main", "frontend-*"],
   "permissions": ["core:default", "opener:allow-open-url", "opener:allow-default-urls"]
 }

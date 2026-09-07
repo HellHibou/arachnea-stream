@@ -4,6 +4,8 @@ import 'vuetify/styles'
 
 import { createApp } from 'vue'
 import App from './App.vue'
+import DesktopTabShell from './components/desktop/DesktopTabShell.vue'
+import { isDesktopTabShell } from './services/desktopTabs'
 import { createVuetify } from 'vuetify'
 import { aliases as mdiAliases, mdi } from 'vuetify/iconsets/mdi'
 import { createPinia } from 'pinia'
@@ -32,23 +34,30 @@ const vuetify = createVuetify({
   },
 })
 
-/** The Vue application instance. */
-const app = createApp(App)
+/** Whether this webview renders the desktop tab strip. */
+const desktopShell = isDesktopTabShell()
+/** The Vue application instance for this webview. */
+const app = createApp(desktopShell ? DesktopTabShell : App)
 
 app
   .use(vuetify)
   .use(createPinia())
-  .use(router)
+
+if (!desktopShell) app.use(router)
 
 /**
- * Bootstraps the Vue application by initializing i18n and service metadata,
- * then mounts the app to the DOM.
+ * Initializes translations for every webview and page services for content views,
+ * then mounts the appropriate application root.
  *
  * @returns Promise that resolves when the application is fully bootstrapped.
  */
 async function bootstrap(): Promise<void> {
    document.title = APP_TITLE
    await initializeI18n()
+   if (desktopShell) {
+     app.mount('#app')
+     return
+   }
    void useServiceMetadata().load()
 
    await loadThemes()

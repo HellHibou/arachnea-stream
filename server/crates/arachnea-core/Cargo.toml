@@ -17,7 +17,7 @@ rand.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 serde_urlencoded.workspace = true
-tauri = { workspace = true, features = [] }
+tauri = { workspace = true, features = ["unstable"] }
 tauri-plugin-opener.workspace = true
 tokio = { workspace = true, features = ["full"] }
 urlencoding.workspace = true
@@ -43,3 +43,6 @@ windows-sys = { version = "0.61", features = [
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSView", "NSWindow", "objc2-core-foundation"] }

@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, shallowRef, watch } from 'vue'
 
 import VideoPlayer from '@/components/media/VideoPlayer.vue'
+import BackgroundVideoFrame from './BackgroundVideoFrame.vue'
 import { useI18n } from '@/i18n'
 import type { ResolvedBackgroundMediaItem } from '@/composables/background/backgroundMedia'
 
@@ -294,22 +295,26 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <VideoPlayer
+  <BackgroundVideoFrame
     v-if="activeBackgroundVideoSource"
-    :key="activeBackgroundVideoKey ?? undefined"
-    :source="activeBackgroundVideoSource"
-    class="background__video"
-    :iframe-title="t('media.decorativeBackgroundVideo')"
-    autoplay
-    :loop="shouldLoopActiveBackgroundVideo"
-    muted
-    playsinline
-    preload="auto"
-    allow="autoplay; encrypted-media; picture-in-picture"
-    :aria-hidden="true"
-    :tab-index="-1"
-    @playback-ended="handleBackgroundVideoPlaybackEnded"
-  />
+    :title="t('media.decorativeBackgroundVideo')"
+  >
+    <VideoPlayer
+      :key="activeBackgroundVideoKey ?? undefined"
+      :source="activeBackgroundVideoSource"
+      class="background__video"
+      :iframe-title="t('media.decorativeBackgroundVideo')"
+      autoplay
+      :loop="shouldLoopActiveBackgroundVideo"
+      muted
+      playsinline
+      preload="auto"
+      allow="autoplay; encrypted-media; picture-in-picture"
+      :aria-hidden="true"
+      :tab-index="-1"
+      @playback-ended="handleBackgroundVideoPlaybackEnded"
+    />
+  </BackgroundVideoFrame>
 
   <div v-else-if="activeBackgroundImageUrl" class="background__images">
     <div

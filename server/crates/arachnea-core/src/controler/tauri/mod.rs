@@ -1,10 +1,7 @@
 //! Tauri controller backend.
 
 use std::borrow::Cow;
-use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Arc, Mutex,
-};
+use std::sync::{Arc, Mutex};
 
 use ::tauri::{
     ipc::{Invoke, InvokeBody, InvokeError},
@@ -13,7 +10,8 @@ use ::tauri::{
 };
 use anyhow::anyhow;
 use serde_json::Value;
-use tauri_plugin_opener::OpenerExt;
+mod tabs;
+mod windows;
 
 use super::web_assets::{
     normalize_mount_path, replace_html_base, scope_web_asset_source, strip_mount_path,
@@ -36,9 +34,6 @@ const DEFAULT_TAURI_API_PREFIX: &str = "/api/";
 /// Absolute `<base>` keeping deep desktop routes rooted at the frontend mount.
 const TAURI_WEB_BASE: &str = "/";
 
-/// Process-wide sequence for independently opened frontend windows.
-static FRONTEND_WINDOW_SEQUENCE: AtomicU64 = AtomicU64::new(0);
-
 /// Label of the dedicated administration window, created on demand.
 const ADMIN_WINDOW_LABEL: &str = "admin";
 
@@ -54,6 +49,18 @@ const ADMIN_WINDOW_DEFAULT_ROUTE: &str = "";
 /// Mount path (inside the scheme root) serving the administration bundle.
 const ADMIN_WEB_MOUNT: &str = "admin";
 
+/// Presentation used for public frontend links opened in a new browsing context.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TauriBrowsingMode {
+    /// Independent webview tabs within the configured native window.
+    Tabs,
+    /// Independent native windows inheriting the requesting window title.
+    Windows,
+}
+
+/// Default presentation for new public frontend browsing contexts.
+pub const DEFAULT_TAURI_BROWSING_MODE: TauriBrowsingMode = TauriBrowsingMode::Tabs;
+
 /// Configuration required to build a Tauri controller service.
 ///
 /// This struct holds all the configuration needed to create a Tauri controller,
@@ -65,6 +72,8 @@ pub struct TauriControlerConfiguration {
     web_scheme: String,
     /// The API path prefix used by binary stream routes.
     api_prefix: String,
+    /// Presentation used for public frontend browsing contexts.
+    browsing_mode: TauriBrowsingMode,
 }
 
 impl TauriControlerConfiguration {
@@ -80,7 +89,17 @@ impl TauriControlerConfiguration {
             context,
             web_scheme: DEFAULT_TAURI_WEB_SCHEME.to_string(),
             api_prefix: DEFAULT_TAURI_API_PREFIX.to_string(),
+            browsing_mode: DEFAULT_TAURI_BROWSING_MODE,
         }
+    }
+
+    /// Selects tabs or independent native windows for public navigation.
+    ///
+    /// # Arguments
+    /// * `mode` - Browsing presentation; defaults to [`DEFAULT_TAURI_BROWSING_MODE`].
+    pub fn browsing_mode(mut self, mode: TauriBrowsingMode) -> Self {
+        self.browsing_mode = mode;
+        self
     }
 
     /// Sets the custom URI scheme used to serve the frontend.
@@ -390,6 +409,8 @@ pub struct TauriControlerService {
     web_scheme: String,
     /// The API path prefix for stream routes.
     api_prefix: String,
+    /// Presentation used for public frontend browsing contexts.
+    browsing_mode: TauriBrowsingMode,
     /// Registered serialized function handlers.
     handlers: Vec<(String, SerializedControlerFunction)>,
     /// Registered header-aware JSON function handlers.
@@ -429,6 +450,7 @@ impl TauriControlerService {
             context: Some(configuration.context),
             web_scheme: configuration.web_scheme,
             api_prefix: configuration.api_prefix,
+            browsing_mode: configuration.browsing_mode,
             handlers: Vec::new(),
             json_handlers: Vec::new(),
             stream_handlers: Vec::new(),
@@ -560,6 +582,7 @@ impl ControlerService for TauriControlerService {
                 Some(config)
             });
         let setup_web_scheme = web_scheme.clone();
+        let browsing_mode = self.browsing_mode;
         let setup_dispatcher = Arc::clone(&self.main_thread_dispatcher);
         let global_dispatcher: Arc<dyn MainThreadDispatcher> = self.main_thread_dispatcher.clone();
         install_global_main_thread_dispatcher(global_dispatcher)
@@ -568,14 +591,14 @@ impl ControlerService for TauriControlerService {
             .setup(move |app| {
                 setup_dispatcher.attach_app_handle(app.handle().clone())?;
                 if let Some(config) = main_window_config {
-                    let builder = WebviewWindowBuilder::from_config(app.handle(), &config)?;
-                    with_frontend_window_requests(
-                        builder,
-                        app.handle().clone(),
-                        config.label,
-                        setup_web_scheme,
-                    )
-                    .build()?;
+                    match browsing_mode {
+                        TauriBrowsingMode::Tabs => {
+                            tabs::setup(app.handle(), config, setup_web_scheme)?
+                        }
+                        TauriBrowsingMode::Windows => {
+                            windows::setup(app.handle(), config, setup_web_scheme)?
+                        }
+                    }
                 }
                 Ok(())
             })
@@ -735,6 +758,9 @@ impl ControlerService for TauriControlerService {
 
         builder
             .invoke_handler(move |invoke: Invoke| {
+                if invoke.message.command().starts_with("desktop_tabs_") {
+                    return tabs::handle_invoke(invoke);
+                }
                 let command = invoke.message.command().to_string();
                 if command == ADMIN_WINDOW_OPEN_COMMAND {
                     let source_window = invoke.message.webview().window();
@@ -831,60 +857,6 @@ impl ControlerService for TauriControlerService {
             .run(context)
             .expect("Error launching the Tauri application.");
     }
-}
-
-/// Installs native new-window handling for a frontend window and its descendants.
-///
-/// # Arguments
-/// * `builder` - Window builder retaining the application-owned configuration.
-/// * `app` - Running application handle.
-/// * `source_label` - Window whose current title is inherited by each new window.
-/// * `web_scheme` - Application-owned protocol used for internal frontend URLs.
-fn with_frontend_window_requests<'a>(
-    builder: WebviewWindowBuilder<'a, Wry, AppHandle<Wry>>,
-    app: AppHandle<Wry>,
-    source_label: String,
-    web_scheme: String,
-) -> WebviewWindowBuilder<'a, Wry, AppHandle<Wry>> {
-    builder.on_new_window(move |url, _features| {
-        let app = app.clone();
-        let source_label = source_label.clone();
-        let web_scheme = web_scheme.clone();
-        // Build outside the native callback to avoid blocking the UI event loop.
-        std::thread::spawn(move || {
-            let internal = (url.scheme() == web_scheme && url.host_str() == Some("localhost"))
-                || (matches!(url.scheme(), "http" | "https")
-                    && url.host_str() == Some(format!("{web_scheme}.localhost").as_str()));
-            if !internal {
-                if matches!(url.scheme(), "http" | "https" | "mailto" | "tel") {
-                    if let Err(error) = app.opener().open_url(url.as_str(), None::<&str>) {
-                        tracing::warn!(error = %error, "failed to open external URL");
-                    }
-                }
-                return;
-            }
-            let result = (|| -> ::tauri::Result<()> {
-                let source = app
-                    .get_webview_window(&source_label)
-                    .ok_or(::tauri::Error::WindowNotFound)?;
-                let title = source.title()?;
-                let label = format!(
-                    "frontend-{}",
-                    FRONTEND_WINDOW_SEQUENCE.fetch_add(1, Ordering::Relaxed)
-                );
-                let builder =
-                    WebviewWindowBuilder::new(&app, &label, WebviewUrl::CustomProtocol(url))
-                        .title(title)
-                        .inner_size(980.0, 680.0);
-                with_frontend_window_requests(builder, app.clone(), label, web_scheme).build()?;
-                Ok(())
-            })();
-            if let Err(error) = result {
-                tracing::warn!(error = %error, "failed to open frontend window");
-            }
-        });
-        ::tauri::webview::NewWindowResponse::Deny
-    })
 }
 
 /// Opens the dedicated administration window, reusing it when it still exists.
