@@ -69,6 +69,9 @@ pub struct ProxiedHttpRequest {
     pub context: PostActionContext,
     /// Whether the target TLS certificate must be validated.
     pub verify_tls: bool,
+    /// Optional maximum number of upstream redirects to follow before returning
+    /// the final allowed 3xx response.
+    pub follow_redirects: Option<usize>,
 }
 
 /// Minimal HTTP client that uses `ArachneaProxyCore` for connections.
@@ -141,9 +144,10 @@ impl SimpleHttpClient {
 
     /// Performs a full proxied HTTP request through the Arachnea proxy core.
     ///
-    /// This function does NOT follow redirects automatically. The caller receives
-    /// the raw response including 3xx status codes with a potentially rewritten
-    /// `Location` header (see `rewrite_location`).
+    /// When `request.follow_redirects` is set, redirect hops are resolved after
+    /// reading their headers and before their body is consumed. This keeps media
+    /// redirects usable by custom-scheme desktop clients without preloading the
+    /// final response body.
     ///
     /// # Parameters
     ///
@@ -157,6 +161,41 @@ impl SimpleHttpClient {
     ///
     /// Returns an error when URL parsing, connection, or HTTP I/O fails.
     pub async fn request_proxied(
+        &self,
+        mut request: ProxiedHttpRequest,
+    ) -> Result<ProxiedHttpResponse> {
+        let redirect_limit = request.follow_redirects;
+        for redirect_index in 0..redirect_limit.unwrap_or_default() {
+            let response = self.request_proxied_once(request.clone()).await?;
+            if !(300..400).contains(&response.status) {
+                return Ok(response);
+            }
+            let Some(location) = header_value_case_insensitive(&response.headers, "location")
+            else {
+                return Ok(response);
+            };
+            let next_url = url::Url::parse(&request.url)
+                .and_then(|base| base.join(location))
+                .map_err(|error| {
+                    ProxyError::Protocol(format!(
+                        "failed to resolve redirect Location '{}': {}",
+                        location, error
+                    ))
+                })?
+                .to_string();
+            tracing::debug!(
+                from = %request.url,
+                to = %next_url,
+                redirect = redirect_index + 1,
+                "following proxied HTTP redirect"
+            );
+            request.url = next_url.clone();
+            request.context.target_url = next_url;
+        }
+        self.request_proxied_once(request).await
+    }
+
+    async fn request_proxied_once(
         &self,
         request: ProxiedHttpRequest,
     ) -> Result<ProxiedHttpResponse> {
@@ -305,7 +344,7 @@ impl SimpleHttpClient {
         )
         .await?;
 
-        let body = if request.headers_only {
+        let body = if request.headers_only || (300..400).contains(&status_code) {
             ProxiedResponseBody::Buffered(Vec::new())
         } else {
             let is_chunked = transfer_encoding_is_chunked(&headers);

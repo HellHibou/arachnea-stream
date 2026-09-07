@@ -10,8 +10,8 @@ default = ["core", "connectors", "tower", "hyper"]
 core = []
 server = ["core"]
 connectors = ["core"]
-persistence = ["core", "dep:arachnea-core", "dep:rusqlite"]
-controller-service = ["core", "dep:arachnea-core"]
+persistence = ["core", "dep:rusqlite"]
+controller-service = ["core"]
 arachnea-dns = ["core", "dep:arachnea-dns"]
 tower = ["connectors"]
 hyper = ["tower"]
@@ -19,7 +19,7 @@ rquest = ["connectors", "server", "dep:rquest"]
 
 [dependencies]
 anyhow.workspace = true
-arachnea-core = { path = "../arachnea-core", features = ["sqlite-persistence"], optional = true }
+arachnea-core = { path = "../arachnea-core", features = ["sqlite-persistence"] }
 arachnea-dns = { path = "../arachnea-dns", default-features = false, features = ["core"], optional = true }
 async-trait.workspace = true
 base64.workspace = true

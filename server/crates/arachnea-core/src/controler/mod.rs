@@ -2,13 +2,13 @@
 
 /// Main-thread dispatch primitives shared by controller backends.
 pub mod main_thread;
+/// Options shared by controller backends.
+pub mod options;
 /// REST controller backend based on Warp.
 pub mod rest;
 /// Tauri controller backend.
 pub mod tauri;
 mod web_assets;
-/// Options shared by controller backends.
-pub mod options;
 
 use std::sync::Arc;
 use std::{future::Future, pin::Pin};
@@ -34,7 +34,10 @@ pub use rest::tray::{
     ServerTrayHandle, ServerTrayUpdate,
 };
 
-use crate::controler::options::{ApplicationMode, CoreApplicationOptions, SettingSource, DEFAULT_SERVER_PORT, DEFAULT_TAURI_API_PREFIX, DEFAULT_TAURI_WEB_SCHEME, ServerNetworkMode};
+use crate::controler::options::{
+    ApplicationMode, CoreApplicationOptions, ServerNetworkMode, SettingSource, DEFAULT_SERVER_PORT,
+    DEFAULT_TAURI_API_PREFIX, DEFAULT_TAURI_WEB_SCHEME,
+};
 use crate::controler::rest::{RestControlerConfiguration, RestControlerService};
 use crate::controler::tauri::{
     TauriControlerConfiguration, TauriControlerService, TauriEmbeddedWebAssets,
@@ -728,12 +731,13 @@ pub fn create_application_controler_from_config(
     // let application_mode = options.application_mode.unwrap_or(ApplicationMode::Desktop);
 
     // #[cfg(debug_assertions)] // Debug mode defaults.
-    let application_mode = options.application_mode.unwrap_or(ApplicationMode::default());
+    let application_mode = options
+        .application_mode
+        .unwrap_or(ApplicationMode::default());
 
     let mut controler: Box<dyn ControlerService> = if application_mode == ApplicationMode::Server {
         let server_port = options.server_port.unwrap_or(DEFAULT_SERVER_PORT);
-        let mut configuration = RestControlerConfiguration::default()
-            .server_port(server_port);
+        let mut configuration = RestControlerConfiguration::default().server_port(server_port);
 
         match options.network_mode.unwrap_or_default() {
             ServerNetworkMode::Local => {}
@@ -937,14 +941,8 @@ mod rest_settings_tests {
         root: Option<&str>,
         root_source: SettingSource,
     ) -> CoreApplicationOptions {
-        let mut options = CoreApplicationOptions::new(
-            None,
-            port,
-            root.map(str::to_string),
-            None,
-            None,
-            None,
-        );
+        let mut options =
+            CoreApplicationOptions::new(None, port, root.map(str::to_string), None, None, None);
         options.server_port_source = port_source;
         options.network_mode = network;
         options.network_mode_source = network_source;
@@ -973,7 +971,11 @@ mod rest_settings_tests {
             Some("/cli-root"),
             SettingSource::CommandLine,
         );
-        let reader = reader_of(Some(1234), Some(ServerNetworkMode::Local), Some("/config-root"));
+        let reader = reader_of(
+            Some(1234),
+            Some(ServerNetworkMode::Local),
+            Some("/config-root"),
+        );
         let settings = rest_settings_source(reader, cli)().expect("settings must resolve");
         assert_eq!(settings.server_port, 9000);
         assert_eq!(settings.network_mode, ServerNetworkMode::Public);
@@ -990,7 +992,11 @@ mod rest_settings_tests {
             None,
             SettingSource::Default,
         );
-        let reader = reader_of(Some(1234), Some(ServerNetworkMode::Local), Some("/config-root"));
+        let reader = reader_of(
+            Some(1234),
+            Some(ServerNetworkMode::Local),
+            Some("/config-root"),
+        );
         let settings = rest_settings_source(reader, cli)().expect("settings must resolve");
         assert_eq!(settings.server_port, 1234);
         assert_eq!(settings.network_mode, ServerNetworkMode::Local);
@@ -1026,7 +1032,11 @@ mod rest_settings_tests {
             Some("/config-root"),
             SettingSource::Configuration,
         );
-        let reader = reader_of(Some(1234), Some(ServerNetworkMode::Local), Some("/updated-root"));
+        let reader = reader_of(
+            Some(1234),
+            Some(ServerNetworkMode::Local),
+            Some("/updated-root"),
+        );
         let settings = rest_settings_source(reader, cli)().expect("settings must resolve");
         assert_eq!(settings.server_port, 1234);
         assert_eq!(settings.network_mode, ServerNetworkMode::Local);
@@ -1044,8 +1054,7 @@ mod rest_settings_tests {
             SettingSource::Default,
         );
         // Simulates an administration update of the persisted configuration.
-        let mut persisted =
-            CoreApplicationOptions::new(None, Some(1234), None, None, None, None);
+        let mut persisted = CoreApplicationOptions::new(None, Some(1234), None, None, None, None);
         persisted.network_mode = Some(ServerNetworkMode::Local);
         let reader: Arc<dyn Fn() -> Option<CoreApplicationOptions> + Send + Sync> =
             Arc::new(move || Some(persisted.clone()));

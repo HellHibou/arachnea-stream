@@ -535,12 +535,20 @@ impl ServerTrayHandle for ServerTrayHandleImpl {
     }
 
     fn open_browser(&self) {
-        let server_url = self.server_url.lock().expect("tray server url poisoned").clone();
+        let server_url = self
+            .server_url
+            .lock()
+            .expect("tray server url poisoned")
+            .clone();
         let _ = tauri_plugin_opener::open_url(server_url, None::<&str>);
     }
 
     fn open_admin(&self) {
-        let admin_url = self.admin_url.lock().expect("tray admin url poisoned").clone();
+        let admin_url = self
+            .admin_url
+            .lock()
+            .expect("tray admin url poisoned")
+            .clone();
         let _ = tauri_plugin_opener::open_url(admin_url, None::<&str>);
     }
 

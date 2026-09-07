@@ -907,12 +907,14 @@ Resolves each value as a relative URL against the page URL.
 | `proxy` | bool | If true, wraps HTTP(S) URLs through the public proxy |
 | `proxy_headers` | object | HTTP headers embedded in the proxy URL and sent upstream; requires `proxy: true`; values support query placeholders, `{request_url}`, and `{request_origin}` |
 | `proxy_replace_all` | object[] | Ordered `ReplaceAll` rules attached to the proxy URL; requires `proxy: true` |
+| `proxy_follow_redirects` | bool or positive integer | `true` follows upstream redirects using the global default limit (16); a positive integer sets the maximum number of redirects; requires `proxy: true` |
 
 ```yaml
 - type: resolve_url
   proxy: true
   proxy_headers:
     Referer: "{request_origin}/"
+  proxy_follow_redirects: true
   proxy_replace_all:
     - pattern: '(?m)^(https?://[^\r\n]+)'
       replacement: '{proxy}/$1'
@@ -927,6 +929,8 @@ list. The proxy applies the rules to textual response bodies in declaration orde
 includes the `opts_…` segment from the current request URL when present (e.g. `/api/proxy/opts_ABCD`), allowing
 ReplaceAll rules to preserve inherited proxy options in rewritten URLs.
 
+`proxy_follow_redirects` is opt-in. Redirect hops are followed by the proxy after reading only their response headers, before the terminal body is relayed. `false` (or omission) preserves the 3xx response behavior. `0` is invalid.
+
 ### `resolve_url_from_parent`
 Resolves relative URLs against an ancestor of the page URL.
 
@@ -936,6 +940,7 @@ Resolves relative URLs against an ancestor of the page URL.
 | `proxy` | bool | Wrap through the public proxy |
 | `proxy_headers` | object | HTTP headers embedded in the proxy URL and sent upstream; requires `proxy: true`; values support query placeholders, `{request_url}`, and `{request_origin}` |
 | `proxy_replace_all` | object[] | Ordered `ReplaceAll` rules attached to the proxy URL; requires `proxy: true` |
+| `proxy_follow_redirects` | bool or positive integer | Follow upstream redirects using the global default limit (16), or an explicit positive maximum; requires `proxy: true` |
 
 ```yaml
 - type: resolve_url_from_parent

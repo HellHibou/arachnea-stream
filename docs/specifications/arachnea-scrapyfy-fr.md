@@ -916,12 +916,14 @@ Résout chaque valeur comme une URL relative par rapport à l'URL de la page.
 | `proxy` | bool | Si true, enveloppe les URLs HTTP(S) via le proxy public |
 | `proxy_headers` | object | En-têtes HTTP intégrés à l'URL proxy et envoyés en amont ; exige `proxy: true` ; les valeurs supportent les placeholders de requête, `{request_url}` et `{request_origin}` |
 | `proxy_replace_all` | object[] | Règles `ReplaceAll` ordonnées jointes à l'URL proxy ; exige `proxy: true` |
+| `proxy_follow_redirects` | bool ou entier positif | `true` suit les redirections amont avec la limite globale par défaut (16) ; un entier positif fixe le maximum ; exige `proxy: true` |
 
 ```yaml
 - type: resolve_url
   proxy: true
   proxy_headers:
     Referer: "{request_origin}/"
+  proxy_follow_redirects: true
   proxy_replace_all:
     - pattern: '(?m)^(https?://[^\r\n]+)'
       replacement: '{proxy}/$1'
@@ -936,6 +938,8 @@ de MIME types). Le proxy applique les règles au corps textuel dans l'ordre déc
 inclut le segment `opts_…` de l'URL de requête courante lorsqu'il est présent (ex. `/api/proxy/opts_ABCD`), ce qui
 permet aux règles ReplaceAll de préserver les options proxy héritées dans les URLs réécrites.
 
+`proxy_follow_redirects` est opt-in. Le proxy suit chaque hop après lecture de ses seuls headers, avant de relayer le corps du hop terminal. `false` (ou l’absence de la clé) conserve le comportement 3xx ; `0` est invalide.
+
 ### `resolve_url_from_parent`
 Résout les URLs relatives par rapport à un ancêtre de l'URL de la page.
 
@@ -945,6 +949,7 @@ Résout les URLs relatives par rapport à un ancêtre de l'URL de la page.
 | `proxy` | bool | Envelopper via le proxy public |
 | `proxy_headers` | object | En-têtes HTTP intégrés à l'URL proxy et envoyés en amont ; exige `proxy: true` ; les valeurs supportent les placeholders de requête, `{request_url}` et `{request_origin}` |
 | `proxy_replace_all` | object[] | Règles `ReplaceAll` ordonnées jointes à l'URL proxy ; exige `proxy: true` |
+| `proxy_follow_redirects` | bool ou entier positif | Suit les redirections amont avec la limite globale par défaut (16), ou avec un maximum positif explicite ; exige `proxy: true` |
 
 ```yaml
 - type: resolve_url_from_parent

@@ -462,9 +462,10 @@ impl ApplicationOptionsProvider for CoreApplicationOptions {
                 }
                 "--network" => {
                     let value = iter.next().context("Missing value for `--network`")?;
-                    self.network_mode = Some(value.parse::<ServerNetworkMode>().map_err(|error| {
-                        anyhow::anyhow!("Invalid value for `--network`: {error}")
-                    })?);
+                    self.network_mode =
+                        Some(value.parse::<ServerNetworkMode>().map_err(|error| {
+                            anyhow::anyhow!("Invalid value for `--network`: {error}")
+                        })?);
                     self.network_mode_source = source;
                 }
                 "--entrypoint-root" => {

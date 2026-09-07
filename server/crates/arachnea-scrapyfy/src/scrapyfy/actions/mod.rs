@@ -60,6 +60,34 @@ pub struct ProxyReplaceAllConfig {
     pub content_types: Option<Vec<String>>,
 }
 
+/// Redirect-following policy embedded in a generated public proxy URL.
+///
+/// `true` selects the shared default redirect limit, while a positive integer
+/// defines an explicit maximum number of redirects to follow.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ProxyFollowRedirects {
+    /// Follow redirects with the shared default limit.
+    Default(bool),
+    /// Follow redirects with an explicit positive limit.
+    Limit(usize),
+}
+
+impl ProxyFollowRedirects {
+    pub(crate) fn as_json_value(&self) -> Option<serde_json::Value> {
+        match self {
+            Self::Default(true) => Some(serde_json::Value::Bool(true)),
+            Self::Default(false) => None,
+            Self::Limit(limit) if *limit > 0 => Some(serde_json::Value::Number((*limit).into())),
+            Self::Limit(_) => None,
+        }
+    }
+
+    fn is_valid(&self) -> bool {
+        !matches!(self, Self::Limit(0))
+    }
+}
+
 /// Ordered extraction steps applied during a scraper extraction pipeline.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -205,6 +233,9 @@ pub enum ScraperAction {
         /// Ordered text replacement rules attached to the generated proxy URL.
         #[serde(default)]
         proxy_replace_all: Vec<ProxyReplaceAllConfig>,
+        /// Optional upstream redirect-following policy embedded in the public proxy URL.
+        #[serde(default)]
+        proxy_follow_redirects: Option<ProxyFollowRedirects>,
     },
 
     /// Resolves every current value relative to an ancestor of the fetched page URL.
@@ -220,6 +251,9 @@ pub enum ScraperAction {
         /// Ordered text replacement rules attached to the generated proxy URL.
         #[serde(default)]
         proxy_replace_all: Vec<ProxyReplaceAllConfig>,
+        /// Optional upstream redirect-following policy embedded in the public proxy URL.
+        #[serde(default)]
+        proxy_follow_redirects: Option<ProxyFollowRedirects>,
     },
 
     /// Replaces every current value with its parsed URL host when possible.
@@ -468,6 +502,7 @@ impl ScraperAction {
                 proxy,
                 proxy_headers,
                 proxy_replace_all,
+                proxy_follow_redirects,
             } => resolve_url::apply(
                 texts,
                 request_url,
@@ -475,12 +510,14 @@ impl ScraperAction {
                 *proxy,
                 proxy_headers,
                 proxy_replace_all,
+                proxy_follow_redirects.as_ref(),
             ),
             ScraperAction::ResolveUrlFromParent {
                 levels,
                 proxy,
                 proxy_headers,
                 proxy_replace_all,
+                proxy_follow_redirects,
             } => resolve_url::apply_from_parent(
                 texts,
                 request_url,
@@ -489,6 +526,7 @@ impl ScraperAction {
                 *proxy,
                 proxy_headers,
                 proxy_replace_all,
+                proxy_follow_redirects.as_ref(),
             ),
             ScraperAction::GetUrlHost => get_url_host::apply(texts),
             ScraperAction::BuildNextjsDataUrl {
@@ -596,13 +634,19 @@ impl ScraperAction {
                 proxy,
                 proxy_headers,
                 proxy_replace_all,
+                proxy_follow_redirects,
             }
             | ScraperAction::ResolveUrlFromParent {
                 proxy,
                 proxy_headers,
                 proxy_replace_all,
+                proxy_follow_redirects,
                 ..
-            } if (!proxy_replace_all.is_empty() || !proxy_headers.is_empty()) && !*proxy => {
+            } if (!proxy_replace_all.is_empty()
+                || !proxy_headers.is_empty()
+                || proxy_follow_redirects.is_some())
+                && !*proxy =>
+            {
                 Err(anyhow::anyhow!(
                     "{} {} configures proxy options without `proxy: true`",
                     owner,
@@ -610,11 +654,25 @@ impl ScraperAction {
                 ))
             }
             ScraperAction::ResolveUrl {
-                proxy_replace_all, ..
+                proxy_replace_all,
+                proxy_follow_redirects,
+                ..
             }
             | ScraperAction::ResolveUrlFromParent {
-                proxy_replace_all, ..
+                proxy_replace_all,
+                proxy_follow_redirects,
+                ..
             } => {
+                if proxy_follow_redirects
+                    .as_ref()
+                    .is_some_and(|value| !value.is_valid())
+                {
+                    return Err(anyhow::anyhow!(
+                        "{} {} configures proxy_follow_redirects: 0 is not allowed",
+                        owner,
+                        name
+                    ));
+                }
                 for (index, replacement) in proxy_replace_all.iter().enumerate() {
                     regex::Regex::new(&replacement.pattern).map_err(|error| {
                         anyhow::anyhow!(

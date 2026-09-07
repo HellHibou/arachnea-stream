@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::chaser_session::{memory_session_store, CachedChaserSession};
-use arachnea_core::persistence::TypedEntityStore;
+use arachnea_core::{persistence::TypedEntityStore, DEFAULT_MAX_REDIRECTS};
 #[cfg(feature = "arachnea-proxy")]
 use arachnea_proxy::connectors::ArachneaRquestLoopback;
 use bytes::Bytes;
@@ -64,10 +64,6 @@ fn charset_from_content_type(content_type: &str) -> Option<&str> {
 
 /// Global process-wide Cloudflare solver user-agent cache.
 static CLOUDFLARE_USER_AGENTS: OnceLock<Arc<RwLock<HashMap<String, String>>>> = OnceLock::new();
-/// Default maximum number of HTTP redirects followed by the client facade
-/// when ArachneaHttpConfig.max_redirects is None.
-const DEFAULT_MAX_REDIRECTS: usize = 16;
-
 /// Returns the shared Cloudflare solver user-agent cache.
 ///
 /// # Returns

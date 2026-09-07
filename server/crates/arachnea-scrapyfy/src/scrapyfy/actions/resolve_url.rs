@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 use url::Url;
 
-use super::{ProxyReplaceAllConfig, HTTP_PROXY_PUBLIC_PATH_PARAM};
+use super::{ProxyFollowRedirects, ProxyReplaceAllConfig, HTTP_PROXY_PUBLIC_PATH_PARAM};
 use crate::scrapyfy::query_helpers;
 
 #[cfg(feature = "arachnea-proxy")]
 use arachnea_proxy::http::actions::ReplaceAll;
 #[cfg(feature = "arachnea-proxy")]
-use arachnea_proxy::http::proxy_service::proxied_url;
+use arachnea_proxy::http::proxy_service::proxied_url_with_options;
 
 /// Applies the `resolve_url` scraper action by resolving every value as a URL
 /// relative to `request_url`.
@@ -30,6 +30,7 @@ pub(super) fn apply(
     proxy: bool,
     proxy_headers: &HashMap<String, String>,
     proxy_replace_all: &[ProxyReplaceAllConfig],
+    proxy_follow_redirects: Option<&ProxyFollowRedirects>,
 ) -> Vec<String> {
     let base_url = Url::parse(request_url).ok();
     let proxy_path = proxy.then(|| proxy_path(params)).flatten();
@@ -39,13 +40,25 @@ pub(super) fn apply(
         .into_iter()
         .map(|value| {
             if let Ok(url) = Url::parse(&value) {
-                return resolved_url_string(url, proxy_path, &proxy_headers, proxy_replace_all);
+                return resolved_url_string(
+                    url,
+                    proxy_path,
+                    &proxy_headers,
+                    proxy_replace_all,
+                    proxy_follow_redirects,
+                );
             }
 
             match &base_url {
                 Some(base_url) => resolve_relative_url(base_url, &value)
                     .map(|url| {
-                        resolved_url_string(url, proxy_path, &proxy_headers, proxy_replace_all)
+                        resolved_url_string(
+                            url,
+                            proxy_path,
+                            &proxy_headers,
+                            proxy_replace_all,
+                            proxy_follow_redirects,
+                        )
                     })
                     .unwrap_or(value),
                 _none => value,
@@ -77,6 +90,7 @@ pub(super) fn apply_from_parent(
     proxy: bool,
     proxy_headers: &HashMap<String, String>,
     proxy_replace_all: &[ProxyReplaceAllConfig],
+    proxy_follow_redirects: Option<&ProxyFollowRedirects>,
 ) -> Vec<String> {
     let base_url = Url::parse(request_url)
         .ok()
@@ -88,14 +102,26 @@ pub(super) fn apply_from_parent(
         .into_iter()
         .map(|value| {
             if let Ok(url) = Url::parse(&value) {
-                return resolved_url_string(url, proxy_path, &proxy_headers, proxy_replace_all);
+                return resolved_url_string(
+                    url,
+                    proxy_path,
+                    &proxy_headers,
+                    proxy_replace_all,
+                    proxy_follow_redirects,
+                );
             }
 
             match &base_url {
                 Some(base_url) => base_url
                     .join(&value)
                     .map(|url| {
-                        resolved_url_string(url, proxy_path, &proxy_headers, proxy_replace_all)
+                        resolved_url_string(
+                            url,
+                            proxy_path,
+                            &proxy_headers,
+                            proxy_replace_all,
+                            proxy_follow_redirects,
+                        )
                     })
                     .unwrap_or(value),
                 None => value,
@@ -143,11 +169,15 @@ fn resolved_url_string(
     proxy_path: Option<&str>,
     proxy_headers: &[(&str, String)],
     proxy_replace_all: &[ProxyReplaceAllConfig],
+    proxy_follow_redirects: Option<&ProxyFollowRedirects>,
 ) -> String {
     if matches!(url.scheme(), "http" | "https") {
         if let Some(proxy_path) = proxy_path {
             #[cfg(feature = "arachnea-proxy")]
-            if !proxy_replace_all.is_empty() || !proxy_headers.is_empty() {
+            if !proxy_replace_all.is_empty()
+                || !proxy_headers.is_empty()
+                || proxy_follow_redirects.is_some()
+            {
                 let actions = proxy_replace_all
                     .iter()
                     .map(|replacement| {
@@ -162,11 +192,18 @@ fn resolved_url_string(
                     .iter()
                     .map(|(name, value)| (*name, value.as_str()))
                     .collect::<Vec<_>>();
-                return proxied_url(url.as_str(), Some(proxy_path), None, &actions, &headers);
+                return proxied_url_with_options(
+                    url.as_str(),
+                    Some(proxy_path),
+                    None,
+                    &actions,
+                    &headers,
+                    proxy_follow_redirects.and_then(ProxyFollowRedirects::as_json_value),
+                );
             }
 
             #[cfg(not(feature = "arachnea-proxy"))]
-            let _ = (proxy_headers, proxy_replace_all);
+            let _ = (proxy_headers, proxy_replace_all, proxy_follow_redirects);
             return format!("{}/{}", proxy_path.trim_end_matches('/'), url);
         }
     }

@@ -50,6 +50,10 @@ queries:
             pattern: 'src:\s*["'']([^"''\s]+)["'']'
             format: "{1}"
           - type: resolve_url
+            proxy: true
+            proxy_follow_redirects: true
+            proxy_headers:
+              Referer: "{url}"
       - name: stream_headers
         type: object
         select: first

@@ -1,6 +1,9 @@
 #![warn(missing_docs)]
 //! Shared Arachnea backend primitives.
 
+/// Default maximum number of HTTP redirects followed by Arachnea HTTP clients.
+pub const DEFAULT_MAX_REDIRECTS: usize = 16;
+
 /// Controller abstractions and REST/Tauri backends.
 pub mod controler;
 

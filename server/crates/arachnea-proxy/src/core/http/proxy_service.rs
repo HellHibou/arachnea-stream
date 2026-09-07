@@ -35,7 +35,13 @@ use arachnea_core::controler::{
 const MAX_LOCAL_URL_BYTES: usize = 8192;
 
 /// Known option fields allowed in the `opts` JSON.
-const ALLOWED_OPTS_FIELDS: &[&str] = &["headers", "cookies", "proxy", "insecure_tls"];
+const ALLOWED_OPTS_FIELDS: &[&str] = &[
+    "headers",
+    "cookies",
+    "proxy",
+    "insecure_tls",
+    "follow_redirects",
+];
 
 /// Parsed options from the `opts` segment of a proxy URL.
 #[derive(Clone)]
@@ -49,6 +55,8 @@ struct ProxyHttpOpts {
     proxy: serde_json::Value,
     /// Requests a TLS bypass for an allowlisted exact host.
     insecure_tls: bool,
+    /// Optional maximum number of upstream redirects to follow.
+    follow_redirects: Option<usize>,
 }
 
 struct MergedProxyHttpInput {
@@ -79,6 +87,7 @@ fn parse_opts_value(value: &serde_json::Value) -> Result<ProxyHttpOpts, (u16, St
                 cookies: HashMap::new(),
                 proxy: serde_json::Value::Null,
                 insecure_tls: false,
+                follow_redirects: None,
             });
         }
         _ => return Err((400, "'opts' must be a JSON object".to_string())),
@@ -160,12 +169,37 @@ fn parse_opts_value(value: &serde_json::Value) -> Result<ProxyHttpOpts, (u16, St
         Some(_) => return Err((400, "'insecure_tls' must be a boolean".to_string())),
         None => false,
     };
+    let follow_redirects = match obj.get("follow_redirects") {
+        Some(serde_json::Value::Bool(true)) => Some(arachnea_core::DEFAULT_MAX_REDIRECTS),
+        Some(serde_json::Value::Bool(false)) => None,
+        Some(serde_json::Value::Number(value)) => {
+            let limit = value
+                .as_u64()
+                .and_then(|value| usize::try_from(value).ok())
+                .filter(|value| *value > 0)
+                .ok_or_else(|| {
+                    (
+                        400,
+                        "'follow_redirects' must be true or a positive integer".to_string(),
+                    )
+                })?;
+            Some(limit)
+        }
+        Some(_) => {
+            return Err((
+                400,
+                "'follow_redirects' must be true, false, or a positive integer".to_string(),
+            ))
+        }
+        None => None,
+    };
 
     Ok(ProxyHttpOpts {
         headers,
         cookies,
         proxy,
         insecure_tls,
+        follow_redirects,
     })
 }
 
@@ -444,7 +478,12 @@ fn entry_point_location_prefix(entry_point: &str) -> String {
 }
 
 fn encode_proxy_opts(opts: &ProxyHttpOpts) -> String {
-    if opts.headers.is_empty() && opts.cookies.is_empty() && opts.proxy.is_null() {
+    if opts.headers.is_empty()
+        && opts.cookies.is_empty()
+        && opts.proxy.is_null()
+        && !opts.insecure_tls
+        && opts.follow_redirects.is_none()
+    {
         return String::new();
     }
 
@@ -462,6 +501,9 @@ fn encode_proxy_opts(opts: &ProxyHttpOpts) -> String {
     }
     if !opts.proxy.is_null() {
         object.insert("proxy".to_string(), opts.proxy.clone());
+    }
+    if let Some(limit) = opts.follow_redirects {
+        object.insert("follow_redirects".to_string(), serde_json::json!(limit));
     }
 
     URL_SAFE_NO_PAD.encode(serde_json::Value::Object(object).to_string())
@@ -880,6 +922,9 @@ pub async fn handle_proxy_http(
             opts_encoded: parsed.opts_encoded.clone(),
         },
         verify_tls,
+        follow_redirects: redirect_opts
+            .as_ref()
+            .and_then(|opts| opts.follow_redirects),
     };
 
     let proxy_response = match client.request_proxied(proxy_request).await {
@@ -992,13 +1037,34 @@ pub fn proxied_url(
     actions: &[ProxyHttpActionConfig],
     headers: &[(&str, &str)],
 ) -> String {
-    proxied_url_with_insecure_tls(
+    proxied_url_with_internal_options(
         media_locator,
         http_proxy_public_path,
         country,
         actions,
         headers,
         false,
+        None,
+    )
+}
+
+/// Constructs a proxied media URL with optional redirect-following settings.
+pub fn proxied_url_with_options(
+    media_locator: &str,
+    http_proxy_public_path: Option<&str>,
+    country: Option<&str>,
+    actions: &[ProxyHttpActionConfig],
+    headers: &[(&str, &str)],
+    follow_redirects: Option<serde_json::Value>,
+) -> String {
+    proxied_url_with_internal_options(
+        media_locator,
+        http_proxy_public_path,
+        country,
+        actions,
+        headers,
+        false,
+        follow_redirects,
     )
 }
 
@@ -1014,6 +1080,26 @@ pub fn proxied_url_with_insecure_tls(
     headers: &[(&str, &str)],
     insecure_tls: bool,
 ) -> String {
+    proxied_url_with_internal_options(
+        media_locator,
+        http_proxy_public_path,
+        country,
+        actions,
+        headers,
+        insecure_tls,
+        None,
+    )
+}
+
+fn proxied_url_with_internal_options(
+    media_locator: &str,
+    http_proxy_public_path: Option<&str>,
+    country: Option<&str>,
+    actions: &[ProxyHttpActionConfig],
+    headers: &[(&str, &str)],
+    insecure_tls: bool,
+    follow_redirects: Option<serde_json::Value>,
+) -> String {
     let normalized_media_locator = media_locator.trim();
     if normalized_media_locator.starts_with("http://")
         || normalized_media_locator.starts_with("https://")
@@ -1028,8 +1114,14 @@ pub fn proxied_url_with_insecure_tls(
                 .is_some();
             let has_actions = !actions.is_empty();
             let has_extra_headers = !headers.is_empty();
+            let has_follow_redirects = follow_redirects.is_some();
 
-            if has_country || has_actions || has_extra_headers || insecure_tls {
+            if has_country
+                || has_actions
+                || has_extra_headers
+                || insecure_tls
+                || has_follow_redirects
+            {
                 // Build proxy headers
                 let mut proxy_headers: Vec<Vec<String>> = Vec::new();
 
@@ -1064,6 +1156,9 @@ pub fn proxied_url_with_insecure_tls(
                 }
                 if insecure_tls {
                     opts.insert("insecure_tls".to_string(), serde_json::Value::Bool(true));
+                }
+                if let Some(follow_redirects) = follow_redirects {
+                    opts.insert("follow_redirects".to_string(), follow_redirects);
                 }
                 let opts_encoded =
                     URL_SAFE_NO_PAD.encode(serde_json::Value::Object(opts).to_string());
@@ -1171,6 +1266,7 @@ mod tests {
             cookies: HashMap::new(),
             proxy: serde_json::Value::Null,
             insecure_tls: false,
+            follow_redirects: None,
         };
         let encoded = encode_proxy_opts(&opts);
         let redirect_actions = vec![ProxyHttpRedirectActionConfig::RemoveHeader(
@@ -1233,6 +1329,7 @@ mod tests {
             cookies: HashMap::new(),
             proxy: serde_json::Value::Null,
             insecure_tls: false,
+            follow_redirects: None,
         };
         let encoded = encode_proxy_opts(&opts);
         let redirect_actions = vec![ProxyHttpRedirectActionConfig::RemoveHeader(

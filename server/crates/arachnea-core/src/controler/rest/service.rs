@@ -570,7 +570,6 @@ impl RestControlerService {
             std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED), 0)
         })
     }
-
 }
 
 impl Default for RestControlerService {
@@ -628,7 +627,11 @@ impl ControlerService for RestControlerService {
         let replay_command = command.to_string();
         let replay_call = Arc::clone(&call);
         self.record_step(Box::new(move |svc| {
-            ControlerService::register_json_function(svc, &replay_command, Arc::clone(&replay_call));
+            ControlerService::register_json_function(
+                svc,
+                &replay_command,
+                Arc::clone(&replay_call),
+            );
         }));
 
         let base_filter = self.make_base_filter(true, command);
@@ -832,7 +835,11 @@ impl ControlerService for RestControlerService {
         let replay_path = path.to_string();
         let replay_assets = Arc::clone(&assets);
         self.record_step(Box::new(move |svc| {
-            ControlerService::register_embedded_web_assets(svc, Arc::clone(&replay_assets), &replay_path);
+            ControlerService::register_embedded_web_assets(
+                svc,
+                Arc::clone(&replay_assets),
+                &replay_path,
+            );
         }));
         RestControlerService::register_embedded_web_assets(self, assets, path);
     }

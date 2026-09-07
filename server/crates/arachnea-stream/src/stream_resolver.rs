@@ -3,7 +3,7 @@ use const_format::concatcp;
 use serde::Serialize;
 use std::collections::HashMap;
 
-use arachnea_core::controler::RequestControlerContext;
+use arachnea_core::{controler::RequestControlerContext, DEFAULT_MAX_REDIRECTS};
 use arachnea_proxy::http::proxy_service::proxied_url_with_insecure_tls;
 use arachnea_scrapyfy::*;
 use url::Url;
@@ -13,7 +13,6 @@ use crate::services::player_resolver::{
 };
 
 const MAX_EMBED_HTML_BYTES: usize = 1_048_576;
-const STREAM_RESOLVER_MAX_REDIRECTS: usize = 16;
 
 /// HTML fetched for content-based resolver recognition and its final URL after redirects.
 struct FetchedEmbedHtml {
@@ -369,7 +368,7 @@ impl<'a> StreamResolver<'a> {
     /// redirect target when one was followed.
     ///
     /// Follows HTTP redirects (handled by the HTTP client, bounded by
-    /// `STREAM_RESOLVER_MAX_REDIRECTS`) and additionally follows a **simple** JavaScript
+    /// `DEFAULT_MAX_REDIRECTS`) and additionally follows a **simple** JavaScript
     /// redirect (`window.location.href = "…"` string-literal assignment) so content-based
     /// detection operates on the final document instead of a redirecting shim. JavaScript is
     /// never executed: only the target of the first plain literal assignment is extracted and
@@ -377,7 +376,7 @@ impl<'a> StreamResolver<'a> {
     /// like the initial fetch (success status, `text/html`, size limit).
     async fn fetch_embed_html(&self, url: &str) -> Result<FetchedEmbedHtml> {
         let http_config = ScraperHttpConfig {
-            max_redirects: Some(STREAM_RESOLVER_MAX_REDIRECTS),
+            max_redirects: Some(DEFAULT_MAX_REDIRECTS),
             ..ScraperHttpConfig::default()
         };
         let client = self.scraper_agregator.create_http_client(http_config);
@@ -385,7 +384,7 @@ impl<'a> StreamResolver<'a> {
         let mut current_url = url.to_string();
         let mut visited: Vec<String> = Vec::new();
 
-        for _ in 0..=STREAM_RESOLVER_MAX_REDIRECTS {
+        for _ in 0..=DEFAULT_MAX_REDIRECTS {
             if visited.iter().any(|value| value == &current_url) {
                 break;
             }
