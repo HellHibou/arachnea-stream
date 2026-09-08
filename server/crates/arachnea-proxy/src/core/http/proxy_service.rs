@@ -881,9 +881,7 @@ pub async fn handle_proxy_http(
     // to avoid dealing with compressed bodies. In streaming mode (no buffering),
     // leave Accept-Encoding untouched so the upstream can send compressed data.
     // When the controller backend does not support streaming (force_buffer_response),
-    // also force buffering to avoid streaming-specific issues (e.g. strict chunked
-    // encoding parsing on the streaming path combined with a block_in_place context
-    // in Tauri that can cause waker-propagation issues).
+    // also buffer the complete body before returning it to the controller.
     let buffer_response_body =
         post_actions_require_body_buffering(&post_actions) || input.force_buffer_response;
     if buffer_response_body {

@@ -615,7 +615,7 @@ impl ControlerService for TauriControlerService {
         let invoke_web_scheme = web_scheme.clone();
         if !web_assets.is_empty() {
             let uri_scheme = web_scheme.clone();
-            builder = builder.register_uri_scheme_protocol(uri_scheme, move |_app, request| {
+            builder = builder.register_asynchronous_uri_scheme_protocol(uri_scheme, move |_app, request, responder| {
                 let request_path = request_path_from_tauri_uri(request.uri(), &web_scheme);
 
                 if let Some((command, path, query)) = split_stream_route(&request_path, &api_prefix)
@@ -638,8 +638,8 @@ impl ControlerService for TauriControlerService {
                             })
                             .collect::<std::collections::HashMap<String, String>>();
 
-                        let response = tokio::task::block_in_place(|| {
-                            tauri::async_runtime::block_on(async {
+                        tauri::async_runtime::spawn(async move {
+                            let response = async {
                                 let mut output = handler(ControlerStreamInput {
                                     path,
                                     query,
@@ -651,11 +651,8 @@ impl ControlerService for TauriControlerService {
                                 })
                                 .await?;
 
-                                // Tauri does not support native streaming responses, so we
-                                // collect the stream into memory here, inside the same async
-                                // context where the TCP connection was established. This
-                                // avoids waker-propagation issues that cause chunked body
-                                // readers to fail when polled from a nested block_in_place.
+                                // The protocol responder requires a complete body. Collect it
+                                // in this background task so network waits leave the UI free.
                                 if let ResponseBody::Streamed(stream) = &mut output.body {
                                     use futures::StreamExt;
                                     let mut body = Vec::new();
@@ -676,48 +673,51 @@ impl ControlerService for TauriControlerService {
                                 }
 
                                 Ok(output)
-                            })
-                        });
-
-                        return match response {
-                            Ok(ControlerStreamOutput {
-                                status,
-                                body,
-                                content_type,
-                                headers,
-                            }) => {
-                                let body = match body {
-                                    ResponseBody::Buffered(mut bytes) => {
-                                        if request.method() == ::tauri::http::Method::HEAD {
-                                            bytes.clear();
-                                        }
-                                        bytes
-                                    }
-                                    ResponseBody::Streamed(_) => {
-                                        unreachable!("streaming responses are collected inside the handler call")
-                                    }
-                                };
-                                let mut builder = ::tauri::http::Response::builder()
-                                    .status(
-                                        ::tauri::http::StatusCode::from_u16(status)
-                                            .unwrap_or(::tauri::http::StatusCode::OK),
-                                    )
-                                    .header("Content-Type", &content_type);
-                                for (name, value) in &headers {
-                                    if name.to_ascii_lowercase() != "content-type" {
-                                        builder = builder.header(name.as_str(), value.as_str());
-                                    }
-                                }
-                                builder
-                                    .body(body)
-                                    .expect("Failed to build the Tauri stream response.")
                             }
-                            Err(error) => ::tauri::http::Response::builder()
-                                .status(400)
-                                .header("Content-Type", "text/plain; charset=utf-8")
-                                .body(error.into_bytes())
-                                .expect("Failed to build the Tauri stream error response."),
-                        };
+                            .await;
+
+                            let response = match response {
+                                Ok(ControlerStreamOutput {
+                                    status,
+                                    body,
+                                    content_type,
+                                    headers,
+                                }) => {
+                                    let body = match body {
+                                        ResponseBody::Buffered(mut bytes) => {
+                                            if request.method() == ::tauri::http::Method::HEAD {
+                                                bytes.clear();
+                                            }
+                                            bytes
+                                        }
+                                        ResponseBody::Streamed(_) => {
+                                            unreachable!("streaming responses are collected inside the handler call")
+                                        }
+                                    };
+                                    let mut builder = ::tauri::http::Response::builder()
+                                        .status(
+                                            ::tauri::http::StatusCode::from_u16(status)
+                                                .unwrap_or(::tauri::http::StatusCode::OK),
+                                        )
+                                        .header("Content-Type", &content_type);
+                                    for (name, value) in &headers {
+                                        if name.to_ascii_lowercase() != "content-type" {
+                                            builder = builder.header(name.as_str(), value.as_str());
+                                        }
+                                    }
+                                    builder
+                                        .body(body)
+                                        .expect("Failed to build the Tauri stream response.")
+                                }
+                                Err(error) => ::tauri::http::Response::builder()
+                                    .status(400)
+                                    .header("Content-Type", "text/plain; charset=utf-8")
+                                    .body(error.into_bytes())
+                                    .expect("Failed to build the Tauri stream error response."),
+                            };
+                            responder.respond(response);
+                        });
+                        return;
                     }
                 }
 
@@ -734,7 +734,7 @@ impl ControlerService for TauriControlerService {
                             assets.load_request(asset_path),
                         )
                     });
-                match selected {
+                let response = match selected {
                     Some((mount_path, Ok(asset))) => {
                         // Every bundle needs an absolute mount base for direct History-API routes.
                         let html_base = if mount_path.is_empty() {
@@ -756,7 +756,8 @@ impl ControlerService for TauriControlerService {
                         .status(404)
                         .body(Vec::new())
                         .expect("Failed to build Tauri 404 protocol response."),
-                }
+                };
+                responder.respond(response);
             });
         }
 

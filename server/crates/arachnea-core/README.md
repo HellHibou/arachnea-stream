@@ -24,3 +24,5 @@ Select the presentation in source with `TauriControlerConfiguration::new(context
 In tab mode, the strip is hidden when there is only one tab and that page fills the content area. From two tabs onward, 44 logical pixels are reserved at the top. All child bounds are reapplied before showing a page and after closing one, using physical coordinates derived from the current display scale to keep the strip and content aligned.
 
 On macOS, tab layout reads AppKit `contentLayoutRect` on the main thread and converts it into the native parent view coordinates before placing child webviews. This accounts for native title bar and toolbar insets without a fixed decoration offset. Other desktop platforms continue to use the window inner size.
+
+Binary routes on the desktop custom URI scheme execute in background async tasks and reply through Tauri’s asynchronous protocol responder. Response bodies remain fully buffered before delivery; network waits do not block the protocol callback. REST routes can deliver streaming bodies progressively.
