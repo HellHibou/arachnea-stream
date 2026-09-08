@@ -1542,3 +1542,82 @@ redémarrage du processus ni du systray :
 
 ### Fixed
 - Desktop binary proxy routes now run in background async tasks through Tauri’s asynchronous URI scheme responder, removing synchronous network waits from the WebView protocol callback. Full response buffering, response headers, and HEAD handling are preserved.
+
+### Added
+- **`group_items_by_header` scraper post-processor**: generic post-process in
+  `arachnea-scrapyfy` that rebuilds labeled groups from a flat ordered item
+  list. Items flagged by `is_header_field` start a new section labeled by
+  `label_field`; following items are appended to that section's
+  `entries_field`. Items flagged by any of `skip_fields` are dropped, items
+  found before the first header either start a `first_label` section or are
+  dropped, `remove_item_fields` strips helper fields from the copied entries,
+  empty sections are not emitted, and `remove_source` deletes the flat source
+  field after grouping.
+
+### Fixed
+- **Antenne Réunion `load_home` sections**: the Antenne Réunion `homeContent`
+  endpoint returns a flat ordered grid where `idType=6` rows are section
+  headers and the following rows mix catalog items (`idType=8`), raw assets
+  (`idType=4`), live channels (`idType=1`) and link tiles (`idType=7`). The
+  query previously collapsed every `idType=8` item into a single hardcoded
+  "À la une" section and exposed unusable categories built from in-app page
+  routes (`/page/...`) that `listContent` cannot resolve (it expects a numeric
+  id). The query now extracts every row into a temporary `home_rows` field and
+  rebuilds the editorial sections ("Les chaînes en direct", "Séries",
+  "Films à l'affiche", "Divertissement", "100 % jeunesse avec Benshi !",
+  "Magazines", "Encore + de sport !", …) with per-type titles, links, images
+  and media types through `group_items_by_header`, dropping link tiles and
+  banner rows. Banners keep their fullscreen extraction; the non-functional
+  `categories` block was removed pending a way to resolve the in-app page
+  routes (tracked in `docs/TODO.md`), and raw-asset entries fall back to their
+  first containing category id as link.
+- **Antenne Réunion unique asset links**: raw-asset home items (`idType=4`, e.g.
+  the "Films à l'affiche" section) previously all shared their containing
+  category id as `link`, so the frontend entry-URL deduplication collapsed 8
+  distinct movies into 1-2 cards. The fallback link is now unique per asset
+  (`<categoryId>|<assetId>`, e.g. `85044|32614`, built via `build_url` from
+  `content/0/content/category/0` and `content/0/idItem`), and `get_entry`
+  strips everything after `|` from the `listContent` request body
+  (`regex_replace_all`), so composite links resolve to the containing category
+  exactly like before. The real asset detail endpoint (`POST /proxy/assets`
+  with `assetIds=[<id>]&languageId=fra`) was identified in the official site's
+  Nuxt bundles for a future proper `get_entry` asset resolution (tracked in
+  `docs/TODO.md`; analysis in
+  `docs/dev-tracking/antennereunion-home-missing-elements-analysis.md`).
+- **Antenne Réunion `get_entry`/`get_season` empty results**: the backend only feeds a
+  `query_url` parameter to these queries (the card link sent by the frontend), but the
+  YAML built their `listContent` POST body from `{entry_id}`/`{season_id}` placeholders
+  that are never defined, so the request went out with an unresolved placeholder and
+  `listContent` returned `items: []`. Both queries now build the body from `query_url`
+  (`get_season` also receives `page`), keeping the composite-link strip in `get_entry`.
+  Verified against the live API: catalog id, season id (12 assets) and the composite
+  `85044|32614` fallback category all resolve.
+- **Antenne Réunion entry and episode images**: `get_entry` previously returned
+  no image at all. The official site's Nuxt bundles reveal that the CDN serves
+  catalog visuals straight from the catalog id (`imgdata?type=category_vod-{poster,background,logo}&objectId=<idCatalog>`,
+  all verified live) and asset visuals from the asset id (`asset_vod-background`,
+  200 on every tested episode; `asset_vod-poster` 404s everywhere). `get_entry`
+  now emits `img/poster`, `img/landscape` and `img/logo` built from `/idCatalog`,
+  and the shared episode entries emit `img/poster` from `asset_vod-background`
+  on `/idAsset` (the frontend episode preview only reads `img/poster`, so the
+  always-available landscape visual is served in the poster slot).
+- **Antenne Réunion home media types and search images/links**: the home
+  `load_home` query now types series catalog items as `video/show/serie`
+  (from the per-row `serie` flag) instead of the generic `video/show/other`
+  default, matching the typing already performed by the `search` query. The
+  `search` query now extracts per-result links and artwork from the row-level
+  `usedIn` blob: series rows use `usedIn.vod[0].idCatalog` for the link and the
+  `category_vod-poster`/`category_vod-background` CDN artwork; asset rows use a
+  composite `<categoryId>|<assetId>` link (same convention as the home asset
+  fallback, resolved by `get_entry`) and the reliable `asset_vod-background`
+  image (asset posters return 404 on the CDN). Results without a VOD entry
+  (isolated episodes, live magazines) stay link/image-free and rely on the
+  title-based deduplication key as before.
+- **Antenne Réunion `load_home` media-type serialization fix**: the twin
+  `media-type` entries (from `idType` and from the `serie` flag) accumulated
+  into a two-element array on series rows, and the scalar string serializer
+  rejected it (`Cannot serialize ... expected one value`). Both entries now
+  declare `select: first` so the `serie`-derived value replaces the
+  `idType`-derived one, keeping exactly one value per row (verified against a
+  fresh `homeContent` payload: every one of the 204 rows serializes with a
+  single `media-type`).

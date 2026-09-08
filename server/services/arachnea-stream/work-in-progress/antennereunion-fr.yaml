@@ -71,34 +71,6 @@ shared:
       fields:
         id: /idChannel
 
-  entries_media_item_home: &entries_media_item_home
-    - name: title
-      type: string
-      pointer: /content/0/content/name
-    - name: label
-      type: string
-      pointer: /content/0/content/directMetadata/AD_ASSTITLE
-    - name: description
-      type: string
-      pointer: /content/0/content/synopsis
-    - name: media-type
-      type: string
-      actions:
-        - type: format_text
-          argument: "video/show/other"
-    - name: link
-      type: string
-      pointer: /content/0/content/idCatalog
-    - name: rating
-      type: number
-      pointer: /content/0/content/directMetadata/AD_SCORPUBL
-    - name: morality
-      type: number
-      pointer: /content/0/content/moralityLevel
-    - name: img/poster > link
-      type: string
-      actions: *actions_image_to_url
-
   entries_media_item_asset: &entries_media_item_asset
     - name: title
       type: string
@@ -117,6 +89,9 @@ shared:
     - name: link
       type: string
       pointer: /idAsset
+      actions:
+        - type: format_text
+          argument: "{base_url}/proxy/assets?assetIds=%5B{}%5D&languageId={language_id}"
     - name: duration
       type: number
       pointer: /directMetadata/TS_DURATION
@@ -176,6 +151,20 @@ shared:
     - name: link
       type: string
       pointer: /idAsset
+      actions:
+        - type: format_text
+          argument: "{base_url}/proxy/assets?assetIds=%5B{}%5D&languageId={language_id}"
+    - name: img/poster > link
+      type: string
+      actions:
+        # Episodes have no poster on the CDN (`asset_vod-poster` 404s for every
+        # asset) while `asset_vod-background` always resolves; the landscape
+        # visual is served in the poster slot because the frontend episode
+        # preview only reads `img/poster`.
+        - type: build_url
+          base: "{cdn_base_url}/proxy/imgdata?type=asset_vod-background&objectId={id}&languageId={language_id}"
+          fields:
+            id: /idAsset
     - name: season-name
       type: string
       pointer: /directMetadata/AD_SERIESEA
@@ -237,24 +226,9 @@ queries:
     media_types: *media_types_antennereunion
     row_pointer: /result/homecontent
     entries:
-      - name: categories
-        type: object[]
-        pointer: "/*[content/0/idType=7]"
-        select: all
-        entries:
-          - name: key
-            type: string
-            pointer: /content/0/content/url
-          - name: label
-            type: string
-            pointer: /content/0/content/url
-          - name: link
-            type: string
-            pointer: /content/0/content/url
-          - name: request > query_url
-            type: string
-            pointer: /content/0/content/url
-
+      # Fullscreen hero banners: catalog items flagged with a fullscreen
+      # design mode. Link-less rows (raw assets, link tiles) are dropped by
+      # the frontend because they expose no `link`.
       - name: banners
         type: object[]
         pointer: "/*[content/0/tags/designMode/0=fullscreen]"
@@ -280,22 +254,164 @@ queries:
             actions: *actions_image_to_url
           - name: link
             type: string
-            pointer: /content/0/content/idCatalog
+            pointer: /content/0[idType=8]/content/idCatalog
+            actions:
+              - type: format_text
+                argument: "{base_url}/proxy/listContent?id={}&includeRoot={include_root}&languageId={language_id}"
 
-      - name: sections
+      # The home endpoint returns a flat ordered grid. `idType=6` rows are
+      # section headers (title in `content.description`), followed by mixed
+      # item rows: catalog items (`idType=8`), raw assets (`idType=4`),
+      # live channels (`idType=1`) and link tiles (`idType=7`). Every row is
+      # extracted into `home_rows`, then `group_items_by_header` rebuilds the
+      # editorial sections between headers.
+      - name: home_rows
         type: object[]
+        pointer: "/*"
+        select: all
         entries:
-          - name: label
+          - name: is_header
+            type: boolean
+            pointer: /content/0/idType
+            actions:
+              - type: map
+                default: "false"
+                argument:
+                  "6": "true"
+          - name: header_label
+            type: string
+            pointer: /content/0/content/description
+          # Link tiles point to in-app routes (/page/...) that cannot be
+          # resolved through listContent, live channel rows duplicate
+          # list_lives, and fullscreen rows are already exposed as banners:
+          # all three are dropped from sections.
+          - name: is_skipped
+            type: boolean
+            pointer: /content/0/idType
+            actions:
+              - type: map
+                default: "false"
+                argument:
+                  "7": "true"
+                  "1": "true"
+          - name: is_skipped
+            type: boolean
+            pointer: /content/0/tags/designMode/0
+            actions:
+              - type: map
+                default: "false"
+                argument:
+                  "fullscreen": "true"
+          # Card design mode drives the image slot: poster/square rows are
+          # natively portrait, cover/hero-banner rows are natively landscape.
+          - name: _design_mode
+            type: string
+            select: first
+            pointer: /content/0/tags/designMode/0
+          - name: title
+            type: string
+            pointer: /content/0/content/name
+          - name: title
+            type: string
+            pointer: /content/0/content/directMetadata/AD_ASSTITLE
+          - name: description
+            type: string
+            pointer: /content/0/content/synopsis
+          - name: description
+            type: string
+            pointer: /content/0/content/directMetadata/AD_SYNO600C
+          - name: link
+            type: string
+            pointer: /content/0[idType=8]/content/idCatalog
+            actions:
+              - type: format_text
+                argument: "{base_url}/proxy/listContent?id={}&includeRoot={include_root}&languageId={language_id}"
+          - name: link
+            type: string
+            pointer: /content/0/content/idChannel
+          - name: link
+            type: string
+            pointer: /content/0[idType=4]/idItem
+            actions:
+              # Assets are fetched through their own endpoint. Keeping this URL
+              # self-contained avoids incorrectly resolving the parent category.
+              - type: format_text
+                argument: "{base_url}/proxy/assets?assetIds=%5B{}%5D&languageId={language_id}"
+          - name: media-type
+            type: string
+            select: first
+            pointer: /content/0/idType
+            actions:
+              - type: map
+                default: "video/show/other"
+                argument:
+                  "1": video/live
+          # Catalog rows (idType=8) carry a `serie` flag; select: first lets it
+          # replace the idType-derived value so series are typed correctly
+          # (assets have no `serie` field and keep the idType-derived value).
+          - name: media-type
+            type: string
+            select: first
+            pointer: /content/0/content/serie
+            actions:
+              - type: map
+                default: "video/show/other"
+                argument:
+                  "true": video/show/serie
+          - name: img/poster > link
+            type: string
+            actions: *actions_image_to_url
+          # Native image type + item id: works for rows carrying an `imageId`
+          # (same bytes as type=image, verified live) and for rows without one
+          # (e.g. `asset_vod-background` on bare assets), which type=image
+          # cannot serve.
+          - name: img/landscape > link
             type: string
             select: first
             actions:
-              - type: format_text
-                argument: "À la une"
-          - name: entries
-            type: object[]
-            pointer: "/*[content/0/idType=8]"
-            select: all
-            entries: *entries_media_item_home
+              - type: build_url
+                base: "{cdn_base_url}/proxy/imgdata?type={image_type}&objectId={item_id}&languageId={language_id}"
+                fields:
+                  image_type: /content/0/tags/imageType
+                  item_id: /content/0/idItem
+          - name: rating
+            type: number
+            pointer: /content/0/content/directMetadata/AD_SCORPUBL
+          - name: morality
+            type: number
+            pointer: /content/0/content/moralityLevel
+    post_process:
+      # Keep exactly one image per row, in the slot matching its design mode:
+      # poster/square rows keep img/poster, cover/hero-banner rows keep
+      # img/landscape.
+      - type: filter_fields
+        source: home_rows
+        field: _design_mode
+        pattern: "^(poster|square)$"
+        keep_matching: true
+        remove:
+          - img/landscape > link
+      - type: filter_fields
+        source: home_rows
+        field: _design_mode
+        pattern: "^(poster|square)$"
+        keep_matching: false
+        remove:
+          - img/poster > link
+          - _design_mode
+      - type: group_items_by_header
+        source: home_rows
+        target: sections
+        is_header_field: is_header
+        label_field: header_label
+        skip_fields:
+          - is_skipped
+        remove_item_fields:
+          - is_header
+          - header_label
+          - is_skipped
+          - _design_mode
+        remove_source: true
 
   - name: get_category
     scraper_type: json
@@ -303,6 +419,8 @@ queries:
     base_url: "{base_url}"
     query_url: "{base_url}/proxy/listContent"
     request_body_actions:
+      # The frontend echoes the category row's `request > category_id` entry
+      # back as a per-source parameter.
       - type: format_text
         argument: 'id={category_id}&includeRoot={include_root}&languageId={language_id}'
     request_headers: *request_headers_json
@@ -328,6 +446,9 @@ queries:
             actions:
               - type: format_text
                 argument: "{base_url}/proxy/listContent"
+          - name: request > category_id
+            type: string
+            pointer: /idCatalog
       - name: sections
         type: object[]
         entries:
@@ -370,8 +491,9 @@ queries:
     base_url: "{base_url}"
     query_url: "{base_url}/proxy/listContent"
     request_body_actions:
+      # The frontend sends the section link as the per-source `link` parameter.
       - type: format_text
-        argument: 'id={section_id}&includeRoot={include_root}&languageId={language_id}'
+        argument: 'id={link}&includeRoot={include_root}&languageId={language_id}'
     request_headers: *request_headers_json
     media_types: *media_types_antennereunion
     row_pointer: /result/items/0/payload
@@ -411,46 +533,105 @@ queries:
     media_types: *media_types_antennereunion
     row_pointer: /result/data
     entries:
+      # select: first: the scalar pagination fields are evaluated once per
+      # result row and would otherwise accumulate one value per row.
       - name: current_page
         type: number
+        select: first
         actions:
           - type: format_text
             argument: "{page}"
       - name: total_pages
         type: number
+        select: first
         actions:
           - type: format_text
             argument: "1"
       - name: entries
         type: object[]
-        pointer: "/*/item"
+        pointer: "*"
         select: all
         entries:
           - name: title
             type: string
-            pointer: /payload/title
+            pointer: /item/payload/title
           - name: description
             type: string
-            pointer: /payload/synopsis
+            pointer: /item/payload/synopsis
           - name: media-type
             type: string
-            pointer: /type
+            pointer: /item/type
             actions:
               - type: map
                 default: "video/show/other"
                 argument:
                   "asset": video/show/other
                   "series": video/show/serie
+          # Series rows expose their catalog id in `usedIn.vod[0].idCatalog`.
+          - name: link
+            type: string
+            pointer: /usedIn/vod/0/idCatalog
+            actions:
+              - type: format_text
+                argument: "{base_url}/proxy/listContent?id={}&includeRoot={include_root}&languageId={language_id}"
+          # Assets use their direct API endpoint rather than their parent
+          # category, which may contain many unrelated programmes.
+          - name: link
+            type: string
+            pointer: /usedIn/vod/0/idAsset
+            actions:
+              - type: format_text
+                argument: "{base_url}/proxy/assets?assetIds=%5B{}%5D&languageId={language_id}"
+          # Images: series use the category artwork, assets fall back to the
+          # reliable asset background (asset posters return 404 on the CDN).
+          - name: img/poster > link
+            type: string
+            pointer: /usedIn/vod/0/idCatalog
+            actions:
+              - type: build_url
+                base: "{cdn_base_url}/proxy/imgdata?type=category_vod-poster&objectId={id}&languageId={language_id}"
+                fields:
+                  id: /usedIn/vod/0/idCatalog
+          - name: img/poster > link
+            type: string
+            pointer: /usedIn/vod/0/idAsset
+            actions:
+              - type: build_url
+                base: "{cdn_base_url}/proxy/imgdata?type=asset_vod-background&objectId={id}&languageId={language_id}"
+                fields:
+                  id: /usedIn/vod/0/idAsset
+          - name: img/landscape > link
+            type: string
+            pointer: /usedIn/vod/0/idCatalog
+            actions:
+              - type: build_url
+                base: "{cdn_base_url}/proxy/imgdata?type=category_vod-background&objectId={id}&languageId={language_id}"
+                fields:
+                  id: /usedIn/vod/0/idCatalog
+          - name: img/landscape > link
+            type: string
+            pointer: /usedIn/vod/0/idAsset
+            actions:
+              - type: build_url
+                base: "{cdn_base_url}/proxy/imgdata?type=asset_vod-background&objectId={id}&languageId={language_id}"
+                fields:
+                  id: /usedIn/vod/0/idAsset
           - name: year
             type: number
-            pointer: /payload/metadata/tv.alphanetworks.tucano.releaseYear
+            pointer: /item/payload/metadata/tv.alphanetworks.tucano.releaseYear
           - name: theme
             type: string[]
-            pointer: /payload/genre
+            pointer: /item/payload/genre
           - name: morality
             type: number
-            pointer: /payload/moralityLevel
+            pointer: /item/payload/moralityLevel
     post_process:
+      # EPG-only search hits have no VOD catalogue or asset target and cannot
+      # open an entry page, so do not expose them as media cards.
+      - type: filter_items
+        source: entries
+        field: link
+        pattern: "^https://"
       - type: derive_pagination
         total_pages_field: total_pages
         remove_fields:
@@ -460,40 +641,198 @@ queries:
     scraper_type: json
     request_method: post
     base_url: "{base_url}"
-    query_url: "{base_url}/proxy/listContent"
-    request_body_actions:
-      - type: format_text
-        argument: 'id={entry_id}&includeRoot={include_root}&languageId={language_id}'
+    # Cards provide the complete, resource-specific API URL: listContent for
+    # catalogues and assets for standalone programmes.
+    query_url: "{query_url}"
     request_headers: *request_headers_json
     media_types: *media_types_antennereunion
-    row_pointer: /result/items/0/payload
+    row_pointer: /result/items/0
     entries:
       - name: title
         type: string
-        pointer: /name
+        pointer: /payload/name
+      - name: title
+        type: string
+        pointer: /directMetadata/AD_ASSTITLE
       - name: description
         type: string
-        pointer: /synopsis
+        pointer: /payload/synopsis
+      - name: description
+        type: string
+        pointer: /directMetadata/AD_SYNO600C
       - name: media-type
         type: string
-        pointer: /serie
+        pointer: /payload/serie
         actions:
           - type: map
             default: "video/show/other"
             argument:
               "true": video/show/serie
+      - name: media-type
+        type: string
+        pointer: /idAsset
+        actions:
+          - type: format_text
+            argument: "video/show/other"
       - name: link
         type: string
-        pointer: /idCatalog
+        pointer: /payload/idCatalog
+        actions:
+          # Expose the catalog id as a dynamic variable so the `web-link` entry
+          # below can build the official site's `<slug>-<id>` URL.
+          - type: extract_variables
+            pattern: '^(.*)$'
+            name: '@id'
+            value: '{1}'
+      - name: link
+        type: string
+        pointer: /idAsset
+        actions:
+          - type: extract_variables
+            pattern: '^(.*)$'
+            name: '@id'
+            value: '{1}'
+      # Slugified catalog title (helper for web-link). The official site uses
+      # `/series/<slug>-<id>/details` and `/content/<slug>-<id>`; the server
+      # tolerates any slug (the id is authoritative), so a plain
+      # transliterated slug is enough. The raw field is ignored by the frontend.
+      - name: slug
+        type: string
+        select: first
+        pointer: /payload/name
+        actions:
+          - type: regex_replace_all
+            pattern: '[éèêëÉÈÊË]'
+            replacement: 'e'
+          - type: regex_replace_all
+            pattern: '[àâäÀÂÄ]'
+            replacement: 'a'
+          - type: regex_replace_all
+            pattern: '[îïÎÏ]'
+            replacement: 'i'
+          - type: regex_replace_all
+            pattern: '[ôöÔÖ]'
+            replacement: 'o'
+          - type: regex_replace_all
+            pattern: '[ùûüÙÛÜ]'
+            replacement: 'u'
+          - type: regex_replace_all
+            pattern: '[çÇ]'
+            replacement: 'c'
+          - type: regex_replace_all
+            pattern: '[œŒ]'
+            replacement: 'oe'
+          - type: regex_replace_all
+            pattern: '[^A-Za-z0-9]+'
+            replacement: '-'
+          - type: regex_replace_all
+            pattern: '^-+|-+$'
+            replacement: ''
+          - type: extract_variables
+            pattern: '^(.*)$'
+            name: '@slug'
+            value: '{1}'
+      - name: rating
+        type: number
+        pointer: /payload/directMetadata/AD_SCORPUBL
       - name: rating
         type: number
         pointer: /directMetadata/AD_SCORPUBL
       - name: morality
         type: number
+        pointer: /payload/moralityLevel
+      - name: morality
+        type: number
         pointer: /moralityLevel
+      - name: content-advisor
+        type: string
+        pointer: /directMetadata/AD_SUBTITLE
+      - name: director
+        type: string[]
+        pointer: /directMetadata/AD_LIREALIS
+        actions:
+          - type: regex_replace_all
+            pattern: '^\s+|\s+$'
+            replacement: ''
+      - name: duration
+        type: number
+        pointer: /directMetadata/TS_DURATION
+        actions:
+          - type: ratio
+            argument: 60
+      - name: theme
+        type: string[]
+        pointer: /directMetadata/AD_LIGENRES
+      - name: img/poster > link
+        type: string
+        pointer: /payload/idCatalog
+        actions:
+          # Catalog visuals are served by the CDN directly from the catalog id
+          # (verified live: category_vod-poster/background/logo all resolve).
+          - type: build_url
+            base: "{cdn_base_url}/proxy/imgdata?type=category_vod-poster&objectId={id}&languageId={language_id}"
+            fields:
+              id: /payload/idCatalog
+      - name: img/poster > link
+        type: string
+        pointer: /idAsset
+        actions:
+          - type: build_url
+            base: "{cdn_base_url}/proxy/imgdata?type=asset_vod-background&objectId={id}&languageId={language_id}"
+            fields:
+              id: /idAsset
+      - name: img/landscape > link
+        type: string
+        pointer: /payload/idCatalog
+        actions:
+          - type: build_url
+            base: "{cdn_base_url}/proxy/imgdata?type=category_vod-background&objectId={id}&languageId={language_id}"
+            fields:
+              id: /payload/idCatalog
+      - name: img/landscape > link
+        type: string
+        pointer: /idAsset
+        actions:
+          - type: build_url
+            base: "{cdn_base_url}/proxy/imgdata?type=asset_vod-background&objectId={id}&languageId={language_id}"
+            fields:
+              id: /idAsset
+      - name: img/logo > link
+        type: string
+        pointer: /payload/idCatalog
+        actions:
+          - type: build_url
+            base: "{cdn_base_url}/proxy/imgdata?type=category_vod-logo&objectId={id}&languageId={language_id}"
+            fields:
+              id: /payload/idCatalog
+      # Official website URL. Series live under /series/<slug>-<id>/details
+      # (the server only answers series pages with the /details suffix),
+      # everything else under /content/<slug>-<id> (no suffix). Both verified
+      # live against www.antennereunion.fr.
+      - name: web-link
+        type: string
+        select: first
+        pointer: /payload/serie
+        actions:
+          - type: map
+            argument:
+              "true": "https://www.antennereunion.fr/series/{@slug}-{@id}/details"
+              "false": "https://www.antennereunion.fr/content/{@slug}-{@id}"
+          - type: replace_variables
+          - type: format_text
+            argument: "{}"
+      - name: web-link
+        type: string
+        pointer: /idAsset
+        actions:
+          # Asset URLs require a slug, but the official website resolves it by
+          # id; a stable generic slug is therefore sufficient here.
+          - type: format_text
+            argument: "https://www.antennereunion.fr/content/asset-{@id}"
+          - type: replace_variables
       - name: seasons
         type: object[]
-        pointer: /categories/*
+        pointer: /payload/categories/*
         select: all
         entries:
           - name: label
@@ -509,8 +848,10 @@ queries:
     base_url: "{base_url}"
     query_url: "{base_url}/proxy/listContent"
     request_body_actions:
+      # The backend `get_season` feeds `query_url` with the season link
+      # (the season's `idCatalog` emitted by `get_entry > seasons`).
       - type: format_text
-        argument: 'id={season_id}&includeRoot={include_root}&languageId={language_id}'
+        argument: 'id={query_url}&includeRoot={include_root}&languageId={language_id}'
     request_headers: *request_headers_json
     media_types: *media_types_antennereunion
     row_pointer: /result/items/0/payload
@@ -540,37 +881,54 @@ queries:
     request_headers: *request_headers_json
     media_types:
       - video/live
-    row_pointer: /result/channels/*
+    # The unified executor merges every extracted row into a single root node,
+    # so a multi-item payload like live channels needs a group field combined
+    # with `result_item_field` to flatten one item per channel back out.
+    row_pointer: /
+    result_item_field: entries
     entries:
-      - name: key
-        type: string
-        pointer: /idChannel
-      - name: title
-        type: string
-        pointer: /name
-      - name: media-type
-        type: string
-        actions:
-          - type: format_text
-            argument: "video/live"
-      - name: link
-        type: string
-        pointer: /idChannel
-      - name: channel
-        type: string
-        pointer: /name
-      - name: tags
-        type: string[]
-        pointer: /tags
-      - name: img/poster > link
-        type: string
-        actions: *actions_channel_image_to_url
-      - name: img/portrait > link
-        type: string
-        actions: *actions_channel_image_to_url
-      - name: img/landscape > link
-        type: string
-        actions: *actions_channel_image_to_url
+      - name: entries
+        type: object[]
+        pointer: /result/channels/*
+        select: all
+        entries:
+          - name: key
+            type: string
+            select: first
+            pointer: /idChannel
+          - name: title
+            type: string
+            select: first
+            pointer: /name
+          - name: media-type
+            type: string
+            select: first
+            actions:
+              - type: format_text
+                argument: "video/live"
+          - name: link
+            type: string
+            select: first
+            pointer: /idChannel
+          - name: channel
+            type: string
+            select: first
+            pointer: /name
+          - name: tags
+            type: string[]
+            pointer: /tags
+          - name: img/poster > link
+            type: string
+            select: first
+            actions: *actions_channel_image_to_url
+          - name: img/portrait > link
+            type: string
+            select: first
+            actions: *actions_channel_image_to_url
+          - name: img/landscape > link
+            type: string
+            select: first
+            actions: *actions_channel_image_to_url
 
   - name: get_live
     scraper_type: json

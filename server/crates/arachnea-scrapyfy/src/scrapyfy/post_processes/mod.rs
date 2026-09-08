@@ -15,6 +15,7 @@ mod fetch_actions_to_field;
 mod fetch_regex_items_from_items;
 mod filter_fields;
 mod filter_items;
+mod group_items_by_header;
 mod math_helpers;
 mod node_helpers;
 mod pivot_items_by_index;
@@ -255,6 +256,33 @@ pub enum ScraperPostProcess {
         unique_field: Option<String>,
     },
 
+    /// Groups flat items into labeled sections delimited by header rows.
+    GroupItemsByHeader {
+        /// Root field containing the flat items in display order.
+        source: String,
+        /// Root field receiving the grouped sections.
+        target: String,
+        /// Boolean item field marking header rows that start a new section.
+        is_header_field: String,
+        /// Item field holding the section label on header rows.
+        label_field: String,
+        /// Nested field receiving the section items inside each group.
+        #[serde(default = "types::default_entries_field")]
+        entries_field: String,
+        /// Boolean item fields; items where any is true are dropped entirely.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        skip_fields: Vec<String>,
+        /// Optional label used for items appearing before the first header row.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        first_label: Option<String>,
+        /// Field paths stripped from every copied entry.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        remove_item_fields: Vec<String>,
+        /// When true, the source field is removed after grouping.
+        #[serde(default)]
+        remove_source: bool,
+    },
+
     /// Sets one or more fields on every nested item inside every source item.
     /// Each field can be either a static value or a copy from a sibling field.
     SetNestedFields {
@@ -332,6 +360,7 @@ impl ScraperPostProcess {
                 }
                 Ok(())
             }
+            ScraperPostProcess::GroupItemsByHeader { .. } => group_items_by_header::validate(),
             ScraperPostProcess::PivotItemsByIndex { .. } => pivot_items_by_index::validate(),
             ScraperPostProcess::ComputeItemsField {
                 source,
@@ -497,6 +526,31 @@ impl ScraperPostProcess {
                     copy_item_fields,
                 )
                 .await
+            }
+            ScraperPostProcess::GroupItemsByHeader {
+                source,
+                target,
+                is_header_field,
+                label_field,
+                entries_field,
+                skip_fields,
+                first_label,
+                remove_item_fields,
+                remove_source,
+            } => {
+                group_items_by_header::apply(
+                    root,
+                    source,
+                    target,
+                    is_header_field,
+                    label_field,
+                    entries_field,
+                    skip_fields,
+                    first_label.as_deref(),
+                    remove_item_fields,
+                    *remove_source,
+                );
+                Ok(())
             }
             ScraperPostProcess::PivotItemsByIndex {
                 source,
