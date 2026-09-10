@@ -45,7 +45,14 @@ export interface EntryPlayerResolver {
   kind: string
   /** The target identifier to resolve. */
   targetId: string
+  /** Optional source owning a fixed YAML `resolve_stream` query. */
+  source?: string
 }
+
+/**
+ * Resolver descriptor for an entry trailer that is resolved on demand.
+ */
+export type EntryTrailerResolver = EntryPlayerResolver
 
 /**
  * Sprite thumbnail metadata exposed by one backend player.
@@ -192,6 +199,8 @@ export interface EntryDetails {
   alternativeTitleLabel: string | null
   /** The URL to the trailer for this entry. */
   trailerUrl: string | null
+  /** Optional resolver used to retrieve an ephemeral trailer stream on demand. */
+  trailerResolver: EntryTrailerResolver | null
   /** The collection of available players for this entry. */
   players: Collection<EntryPlayer>
   /** The description of the entry. */

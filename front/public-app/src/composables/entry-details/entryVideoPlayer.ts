@@ -30,6 +30,8 @@ interface UseEntryVideoPlayerOptions {
   selectedPlayableItem: Ref<EntryPlayableItem | null>
   /** Security mode used to gate embedded trailer sources. */
   securityMode: Ref<'unsafe' | 'confirmation' | 'safe'>
+  /** Whether a trailer resolver should also resolve for the decorative background. */
+  useTrailerAsBackground: Ref<boolean>
 }
 
 /**
@@ -185,6 +187,8 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
 
   /** Request identifier counter for player resolution requests to ignore stale responses. */
   let activeResolutionId = 0
+  /** Request identifier counter for trailer resolution requests to ignore stale responses. */
+  let activeTrailerResolutionId = 0
 
   /**
    * Exposes the backend source currently driving the active entry details view.
@@ -200,13 +204,18 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
    */
   const trailerUrl = computed(() => options.details.value?.trailerUrl ?? null)
 
+  /** Trailer resolver returned separately from direct `video/trailer` values. */
+  const trailerResolver = computed(() => options.details.value?.trailerResolver ?? null)
+  /** Resolved source for a trailer with an ephemeral stream URL. */
+  const resolvedTrailerMediaSource = shallowRef<ResolvedPlayerMediaSource | null>(null)
+
   /**
    * Exposes the resolved trailer media source used by the embedded player.
    *
    * @returns The resolved media source for the trailer, or null.
    */
   const trailerMediaSource = computed<ResolvedPlayerMediaSource | null>(() =>
-    resolvePlayerMediaSource(trailerUrl.value),
+    resolvedTrailerMediaSource.value ?? resolvePlayerMediaSource(trailerUrl.value),
   )
 
   /**
@@ -221,7 +230,7 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
    *
    * @returns True if a trailer media source is available.
    */
-  const hasTrailer = computed(() => Boolean(trailerMediaSource.value))
+  const hasTrailer = computed(() => Boolean(trailerMediaSource.value || trailerResolver.value))
 
   /**
    * Indicates whether the trailer iframe is blocked without a confirmation path.
@@ -571,11 +580,13 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
    */
   function resetForEntryLoad(): void {
     activeResolutionId += 1
+    activeTrailerResolutionId += 1
     activeVideoMode.value = 'media'
     selectedLanguageKey.value = null
     selectedPlayerId.value = null
     clearSelectedPlayablePlayerState()
     resolvedMediaSource.value = null
+    resolvedTrailerMediaSource.value = null
     isMediaPlayerLoading.value = false
     mediaPlayerErrorMessage.value = null
   }
@@ -588,7 +599,7 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
   function applyLoadedEntryDefaults(nextDetails: EntryDetails): void {
     activeVideoMode.value = nextDetails.players.entries.length > 0
       ? 'media'
-      : (resolvePlayerMediaSource(nextDetails.trailerUrl) ? 'trailer' : 'media')
+      : (resolvePlayerMediaSource(nextDetails.trailerUrl) || nextDetails.trailerResolver ? 'trailer' : 'media')
     selectedLanguageKey.value = preferredLanguageKey.value
     selectedPlayerId.value = null
     clearSelectedPlayablePlayerState()
@@ -682,6 +693,53 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
 
     activePlayerId.value = preferredPlayer?.id ?? players[0]?.id ?? null
   }, { immediate: true })
+
+  watch(
+    [trailerResolver, () => activeVideoMode.value, () => options.useTrailerAsBackground.value],
+    async ([resolver, videoMode, useTrailerAsBackground]) => {
+      if (
+        !resolver ||
+        (videoMode !== 'trailer' && !useTrailerAsBackground) ||
+        resolvedTrailerMediaSource.value
+      ) {
+        return
+      }
+
+      const resolutionId = ++activeTrailerResolutionId
+      const trailerPlayer: EntryPlayer = {
+        id: `trailer:${resolver.kind}:${resolver.targetId}`,
+        label: t('entry.trailer'),
+        directLink: null,
+        webLink: null,
+        name: null,
+        lang: null,
+        resolver,
+        storyboard: null,
+      }
+
+      try {
+        const resolvedStream = await getStream(trailerPlayer)
+        if (resolutionId !== activeTrailerResolutionId || !resolvedStream) {
+          return
+        }
+        resolvedTrailerMediaSource.value = 'embedLink' in resolvedStream
+          ? resolveIframeMediaSource(resolvedStream.embedLink)
+          : resolveBackendStreamMediaSource(
+              resolvedStream.streamUrl[0] ?? null,
+              resolvedStream.manifestType,
+              resolvedStream.licenseUrl,
+              resolvedStream.licenseHeaders,
+              resolvedStream.storyboardVttUrl,
+              resolvedStream.chapters ?? undefined,
+            )
+      } catch {
+        if (resolutionId === activeTrailerResolutionId) {
+          resolvedTrailerMediaSource.value = null
+        }
+      }
+    },
+    { immediate: true },
+  )
 
   watch(
     [currentSource, () => selectedPlayer.value?.id ?? null],

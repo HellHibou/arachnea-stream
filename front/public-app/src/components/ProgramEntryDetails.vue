@@ -235,6 +235,7 @@ const {
   details,
   selectedPlayableItem: selectedEpisode,
   securityMode: toRef(props, 'securityMode'),
+  useTrailerAsBackground: toRef(props, 'useTrailerAsBackground'),
 })
 
 /** Entry details presentation composable results. */
@@ -353,11 +354,13 @@ watch(
 )
 
 /**
- * Resolves the trailer URL used by the full-page background when the option is enabled.
+ * Resolves the native trailer source used by the full-page background when the option is enabled.
  */
 const backgroundVideoUrl = computed(() =>
   props.useTrailerAsBackground
-    ? trailerUrl.value
+    ? trailerMediaSource.value?.renderer === 'video'
+      ? trailerMediaSource.value.src
+      : trailerUrl.value
     : null,
 )
 

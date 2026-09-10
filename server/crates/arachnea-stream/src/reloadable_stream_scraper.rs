@@ -421,7 +421,7 @@ fn register_routes(
         |reloadable, _context, input: GetStreamRequest| async move {
             reloadable
                 .current()
-                .get_stream(input.resolver, input.target)
+                .get_stream(input.resolver, input.target, input.source)
                 .await
                 .map(|result| (result, None::<String>))
         },

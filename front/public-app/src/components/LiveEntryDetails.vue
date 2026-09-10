@@ -179,6 +179,7 @@ const details = computed<EntryDetailsModel | null>(() => {
     title: liveItem.title?.trim() || MSG_LIVE,
     alternativeTitleLabel: liveItem.alternativeTitleLabel?.trim() || null,
     trailerUrl: null,
+    trailerResolver: null,
     players:  { entries: selectedLivePlayers.value, source: liveItem.source ?? '' },
     description: liveItem.overview ?? MSG_LIVE_PLAYING,
     imagePosterUrl: liveItem.imagePosterUrl,

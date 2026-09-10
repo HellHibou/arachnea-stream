@@ -611,6 +611,15 @@ impl ScraperQueryCollection {
         &self.yaml_hash
     }
 
+    /// Returns whether this source declares a query with the supplied name.
+    ///
+    /// # Arguments
+    ///
+    /// * `query_name` - Name of the query to look up.
+    pub fn has_query(&self, query_name: &str) -> bool {
+        self.queries.contains_key(query_name)
+    }
+
     /// Records the base62 hash of the raw source YAML document.
     pub(crate) fn set_yaml_hash(&mut self, yaml_hash: String) -> &mut Self {
         self.yaml_hash = yaml_hash;
@@ -624,7 +633,7 @@ impl ScraperQueryCollection {
     ///
     /// * `query_name` - Name of the query to look up.
     pub fn get_query(&self, query_name: &str) -> Option<&ScraperQueryDefinition> {
-        return self.queries.get(query_name);
+        self.queries.get(query_name)
     }
 
     /// Loads one query collection from a reader using the provided parser.

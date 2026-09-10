@@ -28,8 +28,8 @@ use crate::services::{
     tf1_resolver::Tf1Resolver,
 };
 use crate::stream_resolver::{
-    ResolvedStream, StreamResolver, GENERIC_STREAM_RESOLVER_ID, STREAM_RESOLVER_CONFIG_PATH,
-    STREAM_RESOLVER_GROUP_NAME,
+    resolve_scraper_query_stream, ResolvedStream, StreamResolver, GENERIC_STREAM_RESOLVER_ID,
+    SCRAPER_QUERY_STREAM_RESOLVER_ID, STREAM_RESOLVER_CONFIG_PATH, STREAM_RESOLVER_GROUP_NAME,
 };
 
 /// Default group name used by the stream scraper crate.
@@ -230,6 +230,8 @@ pub(crate) struct GetLiveRequest {
 pub(crate) struct GetStreamRequest {
     pub(crate) resolver: String,
     pub(crate) target: String,
+    #[serde(default)]
+    pub(crate) source: Option<String>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -1247,8 +1249,19 @@ impl StreamScraper {
         &self,
         resolver_id: String,
         target: String,
+        source: Option<String>,
     ) -> Result<ScraperAggregationResult<ResolvedStream>> {
-        let resolved = if resolver_id.trim() == GENERIC_STREAM_RESOLVER_ID {
+        let resolved = if resolver_id.trim() == SCRAPER_QUERY_STREAM_RESOLVER_ID {
+            ResolvedStream::Stream(
+                resolve_scraper_query_stream(
+                    &self.scraper_agregator,
+                    &self.player_resolver_endpoints,
+                    source.as_deref().unwrap_or_default(),
+                    &target,
+                )
+                .await?,
+            )
+        } else if resolver_id.trim() == GENERIC_STREAM_RESOLVER_ID {
             StreamResolver::new(&self.scraper_agregator, &self.player_resolver_endpoints)
                 .get_stream(&target)
                 .await?

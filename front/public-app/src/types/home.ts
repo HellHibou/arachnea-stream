@@ -32,6 +32,8 @@ export interface HomeBannerPlayer {
   kind: string
   /** The target identifier to resolve. */
   targetId: string
+  /** Optional source owning a fixed YAML `resolve_stream` query. */
+  source?: string
 }
 
 /**

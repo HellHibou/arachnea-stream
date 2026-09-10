@@ -1040,9 +1040,10 @@ function extractBannerPlayer(record: Record<string, unknown>): HomeBannerPlayer 
     const resolver = isJsonRecord(player) ? (player as Record<string, unknown>).resolver : null
     const kind = isJsonRecord(resolver) ? firstNonEmptyString([(resolver as Record<string, unknown>).kind]) : null
     const targetId = isJsonRecord(resolver) ? firstNonEmptyString([(resolver as Record<string, unknown>).target_id]) : null
+    const source = isJsonRecord(resolver) ? firstNonEmptyString([(resolver as Record<string, unknown>).source]) : null
 
     if (kind && targetId) {
-      return { kind, targetId }
+      return { kind, targetId, ...(source ? { source } : {}) }
     }
   }
 
@@ -1501,6 +1502,7 @@ export async function getStream(
   const response = await call_api<unknown>('get_stream', {
     resolver: player.resolver.kind,
     target: player.resolver.targetId,
+    source: player.resolver.source,
   })
 
   return normalizeGetStreamResponse(response)
@@ -1653,6 +1655,7 @@ function normalizeEntryDetails(entry: unknown, source: string, entryUrl: string)
     source,
   )
   const trailerUrl = firstNonEmptyString([record['video/trailer']])
+  const trailerResolver = normalizeEntryTrailerResolver(record)
   const webLink = resolveEntryUrl(
     firstNonEmptyString([record['web-link'], record.webLink, record.web_url, record.webUrl]),
     source,
@@ -1664,6 +1667,7 @@ function normalizeEntryDetails(entry: unknown, source: string, entryUrl: string)
     title: firstNonEmptyString([record.title]),
     alternativeTitleLabel: firstNonEmptyString([record['title/alt']]),
     trailerUrl,
+    trailerResolver,
     players,
     description: firstNonEmptyString([record.description]),
     imagePosterUrl,
@@ -1806,7 +1810,8 @@ function normalizeEntryPlayerResolver(entry: JsonRecord): EntryPlayerResolver | 
   const flatTarget = firstNonEmptyString([entry.target, entry['target']])
 
   if (flatKind && flatTarget) {
-    return { kind: flatKind, targetId: flatTarget }
+    const flatSource = firstNonEmptyString([entry.source, entry.resolverSource])
+    return { kind: flatKind, targetId: flatTarget, ...(flatSource ? { source: flatSource } : {}) }
   }
 
   // Fall back to the legacy object format (resolver as an array of objects).
@@ -1823,12 +1828,27 @@ function normalizeEntryPlayerResolver(entry: JsonRecord): EntryPlayerResolver | 
     // Also check flat target from legacy top-level key
     flatTarget,
   ])
+  const source = firstNonEmptyString([
+    readPath(resolver, 'source'),
+    readPath(entry, 'resolverSource'),
+  ])
 
   if (!kind || !targetId) {
     return null
   }
 
-  return { kind, targetId }
+  return { kind, targetId, ...(source ? { source } : {}) }
+}
+
+/**
+ * Converts an entry-level trailer resolver descriptor into the shared player resolver model.
+ *
+ * @param entry Raw backend entry returned by `get_entry`.
+ * @returns Trailer resolver, or null when the entry exposes a direct trailer URL.
+ */
+function normalizeEntryTrailerResolver(entry: JsonRecord): EntryPlayerResolver | null {
+  const trailer = readRecordList(entry.trailer)[0] ?? null
+  return trailer ? normalizeEntryPlayerResolver(trailer) : null
 }
 
 /**

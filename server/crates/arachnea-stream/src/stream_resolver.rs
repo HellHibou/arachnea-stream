@@ -61,6 +61,9 @@ const CAN_RESOLVE_HTML_QUERY_NAME: &str = "can_resolve_html";
 /// Resolver identifier used by the flat YAML player descriptor.
 pub const GENERIC_STREAM_RESOLVER_ID: &str = "stream-resolver";
 
+/// Resolver identifier for a service-owned YAML `resolve_stream` query.
+pub const SCRAPER_QUERY_STREAM_RESOLVER_ID: &str = "scraper-query";
+
 /// Union response returned by `get_stream`.
 ///
 /// This type mirrors the frontend `GetStreamResponse` union:
@@ -271,33 +274,13 @@ impl<'a> StreamResolver<'a> {
             Err(_) => return Ok(ResolveAttemptResult::NoStream),
         };
 
-        // Proxy stream URLs through the HTTP proxy with embedded headers.
-        if let Some(proxy_path) = self.endpoints.http_proxy_public_path.as_deref() {
-            let insecure_tls_hosts = self
-                .scraper_agregator
-                .proxy_insecure_tls_hosts(STREAM_RESOLVER_GROUP_NAME, service_name)
-                .unwrap_or_default();
-            let headers: Vec<(&str, &str)> = stream
-                .stream_headers
-                .iter()
-                .map(|(k, v)| (k.as_str(), v.as_str()))
-                .collect();
-            stream.stream_url = stream
-                .stream_url
-                .into_iter()
-                .map(|u| {
-                    let insecure_tls = is_insecure_tls_host(&u, insecure_tls_hosts);
-                    proxied_url_with_insecure_tls(
-                        &u,
-                        Some(proxy_path),
-                        None,
-                        &[],
-                        &headers,
-                        insecure_tls,
-                    )
-                })
-                .collect();
-        }
+        proxy_resolved_stream(
+            &mut stream,
+            self.scraper_agregator,
+            STREAM_RESOLVER_GROUP_NAME,
+            service_name,
+            self.endpoints,
+        );
 
         Ok(ResolveAttemptResult::Stream(stream))
     }
@@ -553,6 +536,137 @@ impl<'a> StreamResolver<'a> {
         }
         params
     }
+}
+
+/// Resolves a stream through the fixed `resolve_stream` query of one stream service.
+///
+/// The source is selected separately from the target so callers cannot execute an
+/// arbitrary query through the public stream endpoint. The target must be an absolute
+/// HTTP(S) URL and is exposed to YAML as both `{url}` and `{query_url}`.
+///
+/// # Errors
+///
+/// Returns an error when the source or target is empty, the source is not loaded in
+/// `arachnea-stream`, it does not declare `resolve_stream`, query execution fails, or
+/// the response does not contain a usable HTTP(S) stream URL.
+pub(crate) async fn resolve_scraper_query_stream(
+    scraper_agregator: &ScraperAgregator,
+    endpoints: &PlayerResolverEndpoints,
+    source: &str,
+    target: &str,
+) -> Result<ResolvedPlayerStream> {
+    let source = source.trim();
+    let target = target.trim();
+    if source.is_empty() {
+        bail!("Missing scraper-query source.");
+    }
+    if target.is_empty() {
+        bail!("Missing scraper-query target.");
+    }
+
+    let parsed_target = Url::parse(target).context("Invalid scraper-query target URL.")?;
+    if !matches!(parsed_target.scheme(), "http" | "https") {
+        bail!("Scraper-query target must use HTTP(S).");
+    }
+
+    if !scraper_agregator
+        .source_names_in_group(crate::stream_scraper::STREAM_SERVICE_GROUP_NAME)
+        .iter()
+        .any(|name| name == source)
+    {
+        bail!("Unknown scraper-query source `{source}`.");
+    }
+    if !scraper_agregator.source_has_query(
+        crate::stream_scraper::STREAM_SERVICE_GROUP_NAME,
+        source,
+        RESOLVE_STREAM_QUERY_NAME,
+    ) {
+        bail!("Scraper-query source `{source}` does not declare `{RESOLVE_STREAM_QUERY_NAME}`.");
+    }
+
+    let params = HashMap::from([
+        ("url".to_string(), target.to_string()),
+        ("query_url".to_string(), target.to_string()),
+    ]);
+    let sources = vec![source.to_string()];
+    let results = scraper_agregator
+        .execute_query_async(
+            &RequestControlerContext::default(),
+            QueryParameters::from_cache_type(CacheType::NoCache),
+            crate::stream_scraper::STREAM_SERVICE_GROUP_NAME,
+            RESOLVE_STREAM_QUERY_NAME,
+            &params,
+            None,
+            Some(&sources),
+            None,
+            None,
+            None,
+            RESOLVE_STREAM_QUERY_NAME,
+        )
+        .await
+        .data;
+
+    let entry = results
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("Scraper-query source `{source}` returned no stream."))?;
+    if let Some(message) = extract_error_message(&entry) {
+        bail!("Scraper-query source `{source}` reported: {message}");
+    }
+
+    let mut stream = convert_resolver_entry_to_stream(&entry, target)
+        .with_context(|| format!("Scraper-query source `{source}` returned an invalid stream."))?;
+    if stream
+        .stream_url
+        .iter()
+        .any(|url| !url.starts_with("http://") && !url.starts_with("https://"))
+    {
+        bail!("Scraper-query source `{source}` returned a non-HTTP(S) stream URL.");
+    }
+
+    proxy_resolved_stream(
+        &mut stream,
+        scraper_agregator,
+        crate::stream_scraper::STREAM_SERVICE_GROUP_NAME,
+        source,
+        endpoints,
+    );
+    Ok(stream)
+}
+
+/// Proxies resolved stream URLs when the HTTP proxy endpoint is configured.
+fn proxy_resolved_stream(
+    stream: &mut ResolvedPlayerStream,
+    scraper_agregator: &ScraperAgregator,
+    group_name: &str,
+    service_name: &str,
+    endpoints: &PlayerResolverEndpoints,
+) {
+    let Some(proxy_path) = endpoints.http_proxy_public_path.as_deref() else {
+        return;
+    };
+    let insecure_tls_hosts = scraper_agregator
+        .proxy_insecure_tls_hosts(group_name, service_name)
+        .unwrap_or_default();
+    let headers: Vec<(&str, &str)> = stream
+        .stream_headers
+        .iter()
+        .map(|(key, value)| (key.as_str(), value.as_str()))
+        .collect();
+    stream.stream_url = stream
+        .stream_url
+        .iter()
+        .map(|url| {
+            proxied_url_with_insecure_tls(
+                url,
+                Some(proxy_path),
+                None,
+                &[],
+                &headers,
+                is_insecure_tls_host(url, insecure_tls_hosts),
+            )
+        })
+        .collect();
 }
 
 /// Extracts the target of the first **simple** JavaScript redirect from an HTML document.

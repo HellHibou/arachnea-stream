@@ -705,6 +705,25 @@ impl ScraperAgregator {
         }
     }
 
+    /// Returns whether one loaded source declares a named query.
+    ///
+    /// # Arguments
+    ///
+    /// * `group_name` - Group containing the source.
+    /// * `source_name` - Source identifier to inspect.
+    /// * `query_name` - Query name that must be declared by the source.
+    pub fn source_has_query(&self, group_name: &str, source_name: &str, query_name: &str) -> bool {
+        self.queries_collection
+            .get(group_name)
+            .and_then(|group| {
+                group
+                    .services
+                    .iter()
+                    .find(|collection| collection.name() == source_name)
+            })
+            .is_some_and(|collection| collection.has_query(query_name))
+    }
+
     /// Returns the exact hosts declared by one source for an explicit proxy TLS bypass.
     pub fn proxy_insecure_tls_hosts(&self, group_name: &str, name: &str) -> Option<&[String]> {
         self.queries_collection

@@ -1541,6 +1541,13 @@ redémarrage du processus ni du systray :
 - **Opt-in upstream proxy redirects**: `resolve_url` and `resolve_url_from_parent` now support `proxy_follow_redirects: true` (shared default: 16 hops) or a positive numeric limit. The encoded proxy `follow_redirects` option is followed inside the proxy HTTP client after reading only each 3xx response head, so the terminal media body is never preloaded before desktop playback. Sibnet enables this for its redirecting MP4 locator; missing or `false` keeps the existing rewritten-3xx behavior, and reaching a configured limit returns the final 3xx response.
 
 ### Fixed
+- **Antenne Réunion home categories**: `load_home` again exposes the seven
+  `idType=7` tiles from the "Nos catégories" rail (Séries, Films,
+  Information, Divertissement, Jeunesse X Benshi, Les bons plans, Magazine)
+  as clickable `categories`. Their application routes now map to the official
+  `homeContent` menu types, so `get_category` reuses the exact banner and
+  editorial-section pipeline from `load_home` instead of substituting the
+  unrelated generic VOD hierarchy returned by `listContent`.
 - Desktop binary proxy routes now run in background async tasks through Tauri’s asynchronous URI scheme responder, removing synchronous network waits from the WebView protocol callback. Full response buffering, response headers, and HEAD handling are preserved.
 
 ### Added
@@ -1621,3 +1628,12 @@ redémarrage du processus ni du systray :
   `idType`-derived one, keeping exactly one value per row (verified against a
   fresh `homeContent` payload: every one of the 204 rows serializes with a
   single `media-type`).
+- **Generic scraper-query stream resolver**: `get_stream` now accepts an
+  optional `source` alongside its resolver and target. The new `scraper-query`
+  resolver executes only the selected `arachnea-stream` source's fixed
+  `resolve_stream` query with no cache after validating that the source and
+  query exist; it rejects empty/non-HTTP(S) targets and reuses the existing
+  YAML stream conversion and HTTP proxy path. Entry trailers can now carry a
+  separate resolver descriptor resolved on demand by the frontend, preserving
+  direct `video/trailer` URLs. The disabled Antenne Réunion work-in-progress
+  service declares this trailer contract through `/proxy/readTrailer`.
