@@ -1637,3 +1637,15 @@ redémarrage du processus ni du systray :
   separate resolver descriptor resolved on demand by the frontend, preserving
   direct `video/trailer` URLs. The disabled Antenne Réunion work-in-progress
   service declares this trailer contract through `/proxy/readTrailer`.
+- **Conditional validation for embedded web assets (`/` and `/admin/`)**:
+  embedded bundles now serve an `ETag` validator and honor `If-None-Match`
+  (including `*` and validator lists) with `304 Not Modified` on both the
+  REST backend and the desktop custom protocol. HTML documents use a weak
+  per-server-generation validator (`W/"T:<base62 millis>"`) regenerated on
+  every server (re)start (fresh process or supervisor re-bind), because the
+  `replace_html_base` output depends on the runtime `entrypoint_root`. Other
+  embedded assets use a stable instance validator (executable hash
+  `H:<base62 XXH3-64>`, falling back to `T:<base62 millis>` when the
+  executable cannot be hashed), so bundle caches survive restarts of the
+  same binary. Directory sources (mutable on disk) never carry an ETag.
+  No `Cache-Control` is emitted (ETag revalidation only).

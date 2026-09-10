@@ -201,7 +201,7 @@ async fn main() -> Result<()> {
     let runtime_options = ScraperRuntimeOptions {
         cache_config: options
             .scraper_cache_config()
-            .context("invalid cache sizing command-line options")?,
+            .context("Invalid cache sizing command-line options")?,
     };
 
     let reloadable = ReloadableStreamScraper::new(build_options, runtime_options)?;
@@ -229,10 +229,10 @@ async fn main() -> Result<()> {
             Some(coordinator) => {
                 match coordinator.reload_all_and_apply_server_settings_blocking() {
                     Ok(summary) => summary.log_summary(),
-                    Err(error) => format!("reload failed: {error}"),
+                    Err(error) => format!("Reload failed: {error}"),
                 }
             }
-            None => "reload unavailable: administration not initialized yet".to_string(),
+            None => "Reload unavailable: administration not initialized yet".to_string(),
         });
     options.application_option.reload_configuration = Some(reload_configuration);
 

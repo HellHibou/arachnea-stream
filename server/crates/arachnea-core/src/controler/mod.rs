@@ -624,7 +624,7 @@ pub trait ControlerServiceExt: ControlerService {
 ///
 /// Strips surrounding quotes and the weak-validator `W/` prefix so both the
 /// incoming header and the produced ETag compare as bare opaque strings.
-fn normalize_etag(value: Option<&str>) -> Option<String> {
+pub(crate) fn normalize_etag(value: Option<&str>) -> Option<String> {
     let value = value?.trim();
     let value = value.strip_prefix("W/").unwrap_or(value);
     let value = value.trim_matches('"');

@@ -379,6 +379,10 @@ impl RestServerSupervisor {
     pub(crate) fn build_router(&self, snapshot: &RestServiceSnapshot) -> RestRouter {
         let mut service =
             RestControlerService::from_snapshot(snapshot.clone(), Arc::clone(&self.dispatcher));
+        // Fresh HTML generation for this server (re)start: `replace_html_base`
+        // output depends on the runtime `entrypoint_root`, so HTML documents
+        // must never validate against a previous generation.
+        service.set_web_generation(crate::controler::web_assets::new_web_generation());
         {
             let steps = self.steps.lock().expect("supervisor steps poisoned");
             for step in steps.iter() {

@@ -8,7 +8,8 @@ use warp::http::StatusCode;
 use warp::{reply, Filter, Rejection, Reply};
 
 use crate::controler::web_assets::{
-    normalize_mount_path, replace_html_base, scope_web_asset_source, WebAssetSource,
+    asset_etag_for, etag_not_modified, new_web_generation, normalize_mount_path,
+    replace_html_base, scope_web_asset_source, web_instance_etag, WebAssetSource,
 };
 use crate::controler::{
     install_global_main_thread_dispatcher, main_thread::MainThreadDispatchLoop,
@@ -59,6 +60,13 @@ pub struct RestControlerService {
     supervisor: Option<Arc<RestServerSupervisor>>,
     /// Whether registration calls are recorded as replayable steps.
     recording: bool,
+    /// Server generation ETag (`T:`) for HTML documents of this router build.
+    ///
+    /// Regenerated on every server (re)start (fresh process or supervisor
+    /// re-bind) because `replace_html_base` output depends on the runtime
+    /// `entrypoint_root`. Set before replaying registration steps so rebuilt
+    /// filters capture the current generation, never a stale one.
+    web_generation: String,
 }
 
 /// Registration step replayed when the supervisor rebuilds a router.
@@ -200,6 +208,7 @@ impl RestControlerService {
             reload_configuration: configuration.reload_configuration,
             supervisor: Some(supervisor),
             recording: true,
+            web_generation: new_web_generation(),
         }
     }
 
@@ -225,7 +234,20 @@ impl RestControlerService {
             reload_configuration: snapshot.reload_configuration.clone(),
             supervisor: None,
             recording: false,
+            web_generation: web_instance_etag().to_string(),
         }
+    }
+
+    /// Assigns the server generation ETag (`T:`) for HTML documents.
+    ///
+    /// Called by the supervisor on every router (re)build before replaying
+    /// registration steps, so rebuilt web asset filters capture the current
+    /// generation instead of a stale one captured in a recorded step.
+    ///
+    /// # Arguments
+    /// * `generation` - Fresh bare generation value from [`new_web_generation`].
+    pub(crate) fn set_web_generation(&mut self, generation: String) {
+        self.web_generation = generation;
     }
 
     /// Records a registration step so the supervisor can replay it.
@@ -311,15 +333,26 @@ impl RestControlerService {
         // asset lookup and the SPA fallback stay inside the bundle instead of
         // falling back to the root bundle document.
         let source = scope_web_asset_source(source, &mount_path);
+        // Conditional validation only applies to embedded bundles: directory
+        // sources are mutable on disk, so they never carry an ETag.
+        let conditional = source.is_embedded();
         let source = Arc::new(source);
+        // HTML ETag bound to this router build: regenerated on every server
+        // (re)start because `replace_html_base` output depends on the runtime
+        // root. Captured here (build time), never in the recorded replay step.
+        let generation = self.web_generation.clone();
+        let instance = web_instance_etag().to_string();
         let new_filter = self
             .make_base_filter(false, &mount_path)
             .and(warp::get())
             .and(warp::path::tail())
-            .and_then(move |tail: warp::path::Tail| {
+            .and(warp::header::optional::<String>("if-none-match"))
+            .and_then(move |tail: warp::path::Tail, if_none_match: Option<String>| {
                 let reserved_api = reserved_api.clone();
                 let web_base = web_base.clone();
                 let source = Arc::clone(&source);
+                let generation = generation.clone();
+                let instance = instance.clone();
                 async move {
                     let request_path = tail.as_str();
                     if let Some(api_entrypoint) = &reserved_api {
@@ -331,6 +364,31 @@ impl RestControlerService {
 
                     match source.load(request_path) {
                         Ok(asset) => {
+                            if conditional {
+                                let (etag_header, bare_etag) =
+                                    asset_etag_for(asset.mime_type, &generation, &instance);
+                                if etag_not_modified(if_none_match.as_deref(), &bare_etag) {
+                                    let response = warp::http::Response::builder()
+                                        .status(StatusCode::NOT_MODIFIED)
+                                        .header("etag", etag_header)
+                                        .body(warp::hyper::Body::empty())
+                                        .expect("failed to build 304 web asset response");
+                                    return Ok::<RestReply, Rejection>((
+                                        Box::new(response) as Box<dyn Reply + Send>,
+                                    ));
+                                }
+                                let bytes = if asset.mime_type.starts_with("text/html") {
+                                    replace_html_base(asset.bytes, &web_base)
+                                } else {
+                                    asset.bytes
+                                };
+                                let response = reply::with_header(bytes, "content-type", asset.mime_type);
+                                let response =
+                                    reply::with_header(response, "etag", etag_header);
+                                return Ok::<RestReply, Rejection>((
+                                    Box::new(response) as Box<dyn Reply + Send>,
+                                ));
+                            }
                             let bytes = if asset.mime_type.starts_with("text/html") {
                                 replace_html_base(asset.bytes, &web_base)
                             } else {

@@ -14,7 +14,8 @@ mod tabs;
 mod windows;
 
 use super::web_assets::{
-    normalize_mount_path, replace_html_base, scope_web_asset_source, strip_mount_path,
+    asset_etag_for, etag_not_modified, is_embedded_web_asset_source, normalize_mount_path,
+    replace_html_base, scope_web_asset_source, strip_mount_path, web_instance_etag,
     EmbeddedWebAssets, SharedWebAssets, WebAssetSource,
 };
 use super::{
@@ -256,6 +257,14 @@ impl TauriWebAssets {
             )
         })?;
         self.source.load(&relative_path)
+    }
+
+    /// Reports whether this mount serves conditional validators.
+    ///
+    /// # Returns
+    /// `true` for embedded bundles, `false` for directory sources (mutable).
+    fn is_embedded(&self) -> bool {
+        is_embedded_web_asset_source(&self.source)
     }
 }
 
@@ -615,6 +624,10 @@ impl ControlerService for TauriControlerService {
         let invoke_web_scheme = web_scheme.clone();
         if !web_assets.is_empty() {
             let uri_scheme = web_scheme.clone();
+            // No hot-apply in desktop mode (fixed bases `/` and `/{mount}/`):
+            // one generation taken at launch covers every HTML document.
+            let tauri_generation = super::web_assets::new_web_generation();
+            let tauri_instance = web_instance_etag().to_string();
             builder = builder.register_asynchronous_uri_scheme_protocol(uri_scheme, move |_app, request, responder| {
                 let request_path = request_path_from_tauri_uri(request.uri(), &web_scheme);
 
@@ -724,6 +737,11 @@ impl ControlerService for TauriControlerService {
                 // Select the most specific mount serving this request: dedicated
                 // bundles (e.g. `/admin/`) take precedence over the root mount.
                 let asset_path = request_path.split(['?', '#']).next().unwrap_or_default();
+                let if_none_match = request
+                    .headers()
+                    .get("if-none-match")
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_string);
                 let selected = web_assets
                     .iter()
                     .filter(|assets| assets.matches(asset_path))
@@ -731,28 +749,55 @@ impl ControlerService for TauriControlerService {
                     .map(|assets| {
                         (
                             assets.mount_path.clone(),
+                            assets.is_embedded(),
                             assets.load_request(asset_path),
                         )
                     });
                 let response = match selected {
-                    Some((mount_path, Ok(asset))) => {
+                    Some((mount_path, conditional, Ok(asset))) => {
                         // Every bundle needs an absolute mount base for direct History-API routes.
                         let html_base = if mount_path.is_empty() {
                             TAURI_WEB_BASE.to_string()
                         } else {
                             format!("/{mount_path}/")
                         };
-                        let bytes = if asset.mime_type.starts_with("text/html") {
-                            replace_html_base(asset.bytes, &html_base)
+                        if conditional {
+                            let (etag_header, bare_etag) = asset_etag_for(
+                                asset.mime_type,
+                                &tauri_generation,
+                                &tauri_instance,
+                            );
+                            if etag_not_modified(if_none_match.as_deref(), &bare_etag) {
+                                ::tauri::http::Response::builder()
+                                    .status(304)
+                                    .header("ETag", etag_header)
+                                    .body(Vec::new())
+                                    .expect("Failed to build Tauri 304 protocol response.")
+                            } else {
+                                let bytes = if asset.mime_type.starts_with("text/html") {
+                                    replace_html_base(asset.bytes, &html_base)
+                                } else {
+                                    asset.bytes
+                                };
+                                ::tauri::http::Response::builder()
+                                    .header("Content-Type", asset.mime_type)
+                                    .header("ETag", etag_header)
+                                    .body(bytes)
+                                    .expect("Failed to build Tauri protocol response.")
+                            }
                         } else {
-                            asset.bytes
-                        };
-                        ::tauri::http::Response::builder()
-                            .header("Content-Type", asset.mime_type)
-                            .body(bytes)
-                            .expect("Failed to build Tauri protocol response.")
+                            let bytes = if asset.mime_type.starts_with("text/html") {
+                                replace_html_base(asset.bytes, &html_base)
+                            } else {
+                                asset.bytes
+                            };
+                            ::tauri::http::Response::builder()
+                                .header("Content-Type", asset.mime_type)
+                                .body(bytes)
+                                .expect("Failed to build Tauri protocol response.")
+                        }
                     }
-                    Some((_, Err(_))) | None => ::tauri::http::Response::builder()
+                    Some((_, _, Err(_))) | None => ::tauri::http::Response::builder()
                         .status(404)
                         .body(Vec::new())
                         .expect("Failed to build Tauri 404 protocol response."),

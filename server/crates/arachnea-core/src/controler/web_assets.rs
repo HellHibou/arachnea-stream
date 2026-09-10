@@ -158,6 +158,14 @@ impl WebAssetSource {
         Err(format!("Web asset not found: {}", request_path))
     }
 
+    /// Reports whether this source serves conditional validators.
+    ///
+    /// # Returns
+    /// `true` for embedded sources, `false` for directory sources (mutable).
+    pub(crate) fn is_embedded(&self) -> bool {
+        matches!(self, WebAssetSource::Embedded(_))
+    }
+
     /// Loads a specific asset candidate from the source.
     ///
     /// # Arguments
@@ -197,6 +205,20 @@ pub(crate) fn scope_web_asset_source(source: WebAssetSource, mount_path: &str) -
         }
         other => other,
     }
+}
+
+/// Reports whether a web asset source carries conditional validators.
+///
+/// Only embedded bundles (byte-immutable for a given binary) serve `ETag`
+/// validators. Directory sources are mutable on disk and never carry one.
+///
+/// # Arguments
+/// * `source` - The web asset source about to be served.
+///
+/// # Returns
+/// `true` for embedded sources, `false` for directory sources.
+pub(crate) fn is_embedded_web_asset_source(source: &WebAssetSource) -> bool {
+    source.is_embedded()
 }
 
 /// Normalizes a mount path by trimming leading and trailing slashes.
@@ -354,6 +376,132 @@ fn sanitize_relative_path(path: &str) -> Result<PathBuf, String> {
     }
 
     Ok(sanitized)
+}
+
+/// Computes the current web generation ETag value (`T:<base62 millis>`).
+///
+/// Each REST server (re)start establishes a fresh generation so HTML documents
+/// transformed by [`replace_html_base`] (whose body depends on the runtime
+/// `entrypoint_root`) are never validated against a stale generation. Uses
+/// wall-clock milliseconds: coarse enough to stay compact in base62, fine
+/// enough that two consecutive server generations never collide in practice.
+///
+/// # Returns
+///
+/// The bare (unquoted) generation value, e.g. `T:Ab3x9Q`.
+///
+/// [`replace_html_base`]: crate::controler::web_assets::replace_html_base
+pub(crate) fn new_web_generation() -> String {
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis())
+        .unwrap_or_default();
+    format!("T:{}", crate::crypt::base62::encode(millis))
+}
+
+/// Computes the stable instance ETag value for immutable embedded assets.
+///
+/// Tries `H:<base62 XXH3-64 of the current executable>` first so bundle caches
+/// survive restarts of the same binary, and falls back to a fresh
+/// `T:<base62 millis>` generation when the executable cannot be read or
+/// hashed (permissions, `/proc` unavailable, file replaced mid-read).
+/// The executable is streamed in fixed-size chunks so multi-hundred-megabyte
+/// binaries never sit fully in memory.
+///
+/// # Returns
+///
+/// The bare (unquoted) instance value, e.g. `H:4fK2mZ9` or `T:Ab3x9Q`.
+pub(crate) fn new_instance_etag() -> String {
+    if let Some(hash) = executable_hash62() {
+        return format!("H:{hash}");
+    }
+    new_web_generation()
+}
+
+/// Streams the current executable through XXH3-64 and encodes the digest.
+///
+/// # Returns
+///
+/// The base62 digest when the executable path resolves and reads fully;
+/// `None` when any step fails (callers fall back to a `T:` generation).
+fn executable_hash62() -> Option<String> {
+    use std::io::Read;
+    use xxhash_rust::xxh3::Xxh3;
+
+    let path = std::env::current_exe().ok()?;
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut hasher = Xxh3::new();
+    let mut chunk = [0u8; 64 * 1024];
+    loop {
+        match file.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(read) => hasher.update(&chunk[..read]),
+            Err(_) => return None,
+        }
+    }
+    Some(crate::crypt::base62::encode(hasher.digest() as u128))
+}
+
+/// Returns the process-wide stable ETag for immutable embedded assets.
+///
+/// Initialized once: executable hash (`H:`, preferred) or fresh timestamp
+/// (`T:`, fallback). Survives REST supervisor rebuilds by design so bundles
+/// are not needlessly invalidated by hot-apply restarts.
+///
+/// # Returns
+///
+/// The bare (unquoted) instance value shared by all non-HTML embedded assets.
+pub(crate) fn web_instance_etag() -> &'static str {
+    static INSTANCE_ETAG: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    INSTANCE_ETAG.get_or_init(new_instance_etag)
+}
+
+/// Builds the wire `ETag` header value for an asset MIME type.
+///
+/// HTML documents use the per-server-generation value as a weak validator
+/// (`W/"T:..."`): their served body depends on the runtime base injected by
+/// [`replace_html_base`], which changes across server generations. Every
+/// other embedded asset is byte-immutable for a given binary and uses the
+/// stable instance value as a strong validator (`"H:..."` / `"T:..."`).
+///
+/// # Arguments
+///
+/// * `mime_type` - Response MIME type of the asset being served.
+/// * `generation` - Current server generation (`T:` value) for HTML.
+/// * `instance` - Process-wide stable instance value for non-HTML assets.
+///
+/// # Returns
+///
+/// `(header_value, bare_value)`: the quoted (possibly weak) wire value and
+/// the bare value used for `If-None-Match` comparison.
+///
+/// [`replace_html_base`]: crate::controler::web_assets::replace_html_base
+pub(crate) fn asset_etag_for(mime_type: &str, generation: &str, instance: &str) -> (String, String) {
+    if mime_type.starts_with("text/html") {
+        (format!("W/\"{generation}\""), generation.to_string())
+    } else {
+        (format!("\"{instance}\""), instance.to_string())
+    }
+}
+
+/// Checks a client `If-None-Match` value against a bare ETag value.
+///
+/// Accepts `*` and comma-joined validator lists; each candidate is normalized
+/// with the shared [`normalize_etag`] helper (strips `W/` and quotes) before
+/// comparison so weak and strong wire forms both match.
+///
+/// [`normalize_etag`]: crate::controler::normalize_etag
+pub(crate) fn etag_not_modified(if_none_match: Option<&str>, bare_etag: &str) -> bool {
+    let Some(header) = if_none_match.map(str::trim).filter(|value| !value.is_empty()) else {
+        return false;
+    };
+    header.split(',').any(|candidate| {
+        let candidate = candidate.trim();
+        if candidate == "*" {
+            return true;
+        }
+        crate::controler::normalize_etag(Some(candidate)).as_deref() == Some(bare_etag)
+    })
 }
 
 /// Literal `<base href>` marker used in `index.html`.
