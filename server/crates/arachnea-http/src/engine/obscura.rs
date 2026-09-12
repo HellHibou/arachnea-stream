@@ -3,12 +3,16 @@
 //! Phase 2 of `docs/dev-tracking/obscura-embedded-engine-implementation-plan.md`:
 //! `send`, `refresh_cloudflare` and `refresh_cloudflare_fresh` are implemented
 //! on an ephemeral stealth page with a bounded Cloudflare clearance protocol.
-//! Persistent page sessions land in Phase 3, so `open_browser_page_session`
-//! keeps the trait default (`UnsupportedEngineOperation`). The `Auto`
-//! browser-solver selection is intentionally unchanged; Obscura must be
-//! selected explicitly through `CloudflareBrowserSolverKind::Obscura`.
+//! Phase 3 adds persistent page sessions: `open_browser_page_session` returns
+//! an `ObscuraPageSession` that retains one embedded browser page on a
+//! dedicated thread (the Obscura runtime is `!Send`) behind a command channel,
+//! with `navigate`, `fetch` (in-page `window.fetch`), `click_and_wait`,
+//! Turnstile token read/reset and cookie/user-agent handoff.
+//! The `Auto` browser-solver selection is intentionally unchanged; Obscura
+//! must be selected explicitly through `CloudflareBrowserSolverKind::Obscura`.
 
 use std::{
+    collections::HashMap,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -18,14 +22,20 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use http::{
     header::{CONTENT_TYPE, SET_COOKIE},
-    HeaderMap, HeaderValue, Method, StatusCode,
+    HeaderMap, HeaderName, HeaderValue, Method, StatusCode,
 };
 use obscura::{Browser, Cookie as ObscuraCookie, Page};
+use serde::Deserialize;
 use serde_json::Value;
+use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, info, warn};
 use url::Url;
 
 use crate::{
+    browser::{
+        BrowserPageSession, BrowserSessionMetadata, PageClickRequest, PageClickResponse,
+        PageFetchRequest, PageFetchResponse, PageNavigationRequest, PageNavigationResponse,
+    },
     chaser_session::{
         cache_origin_key, cached_session_headers, clearance_expires_at, memory_session_store,
         set_cookie_header, unix_timestamp, CachedChaserSession, StructuredCookie,
@@ -68,6 +78,152 @@ const OBSCURA_CLEARANCE_ATTEMPT_INTERVAL_MS: u64 = 2_000;
 /// Short stabilisation window after `cf_clearance` appears so the challenge
 /// transition commits before cookies and DOM are read.
 const OBSCURA_CLEARANCE_SETTLE_MS: u64 = 500;
+
+/// How long a retained interactive page waits for the target selector after a
+/// click before giving up. Starting bound copied from the chaser-cf adapter
+/// until Obscura measurements (Phase 5) provide better values.
+const OBSCURA_CLICK_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// How long the automatically solved Cloudflare challenge may take after a
+/// page action click before `click_and_wait` gives up.
+const OBSCURA_CLICK_SOLVE_TIMEOUT: Duration = Duration::from_secs(90);
+
+/// How long `read_turnstile_token` polls for the token produced by the solved
+/// challenge before returning `None`.
+const OBSCURA_TURNSTILE_WAIT_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Event-loop slice driven per in-page `fetch` turn. The embedded runtime only
+/// resolves the in-page promise while its owner drives the loop, so the fetch
+/// alternates `settle` slices with short sleeps until the result global is set.
+const OBSCURA_FETCH_SETTLE_MS: u64 = 250;
+
+/// Total bound for one in-page `fetch` turn before `PageFetchFailed`.
+const OBSCURA_FETCH_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Post-navigation event-loop slice before the session HTML is observed.
+/// `goto` already waited for the load event; this lets framework bootstrap
+/// scripts and async DOM mutations run first.
+const OBSCURA_NAVIGATE_SETTLE_MS: u64 = 2_000;
+
+/// Token-probe JavaScript for the retained session page, following the three
+/// sources declared by the integration plan: `window.turnstile.getResponse()`,
+/// `input[name="cf-response"]` and `input[name="cf-turnstile-response"]`.
+/// The script returns the token string or `null`; the value only crosses the
+/// JS/Rust boundary and is never logged.
+const TURNSTILE_TOKEN_JS: &str = r#"(function () {
+    if (window.turnstile && typeof window.turnstile.getResponse === 'function') {
+        var token = window.turnstile.getResponse();
+        if (token && token.length > 10) return token;
+    }
+    var field = document.querySelector('[name="cf-response"]');
+    if (field && field.value && field.value.length > 10) return field.value;
+    field = document.querySelector('[name="cf-turnstile-response"]');
+    if (field && field.value && field.value.length > 10) return field.value;
+    return null;
+})()"#;
+
+/// Turnstile reset JavaScript for the retained session page: resets the widget
+/// when the API is present and empties the response fields. Returns `true`, so
+/// a `null` result means the evaluation itself failed.
+const TURNSTILE_CLEAR_JS: &str = r#"(function () {
+    if (window.turnstile && typeof window.turnstile.reset === 'function') {
+        try { window.turnstile.reset(); } catch (error) {}
+    }
+    var fields = document.querySelectorAll('[name="cf-response"], [name="cf-turnstile-response"]');
+    fields.forEach(function (field) { field.value = ''; });
+    return true;
+})()"#;
+
+/// Serializable outcome of one in-page `fetch` turn, produced by
+/// [`in_page_fetch_script`] as a JSON string on the session page.
+#[derive(Debug, Deserialize, Default)]
+struct InPageFetchOutcome {
+    /// Final URL after redirects inside the page context.
+    #[serde(default)]
+    url: Option<String>,
+    /// HTTP status returned by the in-page request.
+    #[serde(default)]
+    status: Option<u16>,
+    /// Response headers observed by the in-page request.
+    #[serde(default)]
+    headers: Option<HashMap<String, String>>,
+    /// Response body decoded as UTF-8 text by the page.
+    #[serde(default)]
+    body: Option<String>,
+    /// Network-layer error message when the in-page fetch rejected the call.
+    #[serde(default)]
+    error: Option<String>,
+}
+
+/// Builds the in-page fetch launcher script for one request payload.
+///
+/// The embedded runtime resolves promises only while the owner drives the
+/// event loop, so the script stores the settled result in a page global as a
+/// JSON string and flags completion; the session worker pumps the loop with
+/// `settle` slices until the flag flips.
+fn in_page_fetch_script(payload: &Value) -> String {
+    format!(
+        r#"(function () {{
+            const input = {payload};
+            globalThis.__arachneaObscuraFetchDone = false;
+            globalThis.__arachneaObscuraFetchResult = null;
+            fetch(input.url, {{
+                method: input.method,
+                headers: input.headers,
+                body: input.body,
+                credentials: 'same-origin',
+            }})
+                .then(async (response) => {{
+                    const headers = {{}};
+                    response.headers.forEach((value, name) => {{ headers[name] = value; }});
+                    globalThis.__arachneaObscuraFetchResult = JSON.stringify({{
+                        url: response.url,
+                        status: response.status,
+                        headers: headers,
+                        body: await response.text(),
+                    }});
+                }})
+                .catch((error) => {{
+                    globalThis.__arachneaObscuraFetchResult = JSON.stringify({{
+                        error: String((error && error.message) || error),
+                    }});
+                }})
+                .then(() => {{ globalThis.__arachneaObscuraFetchDone = true; }});
+            return true;
+        }})()"#
+    )
+}
+
+/// Converts one in-page fetch outcome into the client-facing response shape.
+fn page_fetch_response_from_outcome(
+    outcome: InPageFetchOutcome,
+    fallback_url: &str,
+) -> Result<PageFetchResponse, ArachneaHttpError> {
+    if let Some(error) = outcome.error {
+        return Err(ArachneaHttpError::PageFetchFailed(format!(
+            "the in-page fetch failed: {error}"
+        )));
+    }
+    let status = outcome.status.ok_or_else(|| {
+        ArachneaHttpError::PageFetchFailed("the in-page fetch produced no HTTP status".to_string())
+    })?;
+    let mut headers = HeaderMap::new();
+    for (name, value) in outcome.headers.unwrap_or_default() {
+        let name = HeaderName::from_bytes(name.as_bytes())
+            .map_err(|err| ArachneaHttpError::PageFetchFailed(err.to_string()))?;
+        let value = HeaderValue::from_str(&value)
+            .map_err(|err| ArachneaHttpError::PageFetchFailed(err.to_string()))?;
+        headers.append(name, value);
+    }
+    Ok(PageFetchResponse {
+        url: outcome.url.unwrap_or_else(|| fallback_url.to_string()),
+        status: StatusCode::from_u16(status).map_err(|err| {
+            ArachneaHttpError::PageFetchFailed(format!("invalid in-page fetch status: {err}"))
+        })?,
+        headers,
+        body: outcome.body.unwrap_or_default(),
+    })
+}
 
 /// Marker-lookup JavaScript run in the retained document. Only booleans cross
 /// the JS/Rust boundary: document values never leave the page, so the signal
@@ -264,6 +420,598 @@ where
             "the embedded browser {operation} task failed to join: {err}"
         ))
     })?
+}
+
+/// Commands sent from the `Send` session handle to its dedicated page thread.
+///
+/// Every payload is `Send`; the `!Send` page itself never crosses the channel.
+#[derive(Debug)]
+enum ObscuraSessionCommand {
+    /// Navigate the retained page and optionally collect its stable HTML.
+    Navigate {
+        /// Absolute navigation URL.
+        url: String,
+        /// Whether `document.documentElement.outerHTML` should be returned.
+        collect_body: bool,
+        /// Completion responder.
+        reply: oneshot::Sender<Result<PageNavigationResponse, ArachneaHttpError>>,
+    },
+    /// Execute one `window.fetch` call inside the retained page.
+    Fetch {
+        /// Serialized [`PageFetchRequest`] payload for the in-page script.
+        payload: String,
+        /// Fallback URL reported when the page does not expose `response.url`.
+        fallback_url: String,
+        /// Completion responder.
+        reply: oneshot::Sender<Result<PageFetchResponse, ArachneaHttpError>>,
+    },
+    /// Click a selector, wait for the result selector, and return the HTML.
+    ClickAndWait {
+        /// CSS selector of the element to click.
+        selector: String,
+        /// CSS selector that must appear after the click.
+        wait_for_selector: String,
+        /// Completion responder.
+        reply: oneshot::Sender<Result<PageClickResponse, ArachneaHttpError>>,
+    },
+    /// Read cookies and the observed user-agent for the HTTP handoff.
+    Metadata {
+        /// Completion responder.
+        reply: oneshot::Sender<Result<BrowserSessionMetadata, ArachneaHttpError>>,
+    },
+    /// Probe the three Turnstile token sources on the retained page.
+    ReadTurnstileToken {
+        /// Completion responder.
+        reply: oneshot::Sender<Result<Option<String>, ArachneaHttpError>>,
+    },
+    /// Reset the Turnstile widget and clear the response fields.
+    ClearTurnstileToken {
+        /// Completion responder.
+        reply: oneshot::Sender<Result<(), ArachneaHttpError>>,
+    },
+    /// Terminate the page thread and release the embedded browser.
+    Close {
+        /// Completion responder.
+        reply: oneshot::Sender<()>,
+    },
+}
+
+/// Channel pair connecting a `Send` session handle to its page thread.
+struct ObscuraSessionChannel {
+    /// Command sender cloned into the session handle.
+    sender: mpsc::UnboundedSender<ObscuraSessionCommand>,
+    /// Handle to the dedicated page thread for orderly teardown.
+    worker: Option<std::thread::JoinHandle<()>>,
+}
+
+impl ObscuraSessionChannel {
+    /// Spawns the dedicated page thread and returns the connected channel.
+    ///
+    /// The thread owns the browser and its retained page for the whole session
+    /// lifetime: the Obscura runtime is thread-affine (`!Send`), so neither
+    /// handle may ever leave it. All interactions travel through the command
+    /// channel and only `Send`-safe data crosses back.
+    async fn spawn(
+        config: ObscuraEngineConfig,
+        transport: ObscuraTransportMode,
+    ) -> Result<Self, ArachneaHttpError> {
+        let (sender, receiver) = mpsc::unbounded_channel::<ObscuraSessionCommand>();
+        let (init_sender, init_receiver) = oneshot::channel::<Result<(), ArachneaHttpError>>();
+        let worker = std::thread::Builder::new()
+            .name("arachnea-obscura-page".to_string())
+            .spawn(move || {
+                let init = ObscuraPageWorker::initialize(config, transport, receiver);
+                match init {
+                    Ok(None) => return,
+                    Err(err) => {
+                        let _ = init_sender.send(Err(err));
+                        return;
+                    }
+                    Ok(Some(worker_parts)) => {
+                        let (runtime, worker) = worker_parts;
+                        let _ = init_sender.send(Ok(()));
+                        runtime.block_on(worker.run_to_completion());
+                    }
+                }
+            })
+            .map_err(|err| {
+                ArachneaHttpError::ObscuraFailure(format!(
+                    "failed to spawn the obscura page thread: {err}"
+                ))
+            })?;
+        // Fail fast when the embedded browser or its page cannot start, so
+        // the caller never receives a handle to a dead thread.
+        let init = init_receiver.await.unwrap_or_else(|_| {
+            Err(ArachneaHttpError::ObscuraFailure(
+                "the obscura page thread stopped during initialization".to_string(),
+            ))
+        });
+        if let Err(err) = init {
+            let _ = worker.join();
+            return Err(err);
+        }
+        Ok(Self {
+            sender,
+            worker: Some(worker),
+        })
+    }
+}
+
+/// Dedicated-thread worker that owns the retained page.
+struct ObscuraPageWorker {
+    /// Embedded browser owning the network stack and cookie jar.
+    browser: Browser,
+    /// Retained page carrying the DOM and JS runtime across commands.
+    page: Page,
+    /// Stable engine settings (timeouts, clearance protocol bounds).
+    context: ObscuraPageContext,
+    /// Command receiver drained until `Close` or channel disconnect.
+    receiver: mpsc::UnboundedReceiver<ObscuraSessionCommand>,
+}
+
+/// Immutable session settings shared with the page thread.
+struct ObscuraPageContext {
+    /// Engine configuration derived from `ArachneaHttpConfig`.
+    config: ObscuraEngineConfig,
+    /// Transport mode selected at engine construction.
+    transport: ObscuraTransportMode,
+}
+
+impl ObscuraPageWorker {
+    /// Builds the thread runtime, the browser, and the session page.
+    ///
+    /// Returns `Ok(Some((runtime, worker)))` once the page is ready, or an
+    /// error describing the failed initialization step. `Ok(None)` is never
+    /// produced; the shape exists to keep the early returns uniform.
+    fn initialize(
+        config: ObscuraEngineConfig,
+        transport: ObscuraTransportMode,
+        receiver: mpsc::UnboundedReceiver<ObscuraSessionCommand>,
+    ) -> Result<Option<(tokio::runtime::Runtime, Self)>, ArachneaHttpError> {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|err| {
+                ArachneaHttpError::ObscuraFailure(format!(
+                    "the obscura page-thread runtime is unavailable: {err}"
+                ))
+            })?;
+        let context = ObscuraPageContext { config, transport };
+        let (browser, page) = runtime.block_on(async {
+            let browser = ObscuraEngine::new_browser_with(&context.config, &context.transport)?;
+            let page = browser.new_page().await.map_err(|err| {
+                ArachneaHttpError::ObscuraFailure(format!(
+                    "failed to open the obscura session page: {err}"
+                ))
+            })?;
+            Ok::<_, ArachneaHttpError>((browser, page))
+        })?;
+        Ok(Some((
+            runtime,
+            Self {
+                browser,
+                page,
+                context,
+                receiver,
+            },
+        )))
+    }
+
+    /// Runs the command loop until `Close`, then tears the page down.
+    async fn run_to_completion(mut self) {
+        info!(
+            engine = ENGINE_NAME,
+            revision = OBSCURA_PINNED_REVISION,
+            transport = self.context.transport.label(),
+            "obscura persistent page session started"
+        );
+        while let Some(command) = self.receiver.recv().await {
+            match command {
+                ObscuraSessionCommand::Navigate {
+                    url,
+                    collect_body,
+                    reply,
+                } => {
+                    let _ = reply.send(self.navigate(&url, collect_body).await);
+                }
+                ObscuraSessionCommand::Fetch {
+                    payload,
+                    fallback_url,
+                    reply,
+                } => {
+                    let _ = reply.send(self.fetch(&payload, &fallback_url).await);
+                }
+                ObscuraSessionCommand::ClickAndWait {
+                    selector,
+                    wait_for_selector,
+                    reply,
+                } => {
+                    let _ = reply.send(self.click_and_wait(&selector, &wait_for_selector).await);
+                }
+                ObscuraSessionCommand::Metadata { reply } => {
+                    let _ = reply.send(self.metadata());
+                }
+                ObscuraSessionCommand::ReadTurnstileToken { reply } => {
+                    let _ = reply.send(self.read_turnstile_token().await);
+                }
+                ObscuraSessionCommand::ClearTurnstileToken { reply } => {
+                    let _ = reply.send(self.clear_turnstile_token());
+                }
+                ObscuraSessionCommand::Close { reply } => {
+                    let _ = reply.send(());
+                    break;
+                }
+            }
+        }
+        // Drain the page and browser on their own thread; the embedded
+        // runtime must never be dropped from another thread.
+        info!(
+            engine = ENGINE_NAME,
+            "obscura persistent page session closed"
+        );
+    }
+
+    /// Navigates the retained page and collects its stable HTML when asked.
+    async fn navigate(
+        &mut self,
+        url: &str,
+        collect_body: bool,
+    ) -> Result<PageNavigationResponse, ArachneaHttpError> {
+        self.page.goto(url).await.map_err(|err| {
+            ArachneaHttpError::ObscuraFailure(format!("session navigation failed: {err}"))
+        })?;
+        self.page.settle(OBSCURA_NAVIGATE_SETTLE_MS).await;
+        Ok(PageNavigationResponse {
+            url: self.page.url(),
+            body: if collect_body {
+                Some(self.page.content())
+            } else {
+                None
+            },
+        })
+    }
+
+    /// Runs one in-page `window.fetch` call and waits for its promise.
+    ///
+    /// The facade `evaluate` does not await promises, so the launcher script
+    /// parks its result in a page global; the worker then drives the event
+    /// loop in `settle` slices until the completion flag flips, bounded by
+    /// `OBSCURA_FETCH_TIMEOUT`.
+    async fn fetch(
+        &mut self,
+        payload: &str,
+        fallback_url: &str,
+    ) -> Result<PageFetchResponse, ArachneaHttpError> {
+        let payload = serde_json::from_str::<Value>(payload).map_err(|err| {
+            ArachneaHttpError::PageFetchFailed(format!("invalid in-page fetch payload: {err}"))
+        })?;
+        let launcher = in_page_fetch_script(&payload);
+        let launched = self.page.evaluate(&launcher).as_bool().unwrap_or(false);
+        if !launched {
+            return Err(ArachneaHttpError::PageFetchFailed(
+                "the in-page fetch launcher could not be evaluated".to_string(),
+            ));
+        }
+        let started = Instant::now();
+        loop {
+            let done = self
+                .page
+                .evaluate("globalThis.__arachneaObscuraFetchDone === true")
+                .as_bool()
+                .unwrap_or(false);
+            if done {
+                let value = self
+                    .page
+                    .evaluate("globalThis.__arachneaObscuraFetchResult");
+                let outcome = value
+                    .as_str()
+                    .and_then(|raw| serde_json::from_str::<InPageFetchOutcome>(raw).ok())
+                    .unwrap_or_default();
+                return page_fetch_response_from_outcome(outcome, fallback_url);
+            }
+            if started.elapsed() >= OBSCURA_FETCH_TIMEOUT {
+                return Err(ArachneaHttpError::PageFetchFailed(format!(
+                    "the in-page fetch did not complete within {}s",
+                    OBSCURA_FETCH_TIMEOUT.as_secs()
+                )));
+            }
+            self.page.settle(OBSCURA_FETCH_SETTLE_MS).await;
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+
+    /// Clicks a selector, then waits for the result selector on the same page.
+    ///
+    /// When the click injects a Cloudflare challenge, the bounded clearance
+    /// protocol runs on the same retained page — its context is never
+    /// destroyed — with an extended deadline, exactly like the chaser-cf
+    /// adapter. The current HTML is returned once the selector appears.
+    async fn click_and_wait(
+        &mut self,
+        selector: &str,
+        wait_for_selector: &str,
+    ) -> Result<PageClickResponse, ArachneaHttpError> {
+        let click_js = format!(
+            "(function () {{
+                const element = document.querySelector({selector_json});
+                if (!element) return false;
+                element.scrollIntoView({{ block: 'center' }});
+                element.click();
+                return true;
+            }})()",
+            selector_json = serde_json::to_string(selector)
+                .map_err(|err| ArachneaHttpError::PageInteractionFailed(err.to_string()))?
+        );
+        let clicked = self.page.evaluate(&click_js).as_bool().unwrap_or(false);
+        if !clicked {
+            return Err(ArachneaHttpError::PageInteractionFailed(
+                "the click target was not found".to_string(),
+            ));
+        }
+        let started = Instant::now();
+        let mut deadline = started + OBSCURA_CLICK_WAIT_TIMEOUT;
+        let mut solve_started = false;
+        // The first bounded Turnstile attempt waits out the passive window:
+        // Cloudflare's invisible challenge JavaScript starts its proof-of-work
+        // right after the load event and must not be polled aggressively.
+        let mut last_attempt = started - Duration::from_secs(60)
+            + Duration::from_millis(OBSCURA_CLEARANCE_PASSIVE_WAIT_MS);
+        let wait_js = format!(
+            "(function () {{ return document.querySelector({selector_json}) !== null; }})()",
+            selector_json = serde_json::to_string(wait_for_selector)
+                .map_err(|err| ArachneaHttpError::PageInteractionFailed(err.to_string()))?
+        );
+        loop {
+            if !solve_started && Self::challenge_is_present(&self.page) {
+                solve_started = true;
+                deadline = started + OBSCURA_CLICK_SOLVE_TIMEOUT + OBSCURA_CLICK_WAIT_TIMEOUT;
+                info!(
+                    selector = %wait_for_selector,
+                    "obscura: challenge detected after page action click, solving"
+                );
+                self.solve_injected_challenge(&mut deadline, &mut last_attempt)
+                    .await;
+            }
+            let found = self.page.evaluate(&wait_js).as_bool().unwrap_or(false);
+            if found {
+                return Ok(PageClickResponse {
+                    body: self.page.content(),
+                });
+            }
+            if Instant::now() >= deadline {
+                return Err(ArachneaHttpError::PageInteractionFailed(format!(
+                    "the result selector did not appear within {}s",
+                    (OBSCURA_CLICK_WAIT_TIMEOUT + OBSCURA_CLICK_SOLVE_TIMEOUT).as_secs()
+                )));
+            }
+            if !solve_started
+                && last_attempt.elapsed().as_millis() as u64
+                    >= OBSCURA_CLEARANCE_ATTEMPT_INTERVAL_MS
+            {
+                ObscuraEngine::try_click_turnstile(&self.page);
+                last_attempt = Instant::now();
+            }
+            self.page.settle(OBSCURA_CLEARANCE_POLL_MS).await;
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    }
+
+    /// Bounded clearance wait for a challenge injected after a click.
+    ///
+    /// Runs on the same retained page; only `cf_clearance` appearance or the
+    /// bounded deadline ends the wait, and Turnstile widgets are clicked at
+    /// the bounded protocol rate.
+    async fn solve_injected_challenge(
+        &mut self,
+        deadline: &mut Instant,
+        last_attempt: &mut Instant,
+    ) {
+        while !ObscuraEngine::has_clearance_cookie(&self.browser) && Instant::now() < *deadline {
+            if last_attempt.elapsed().as_millis() as u64 >= OBSCURA_CLEARANCE_ATTEMPT_INTERVAL_MS {
+                ObscuraEngine::try_click_turnstile(&self.page);
+                *last_attempt = Instant::now();
+            }
+            self.page.settle(OBSCURA_CLEARANCE_POLL_MS).await;
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    }
+
+    /// Detects generic Cloudflare challenge markers on the retained page.
+    fn challenge_is_present(page: &Page) -> bool {
+        ObscuraEngine::sample_challenge_signals(page).suggests_challenge()
+    }
+
+    /// Collects cookies and the observed user-agent for the HTTP handoff.
+    fn metadata(&self) -> Result<BrowserSessionMetadata, ArachneaHttpError> {
+        let mut headers = HeaderMap::new();
+        for cookie in ObscuraEngine::structured_cookies(&self.browser) {
+            headers.append(
+                SET_COOKIE,
+                HeaderValue::from_str(&set_cookie_header(&cookie))
+                    .map_err(|err| ArachneaHttpError::InvalidHeader(err.to_string()))?,
+            );
+        }
+        if let Some(user_agent) = ObscuraEngine::observe_user_agent(&self.page) {
+            headers.insert(
+                SOLVER_USER_AGENT_HEADER,
+                HeaderValue::from_str(&user_agent)
+                    .map_err(|err| ArachneaHttpError::InvalidHeader(err.to_string()))?,
+            );
+        }
+        Ok(BrowserSessionMetadata {
+            url: self.page.url(),
+            headers,
+        })
+    }
+
+    /// Polls the three Turnstile token sources until one produces a value.
+    async fn read_turnstile_token(&mut self) -> Result<Option<String>, ArachneaHttpError> {
+        let started = Instant::now();
+        loop {
+            let token = self
+                .page
+                .evaluate(TURNSTILE_TOKEN_JS)
+                .as_str()
+                .map(str::to_string);
+            if let Some(token) = token {
+                return Ok(Some(token));
+            }
+            if started.elapsed() >= OBSCURA_TURNSTILE_WAIT_TIMEOUT {
+                return Ok(None);
+            }
+            self.page.settle(OBSCURA_CLEARANCE_POLL_MS).await;
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+    }
+
+    /// Resets the Turnstile widget and empties the response fields.
+    fn clear_turnstile_token(&self) -> Result<(), ArachneaHttpError> {
+        let cleared = self
+            .page
+            .evaluate(TURNSTILE_CLEAR_JS)
+            .as_bool()
+            .unwrap_or(false);
+        if !cleared {
+            return Err(ArachneaHttpError::ObscuraFailure(
+                "the Turnstile reset script could not be evaluated".to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// `Send` handle to a persistent Obscura page owned by a dedicated thread.
+///
+/// The Arachnea-facing side of the session: every trait method translates the
+/// request into one [`ObscuraSessionCommand`] and awaits the worker's reply.
+/// The `!Send` page never crosses the channel; only `Send`-safe request and
+/// response payloads do.
+struct ObscuraPageSession {
+    /// Command channel to the dedicated page thread.
+    channel: ObscuraSessionChannel,
+}
+
+impl ObscuraPageSession {
+    /// Sends one command and awaits its reply.
+    async fn command<T>(
+        &self,
+        build: impl FnOnce(oneshot::Sender<Result<T, ArachneaHttpError>>) -> ObscuraSessionCommand,
+    ) -> Result<T, ArachneaHttpError> {
+        let (reply, receiver) = oneshot::channel();
+        self.channel.sender.send(build(reply)).map_err(|_| {
+            ArachneaHttpError::ObscuraFailure(
+                "the obscura page thread is no longer running".to_string(),
+            )
+        })?;
+        receiver.await.map_err(|_| {
+            ArachneaHttpError::ObscuraFailure(
+                "the obscura page thread stopped while processing a command".to_string(),
+            )
+        })?
+    }
+
+    /// Builds the JSON payload consumed by the in-page fetch launcher.
+    fn fetch_payload(request: &PageFetchRequest) -> Result<String, ArachneaHttpError> {
+        let mut headers = HashMap::new();
+        for (name, value) in &request.headers {
+            let value = value
+                .to_str()
+                .map_err(|err| ArachneaHttpError::InvalidHeader(err.to_string()))?;
+            headers.insert(name.as_str().to_string(), value.to_string());
+        }
+        let body = request
+            .body
+            .as_ref()
+            .map(|body| {
+                String::from_utf8(body.to_vec()).map_err(|_| {
+                    ArachneaHttpError::PageFetchFailed(
+                        "in-page fetch currently requires a UTF-8 request body".to_string(),
+                    )
+                })
+            })
+            .transpose()?;
+        let payload = serde_json::json!({
+            "method": request.method.as_str(),
+            "url": request.url,
+            "headers": headers,
+            "body": body,
+        });
+        serde_json::to_string(&payload)
+            .map_err(|err| ArachneaHttpError::PageFetchFailed(err.to_string()))
+    }
+}
+
+#[async_trait]
+impl BrowserPageSession for ObscuraPageSession {
+    async fn navigate(
+        &mut self,
+        request: PageNavigationRequest,
+    ) -> Result<PageNavigationResponse, ArachneaHttpError> {
+        self.command(|reply| ObscuraSessionCommand::Navigate {
+            url: request.url,
+            collect_body: request.collect_body,
+            reply,
+        })
+        .await
+    }
+
+    async fn fetch(
+        &mut self,
+        request: PageFetchRequest,
+    ) -> Result<PageFetchResponse, ArachneaHttpError> {
+        let fallback_url = request.url.clone();
+        let payload = Self::fetch_payload(&request)?;
+        self.command(|reply| ObscuraSessionCommand::Fetch {
+            payload,
+            fallback_url,
+            reply,
+        })
+        .await
+    }
+
+    async fn click_and_wait(
+        &mut self,
+        request: PageClickRequest,
+    ) -> Result<PageClickResponse, ArachneaHttpError> {
+        self.command(|reply| ObscuraSessionCommand::ClickAndWait {
+            selector: request.selector,
+            wait_for_selector: request.wait_for_selector,
+            reply,
+        })
+        .await
+    }
+
+    async fn metadata(&mut self) -> Result<BrowserSessionMetadata, ArachneaHttpError> {
+        self.command(|reply| ObscuraSessionCommand::Metadata { reply })
+            .await
+    }
+
+    async fn read_turnstile_token(&mut self) -> Result<Option<String>, ArachneaHttpError> {
+        self.command(|reply| ObscuraSessionCommand::ReadTurnstileToken { reply })
+            .await
+    }
+
+    async fn clear_turnstile_token(&mut self) -> Result<(), ArachneaHttpError> {
+        self.command(|reply| ObscuraSessionCommand::ClearTurnstileToken { reply })
+            .await
+    }
+
+    async fn close(mut self: Box<Self>) {
+        let (reply, receiver) = oneshot::channel();
+        if self
+            .channel
+            .sender
+            .send(ObscuraSessionCommand::Close { reply })
+            .is_ok()
+        {
+            let _ = receiver.await;
+        }
+        // Join the page thread so the embedded runtime is torn down on its
+        // own thread before this handle returns.
+        if let Some(worker) = self.channel.worker.take() {
+            let _ = worker.join();
+        }
+    }
 }
 
 /// Drives one `Send`-unsafe Obscura future on the current thread.
@@ -864,6 +1612,26 @@ impl HttpEngine for ObscuraEngine {
         self.refresh_cloudflare_with_cache_policy(request, false)
             .await
     }
+
+    /// Opens a persistent page session on the embedded browser.
+    ///
+    /// The page and its browser live on a dedicated thread for the whole
+    /// session lifetime (the Obscura runtime is thread-affine, `!Send`), and
+    /// every interaction travels through a command channel. The session is
+    /// closed by [`BrowserPageSession::close`] or by the
+    /// `BrowserSessionManager` eviction path, both of which join the thread.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ObscuraFailure` when the page thread or the embedded browser
+    /// cannot be started.
+    async fn open_browser_page_session(
+        &self,
+    ) -> Result<Box<dyn BrowserPageSession>, ArachneaHttpError> {
+        let channel =
+            ObscuraSessionChannel::spawn(self.config.clone(), self.transport.clone()).await?;
+        Ok(Box::new(ObscuraPageSession { channel }))
+    }
 }
 
 /// One ephemeral solver run: cookies, user-agent, final URL and optional HTML.
@@ -900,11 +1668,16 @@ fn structured_cookie(cookie: &ObscuraCookie) -> StructuredCookie {
 #[cfg(test)]
 mod tests {
     use super::ObscuraEngine as LocalObscuraEngine;
-    use super::{structured_cookie, ChallengeSignals, ObscuraEngineConfig, ObscuraTransportMode};
+    use super::{
+        in_page_fetch_script, page_fetch_response_from_outcome, structured_cookie,
+        ChallengeSignals, InPageFetchOutcome, ObscuraEngineConfig, ObscuraTransportMode,
+    };
     use crate::chaser_session::set_cookie_header;
     use crate::config::{ArachneaHttpConfig, HttpProxyConfig};
+    use http::StatusCode;
     use obscura::Cookie as ObscuraCookie;
     use serde_json::Value;
+    use std::collections::HashMap;
 
     /// `Disabled` proxy config selects the browser stack without proxy URL.
     #[test]
@@ -1016,6 +1789,71 @@ mod tests {
                 .expect("http proxy must validate"),
             Some("http://127.0.0.1:8080".to_string())
         );
+    }
+
+    /// A successful in-page fetch outcome converts into the client-facing
+    /// response with headers, status, body, and the page-reported final URL.
+    #[test]
+    fn successful_in_page_fetch_outcome_builds_a_response() {
+        let outcome = InPageFetchOutcome {
+            url: Some("https://example.com/api/final".to_string()),
+            status: Some(200),
+            headers: Some(HashMap::from([
+                ("content-type".to_string(), "application/json".to_string()),
+                ("x-multi".to_string(), "a".to_string()),
+            ])),
+            body: Some("{\"ok\":true}".to_string()),
+            error: None,
+        };
+        let response = page_fetch_response_from_outcome(outcome, "https://example.com/api")
+            .expect("outcome converts");
+        assert_eq!(response.url, "https://example.com/api/final");
+        assert_eq!(response.status, StatusCode::OK);
+        assert_eq!(response.body, "{\"ok\":true}");
+        assert_eq!(response.headers.get("x-multi").unwrap(), "a");
+        assert_eq!(
+            response.headers.get("content-type").unwrap(),
+            "application/json"
+        );
+    }
+
+    /// Network-layer errors surface as `PageFetchFailed`; a missing status is
+    /// also rejected instead of silently becoming a response.
+    #[test]
+    fn failing_in_page_fetch_outcomes_are_rejected() {
+        let outcome = InPageFetchOutcome {
+            error: Some("NetworkError when attempting to fetch resource.".to_string()),
+            ..InPageFetchOutcome::default()
+        };
+        let err = page_fetch_response_from_outcome(outcome, "https://example.com/api")
+            .expect_err("network errors must surface");
+        assert!(err.to_string().contains("in-page fetch failed"));
+
+        let outcome = InPageFetchOutcome {
+            body: Some("orphan".to_string()),
+            ..InPageFetchOutcome::default()
+        };
+        page_fetch_response_from_outcome(outcome, "https://example.com/api")
+            .expect_err("an outcome without status must be rejected");
+    }
+
+    /// The in-page fetch launcher embeds the payload once, parks the result in
+    /// a page global, and flags completion for the session worker.
+    #[test]
+    fn in_page_fetch_script_parks_its_result_and_flags_completion() {
+        let payload = serde_json::json!({
+            "method": "POST",
+            "url": "https://example.com/api",
+            "headers": {},
+            "body": "payload-body",
+        });
+        let script = in_page_fetch_script(&payload);
+        assert!(script.contains("\"body\":\"payload-body\""));
+        assert!(script.contains("\"method\":\"POST\""));
+        assert!(script.contains("const input = "));
+        assert!(script.contains("globalThis.__arachneaObscuraFetchDone = false"));
+        assert!(script.contains("credentials: 'same-origin'"));
+        assert!(script.contains("globalThis.__arachneaObscuraFetchDone = true"));
     }
 
     /// Builds an engine for transport tests without touching the network.

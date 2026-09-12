@@ -635,19 +635,83 @@ PoC sur cible autorisée reste à faire et confirmera ou non la gate.)*
 
 ### Phase 3 — session de page persistante
 
-1. Implémenter `ObscuraPageSession` sur une `obscura::Page` retenue.
-2. Implémenter `navigate`, récupération HTML, URL finale et `metadata`.
-3. Implémenter `fetch` via évaluation JavaScript et conversion rigoureuse des
+> Statut (2026-09-12) : implémentée et validée localement sur Windows
+> (compilation et tests unitaires ; le PoC réel navigation → clic → token →
+> `window.fetch` sur cible autorisée reste à exécuter, voir gate ci-dessous).
+>
+> Points d’implémentation notables :
+>
+> - `BrowserPageSession` exige `Send` alors qu’`obscura::Page` est `!Send`
+>   (runtime V8 affinitaire au thread) : chaque session vit sur un **thread
+>   dédié** (`arachnea-obscura-page`) qui possède le navigateur et la page
+>   pour toute la durée de la session, avec un runtime Tokio mono-thread local.
+>   Le handle `ObscuraPageSession` est `Send` et dialogue via un canal de
+>   commandes `mpsc` (requêtes `Send`-sûres + réponses `oneshot`) ; la page ne
+>   traverse jamais la frontière du thread.
+> - `ObscuraSessionChannel::spawn` attend un signal d’init `oneshot` : si le
+>   navigateur ou la page ne démarrent pas, l’appelant reçoit l’erreur
+>   immédiatement (jamais de handle vers un thread mort), et le thread est
+>   joint avant retour d’erreur.
+> - `navigate` utilise `page.goto` + tranche `settle` (2 s) pour laisser les
+>   scripts de bootstrap s’exécuter, puis retourne l’URL finale et le HTML
+>   (`document.documentElement.outerHTML`) quand `collect_body` est actif —
+>   l’API de contenu Obscura, pas une seconde requête HTTP.
+> - `fetch` : la façade `Page::evaluate` n’attend pas les promesses (wrapper
+>   IIFE synchrone dans `obscura-js`), donc le script injecté parque le
+>   résultat du `window.fetch` (`credentials: 'same-origin'`) dans une globale
+>   de page sous forme JSON et pose un drapeau d’achèvement ; le worker pompe
+>   l’event loop en tranches `settle` (250 ms) jusqu’à complétion, borné à 60 s
+>   (`PageFetchFailed` au-delà). Corps de requête UTF-8 uniquement (contrat
+>   inchangé), headers convertis en `HeaderMap` validé, erreurs réseau de page
+>   propagées sous `PageFetchFailed`.
+> - `click_and_wait` : clic via `element.click()` de la façade Obscura
+>   (scrollIntoView + click, le seul clic exposé par la façade ; le PoC de
+>   compatibilité devra confirmer son équivalence pour les widgets ciblés),
+>   puis attente CSS pollée. Si un challenge est détecté après le clic
+>   (`ChallengeSignals`), le protocole de clearance borné tourne **dans la même
+>   page** (contexte jamais détruit) avec un deadline étendu (90 s + 30 s), et
+>   les clics Turnstile respectent la fenêtre passive et l’intervalle borné.
+> - `metadata` convertit les cookies du jar Obscura en en-têtes `Set-Cookie`
+>   synthétisés (helper partagé `chaser_session.rs`) + `SOLVER_USER_AGENT_HEADER`
+>   avec l’UA réellement observé, et retourne l’URL finale de page.
+> - `read_turnstile_token` sonde borné (300 s) les trois sources prévues
+>   (`window.turnstile.getResponse()`, `[name="cf-response"]`,
+>   `[name="cf-turnstile-response"]`) ; `clear_turnstile_token` appelle
+>   `window.turnstile.reset()` si disponible, vide les champs, et n’échoue que
+>   si l’évaluation elle-même échoue.
+> - `close` envoie `Close` au worker, attend l’ack, puis **joint le thread**
+>   pour que le runtime V8 soit détruit sur son propre thread ; la page et le
+>   navigateur sont droppés dans le worker (jamais depuis un autre thread).
+>   L’invalidation/éviction par le `BrowserSessionManager` existant passe par
+>   `BrowserSessionHandle::close()` → `BrowserPageSession::close()`, sans
+>   changement du manager.
+>
+> Validation locale (Windows, 2026-09-12) : `cargo check --all-targets` OK sans
+> feature, avec `obscura`, `obscura,arachnea-proxy` et `chaser-cf,obscura` ;
+> tests verts `obscura` (55 unit + 4 doc, dont 11 `engine::obscura` — 3 tests
+> nouveaux pour les helpers purs de la phase : conversion d’outcome in-page
+> fetch, rejet des outcomes sans statut/erreur réseau, structure du launcher
+> JS), `chaser-cf` (46 + 4) ; `cargo fmt` appliqué.
+
+1. [x] Implémenter `ObscuraPageSession` sur une `obscura::Page` retenue.
+2. [x] Implémenter `navigate`, récupération HTML, URL finale et `metadata`.
+3. [x] Implémenter `fetch` via évaluation JavaScript et conversion rigoureuse des
    headers/statut.
-4. Implémenter `click_and_wait` avec clic navigateur, attente CSS et protocole
+4. [x] Implémenter `click_and_wait` avec clic navigateur, attente CSS et protocole
    de challenge injecté dans la même page.
-5. Implémenter lecture/remise à zéro du token Turnstile.
-6. Vérifier fermeture, invalidation et éviction par le
-   `BrowserSessionManager` existant.
+5. [x] Implémenter lecture/remise à zéro du token Turnstile.
+6. [x] Vérifier fermeture, invalidation et éviction par le
+   `BrowserSessionManager` existant. *(Fermeture/invalidation/éviction
+   vérifiées par construction : le manager existant appelle
+   `BrowserPageSession::close()` qui joint le thread ; les tests du manager
+   restent verts.)*
 
 **Gate :** la séquence navigation → clic → attente CSS → token si requis →
 `window.fetch` se déroule dans la même page, sans Chrome, sur la cible de test
-autorisée.
+autorisée. *(Partie locale validée : toutes les opérations partagent la même
+page retenue sur son thread dédié. L’exécution PoC sur cible autorisée reste à
+faire et confirmera ou non la gate, y compris l’équivalence du clic
+`element.click()` pour les widgets ciblés.)*
 
 ### Phase 4 — proxy in-process
 

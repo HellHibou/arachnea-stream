@@ -5,6 +5,29 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ## Unreleased
 
 ### Added
+- **Obscura persistent browser page sessions (Phase 3)**:
+  `ObscuraEngine::open_browser_page_session` now returns an
+  `ObscuraPageSession` implementing the full `BrowserPageSession` contract on a
+  retained embedded page: `navigate` (Obscura content API + post-load `settle`
+  slice, final URL, optional stable HTML), in-page `fetch`
+  (`window.fetch` with `credentials: 'same-origin'`, UTF-8 bodies only, strict
+  `HeaderMap` conversion, page network errors mapped to `PageFetchFailed`),
+  `click_and_wait` (facade `element.click()`, bounded CSS wait, and the bounded
+  Cloudflare clearance protocol running on the same retained page when a
+  challenge is injected after the click), `metadata` (synthesized `Set-Cookie`
+  headers + `x-arachnea-solver-user-agent`), bounded Turnstile token
+  read (`window.turnstile.getResponse()`, `cf-response`, `cf-turnstile-response`)
+  and reset. Because the Obscura runtime is thread-affine (`!Send`) while
+  `BrowserPageSession` is `Send`, each session owns a dedicated
+  `arachnea-obscura-page` thread (single-threaded Tokio runtime) holding the
+  browser and page for the whole session lifetime; the `Send` handle drives it
+  through a command channel, session startup failure is reported eagerly
+  through an init handshake, and `close` joins the thread so the V8 runtime is
+  torn down on its own thread. Existing `BrowserSessionManager` eviction and
+  invalidation paths are unchanged. Three new unit tests cover the pure
+  in-page-fetch helpers (outcome conversion, missing-status rejection, launcher
+  script shape). The `Auto` solver selection is still unchanged. See
+  `docs/dev-tracking/obscura-embedded-engine-implementation-plan.md` (Phase 3).
 - **Obscura embedded HTTP solver (Phase 2)**: the feature-gated `obscura`
   engine now implements the browser-solver contract on an ephemeral stealth
   page: `send` (GET/HEAD only; GET returns the stable page HTML, HEAD an empty
