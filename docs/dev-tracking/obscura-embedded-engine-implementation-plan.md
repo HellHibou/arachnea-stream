@@ -573,17 +573,65 @@ séparé (duplication des patches en path deps ou fork, à trancher).
 
 ### Phase 2 — solveur HTTP et cache de session
 
-1. Construire une page Obscura éphémère en stealth/rendu.
-2. Implémenter `send`, `refresh_cloudflare` et `refresh_cloudflare_fresh`.
-3. Extraire cookies, UA, HTML et URL finale ; raccorder le cache
+> Statut (2026-09-12) : implémentée et validée localement sur Windows
+> (compilation et tests unitaires ; le PoC Cloudflare réel sur cible autorisée
+> reste à exécuter, voir gate ci-dessous).
+>
+> Points d’implémentation notables :
+>
+> - `obscura::Page` n’est pas `Send` (runtime V8 affinitaire au thread) : le
+>   solve complet s’exécute sur un thread dédié via
+>   `tokio::task::spawn_blocking` + runtime Tokio mono-thread local
+>   (`run_blocking_solve` / `block_on_local` dans `engine/obscura.rs`) ; seuls
+>   des entrées `Send` entrent et seul le résultat `Send`-sûr en sort.
+> - Le protocole de clearance est borné et observable : fenêtre passive de 2 s
+>   après navigation, boucle de poll via `page.settle` (le runtime embarqué ne
+>   avance pas pendant un simple `sleep`), clics Turnstile same-origin limités
+>   à une tentative toutes les 2 s, timeout dédié de 180 s, et échec
+>   contextualisé ne portant que des labels de signaux non secrets
+>   (`ChallengeSignals`) ; aucune valeur de cookie/token n’est journalisée.
+> - Les cookies et l’UA observés sont restitués via des en-têtes `Set-Cookie`
+>   synthétisés et `x-arachnea-solver-user-agent` ; `GET` renvoie le HTML stable
+>   (`Content-Type: text/html; charset=utf-8`), `HEAD` un corps vide ; `send`
+>   rejette les méthodes autres que GET/HEAD (`UnsupportedEngineOperation`).
+> - La cache de session réutilise `CachedChaserSession` tel quel (schéma
+>   inchangé) : `refresh_cloudflare` lit la cache et évite un solve Obscura
+>   quand la clearance reste utilisable au regard de `cookie_refresh_margin`,
+>   `refresh_cloudflare_fresh` ignore la cache à la lecture ; seules les
+>   sessions portant un `cf_clearance` sont persistées.
+> - Les helpers partagés (`cache_origin_key`, `cached_session_headers`,
+>   `clearance_expires_at`, `set_cookie_header`, `unix_timestamp`,
+>   `expires_http_date`, `CACHE_TTL_NO_EXPIRY`, `is_usable`) sont extraits dans
+>   `chaser_session.rs` derrière `any(feature = "chaser-cf", feature =
+>   "obscura")` ; `chaser_cf.rs` les consomme désormais aussi.
+> - `HttpProxyConfig::Arachnea` (mode `InterceptorFulfill`, Phase 4) est refusé
+>   explicitement plutôt que de bypasser la route ; seuls les proxys réseau
+>   `http`/`https` sont acceptés par la pile stealth.
+>
+> Validation locale (Windows, 2026-09-12) : `cargo check --all-targets` OK sans
+> feature, avec `obscura`, avec `chaser-cf`, avec `obscura,arachnea-proxy` et
+> avec `chaser-cf,obscura` ; tests verts `obscura` (52 unit + 4 doc), `chaser-cf`
+> (46 + 4) et `chaser-cf,obscura` (54 + 4), dont 8 tests unitaires ciblés
+> `engine::obscura` (transport, conversion cookie, signaux de challenge).
+>
+> Mise à jour (2026-09-12, correction résiduelle) : la conversion cookie
+> `chaser-cf` a été réalignée sur les helpers partagés (`set_cookie_header`
+> prend désormais `&StructuredCookie`), et le warning mort
+> `EntityQuery::predicates` dans `arachnea-core` est couvert par
+> `#[allow(dead_code)]` (le helper sert au stockage SQLite des sessions).
+
+1. [x] Construire une page Obscura éphémère en stealth/rendu.
+2. [x] Implémenter `send`, `refresh_cloudflare` et `refresh_cloudflare_fresh`.
+3. [x] Extraire cookies, UA, HTML et URL finale ; raccorder le cache
    `CachedChaserSession` existant.
-4. Implémenter la détection de challenge et le protocole d’attente borné.
-5. Réutiliser ou extraire les helpers de sérialisation de cookies sans modifier
-   le schéma de persistance.
+4. [x] Implémenter la détection de challenge et le protocole d’attente borné.
+5. [x] Réutiliser ou extraire les helpers de sérialisation de cookies sans
+   modifier le schéma de persistance.
 
 **Gate :** sur une cible de test autorisée, le solveur remet un `cf_clearance`
 valide lorsque la cible en émet, puis le chemin HTTP rapide réutilise les
-cookies et l’UA sans relancer Obscura.
+cookies et l’UA sans relancer Obscura. *(Partie locale validée ; l’exécution
+PoC sur cible autorisée reste à faire et confirmera ou non la gate.)*
 
 ### Phase 3 — session de page persistante
 

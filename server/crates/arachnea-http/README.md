@@ -32,7 +32,7 @@ This README is the design and usage home for the HTTP crate. Remaining work is t
 - Text header conversion through `header_map_from_strings`.
 - Per-request mode overrides through `ArachneaRequestBuilder::mode`.
 - Origin-scoped reusable browser page sessions through `ArachneaHttpClient::page_fetch` when the configured browser engine supports persistent pages.
-- Optional Cloudflare-oriented flows using Ghostwire, chaser-cf, or a Tauri/Wry-based solver path.
+- Optional Cloudflare-oriented flows using Ghostwire, chaser-cf, the embedded Obscura headless browser, or a Tauri/Wry-based solver path.
 - Typed errors for network, status, Cloudflare, cookie, and configuration failures.
 
 This crate is intended for authorized traffic only. Callers must respect target service terms, rate limits, `robots.txt`, and applicable law.
@@ -48,11 +48,12 @@ This crate is intended for authorized traffic only. Callers must respect target 
 | `CloudflareBrowserSolverKind::Auto` | Use the default browser solver selected by `get_default_cloudflare_solver`: Tauri/Wry when `tauri-cloudflare-solver` is enabled, otherwise chaser-cf when `chaser-cf` is enabled. |
 | `CloudflareBrowserSolverKind::ChaserCf` | Require the `chaser-cf` feature for the browser fallback. |
 | `CloudflareBrowserSolverKind::TauriCloudflareSolver` | Require the `tauri-cloudflare-solver` feature for the interactive browser fallback. |
-| `CloudflareBrowserSolverKind::Obscura` | Require the `obscura` feature for the embedded Obscura headless-browser fallback. Phase 1 skeleton: selectable explicitly, but Cloudflare solving and page sessions are not implemented yet (`ObscuraFailure`). |
+| `CloudflareBrowserSolverKind::Obscura` | Require the `obscura` feature for the embedded Obscura headless-browser fallback. Phase 2: the Cloudflare session solver (`send`, `refresh_cloudflare`, `refresh_cloudflare_fresh`) is implemented on an ephemeral stealth page with the shared `CachedChaserSession` cache; persistent page sessions land in Phase 3 (`UnsupportedEngineOperation`). `HttpProxyConfig::Arachnea` is refused until the Phase 4 in-process transport lands, and only `http`/`https` network proxies are accepted. |
 
 Cloudflare detection should require supporting signals such as `server: cloudflare`, `cf-ray`, `cf-mitigated`, `cf-` or `__cf` headers/cookies, or known challenge markers. A plain `403` is not enough by itself.
 When `Auto` reaches the browser fallback after an active Cloudflare block, the browser solver is asked for a fresh solve instead of reusing an engine-specific session cache.
 The chaser-cf integration is a session solver only: it delegates challenge handling to `ChaserCF::solve_waf_session`, then returns `cf_clearance` cookies and the browser-observed user-agent to the shared caches. `rquest` always performs the subsequent HTML request, redirects, and response handling.
+The Obscura integration (Phase 2) solves Cloudflare sessions with an embedded headless browser (no Chrome/Chromium, no external process): each solve runs on a dedicated thread because the Obscura page runtime is thread-affine, observes non-secret challenge markers, and returns the stable page HTML for `send` plus `cf_clearance` cookies and the observed user-agent to the shared caches.
 If the rquest handoff remains blocked, the client returns `CloudflareBlocked` after its bounded refresh policy; it does not retrieve HTML through the browser as a fallback. The solver and rquest must use the same proxy route, and clearance portability is target-dependent.
 If the browser solve succeeds but the `rquest` cookie handoff is still blocked, the client returns `CloudflareBlocked` after its bounded refresh attempts. Chaser-CF is a session solver only and never returns HTML.
 Callers can force the browser solver with `ArachneaHttpConfig::builder().cloudflare_browser_solver(...)` or provide an engine instance with `cloudflare_browser_solver_instance(...)`.
@@ -146,7 +147,8 @@ let config = ArachneaHttpConfig::builder()
 
 ### Engine support
 
-- The `chaser-cf` engine is a Cloudflare session solver and does not support persistent page sessions.
+- The `chaser-cf` engine is a Cloudflare session solver and supports persistent page sessions through a retained Chrome page (`ChaserCfPageSession`).
+- The `obscura` engine is a Cloudflare session solver (Phase 2); persistent page sessions are not implemented yet (Phase 3).
 - Use another explicit browser engine for page-scoped JavaScript work, callbacks, or DOM interactions.
 - Engines without this capability return `UnsupportedEngineOperation` rather than silently falling back to direct HTTP.
 - `BrowserPageSession::clear_turnstile_token()` has a default no-op implementation.

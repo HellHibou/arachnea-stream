@@ -490,6 +490,7 @@ impl<E: PersistentEntity> Default for EntityQuery<E> {
 }
 impl<E: PersistentEntity> EntityQuery<E> {
     /// Returns the conjunction of equality predicates as `(field, value)` pairs.
+    #[allow(dead_code)]
     pub(crate) fn predicates(&self) -> &[(String, StoredValue)] {
         &self.predicates
     }

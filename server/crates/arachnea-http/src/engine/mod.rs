@@ -17,12 +17,12 @@ use crate::{
 #[cfg(feature = "chaser-cf")]
 /// chaser-cf browser-based Cloudflare solver engine.
 pub mod chaser_cf;
-#[cfg(feature = "obscura")]
-/// Obscura embedded headless-browser Cloudflare solver engine.
-pub mod obscura;
 #[cfg(feature = "ghostwire")]
 /// Ghostwire smart Cloudflare challenge solver engine.
 pub mod ghostwire;
+#[cfg(feature = "obscura")]
+/// Obscura embedded headless-browser Cloudflare solver engine.
+pub mod obscura;
 /// Fast `rquest` engine adapter.
 pub mod rquest;
 #[cfg(feature = "tauri-cloudflare-solver")]
@@ -398,7 +398,9 @@ pub(crate) async fn build_obscura_engine(
     session_store: Arc<dyn TypedEntityStore<CachedChaserSession>>,
 ) -> Result<DynHttpEngine, ArachneaHttpError> {
     Ok(Arc::new(obscura::ObscuraEngine::new_with_proxy_url(
-        config, proxy_url, session_store,
+        config,
+        proxy_url,
+        session_store,
     )?))
 }
 
@@ -446,7 +448,9 @@ pub(crate) async fn build_chaser_cf_engine(
     session_store: Arc<dyn TypedEntityStore<CachedChaserSession>>,
 ) -> Result<DynHttpEngine, ArachneaHttpError> {
     Ok(Arc::new(chaser_cf::ChaserCfEngine::new_with_proxy_url(
-        config, proxy_url, session_store,
+        config,
+        proxy_url,
+        session_store,
     )?))
 }
 

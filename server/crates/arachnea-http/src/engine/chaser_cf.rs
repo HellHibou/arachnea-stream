@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     sync::{Arc, OnceLock},
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 
 use arachnea_core::persistence::TypedEntityStore;
@@ -32,7 +32,8 @@ use crate::{
         PageFetchRequest, PageFetchResponse, PageNavigationRequest, PageNavigationResponse,
     },
     chaser_session::{
-        memory_session_store, CachedChaserSession, StructuredCookie, CACHE_TTL_NO_EXPIRY,
+        cache_origin_key, cached_session_headers, clearance_expires_at, memory_session_store,
+        set_cookie_header, unix_timestamp, CachedChaserSession, StructuredCookie,
     },
     config::ArachneaHttpConfig,
     engine::{EngineRequest, EngineResponse, HttpEngine, SOLVER_USER_AGENT_HEADER},
@@ -409,7 +410,7 @@ impl ChaserCfEngine {
         for cookie in cookies {
             headers.append(
                 SET_COOKIE,
-                HeaderValue::from_str(&set_cookie_header(cookie))
+                HeaderValue::from_str(&set_cookie_header(&StructuredCookie::from(cookie)))
                     .map_err(|err| ArachneaHttpError::InvalidHeader(err.to_string()))?,
             );
         }
@@ -831,7 +832,7 @@ impl BrowserPageSession for ChaserCfPageSession {
             };
             headers.append(
                 SET_COOKIE,
-                HeaderValue::from_str(&set_cookie_header(&chaser_cookie))
+                HeaderValue::from_str(&set_cookie_header(&StructuredCookie::from(&chaser_cookie)))
                     .map_err(|err| ArachneaHttpError::InvalidHeader(err.to_string()))?,
             );
         }
@@ -1701,46 +1702,25 @@ impl CachedChaserSession {
         {
             return None;
         }
+        let structured: Vec<StructuredCookie> =
+            session.cookies.iter().map(StructuredCookie::from).collect();
+        let clearance_expires_at = clearance_expires_at(&structured);
         Some(Self {
             origin: String::new(),
-            cookies: session.cookies.iter().map(StructuredCookie::from).collect(),
+            cookies: structured,
             user_agent: session
                 .headers
                 .get("user-agent")
                 .filter(|value| !value.trim().is_empty())
                 .cloned(),
-            clearance_expires_at: clearance_expires_at(&session.cookies),
+            clearance_expires_at,
             stored_at: unix_timestamp(),
         })
-    }
-
-    fn is_usable(&self, refresh_margin: Duration) -> bool {
-        match self.clearance_expires_at {
-            Some(expires_at) => {
-                expires_at > unix_timestamp().saturating_add(refresh_margin.as_secs())
-            }
-            None => self.stored_at.saturating_add(CACHE_TTL_NO_EXPIRY.as_secs()) > unix_timestamp(),
-        }
     }
 }
 
 impl From<&ChaserCookie> for StructuredCookie {
     fn from(cookie: &ChaserCookie) -> Self {
-        Self {
-            name: cookie.name.clone(),
-            value: cookie.value.clone(),
-            domain: cookie.domain.clone(),
-            path: cookie.path.clone(),
-            expires: cookie.expires,
-            http_only: cookie.http_only,
-            secure: cookie.secure,
-            same_site: cookie.same_site.clone(),
-        }
-    }
-}
-
-impl From<&StructuredCookie> for ChaserCookie {
-    fn from(cookie: &StructuredCookie) -> Self {
         Self {
             name: cookie.name.clone(),
             value: cookie.value.clone(),
@@ -1785,91 +1765,6 @@ fn chaser_proxy_from_url(
         );
     }
     Ok(Some(config))
-}
-
-fn cached_session_headers(session: &CachedChaserSession) -> Result<HeaderMap, ArachneaHttpError> {
-    let mut headers = HeaderMap::new();
-    for cookie in &session.cookies {
-        let chaser_cookie = ChaserCookie::from(cookie);
-        headers.append(
-            SET_COOKIE,
-            HeaderValue::from_str(&set_cookie_header(&chaser_cookie))
-                .map_err(|err| ArachneaHttpError::InvalidHeader(err.to_string()))?,
-        );
-    }
-    if let Some(user_agent) = &session.user_agent {
-        headers.insert(
-            SOLVER_USER_AGENT_HEADER,
-            HeaderValue::from_str(user_agent)
-                .map_err(|err| ArachneaHttpError::InvalidHeader(err.to_string()))?,
-        );
-    }
-    Ok(headers)
-}
-
-fn set_cookie_header(cookie: &ChaserCookie) -> String {
-    let mut value = format!("{}={}", cookie.name, cookie.value);
-    if let Some(domain) = &cookie.domain {
-        value.push_str("; Domain=");
-        value.push_str(domain);
-    }
-    if let Some(path) = &cookie.path {
-        value.push_str("; Path=");
-        value.push_str(path);
-    }
-    if let Some(expires) = expires_http_date(cookie.expires) {
-        value.push_str("; Expires=");
-        value.push_str(&expires);
-    }
-    if cookie.secure.unwrap_or(false) {
-        value.push_str("; Secure");
-    }
-    if cookie.http_only.unwrap_or(false) {
-        value.push_str("; HttpOnly");
-    }
-    if let Some(same_site) = &cookie.same_site {
-        value.push_str("; SameSite=");
-        value.push_str(same_site);
-    }
-    value
-}
-
-fn clearance_expires_at(cookies: &[ChaserCookie]) -> Option<u64> {
-    cookies
-        .iter()
-        .find(|cookie| cookie.name == "cf_clearance")
-        .and_then(|cookie| cookie.expires)
-        .filter(|expires| expires.is_finite() && *expires >= 0.0)
-        .map(|expires| expires as u64)
-}
-
-fn expires_http_date(expires: Option<f64>) -> Option<String> {
-    let expires = expires?;
-    if !expires.is_finite() || expires < 0.0 {
-        return None;
-    }
-    let duration = Duration::try_from_secs_f64(expires).ok()?;
-    let instant = UNIX_EPOCH.checked_add(duration)?;
-    Some(httpdate::fmt_http_date(instant))
-}
-
-fn cache_origin_key(value: &str) -> Result<String, ArachneaHttpError> {
-    let url = Url::parse(value).map_err(|err| ArachneaHttpError::InvalidUrl(err.to_string()))?;
-    let host = url
-        .host_str()
-        .ok_or_else(|| ArachneaHttpError::InvalidUrl("URL must contain a host".to_string()))?;
-    let port = url
-        .port()
-        .map(|port| format!(":{port}"))
-        .unwrap_or_default();
-    Ok(format!("{}://{host}{port}/", url.scheme()))
-}
-
-fn unix_timestamp() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
 }
 
 #[cfg(test)]

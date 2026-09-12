@@ -1091,7 +1091,10 @@ mod tests {
         };
         let handle = mgr.get_or_create(&key);
         handle.cache_turnstile_token("test-token".to_string());
-        assert_eq!(handle.cached_turnstile_token(), Some("test-token".to_string()));
+        assert_eq!(
+            handle.cached_turnstile_token(),
+            Some("test-token".to_string())
+        );
     }
 
     #[test]

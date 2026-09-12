@@ -1,13 +1,22 @@
-use std::{
-    sync::Arc,
-    time::{Duration, UNIX_EPOCH},
-};
+use std::sync::Arc;
+#[cfg(any(feature = "chaser-cf", feature = "obscura"))]
+use std::time::SystemTime;
+use std::time::{Duration, UNIX_EPOCH};
 
 use arachnea_core::persistence::{
     EntityReader, EntitySchema, EntityWriter, Field, MemoryEntityStore, PersistenceStoreConfig,
     PersistentEntity, TypedEntityStore,
 };
+#[cfg(any(feature = "chaser-cf", feature = "obscura"))]
+use http::{header::SET_COOKIE, HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
+#[cfg(any(feature = "chaser-cf", feature = "obscura"))]
+use url::Url;
+
+#[cfg(any(feature = "chaser-cf", feature = "obscura"))]
+use crate::engine::SOLVER_USER_AGENT_HEADER;
+#[cfg(any(feature = "chaser-cf", feature = "obscura"))]
+use crate::error::ArachneaHttpError;
 
 /// Stable store name for cached Cloudflare sessions.
 pub const CLOUDFLARE_SESSION_STORE_NAME: &str = "cloudflare-session";
@@ -132,6 +141,128 @@ impl PersistentEntity for CachedChaserSession {
             clearance_expires_at,
             stored_at,
         })
+    }
+}
+
+/// Normalized origin key used to key cached Cloudflare sessions.
+///
+/// Strips paths and query strings so a session solved for one URL on an origin
+/// is reusable for every URL of that origin, exactly like the chaser-cf
+/// adapter did.
+#[cfg(any(feature = "chaser-cf", feature = "obscura"))]
+pub(crate) fn cache_origin_key(value: &str) -> Result<String, ArachneaHttpError> {
+    let url = Url::parse(value).map_err(|err| ArachneaHttpError::InvalidUrl(err.to_string()))?;
+    let host = url
+        .host_str()
+        .ok_or_else(|| ArachneaHttpError::InvalidUrl("URL must contain a host".to_string()))?;
+    let port = url
+        .port()
+        .map(|port| format!(":{port}"))
+        .unwrap_or_default();
+    Ok(format!("{}://{host}{port}/", url.scheme()))
+}
+
+/// Current Unix timestamp in whole seconds.
+#[cfg(any(feature = "chaser-cf", feature = "obscura"))]
+pub(crate) fn unix_timestamp() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+/// Formats an absolute Unix timestamp as an HTTP `Expires` header value.
+#[cfg(any(feature = "chaser-cf", feature = "obscura"))]
+pub(crate) fn expires_http_date(expires: Option<f64>) -> Option<String> {
+    let expires = expires?;
+    if !expires.is_finite() || expires < 0.0 {
+        return None;
+    }
+    let duration = Duration::try_from_secs_f64(expires).ok()?;
+    let instant = UNIX_EPOCH.checked_add(duration)?;
+    Some(httpdate::fmt_http_date(instant))
+}
+
+/// `cf_clearance` expiration from a structured cookie list, when known.
+///
+/// The Obscura facade does not expose cookie expiration, in which case the
+/// returned value is `None` and the session cache falls back to its no-expiry
+/// TTL bound (`CACHE_TTL_NO_EXPIRY`).
+#[cfg(any(feature = "chaser-cf", feature = "obscura"))]
+pub(crate) fn clearance_expires_at(cookies: &[StructuredCookie]) -> Option<u64> {
+    cookies
+        .iter()
+        .find(|cookie| cookie.name == "cf_clearance")
+        .and_then(|cookie| cookie.expires)
+        .filter(|expires| expires.is_finite() && *expires >= 0.0)
+        .map(|expires| expires as u64)
+}
+
+/// Serializes one structured cookie into a `Set-Cookie` header value.
+#[cfg(any(feature = "chaser-cf", feature = "obscura"))]
+pub(crate) fn set_cookie_header(cookie: &StructuredCookie) -> String {
+    let mut value = format!("{}={}", cookie.name, cookie.value);
+    if let Some(domain) = &cookie.domain {
+        value.push_str("; Domain=");
+        value.push_str(domain);
+    }
+    if let Some(path) = &cookie.path {
+        value.push_str("; Path=");
+        value.push_str(path);
+    }
+    if let Some(expires) = expires_http_date(cookie.expires) {
+        value.push_str("; Expires=");
+        value.push_str(&expires);
+    }
+    if cookie.secure.unwrap_or(false) {
+        value.push_str("; Secure");
+    }
+    if cookie.http_only.unwrap_or(false) {
+        value.push_str("; HttpOnly");
+    }
+    if let Some(same_site) = &cookie.same_site {
+        value.push_str("; SameSite=");
+        value.push_str(same_site);
+    }
+    value
+}
+
+/// Builds the response header map for a cached Cloudflare session: synthesized
+/// `Set-Cookie` headers plus the observed solver user-agent.
+#[cfg(any(feature = "chaser-cf", feature = "obscura"))]
+pub(crate) fn cached_session_headers(
+    session: &CachedChaserSession,
+) -> Result<HeaderMap, ArachneaHttpError> {
+    let mut headers = HeaderMap::new();
+    for cookie in &session.cookies {
+        headers.append(
+            SET_COOKIE,
+            HeaderValue::from_str(&set_cookie_header(cookie))
+                .map_err(|err| ArachneaHttpError::InvalidHeader(err.to_string()))?,
+        );
+    }
+    if let Some(user_agent) = &session.user_agent {
+        headers.insert(
+            SOLVER_USER_AGENT_HEADER,
+            HeaderValue::from_str(user_agent)
+                .map_err(|err| ArachneaHttpError::InvalidHeader(err.to_string()))?,
+        );
+    }
+    Ok(headers)
+}
+
+impl CachedChaserSession {
+    /// Returns true while the clearance is still usable: before `cf_clearance`
+    /// expiry minus the proactive refresh margin, or within the no-expiry TTL
+    /// bound when the cookie carried no expiration.
+    #[cfg(any(feature = "chaser-cf", feature = "obscura"))]
+    pub(crate) fn is_usable(&self, refresh_margin: Duration) -> bool {
+        match self.clearance_expires_at {
+            Some(expires_at) => {
+                expires_at > unix_timestamp().saturating_add(refresh_margin.as_secs())
+            }
+            None => self.stored_at.saturating_add(CACHE_TTL_NO_EXPIRY.as_secs()) > unix_timestamp(),
+        }
     }
 }
 

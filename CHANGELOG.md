@@ -5,6 +5,27 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ## Unreleased
 
 ### Added
+- **Obscura embedded HTTP solver (Phase 2)**: the feature-gated `obscura`
+  engine now implements the browser-solver contract on an ephemeral stealth
+  page: `send` (GET/HEAD only; GET returns the stable page HTML, HEAD an empty
+  body), `refresh_cloudflare` (reuses a still-valid cached clearance) and
+  `refresh_cloudflare_fresh` (ignores the cache on read). The bounded clearance
+  protocol observes non-secret challenge markers, drives the embedded runtime
+  in `settle` slices, attempts bounded same-origin Turnstile clicks and fails
+  with contextualized, secret-free errors on timeout. Because the Obscura page
+  runtime is thread-affine (`!Send`), each solve runs on a dedicated blocking
+  thread with a single-threaded Tokio runtime and only `Send`-safe results
+  cross back. Cookies and the observed user-agent are returned via
+  synthesized `Set-Cookie` headers and `x-arachnea-solver-user-agent`, and
+  sessions carrying `cf_clearance` are persisted through the existing
+  `CachedChaserSession` store (schema unchanged). The Cloudflare cookie
+  serialization helpers were extracted to `chaser_session.rs` and are now
+  shared by both the `chaser-cf` and `obscura` engines behind
+  `any(feature = "chaser-cf", feature = "obscura")`. `HttpProxyConfig::Arachnea`
+  is explicitly refused until the Phase 4 in-process interceptor lands, and
+  only `http`/`https` network proxies are accepted by the stealth transport.
+  See `docs/dev-tracking/obscura-embedded-engine-implementation-plan.md`
+  (Phase 2).
 - **Workspace HTTP stack migrated `newwreq` → `wreq` (Phase 1b)**: the
   workspace HTTP client dependency is now the active upstream continuation of
   the frozen `newwreq` crate, pinned to `wreq =6.0.0-rc.29` under the existing
