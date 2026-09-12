@@ -25,14 +25,15 @@ chaser-oxide = { workspace = true, optional = true }
 cookie = { workspace = true, optional = true }
 futures.workspace = true
 ghostwire = { workspace = true, optional = true }
-# The Obscura `stealth` feature is excluded on purpose: it pulls `wreq` and
-# `btls-sys`, which link BoringSSL (`links = "boringssl"`) and conflict with
-# `newwreq` / `boring-sys2` already linked by this workspace. The `render`
-# feature is excluded as well: Obscura's workspace-patched `taffy` and
-# `cosmic-text` vendors are not applied to git dependencies, so
-# `obscura-render` fails to compile against the crates.io releases. Both
-# follow-ups are tracked in the Obscura integration plan before Phase 2.
-obscura = { git = "https://github.com/h4ckf0r0day/obscura", rev = "eec047a188cc75b7a1a257397ad84493ee59c091", default-features = false, features = ["api"], optional = true }
+# The Obscura `render` feature is excluded on purpose: Obscura's
+# workspace-patched `taffy` and `cosmic-text` vendors are not applied to git
+# dependencies, so `obscura-render` fails to compile against the crates.io
+# releases. This is tracked as a separate follow-up in the Obscura integration
+# plan (Phase 1b gate). The `stealth` feature is enabled: the workspace HTTP
+# stack was migrated from `newwreq` to `wreq` (decision A1, integration plan
+# Phase 1b), so a single BoringSSL stack (`btls`) is linked and the previous
+# `links = "boringssl"` conflict with `boring-sys2` is gone.
+obscura = { git = "https://github.com/h4ckf0r0day/obscura", rev = "eec047a188cc75b7a1a257397ad84493ee59c091", default-features = false, features = ["api", "stealth"], optional = true }
 encoding_rs = "0.8"
 http.workspace = true
 httpdate.workspace = true

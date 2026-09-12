@@ -112,13 +112,19 @@ branche `main`, ni d’un tag seul sans SHA de révision vérifié.
 
 Le build `stealth` tire notamment la pile TLS spécialisée d’Obscura. La CI et
 les builds développeur doivent documenter les prérequis de compilation associés
+(V8, CMake, compilateur C/C++ et outils de binding selon les plateformes).
 
 > Mise à jour (2026-09-12, Phase 1) : `stealth` et `render` sont exclues de la
 > déclaration Cargo actuelle (conflit BoringSSL avec `newwreq` pour `stealth`,
 > patches vendor non appliqués aux dépendances Git pour `render`). Elles
 > devront être réintégrées avant les gates Cloudflare ; voir la Phase 1 et la
 > question ouverte 6.
-(V8, CMake, compilateur C/C++ et outils de binding selon les plateformes).
+>
+> Mise à jour (2026-09-12, décision A1) : le blocage `stealth` est tranché —
+> migration de la pile HTTP du workspace `newwreq` → `wreq` (une seule pile
+> BoringSSL), planifiée en Phase 1b ; `render` reste bloqué séparément (patches
+> vendor). Détails :
+> `docs/dev-tracking/obscura-stealth-tls-conflict-analysis.md`.
 
 ### Façade Rust à utiliser
 
@@ -468,6 +474,11 @@ doivent être ajustées avec les mesures Obscura plutôt que copiées sans test.
 > compile pas car les `[patch]` vendor (`taffy`, `cosmic-text`) du workspace
 > Obscura ne s'appliquent pas aux dépendances Git. La dépendance est donc
 > déclarée avec `features = ["api"]` uniquement (voir question ouverte 6).
+>
+> Décision (2026-09-12) : le blocage `stealth` est tranché par l'option A1
+> (migration `newwreq` → `wreq`, Phase 1b ci-dessous) ; l'exclusion de
+> `render` reste en vigueur. Voir
+> `docs/dev-tracking/obscura-stealth-tls-conflict-analysis.md`.
 
 - [x] Ajouter la dépendance Git Obscura épinglée et la feature `obscura` dans
   `arachnea-http` (révision épinglée ; `stealth` et `render` exclues, voir
@@ -487,6 +498,78 @@ doivent être ajustées avec les mesures Obscura plutôt que copiées sans test.
 
 **Sortie attendue :** le crate compile avec et sans `obscura`; aucune route de
 production ne bascule automatiquement. *(Atteint avec `obscura` = `api`.)*
+
+### Phase 1b — migration de la pile HTTP du workspace (`newwreq` → `wreq`)
+
+> Décision A1 du 2026-09-12 : supprimer le conflit `links = "boringssl"` à la
+> racine en migrant le workspace du crate gelé `newwreq` 5.1.7 vers sa
+> continuation active `wreq` (épinglé comme `obscura-net`), afin de
+> réintégrer `obscura/stealth`. Analyse complète :
+> `docs/dev-tracking/obscura-stealth-tls-conflict-analysis.md`.
+
+- [x] Dans `server/Cargo.toml`, remplacer
+  `rquest = { package = "newwreq", version = "5.1.7", ... }` par
+  `rquest = { package = "wreq", version = "=6.0.0-rc.29", ... }` en alignant
+  les features sur les besoins réels (`json`, `cookies`, `gzip`, et à évaluer
+  `socks`/`stream`/`zstd`). Conserver la clé `rquest` (déjà un alias, comme
+  `newwreq` l'était) pour ne pas changer les contrats existants (feature
+  `arachnea-proxy/rquest`, exemple `rquest_loopback`, `use rquest::…`).
+  *(Fait sur Windows : `server/Cargo.toml` = `rquest = { package = "wreq",
+  version = "=6.0.0-rc.29", features = ["json", "cookies", "gzip"] }`. Les
+  features supplémentaires `socks`/`stream`/`zstd` ne sont pas requises par le
+  workspace hors `obscura` : elles sont portées par la déclaration interne
+  d'`obscura-net/stealth` quand la feature `obscura` est activée.)*
+- [x] Migrer les points d'appel `rquest::` : `arachnea-http`
+  (`engine/rquest.rs`, client loopback dans `client.rs`), `arachnea-proxy`
+  (`connectors/rquest.rs`), `arachnea-dns` (`core/transport.rs` DoH),
+  `arachnea-stream` (résolveurs FranceTV, player, RTBF, RTL Play).
+  *(Deltas rc réels rencontrés et corrigés : `Response::url()` → `uri()` dans
+  `engine/rquest.rs`, et `rquest::Url` supprimé de la racine `wreq` — les
+  résolveurs FranceTV/RTL Play importent désormais `url::Url`.*
+- [x] Corriger les deltas d'API rc documentés en amont (renommages type
+  `cert_store` → `tls_cert_store`, `CertStore` déplacé hors de `tls`, builder
+  `Emulation` restructuré) et revérifier `Proxy::all`,
+  `redirect::Policy::none`, `custom_http_headers` sur la version épinglée.
+  *(Revérifiés sur `wreq` rc.29 par compilation : `Proxy::all`,
+  `Proxy::custom_http_headers`, `redirect::Policy::none`, le builder
+  `ClientBuilder` et les re-exports `header::…` existent ; `Url` est absent
+  (voir item précédent). Les renommages `tls_cert_store`/`Emulation` sont
+  portés par la couche stealth d'Obscura, validée à la compilation.)*
+- [ ] Vérifier les prérequis de build de `btls-sys` (BoringSSL : CMake,
+  compilateur C/C++, NASM et toolchain Go) sur chaque plateforme de build.
+  *(Windows validé sur la machine de test : CMake 3.31 + NASM 3.01 + MSVC
+  suffisent ; `btls-sys` 0.5.6 compile sans la toolchain Go. macOS/Linux à
+  confirmer en CI, cf. validation multiplateforme Phase 5.)*
+- [x] Repasser la dépendance Obscura en `features = ["api", "stealth"]` et
+  vérifier qu'un seul paquet du graphe porte `links = "boringssl"`.
+  *(Fait : `arachnea-http/Cargo.toml` = `features = ["api", "stealth"]`.
+  `cargo tree --invert btls-sys` montre un unique `btls-sys v0.5.6`, consommé
+  par le `wreq` workspace/proxy ET par `obscura-net` ; `newwreq`/`boring-sys2`
+  absents du lock.)*
+- [x] Validation : `cargo check` full workspace, puis avec `obscura` et
+  `obscura,arachnea-proxy` ; tests `arachnea-http` et `arachnea-proxy` ;
+  smoke des résolveurs `arachnea-stream` ; contrôle d'empreinte TLS
+  (JA3/JA4) si un harnais de mesure est disponible.
+  *(Windows (2026-09-12) : `cargo check --workspace --all-targets` OK ;
+  `cargo check -p arachnea-http --features obscura` et
+  `--features obscura,arachnea-proxy` OK ; tests verts `arachnea-http`
+  (44 unit + 4 doc), `arachnea-proxy` (66 + 4 + 1), `arachnea-stream` (13),
+  `arachnea-dns` (9), `arachnea-core` lib (22). Les tests `resolve_url` de
+  `arachnea-scrapyfy` ne compilaient plus (signature `apply` à 7 arguments) :
+  réalignés (7e argument `None`), 69 tests passent. Échecs d'exécution
+  restants préexistants et hors périmètre : panique d'état global
+  `application root already resolved` (3 tests `execute_query_async_*` de
+  `scraper_agregator`), assertion de séparateur de chemin Windows dans
+  `resolve_manifest_sources_expands_recursive_imports_in_depth_first_order`,
+  et doc-test `application::get_application_data_path` (identifiant non
+  configuré). Le smoke des résolveurs avec accès réseau et le contrôle
+  d'empreinte JA3/JA4 ne sont pas exécutables ici (réseau / harnais
+  indisponibles).)*
+
+**Gate :** workspace compilant avec une seule pile BoringSSL (`btls`),
+`obscura/stealth` activée, sans régression de tests. `render` reste exclue :
+le blocage des patches vendor (`taffy`, `cosmic-text`) est un follow-up
+séparé (duplication des patches en path deps ou fork, à trancher).
 
 ### Phase 2 — solveur HTTP et cache de session
 
@@ -585,7 +668,9 @@ fragiles sur des sites tiers.
    fork de transport ;
 6. résultats de PoC Cloudflare/Turnstile, clic/fetch persistant et
    macOS/Linux/Windows ;
-7. documentation et changelog à jour au moment de la bascule effective.
+7. documentation et changelog à jour au moment de la bascule effective ;
+8. workspace sur une seule pile BoringSSL (`wreq`) avec `obscura/stealth`
+   réintégrée (Phase 1b).
 
 ## Questions ouvertes à trancher pendant la phase 1 / PoC
 
@@ -603,5 +688,9 @@ fragiles sur des sites tiers.
 6. Comment réconcilier la pile stealth d'Obscura (`wreq`/`btls-sys`,
    `links = "boringssl"`) avec `newwreq`/`boring-sys2` déjà lié par le
    workspace, et compenser les patches vendor (`taffy`, `cosmic-text`) requis
-   par la feature `render` : fork Obscura, remplacement de la pile HTTP du
-   workspace, ou duplication des patches dans le workspace Arachnea ?
+   par la feature `render` ?
+   *(Tranchée le 2026-09-12 pour la partie stealth : option A1 — migration
+   `newwreq` → `wreq` en Phase 1b, voir
+   `docs/dev-tracking/obscura-stealth-tls-conflict-analysis.md`. La partie
+   `render` reste ouverte : duplication des patches vendor dans le workspace
+   Arachnea ou fork Obscura.)*

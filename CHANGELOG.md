@@ -5,6 +5,27 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ## Unreleased
 
 ### Added
+- **Workspace HTTP stack migrated `newwreq` → `wreq` (Phase 1b)**: the
+  workspace HTTP client dependency is now the active upstream continuation of
+  the frozen `newwreq` crate, pinned to `wreq =6.0.0-rc.29` under the existing
+  `rquest` alias key (`server/Cargo.toml`). Call-site adjustments for the rc
+  API: `Response::url()` → `Response::uri()` in `arachnea-http`'s
+  `RquestEngine`, and `rquest::Url` is gone from the `wreq` root so the
+  FranceTV and RTL Play resolvers import `url::Url` instead. Obscura's
+  `stealth` feature (`features = ["api", "stealth"]`) is re-enabled in
+  `arachnea-http`, which reintroduces the impersonated TLS/HTTP stack
+  (`wreq`/`btls-sys`) and removes the previous `links = "boringssl"` conflict:
+  the graph now carries a single BoringSSL stack (`btls-sys` 0.5.6), validated
+  by `cargo check --workspace --all-targets` and the `obscura` /
+  `obscura,arachnea-proxy` feature builds on Windows. `render` remains
+  excluded (vendor patch follow-up). Besides the realigned `resolve_url`
+  tests, the `arachnea-scrapyfy` test module now compiles (69 tests pass);
+  the remaining known execution failures (global `application` state and
+  Windows path separators in `scraper_agregator` tests, plus the
+  `application::get_application_data_path` doc-test) are pre-existing and
+  tracked in `docs/TODO.md`. See
+  `docs/dev-tracking/obscura-embedded-engine-implementation-plan.md` (Phase
+  1b) and `docs/dev-tracking/obscura-stealth-tls-conflict-analysis.md`.
 - **Obscura embedded engine skeleton (Phase 1)**: `arachnea-http` gains a
   feature-gated `obscura` engine: a pinned Git dependency on the Obscura
   headless browser (revision `eec047a188cc75b7a1a257397ad84493ee59c091`,
@@ -17,7 +38,11 @@ All notable changes to the server workspace are recorded here. Add new entries a
   tracked in the integration plan: Obscura's `stealth` stack links BoringSSL
   (`btls-sys` conflicts with `newwreq`'s `boring-sys2`), and the `render`
   feature does not compile without Obscura's workspace vendor patches. See
-  `docs/dev-tracking/obscura-embedded-engine-implementation-plan.md`.
+  `docs/dev-tracking/obscura-embedded-engine-implementation-plan.md`. Decision
+  (2026-09-12): the stealth blocker is resolved by migrating the workspace
+  HTTP stack from the frozen `newwreq` to its active upstream continuation
+  `wreq` (single BoringSSL stack) before reintroducing the `stealth` feature;
+  `render` remains excluded separately.
 - **`--cache-block-size` CLI option and cache sizes in K (kilobytes)**: the
   Scrapyfy executable accepts a new `--cache-block-size <K>` override applied
   to the foyer block engine, alongside `--cache-max-disk-bytes` /

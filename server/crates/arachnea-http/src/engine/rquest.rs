@@ -104,7 +104,7 @@ impl HttpEngine for RquestEngine {
         })?;
         let status = response.status();
         let headers = response.headers().clone();
-        let url = response.url().to_string();
+        let url = response.uri().to_string();
         let body = response.bytes().await.map_err(|err| {
             if self.uses_proxy {
                 ArachneaHttpError::Proxy(err.to_string())

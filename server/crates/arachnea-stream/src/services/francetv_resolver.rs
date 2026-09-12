@@ -5,14 +5,13 @@ use arachnea_proxy::http::{
 };
 use async_trait::async_trait;
 use rand::{distr::Alphanumeric, Rng};
-use rquest::{
-    header::{HeaderValue, CONTENT_TYPE},
-    Url,
-};
+use rquest::header::{HeaderValue, CONTENT_TYPE};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
+
+use url::Url;
 
 use arachnea_core::persistence::CredentialsStore;
 use arachnea_scrapyfy::{HttpClient, ScraperAgregator, ScraperQueryCollectionParameter};

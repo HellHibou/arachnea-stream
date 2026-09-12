@@ -2,15 +2,13 @@ use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use base64::{engine::general_purpose, Engine as _};
 use regex::Regex;
-use rquest::{
-    header::{HeaderMap, HeaderName, HeaderValue},
-    Url,
-};
+use rquest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex as AsyncMutex;
+use url::Url;
 
 use arachnea_core::persistence::CredentialsStore;
 use arachnea_scrapyfy::{

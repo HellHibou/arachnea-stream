@@ -51,10 +51,10 @@ const OBSCURA_CLEARANCE_TIMEOUT: Duration = Duration::from_secs(180);
 #[derive(Debug, Clone)]
 pub(crate) struct ObscuraEngineConfig {
     /// Enable the Obscura stealth profile. The flag reaches
-    /// `obscura::BrowserConfig::stealth` for fingerprint alignment, but the
-    /// impersonated TLS/HTTP stack requires the dependency `stealth` feature,
-    /// currently excluded because its BoringSSL linking conflicts with
-    /// `newwreq` (see the integration plan).
+    /// `obscura::BrowserConfig::stealth` for fingerprint alignment. The
+    /// dependency `stealth` feature is enabled since the workspace HTTP stack
+    /// migrated from `newwreq` to `wreq` (option A1, integration plan Phase
+    /// 1b), providing the impersonated TLS/HTTP stack.
     stealth: bool,
     /// Enable the Obscura render layer used by real click flows and element
     /// geometry.
