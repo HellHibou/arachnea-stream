@@ -17,6 +17,9 @@ use crate::{
 #[cfg(feature = "chaser-cf")]
 /// chaser-cf browser-based Cloudflare solver engine.
 pub mod chaser_cf;
+#[cfg(feature = "obscura")]
+/// Obscura embedded headless-browser Cloudflare solver engine.
+pub mod obscura;
 #[cfg(feature = "ghostwire")]
 /// Ghostwire smart Cloudflare challenge solver engine.
 pub mod ghostwire;
@@ -225,6 +228,9 @@ pub(crate) async fn build_browser_cloudflare_solver(
         CloudflareBrowserSolverKind::TauriCloudflareSolver => {
             build_explicit_tauri_cloudflare_engine(config).await
         }
+        CloudflareBrowserSolverKind::Obscura => {
+            build_explicit_obscura_engine(config, proxy_url, session_store).await
+        }
     }
 }
 
@@ -331,6 +337,69 @@ async fn build_explicit_tauri_cloudflare_engine(
         let _ = config;
         Err(ArachneaHttpError::CloudflareSolverUnavailable)
     }
+}
+
+/// Builds Obscura for an explicit browser solver selection.
+///
+/// # Parameters
+///
+/// - `config`: Client configuration used to configure the engine.
+/// - `proxy_url`: Effective proxy URL selected by the HTTP client runtime.
+/// - `session_store`: Shared typed Cloudflare session store.
+///
+/// # Returns
+///
+/// A dynamic Obscura engine.
+///
+/// # Errors
+///
+/// Returns `CloudflareSolverUnavailable` when the `obscura` feature is not
+/// enabled, or construction failures from the Obscura adapter.
+async fn build_explicit_obscura_engine(
+    config: &ArachneaHttpConfig,
+    proxy_url: Option<&str>,
+    session_store: Arc<dyn TypedEntityStore<CachedChaserSession>>,
+) -> Result<Option<DynHttpEngine>, ArachneaHttpError> {
+    #[cfg(feature = "obscura")]
+    {
+        return build_obscura_engine(config, proxy_url, session_store)
+            .await
+            .map(Some);
+    }
+
+    #[cfg(not(feature = "obscura"))]
+    {
+        let _ = config;
+        let _ = proxy_url;
+        let _ = session_store;
+        Err(ArachneaHttpError::CloudflareSolverUnavailable)
+    }
+}
+
+/// Builds an Obscura engine.
+///
+/// # Parameters
+///
+/// - `config`: Client configuration used to configure the engine.
+/// - `proxy_url`: Effective proxy URL selected by the HTTP client runtime.
+/// - `session_store`: Shared typed Cloudflare session store.
+///
+/// # Returns
+///
+/// A dynamic Obscura engine.
+///
+/// # Errors
+///
+/// Returns a construction failure from the Obscura adapter.
+#[cfg(feature = "obscura")]
+pub(crate) async fn build_obscura_engine(
+    config: &ArachneaHttpConfig,
+    proxy_url: Option<&str>,
+    session_store: Arc<dyn TypedEntityStore<CachedChaserSession>>,
+) -> Result<DynHttpEngine, ArachneaHttpError> {
+    Ok(Arc::new(obscura::ObscuraEngine::new_with_proxy_url(
+        config, proxy_url, session_store,
+    )?))
 }
 
 /// Builds a Ghostwire engine.

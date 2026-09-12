@@ -48,6 +48,7 @@ This crate is intended for authorized traffic only. Callers must respect target 
 | `CloudflareBrowserSolverKind::Auto` | Use the default browser solver selected by `get_default_cloudflare_solver`: Tauri/Wry when `tauri-cloudflare-solver` is enabled, otherwise chaser-cf when `chaser-cf` is enabled. |
 | `CloudflareBrowserSolverKind::ChaserCf` | Require the `chaser-cf` feature for the browser fallback. |
 | `CloudflareBrowserSolverKind::TauriCloudflareSolver` | Require the `tauri-cloudflare-solver` feature for the interactive browser fallback. |
+| `CloudflareBrowserSolverKind::Obscura` | Require the `obscura` feature for the embedded Obscura headless-browser fallback. Phase 1 skeleton: selectable explicitly, but Cloudflare solving and page sessions are not implemented yet (`ObscuraFailure`). |
 
 Cloudflare detection should require supporting signals such as `server: cloudflare`, `cf-ray`, `cf-mitigated`, `cf-` or `__cf` headers/cookies, or known challenge markers. A plain `403` is not enough by itself.
 When `Auto` reaches the browser fallback after an active Cloudflare block, the browser solver is asked for a fresh solve instead of reusing an engine-specific session cache.

@@ -5,6 +5,19 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ## Unreleased
 
 ### Added
+- **Obscura embedded engine skeleton (Phase 1)**: `arachnea-http` gains a
+  feature-gated `obscura` engine: a pinned Git dependency on the Obscura
+  headless browser (revision `eec047a188cc75b7a1a257397ad84493ee59c091`,
+  `api` feature only for now), a new explicit
+  `CloudflareBrowserSolverKind::Obscura` selection (requires the `obscura`
+  feature; `Auto` is unchanged), and an `ObscuraEngine` construction skeleton
+  deriving stealth/render/user-agent/timeout/transport settings from
+  `ArachneaHttpConfig`. Normalized operations fail with the new
+  `ObscuraFailure` error until the Phase 2/3 behavior lands. Known blockers
+  tracked in the integration plan: Obscura's `stealth` stack links BoringSSL
+  (`btls-sys` conflicts with `newwreq`'s `boring-sys2`), and the `render`
+  feature does not compile without Obscura's workspace vendor patches. See
+  `docs/dev-tracking/obscura-embedded-engine-implementation-plan.md`.
 - **`--cache-block-size` CLI option and cache sizes in K (kilobytes)**: the
   Scrapyfy executable accepts a new `--cache-block-size <K>` override applied
   to the foyer block engine, alongside `--cache-max-disk-bytes` /

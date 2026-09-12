@@ -39,6 +39,9 @@ pub enum ArachneaHttpError {
     /// The interactive Tauri/Wry Cloudflare solver failed.
     #[error("Tauri Cloudflare solver failure: {0}")]
     TauriCloudflareSolverFailure(String),
+    /// The embedded Obscura engine failed to construct or execute an operation.
+    #[error("Obscura engine failure: {0}")]
+    ObscuraFailure(String),
     /// No Cloudflare-capable solver is available for a refresh request.
     #[error("no Cloudflare solver is available; inject a solver engine or enable an automatic solver feature")]
     CloudflareSolverUnavailable,

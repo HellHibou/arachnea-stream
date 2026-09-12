@@ -245,6 +245,9 @@ pub enum CloudflareBrowserSolverKind {
     /// Use the interactive Tauri/Wry solver. Requires the
     /// `tauri-cloudflare-solver` feature.
     TauriCloudflareSolver,
+    /// Use the embedded Obscura headless browser (no Chromium, no separate
+    /// Obscura process). Requires the `obscura` feature.
+    Obscura,
     /// Use a caller-provided engine instance.
     Engine(DynHttpEngine),
 }
@@ -297,6 +300,7 @@ impl fmt::Debug for CloudflareBrowserSolverKind {
             Self::Disabled => f.write_str("Disabled"),
             Self::ChaserCf => f.write_str("ChaserCf"),
             Self::TauriCloudflareSolver => f.write_str("TauriCloudflareSolver"),
+            Self::Obscura => f.write_str("Obscura"),
             Self::Engine(engine) => f.debug_tuple("Engine").field(&engine.name()).finish(),
         }
     }
@@ -938,6 +942,11 @@ fn validate_browser_solver(config: &ArachneaHttpConfig) -> Result<(), ArachneaHt
             Err(ArachneaHttpError::InvalidConfiguration(
                 "Tauri Cloudflare browser solver requires the tauri-cloudflare-solver feature"
                     .to_string(),
+            ))
+        }
+        CloudflareBrowserSolverKind::Obscura if !cfg!(feature = "obscura") => {
+            Err(ArachneaHttpError::InvalidConfiguration(
+                "Obscura browser solver requires the obscura feature".to_string(),
             ))
         }
         CloudflareBrowserSolverKind::Disabled
