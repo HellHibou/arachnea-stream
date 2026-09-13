@@ -8,6 +8,13 @@
 //! dedicated thread (the Obscura runtime is `!Send`) behind a command channel,
 //! with `navigate`, `fetch` (in-page `window.fetch`), `click_and_wait`,
 //! Turnstile token read/reset and cookie/user-agent handoff.
+//! Phase 4 adds the in-process proxy transport (`interceptor-fulfill`): when
+//! `HttpProxyConfig::Arachnea` is selected, every interceptable request of the
+//! embedded browser is fulfilled through the Arachnea proxy core with the
+//! request `ClientContext`, without a loopback listener. Body-carrying methods
+//! continue on the direct Obscura transport and are instrumented, because the
+//! pinned interception APIs do not expose request bodies (documented coverage
+//! gap feeding the transport-fork follow-up).
 //! The `Auto` browser-solver selection is intentionally unchanged; Obscura
 //! must be selected explicitly through `CloudflareBrowserSolverKind::Obscura`.
 
@@ -17,14 +24,37 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(feature = "arachnea-proxy")]
+use std::sync::atomic::Ordering;
+use std::sync::atomic::AtomicU64;
+
+#[cfg(feature = "arachnea-proxy")]
+use arachnea_proxy::core::http::{
+    ProxiedHttpRequest, ProxiedHttpResponse, ProxiedResponseBody, SimpleHttpClient,
+};
+#[cfg(feature = "arachnea-proxy")]
+use arachnea_proxy::http::actions::PostActionContext;
+#[cfg(feature = "arachnea-proxy")]
+use arachnea_proxy::core::{context_from_parameter_pairs, ClientContext, ProxyError};
 use arachnea_core::persistence::TypedEntityStore;
 use async_trait::async_trait;
+#[cfg(feature = "arachnea-proxy")]
+use base64::Engine as _;
 use bytes::Bytes;
 use http::{
     header::{CONTENT_TYPE, SET_COOKIE},
     HeaderMap, HeaderName, HeaderValue, Method, StatusCode,
 };
-use obscura::{Browser, Cookie as ObscuraCookie, Page};
+use obscura_browser::lifecycle::WaitUntil;
+use obscura_browser::{BrowserContext, Page as ObscuraPage};
+#[cfg(feature = "arachnea-proxy")]
+use obscura_browser::{InterceptResolution, InterceptedRequest};
+use obscura_net::CookieInfo;
+use obscura_net::CookieJar;
+#[cfg(feature = "arachnea-proxy")]
+use obscura_net::{RequestInfo, Response as ObscuraNetResponse};
+#[cfg(feature = "arachnea-proxy")]
+use obscura_net::interceptor::{InterceptAction, RequestInterceptor};
 use serde::Deserialize;
 use serde_json::Value;
 use tokio::sync::{mpsc, oneshot};
@@ -104,6 +134,24 @@ const OBSCURA_FETCH_TIMEOUT: Duration = Duration::from_secs(60);
 /// `goto` already waited for the load event; this lets framework bootstrap
 /// scripts and async DOM mutations run first.
 const OBSCURA_NAVIGATE_SETTLE_MS: u64 = 2_000;
+
+/// Maximum number of redirect hops the in-process transport follows itself.
+/// Each hop runs through the Arachnea proxy core so its `Set-Cookie` headers
+/// reach the shared Obscura cookie jar; the core client would drop
+/// intermediate-hop cookies when following redirects internally.
+#[cfg(feature = "arachnea-proxy")]
+const OBSCURA_INTERCEPT_MAX_REDIRECTS: usize = 20;
+
+/// Per-hop bound for one request executed through the Arachnea proxy core.
+#[cfg(feature = "arachnea-proxy")]
+const OBSCURA_INTERCEPT_HOP_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Memory guard for one intercepted response body.
+#[cfg(feature = "arachnea-proxy")]
+const OBSCURA_INTERCEPT_MAX_BODY_BYTES: usize = 64 * 1024 * 1024;
+
+/// Monotonic embedded page id counter, mirroring the facade behavior.
+static NEXT_EMBEDDED_PAGE_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Token-probe JavaScript for the retained session page, following the three
 /// sources declared by the integration plan: `window.turnstile.getResponse()`,
@@ -333,10 +381,12 @@ impl ChallengeSignals {
 #[derive(Debug, Clone)]
 pub(crate) struct ObscuraEngineConfig {
     /// Enable the Obscura stealth profile. The flag reaches
-    /// `obscura::BrowserConfig::stealth` for fingerprint alignment. The
-    /// dependency `stealth` feature is enabled since the workspace HTTP stack
-    /// migrated from `newwreq` to `wreq` (option A1, integration plan Phase
-    /// 1b), providing the impersonated TLS/HTTP stack.
+    /// `obscura_browser::BrowserContext::stealth` for fingerprint alignment on
+    /// the direct transport modes. The in-process transport (`InterceptorFulfill`)
+    /// forces it off because the stealth wreq client cannot be intercepted; the
+    /// dependency `stealth` feature stays enabled since the workspace HTTP
+    /// stack migrated from `newwreq` to `wreq` (option A1, integration plan
+    /// Phase 1b), keeping a single BoringSSL stack.
     stealth: bool,
     /// Enable the Obscura render layer used by real click flows and element
     /// geometry.
@@ -351,6 +401,9 @@ pub(crate) struct ObscuraEngineConfig {
     cookie_refresh_margin: Duration,
     /// Proxy transport selection carried from `ArachneaHttpConfig`.
     proxy: HttpProxyConfig,
+    /// Routing parameters (country, route hints) applied to every request of
+    /// the in-process transport via the per-request `ClientContext`.
+    proxy_parameters: Vec<(String, String)>,
 }
 
 impl ObscuraEngineConfig {
@@ -364,20 +417,22 @@ impl ObscuraEngineConfig {
             clearance_timeout: OBSCURA_CLEARANCE_TIMEOUT,
             cookie_refresh_margin: config.cookie_refresh_margin,
             proxy: config.proxy.clone(),
+            proxy_parameters: config.proxy_parameters.clone(),
         }
     }
 }
 
 /// Transport mode selected for the embedded browser network stack.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
 pub(crate) enum ObscuraTransportMode {
     /// The embedded browser's own network stack, optionally behind a network
     /// proxy URL.
     NetworkProxy(Option<String>),
-    /// Every intercepted request is fulfilled through the in-process Arachnea
-    /// proxy core. Selected for `HttpProxyConfig::Arachnea`; the interceptor
-    /// adapter itself lands in Phase 4.
-    #[allow(dead_code)]
+    /// Every interceptable request is fulfilled through the in-process Arachnea
+    /// proxy core. Selected for `HttpProxyConfig::Arachnea`; body-carrying
+    /// methods continue on the direct Obscura transport (the pinned
+    /// interception APIs do not expose request bodies).
     InterceptorFulfill,
 }
 
@@ -420,6 +475,531 @@ where
             "the embedded browser {operation} task failed to join: {err}"
         ))
     })?
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 — in-process proxy transport (`interceptor-fulfill`)
+//
+// `HttpProxyConfig::Arachnea` routes every interceptable embedded-browser
+// request through the `ArachneaProxyCore` with the request `ClientContext`,
+// without a loopback listener. Two Obscura interception points feed the
+// adapter at the pinned revision:
+//
+// - `obscura_net::RequestInterceptor` (installed on the browser HTTP client)
+//   covers navigation documents, stylesheets, other sub-resources and each
+//   redirect hop;
+// - the CDP-Fetch style channel (`Page::enable_interception`) covers JS
+//   `fetch()`/XHR calls.
+//
+// Neither API exposes the request body at the pinned revision, so only
+// body-free methods (GET/HEAD) are fulfilled through the core; body-carrying
+// methods continue on the direct Obscura transport with the original body and
+// are counted here. Every fulfilled response has its `Set-Cookie` headers
+// injected into the shared Obscura cookie jar because the `Fulfill` path
+// skips the jar integration the native send path performs.
+// ---------------------------------------------------------------------------
+
+/// Non-secret counters describing the in-process interception coverage.
+///
+/// Only counts and transport labels cross the logs; request URLs are reduced
+/// to `scheme://host/path` and no header, cookie or token value is ever
+/// included.
+#[allow(dead_code)]
+#[derive(Default)]
+struct InterceptionStats {
+    /// Requests fulfilled through the Arachnea proxy core.
+    fulfilled: AtomicU64,
+    /// Redirect hops followed through the Arachnea proxy core.
+    redirect_hops: AtomicU64,
+    /// Requests continued on the direct Obscura transport (body-carrying
+    /// methods, non-HTTP schemes).
+    continued: AtomicU64,
+    /// Requests that failed inside the in-process transport.
+    failed: AtomicU64,
+    /// Requests observed by the browser reaching the direct network transport.
+    network_visible: AtomicU64,
+}
+
+impl InterceptionStats {
+    /// Returns a plain copy of the counters for logging.
+    #[cfg(feature = "arachnea-proxy")]
+    fn snapshot(&self) -> (u64, u64, u64, u64, u64) {
+        let load = |counter: &AtomicU64| counter.load(Ordering::Relaxed);
+        (
+            load(&self.fulfilled),
+            load(&self.redirect_hops),
+            load(&self.continued),
+            load(&self.failed),
+            load(&self.network_visible),
+        )
+    }
+
+    /// Renders the coverage counters as a single non-secret summary string.
+    #[cfg(feature = "arachnea-proxy")]
+    fn summary(&self) -> String {
+        let (fulfilled, redirect_hops, continued, failed, network_visible) = self.snapshot();
+        format!(
+            "fulfilled={fulfilled} redirect-hops={redirect_hops} continued={continued} failed={failed} network-visible={network_visible}"
+        )
+    }
+}
+
+/// Non-secret failure description for one intercepted request.
+///
+/// The pinned core errors can embed the target URL (query parameters may hold
+/// signed values), so the adapter never forwards their text; only a stable
+/// failure kind is surfaced and logged.
+#[cfg(feature = "arachnea-proxy")]
+#[derive(Debug, Clone, Copy)]
+struct InterceptionFailure {
+    kind: &'static str,
+}
+
+#[cfg(feature = "arachnea-proxy")]
+impl InterceptionFailure {
+    fn new(kind: &'static str) -> Self {
+        Self { kind }
+    }
+}
+
+#[cfg(feature = "arachnea-proxy")]
+impl std::fmt::Display for InterceptionFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.kind)
+    }
+}
+
+/// True for methods whose request body is never observable through the pinned
+/// interception APIs. These are the only methods the in-process transport can
+/// fulfill faithfully.
+#[cfg(feature = "arachnea-proxy")]
+fn is_interceptable_method(method: &str) -> bool {
+    method.eq_ignore_ascii_case("GET") || method.eq_ignore_ascii_case("HEAD")
+}
+
+/// Renders a request URL for non-secret logs: `scheme://host/path` only, so
+/// signed query parameters and credentials never reach the logs.
+#[cfg(feature = "arachnea-proxy")]
+fn log_target(url: &Url) -> String {
+    let mut target = format!("{}://{}", url.scheme(), url.host_str().unwrap_or(""));
+    if let Some(port) = url.port() {
+        target.push_str(&format!(":{port}"));
+    }
+    target.push_str(url.path());
+    target
+}
+
+/// Executes one `ProxiedHttpRequest` through the Arachnea proxy core.
+///
+/// Isolated behind a trait so the redirect loop and cookie handoff stay
+/// unit-testable with a fake executor.
+#[cfg(feature = "arachnea-proxy")]
+#[async_trait]
+trait ArachneaHttpExecutor: Send + Sync {
+    async fn execute(&self, request: ProxiedHttpRequest)
+    -> Result<ProxiedHttpResponse, ProxyError>;
+}
+
+#[cfg(feature = "arachnea-proxy")]
+#[async_trait]
+impl ArachneaHttpExecutor for SimpleHttpClient {
+    async fn execute(
+        &self,
+        request: ProxiedHttpRequest,
+    ) -> Result<ProxiedHttpResponse, ProxyError> {
+        self.request_proxied(request).await
+    }
+}
+
+/// Reads the buffered body of a proxied response.
+///
+/// The in-process transport always buffers (`buffer_response_body: true`), so
+/// a streamed body would mean a misconfigured request.
+#[cfg(feature = "arachnea-proxy")]
+fn buffered_proxied_body(
+    response: &ProxiedHttpResponse,
+) -> Result<Vec<u8>, InterceptionFailure> {
+    match &response.body {
+        ProxiedResponseBody::Buffered(body) => {
+            if body.len() > OBSCURA_INTERCEPT_MAX_BODY_BYTES {
+                return Err(InterceptionFailure::new("body-too-large"));
+            }
+            Ok(body.clone())
+        }
+        ProxiedResponseBody::Streamed(_) => Err(InterceptionFailure::new("core-transport")),
+    }
+}
+
+/// Reads one header value case-insensitively from a proxied response.
+#[cfg(feature = "arachnea-proxy")]
+fn proxied_header<'a>(
+    headers: &'a HashMap<String, String>,
+    wanted: &str,
+) -> Option<&'a String> {
+    headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case(wanted))
+        .map(|(_, value)| value)
+}
+
+/// Shared state of the in-process transport installed on one embedded page.
+///
+/// Everything is `Send + Sync`: the same core serves the browser HTTP client
+/// interceptor, the JS fetch/XHR drain task, and the coverage counters.
+#[cfg(feature = "arachnea-proxy")]
+struct ArachneaInterceptorCore {
+    /// Executes one request through the Arachnea proxy core.
+    executor: Arc<dyn ArachneaHttpExecutor>,
+    /// Client context derived from the configured routing parameters.
+    client_context: ClientContext,
+    /// Obscura cookie jar shared with the embedded browser context.
+    cookie_jar: Arc<CookieJar>,
+    /// User-Agent of the embedded browser context.
+    user_agent: String,
+    /// Non-secret coverage counters.
+    stats: Arc<InterceptionStats>,
+}
+
+#[cfg(feature = "arachnea-proxy")]
+impl ArachneaInterceptorCore {
+    /// Builds the in-process transport from the engine configuration.
+    ///
+    /// The routing parameters are validated against the proxy core parameter
+    /// definitions exactly like the loopback helper does, so unknown
+    /// parameters are ignored instead of corrupting route selection.
+    fn new(
+        config: &ObscuraEngineConfig,
+        cookie_jar: Arc<CookieJar>,
+        user_agent: String,
+    ) -> Result<Self, ArachneaHttpError> {
+        let core = match &config.proxy {
+            HttpProxyConfig::Arachnea(core) => core.clone(),
+            _ => {
+                return Err(ArachneaHttpError::ObscuraFailure(
+                    "the in-process Arachnea transport requires HttpProxyConfig::Arachnea"
+                        .to_string(),
+                ))
+            }
+        };
+        let definitions = core.parameter_definitions();
+        let client_context = context_from_parameter_pairs(
+            config
+                .proxy_parameters
+                .iter()
+                .map(|(name, value)| (name.as_str(), value.as_str())),
+            &definitions,
+        );
+        Ok(Self {
+            executor: Arc::new(core.http_client()),
+            client_context,
+            cookie_jar,
+            user_agent,
+            stats: Arc::new(InterceptionStats::default()),
+        })
+    }
+
+    /// Builds the request headers for one intercepted request: caller headers
+    /// (normalized lowercase), the shared jar cookies for the target, and the
+    /// browser user-agent. `Cookie` and `User-Agent` values supplied by the
+    /// caller are replaced so the jar stays the single cookie authority.
+    fn build_request_headers(
+        &self,
+        url: &Url,
+        extra_headers: &HashMap<String, String>,
+    ) -> HashMap<String, String> {
+        let mut headers = HashMap::new();
+        for (name, value) in extra_headers {
+            let lowered = name.to_ascii_lowercase();
+            if lowered == "cookie" || lowered == "user-agent" {
+                continue;
+            }
+            headers.insert(lowered, value.clone());
+        }
+        let cookie_header = self.cookie_jar.get_cookie_header(url);
+        if !cookie_header.is_empty() {
+            headers.insert("cookie".to_string(), cookie_header);
+        }
+        headers.insert("user-agent".to_string(), self.user_agent.clone());
+        headers
+    }
+
+    /// Registers the passive observer that counts every request the browser
+    /// reaches the direct network transport with. In interceptor-fulfill mode
+    /// that signal marks requests that escaped the Arachnea core.
+    fn escape_observer(stats: Arc<InterceptionStats>) -> obscura_net::RequestCallback {
+        Arc::new(move |info: &RequestInfo| {
+            stats.network_visible.fetch_add(1, Ordering::Relaxed);
+            if let Ok(url) = Url::parse(info.url.as_str()) {
+                debug!(
+                    engine = ENGINE_NAME,
+                    transport = "interceptor-fulfill",
+                    method = %info.method,
+                    target = %log_target(&url),
+                    "obscura request reached the direct network transport"
+                );
+            }
+        })
+    }
+
+    /// Executes one request through the Arachnea proxy core and follows its
+    /// redirects hop by hop.
+    ///
+    /// Following redirects here (instead of letting the core client follow
+    /// them internally) keeps every intermediate `Set-Cookie` reachable: each
+    /// hop response is injected into the shared Obscura cookie jar, and the
+    /// returned Obscura response reports the visited URLs so the browser keeps
+    /// its URL bookkeeping in sync.
+    ///
+    /// The error carries only the failure kind; core errors may embed the
+    /// signed target URL and are never propagated as text.
+    async fn execute_via_arachnea(
+        &self,
+        url: &Url,
+        method: &str,
+        extra_headers: &HashMap<String, String>,
+    ) -> Result<(ObscuraNetResponse, usize), InterceptionFailure> {
+        let scheme = url.scheme();
+        if scheme != "http" && scheme != "https" {
+            return Err(InterceptionFailure::new("scheme-unsupported"));
+        }
+        let method = method.to_ascii_uppercase();
+        let headers_only = method == "HEAD";
+        let request_headers = self.build_request_headers(url, extra_headers);
+        let mut current = url.clone();
+        let mut visited: Vec<Url> = Vec::new();
+        for hop in 0..=OBSCURA_INTERCEPT_MAX_REDIRECTS {
+            let request = ProxiedHttpRequest {
+                url: current.to_string(),
+                method: method.clone(),
+                headers: request_headers.clone(),
+                cookies: HashMap::new(),
+                body: Vec::new(),
+                client_context: self.client_context.clone(),
+                post_actions: Vec::new(),
+                buffer_response_body: true,
+                headers_only,
+                context: PostActionContext {
+                    entry_point: String::new(),
+                    target_url: current.to_string(),
+                    opts_encoded: String::new(),
+                },
+                verify_tls: true,
+                follow_redirects: None,
+            };
+            let response = tokio::time::timeout(
+                OBSCURA_INTERCEPT_HOP_TIMEOUT,
+                self.executor.execute(request),
+            )
+            .await
+            .map_err(|_| InterceptionFailure::new("core-timeout"))?
+            .map_err(|_| InterceptionFailure::new("core-transport"))?;
+            for cookie in &response.set_cookies {
+                self.cookie_jar.set_cookie(cookie, &current);
+            }
+            let body = buffered_proxied_body(&response)?;
+            if (300..400).contains(&response.status) {
+                if let Some(location) = proxied_header(&response.headers, "location") {
+                    if let Ok(next) = current.join(location) {
+                        if next.scheme() == "http" || next.scheme() == "https" {
+                            self.stats.redirect_hops.fetch_add(1, Ordering::Relaxed);
+                            visited.push(current);
+                            current = next;
+                            let _ = hop;
+                            continue;
+                        }
+                    }
+                    return Err(InterceptionFailure::new("location-invalid"));
+                }
+            }
+            let final_response = ObscuraNetResponse {
+                url: current.clone(),
+                status: response.status,
+                headers: response
+                    .headers
+                    .iter()
+                    .map(|(name, value)| (name.to_ascii_lowercase(), value.clone()))
+                    .collect(),
+                body,
+                redirected_from: visited,
+            };
+            return Ok((final_response, hop));
+        }
+        Err(InterceptionFailure::new("too-many-redirects"))
+    }
+
+    /// Resolves one JS-initiated `fetch()`/XHR interception.
+    ///
+    /// Body-free methods are fulfilled through the Arachnea core; body-carrying
+    /// methods continue through the pinned channel so `op_fetch_url` keeps the
+    /// original body. The resolution never carries secrets: headers and bodies
+    /// are transmitted on the wire, not into the logs.
+    async fn resolve_intercepted(
+        &self,
+        intercepted: &InterceptedRequest,
+    ) -> InterceptResolution {
+        let url = match Url::parse(intercepted.url.as_str()) {
+            Ok(url) => url,
+            Err(_) => {
+                self.stats.failed.fetch_add(1, Ordering::Relaxed);
+                warn!(
+                    engine = ENGINE_NAME,
+                    transport = "interceptor-fulfill",
+                    "obscura intercepted page request carried an invalid URL"
+                );
+                return InterceptResolution::Fail {
+                    reason: "arachnea in-process transport: invalid URL".to_string(),
+                };
+            }
+        };
+        if !is_interceptable_method(&intercepted.method) {
+            self.stats.continued.fetch_add(1, Ordering::Relaxed);
+            warn!(
+                engine = ENGINE_NAME,
+                transport = "interceptor-fulfill",
+                method = %intercepted.method,
+                target = %log_target(&url),
+                "in-process coverage gap: request body is not exposed by the interception channel; continuing on the direct Obscura transport"
+            );
+            return InterceptResolution::Continue {
+                url: None,
+                method: None,
+                headers: None,
+                body: None,
+            };
+        }
+        match self
+            .execute_via_arachnea(&url, intercepted.method.as_str(), &intercepted.headers)
+            .await
+        {
+            Ok((response, hops)) => {
+                self.stats.fulfilled.fetch_add(1, Ordering::Relaxed);
+                debug!(
+                    engine = ENGINE_NAME,
+                    transport = "interceptor-fulfill",
+                    origin = %url.host_str().unwrap_or("?"),
+                    hops,
+                    "obscura intercepted page fetch fulfilled through the arachnea core"
+                );
+                InterceptResolution::Fulfill {
+                    status: response.status,
+                    headers: response.headers,
+                    body: String::from_utf8_lossy(&response.body).into_owned(),
+                    body_base64: base64::engine::general_purpose::STANDARD
+                        .encode(&response.body),
+                }
+            }
+            Err(failure) => {
+                self.stats.failed.fetch_add(1, Ordering::Relaxed);
+                warn!(
+                    engine = ENGINE_NAME,
+                    transport = "interceptor-fulfill",
+                    origin = %url.host_str().unwrap_or("?"),
+                    failure = %failure,
+                    "obscura intercepted page fetch failed inside the arachnea core"
+                );
+                InterceptResolution::Fail {
+                    reason: format!("arachnea in-process transport failure: {failure}"),
+                }
+            }
+        }
+    }
+}
+
+/// `obscura_net::RequestInterceptor` adapter installed on the embedded browser
+/// HTTP client. It fulfills navigation documents, stylesheets, other
+/// sub-resources and redirect hops through the Arachnea proxy core.
+#[cfg(feature = "arachnea-proxy")]
+struct ArachneaFulfillInterceptor {
+    core: Arc<ArachneaInterceptorCore>,
+}
+
+#[cfg(feature = "arachnea-proxy")]
+#[async_trait]
+impl RequestInterceptor for ArachneaFulfillInterceptor {
+    async fn intercept(&self, request: &RequestInfo) -> InterceptAction {
+        let url = match Url::parse(request.url.as_str()) {
+            Ok(url) => url,
+            Err(_) => {
+                self.core.stats.failed.fetch_add(1, Ordering::Relaxed);
+                warn!(
+                    engine = ENGINE_NAME,
+                    transport = "interceptor-fulfill",
+                    "obscura browser request carried an invalid URL"
+                );
+                return InterceptAction::Block;
+            }
+        };
+        if !is_interceptable_method(&request.method) {
+            self.core.stats.continued.fetch_add(1, Ordering::Relaxed);
+            warn!(
+                engine = ENGINE_NAME,
+                transport = "interceptor-fulfill",
+                method = %request.method,
+                target = %log_target(&url),
+                "in-process coverage gap: request body is not exposed by the browser interceptor; continuing on the direct Obscura transport"
+            );
+            return InterceptAction::Continue;
+        }
+        match self
+            .core
+            .execute_via_arachnea(&url, request.method.as_str(), &request.headers)
+            .await
+        {
+            Ok((response, hops)) => {
+                self.core.stats.fulfilled.fetch_add(1, Ordering::Relaxed);
+                debug!(
+                    engine = ENGINE_NAME,
+                    transport = "interceptor-fulfill",
+                    origin = %url.host_str().unwrap_or("?"),
+                    hops,
+                    "obscura browser request fulfilled through the arachnea core"
+                );
+                InterceptAction::Fulfill(response)
+            }
+            Err(failure) => {
+                self.core.stats.failed.fetch_add(1, Ordering::Relaxed);
+                warn!(
+                    engine = ENGINE_NAME,
+                    transport = "interceptor-fulfill",
+                    origin = %url.host_str().unwrap_or("?"),
+                    failure = %failure,
+                    "obscura browser request failed inside the arachnea core"
+                );
+                // Block instead of bypassing the configured route: the page
+                // reports a network failure rather than leaking the request
+                // outside the proxy core.
+                InterceptAction::Block
+            }
+        }
+    }
+}
+
+/// Drives the JS `fetch()`/XHR interception channel until the page drops it.
+///
+/// Runs as a local task on the page-owned runtime: the receiver and the
+/// adapter are both `Send`, the page itself is never touched here, and the
+/// channel closes once the embedded page is dropped, ending the task.
+#[cfg(feature = "arachnea-proxy")]
+async fn drain_cdp_interceptions(
+    mut receiver: tokio::sync::mpsc::UnboundedReceiver<InterceptedRequest>,
+    core: Arc<ArachneaInterceptorCore>,
+) {
+    while let Some(intercepted) = receiver.recv().await {
+        let resolution = core.resolve_intercepted(&intercepted).await;
+        let _ = intercepted.resolver.send(resolution);
+    }
+}
+
+/// Embedded page plus the shared browser internals it exposes to the engine.
+struct EmbeddedPage {
+    /// Retained embedded page.
+    page: ObscuraPage,
+    /// Shared cookie jar of the embedded browser context.
+    jar: Arc<CookieJar>,
+    /// In-process interception coverage counters, present in
+    /// `InterceptorFulfill` mode for the closing coverage log.
+    #[cfg(feature = "arachnea-proxy")]
+    interception_stats: Option<Arc<InterceptionStats>>,
 }
 
 /// Commands sent from the `Send` session handle to its dedicated page thread.
@@ -539,10 +1119,14 @@ impl ObscuraSessionChannel {
 
 /// Dedicated-thread worker that owns the retained page.
 struct ObscuraPageWorker {
-    /// Embedded browser owning the network stack and cookie jar.
-    browser: Browser,
+    /// Shared cookie jar of the embedded browser context.
+    jar: Arc<CookieJar>,
     /// Retained page carrying the DOM and JS runtime across commands.
-    page: Page,
+    page: ObscuraPage,
+    /// In-process interception coverage counters, present in
+    /// `InterceptorFulfill` mode for the closing coverage log.
+    #[cfg(feature = "arachnea-proxy")]
+    interception_stats: Option<Arc<InterceptionStats>>,
     /// Stable engine settings (timeouts, clearance protocol bounds).
     context: ObscuraPageContext,
     /// Command receiver drained until `Close` or channel disconnect.
@@ -577,24 +1161,29 @@ impl ObscuraPageWorker {
                 ))
             })?;
         let context = ObscuraPageContext { config, transport };
-        let (browser, page) = runtime.block_on(async {
-            let browser = ObscuraEngine::new_browser_with(&context.config, &context.transport)?;
-            let page = browser.new_page().await.map_err(|err| {
-                ArachneaHttpError::ObscuraFailure(format!(
-                    "failed to open the obscura session page: {err}"
-                ))
-            })?;
-            Ok::<_, ArachneaHttpError>((browser, page))
+        let embedded = runtime.block_on(async {
+            let embedded = ObscuraEngine::open_embedded_page(&context.config, &context.transport)
+                .await?;
+            Ok::<_, ArachneaHttpError>(embedded)
         })?;
-        Ok(Some((
-            runtime,
-            Self {
-                browser,
-                page,
-                context,
-                receiver,
-            },
-        )))
+        #[cfg(feature = "arachnea-proxy")]
+        let interception_stats = embedded.interception_stats;
+        #[cfg(feature = "arachnea-proxy")]
+        let worker = Self {
+            jar: embedded.jar,
+            page: embedded.page,
+            interception_stats,
+            context,
+            receiver,
+        };
+        #[cfg(not(feature = "arachnea-proxy"))]
+        let worker = Self {
+            jar: embedded.jar,
+            page: embedded.page,
+            context,
+            receiver,
+        };
+        Ok(Some((runtime, worker)))
     }
 
     /// Runs the command loop until `Close`, then tears the page down.
@@ -643,6 +1232,15 @@ impl ObscuraPageWorker {
                 }
             }
         }
+        #[cfg(feature = "arachnea-proxy")]
+        if let Some(stats) = &self.interception_stats {
+            info!(
+                engine = ENGINE_NAME,
+                transport = self.context.transport.label(),
+                coverage = %stats.summary(),
+                "obscura persistent page session interception coverage"
+            );
+        }
         // Drain the page and browser on their own thread; the embedded
         // runtime must never be dropped from another thread.
         info!(
@@ -657,17 +1255,19 @@ impl ObscuraPageWorker {
         url: &str,
         collect_body: bool,
     ) -> Result<PageNavigationResponse, ArachneaHttpError> {
-        self.page.goto(url).await.map_err(|err| {
+        self.page.navigate_with_wait(url, WaitUntil::Load).await.map_err(|err| {
             ArachneaHttpError::ObscuraFailure(format!("session navigation failed: {err}"))
         })?;
         self.page.settle(OBSCURA_NAVIGATE_SETTLE_MS).await;
+        let final_url = self.page.url_string();
+        let body = if collect_body {
+            Some(ObscuraEngine::page_content(&mut self.page))
+        } else {
+            None
+        };
         Ok(PageNavigationResponse {
-            url: self.page.url(),
-            body: if collect_body {
-                Some(self.page.content())
-            } else {
-                None
-            },
+            url: final_url,
+            body,
         })
     }
 
@@ -762,7 +1362,7 @@ impl ObscuraPageWorker {
                 .map_err(|err| ArachneaHttpError::PageInteractionFailed(err.to_string()))?
         );
         loop {
-            if !solve_started && Self::challenge_is_present(&self.page) {
+            if !solve_started && Self::challenge_is_present(&mut self.page) {
                 solve_started = true;
                 deadline = started + OBSCURA_CLICK_SOLVE_TIMEOUT + OBSCURA_CLICK_WAIT_TIMEOUT;
                 info!(
@@ -775,7 +1375,7 @@ impl ObscuraPageWorker {
             let found = self.page.evaluate(&wait_js).as_bool().unwrap_or(false);
             if found {
                 return Ok(PageClickResponse {
-                    body: self.page.content(),
+                    body: ObscuraEngine::page_content(&mut self.page),
                 });
             }
             if Instant::now() >= deadline {
@@ -788,7 +1388,7 @@ impl ObscuraPageWorker {
                 && last_attempt.elapsed().as_millis() as u64
                     >= OBSCURA_CLEARANCE_ATTEMPT_INTERVAL_MS
             {
-                ObscuraEngine::try_click_turnstile(&self.page);
+                ObscuraEngine::try_click_turnstile(&mut self.page);
                 last_attempt = Instant::now();
             }
             self.page.settle(OBSCURA_CLEARANCE_POLL_MS).await;
@@ -806,9 +1406,9 @@ impl ObscuraPageWorker {
         deadline: &mut Instant,
         last_attempt: &mut Instant,
     ) {
-        while !ObscuraEngine::has_clearance_cookie(&self.browser) && Instant::now() < *deadline {
+        while !ObscuraEngine::has_clearance_cookie(&self.jar) && Instant::now() < *deadline {
             if last_attempt.elapsed().as_millis() as u64 >= OBSCURA_CLEARANCE_ATTEMPT_INTERVAL_MS {
-                ObscuraEngine::try_click_turnstile(&self.page);
+                ObscuraEngine::try_click_turnstile(&mut self.page);
                 *last_attempt = Instant::now();
             }
             self.page.settle(OBSCURA_CLEARANCE_POLL_MS).await;
@@ -817,21 +1417,21 @@ impl ObscuraPageWorker {
     }
 
     /// Detects generic Cloudflare challenge markers on the retained page.
-    fn challenge_is_present(page: &Page) -> bool {
+    fn challenge_is_present(page: &mut ObscuraPage) -> bool {
         ObscuraEngine::sample_challenge_signals(page).suggests_challenge()
     }
 
     /// Collects cookies and the observed user-agent for the HTTP handoff.
-    fn metadata(&self) -> Result<BrowserSessionMetadata, ArachneaHttpError> {
+    fn metadata(&mut self) -> Result<BrowserSessionMetadata, ArachneaHttpError> {
         let mut headers = HeaderMap::new();
-        for cookie in ObscuraEngine::structured_cookies(&self.browser) {
+        for cookie in ObscuraEngine::structured_cookies(&self.jar) {
             headers.append(
                 SET_COOKIE,
                 HeaderValue::from_str(&set_cookie_header(&cookie))
                     .map_err(|err| ArachneaHttpError::InvalidHeader(err.to_string()))?,
             );
         }
-        if let Some(user_agent) = ObscuraEngine::observe_user_agent(&self.page) {
+        if let Some(user_agent) = ObscuraEngine::observe_user_agent(&mut self.page) {
             headers.insert(
                 SOLVER_USER_AGENT_HEADER,
                 HeaderValue::from_str(&user_agent)
@@ -839,7 +1439,7 @@ impl ObscuraPageWorker {
             );
         }
         Ok(BrowserSessionMetadata {
-            url: self.page.url(),
+            url: self.page.url_string(),
             headers,
         })
     }
@@ -865,7 +1465,7 @@ impl ObscuraPageWorker {
     }
 
     /// Resets the Turnstile widget and empties the response fields.
-    fn clear_turnstile_token(&self) -> Result<(), ArachneaHttpError> {
+    fn clear_turnstile_token(&mut self) -> Result<(), ArachneaHttpError> {
         let cleared = self
             .page
             .evaluate(TURNSTILE_CLEAR_JS)
@@ -1152,11 +1752,18 @@ impl ObscuraEngine {
         session_store: Arc<dyn TypedEntityStore<CachedChaserSession>>,
     ) -> Result<Self, ArachneaHttpError> {
         let engine_config = ObscuraEngineConfig::from_arachnea(config);
-        // The runtime-provided proxy URL wins so the solver shares the rquest
-        // proxy route, exactly like the chaser-cf adapter.
-        let transport = match proxy_url {
-            Some(url) => ObscuraTransportMode::NetworkProxy(Some(url.to_string())),
-            None => ObscuraTransportMode::select(&engine_config.proxy),
+        // The in-process transport wins over the runtime-provided loopback
+        // URL: the Obscura engine never binds nor consumes a loopback
+        // listener, so `HttpProxyConfig::Arachnea` always selects
+        // `InterceptorFulfill`. Network proxy URLs flow through unchanged,
+        // exactly like the chaser-cf adapter.
+        let transport = match &engine_config.proxy {
+            #[cfg(feature = "arachnea-proxy")]
+            HttpProxyConfig::Arachnea(_) => ObscuraTransportMode::InterceptorFulfill,
+            _ => match proxy_url {
+                Some(url) => ObscuraTransportMode::NetworkProxy(Some(url.to_string())),
+                None => ObscuraTransportMode::select(&engine_config.proxy),
+            },
         };
         debug!(
             engine = ENGINE_NAME,
@@ -1194,6 +1801,9 @@ impl ObscuraEngine {
 
     /// Returns the browser proxy URL for an explicit transport selection.
     ///
+    /// The in-process transport carries no proxy URL: requests route through
+    /// the Arachnea proxy core with a per-request `ClientContext` instead.
+    ///
     /// Split from the previous `&self` helper so the `!Send` solve running on
     /// the dedicated blocking thread validates its transport without borrowing
     /// `self` across that thread boundary.
@@ -1215,40 +1825,104 @@ impl ObscuraEngine {
                     ))),
                 }
             }
-            ObscuraTransportMode::InterceptorFulfill => Err(ArachneaHttpError::ObscuraFailure(
-                "the in-process Arachnea proxy transport requires the Phase 4 interceptor adapter; refusing to bypass the configured route"
-                    .to_string(),
-            )),
+            ObscuraTransportMode::InterceptorFulfill => Ok(None),
         }
     }
 
-    /// Builds a fresh embedded browser for one solve.
-    #[allow(dead_code)]
-    fn new_browser(&self) -> Result<Browser, ArachneaHttpError> {
-        Self::new_browser_with(&self.config, &self.transport)
-    }
-
-    /// Builds a fresh embedded browser from explicit settings.
+    /// Opens one embedded page from explicit settings.
     ///
-    /// Split from [`Self::new_browser`] so the `!Send` solve running on the
-    /// dedicated blocking thread can build its browser without borrowing
-    /// `self` across that thread boundary.
-    fn new_browser_with(
+    /// Replaces the former facade construction (`obscura::Browser`): the
+    /// facade cannot host a `RequestInterceptor`, so the engine builds the
+    /// internal `BrowserContext` directly with the same options the facade
+    /// used. For `InterceptorFulfill` the stealth profile is forced off (the
+    /// stealth wreq client cannot be intercepted), the in-process Arachnea
+    /// interceptor is installed on the browser HTTP client, the JS
+    /// `fetch`/XHR interception channel is activated, and a local drain task
+    /// resolves every intercepted page request through the Arachnea core.
+    ///
+    /// Must be awaited on the owning thread: `open_embedded_page` runs inside
+    /// the dedicated solve/session runtime.
+    async fn open_embedded_page(
         config: &ObscuraEngineConfig,
         transport: &ObscuraTransportMode,
-    ) -> Result<Browser, ArachneaHttpError> {
-        let mut builder = Browser::builder().stealth(config.stealth);
-        if let Some(user_agent) = &config.user_agent {
-            builder = builder.user_agent(user_agent.clone());
+    ) -> Result<EmbeddedPage, ArachneaHttpError> {
+        if matches!(transport, ObscuraTransportMode::InterceptorFulfill) {
+            #[cfg(not(feature = "arachnea-proxy"))]
+            return Err(ArachneaHttpError::ObscuraFailure(
+                "the in-process Arachnea proxy transport requires the arachnea-proxy feature; refusing to bypass the configured route"
+                    .to_string(),
+            ));
         }
-        if let Some(proxy_url) = Self::browser_proxy_url_for(transport)? {
-            builder = builder.proxy(proxy_url);
+        let stealth = match transport {
+            ObscuraTransportMode::NetworkProxy(_) => config.stealth,
+            ObscuraTransportMode::InterceptorFulfill => false,
+        };
+        #[cfg(feature = "arachnea-proxy")]
+        let mut context = BrowserContext::with_full_options(
+            ENGINE_NAME.to_string(),
+            Self::browser_proxy_url_for(transport)?,
+            stealth,
+            config.user_agent.clone(),
+        );
+        #[cfg(not(feature = "arachnea-proxy"))]
+        let context = BrowserContext::with_full_options(
+            ENGINE_NAME.to_string(),
+            Self::browser_proxy_url_for(transport)?,
+            stealth,
+            config.user_agent.clone(),
+        );
+        let jar = context.cookie_jar.clone();
+        #[cfg(feature = "arachnea-proxy")]
+        let interception = if matches!(transport, ObscuraTransportMode::InterceptorFulfill) {
+            // Same hardening as the stealth context: tracker filtering stays
+            // active even though navigation now goes through the interceptable
+            // non-stealth client.
+            if let Some(client) = Arc::get_mut(&mut context.http_client) {
+                client.block_trackers = true;
+            }
+            let user_agent = context
+                .http_client
+                .user_agent
+                .try_read()
+                .map(|user_agent| user_agent.clone())
+                .unwrap_or_default();
+            let core = Arc::new(ArachneaInterceptorCore::new(
+                config,
+                jar.clone(),
+                user_agent,
+            )?);
+            *context.http_client.interceptor.write().await =
+                Some(Box::new(ArachneaFulfillInterceptor { core: core.clone() }));
+            Some(core)
+        } else {
+            None
+        };
+        let page_id = format!(
+            "page-{}",
+            NEXT_EMBEDDED_PAGE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        );
+        let context = Arc::new(context);
+        #[cfg(feature = "arachnea-proxy")]
+        let mut page = ObscuraPage::new(page_id, context);
+        #[cfg(not(feature = "arachnea-proxy"))]
+        let page = ObscuraPage::new(page_id, context);
+        #[cfg(feature = "arachnea-proxy")]
+        if let Some(core) = interception {
+            let stats = core.stats.clone();
+            page.on_request(ArachneaInterceptorCore::escape_observer(stats.clone()));
+            let receiver = page.enable_interception();
+            let _ = tokio::spawn(drain_cdp_interceptions(receiver, core));
+            info!(
+                engine = ENGINE_NAME,
+                transport = transport.label(),
+                "obscura in-process interceptor installed"
+            );
+            return Ok(EmbeddedPage { page, jar, interception_stats: Some(stats) });
         }
-        Ok(builder.build().map_err(|err| {
-            ArachneaHttpError::ObscuraFailure(format!(
-                "failed to build the embedded browser: {err}"
-            ))
-        })?)
+        #[cfg(feature = "arachnea-proxy")]
+        return Ok(EmbeddedPage { page, jar, interception_stats: None });
+        #[cfg(not(feature = "arachnea-proxy"))]
+        return Ok(EmbeddedPage { page, jar })
     }
 
     /// Solves a Cloudflare session on an ephemeral page and extracts the
@@ -1296,10 +1970,11 @@ impl ObscuraEngine {
         url: &str,
         collect_html: bool,
     ) -> Result<ObscuraSolveResult, ArachneaHttpError> {
-        let browser = Self::new_browser_with(config, transport)?;
-        let mut page = browser.new_page().await.map_err(|err| {
-            ArachneaHttpError::ObscuraFailure(format!("failed to open an embedded page: {err}"))
-        })?;
+        let embedded = Self::open_embedded_page(config, transport).await?;
+        let mut page = embedded.page;
+        let jar = embedded.jar;
+        #[cfg(feature = "arachnea-proxy")]
+        let interception_stats = embedded.interception_stats;
         info!(
             engine = ENGINE_NAME,
             origin,
@@ -1309,30 +1984,40 @@ impl ObscuraEngine {
             "obscura solve started"
         );
         let result = async {
-            page.goto(url).await.map_err(|err| {
-                ArachneaHttpError::ObscuraFailure(format!("navigation to {origin} failed: {err}"))
+            page.navigate_with_wait(url, WaitUntil::Load).await.map_err(|err| {
+                ArachneaHttpError::ObscuraFailure(format!(
+                    "navigation to {origin} failed: {err}"
+                ))
             })?;
-            Self::wait_for_clearance_on_local_thread(config, &browser, &mut page, origin).await?;
-            let cookies = Self::structured_cookies(&browser);
-            let user_agent = Self::observe_user_agent(&page);
+            Self::wait_for_clearance_on_local_thread(config, &jar, &mut page, origin).await?;
+            let cookies = Self::structured_cookies(&jar);
+            let user_agent = Self::observe_user_agent(&mut page);
             let html = if collect_html {
-                Some(page.content())
+                Some(Self::page_content(&mut page))
             } else {
                 None
             };
             Ok(ObscuraSolveResult {
                 origin: origin.to_string(),
-                final_url: page.url(),
+                final_url: page.url_string(),
                 cookies,
                 user_agent,
                 html,
             })
         }
         .await;
-        // Cleanup: the page owns the JS runtime and the browser owns the
-        // network client; both are released with the page/browser drop.
+        #[cfg(feature = "arachnea-proxy")]
+        if let Some(stats) = interception_stats {
+            info!(
+                engine = ENGINE_NAME,
+                origin,
+                coverage = %stats.summary(),
+                "obscura interception coverage"
+            );
+        }
+        // Cleanup: the page owns the JS runtime and the embedded browser
+        // internals; everything is released with the page drop.
         drop(page);
-        drop(browser);
         result
     }
 
@@ -1349,15 +2034,15 @@ impl ObscuraEngine {
     /// [`run_blocking_solve`]): `page` is `!Send`.
     async fn wait_for_clearance_on_local_thread(
         config: &ObscuraEngineConfig,
-        browser: &Browser,
-        page: &mut Page,
+        jar: &Arc<CookieJar>,
+        page: &mut ObscuraPage,
         origin: &str,
     ) -> Result<(), ArachneaHttpError> {
         let started = Instant::now();
         page.settle(OBSCURA_CLEARANCE_PASSIVE_WAIT_MS).await;
         let mut last_attempt = started - Duration::from_secs(60);
         loop {
-            if Self::has_clearance_cookie(browser) {
+            if Self::has_clearance_cookie(jar) {
                 page.settle(OBSCURA_CLEARANCE_SETTLE_MS).await;
                 return Ok(());
             }
@@ -1484,17 +2169,15 @@ impl ObscuraEngine {
         Ok(())
     }
 
-    /// True when the browser cookie jar holds a `cf_clearance` cookie.
-    fn has_clearance_cookie(browser: &Browser) -> bool {
-        browser
-            .cookies()
-            .get_all()
+    /// True when the embedded cookie jar holds a `cf_clearance` cookie.
+    fn has_clearance_cookie(jar: &Arc<CookieJar>) -> bool {
+        jar.get_all_cookies()
             .iter()
             .any(|cookie| cookie.name == "cf_clearance")
     }
 
     /// Samples non-secret challenge markers from the retained document.
-    fn sample_challenge_signals(page: &Page) -> ChallengeSignals {
+    fn sample_challenge_signals(page: &mut ObscuraPage) -> ChallengeSignals {
         ChallengeSignals::from_value(&page.evaluate(CHALLENGE_SIGNAL_JS))
     }
 
@@ -1502,34 +2185,47 @@ impl ObscuraEngine {
     ///
     /// Only well-known widget containers are targeted; Cloudflare's checkbox
     /// usually lives in a cross-origin frame that the Rust API cannot reach,
-    /// so this is a best-effort supplement for same-origin widgets.
-    fn try_click_turnstile(page: &Page) {
+    /// so this is a best-effort supplement for same-origin widgets. The click
+    /// replicates the facade `Element::click` semantics (scroll into view then
+    /// `element.click()`) with plain page JavaScript.
+    fn try_click_turnstile(page: &mut ObscuraPage) {
         for selector in [
             ".cf-turnstile",
             "#turnstile-wrapper",
             "input[name=\"cf-turnstile-response\"]",
         ] {
-            let Some(element) = page.query_selector(selector) else {
+            let Ok(escaped) = serde_json::to_string(selector) else {
                 continue;
             };
-            if element.click().is_ok() {
+            let click_js = format!(
+                "(function () {{ var element = document.querySelector({escaped}); if (!element) return false; element.scrollIntoView({{ block: 'center' }}); element.click(); return true; }})()"
+            );
+            if page.evaluate(&click_js).as_bool().unwrap_or(false) {
                 return;
             }
         }
     }
 
-    /// Converts all browser cookies into the shared structured form.
-    fn structured_cookies(browser: &Browser) -> Vec<StructuredCookie> {
-        browser
-            .cookies()
-            .get_all()
+    /// Reads the current page HTML through the embedded content API (the
+    /// facade `Page::content` equivalent).
+    fn page_content(page: &mut ObscuraPage) -> String {
+        page.evaluate("document.documentElement.outerHTML")
+            .as_str()
+            .unwrap_or("")
+            .to_string()
+    }
+
+    /// Converts all embedded cookie jar cookies into the shared structured
+    /// form.
+    fn structured_cookies(jar: &Arc<CookieJar>) -> Vec<StructuredCookie> {
+        jar.get_all_cookies()
             .into_iter()
             .map(|cookie| structured_cookie(&cookie))
             .collect()
     }
 
     /// Reads the effective user-agent reported by the page runtime.
-    fn observe_user_agent(page: &Page) -> Option<String> {
+    fn observe_user_agent(page: &mut ObscuraPage) -> Option<String> {
         let value = page.evaluate("navigator.userAgent");
         let Some(user_agent) = value.as_str().filter(|value| !value.trim().is_empty()) else {
             return None;
@@ -1648,20 +2344,21 @@ struct ObscuraSolveResult {
     html: Option<String>,
 }
 
-/// Converts one facade cookie into the shared structured form.
+/// Converts one embedded cookie into the shared structured form.
 ///
-/// The Obscura facade does not expose `Expires`/`SameSite`, so these fields
-/// stay absent and the session cache relies on its no-expiry TTL bound.
-fn structured_cookie(cookie: &ObscuraCookie) -> StructuredCookie {
+/// The internal `CookieInfo` exposes `SameSite` and the expiry timestamp, so
+/// the shared session cache benefits from precise `cf_clearance` expiration
+/// instead of falling back to its no-expiry TTL bound.
+fn structured_cookie(cookie: &CookieInfo) -> StructuredCookie {
     StructuredCookie {
         name: cookie.name.clone(),
         value: cookie.value.clone(),
         domain: Some(cookie.domain.clone()),
         path: Some(cookie.path.clone()),
-        expires: None,
+        expires: cookie.expires.map(|expires| expires as f64),
         http_only: Some(cookie.http_only),
         secure: Some(cookie.secure),
-        same_site: None,
+        same_site: (!cookie.same_site.is_empty()).then(|| cookie.same_site.clone()),
     }
 }
 
@@ -1675,9 +2372,56 @@ mod tests {
     use crate::chaser_session::set_cookie_header;
     use crate::config::{ArachneaHttpConfig, HttpProxyConfig};
     use http::StatusCode;
-    use obscura::Cookie as ObscuraCookie;
+    use obscura_net::CookieInfo;
     use serde_json::Value;
     use std::collections::HashMap;
+    #[cfg(feature = "arachnea-proxy")]
+    use super::{
+        ArachneaHttpExecutor, ArachneaInterceptorCore, InterceptionStats, is_interceptable_method,
+        log_target,
+    };
+    #[cfg(feature = "arachnea-proxy")]
+    use async_trait::async_trait;
+    #[cfg(feature = "arachnea-proxy")]
+    use obscura_net::CookieJar;
+    #[cfg(feature = "arachnea-proxy")]
+    use std::sync::Arc;
+    #[cfg(feature = "arachnea-proxy")]
+    use std::sync::atomic::Ordering;
+    #[cfg(feature = "arachnea-proxy")]
+    use std::sync::RwLock;
+    #[cfg(feature = "arachnea-proxy")]
+    use arachnea_proxy::core::http::{
+        ProxiedHttpRequest, ProxiedHttpResponse, ProxiedResponseBody,
+    };
+    #[cfg(feature = "arachnea-proxy")]
+    use arachnea_proxy::core::{ClientContext, ProxyError};
+    #[cfg(feature = "arachnea-proxy")]
+    use url::Url;
+
+    /// Body-free methods are the only ones the in-process transport can
+    /// fulfill faithfully through the pinned interception APIs.
+    #[cfg(feature = "arachnea-proxy")]
+    #[test]
+    fn body_free_methods_are_interceptable() {
+        assert!(is_interceptable_method("GET"));
+        assert!(is_interceptable_method("HEAD"));
+        assert!(is_interceptable_method("get"));
+        assert!(!is_interceptable_method("POST"));
+        assert!(!is_interceptable_method("PUT"));
+        assert!(!is_interceptable_method("DELETE"));
+    }
+
+    /// Non-secret log targets strip userinfo, query and fragment.
+    #[cfg(feature = "arachnea-proxy")]
+    #[test]
+    fn log_target_strips_credentials_query_and_fragment() {
+        let url =
+            Url::parse("https://user:pass@example.com:8443/path?a=secret#fragment").expect(
+                "url parses",
+            );
+        assert_eq!(log_target(&url), "https://example.com:8443/path");
+    }
 
     /// `Disabled` proxy config selects the browser stack without proxy URL.
     #[test]
@@ -1713,25 +2457,35 @@ mod tests {
         );
     }
 
-    /// The facade cookie conversion keeps the fields Obscura exposes and
-    /// leaves `Expires`/`SameSite` absent, so the cache falls back to its
-    /// no-expiry TTL bound.
+    /// The embedded cookie conversion keeps every field the internal
+    /// `CookieInfo` exposes, so the shared cache gets precise expiry and
+    /// SameSite instead of the facade-limited shape.
     #[test]
-    fn cookie_conversion_keeps_facade_fields_and_drops_unknown_attributes() {
-        let cookie = ObscuraCookie::new("cf_clearance", "opaque-value", "example.com");
+    fn cookie_conversion_keeps_embedded_cookie_fields() {
+        let cookie = CookieInfo {
+            name: "cf_clearance".to_string(),
+            value: "opaque-value".to_string(),
+            domain: "example.com".to_string(),
+            path: "/".to_string(),
+            secure: true,
+            http_only: true,
+            same_site: "Lax".to_string(),
+            expires: Some(1_800_000_000),
+        };
         let structured = structured_cookie(&cookie);
         assert_eq!(structured.name, "cf_clearance");
         assert_eq!(structured.value, "opaque-value");
         assert_eq!(structured.domain, Some("example.com".to_string()));
         assert_eq!(structured.path, Some("/".to_string()));
-        assert!(structured.expires.is_none());
-        assert!(structured.same_site.is_none());
-        // The synthesized Set-Cookie header carries the cookie but never an
-        // Expires/SameSite attribute for the facade-provided fields.
+        assert_eq!(structured.expires, Some(1_800_000_000.0));
+        assert_eq!(structured.same_site, Some("Lax".to_string()));
+        assert!(structured.secure.unwrap(), "secure flag is preserved");
+        assert!(structured.http_only.unwrap(), "http-only flag is preserved");
+        // The synthesized Set-Cookie header now carries Expires and SameSite.
         let header = set_cookie_header(&structured);
         assert!(header.starts_with("cf_clearance=opaque-value"));
-        assert!(!header.contains("Expires="));
-        assert!(!header.contains("SameSite="));
+        assert!(header.contains("Expires="));
+        assert!(header.contains("SameSite=Lax"));
     }
 
     /// Boolean signal markers drive challenge detection; the summary stays
@@ -1759,8 +2513,7 @@ mod tests {
         assert_eq!(signals.summarize(), "no challenge markers");
     }
 
-    /// The stealth transport refuses SOCKS proxies instead of silently
-    /// bypassing the route, and refuses the Phase 4 interceptor for now.
+    /// The http/https network proxy validation keeps refusing SOCKS proxies.
     #[test]
     fn proxy_url_validation_rejects_unsupported_transports() {
         let engine = test_engine(ObscuraTransportMode::NetworkProxy(Some(
@@ -1770,12 +2523,18 @@ mod tests {
             Ok(_) => panic!("SOCKS proxies must be rejected"),
             Err(err) => assert!(err.to_string().contains("unsupported Obscura proxy scheme")),
         }
+    }
 
+    /// The in-process transport carries no proxy URL: its requests route
+    /// through the Arachnea proxy core with a per-request `ClientContext`.
+    #[test]
+    fn interceptor_fulfill_transport_carries_no_proxy_url() {
         let engine = test_engine(ObscuraTransportMode::InterceptorFulfill);
-        match LocalObscuraEngine::browser_proxy_url_for(&engine.transport) {
-            Ok(_) => panic!("the Phase 4 interceptor must not be selected yet"),
-            Err(err) => assert!(err.to_string().contains("Phase 4")),
-        }
+        assert_eq!(
+            LocalObscuraEngine::browser_proxy_url_for(&engine.transport)
+                .expect("the in-process transport must not require a proxy URL"),
+            None
+        );
     }
 
     /// HTTP(S) network proxy URLs flow into the browser configuration as-is.
@@ -1854,6 +2613,125 @@ mod tests {
         assert!(script.contains("globalThis.__arachneaObscuraFetchDone = false"));
         assert!(script.contains("credentials: 'same-origin'"));
         assert!(script.contains("globalThis.__arachneaObscuraFetchDone = true"));
+    }
+
+    /// Fake proxied responses fed to the in-process transport redirect loop.
+    #[cfg(feature = "arachnea-proxy")]
+    struct StubArachneaResponse {
+        status: u16,
+        headers: HashMap<String, String>,
+        set_cookies: Vec<String>,
+    }
+
+    #[cfg(feature = "arachnea-proxy")]
+    struct StubArachneaExecutor {
+        responses: Vec<StubArachneaResponse>,
+        hits: RwLock<usize>,
+    }
+
+    #[cfg(feature = "arachnea-proxy")]
+    #[async_trait]
+    impl ArachneaHttpExecutor for StubArachneaExecutor {
+        async fn execute(
+            &self,
+            _request: ProxiedHttpRequest,
+        ) -> Result<ProxiedHttpResponse, ProxyError> {
+            let hit = {
+                let mut hits = self.hits.write().unwrap();
+                *hits += 1;
+                *hits
+            };
+            let index = (hit - 1).min(self.responses.len() - 1);
+            let stub = &self.responses[index];
+            Ok(ProxiedHttpResponse {
+                status: stub.status,
+                headers: stub.headers.clone(),
+                body: ProxiedResponseBody::Buffered(Vec::new()),
+                set_cookies: stub.set_cookies.clone(),
+            })
+        }
+    }
+
+    /// The in-process transport follows redirects hop by hop, injecting each
+    /// hop's `Set-Cookie` into the shared Obscura jar, and reports the final
+    /// URL with the visited redirect chain.
+    #[cfg(feature = "arachnea-proxy")]
+    #[tokio::test]
+    async fn in_process_transport_follows_redirects_and_injects_set_cookie_into_the_jar() {
+        let jar = Arc::new(CookieJar::new());
+        let stub = Arc::new(StubArachneaExecutor {
+            responses: vec![
+                StubArachneaResponse {
+                    status: 302,
+                    headers: HashMap::from([(
+                        "location".to_string(),
+                        "https://example.com/landing".to_string(),
+                    )]),
+                    set_cookies: vec!["session=hop-key; Path=/".to_string()],
+                },
+                StubArachneaResponse {
+                    status: 200,
+                    headers: HashMap::from([(
+                        "content-type".to_string(),
+                        "text/html".to_string(),
+                    )]),
+                    set_cookies: vec!["cf_clearance=def; Path=/; Secure; HttpOnly".to_string()],
+                },
+            ],
+            hits: RwLock::new(0),
+        });
+        let core = ArachneaInterceptorCore {
+            executor: stub,
+            client_context: ClientContext::new(),
+            cookie_jar: jar.clone(),
+            user_agent: "arachnea-test".to_string(),
+            stats: Arc::new(InterceptionStats::default()),
+        };
+        let url = Url::parse("https://example.com/start").expect("url parses");
+        let (response, hops) = core
+            .execute_via_arachnea(&url, "GET", &HashMap::new())
+            .await
+            .expect("redirect chain resolves");
+        assert_eq!(response.status, 200);
+        assert_eq!(response.url.to_string(), "https://example.com/landing");
+        assert_eq!(hops, 1);
+        assert_eq!(response.redirected_from.len(), 1);
+        let final_url = Url::parse("https://example.com/landing").expect("url parses");
+        let cookie_header = jar.get_cookie_header(&final_url);
+        assert!(cookie_header.contains("session=hop-key"), "intermediate-hop cookie is jarred");
+        assert!(cookie_header.contains("cf_clearance=def"), "final-hop cookie is jarred");
+        assert_eq!(core.stats.redirect_hops.load(Ordering::Relaxed), 1);
+    }
+
+    /// Invalid redirect targets are reported as a stable non-secret failure
+    /// kind instead of leaking the signed URL.
+    #[cfg(feature = "arachnea-proxy")]
+    #[tokio::test]
+    async fn in_process_transport_rejects_invalid_redirect_targets() {
+        let jar = Arc::new(CookieJar::new());
+        let core = ArachneaInterceptorCore {
+            executor: Arc::new(StubArachneaExecutor {
+                responses: vec![StubArachneaResponse {
+                    status: 302,
+                    headers: HashMap::from([(
+                        "location".to_string(),
+                        "ftp://invalid.example.com/".to_string(),
+                    )]),
+                    set_cookies: Vec::new(),
+                }],
+                hits: RwLock::new(0),
+            }),
+            client_context: ClientContext::new(),
+            cookie_jar: jar.clone(),
+            user_agent: "arachnea-test".to_string(),
+            stats: Arc::new(InterceptionStats::default()),
+        };
+        let url = Url::parse("https://example.com/start").expect("url parses");
+        let failure = core
+            .execute_via_arachnea(&url, "GET", &HashMap::new())
+            .await
+            .expect_err("non-http redirect targets must be rejected");
+        assert_eq!(failure.kind, "location-invalid");
     }
 
     /// Builds an engine for transport tests without touching the network.

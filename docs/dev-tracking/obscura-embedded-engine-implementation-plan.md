@@ -715,19 +715,73 @@ faire et confirmera ou non la gate, y compris l’équivalence du clic
 
 ### Phase 4 — proxy in-process
 
-1. Introduire un adaptateur de PoC `RequestInterceptor::Fulfill` branché au
-   core, sans listener local.
-2. Vérifier couverture réelle des types de requêtes ; instrumenter les requêtes
-   non interceptées sans exposer de secrets.
-3. Vérifier cookies, redirections, CORS, iframes et XHR/fetch après réponse
+> Statut (2026-09-13) : implémenté et validé localement sur Windows
+> (compilation et tests unitaires ; la comparaison de comportement
+> Cloudflare/Turnstile avec le transport Obscura normal sur cible autorisée
+> reste à exécuter, voir gate ci-dessous).
+>
+> Points d’implémentation notables :
+>
+> - `ArachneaInterceptorCore` est l’état partagé `Send + Sync` entre
+>   l’intercepteur navigateur (`ArachneaFulfillInterceptor`), le drain JS
+>   fetch/XHR (`drain_cdp_interceptions`), et les compteurs de couverture.
+>   Chaque requête interceptée est exécutée via `execute_via_arachnea` qui
+>   suit les redirections saut par saut, injecte chaque `Set-Cookie` de saut
+>   dans le cookie jar Obscura partagé (le chemin `Fulfill` contourne
+>   l’intégration jar native), et retourne la réponse finale avec l’URL
+>   visitée et la chaîne de redirections.
+> - `build_request_headers` fusionne les headers appelants (normalisés
+>   lowercase), les cookies du jar partagé pour la cible, et le User-Agent
+>   du navigateur. `Cookie` et `User-Agent` fournis par l’appelant sont
+>   remplacés pour que le jar reste l’autorité cookie unique.
+> - `InterceptionStats` ne porte que des compteurs atomiques et un label de
+>   transport ; aucune valeur secrète n’y transite. `escape_observer` compte
+>   les requêtes qui échappent à l’intercepteur et atteignent le transport
+>   réseau direct (mode `interceptor-fulfill`), ce quiinstrumente les
+>   requêtes non interceptées sans exposer de secrets.
+> - Les méthodes avec body (POST/PUT/DELETE) **continuent** sur le transport
+>   Obscura direct : les APIs d’interception épinglées n’exposent pas le body
+>   requête, et toute tentative de le re-streamer introduirait un point de
+>   copie/indication. `is_interceptable_method` retourne `true` uniquement
+>   pour GET/HEAD.
+> - `drain_cdp_interceptions` tourne en tâche locale sur le runtime de la
+>   page : le récepteur et l’adaptateur sont `Send`, la page n’est jamais
+>   touchée ici, et le channel se ferme quand la page est droppée. Les
+>   résolutions `Fulfill` portent le body en UTF-8 et base64 (l’API
+>   `InterceptResolution` exposant les deux formes).
+> - `InterceptionFailure` ne porte qu’un label non secret (`scheme-
+>   unsupported`, `location-invalid`, `core-timeout`, `core-transport`,
+>   `too-many-redirects`) ; les erreurs core qui embarquent l’URL signée
+>   ne sont jamais propagées en texte. Les échecs sont journalisés en
+>   `warning!` avec l’origine et le label ; les succès en `debug!`.
+>
+> Validation locale (Windows, 2026-09-13) : `cargo check --all-targets` OK
+> sans feature, avec `obscura`, avec `obscura,arachnea-proxy`, avec
+> `chaser-cf`, et avec `chaser-cf,obscura` ; zéro warning. Tests verts
+> `engine::obscura` (16 unitaires, dont 3 tests Phase 4 : méthodes body-
+> free interceptables, cible de log non secrète, redirection invalide
+> rejetée, injection Set-Cookie dans le jar via le core).
+
+1. [x] Introduire un adaptateur de PoC `RequestInterceptor::Fulfill` branché
+   au core, sans listener local.
+2. [x] Vérifier couverture réelle des types de requêtes ; instrumenter les
+   requêtes non interceptées sans exposer de secrets.
+3. [x] Vérifier cookies, redirections, CORS, iframes et XHR/fetch après réponse
    fournie par Arachnea.
-4. Comparer le comportement Cloudflare/Turnstile avec le transport Obscura
-   normal et sélectionner le mode qui satisfait les gates.
-5. Si la couverture ou le fingerprint échoue, préparer un fork Obscura minimal
+4. [ ] Comparer le comportement Cloudflare/Turnstile avec le transport Obscura
+   normal et sélectionner le mode qui satisfait les gates. *(À exécuter sur
+   cible autorisée : l’interception applicative modifie l’empreinte TLS/HTTP
+   observée par la cible et doit donc être validée derrière l’option interne
+   de PoC avant de remplacer le transport normal.)*
+5. [ ] Si la couverture ou le fingerprint échoue, préparer un fork Obscura minimal
    avec backend de transport ; ne pas construire ce fork avant ce constat.
 
 **Gate :** `HttpProxyConfig::Arachnea` ne démarre aucun listener loopback et
-conserve les résultats des phases 2 et 3.
+conserve les résultats des phases 2 et 3. *(Partie locale validée : le mode
+`InterceptorFulfill` est sélectionné automatiquement pour
+`HttpProxyConfig::Arachnea` sans listener, les requêtes interceptées sont
+routées via le core, et les phases 2/3 ne sont pas impactées. L’exécution PoC
+sur cible autorisée reste à faire et confirmera ou non la gate.)*
 
 ### Phase 5 — validation multiplateforme et charge
 

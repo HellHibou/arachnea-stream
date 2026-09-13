@@ -40,6 +40,12 @@ pub struct ProxiedHttpResponse {
     pub headers: HashMap<String, String>,
     /// Response body, buffered only when transformations require it.
     pub body: ProxiedResponseBody,
+    /// Every `Set-Cookie` header value in order of appearance.
+    ///
+    /// The collapsed `headers` map keeps only the first occurrence of a
+    /// header name, so cookie consumers (cookie jars, challenge solvers) must
+    /// read this field instead.
+    pub set_cookies: Vec<String>,
 }
 
 /// Input for a proxied HTTP request through the Arachnea proxy core.
@@ -336,13 +342,14 @@ impl SimpleHttpClient {
                 stream.stream
             };
 
-        let (status_code, mut headers) = send_request_and_read_head(
-            &mut unified_stream,
-            &request_to_send,
-            &request.body,
-            send_body,
-        )
-        .await?;
+        let (status_code, mut headers, set_cookies) =
+            send_request_and_read_head(
+                &mut unified_stream,
+                &request_to_send,
+                &request.body,
+                send_body,
+            )
+            .await?;
 
         let body = if request.headers_only || (300..400).contains(&status_code) {
             ProxiedResponseBody::Buffered(Vec::new())
@@ -382,6 +389,7 @@ impl SimpleHttpClient {
             status: status_code,
             headers,
             body,
+            set_cookies,
         })
     }
 }
@@ -423,12 +431,15 @@ where
 }
 
 /// Writes the HTTP request and reads only the response headers.
+///
+/// Repeated `Set-Cookie` header lines are collected separately because the
+/// collapsed header map keeps only the first occurrence of a name.
 async fn send_request_and_read_head<S>(
     stream: &mut S,
     request_head: &[u8],
     body: &[u8],
     send_body: bool,
-) -> Result<(u16, HashMap<String, String>)>
+) -> Result<(u16, HashMap<String, String>, Vec<String>)>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
@@ -442,8 +453,11 @@ where
     parse_response_head(&header_bytes)
 }
 
-/// Parses raw HTTP response header bytes into status code and headers.
-fn parse_response_head(raw_header_bytes: &[u8]) -> Result<(u16, HashMap<String, String>)> {
+/// Parses raw HTTP response header bytes into status code, headers, and the
+/// list of every `Set-Cookie` value in order of appearance.
+fn parse_response_head(
+    raw_header_bytes: &[u8],
+) -> Result<(u16, HashMap<String, String>, Vec<String>)> {
     let header_end = raw_header_bytes
         .windows(4)
         .position(|window| window == b"\r\n\r\n")
@@ -470,6 +484,7 @@ fn parse_response_head(raw_header_bytes: &[u8]) -> Result<(u16, HashMap<String, 
         .map_err(|_| ProxyError::Protocol("http status code is invalid".to_string()))?;
 
     let mut headers = HashMap::new();
+    let mut set_cookies = Vec::new();
     let header_text = &header_section[status_line_end + 2..];
     let header_text = std::str::from_utf8(header_text)
         .map_err(|_| ProxyError::Protocol("http response headers are not utf-8".to_string()))?;
@@ -479,12 +494,15 @@ fn parse_response_head(raw_header_bytes: &[u8]) -> Result<(u16, HashMap<String, 
             let name = name.trim().to_string();
             let value = value.trim().to_string();
             if !name.is_empty() && !value.is_empty() {
+                if name.eq_ignore_ascii_case("set-cookie") {
+                    set_cookies.push(value.clone());
+                }
                 headers.entry(name).or_insert(value);
             }
         }
     }
 
-    Ok((status_code, headers))
+    Ok((status_code, headers, set_cookies))
 }
 
 /// Applies post-response actions to a buffered body and updates invalidated headers.

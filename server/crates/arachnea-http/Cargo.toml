@@ -10,7 +10,7 @@ default = []
 arachnea-proxy = ["dep:arachnea-proxy", "arachnea-proxy/rquest"]
 ghostwire = ["dep:ghostwire"]
 chaser-cf = ["dep:chaser-cf", "dep:chaser-oxide"]
-obscura = ["dep:obscura"]
+obscura = ["dep:obscura-browser", "dep:obscura-net"]
 tauri-cloudflare-solver = ["dep:cookie", "dep:tao", "dep:tauri", "dep:wry"]
 tauri-cloudflare-solver-devtools = ["tauri-cloudflare-solver", "wry/devtools"]
 
@@ -19,21 +19,26 @@ arachnea-core = { path = "../arachnea-core" }
 arachnea-proxy = { path = "../arachnea-proxy", default-features = false, features = ["core", "connectors", "tower"], optional = true }
 anyhow.workspace = true
 async-trait.workspace = true
+base64.workspace = true
 bytes.workspace = true
 chaser-cf = { workspace = true, optional = true }
 chaser-oxide = { workspace = true, optional = true }
 cookie = { workspace = true, optional = true }
 futures.workspace = true
 ghostwire = { workspace = true, optional = true }
-# The Obscura `render` feature is excluded on purpose: Obscura's
-# workspace-patched `taffy` and `cosmic-text` vendors are not applied to git
-# dependencies, so `obscura-render` fails to compile against the crates.io
-# releases. This is tracked as a separate follow-up in the Obscura integration
-# plan (Phase 1b gate). The `stealth` feature is enabled: the workspace HTTP
-# stack was migrated from `newwreq` to `wreq` (decision A1, integration plan
-# Phase 1b), so a single BoringSSL stack (`btls`) is linked and the previous
-# `links = "boringssl"` conflict with `boring-sys2` is gone.
-obscura = { git = "https://github.com/h4ckf0r0day/obscura", rev = "eec047a188cc75b7a1a257397ad84493ee59c091", default-features = false, features = ["api", "stealth"], optional = true }
+# The engine module depends on the internal Obscura crates instead of the
+# `obscura` facade: the facade does not expose the `RequestInterceptor` hook
+# required by the Phase 4 in-process transport, nor the `BrowserContext` /
+# `CookieJar` internals. Both crates come from the same pinned Git revision,
+# isolated inside `engine/obscura.rs` per the integration plan. `stealth` is
+# enabled for the non-intercepted transport modes so a single BoringSSL stack
+# (`btls`) stays shared with the workspace `wreq` dependency. The `render`
+# feature remains excluded on purpose: Obscura's workspace-patched `taffy` and
+# `cosmic-text` vendors are not applied to git dependencies, so `obscura-render`
+# fails to compile against the crates.io releases (tracked as a follow-up in
+# the Obscura integration plan).
+obscura-browser = { git = "https://github.com/h4ckf0r0day/obscura", rev = "eec047a188cc75b7a1a257397ad84493ee59c091", default-features = false, features = ["stealth"], optional = true }
+obscura-net = { git = "https://github.com/h4ckf0r0day/obscura", rev = "eec047a188cc75b7a1a257397ad84493ee59c091", default-features = false, optional = true }
 encoding_rs = "0.8"
 http.workspace = true
 httpdate.workspace = true
