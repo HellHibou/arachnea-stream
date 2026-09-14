@@ -1731,3 +1731,17 @@ redémarrage du processus ni du systray :
   executable cannot be hashed), so bundle caches survive restarts of the
   same binary. Directory sources (mutable on disk) never carry an ETag.
   No `Cache-Control` is emitted (ETag revalidation only).
+
+- **Obscura as the default browser Cloudflare solver**: the standard
+  `arachnea-stream` build now enables `arachnea-scrapyfy/obscura`, which
+  propagates the `arachnea-http/obscura` feature. The automatic browser solver
+  selects Obscura first; Tauri/Wry and chaser-cf remain available only as
+  fallback feature combinations or explicit solver selections. The automatic
+  configuration validation and HTTP documentation now describe this priority.
+
+- **Obscura browser proxy routing**: when the Arachnea proxy core is selected,
+  the standard HTTP client now passes the managed parameter-bound loopback URL
+  to Obscura. This keeps all browser traffic, including Cloudflare challenge
+  POST requests, on the core-selected route while preserving Obscura's stealth
+  network transport. The incomplete in-process interceptor remains only a
+  fallback for direct engine construction without that prepared URL.

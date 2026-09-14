@@ -252,21 +252,36 @@ pub(crate) async fn get_default_cloudflare_solver(
     proxy_url: Option<&str>,
     session_store: Arc<dyn TypedEntityStore<CachedChaserSession>>,
 ) -> Result<Option<DynHttpEngine>, ArachneaHttpError> {
-    #[cfg(feature = "tauri-cloudflare-solver")]
+    #[cfg(feature = "obscura")]
+    {
+        return build_obscura_engine(config, proxy_url, session_store)
+            .await
+            .map(Some);
+    }
+
+    #[cfg(all(not(feature = "obscura"), feature = "tauri-cloudflare-solver"))]
     {
         let _ = proxy_url;
         let _ = session_store;
         return build_tauri_cloudflare_engine(config).await.map(Some);
     }
 
-    #[cfg(all(not(feature = "tauri-cloudflare-solver"), feature = "chaser-cf"))]
+    #[cfg(all(
+        not(feature = "obscura"),
+        not(feature = "tauri-cloudflare-solver"),
+        feature = "chaser-cf"
+    ))]
     {
         return build_chaser_cf_engine(config, proxy_url, session_store)
             .await
             .map(Some);
     }
 
-    #[cfg(not(any(feature = "chaser-cf", feature = "tauri-cloudflare-solver")))]
+    #[cfg(not(any(
+        feature = "obscura",
+        feature = "chaser-cf",
+        feature = "tauri-cloudflare-solver"
+    )))]
     {
         let _ = config;
         let _ = proxy_url;

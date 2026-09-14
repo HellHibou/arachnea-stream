@@ -236,7 +236,7 @@ impl fmt::Debug for CloudflareSolverKind {
 /// Selects the browser-backed Cloudflare solver used as a stronger fallback.
 #[derive(Clone)]
 pub enum CloudflareBrowserSolverKind {
-    /// Pick the default browser solver selected by the engine layer.
+    /// Pick Obscura when enabled, otherwise the next available browser solver.
     Auto,
     /// Do not configure a browser-backed Cloudflare solver.
     Disabled,
@@ -958,10 +958,14 @@ fn validate_browser_solver(config: &ArachneaHttpConfig) -> Result<(), ArachneaHt
         }
         CloudflareBrowserSolverKind::Auto
             if config.default_request_mode == HttpRequestMode::CloudflareBrowser
-                && !cfg!(any(feature = "chaser-cf", feature = "tauri-cloudflare-solver")) =>
+                && !cfg!(any(
+                    feature = "obscura",
+                    feature = "chaser-cf",
+                    feature = "tauri-cloudflare-solver"
+                )) =>
         {
             Err(ArachneaHttpError::InvalidConfiguration(
-                "CloudflareBrowser with the automatic browser solver requires the chaser-cf or tauri-cloudflare-solver feature, or an injected solver engine".to_string(),
+                "CloudflareBrowser with the automatic browser solver requires the obscura, chaser-cf, or tauri-cloudflare-solver feature, or an injected solver engine".to_string(),
             ))
         }
         _ => Ok(()),

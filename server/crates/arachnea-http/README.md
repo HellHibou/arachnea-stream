@@ -44,11 +44,11 @@ This crate is intended for authorized traffic only. Callers must respect target 
 | `HttpRequestMode::Auto` | Default mode. Start with `rquest`; when Cloudflare is detected, try Ghostwire if the `ghostwire` feature or an injected smart solver is available, then try the configured browser solver if available. |
 | `HttpRequestMode::Direct` | Use `rquest` only. No Cloudflare solver is launched. |
 | `HttpRequestMode::CloudflareSmart` | Reuse a valid `cf_clearance` cookie when present. If missing or stale, refresh with Ghostwire when the feature is enabled or with an injected smart solver, then execute through `rquest`. |
-| `HttpRequestMode::CloudflareBrowser` | Reuse a valid Cloudflare cookie when present. If missing or stale, refresh with chaser-cf, Tauri/Wry, or an injected browser solver, then execute through `rquest`. |
-| `CloudflareBrowserSolverKind::Auto` | Use the default browser solver selected by `get_default_cloudflare_solver`: Tauri/Wry when `tauri-cloudflare-solver` is enabled, otherwise chaser-cf when `chaser-cf` is enabled. |
+| `HttpRequestMode::CloudflareBrowser` | Reuse a valid Cloudflare cookie when present. If missing or stale, refresh with Obscura by default, or with an explicitly selected chaser-cf, Tauri/Wry, or injected browser solver, then execute through `rquest`. |
+| `CloudflareBrowserSolverKind::Auto` | Use Obscura when the `obscura` feature is enabled; otherwise use Tauri/Wry when `tauri-cloudflare-solver` is enabled, then chaser-cf when `chaser-cf` is enabled. |
 | `CloudflareBrowserSolverKind::ChaserCf` | Require the `chaser-cf` feature for the browser fallback. |
 | `CloudflareBrowserSolverKind::TauriCloudflareSolver` | Require the `tauri-cloudflare-solver` feature for the interactive browser fallback. |
-| `CloudflareBrowserSolverKind::Obscura` | Require the `obscura` feature for the embedded Obscura headless-browser fallback. Phases 2-3: the Cloudflare session solver (`send`, `refresh_cloudflare`, `refresh_cloudflare_fresh`) is implemented on an ephemeral stealth page with the shared `CachedChaserSession` cache, and persistent page sessions (`navigate`, in-page `fetch`, `click_and_wait`, Turnstile token read/reset, cookie/user-agent handoff) run on a retained page owned by a dedicated per-session thread. `HttpProxyConfig::Arachnea` is refused until the Phase 4 in-process transport lands, and only `http`/`https` network proxies are accepted. |
+| `CloudflareBrowserSolverKind::Obscura` | Require the `obscura` feature for the embedded Obscura headless-browser fallback. It is the default browser solver when enabled. The Cloudflare session solver and persistent page sessions run on dedicated threads; `HttpProxyConfig::Arachnea` uses the parameter-bound Arachnea loopback proxy so every browser request, including challenge POSTs, keeps the same route and Obscura stealth profile. |
 
 Cloudflare detection should require supporting signals such as `server: cloudflare`, `cf-ray`, `cf-mitigated`, `cf-` or `__cf` headers/cookies, or known challenge markers. A plain `403` is not enough by itself.
 When `Auto` reaches the browser fallback after an active Cloudflare block, the browser solver is asked for a fresh solve instead of reusing an engine-specific session cache.
@@ -83,7 +83,7 @@ let config = ArachneaHttpConfig::builder()
     .build()?;
 ```
 
-Current upstream client APIs still expose proxy URLs rather than a stable public transport replacement hook, so the built-in `rquest` and Ghostwire engines both use the managed loopback compatibility helper when `proxy_core(...)` is selected. Chaser-CF receives a separate parameter-bound loopback listener so Chrome CONNECT requests use the same Arachnea proxy routing context as `rquest`.
+Current upstream client APIs still expose proxy URLs rather than a stable public transport replacement hook, so the built-in `rquest`, Ghostwire, Chaser-CF, and Obscura engines use the managed parameter-bound loopback helper when `proxy_core(...)` is selected. This keeps CONNECT requests and body-carrying browser requests on the same Arachnea proxy route. Obscura therefore retains its stealth transport instead of using its incomplete in-process interception path.
 
 Use `.mode(...)` on a request builder to override the configured default for one call:
 
@@ -178,6 +178,7 @@ let config = ArachneaHttpConfig::builder()
 | --- | --- |
 | `arachnea-proxy` | Enables `arachnea-proxy` integration through a managed loopback compatibility helper shared by built-in engines. |
 | `ghostwire` | Enables the Ghostwire engine and is active by default. |
+| `obscura` | Enables the default embedded Obscura browser solver. |
 | `chaser-cf` | Enables the chaser-cf Cloudflare solver integration. |
 | `tauri-cloudflare-solver` | Enables the Tauri/Wry-based solver path. |
 | `tauri-cloudflare-solver-devtools` | Enables Tauri solver support with Wry devtools. |
@@ -202,7 +203,13 @@ Check the `rquest`-only path:
 cargo check -p arachnea-http --no-default-features
 ```
 
-Check the chaser-cf feature:
+Check the default Obscura browser solver feature:
+
+```powershell
+cargo check -p arachnea-http --no-default-features --features obscura
+```
+
+Check the optional chaser-cf feature:
 
 ```powershell
 cargo check -p arachnea-http --no-default-features --features chaser-cf

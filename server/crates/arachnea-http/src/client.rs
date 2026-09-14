@@ -86,7 +86,7 @@ struct PreparedProxyRuntime {
     /// Parameter-bound loopback proxy for browser clients that cannot attach
     /// request-level proxy headers to CONNECT requests.
     #[cfg(feature = "arachnea-proxy")]
-    chaser_cf_loopback_proxy: Option<Arc<ArachneaRquestLoopback>>,
+    browser_loopback_proxy: Option<Arc<ArachneaRquestLoopback>>,
 }
 
 impl PreparedProxyRuntime {
@@ -119,7 +119,7 @@ impl PreparedProxyRuntime {
                 )),
                 _ => None,
             };
-            let chaser_cf_loopback_proxy = match &config.proxy {
+            let browser_loopback_proxy = match &config.proxy {
                 HttpProxyConfig::Arachnea(core) => Some(Arc::new(
                     ArachneaRquestLoopback::start_with_parameters(
                         core.clone(),
@@ -131,7 +131,7 @@ impl PreparedProxyRuntime {
                     .await
                     .map_err(|err| {
                         ArachneaHttpError::Proxy(format!(
-                            "failed to start chaser-cf parameterized loopback helper: {err}"
+                            "failed to start browser parameterized loopback helper: {err}"
                         ))
                     })?,
                 )),
@@ -139,7 +139,7 @@ impl PreparedProxyRuntime {
             };
             return Ok(Self {
                 loopback_proxy,
-                chaser_cf_loopback_proxy,
+                browser_loopback_proxy,
             });
         }
 
@@ -172,14 +172,15 @@ impl PreparedProxyRuntime {
         }
     }
 
-    /// Returns the proxy URL for chaser-cf, binding configured proxy parameters
-    /// into the dedicated loopback listener when Chrome cannot send them.
-    fn chaser_cf_proxy_url<'a>(&'a self, config: &'a ArachneaHttpConfig) -> Option<&'a str> {
+    /// Returns the proxy URL for browser engines, binding configured proxy
+    /// parameters into the dedicated loopback listener when they cannot send
+    /// request-level proxy headers through CONNECT.
+    fn browser_proxy_url<'a>(&'a self, config: &'a ArachneaHttpConfig) -> Option<&'a str> {
         match &config.proxy {
             HttpProxyConfig::Network(url) => Some(url.as_str()),
             #[cfg(feature = "arachnea-proxy")]
             HttpProxyConfig::Arachnea(_) => self
-                .chaser_cf_loopback_proxy
+                .browser_loopback_proxy
                 .as_deref()
                 .map(|loopback| loopback.proxy_url()),
             HttpProxyConfig::Disabled => None,
@@ -397,7 +398,7 @@ impl ArachneaHttpClient {
         let browser_cloudflare_engine = build_browser_cloudflare_solver(
             &config,
             &config.cloudflare_browser_solver,
-            proxy_runtime.chaser_cf_proxy_url(&config),
+            proxy_runtime.browser_proxy_url(&config),
             session_store,
         )
         .await?;

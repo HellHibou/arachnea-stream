@@ -8,15 +8,13 @@
 //! dedicated thread (the Obscura runtime is `!Send`) behind a command channel,
 //! with `navigate`, `fetch` (in-page `window.fetch`), `click_and_wait`,
 //! Turnstile token read/reset and cookie/user-agent handoff.
-//! Phase 4 adds the in-process proxy transport (`interceptor-fulfill`): when
-//! `HttpProxyConfig::Arachnea` is selected, every interceptable request of the
-//! embedded browser is fulfilled through the Arachnea proxy core with the
-//! request `ClientContext`, without a loopback listener. Body-carrying methods
-//! continue on the direct Obscura transport and are instrumented, because the
-//! pinned interception APIs do not expose request bodies (documented coverage
-//! gap feeding the transport-fork follow-up).
-//! The `Auto` browser-solver selection is intentionally unchanged; Obscura
-//! must be selected explicitly through `CloudflareBrowserSolverKind::Obscura`.
+//! Phase 4 retains an in-process proxy fallback (`interceptor-fulfill`) for
+//! callers that do not have a prepared browser proxy URL. Its interception API
+//! does not expose request bodies, so the standard Arachnea client instead
+//! gives Obscura a parameter-bound loopback proxy URL. This keeps every browser
+//! request, including body-carrying challenge requests, on the Arachnea proxy
+//! route while retaining Obscura's stealth transport.
+//! The `Auto` browser-solver selection prefers Obscura when it is compiled in.
 
 use std::{
     collections::HashMap,
@@ -388,9 +386,6 @@ pub(crate) struct ObscuraEngineConfig {
     /// stack migrated from `newwreq` to `wreq` (option A1, integration plan
     /// Phase 1b), keeping a single BoringSSL stack.
     stealth: bool,
-    /// Enable the Obscura render layer used by real click flows and element
-    /// geometry.
-    render: bool,
     /// User-Agent forced into the embedded browser context.
     user_agent: Option<String>,
     /// Timeout applied to normalized requests executed by this engine.
@@ -411,7 +406,6 @@ impl ObscuraEngineConfig {
     fn from_arachnea(config: &ArachneaHttpConfig) -> Self {
         Self {
             stealth: true,
-            render: true,
             user_agent: Some(config.user_agent_profile.user_agent().to_string()),
             request_timeout: config.request_timeout,
             clearance_timeout: OBSCURA_CLEARANCE_TIMEOUT,
@@ -429,10 +423,10 @@ pub(crate) enum ObscuraTransportMode {
     /// The embedded browser's own network stack, optionally behind a network
     /// proxy URL.
     NetworkProxy(Option<String>),
-    /// Every interceptable request is fulfilled through the in-process Arachnea
-    /// proxy core. Selected for `HttpProxyConfig::Arachnea`; body-carrying
-    /// methods continue on the direct Obscura transport (the pinned
-    /// interception APIs do not expose request bodies).
+    /// Fallback for an Arachnea proxy configuration without a prepared browser
+    /// loopback URL. Every interceptable request is fulfilled through the
+    /// in-process Arachnea proxy core; body-carrying methods continue directly
+    /// because the pinned interception APIs do not expose request bodies.
     InterceptorFulfill,
 }
 
@@ -1752,18 +1746,14 @@ impl ObscuraEngine {
         session_store: Arc<dyn TypedEntityStore<CachedChaserSession>>,
     ) -> Result<Self, ArachneaHttpError> {
         let engine_config = ObscuraEngineConfig::from_arachnea(config);
-        // The in-process transport wins over the runtime-provided loopback
-        // URL: the Obscura engine never binds nor consumes a loopback
-        // listener, so `HttpProxyConfig::Arachnea` always selects
-        // `InterceptorFulfill`. Network proxy URLs flow through unchanged,
-        // exactly like the chaser-cf adapter.
-        let transport = match &engine_config.proxy {
-            #[cfg(feature = "arachnea-proxy")]
-            HttpProxyConfig::Arachnea(_) => ObscuraTransportMode::InterceptorFulfill,
-            _ => match proxy_url {
-                Some(url) => ObscuraTransportMode::NetworkProxy(Some(url.to_string())),
-                None => ObscuraTransportMode::select(&engine_config.proxy),
-            },
+        // The prepared browser loopback is preferred for `HttpProxyConfig::Arachnea`.
+        // It routes every browser request, including body-carrying Cloudflare
+        // challenge POSTs, through the proxy core while retaining Obscura's
+        // stealth transport. The direct constructor, which has no prepared
+        // runtime URL, retains the in-process interceptor fallback.
+        let transport = match proxy_url {
+            Some(url) => ObscuraTransportMode::NetworkProxy(Some(url.to_string())),
+            None => ObscuraTransportMode::select(&engine_config.proxy),
         };
         debug!(
             engine = ENGINE_NAME,
@@ -1771,7 +1761,6 @@ impl ObscuraEngine {
             platform = std::env::consts::OS,
             transport = transport.label(),
             stealth = engine_config.stealth,
-            render = engine_config.render,
             has_user_agent = engine_config.user_agent.is_some(),
             "obscura engine constructed"
         );
@@ -1801,7 +1790,7 @@ impl ObscuraEngine {
 
     /// Returns the browser proxy URL for an explicit transport selection.
     ///
-    /// The in-process transport carries no proxy URL: requests route through
+    /// The in-process fallback carries no proxy URL: requests route through
     /// the Arachnea proxy core with a per-request `ClientContext` instead.
     ///
     /// Split from the previous `&self` helper so the `!Send` solve running on
@@ -1834,9 +1823,9 @@ impl ObscuraEngine {
     /// Replaces the former facade construction (`obscura::Browser`): the
     /// facade cannot host a `RequestInterceptor`, so the engine builds the
     /// internal `BrowserContext` directly with the same options the facade
-    /// used. For `InterceptorFulfill` the stealth profile is forced off (the
-    /// stealth wreq client cannot be intercepted), the in-process Arachnea
-    /// interceptor is installed on the browser HTTP client, the JS
+    /// used. For the fallback `InterceptorFulfill` transport the stealth
+    /// profile is forced off (the stealth wreq client cannot be intercepted),
+    /// the in-process Arachnea interceptor is installed on the browser HTTP client, the JS
     /// `fetch`/XHR interception channel is activated, and a local drain task
     /// resolves every intercepted page request through the Arachnea core.
     ///

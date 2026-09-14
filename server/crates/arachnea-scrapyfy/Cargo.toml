@@ -10,6 +10,7 @@ sqlite-persistence = ["arachnea-core/sqlite-persistence", "dep:rusqlite"]
 ghostwire = ["arachnea-http/ghostwire"]
 tauri-cloudflare-solver = ["arachnea-http/ghostwire", "arachnea-http/tauri-cloudflare-solver"]
 chaser-cf = ["arachnea-http/ghostwire", "arachnea-http/chaser-cf"]
+obscura = ["arachnea-http/ghostwire", "arachnea-http/obscura"]
 arachnea-proxy = ["arachnea-http/arachnea-proxy", "dep:arachnea-proxy"]
 
 [dependencies]

@@ -21,9 +21,11 @@ Les critères de validation sont ordonnés et éliminatoires :
    `window.fetch` dans la même page.
 3. **Multiplateforme** : obtenir le même contrat fonctionnel sur macOS, Linux et
    Windows.
-4. **Proxy Arachnea in-process** : pour `HttpProxyConfig::Arachnea`, router les
-   requêtes au travers de `ArachneaProxyCore` et du `ClientContext` de la
-   requête, sans démarrer de listener loopback.
+4. **Proxy Arachnea in-process** : à terme, pour `HttpProxyConfig::Arachnea`,
+   router les requêtes au travers de `ArachneaProxyCore` et du `ClientContext`
+   de la requête, sans démarrer de listener loopback. Le loopback paramétré
+   reste la solution transitoire tant que le transport Obscura complet n'est
+   pas disponible.
 5. **Coût et maintenance** : mesurer RSS, CPU, latence, stabilité et taille de
    distribution face au chemin Chaser/Chromium ; épingler une révision Obscura
    reproductible et préserver la licence Apache-2.0.
@@ -102,23 +104,55 @@ branche `main`, ni d’un tag seul sans SHA de révision vérifié.
 > reproductibilité repose uniquement sur l’épinglage `rev` de la dépendance
 > Git ; le lockfile reste un artefact local.
 
+### État de la révision épinglée et attente upstream
+
+La dépendance active est le commit Git
+`eec047a188cc75b7a1a257397ad84493ee59c091` (2026-09-12), utilisé par
+`obscura-browser` et `obscura-net`. Les versions `0.1.0` visibles dans le
+lockfile sont les métadonnées des crates internes du workspace Obscura, et ne
+correspondent pas à une release publique.
+
+La dernière release upstream est `v0.2.2` (`a1e09de`, 2026-09-05). Le commit
+épinglé par Arachnea est **49 commits après** cette release. Mettre la
+dépendance sur la dernière release serait donc un recul. Cette révision inclut
+des améliorations iframe, DOM, CORS et `postMessage`, mais ne corrige pas le
+parcours Turnstile observé sur Papadustream.
+
+L'issue upstream [#844](https://github.com/h4ckf0r0day/obscura/issues/844)
+reste ouverte : elle décrit une incompatibilité Turnstile proche (iframe de
+challenge absente) et aucun correctif n'est proposé. La décision actuelle est
+d'attendre un patch upstream et de ne créer ni fork Arachnea ni fallback
+Chaser-CF. Lorsqu'un patch sera disponible, il devra être comparé et épinglé à
+un SHA immuable, puis validé sur les cibles autorisées avant mise à jour.
+
+Validation runtime (Papadustream, 2026-09-14) : le parcours de page
+persistante fonctionne jusqu'au challenge injecté après clic. Les sessions sont
+créées avec `transport="network-proxy"`, chargent
+`https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit`, puis
+le moteur détecte le challenge après `click_and_wait`. Le widget échoue ensuite
+sur le même `HierarchyRequestError` dans `ShadowRoot.appendChild`, suivi d'un
+`addEventListener` sur `null`. Cette seconde reproduction élimine le proxy et
+le cycle de vie de la session Arachnea comme causes de l'échec. Les erreurs du
+module de beacon Cloudflare et les `Broken pipe` du loopback sont des
+sous-ressources annulées ou non essentielles observées avant le crash ; elles
+ne précèdent pas l'exception bloquante de Turnstile.
+
 ### Features nécessaires
 
 | Feature Obscura | Décision | Raison |
 |---|---|---|
 | `api` | Requise | Fournit la façade Rust `Browser` / `Page`. |
 | `stealth` | Requise pour le solveur | Aligne le profil UA/platform et active l’impersonation TLS/HTTP utilisée par Obscura. |
-| `render` | Requise pour le premier PoC | Fournit la géométrie et le rendu utiles aux clics réels, boîtes d’éléments et widgets interactifs. Une réduction ultérieure n’est possible qu’après validation des challenges sans cette feature. |
+| `render` | Non activée | La feature n'est pas consommée par l'intégration actuelle et ses patches vendor ne sont pas applicables aux dépendances Git. Les clics de la session utilisent les APIs DOM/Obscura disponibles sans couche de rendu. |
 
 Le build `stealth` tire notamment la pile TLS spécialisée d’Obscura. La CI et
 les builds développeur doivent documenter les prérequis de compilation associés
 (V8, CMake, compilateur C/C++ et outils de binding selon les plateformes).
 
-> Mise à jour (2026-09-12, Phase 1) : `stealth` et `render` sont exclues de la
-> déclaration Cargo actuelle (conflit BoringSSL avec `newwreq` pour `stealth`,
-> patches vendor non appliqués aux dépendances Git pour `render`). Elles
-> devront être réintégrées avant les gates Cloudflare ; voir la Phase 1 et la
-> question ouverte 6.
+> Mise à jour (2026-09-12, Phase 1) : `stealth` est activée dans la
+> déclaration Cargo actuelle après migration du workspace vers `wreq` (une
+> seule pile BoringSSL). `render` reste exclue : ses patches vendor ne sont pas
+> applicables aux dépendances Git et l'intégration actuelle ne l'utilise pas.
 >
 > Mise à jour (2026-09-12, décision A1) : le blocage `stealth` est tranché —
 > migration de la pile HTTP du workspace `newwreq` → `wreq` (une seule pile
@@ -173,10 +207,9 @@ La sélection explicite doit recevoir un nouveau variant :
 CloudflareBrowserSolverKind::Obscura
 ```
 
-Le variant `ChaserCf` doit conserver sa signification pendant la migration. Le
-choix de basculer `CloudflareBrowserSolverKind::Auto` vers Obscura n’est permis
-qu’après validation complète des gates. Avant cela, l’usage d’Obscura doit être
-explicite par configuration ou par injection de moteur.
+Le variant `ChaserCf` doit conserver sa signification pendant la migration. La
+bascule de `CloudflareBrowserSolverKind::Auto` vers Obscura est effectuée le
+2026-09-14 pour le binaire standard ; `ChaserCf` reste un rollback explicite.
 
 ### Types internes proposés
 
@@ -380,11 +413,20 @@ réutilisation Obscura au-delà d’une instance homogène.
 
 ## Proxy Arachnea sans loopback
 
+> Mise à jour (2026-09-14) : le transport `InterceptorFulfill` ne reçoit pas
+> les corps des POST Cloudflare et désactive la pile stealth. En attendant un
+> hook de transport complet dans Obscura, `HttpProxyConfig::Arachnea` utilise
+> donc le loopback Arachnea paramétré pour les moteurs navigateur. Cette
+> exception temporaire conserve une route unique pour tous les échanges, y
+> compris les POST de challenge ; l'objectif sans loopback reste ouvert.
+
 ### Contrainte
 
-`HttpProxyConfig::Arachnea` ne doit pas être transformé en URL proxy locale pour
-Obscura. Chaque requête doit recevoir son `ClientContext`, y compris les
-paramètres de routage comme le pays, sans les exposer à l’origine cible.
+L'objectif à terme est que `HttpProxyConfig::Arachnea` ne soit pas transformé
+en URL proxy locale pour Obscura. Chaque requête devra alors recevoir son
+`ClientContext`, y compris les paramètres de routage comme le pays, sans les
+exposer à l’origine cible. Dans l'état transitoire validé, le loopback
+paramétré porte ces paramètres et reste invisible de l'origine cible.
 
 ### Étape 1 — intercepteur applicatif Obscura
 
@@ -776,12 +818,13 @@ faire et confirmera ou non la gate, y compris l’équivalence du clic
 5. [ ] Si la couverture ou le fingerprint échoue, préparer un fork Obscura minimal
    avec backend de transport ; ne pas construire ce fork avant ce constat.
 
-**Gate :** `HttpProxyConfig::Arachnea` ne démarre aucun listener loopback et
-conserve les résultats des phases 2 et 3. *(Partie locale validée : le mode
-`InterceptorFulfill` est sélectionné automatiquement pour
-`HttpProxyConfig::Arachnea` sans listener, les requêtes interceptées sont
-routées via le core, et les phases 2/3 ne sont pas impactées. L’exécution PoC
-sur cible autorisée reste à faire et confirmera ou non la gate.)*
+**Gate initiale :** `HttpProxyConfig::Arachnea` ne démarre aucun listener
+loopback et conserve les résultats des phases 2 et 3. Cette gate est ajournée :
+le canal d'interception Obscura ne transmet pas le corps des POST Cloudflare et
+désactive le transport stealth. Pour la phase actuelle, le client fournit donc
+un loopback paramétré au navigateur Obscura ; il préserve le routage décidé par
+le core et couvre tout le trafic. Le remplacement par un transport Obscura
+complet via le core reste le suivi de cette phase.
 
 ### Phase 5 — validation multiplateforme et charge
 

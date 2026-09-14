@@ -11,7 +11,7 @@ path = "src/main.rs"
 [dependencies]
 arachnea-core = { path = "../arachnea-core", features = ["sqlite-persistence"] }
 arachnea-http = { path = "../arachnea-http", default-features = false }
-arachnea-scrapyfy = { path = "../arachnea-scrapyfy", features = ["chaser-cf", "arachnea-proxy", "sqlite-persistence"] }
+arachnea-scrapyfy = { path = "../arachnea-scrapyfy", features = ["obscura", "arachnea-proxy", "sqlite-persistence"] }
 arachnea-proxy =    { path = "../arachnea-proxy", features = ["controller-service"] }
 argon2 = { workspace = true }
 anyhow.workspace = true
