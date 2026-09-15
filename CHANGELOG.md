@@ -21,8 +21,33 @@ All notable changes to the server workspace are recorded here. Add new entries a
   the block-size field with K/M/G unit selectors, ± step buttons (± 4 K for
   the block size, ± the block size for the bounds) and matching validation
   messages (see `docs/dev-tracking/cache-block-size-analysis.md`).
+- **Proxy HLS manifest URL rewrite option**: YAML players can declare
+  `resolver.proxy.rewrite_manifest_urls`; the frontend forwards it as
+  `proxy_rewrite_manifest_urls` to `get_stream`, and the backend then adds a
+  proxy `ReplaceAll` post-response action limited to HLS manifest content types
+  that rewrites every absolute `http(s)` URL to `{proxy_inherited}/$1`. Child
+  playlists and segments therefore keep the proxy options of the current
+  request (country, headers) instead of leaving the proxied session. The ARTE
+  live player enables it because its master manifest exposes absolute child
+  playlist URLs.
 
 ### Fixed
+- **Scraper-query geo proxy hint**: YAML players can now declare
+  `resolver.proxy.country`; the frontend forwards it to `get_stream`, which
+  validates and supplies it as `{proxy_country}` to the source-owned
+  `resolve_stream` query. The ARTE live player requests France-only routing
+  without forcing a French proxy for its VOD and trailer resolutions. Template
+  HTTP options are now resolved for each query execution, and generated proxy
+  URLs carry the requested country through the `Arachnea-Proxy-Country` opts
+  header so manifest fetches are routed through the dynamic country proxy pool.
+- **ARTE live catalog**: `arte-fr.yaml` now defines `list_lives` from the
+  public EMAC `LIVE` page and `get_live` through the existing player-config
+  resolver, so ARTE's linear channel is included in the unified live catalog.
+- **`html_to_text` plain-text values**: the scraper action now preserves and
+  normalizes values that contain no HTML tag instead of dropping them when
+  `quick_html2md` yields no output. The ARTE entry scraper now prioritizes its
+  root description, `shortDescription`, and `fullDescription` in that order,
+  so program descriptions remain available when the full description is absent.
 - **Admin UI navigation**: the admin sidebar is now always displayed regardless
   of the window size (`permanent` navigation drawer instead of the Vuetify
   default that hides it below the `lg` breakpoint), and after a successful

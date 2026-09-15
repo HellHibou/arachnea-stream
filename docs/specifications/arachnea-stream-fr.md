@@ -621,6 +621,24 @@ Retourne une liste d'objets MediaItem avec `key` et `media-type: video/live` :
 | `expire` | Fin du programme en cours |
 | `channel` | Nom de la chaîne |
 
+Un lecteur peut demander un routage géographique pour une résolution
+`scraper-query` en déclarant `resolver > proxy > country` dans le YAML. Le
+frontend transmet cette valeur comme `proxy_country` à `get_stream`; la query
+`resolve_stream` de la source doit ensuite l'utiliser explicitement avec
+`http.proxy_country: "{proxy_country}"`. Les URLs proxy générées embarquent
+aussi `Arachnea-Proxy-Country` dans leurs `opts` afin que la récupération du
+manifeste passe par le pool de proxy dynamique du pays demandé.
+
+Un lecteur peut en outre demander la réécriture des URLs absolues rencontrées
+dans les manifestes HLS proxifiés en déclarant
+`resolver > proxy > rewrite_manifest_urls: "true"`. Le frontend la transmet
+comme `proxy_rewrite_manifest_urls` à `get_stream`, et le backend ajoute alors
+une action proxy `ReplaceAll` (`{proxy_inherited}/$1`) restreinte aux
+content-types de manifeste HLS. Les playlists enfants et les segments
+réutilisent ainsi les options de proxy de la requête courante (pays, entêtes)
+au lieu de quitter la session proxifiée, ce qui est nécessaire lorsque le
+manifeste maître expose des URLs absolues, comme pour le direct ARTE.
+
 #### `get_live`
 
 Retourne les informations de lecture d'un direct :

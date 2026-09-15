@@ -312,7 +312,6 @@ async fn fetch_responses_with_validation(
         let html = apply_pre_processes(
             context
                 .http_client
-                .configured(query.http_config().clone())
                 .page_navigate_for_request(&url, &headers)
                 .await?,
             query.pre_processes(),
@@ -329,8 +328,8 @@ async fn fetch_responses_with_validation(
         return Ok(vec![(url, FetchedResponse::Html(html))]);
     }
 
-    let client = context.http_client.configured(query.http_config().clone());
-    let response = client
+    let response = context
+        .http_client
         .send_for_request(method, &url, &headers, body.as_deref())
         .await?;
     let status = response.status();
@@ -1212,10 +1211,6 @@ async fn fetch_responses(
         }
         Some(ScraperHttpExecution::Direct) | None => {}
     }
-    // Configure the client with the query's HTTP settings once, then clone
-    // for each parallel job.
-    let configured_client = context.http_client.configured(query.http_config().clone());
-
     // Filter out empty URLs before fetching.
     let non_empty_urls: Vec<String> = urls
         .iter()
@@ -1231,7 +1226,7 @@ async fn fetch_responses(
             let headers = headers.clone();
             let body = body.clone();
             let method = method.clone();
-            let client = configured_client.clone();
+            let client = context.http_client;
             async move {
                 let response = if execution == Some(ScraperHttpExecution::PageNavigate) {
                     FetchedResponse::Html(apply_pre_processes(

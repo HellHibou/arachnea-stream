@@ -1,0 +1,952 @@
+id: arte-fr
+title: Arte
+logo: https://api-cdn.arte.tv/img/v2/image/zMQA5ovzUC2JDk8VLrW8Ce/1920x480
+description:
+  fr: "Arte est la chaîne culturelle européenne de télévision, offrant une large gamme de documentaires, films, séries, concerts et émissions en streaming gratuit. La plateforme arte.tv propose un catalogue riche et exigeant, disponible en plusieurs langues, avec un accent sur la culture, l'histoire, la science et la société."
+http:
+  mode: direct
+  user_agent_profile: firefox
+
+# ############################################################################
+# Parameters
+# ############################################################################
+parameters:
+  - name: base_url
+    value: https://www.arte.tv
+    description: Public website base URL used for web links.
+  - name: api_base
+    value: https://api.arte.tv/api/emac/v3/fr
+    description: EMAC v3 web catalogue API (pages, listings, programs/collections).
+  - name: api_base_v4
+    value: https://api.arte.tv/api/emac/v4/fr
+    description: EMAC v4 app API, only used for search results.
+
+# ############################################################################
+# Shared structs
+# ############################################################################
+shared:
+  media_types_arte: &media_types_arte
+    - video/movie
+    - video/show/serie
+    - video/show/documentary
+    - video/show/kids
+    - video/news
+    - video/show/other
+    - video/live
+
+  actions_arte_kind_media_type: &actions_arte_kind_media_type
+    - type: map
+      default: video/show/other
+      argument:
+        TV_SERIES: video/show/serie
+        MOVIE: video/movie
+        SHOW: video/show/other
+        TOPIC: video/show/other
+        BUNDLE: video/show/serie
+        EXTERNAL: video/show/other
+
+  actions_arte_iso_date: &actions_arte_iso_date
+    - type: get_date
+      format: yyyy_mm_dd
+
+  source_entry: &source_entry
+    name: source
+    type: string
+    actions:
+      - type: format_text
+        argument: "{source}"
+
+  # Teaser images use a resolutions array (w ascending); keep all candidate URLs.
+  common_image_landscape: &common_image_landscape
+    name: img/landscape > link
+    type: string[]
+    pointer: /images/landscape/resolutions/*/url
+    select: all
+
+  common_image_portrait: &common_image_portrait
+    name: img/poster > link
+    type: string[]
+    pointer: /images/portrait/resolutions/*/url
+    select: all
+
+  common_image_square: &common_image_square
+    name: img/poster > link
+    type: string[]
+    pointer: /images/square/resolutions/*/url
+
+  card_entries: &card_entries
+    - *source_entry
+    - name: title
+      type: string
+      select: first
+      pointer: /title
+    - name: title/alt
+      type: string
+      select: first
+      pointer: /subtitle
+    - name: description
+      type: string
+      select: first
+      pointer: /shortDescription
+    - name: description
+      type: string
+      select: first
+      pointer: /teaserText
+    - name: media-type
+      type: string[]
+      pointer: /kind/code
+      actions: *actions_arte_kind_media_type
+    - name: theme
+      type: string[]
+      pointer: /genre/label
+    - name: link
+      type: string
+      select: first
+      pointer: /programId
+      actions:
+        - type: format_text
+          argument: "{api_base}/web/programs/{}"
+    - name: web-link
+      type: string
+      select: first
+      pointer: /url
+    - name: duration
+      type: string
+      select: first
+      pointer: /durationLabel
+    - name: expire
+      type: string
+      select: first
+      pointer: /availability/end
+      actions: *actions_arte_iso_date
+    - name: content-advisor
+      type: string
+      select: first
+      pointer: /ageRating
+    - *common_image_landscape
+    - *common_image_portrait
+    - *common_image_square
+
+  section_entries: &section_entries
+    - name: label
+      type: string
+      select: first
+      pointer: /title
+    - name: have_more
+      type: boolean
+      select: first
+      actions:
+        - type: format_text
+          argument: "false"
+    - name: entries
+      type: object[]
+      pointer: /data/*
+      select: all
+      entries: *card_entries
+
+  banner_entries: &banner_entries
+    - *source_entry
+    - name: key
+      type: string
+      select: first
+      pointer: /id
+    - name: title
+      type: string
+      select: first
+      pointer: /title
+    - name: title/alt
+      type: string
+      select: first
+      pointer: /subtitle
+    - name: subtitle
+      type: string
+      select: first
+      pointer: /subtitle
+    - name: description
+      type: string
+      select: first
+      pointer: /teaserText
+    - name: image
+      type: string
+      select: first
+      pointer: /images/landscape/resolutions/4/url
+    - name: link
+      type: string
+      select: first
+      pointer: /programId
+      actions:
+        - type: format_text
+          argument: "{api_base}/web/programs/{}"
+    - name: web-link
+      type: string
+      select: first
+      pointer: /url
+    - name: media-type
+      type: string[]
+      pointer: /kind/code
+      actions: *actions_arte_kind_media_type
+    - name: duration
+      type: string
+      select: first
+      pointer: /durationLabel
+    # Arte trailer manifests are signed and short-lived. Keep their stable
+    # player configuration URL as a scraper-query target instead; resolve_stream
+    # obtains a fresh HLS manifest when the frontend requests playback.
+    - name: players
+      type: object[]
+      pointer: /trailer/config
+      entries:
+        - name: resolver
+          type: object
+          select: first
+          entries:
+            - name: kind
+              type: string
+              actions:
+                - type: format_text
+                  argument: "scraper-query"
+            - name: target_id
+              type: string
+            - name: source
+              type: string
+              actions:
+                - type: format_text
+                  argument: "arte-fr"
+    # Editorial event teasers sometimes only expose a clip (e.g. Twin Peaks).
+    - name: players
+      type: object[]
+      pointer: /clip/config
+      entries:
+        - name: resolver
+          type: object
+          select: first
+          entries:
+            - name: kind
+              type: string
+              actions:
+                - type: format_text
+                  argument: "scraper-query"
+            - name: target_id
+              type: string
+            - name: source
+              type: string
+              actions:
+                - type: format_text
+                  argument: "arte-fr"
+
+  episode_entries: &episode_entries
+    - name: title
+      type: string
+      select: first
+      pointer: /title
+    - name: title/alt
+      type: string
+      select: first
+      pointer: /subtitle
+    - name: description
+      type: string
+      select: first
+      pointer: /shortDescription
+    - name: duration
+      type: string
+      select: first
+      pointer: /durationLabel
+    - name: release-date
+      type: string
+      select: first
+      pointer: /availability/start
+      actions: *actions_arte_iso_date
+    - name: expire
+      type: string
+      select: first
+      pointer: /availability/end
+      actions: *actions_arte_iso_date
+    - name: content-advisor
+      type: string
+      select: first
+      pointer: /ageRating
+    - name: link
+      type: string
+      select: first
+      pointer: /programId
+      actions:
+        - type: format_text
+          argument: "{api_base}/web/programs/{}"
+    - name: web-link
+      type: string
+      select: first
+      pointer: /url
+    - name: players
+      type: object[]
+      pointer: /programId
+      entries:
+        - name: name
+          type: string
+          actions:
+            - type: format_text
+              argument: "Arte"
+        - name: resolver
+          type: object
+          select: first
+          entries:
+            - name: kind
+              type: string
+              actions:
+                - type: format_text
+                  argument: "scraper-query"
+            - name: target_id
+              type: string
+              actions:
+                - type: format_text
+                  argument: "https://api.arte.tv/api/player/v2/config/fr/{}"
+            - name: source
+              type: string
+              actions:
+                - type: format_text
+                  argument: "arte-fr"
+    - name: img/preview > link
+      type: string[]
+      pointer: /images/landscape/resolutions/*/url
+      select: all
+
+  # Search results come from the EMAC v4 app page; images use a __SIZE__ placeholder.
+  search_card_entries: &search_card_entries
+    - *source_entry
+    - name: title
+      type: string
+      select: first
+      pointer: /title
+    - name: title/alt
+      type: string
+      select: first
+      pointer: /subtitle
+    - name: description
+      type: string
+      select: first
+      pointer: /shortDescription
+    - name: media-type
+      type: string[]
+      pointer: /kind/code
+      actions: *actions_arte_kind_media_type
+    - name: link
+      type: string
+      select: first
+      pointer: /id
+      actions:
+        - type: format_text
+          argument: "{api_base}/web/programs/{}"
+    - name: web-link
+      type: string
+      select: first
+      pointer: /id
+      actions:
+        - type: format_text
+          argument: "{base_url}/videos/{}/"
+    - name: img/landscape > link
+      type: string
+      select: first
+      pointer: /mainImage/url
+      actions:
+        - type: regex_find_all
+          pattern: 'image/([^/]+)/__SIZE__'
+          format: "{1}"
+        - type: format_text
+          argument: "https://api-cdn.arte.tv/img/v2/image/{}/940x530"
+
+
+# ############################################################################
+# Queries
+# ############################################################################
+queries:
+
+  # --------------------------------------------------------------------------
+  # Service stream metadata
+  # --------------------------------------------------------------------------
+  - name: service_stream_metadata
+    scraper_type: static
+    entries:
+      - name: id
+        type: string
+        value: "{service_id}"
+      - name: title
+        type: string
+        value: "{service_title}"
+      - name: logo
+        type: string
+        value: "{service_logo}"
+      - name: description
+        type: object
+        value: "{service_description}"
+      - name: search_themes
+        type: string[]
+        value:
+          - "Info et société"
+          - "Documentaires et reportages"
+          - "Séries et fictions"
+          - "Films"
+          - "Concerts"
+          - "Émissions"
+          - "Histoire"
+          - "Sciences"
+          - "Culture et pop"
+          - "Voyages et découvertes"
+
+  # --------------------------------------------------------------------------
+  # Home page
+  # --------------------------------------------------------------------------
+  - name: load_home
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{api_base}/web/pages/HOME/"
+    media_types: *media_types_arte
+    row_pointer: /
+    entries:
+      - *source_entry
+      # Channel/category filters from the "Parcourir les genres" zone.
+      # Genre teasers expose a public URL; the slug is translated into the
+      # EMAC page code used by get_category.
+      - name: categories
+        type: object[]
+        pointer: /zones/*[code/name=genres_HOME]/data/*
+        select: all
+        entries:
+          - name: key
+            type: string
+            select: first
+            pointer: /url
+            actions:
+              - type: regex_find_all
+                pattern: 'videos/([^/]+)/'
+                format: "{1}"
+          - name: label
+            type: string
+            select: first
+            pointer: /title
+          - name: web-link
+            type: string
+            select: first
+            pointer: /url
+          - name: request > name
+            type: string
+            actions:
+              - type: format_text
+                argument: "{source}"
+          - name: request > source
+            type: string
+            actions:
+              - type: format_text
+                argument: "{source}"
+          - name: request > query_url
+            type: string
+            select: first
+            pointer: /url
+            actions:
+              - type: regex_find_all
+                pattern: 'videos/([^/]+)/'
+                format: "{1}"
+              - type: map
+                default: DEC
+                argument:
+                  info-et-societe: ACT
+                  documentaires-et-reportages: DOR
+                  series-et-fictions: SER
+                  cinema: CIN
+                  emissions: EMI
+                  arte-concert: ARTE_CONCERT
+                  histoire: HIS
+                  sciences: SCI
+                  culture-et-pop: CPO
+                  fictions: FIC
+                  voyages-et-decouvertes: DEC
+              - type: format_text
+                argument: "{api_base}/web/pages/{}/"
+      # The slider is the featured hero surface, not a content rail.
+      - name: banners > entries
+        type: object[]
+        pointer: /zones/*[displayOptions/zoneLayout=slider]/data/*
+        select: all
+        entries: *banner_entries
+      - name: banners > entries
+        type: object[]
+        pointer: /zones/*[displayOptions/zoneLayout=event]/data/*
+        select: all
+        entries: *banner_entries
+      - name: banners > entries
+        type: object[]
+        pointer: /zones/*[displayOptions/zoneLayout=single]/data/*
+        select: all
+        entries: *banner_entries
+      # Content rails: horizontal zones carrying teasers become sections.
+      - name: sections
+        type: object[]
+        pointer: /zones/*[displayOptions/zoneLayout=horizontal]
+        select: all
+        entries: *section_entries
+
+
+  # --------------------------------------------------------------------------
+  # Category listing
+  # --------------------------------------------------------------------------
+  - name: get_category
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    media_types: *media_types_arte
+    row_pointer: /
+    entries:
+      - *source_entry
+      - name: banners > entries
+        type: object[]
+        pointer: /zones/*[displayOptions/zoneLayout=slider]/data/*
+        select: all
+        entries: *banner_entries
+      - name: banners > entries
+        type: object[]
+        pointer: /zones/*[displayOptions/zoneLayout=event]/data/*
+        select: all
+        entries: *banner_entries
+      - name: banners > entries
+        type: object[]
+        pointer: /zones/*[displayOptions/zoneLayout=single]/data/*
+        select: all
+        entries: *banner_entries
+      - name: sections
+        type: object[]
+        pointer: /zones/*[displayOptions/zoneLayout=horizontal]
+        select: all
+        entries: *section_entries
+      - name: sections
+        type: object[]
+        pointer: /zones/*[displayOptions/zoneLayout=vertical]
+        select: all
+        entries: *section_entries
+      - name: sections
+        type: object[]
+        pointer: /zones/*[displayOptions/zoneLayout=verticalFirstHighlighted]
+        select: all
+        entries: *section_entries
+
+  # --------------------------------------------------------------------------
+  # Paginated section (full video listing)
+  # --------------------------------------------------------------------------
+  - name: get_section
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{api_base}/web/data/VIDEO_LISTING/?imageFormats=portrait,landscape&videoType=MOST_RECENT&limit=24&page={page}"
+    media_types: *media_types_arte
+    row_pointer: /
+    entries:
+      - *source_entry
+      - name: current_page
+        type: number
+        select: first
+        pointer: /pageNumber
+      - name: infer_have_more_from_full_page
+        type: boolean
+        actions:
+          - type: format_text
+            argument: "true"
+      - name: entries
+        type: object[]
+        pointer: /data/*
+        select: all
+        entries: *card_entries
+
+  # --------------------------------------------------------------------------
+  # Search (EMAC v4 app page; results in zones[0].content.data)
+  # --------------------------------------------------------------------------
+  - name: search
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{api_base_v4}/app/pages/SEARCH?query={search_query}&page={page}&limit=24"
+    media_types: *media_types_arte
+    row_pointer: /
+    entries:
+      - *source_entry
+      - name: current_page
+        type: number
+        actions:
+          - type: format_text
+            argument: "{page}"
+      - name: infer_have_more_from_full_page
+        type: boolean
+        actions:
+          - type: format_text
+            argument: "true"
+      - name: entries
+        type: object[]
+        pointer: /zones/0/content/data/*
+        select: all
+        entries: *search_card_entries
+
+
+  # --------------------------------------------------------------------------
+  # Entry detail
+  # `/web/programs/{id}` serves both video ids (NNNNNN-NNN-A) and collections
+  # (RC-NNNNNN):
+  # - video pages expose a `program_content` zone with full details;
+  # - collection pages expose a `collection_content` hero zone and a
+  #   `collection_videos` zone with the episodes.
+  # --------------------------------------------------------------------------
+  - name: get_entry
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    media_types: *media_types_arte
+    row_pointer: /
+    entries:
+      - *source_entry
+      - name: title
+        type: string
+        select: first
+        pointer: /title
+      - name: title/alt
+        type: string
+        select: first
+        pointer: /zones/*[code/name=program_content]/data/0/subtitle
+      # Description priority: root fallback, program short description, then
+      # program full description when ARTE provides it.
+      - name: description
+        type: string
+        select: first
+        pointer: /description
+        actions:
+          - type: html_to_text
+      - name: description
+        type: string
+        select: first
+        pointer: /zones/*[code/name=program_content]/data/0/shortDescription
+        actions:
+          - type: html_to_text
+      - name: description
+        type: string
+        select: first
+        pointer: /zones/*[code/name=program_content]/data/0/fullDescription
+        actions:
+          - type: html_to_text
+      - name: description
+        type: string
+        select: first
+        pointer: /zones/*[code/name=collection_content]/data/0/description
+        actions:
+          - type: html_to_text
+      - name: media-type
+        type: string[]
+        pointer: /zones/*[code/name=program_content]/data/0/kind/code
+        actions: *actions_arte_kind_media_type
+      - name: media-type
+        type: string[]
+        pointer: /zones/*[code/name=collection_content]/data/0/kind/code
+        actions: *actions_arte_kind_media_type
+      - name: web-link
+        type: string
+        select: first
+        pointer: /url
+      - name: duration
+        type: string
+        select: first
+        pointer: /zones/*[code/name=program_content]/data/0/durationLabel
+      - name: release-date
+        type: string
+        select: first
+        pointer: /zones/*[code/name=program_content]/data/0/firstBroadcastDate
+        actions: *actions_arte_iso_date
+      - name: expire
+        type: string
+        select: first
+        pointer: /zones/*[code/name=program_content]/data/0/publishEnd
+        actions: *actions_arte_iso_date
+      - name: expire
+        type: string
+        select: first
+        pointer: /zones/*[code/name=program_content]/data/0/availability/end
+        actions: *actions_arte_iso_date
+      - name: expire
+        type: string
+        select: first
+        pointer: /zones/*[code/name=collection_content]/data/0/availability/end
+        actions: *actions_arte_iso_date
+      - name: content-advisor
+        type: string
+        select: first
+        pointer: /zones/*[code/name=program_content]/data/0/ageRating
+      - name: year
+        type: number
+        select: first
+        pointer: /zones/*[code/name=program_content]/data/0/credits/*[code=PRODUCTION_YEAR]/values/0
+      - name: director
+        type: string[]
+        pointer: /zones/*[code/name=program_content]/data/0/credits/*[code=REA]/values/*
+        select: all
+      - name: theme
+        type: string[]
+        pointer: /zones/*[code/name=program_content]/data/0/genre/label
+      # Player for single videos; Arte player config URLs remain stable while
+      # their HLS manifests are signed and short-lived. resolve_stream refreshes
+      # the manifest on demand through the source-owned scraper-query resolver.
+      - name: players
+        type: object[]
+        pointer: /zones/*[code/name=program_content]/data/0/player/config
+        entries:
+          - name: name
+            type: string
+            actions:
+              - type: format_text
+                argument: "Arte"
+          - name: resolver
+            type: object
+            select: first
+            entries:
+              - name: kind
+                type: string
+                actions:
+                  - type: format_text
+                    argument: "scraper-query"
+              - name: target_id
+                type: string
+              - name: source
+                type: string
+                actions:
+                  - type: format_text
+                    argument: "arte-fr"
+      - name: players
+        type: object[]
+        pointer: /zones/*[code/name=collection_content]/data/0/trailer/config
+        entries:
+          - name: name
+            type: string
+            actions:
+              - type: format_text
+                argument: "Arte trailer"
+          - name: resolver
+            type: object
+            select: first
+            entries:
+              - name: kind
+                type: string
+                actions:
+                  - type: format_text
+                    argument: "scraper-query"
+              - name: target_id
+                type: string
+              - name: source
+                type: string
+                actions:
+                  - type: format_text
+                    argument: "arte-fr"
+      - name: img/landscape > link
+        type: string[]
+        pointer: /zones/*[code/name=program_content]/data/0/images/landscape/resolutions/*/url
+        select: all
+      - name: img/landscape > link
+        type: string[]
+        pointer: /zones/*[code/name=collection_content]/data/0/images/landscape/resolutions/*/url
+        select: all
+      - name: img/poster > link
+        type: string[]
+        pointer: /zones/*[code/name=program_content]/data/0/images/portrait/resolutions/*/url
+        select: all
+      # Flat collections pre-load their episodes into seasons[0]; real seasons
+      # are exposed as subcollections reached through get_season.
+      - name: seasons
+        type: object[]
+        pointer: /zones/*[code/name=collection_videos]
+        select: all
+        entries:
+          - name: label
+            type: string
+            select: first
+            pointer: /title
+          - name: link
+            type: string
+            select: first
+            pointer: /code/id
+            actions:
+              - type: format_text
+                argument: "{api_base}/web/programs/{}"
+          - name: episodes
+            type: object[]
+            pointer: /data/*
+            select: all
+            entries: *episode_entries
+      - name: seasons
+        type: object[]
+        pointer: /zones/*[code/name=collection_subcollection]
+        select: all
+        entries:
+          - name: label
+            type: string
+            select: first
+            pointer: /title
+          - name: link
+            type: string
+            select: first
+            pointer: /code/id
+            actions:
+              - type: format_text
+                argument: "{api_base}/web/programs/{}"
+          - name: episodes
+            type: object[]
+            pointer: /data/*
+            select: all
+            entries: *episode_entries
+
+  # --------------------------------------------------------------------------
+  # Season episodes (collection / subcollection page)
+  # --------------------------------------------------------------------------
+  - name: get_season
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    media_types: *media_types_arte
+    row_pointer: /
+    entries:
+      - *source_entry
+      - name: current_page
+        type: number
+        actions:
+          - type: format_text
+            argument: "1"
+      - name: have_more
+        type: boolean
+        actions:
+          - type: format_text
+            argument: "false"
+      - name: episodes
+        type: object[]
+        pointer: /zones/*[code/name=collection_videos]/data/*
+        select: all
+        entries: *episode_entries
+      - name: episodes
+        type: object[]
+        pointer: /zones/*[code/name=collection_subcollection]/data/*
+        select: all
+        entries: *episode_entries
+
+  # --------------------------------------------------------------------------
+  # Live channel
+  # The LIVE page exposes the current linear ARTE program and the stable LIVE
+  # player configuration URL. Its stream manifests are resolved on demand.
+  # --------------------------------------------------------------------------
+  - name: list_lives
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{api_base}/web/pages/LIVE/"
+    media_types:
+      - video/live
+    row_pointer: /
+    result_item_field: entries
+    entries:
+      - name: entries
+        type: object[]
+        pointer: /zones/*[code/name=program_content]/data/*
+        select: all
+        entries:
+          - *source_entry
+          - name: title
+            type: string
+            select: first
+            pointer: /title
+            actions:
+              - type: format_text
+                argument: "ARTE en direct — {}"
+          - name: title/alt
+            type: string
+            select: first
+            pointer: /subtitle
+          - name: description
+            type: string
+            select: first
+            pointer: /shortDescription
+            actions:
+              - type: html_to_text
+          - name: description
+            type: string
+            select: first
+            pointer: /fullDescription
+            actions:
+              - type: html_to_text
+          - name: key
+            type: string
+            actions:
+              - type: format_text
+                argument: "LIVE"
+          - name: media-type
+            type: string[]
+            actions:
+              - type: format_text
+                argument: "video/live"
+          - name: link
+            type: string
+            actions:
+              - type: format_text
+                argument: "LIVE"
+          - name: web-link
+            type: string
+            actions:
+              - type: format_text
+                argument: "{base_url}/fr/direct/"
+          - name: channel
+            type: string
+            actions:
+              - type: format_text
+                argument: "ARTE"
+          - name: img/landscape > link
+            type: string[]
+            pointer: /images/landscape/resolutions/*/url
+            select: all
+
+  - name: get_live
+    scraper_type: static
+    media_types:
+      - video/live
+    entries:
+      - name: players
+        type: object[]
+        items:
+          - name: "ARTE en direct"
+            resolver > kind: scraper-query
+            resolver > target_id: "https://api.arte.tv/api/player/v2/config/fr/{channel}"
+            resolver > source: arte-fr
+            resolver > proxy > country: FR
+            # ABSOLUTE child playlist URLs in the live master manifest must stay on
+            # the proxy path, otherwise the player leaves the geo-routed session
+            # after the first manifest.
+            resolver > proxy > rewrite_manifest_urls: "true"
+
+  # --------------------------------------------------------------------------
+  # Banner trailer / editorial clip resolution
+  # The target is an Arte player v2 config URL emitted in banner players.
+  # --------------------------------------------------------------------------
+  - name: resolve_stream
+    scraper_type: json
+    base_url: "{query_url}"
+    query_url: "{query_url}"
+    http:
+      proxy_country: "{proxy_country}"
+    row_pointer: /data/attributes
+    entries:
+      - name: stream_url
+        type: string[]
+        pointer: /streams/*/url
+        select: all
+      - name: manifest_type
+        type: string
+        pointer: /streams/0/url
+        select: first
+        actions:
+          - type: regex_find_all
+            pattern: '\.(mpd|m3u8)(?:[?#]|$)'
+            format: "{1}"
+      - name: title
+        type: string
+        pointer: /metadata/title
+        select: first
+      - name: image/title > link
+        type: string
+        pointer: /metadata/images/0/url
+        select: first
+      - name: error_message
+        type: string
+        pointer: /error/title
+        select: first

@@ -31,10 +31,14 @@ pub(super) fn apply(selected: &Option<scraper::ElementRef<'_>>, texts: Vec<Strin
     }
 
     // JSON scraper path (or any other source that already produced string values):
-    // convert every existing value that contains HTML into plain text.
+    // convert HTML values and preserve normalized plain-text values.
     texts
         .into_iter()
         .map(|value| {
+            if !contains_html_tag(&value) {
+                return normalize_plain_text(&value);
+            }
+
             let html = preprocess_html_breaks(&value);
             html_to_plain_text(&html, &options)
         })
@@ -74,6 +78,16 @@ fn preprocess_html_breaks(html: &str) -> String {
     regex.replace_all(html, "\n").into_owned()
 }
 
+/// Returns whether `value` contains an HTML opening, closing, declaration, or
+/// comment tag rather than plain text that merely includes comparison symbols.
+fn contains_html_tag(value: &str) -> bool {
+    static HTML_TAG_REGEX: OnceLock<Regex> = OnceLock::new();
+    let regex = HTML_TAG_REGEX.get_or_init(|| {
+        Regex::new(r"(?is)<(?:/?[a-z][^>]*|![^>]*|\?[^>]*?)>").expect("Invalid HTML tag regex")
+    });
+    regex.is_match(value)
+}
+
 /// Converts an HTML fragment to plain text using `quick_html2md` with all
 /// markdown features disabled, then normalizes whitespace and trims the result.
 ///
@@ -94,8 +108,13 @@ fn html_to_plain_text(html: &str, options: &quick_html2md::MarkdownOptions) -> S
 
     let markdown = quick_html2md::html_to_markdown_with_options(html, options);
 
+    normalize_plain_text(&markdown)
+}
+
+/// Collapses empty lines and trims each remaining line in a plain-text value.
+fn normalize_plain_text(value: &str) -> String {
     let mut result = String::new();
-    for line in markdown.lines() {
+    for line in value.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;

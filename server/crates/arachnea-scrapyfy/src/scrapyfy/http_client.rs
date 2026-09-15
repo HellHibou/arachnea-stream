@@ -319,7 +319,7 @@ impl ScraperHttpConfig {
                 .proxy_country
                 .as_ref()
                 .or(self.proxy_country.as_ref())
-                .map(|value| normalize_proxy_country(value)),
+                .cloned(),
             max_redirects: child.max_redirects.or(self.max_redirects),
             execution: child.execution.or(self.execution),
             browser_context: child.browser_context.or(self.browser_context),
@@ -389,13 +389,14 @@ impl ScraperHttpConfig {
             )?;
         }
         if let Some(proxy_country) = self.proxy_country.as_mut() {
-            *proxy_country = normalize_proxy_country(&query_helpers::resolve_required_template(
-                context,
-                query_name,
-                "http.proxy_country",
-                proxy_country,
-                params,
-            )?);
+            let (resolved, missing_keys) =
+                query_helpers::replace_template_placeholders(proxy_country, params);
+            let _ = (context, query_name);
+            *proxy_country = if missing_keys.is_empty() {
+                normalize_proxy_country(&resolved)
+            } else {
+                resolved
+            };
         }
         Ok(())
     }

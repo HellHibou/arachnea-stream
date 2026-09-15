@@ -269,12 +269,19 @@ impl ScraperQueryDefinition {
 
         let dynamic_template_variables =
             std::sync::Mutex::new(crate::scrapyfy::query_helpers::DynamicTemplateVariables::new());
+        let mut execution_http_config = query_ref.http_config().clone();
+        execution_http_config.resolve_collection_params(
+            "runtime query",
+            query_ref.name(),
+            &execution_params,
+        )?;
+        let execution_http_client = query_ref.http_client().configured(execution_http_config);
         let context = crate::scrapyfy::scraper::query_executor::QueryContext {
             params: &execution_params,
             dynamic_template_variables: &dynamic_template_variables,
             request_url: "",
             response_body: None,
-            http_client: query_ref.http_client(),
+            http_client: &execution_http_client,
             fields_filters,
             parent_response: None,
             validation: None,
@@ -373,6 +380,13 @@ impl ScraperQueryDefinition {
 
         let dynamic_template_variables =
             std::sync::Mutex::new(crate::scrapyfy::query_helpers::DynamicTemplateVariables::new());
+        let mut execution_http_config = query_ref.http_config().clone();
+        execution_http_config.resolve_collection_params(
+            "runtime query",
+            query_ref.name(),
+            &execution_params,
+        )?;
+        let execution_http_client = query_ref.http_client().configured(execution_http_config);
         let validation_slot = crate::scrapyfy::ValidationSlot::new(
             client_fragment.map(str::to_string),
             yaml_hash.to_string(),
@@ -382,7 +396,7 @@ impl ScraperQueryDefinition {
             dynamic_template_variables: &dynamic_template_variables,
             request_url: "",
             response_body: None,
-            http_client: query_ref.http_client(),
+            http_client: &execution_http_client,
             fields_filters,
             parent_response: None,
             validation: Some(&validation_slot),

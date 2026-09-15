@@ -4,6 +4,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 
 use arachnea_core::{controler::RequestControlerContext, DEFAULT_MAX_REDIRECTS};
+use arachnea_proxy::http::actions::{ProxyHttpActionConfig, ReplaceAll};
 use arachnea_proxy::http::proxy_service::proxied_url_with_insecure_tls;
 use arachnea_scrapyfy::*;
 use url::Url;
@@ -280,6 +281,8 @@ impl<'a> StreamResolver<'a> {
             STREAM_RESOLVER_GROUP_NAME,
             service_name,
             self.endpoints,
+            None,
+            false,
         );
 
         Ok(ResolveAttemptResult::Stream(stream))
@@ -554,6 +557,8 @@ pub(crate) async fn resolve_scraper_query_stream(
     endpoints: &PlayerResolverEndpoints,
     source: &str,
     target: &str,
+    proxy_country: Option<&str>,
+    rewrite_manifest_urls: bool,
 ) -> Result<ResolvedPlayerStream> {
     let source = source.trim();
     let target = target.trim();
@@ -584,9 +589,11 @@ pub(crate) async fn resolve_scraper_query_stream(
         bail!("Scraper-query source `{source}` does not declare `{RESOLVE_STREAM_QUERY_NAME}`.");
     }
 
+    let proxy_country = normalize_scraper_query_proxy_country(proxy_country)?;
     let params = HashMap::from([
         ("url".to_string(), target.to_string()),
         ("query_url".to_string(), target.to_string()),
+        ("proxy_country".to_string(), proxy_country.clone()),
     ]);
     let sources = vec![source.to_string()];
     let results = scraper_agregator
@@ -630,17 +637,44 @@ pub(crate) async fn resolve_scraper_query_stream(
         crate::stream_scraper::STREAM_SERVICE_GROUP_NAME,
         source,
         endpoints,
+        (!proxy_country.is_empty()).then_some(proxy_country.as_str()),
+        rewrite_manifest_urls,
     );
     Ok(stream)
 }
 
+/// Validates and normalizes an optional ISO country hint requested by a
+/// `scraper-query` player descriptor.
+fn normalize_scraper_query_proxy_country(proxy_country: Option<&str>) -> Result<String> {
+    let country = proxy_country.unwrap_or_default().trim();
+    if country.is_empty() {
+        return Ok(String::new());
+    }
+    if country.len() != 2 || !country.bytes().all(|byte| byte.is_ascii_alphabetic()) {
+        bail!("Invalid scraper-query proxy country `{country}`; expected a two-letter ISO code.");
+    }
+    Ok(country.to_ascii_uppercase())
+}
+
 /// Proxies resolved stream URLs when the HTTP proxy endpoint is configured.
+///
+/// # Arguments
+///
+/// * `proxy_country` - Optional ISO country hint forwarded to the proxy as the
+///   `Arachnea-Proxy-Country` request parameter, enabling geo-routed manifest
+///   fetches through the dynamic country proxy pool.
+/// * `rewrite_manifest_urls` - When set, a `ReplaceAll` post-response action
+///   rewrites every absolute HTTP(S) URL inside proxied HLS manifests to the
+///   proxy path with the current `opts` (`{proxy_inherited}`), so child
+///   playlists and segments reuse the same parameters (country, Referer, …).
 fn proxy_resolved_stream(
     stream: &mut ResolvedPlayerStream,
     scraper_agregator: &ScraperAgregator,
     group_name: &str,
     service_name: &str,
     endpoints: &PlayerResolverEndpoints,
+    proxy_country: Option<&str>,
+    rewrite_manifest_urls: bool,
 ) {
     let Some(proxy_path) = endpoints.http_proxy_public_path.as_deref() else {
         return;
@@ -648,6 +682,15 @@ fn proxy_resolved_stream(
     let insecure_tls_hosts = scraper_agregator
         .proxy_insecure_tls_hosts(group_name, service_name)
         .unwrap_or_default();
+    let actions: Vec<ProxyHttpActionConfig> = if rewrite_manifest_urls {
+        vec![ReplaceAll::new(
+            r"(?m)^(https?://[^\r\n]+)",
+            "{proxy_inherited}/$1",
+            Some(hls_manifest_content_types()),
+        )]
+    } else {
+        Vec::new()
+    };
     let headers: Vec<(&str, &str)> = stream
         .stream_headers
         .iter()
@@ -660,13 +703,26 @@ fn proxy_resolved_stream(
             proxied_url_with_insecure_tls(
                 url,
                 Some(proxy_path),
-                None,
-                &[],
+                proxy_country,
+                &actions,
                 &headers,
                 is_insecure_tls_host(url, insecure_tls_hosts),
             )
         })
         .collect();
+}
+
+/// Content types treated as HLS manifests by the proxy URL rewrite action.
+fn hls_manifest_content_types() -> Vec<String> {
+    [
+        "application/vnd.apple.mpegurl",
+        "application/x-mpegurl",
+        "audio/mpegurl",
+        "audio/x-mpegurl",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect()
 }
 
 /// Extracts the target of the first **simple** JavaScript redirect from an HTML document.

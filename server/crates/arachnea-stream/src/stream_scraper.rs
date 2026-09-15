@@ -232,6 +232,11 @@ pub(crate) struct GetStreamRequest {
     pub(crate) target: String,
     #[serde(default)]
     pub(crate) source: Option<String>,
+    #[serde(default, alias = "proxyCountry")]
+    pub(crate) proxy_country: Option<String>,
+    /// Optional request to rewrite absolute URLs inside proxied HLS manifests.
+    #[serde(default, alias = "proxyRewriteManifestUrls")]
+    pub(crate) proxy_rewrite_manifest_urls: Option<bool>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -1250,6 +1255,8 @@ impl StreamScraper {
         resolver_id: String,
         target: String,
         source: Option<String>,
+        proxy_country: Option<String>,
+        proxy_rewrite_manifest_urls: Option<bool>,
     ) -> Result<ScraperAggregationResult<ResolvedStream>> {
         let resolved = if resolver_id.trim() == SCRAPER_QUERY_STREAM_RESOLVER_ID {
             ResolvedStream::Stream(
@@ -1258,6 +1265,8 @@ impl StreamScraper {
                     &self.player_resolver_endpoints,
                     source.as_deref().unwrap_or_default(),
                     &target,
+                    proxy_country.as_deref(),
+                    proxy_rewrite_manifest_urls.unwrap_or(false),
                 )
                 .await?,
             )

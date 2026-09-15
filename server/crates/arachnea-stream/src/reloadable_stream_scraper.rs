@@ -421,7 +421,13 @@ fn register_routes(
         |reloadable, _context, input: GetStreamRequest| async move {
             reloadable
                 .current()
-                .get_stream(input.resolver, input.target, input.source)
+                .get_stream(
+                    input.resolver,
+                    input.target,
+                    input.source,
+                    input.proxy_country,
+                    input.proxy_rewrite_manifest_urls,
+                )
                 .await
                 .map(|result| (result, None::<String>))
         },

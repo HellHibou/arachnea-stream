@@ -126,6 +126,10 @@ http:
   max_redirects: 16             # optional: max redirect count (global default: 16)
 ```
 
+Template-capable HTTP fields, including `proxy_country`, are resolved for each
+query execution from its runtime parameters. This allows a player-owned query
+to opt into geo routing with `http.proxy_country: "{proxy_country}"`.
+
 ### HTTP modes (`mode`)
 
 | Value | Description |
@@ -775,7 +779,8 @@ Reads the concatenated text content of the selected HTML element.
 ```
 
 ### `html_to_text`
-Converts HTML content to plain text via `quick_html2md`.
+Converts HTML content to plain text via `quick_html2md`. Values that already
+contain plain text without HTML tags are retained after whitespace normalization.
 
 ```yaml
 - type: html_to_text

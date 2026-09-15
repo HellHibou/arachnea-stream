@@ -26,6 +26,10 @@
     "enabled": true
   },
   {
+    "path": "arte-fr.yaml",
+    "enabled": true
+  },
+  {
     "path": "ln24-be.yaml",
     "enabled": true
   }

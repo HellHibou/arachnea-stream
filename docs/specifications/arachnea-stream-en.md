@@ -627,6 +627,22 @@ Returns a list of MediaItem objects with `key` and `media-type: video/live`:
 | `expire` | Current programme end time |
 | `channel` | Channel name |
 
+A player can request geo routing for a `scraper-query` resolution by declaring
+`resolver > proxy > country` in YAML. The frontend forwards this value as
+`proxy_country` to `get_stream`; the source's `resolve_stream` query must opt
+into it explicitly with `http.proxy_country: "{proxy_country}"`. Generated
+proxy URLs also embed `Arachnea-Proxy-Country` in their `opts` headers so the
+manifest fetch is routed through the requested country's dynamic proxy pool.
+
+A player can also request the rewrite of absolute URLs found in proxied HLS
+manifests by declaring `resolver > proxy > rewrite_manifest_urls: "true"`. The
+frontend forwards it as `proxy_rewrite_manifest_urls` to `get_stream`, and the
+backend then adds a proxy `ReplaceAll` post-response action (`{proxy_inherited}/$1`)
+restricted to HLS manifest content types. Child playlists and segments therefore
+reuse the proxy options of the current request (country, headers) instead of
+leaving the proxied session, which is required when the master manifest exposes
+absolute URLs, as for the ARTE live channel.
+
 #### `get_live`
 
 Returns playback information for a live channel:

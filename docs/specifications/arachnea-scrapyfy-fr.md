@@ -126,6 +126,11 @@ http:
   max_redirects: 16             # optionnel : nombre max de redirections (défaut global: 16)
 ```
 
+Les champs HTTP compatibles avec les templates, dont `proxy_country`, sont
+résolus à chaque exécution de query depuis ses paramètres runtime. Une query
+pilotée par un lecteur peut ainsi activer le routage géographique avec
+`http.proxy_country: "{proxy_country}"`.
+
 ### Modes HTTP (`mode`)
 
 | Valeur | Description |
@@ -784,7 +789,8 @@ Lit le contenu textuel concaténé de l'élément HTML sélectionné.
 ```
 
 ### `html_to_text`
-Convertit le contenu HTML en texte brut via `quick_html2md`.
+Convertit le contenu HTML en texte brut via `quick_html2md`. Les valeurs déjà
+en texte brut et sans balise HTML sont conservées après normalisation des espaces.
 
 ```yaml
 - type: html_to_text

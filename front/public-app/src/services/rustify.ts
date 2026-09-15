@@ -181,6 +181,9 @@ export async function call_api<T = unknown>(
     // JSON-decodes values that start with `[`, `{`, or `"`.
     const searchParams = new URLSearchParams()
     for (const [key, value] of Object.entries(params)) {
+      if (value === undefined) {
+        continue
+      }
       searchParams.append(key, JSON.stringify(value))
     }
     const queryString = searchParams.toString()
@@ -1041,9 +1044,21 @@ function extractBannerPlayer(record: Record<string, unknown>): HomeBannerPlayer 
     const kind = isJsonRecord(resolver) ? firstNonEmptyString([(resolver as Record<string, unknown>).kind]) : null
     const targetId = isJsonRecord(resolver) ? firstNonEmptyString([(resolver as Record<string, unknown>).target_id]) : null
     const source = isJsonRecord(resolver) ? firstNonEmptyString([(resolver as Record<string, unknown>).source]) : null
+    const proxyCountry = isJsonRecord(resolver)
+      ? firstNonEmptyString([readPath(resolver, 'proxy', 'country')])
+      : null
+    const rewriteManifestUrls = isJsonRecord(resolver)
+      ? readBooleanFlag(readPath(resolver, 'proxy', 'rewrite_manifest_urls'))
+      : false
 
     if (kind && targetId) {
-      return { kind, targetId, ...(source ? { source } : {}) }
+      return {
+        kind,
+        targetId,
+        ...(source ? { source } : {}),
+        ...(proxyCountry ? { proxyCountry } : {}),
+        ...(rewriteManifestUrls ? { proxyRewriteManifestUrls: true } : {}),
+      }
     }
   }
 
@@ -1503,6 +1518,8 @@ export async function getStream(
     resolver: player.resolver.kind,
     target: player.resolver.targetId,
     source: player.resolver.source,
+    proxy_country: player.resolver.proxyCountry,
+    proxy_rewrite_manifest_urls: player.resolver.proxyRewriteManifestUrls,
   })
 
   return normalizeGetStreamResponse(response)
@@ -1811,7 +1828,21 @@ function normalizeEntryPlayerResolver(entry: JsonRecord): EntryPlayerResolver | 
 
   if (flatKind && flatTarget) {
     const flatSource = firstNonEmptyString([entry.source, entry.resolverSource])
-    return { kind: flatKind, targetId: flatTarget, ...(flatSource ? { source: flatSource } : {}) }
+    const flatProxyCountry = firstNonEmptyString([
+      readPath(entry, 'proxy', 'country'),
+      entry.resolverProxyCountry,
+    ])
+    const flatRewriteManifestUrls =
+      readBooleanFlag(readPath(entry, 'proxy', 'rewrite_manifest_urls')) ||
+      readBooleanFlag(readPath(entry, 'resolverProxy', 'rewrite_manifest_urls')) ||
+      readBooleanFlag(entry.resolverProxyRewriteManifestUrls)
+    return {
+      kind: flatKind,
+      targetId: flatTarget,
+      ...(flatSource ? { source: flatSource } : {}),
+      ...(flatProxyCountry ? { proxyCountry: flatProxyCountry } : {}),
+      ...(flatRewriteManifestUrls ? { proxyRewriteManifestUrls: true } : {}),
+    }
   }
 
   // Fall back to the legacy object format (resolver as an array of objects).
@@ -1832,12 +1863,27 @@ function normalizeEntryPlayerResolver(entry: JsonRecord): EntryPlayerResolver | 
     readPath(resolver, 'source'),
     readPath(entry, 'resolverSource'),
   ])
+  const proxyCountry = firstNonEmptyString([
+    readPath(resolver, 'proxy', 'country'),
+    readPath(entry, 'resolverProxy', 'country'),
+    readPath(entry, 'resolverProxyCountry'),
+  ])
+  const rewriteManifestUrls =
+    readBooleanFlag(readPath(resolver, 'proxy', 'rewrite_manifest_urls')) ||
+    readBooleanFlag(readPath(entry, 'resolverProxy', 'rewrite_manifest_urls')) ||
+    readBooleanFlag(readPath(entry, 'resolverProxyRewriteManifestUrls'))
 
   if (!kind || !targetId) {
     return null
   }
 
-  return { kind, targetId, ...(source ? { source } : {}) }
+  return {
+    kind,
+    targetId,
+    ...(source ? { source } : {}),
+    ...(proxyCountry ? { proxyCountry } : {}),
+    ...(rewriteManifestUrls ? { proxyRewriteManifestUrls: true } : {}),
+  }
 }
 
 /**
@@ -2533,6 +2579,29 @@ function toNonNegativeInteger(value: number | null): number | null {
 function readBoolean(value: unknown): boolean {
   if (typeof value === 'boolean') {
     return value
+  }
+
+  return false
+}
+
+/**
+ * Reads a backend boolean flag that may be encoded as a string.
+ *
+ * Static YAML scraper entries emit every value as a string, so a flag declared
+ * as `true` in a source YAML reaches the frontend as `"true"`. Typed backend
+ * booleans are accepted as-is.
+ *
+ * @param value Backend value.
+ * @returns `true` only when the backend explicitly enabled the flag.
+ */
+function readBooleanFlag(value: unknown): boolean {
+  if (typeof value === 'boolean') {
+    return value
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    return normalized === 'true' || normalized === '1'
   }
 
   return false
