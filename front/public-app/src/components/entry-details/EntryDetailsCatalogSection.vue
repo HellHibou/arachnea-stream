@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
-import type { MediaItem } from '@/types/media'
+import type { MediaItem, ThumbnailImageFit } from '@/types/media'
 import { useI18n } from '@/i18n'
 
 import MediaCardCollection, { type MediaCardRouteName } from '../MediaCardCollection.vue'
@@ -33,6 +33,11 @@ interface Props {
   loadMoreLabel?: string
   showServiceLogo?: boolean
   /**
+   * Poster fit mode applied to the item thumbnails.
+   * @default 'cover'
+   */
+  thumbnailImageFit?: ThumbnailImageFit
+  /**
    * Route targeted by each item card action.
    * @default 'entry-details'
    */
@@ -42,6 +47,7 @@ interface Props {
 /** Component props with applied defaults. */
 const props = withDefaults(defineProps<Props>(), {
   showServiceLogo: true,
+  thumbnailImageFit: 'cover',
   itemRouteName: 'entry-details',
 })
 /** Internationalization utilities. */
@@ -223,7 +229,7 @@ watch(
         :items="props.displayedItems"
         mode="list"
         thumbnail-orientation="landscape"
-        thumbnail-image-fit="cover"
+        :thumbnail-image-fit="props.thumbnailImageFit"
         :hide-missing-list-thumbnails="true"
         :show-service-logo="props.showServiceLogo"
         :route-name="props.itemRouteName"

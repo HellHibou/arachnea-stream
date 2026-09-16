@@ -43,6 +43,9 @@ pub struct StaticScraperQueryRaw {
     /// Content types this query produces.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub media_types: Vec<String>,
+    /// Optional group field whose items should become query rows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result_item_field: Option<String>,
     /// Static entries rendered at query execution time.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub entries: Vec<StaticScraperEntryRaw>,
@@ -110,6 +113,7 @@ impl StaticScraperQueryRaw {
 pub struct StaticScraperQuery {
     name: String,
     media_types: Vec<String>,
+    result_item_field: Option<String>,
     entries: Vec<StaticScraperEntryRaw>,
     /// HTTP configuration placeholder — static queries never issue HTTP requests
     /// but the [`ScraperQuery`] trait surface requires a stable reference.
@@ -125,6 +129,7 @@ impl StaticScraperQuery {
     ///
     /// * `name` - Query identifier used as the lookup key in a collection.
     /// * `media_types` - Content types this query produces.
+    /// * `result_item_field` - Optional group field whose items become result rows.
     /// * `entries` - Static entries rendered at query execution time.
     ///
     /// # Errors
@@ -134,6 +139,7 @@ impl StaticScraperQuery {
     pub fn try_new(
         name: String,
         media_types: Vec<String>,
+        result_item_field: Option<String>,
         entries: Vec<StaticScraperEntryRaw>,
     ) -> Result<Self> {
         if name.trim().is_empty() {
@@ -173,6 +179,7 @@ impl StaticScraperQuery {
         Ok(Self {
             name,
             media_types,
+            result_item_field,
             entries,
             http_config: ScraperHttpConfig::default(),
             http_client: HttpClient::new(""),
@@ -288,7 +295,12 @@ impl TryFrom<StaticScraperQueryRaw> for StaticScraperQuery {
     ///
     /// Returns an error if the name is empty or entries are inconsistent.
     fn try_from(config: StaticScraperQueryRaw) -> Result<Self> {
-        StaticScraperQuery::try_new(config.name, config.media_types, config.entries)
+        StaticScraperQuery::try_new(
+            config.name,
+            config.media_types,
+            config.result_item_field,
+            config.entries,
+        )
     }
 }
 
@@ -298,6 +310,7 @@ impl From<&StaticScraperQuery> for StaticScraperQueryRaw {
         Self {
             name: query.name.clone(),
             media_types: query.media_types.clone(),
+            result_item_field: query.result_item_field.clone(),
             entries: query.entries.clone(),
         }
     }
@@ -520,7 +533,7 @@ impl ScraperQuery for StaticScraperQuery {
     }
 
     fn result_item_field(&self) -> Option<&str> {
-        None
+        self.result_item_field.as_deref()
     }
 
     fn entries(&self) -> Vec<&dyn ScraperEntrySpec> {

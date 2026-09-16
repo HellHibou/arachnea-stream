@@ -26,6 +26,7 @@ use crate::services::{
     rtbf_auvio_resolver::RtbfAuvioResolver,
     rtlplay_resolver::RtlPlayResolver,
     tf1_resolver::Tf1Resolver,
+    tv5mondeplus_resolver::Tv5mondeplusResolver,
 };
 use crate::stream_resolver::{
     resolve_scraper_query_stream, ResolvedStream, StreamResolver, GENERIC_STREAM_RESOLVER_ID,
@@ -161,6 +162,7 @@ static RTBF_AUVIO_RESOLVER: RtbfAuvioResolver = RtbfAuvioResolver;
 static RTLPLAY_RESOLVER: RtlPlayResolver = RtlPlayResolver;
 static TF1_RESOLVER: Tf1Resolver = Tf1Resolver;
 static FRANCETV_RESOLVER: FrancetvResolver = FrancetvResolver;
+static TV5MONDEPLUS_RESOLVER: Tv5mondeplusResolver = Tv5mondeplusResolver;
 
 /// Creates missing persistent service states without changing existing choices.
 async fn synchronize_service_defaults_async(
@@ -1414,6 +1416,7 @@ fn player_resolver_for_source(source: &str) -> Option<&'static dyn PlayerStreamR
         source if source == RTLPLAY_RESOLVER.source_id() => Some(&RTLPLAY_RESOLVER),
         source if source == TF1_RESOLVER.source_id() => Some(&TF1_RESOLVER),
         source if source == FRANCETV_RESOLVER.source_id() => Some(&FRANCETV_RESOLVER),
+        source if source == TV5MONDEPLUS_RESOLVER.source_id() => Some(&TV5MONDEPLUS_RESOLVER),
         _ => None,
     }
 }
@@ -1426,6 +1429,7 @@ fn player_resolver_for_id(resolver_id: &str) -> Option<&'static dyn PlayerStream
         &RTLPLAY_RESOLVER,
         &TF1_RESOLVER,
         &FRANCETV_RESOLVER,
+        &TV5MONDEPLUS_RESOLVER,
     ]
     .into_iter()
     .find(|resolver| resolver.resolver_ids().contains(&resolver_id))

@@ -30,6 +30,8 @@ import type { ThumbnailImageFit } from '@/types/media'
     loadingDescription?: string
     /** URL of the background video to display. */
     backgroundVideoUrl: string | null
+    /** Fully resolved background video source, including optional DRM configuration. */
+    backgroundVideoSource?: ResolvedPlayerMediaSource | null
     /** URL of the hero background image to display. */
     heroBackgroundUrl: string | null
     /** URL of the portrait-oriented hero background image. */
@@ -258,6 +260,7 @@ const emit = defineEmits<{
     <section class="entry-details">
       <Background
         :video-url="props.backgroundVideoUrl"
+        :video-source="props.backgroundVideoSource"
         :image-url="null"
         :image-portrait-url="props.useCatalogBannersAsBackground ? props.heroBackgroundPortraitUrl : null"
         :image-landscape-url="props.useCatalogBannersAsBackground ? props.heroBackgroundLandscapeUrl : null"

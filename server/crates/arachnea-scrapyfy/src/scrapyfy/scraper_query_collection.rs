@@ -249,7 +249,7 @@ impl ScraperQueryDefinition {
                     crate::scrapyfy::query_helpers::resolve_nested_template_params(params);
                 (
                     &*query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery,
-                    None,
+                    query.result_item_field(),
                     execution_params,
                 )
             }
@@ -360,7 +360,7 @@ impl ScraperQueryDefinition {
                     crate::scrapyfy::query_helpers::resolve_nested_template_params(params);
                 (
                     &*query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery,
-                    None,
+                    query.result_item_field(),
                     execution_params,
                 )
             }

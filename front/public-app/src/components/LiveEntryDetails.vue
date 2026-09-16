@@ -49,6 +49,11 @@ import { resolveImageUrl } from '@/composables/media/useFailedImageUrls'
     * @default true
     */
    useCatalogBannersAsBackground?: boolean
+   /**
+    * Poster fit mode applied to the live thumbnails.
+    * @default 'contain'
+    */
+   thumbnailImageFit?: ThumbnailImageFit
  }
 
 /**
@@ -72,6 +77,7 @@ const props = withDefaults(defineProps<Props>(), {
    isBackgroundAnimated: false,
    backgroundImageFit: 'contain',
    useCatalogBannersAsBackground: true,
+   thumbnailImageFit: 'contain',
   })
 
 const emit = defineEmits<{
@@ -586,6 +592,7 @@ void loadLiveItems()
       :is-loading-more-items="false"
       :item-section-label="t('live.streams')"
       :state-eyebrow="t('live.streams')"
+      :thumbnail-image-fit="props.thumbnailImageFit"
       item-route-name="live-details"
       @select-item="selectLiveItem"
     />

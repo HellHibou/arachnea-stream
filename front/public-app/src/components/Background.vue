@@ -2,6 +2,7 @@
 import { toRef } from 'vue'
 
 import type { BackgroundMediaCandidate, ThumbnailImageFit } from '@/types/media'
+import type { ResolvedPlayerMediaSource } from '@/services/players'
 
 import BackgroundAurora from './background/BackgroundAurora.vue'
 import BackgroundMediaLayer from './background/BackgroundMediaLayer.vue'
@@ -16,6 +17,11 @@ interface Props {
    * @default null
    */
   videoUrl?: string | null
+  /**
+   * Optional resolved decorative background video preserving manifest and DRM metadata.
+   * @default null
+   */
+  videoSource?: ResolvedPlayerMediaSource | null
   /**
    * Optional image rendered behind the whole page.
    * @default null
@@ -58,6 +64,7 @@ interface Props {
 /** Component props with applied defaults. */
 const props = withDefaults(defineProps<Props>(), {
   videoUrl: null,
+  videoSource: null,
   imageUrl: null,
   imagePortraitUrl: null,
   imageLandscapeUrl: null,
@@ -78,6 +85,7 @@ const {
 } =
   backgroundMedia({
     videoUrl: toRef(props, 'videoUrl'),
+    videoSource: toRef(props, 'videoSource'),
     imageUrl: toRef(props, 'imageUrl'),
     imagePortraitUrl: toRef(props, 'imagePortraitUrl'),
     imageLandscapeUrl: toRef(props, 'imageLandscapeUrl'),

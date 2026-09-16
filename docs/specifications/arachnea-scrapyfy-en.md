@@ -160,7 +160,7 @@ Each query in `queries` must define `scraper_type` with one of the following val
 
 ---
 
-## 5. Common structure for all scrapers (except static)
+## 5. Common structure for HTTP scrapers (`html`, `json`, `text`)
 
 The `html`, `json` and `text` scrapers share these fields via `ScraperQueryCommon`:
 
@@ -477,8 +477,12 @@ name: metadata
 scraper_type: static
 media_types:                            # optional
   - metadata
+result_item_field: "entries"            # optional: group to flatten into rows
 entries: []                             # required: static entries
 ```
+
+`result_item_field` is also supported by static queries. It flattens the
+declared group's objects into result rows, like HTML, JSON, and text queries.
 
 ### Static entries (`entries`)
 
@@ -733,6 +737,11 @@ submitted.
 ### Entry-level sub-queries (`sub_queries` on an `entry`)
 
 HTML and JSON entries can also carry sub-queries. The syntax is the same:
+
+By default, an entry-level sub-query replaces or enriches the field that
+triggered it. Set `target: parent` to preserve that field and merge extracted
+fields into its parent object instead. This is useful when a link fetch should
+add sibling fields such as `web-link` and `players` next to `link`.
 
 ```yaml
 entries:

@@ -2,6 +2,7 @@
 import { computed, shallowRef, toRef, watch } from 'vue'
 
 import type { MediaItem, ThumbnailImageFit } from '@/types/media'
+import type { ResolvedPlayerMediaSource } from '@/services/players'
 import type { EntryEpisode } from '@/types/entry'
 
 import EntryDetails from './EntryDetails.vue'
@@ -354,13 +355,11 @@ watch(
 )
 
 /**
- * Resolves the native trailer source used by the full-page background when the option is enabled.
+ * Preserves the resolved trailer manifest and DRM data for the full-page background.
  */
-const backgroundVideoUrl = computed(() =>
+const backgroundVideoSource = computed<ResolvedPlayerMediaSource | null>(() =>
   props.useTrailerAsBackground
-    ? trailerMediaSource.value?.renderer === 'video'
-      ? trailerMediaSource.value.src
-      : trailerUrl.value
+    ? trailerMediaSource.value
     : null,
 )
 
@@ -921,7 +920,8 @@ async function handleMediaPlaybackEnded() {
     :error-message="errorMessage"
     :is-loading="isLoading"
     :has-content="Boolean(details)"
-    :background-video-url="backgroundVideoUrl"
+    :background-video-url="null"
+    :background-video-source="backgroundVideoSource"
     :hero-background-url="heroBackgroundUrl"
     :hero-background-portrait-url="heroBackgroundPortraitUrl"
     :hero-background-landscape-url="heroBackgroundLandscapeUrl"

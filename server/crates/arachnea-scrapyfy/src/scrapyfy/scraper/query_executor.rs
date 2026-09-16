@@ -1634,6 +1634,16 @@ async fn execute_entry_sub_queries_for_entries(
                             merged.merge(item_clone);
                         }
                     }
+                    // `target: parent` keeps the source entry intact and merges
+                    // extracted fields into its containing output object. This
+                    // is useful when a link field triggers an enrichment fetch
+                    // that should add sibling fields such as `web-link` or
+                    // `players` rather than become children of `link`.
+                    if sub_query.target() == Some("parent") {
+                        item.merge(merged);
+                        continue;
+                    }
+
                     // Clear the parent entry's values before merging the
                     // sub-query result — the sub-query *replaces* the URL
                     // with the decoded embed link(s).  Use the entry's

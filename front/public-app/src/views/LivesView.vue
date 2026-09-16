@@ -55,6 +55,7 @@ const isInvalidLivePayload = computed(() => Boolean(props.encodedLive) && !liveP
     :is-background-animated="parameters.isBackgroundAnimated.value"
     :background-image-fit="parameters.backgroundImageFit.value"
     :use-catalog-banners-as-background="parameters.useCatalogBannersAsBackground.value"
+    :thumbnail-image-fit="parameters.thumbnailImageFit.value"
     @select-live="emit('select-live', $event)"
   />
 </template>

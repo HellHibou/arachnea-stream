@@ -4,7 +4,49 @@ All notable changes to the server workspace are recorded here. Add new entries a
 
 ## Unreleased
 
+### Fixed
+- **Live list thumbnail fit**: the live channel list on the public front now
+  applies the `thumbnailImageFit` parameter instead of always cropping its
+  thumbnails. `EntryDetailsCatalogSection` exposes an optional
+  `thumbnailImageFit` prop (default `cover`, preserving the program episode
+  list rendering), which `LiveEntryDetails` forwards from `LivesView` using the
+  stored user parameter, so live thumbnails switch between cropped and complete
+  like the home, category, and search collections.
+- **Live list media type**: live channel rows no longer repeat their media type
+  in the compact metadata line. `normalizeMediaItem` accepts an
+  `includeMediaTypeInMetaLine` option (default `true`) that `buildMetaLine`
+  honors, and `listLiveMediaItems` disables it because every entry of the live
+  catalog is by definition a live channel. Other catalogs (home, category,
+  search, episodes) keep the media-type segment.
+- **TV5MONDE live playback and catalog**: the TV5MONDE+ RedBee resolver now
+  prefers DASH but falls back to HLS when an entitlement only exposes an HLS
+  manifest. Static scraper queries now support `result_item_field`, allowing
+  TV5MONDE's live source to flatten its declared linear channels. The source
+  lists TV5MONDE, TV5MONDE Info, and TV5MONDE+ Chefs as direct HLS players
+  rather than routing those linear manifests through the VOD entitlement
+  resolver.
+- **DRM trailer backgrounds**: entry-detail backgrounds now retain the complete
+  resolved video descriptor instead of reducing it to a manifest URL. DASH
+  trailers therefore preserve their MIME type, Widevine license URL, and license
+  headers when rendered in the decorative Video.js background player.
+- **TV5MONDE+ programme trailers**: `get_entry` now suppresses the main player
+  for non-playable programme assets such as `TV_SHOW`, preventing RedBee's
+  `UNKNOWN_ASSET` entitlement error. A linked `PROMO` asset is exposed through
+  the entry `trailer` resolver instead, while movies, episodes, clips, events,
+  and live assets retain their main player.
+- **TV5MONDE+ search**: Added the missing `search` scraper query using the
+  public RedBee catalogue search endpoint. It passes the French locale,
+  published-content and country filters, unwraps `items[*].asset` into the
+  shared catalogue-card shape, and derives pagination from the API's
+  one-based `pageNumber`, `pageSize`, and `totalCount` response fields.
+
 ### Added
+- **TV5MONDE+ protected playback resolver**: Added the `tv5mondeplus-video`
+  source resolver. It creates an anonymous RedBee session, requests a fresh
+  entitlement for the episode asset id, proxies the DASH manifest and storyboard,
+  and forwards Widevine challenges through a short-lived same-origin license
+  proxy. TV5MONDE+ episode YAML players now target the asset id instead of the
+  Akamai-protected public episode page.
 - **`--cache-block-size` CLI option and cache sizes in K (kilobytes)**: the
   Scrapyfy executable accepts a new `--cache-block-size <K>` override applied
   to the foyer block engine, alongside `--cache-max-disk-bytes` /
@@ -32,6 +74,11 @@ All notable changes to the server workspace are recorded here. Add new entries a
   playlist URLs.
 
 ### Fixed
+- **Entry-level sub-query parent merge target**: YAML entry sub-queries can now
+  declare `target: parent` to keep their source field and merge fetched fields
+  into the containing object. TV5MONDE+ episode asset enrichment uses this to
+  expose episode `web-link` and `players` alongside its API `link`, rather than
+  nesting them under `link`.
 - **Scraper-query geo proxy hint**: YAML players can now declare
   `resolver.proxy.country`; the frontend forwards it to `get_stream`, which
   validates and supplies it as `{proxy_country}` to the source-owned

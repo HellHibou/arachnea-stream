@@ -25,6 +25,10 @@ interface UseBackgroundMediaOptions {
    */
   videoUrl: Ref<string | null>
   /**
+   * Optional resolved decorative background video preserving manifest and DRM metadata.
+   */
+  videoSource: Ref<ResolvedPlayerMediaSource | null>
+  /**
    * Optional image rendered behind the whole page.
    */
   imageUrl: Ref<string | null>
@@ -94,6 +98,10 @@ function createBackgroundMediaKey(item: ResolvedBackgroundMediaItem): string {
 function resolveBackgroundCandidate(
   candidate: BackgroundMediaCandidate,
 ): ResolvedBackgroundMediaItem | null {
+  if (candidate.videoSource) {
+    return { type: 'video', source: candidate.videoSource }
+  }
+
   const videoUrl = normalizeBackgroundUrl(candidate.videoUrl)
 
   if (videoUrl) {
@@ -157,6 +165,7 @@ export function backgroundMedia(options: UseBackgroundMediaOptions) {
     const candidates: BackgroundMediaCandidate[] = [
       {
         videoUrl: options.videoUrl.value,
+        videoSource: options.videoSource.value,
         imageUrl: primaryImageUrl,
       },
       ...options.mediaItems.value,

@@ -161,7 +161,7 @@ Chaque requête dans `queries` doit définir `scraper_type` avec l'une des valeu
 
 ---
 
-## 5. Structure commune à tous les scrapers (sauf static)
+## 5. Structure commune aux scrapers HTTP (`html`, `json`, `text`)
 
 Les scrapers `html`, `json` et `text` partagent ces champs via `ScraperQueryCommon` :
 
@@ -483,8 +483,13 @@ name: metadata
 scraper_type: static
 media_types:                            # optionnel
   - metadata
+result_item_field: "entries"            # optionnel : groupe à aplatir en lignes
 entries: []                             # obligatoire : entrées statiques
 ```
+
+`result_item_field` est aussi pris en charge par les requêtes statiques. Il
+aplatit les objets du groupe déclaré en lignes de résultat, comme pour les
+requêtes HTML, JSON et texte.
 
 ### Entrées statiques (`entries`)
 
@@ -743,6 +748,12 @@ réponse comme rejet de jeton uniquement lorsqu'un jeton a été soumis.
 ### Sous-requêtes d'entrée (`sub_queries` sur une `entry`)
 
 Les entrées HTML et JSON peuvent aussi porter des sous-requêtes. La syntaxe est identique :
+
+Par défaut, le résultat d'une sous-requête d'entrée remplace ou enrichit le
+champ qui l'a déclenchée. Définir `target: parent` conserve ce champ et fusionne
+les champs extraits dans son objet parent. C'est utile lorsqu'un lien déclenche
+un fetch d'enrichissement qui doit produire des champs frères, par exemple
+`web-link` et `players` à côté de `link`.
 
 ```yaml
 entries:

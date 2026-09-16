@@ -791,7 +791,10 @@ export async function listLiveMediaItems(): Promise<MediaItem[]> {
     throw new Error(t('errors.unexpectedLiveListResponseFormat'))
   }
 
-  return response.map((entry, index) => normalizeMediaItem(entry, index))
+  // Every live catalog entry is a live channel, so its media-type label is redundant in the list.
+  return response.map((entry, index) =>
+    normalizeMediaItem(entry, index, null, { includeMediaTypeInMetaLine: false }),
+  )
 }
 
 /**
@@ -1574,16 +1577,30 @@ function extractErrorMessage(payload: unknown): string | null {
 }
 
 /**
+ * Options controlling how one raw backend entry is normalized.
+ */
+interface NormalizeMediaItemOptions {
+  /**
+   * Indicates whether the media-type label should be part of the compact meta line.
+   * @default true
+   */
+  includeMediaTypeInMetaLine?: boolean
+}
+
+/**
  * Converts one raw backend entry into the frontend media card model.
  *
  * @param entry Raw backend search entry.
  * @param index Stable fallback index used to build a unique card id.
+ * @param inheritedSource Source inherited from the enclosing section or result row.
+ * @param options Optional normalization overrides.
  * @returns Normalized media item.
  */
 function normalizeMediaItem(
   entry: unknown,
   index: number,
   inheritedSource: string | null = null,
+  options: NormalizeMediaItemOptions = {},
 ): MediaItem {
   const record = isJsonRecord(entry) ? entry : {}
   const source = firstNonEmptyString([record.source, readPath(record, 'source', 'name'), inheritedSource])
@@ -1622,7 +1639,7 @@ function normalizeMediaItem(
   const episodeLabel = firstNonEmptyString([readPath(record, 'episode', 'label')])
   const releaseDateLabel = formatReleaseDateLabel(firstNonEmptyString([record['release-date']]))
   const expireLabel = formatReleaseDateLabel(firstNonEmptyString([record.expire]))
-  const metaLine = buildMetaLine(record)
+  const metaLine = buildMetaLine(record, options.includeMediaTypeInMetaLine ?? true)
 
 return {
      id: buildMediaId(index, link, title, source),
@@ -2261,17 +2278,20 @@ function isUnavailableEpisode(episode: EntryEpisode): boolean {
  * Builds a compact metadata line from the backend fields available on a result.
  *
  * @param entry Raw backend entry.
+ * @param includeMediaType Indicates whether the media-type label should be included.
  * @returns Short metadata line displayed in the preview panel.
  */
-function buildMetaLine(entry: JsonRecord): string | null {
+function buildMetaLine(entry: JsonRecord, includeMediaType = true): string | null {
   const topicValues = [
     ...readStringList(entry.genre),
     ...readStringList(entry.theme),
   ]
-  const mediaTypeValues = readStringList(entry['media-type']).flatMap((value) => {
-    const label = toDisplayMediaType(value)
-    return label ? [label] : []
-  })
+  const mediaTypeValues = includeMediaType
+    ? readStringList(entry['media-type']).flatMap((value) => {
+        const label = toDisplayMediaType(value)
+        return label ? [label] : []
+      })
+    : []
   const languageValues = readStringList(entry.lang)
   const values = dedupeDisplayStrings([...topicValues, ...mediaTypeValues, ...languageValues])
 

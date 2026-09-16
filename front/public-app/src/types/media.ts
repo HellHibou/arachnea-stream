@@ -1,3 +1,5 @@
+import type { ResolvedPlayerMediaSource } from '@/services/players'
+
 /**
  * Determines the effective thumbnail orientation for a media item based on
  * available images, falling back to the default when both types are present
@@ -37,6 +39,8 @@ export interface BackgroundMediaCandidate {
   imageUrl: string | null
   /** URL of the background video, or null if not available. */
   videoUrl: string | null
+  /** Fully resolved background video source, including optional DRM configuration. */
+  videoSource?: ResolvedPlayerMediaSource | null
 }
 
 /**

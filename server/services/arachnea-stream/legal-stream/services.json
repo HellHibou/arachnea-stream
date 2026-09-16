@@ -1,36 +1,12 @@
 [
-  {
-    "path": "rtlplay-be.yaml",
-    "enabled": false
-  },
-  {
-    "path": "rtbf-auvio-be.yaml",
-    "enabled": false
-  },
-  {
-    "path": "tf1-fr.yaml",
-    "enabled": false,
-    "parameters": [
-      {
-        "name": "country",
-        "value": "fr"
-      }
-    ]
-  },
-  {
-    "path": "m6play-fr.yaml",
-    "enabled": false
-  },
-  {
-    "path": "francetv.yaml",
-    "enabled": true
-  },
-  {
-    "path": "arte-fr.yaml",
-    "enabled": true
-  },
-  {
-    "path": "ln24-be.yaml",
-    "enabled": true
-  }
+  { "path": "rtlplay-be.yaml", "enabled": false },
+  { "path": "rtbf-auvio-be.yaml", "enabled": false },
+  { "path": "tf1-fr.yaml", "enabled": false, "parameters": [ 
+    { "name": "country", "value": "fr"}
+  ]},
+  { "path": "m6play-fr.yaml", "enabled": false },
+  { "path": "francetv.yaml", "enabled": true },
+  { "path": "arte-fr.yaml", "enabled": true },
+  { "path": "ln24-be.yaml","enabled": true },
+  { "path": "tv5mondeplus-fr.yaml", "enabled": false }
 ]
