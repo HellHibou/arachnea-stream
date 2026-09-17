@@ -12,6 +12,8 @@ const CHAPTER_SEGMENTS_CLASS = 'vjs-chapter-segments'
 const CHAPTER_SEGMENT_CLASS = 'vjs-chapter-segment'
 /** CSS class applied to the chapter segment divider. */
 const CHAPTER_SEGMENT_DIVIDER_CLASS = 'vjs-chapter-segment-divider'
+/** CSS class applied to the chapter overlay when it floats above the timecode. */
+const CHAPTER_OVERLAY_FLOATING_CLASS = 'vjs-chapter-overlay--floating'
 /** CSS class prefix applied to skip chapter buttons. */
 const SKIP_CHAPTER_BUTTON_CLASS_PREFIX = 'vjs-skip-'
 
@@ -78,20 +80,40 @@ export function installChapterOverlay(player: VideoJsPlayer, chapters: ResolvedV
       return
     }
 
+    overlay.textContent = chapter.title || (chapter.type === 'chapter' ? null : t('player.chapter.' + chapter.type))
+    overlay.classList.add(CHAPTER_TITLE_VISIBLE_CLASS)
+
     // Align the overlay with the current time tooltip position.
     const timeTooltip = playerElement.querySelector<HTMLElement>('.vjs-time-tooltip')
-    if (timeTooltip) {
-      const tooltipRect = timeTooltip.getBoundingClientRect()
-      const progressRect = progressControl.getBoundingClientRect()
-      const left = tooltipRect.left - progressRect.left + tooltipRect.width / 2
-      const top = tooltipRect.top - progressRect.top
+    if (!timeTooltip) {
+      return
+    }
+
+    const tooltipRect = timeTooltip.getBoundingClientRect()
+    const progressRect = progressControl.getBoundingClientRect()
+    const left = tooltipRect.left - progressRect.left + tooltipRect.width / 2
+    const top = tooltipRect.top - progressRect.top
+
+    if (timeTooltip.querySelector('.vjs-thumbnail')) {
+      // With a sprite thumbnail the tooltip is wide enough to host the title.
+      overlay.classList.remove(CHAPTER_OVERLAY_FLOATING_CLASS)
       overlay.style.left = `${left}px`
       overlay.style.top = `${top}px`
       overlay.style.width = `${tooltipRect.width}px`
+      return
     }
 
-    overlay.textContent = chapter.title || (chapter.type === 'chapter' ? null : t('player.chapter.' + chapter.type))
-    overlay.classList.add(CHAPTER_TITLE_VISIBLE_CLASS)
+    // Without a thumbnail the tooltip only shows the timecode; float the title
+    // above it with a content-based width so neither is truncated or masked.
+    overlay.classList.add(CHAPTER_OVERLAY_FLOATING_CLASS)
+    overlay.style.width = ''
+    const halfWidth = overlay.offsetWidth / 2
+    const clampedCenter = Math.min(
+      Math.max(left, halfWidth),
+      Math.max(halfWidth, progressRect.width - halfWidth),
+    )
+    overlay.style.left = `${clampedCenter}px`
+    overlay.style.top = `${top}px`
   }
 
   const handleMouseLeave = () => {
@@ -204,8 +226,24 @@ function findChapterAtTime(chapters: ResolvedVideoChapter[], time: number): Reso
 }
 
 /**
- * Installs a button that appears during a chapter's timecode and seeks to
- * the chapter end on click.
+ * Chapter types that can be skipped with a dedicated button.
+ */
+export type SkipChapterType = 'intro' | 'outro' | 'ads'
+
+/** i18n key of the label used by each skip button type. */
+const SKIP_CHAPTER_LABEL_KEYS: Record<SkipChapterType, string> = {
+  intro: 'player.chapter.skipIntro',
+  outro: 'player.chapter.skipOutro',
+  ads: 'player.chapter.skipAds',
+}
+
+/**
+ * Installs a button that appears during chapters of the given type and seeks
+ * to the end of the current chapter on click.
+ *
+ * A type may cover several chapters (for example every advertising period of
+ * a DASH multiperiod stream); the button stays visible across consecutive
+ * chapters and always skips the one being played.
  *
  * @param player Video.js player instance.
  * @param chapters Ordered list of chapters from the resolved stream.
@@ -214,10 +252,10 @@ function findChapterAtTime(chapters: ResolvedVideoChapter[], time: number): Reso
 export function installSkipChapterButton(
   player: VideoJsPlayer,
   chapters: ResolvedVideoChapter[],
-  chapterType: 'intro' | 'outro',
+  chapterType: SkipChapterType,
 ): void {
-  const chapter = chapters.find((item) => item.type === chapterType)
-  if (!chapter) {
+  const typeChapters = chapters.filter((item) => item.type === chapterType)
+  if (typeChapters.length === 0) {
     return
   }
 
@@ -226,21 +264,29 @@ export function installSkipChapterButton(
     return
   }
 
+  const findCurrentChapter = () => {
+    const currentTime = player.currentTime() ?? 0
+    return findChapterAtTime(typeChapters, currentTime)
+  }
+
   const button = document.createElement('button')
   const buttonClass = `${SKIP_CHAPTER_BUTTON_CLASS_PREFIX}${chapterType}-button`
   const visibleButtonClass = `${buttonClass}--visible`
   button.className = buttonClass
-  button.textContent = t(chapterType === 'intro' ? 'player.chapter.skipIntro' : 'player.chapter.skipOutro')
+  button.textContent = t(SKIP_CHAPTER_LABEL_KEYS[chapterType])
   button.addEventListener('click', () => {
+    const chapter = findCurrentChapter() ?? typeChapters[typeChapters.length - 1]
+    if (!chapter) {
+      return
+    }
+
     const duration = player.duration() ?? chapter.end
     const targetTime = Math.min(chapter.end, duration - 0.5)
     player.currentTime(targetTime)
   })
 
   const handleTimeUpdate = () => {
-    const currentTime = player.currentTime() ?? 0
-    const visible = currentTime >= chapter.start && currentTime < chapter.end
-    button.classList.toggle(visibleButtonClass, visible)
+    button.classList.toggle(visibleButtonClass, findCurrentChapter() !== null)
   }
 
   player.on('timeupdate', handleTimeUpdate)

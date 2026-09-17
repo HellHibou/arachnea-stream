@@ -45,6 +45,9 @@ export default defineConfig(({ command }) => ({
     },
   },
   resolve: {
+    // videojs-contrib-dash declares an older video.js range, so the bundled
+    // dependency is forced onto the application copy to keep one player instance.
+    dedupe: ['video.js'],
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url))
     },

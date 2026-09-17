@@ -492,3 +492,47 @@ métadonnées de l'asset, avec `fra`/`non` par défaut.
 - En revanche, la mécanique de licence (mapping vendor → headers) et le
   pass-through `get_drm_license` sont testables unitairement, sur le modèle
   des tests existants des autres résolveurs.
+
+
+---
+
+## 13. Enquête sur le blocage de la lecture (*playback stall*) — 17/09/2026
+
+### État actuel et reproduction de la défaillance
+
+L'endpoint local authentifié `get_stream` parvient à résoudre l'asset `28609` (l'épisode identifié au §4.1). Son MPD Broadpeak proxifié contient cinq périodes : quatre publicités durant respectivement 20,56, 30,52, 10,44 et 20,12 secondes, suivies du contenu du programme qui débute à 81,64 secondes. Les URL de base des périodes diffèrent, et les ID de représentation ainsi que les bandes passantes du programme diffèrent de ceux des publicités. Cette session est une reproduction indépendante ; le titre exact et le navigateur issus du rapport utilisateur n'ont pas encore été établis.
+
+L'analyse (*parsing*) de ce MPD proxifié réel avec la version installée du frontend (`mpd-parser` 1.4.0) génère 25 playlists vidéo (cinq qualités par période), au lieu de cinq pistes de qualité continues. Elle produit également cinq playlists audio distinctes au sein du même groupe audio `en (main)`. La playlist 720p du programme commence à 81,64 secondes, tandis que la première playlist audio ne couvre que la première publicité à l'instant zéro.
+
+La cause est visible dans `mpd-parser/src/toM3u8.js`, `mergeDiscontiguousPlaylists` : les playlists sont regroupées par URL de base, puis fusionnées par ID de représentation et par langue. Des URL de périodes différentes empêchent la fusion, même lorsque les ID de représentation des publicités correspondent ; la différence d'ID des programmes constitue un obstacle supplémentaire. L'implémentation mentionne explicitement son hypothèse selon laquelle les ID de représentation restent identiques d'une période à l'autre.
+
+Les requêtes signalées par l'utilisateur montrent la même association caractéristique : l'initialisation de la vidéo du programme (`bpk-vod/...-video=2395600.dash`) côtoie l'initialisation de l'audio de la publicité et son premier segment (`bpkio-jitt/...index-audio_0=96000...`). Cela vient fortement appuyer l'hypothèse d'un désalignement temporel audio/vidéo comme mécanisme de blocage (*stall*). Aucune lecture de bout en bout au niveau du navigateur n'a été validée au cours de cette enquête.
+
+### Vérification du réseau et limitations
+
+Pour l'épisode résolu de manière indépendante, l'initialisation de la vidéo du programme, l'initialisation de l'audio de la première publicité et le premier segment audio renvoient tous un code HTTP 200 via le proxy local (respectivement 818, 695 et 49 393 octets), après avoir suivi les redirections publicitaires. Le MPD utilise `SegmentTemplate` et `SegmentTimeline`, ces requêtes initiales ne dépendent donc pas d'index d'intervalles d'octets (*byte-range*). Aucune URL de licence DRM n'a été renvoyée pour cet échantillon ; cela ne valide pas les assets chiffrés. Le succès de la récupération ne suffit donc pas, à lui seul, à établir que le flux média est lisible.
+
+### Options d'implémentation et impacts
+
+1. **Recommandé : utiliser un moteur DASH prenant en charge les périodes hétérogènes**, tel que dash.js, derrière l'interface de lecteur existante. Conserver l'interface utilisateur Video.js là où cela est possible et utiliser un gestionnaire/adaptateur de source DASH pour les sources MPD. Adapter la gestion des DRM, la sélection de la qualité, les pistes audio/sous-titres, la destruction des sources, le déplacement dans la lecture (*seeking*) et le transfert des événements de lecture vers le nouveau moteur. Le format HLS et les médias progressifs peuvent conserver le flux actuel. Cela ajoute une dépendance et modifie l'architecture de lecture du frontend ; une approbation dans le fichier `AGENTS.md` à la racine est requise avant toute implémentation.
+2. **Étudier une version HLS fournie officiellement** pour cette source. Cela pourrait limiter l'impact sur le frontend, mais nécessite de vérifier les paramètres de session authentifiée, les transitions publicitaires et la compatibilité DRM. Le simple remplacement de `.mpd` par `.m3u8` ne constitue pas une correction validée.
+3. **Normaliser le MPD pour VHS** en réécrivant les identités de représentation et les URL des périodes. Cela est fragile : les ID interviennent dans la substitution `$RepresentationID$`, et l'audio, les codecs, les DRM ainsi que les transitions temporelles nécessitent également un traitement cohérent. De simples remplacements d'URL de base par expressions régulières ne peuvent pas réparer le modèle de périodes du parseur.
+
+Ne supprimez pas les publicités ou les paramètres de session en guise de solution de contournement pour la lecture. La réécriture existante des URL de base par le proxy reste utile pour maintenir les requêtes de segments à l'intérieur du proxy, mais elle ne résout pas la lecture des périodes hétérogènes.
+
+### Validation requise après une implémentation approuvée
+
+Vérifiez le démarrage de la lecture avec la synchronisation audio/vidéo des publicités, chaque transition de période vers le programme, le déplacement dans la lecture (*seeking*) à travers les limites, le changement de qualité, le changement/la destruction de source et la propagation des erreurs. Validez également un asset chiffré lorsqu'il sera disponible, ainsi que la lecture HLS existante. Aucun nouveau test n'a été ajouté au cours de cette enquête, conformément aux instructions du dépôt.
+
+Références :
+
+* [Fonctionnalités VHS prises en charge et manquantes](https://github.com/videojs/http-streaming/blob/main/docs/supported-features.md)
+* [Prise en charge multi-périodes de dash.js](https://dashif.org/dash.js/pages/usage/multiperiod.html)
+
+### Confirmation du MPD fourni par l'utilisateur
+
+Le fichier `/Users/jdecker/Downloads/index.mpd` fourni ultérieurement fait référence au même identifiant de média programme `722949-caa305f7-6fee-4088-9af0-cd549be19493` que les requêtes signalées. Il contient 35 périodes et annonce une durée totale de 1:55:08.341333333. Aucun élément `ContentProtection` n'est présent.
+
+L'analyse de ce fichier avec le `mpd-parser` installé produit 35 playlists vidéo et sept playlists audio. Celles-ci sont regroupées par URL de base et identité de représentation partagées, et non assemblées en cinq pistes de qualité séquentielles complètes. Dans cet échantillon, les URL publicitaires récurrentes se fusionnent sur certaines périodes ; par conséquent, toutes les périodes ne deviennent pas une playlist distincte, contrairement à la reproduction précédente sur cinq périodes. La fragmentation fondamentale demeure.
+
+La playlist programme `video=2395600` commence à 81,64 secondes et fusionne six périodes de programme, tandis que la première playlist `audio_0=96000` commence à zéro et fusionne six occurrences d'une publicité. Cela confirme la structure de playlist incompatible sur le fichier réel de l'utilisateur et renforce l'explication concernant l'appariement observé entre la vidéo du programme et l'audio de la publicité. La sélection réelle par le navigateur et la lecture n'ont toujours pas été tracées. Le fichier conserve des URL de base relatives ; la réécriture proxy existante est nécessaire indépendamment du correctif du lecteur.

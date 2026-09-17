@@ -229,7 +229,9 @@
       "intro": "Introduction",
       "skipIntro": "Passer l’introduction",
       "outro": "Générique",
-      "skipOutro": "Passer le générique"
+      "skipOutro": "Passer le générique",
+      "ads": "Publicité",
+      "skipAds": "Passer la publicité"
     }
   },
   "live": {

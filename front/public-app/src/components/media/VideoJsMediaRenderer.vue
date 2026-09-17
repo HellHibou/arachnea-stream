@@ -767,6 +767,11 @@ const storyboardPreviewStyle = computed(() => {
   transform: translate(-50%, -50%) scale(1.03) !important;
 }
 
+/* Player popup menus (quality, subtitles, ...) must paint above the skip buttons. */
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-menu) {
+  z-index: 3;
+}
+
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-menu-button-popup .vjs-menu) {
   right: 0;
   bottom: calc(100% - 0.1rem - 30px);
@@ -926,6 +931,12 @@ const storyboardPreviewStyle = computed(() => {
   display: block;
 }
 
+.videojs-media-host :deep(.vjs-chapter-overlay--floating) {
+  width: max-content;
+  max-width: calc(100% - 16px);
+  transform: translate(-50%, calc(-100% - 6px));
+}
+
 .videojs-media-host :deep(.vjs-chapter-segments) {
   position: absolute;
   top: 0;
@@ -946,7 +957,8 @@ const storyboardPreviewStyle = computed(() => {
 }
 
 .videojs-media-host :deep(.vjs-skip-intro-button),
-.videojs-media-host :deep(.vjs-skip-outro-button) {
+.videojs-media-host :deep(.vjs-skip-outro-button),
+.videojs-media-host :deep(.vjs-skip-ads-button) {
   display: none;
   position: absolute;
   bottom: 64px;
@@ -966,12 +978,14 @@ const storyboardPreviewStyle = computed(() => {
 }
 
 .videojs-media-host :deep(.vjs-skip-intro-button--visible),
-.videojs-media-host :deep(.vjs-skip-outro-button--visible) {
+.videojs-media-host :deep(.vjs-skip-outro-button--visible),
+.videojs-media-host :deep(.vjs-skip-ads-button--visible) {
   display: block;
 }
 
 .videojs-media-host :deep(.vjs-skip-intro-button:active),
-.videojs-media-host :deep(.vjs-skip-outro-button:active) {
+.videojs-media-host :deep(.vjs-skip-outro-button:active),
+.videojs-media-host :deep(.vjs-skip-ads-button:active) {
   background: rgb(0 0 0 / 0.9);
 }
 </style>

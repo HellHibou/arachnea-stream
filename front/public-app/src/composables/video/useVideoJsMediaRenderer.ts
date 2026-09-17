@@ -22,6 +22,13 @@ import {
 import { installStableFullscreenBridge } from '@/composables/video/video-js-media-renderer/fullscreen'
 import { installChapterOverlay, installChapterSegments, installSkipChapterButton } from '@/composables/video/video-js-media-renderer/chapters'
 import {
+  buildDashKeySystemOptions,
+  installDashPeriodChapters,
+  installDashQualityBridge,
+  isDashSource,
+  type DashQualityBridge,
+} from '@/composables/video/video-js-media-renderer/dash'
+import {
   isDurationAvailable,
   isLiveStream,
   syncDurationAvailabilityState,
@@ -38,6 +45,7 @@ import {
 applyPersistedPlayerState,
   capturePlayerState,
   getPlaybackEventSourceUrl,
+  restorePersistedTrackPreferences,
   resolveRetainedQuality,
 } from '@/composables/video/video-js-media-renderer/state'
 import type {
@@ -53,6 +61,10 @@ import { t } from '@/i18n'
 import { markImageUrlFailed } from '@/composables/media/useFailedImageUrls'
 
 const STORYBOARD_VTT_REQUEST_TIMEOUT_MS = 5_000
+/** Interval between attempts to attach the dash.js quality bridge. */
+const DASH_QUALITY_BRIDGE_RETRY_INTERVAL = 250
+/** Bounded window after which pending dash.js bridge attach attempts stop. */
+const DASH_QUALITY_BRIDGE_RETRY_TIMEOUT = 10_000
 
 type StoryboardVttCue = {
   imageUrl: string
@@ -96,10 +108,16 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
    let pendingSourceRestoreCleanup: (() => void) | null = null
    /** Cleanup function for pending quality selector override. */
    let pendingQualitySelectorCleanup: (() => void) | null = null
+   /** dash.js quality bridge attached to the active DASH source. */
+   let activeDashQualityBridge: DashQualityBridge | null = null
+   /** Cleanup function for the pending DASH quality bridge installation. */
+   let pendingDashQualityBridgeCleanup: (() => void) | null = null
    /** Sprite thumbnail plugin instance attached to the active player. */
    let spriteThumbnailsPlugin: VideoJsSpriteThumbnailsPlugin | null = null
-/** Preferred quality selected by the user. */
-    let preferredQuality: string | null = null
+ /** Preferred quality selected by the user. */
+     let preferredQuality: string | null = null
+    /** Latest state used to restore tracks after DASH renews the Video.js track lists. */
+    let retainedPlayerState: VideoJsPlayerState | null = null
    /** Whether the video initial load complete event has been emitted. */
    let hasEmittedInitialLoadComplete = false
     /** Whether the video metadata loaded event has been emitted. */
@@ -213,7 +231,8 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
    * @param player Video.js player currently bound to the renderer.
    */
   function emitCurrentPlayerState(player: VideoJsPlayer) {
-    emitPlayerState(capturePlayerState(player, preferredQuality))
+    retainedPlayerState = capturePlayerState(player, preferredQuality)
+    emitPlayerState(retainedPlayerState)
   }
 
   /**
@@ -232,12 +251,22 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     pendingQualitySelectorCleanup = null
   }
 
+  /**
+   * Releases the dash.js quality bridge attached to the active source.
+   */
+  function clearPendingDashQualityBridge() {
+    pendingDashQualityBridgeCleanup?.()
+    pendingDashQualityBridgeCleanup = null
+    activeDashQualityBridge = null
+  }
+
    /**
     * Disposes the current Video.js instance before the renderer switches source or unmounts.
     */
    function destroyActivePlayer() {
      clearPendingSourceRestoreCleanup()
      clearPendingQualitySelectorCleanup()
+     clearPendingDashQualityBridge()
 
      if (activePlayer.value) {
        emitCurrentPlayerState(activePlayer.value)
@@ -246,6 +275,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
      activePlayer.value?.dispose()
      activePlayer.value = null
      spriteThumbnailsPlugin = null
+     retainedPlayerState = null
      isPosterOverlayVisible.value = false
      hasEmittedInitialLoadComplete = false
    }
@@ -744,7 +774,11 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
   }
 
   /**
-   * Builds the Video.js source descriptor expected by the EME-enabled player.
+   * Builds the Video.js source descriptor expected by the source handlers.
+   *
+   * DASH sources carry their Widevine license URL through `keySystemOptions`, which
+   * the DASH source handler forwards to dash.js. HLS and progressive sources keep the
+   * Video.js native/EME path.
    *
    * @param source Resolved source selected for playback.
    * @param spriteThumbnailOptions Resolved storyboard configuration for the sprite plugin.
@@ -763,12 +797,11 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       sourceInput.type = source.mimeType
     }
 
-    if (source.transport === 'dash' && source.licenseUrl) {
-      sourceInput.keySystems = {
-        'com.widevine.alpha': {
-          licenseUri: source.licenseUrl,
-          licenseHeaders: source.licenseHeaders,
-        },
+    if (isDashSource(source)) {
+      const keySystemOptions = buildDashKeySystemOptions(source)
+
+      if (keySystemOptions) {
+        sourceInput.keySystemOptions = keySystemOptions
       }
     }
 
@@ -959,6 +992,66 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
   }
 
   /**
+   * Attaches the dash.js quality bridge to the DASH source just assigned to the player.
+   *
+   * The source handler creates its dash.js MediaPlayer asynchronously after
+   * `player.src()` is applied, so the installation is retried on a short
+   * interval until the engine is ready or the bounded window expires. Each
+   * source application clears pending attempts, so stale retries never attach
+   * a bridge to a replaced source.
+   *
+   * @param player Video.js player currently bound to the renderer.
+   * @param quality Preferred quality captured from the previous video state.
+   */
+  function installDashQualityBridgeForSource(player: VideoJsPlayer, quality: string | null) {
+    clearPendingDashQualityBridge()
+
+    let elapsed = 0
+
+    const retryTimer = window.setInterval(() => {
+      elapsed += DASH_QUALITY_BRIDGE_RETRY_INTERVAL
+
+      if (elapsed > DASH_QUALITY_BRIDGE_RETRY_TIMEOUT) {
+        clearPendingDashQualityBridge()
+        return
+      }
+
+      if (activePlayer.value !== player) {
+        clearPendingDashQualityBridge()
+        return
+      }
+
+      const bridge = installDashQualityBridge({
+        player,
+        preferredQuality: quality,
+        restoreTrackPreferences: () => {
+          if (activePlayer.value === player) {
+            restorePersistedTrackPreferences(player, retainedPlayerState)
+          }
+        },
+      })
+
+      if (!bridge) {
+        return
+      }
+
+      window.clearInterval(retryTimer)
+      activeDashQualityBridge = bridge
+      pendingDashQualityBridgeCleanup = () => {
+        bridge.dispose()
+        activeDashQualityBridge = null
+        pendingDashQualityBridgeCleanup = null
+      }
+    }, DASH_QUALITY_BRIDGE_RETRY_INTERVAL)
+
+    pendingDashQualityBridgeCleanup = () => {
+      window.clearInterval(retryTimer)
+      activeDashQualityBridge = null
+      pendingDashQualityBridgeCleanup = null
+    }
+  }
+
+  /**
    * Restores one persisted player state after a source switch or component remount.
    *
    * @param player Video.js player currently bound to the renderer.
@@ -987,9 +1080,11 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       const loadId = ++storyboardLoadId
       clearPendingSourceRestoreCleanup()
       clearPendingQualitySelectorCleanup()
+      clearPendingDashQualityBridge()
       markVideoInitialLoadStart()
       isPosterOverlayVisible.value = shouldRenderPosterOverlay.value && !(props.autoplay || switchAutoplay)
       preferredQuality = resolveRetainedQuality(preferredQuality, playerState)
+      retainedPlayerState = playerState
       let retainedQuality = preferredQuality
       vttStoryboardGrid.value = null
       storyboardVttCues = []
@@ -1059,20 +1154,26 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     }
 
     const syncRetainedQualityPreference = (treatMissingMenuAsUnavailable = false) => {
+      // DASH periods expose their own representation set, so a missing menu entry must
+      // not discard a preference that can apply again on a later period.
+      const isDash = isDashSource(source)
       const isQualityPreferenceAvailable = syncDisplayedQualityPreference(
         player,
         retainedQuality,
-        { treatMissingMenuAsUnavailable },
+        { treatMissingMenuAsUnavailable: isDash ? false : treatMissingMenuAsUnavailable },
       )
 
-      if (isQualityPreferenceAvailable) {
+      if (!isQualityPreferenceAvailable) {
+        retainedQuality = null
+        preferredQuality = null
+        clearPendingQualitySelectorCleanup()
+        emitCurrentPlayerState(player)
         return
       }
 
-      retainedQuality = null
-      preferredQuality = null
-      clearPendingQualitySelectorCleanup()
-      emitCurrentPlayerState(player)
+      if (isDash) {
+        activeDashQualityBridge?.applyQualityPreference(retainedQuality)
+      }
     }
 
      const handleLoadedMetadata = () => {
@@ -1120,7 +1221,12 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       player.off('playing', handlePlaying)
     }
     player.src(buildPlayerSource(source, spriteThumbnailOptions))
-    configureQualityPreferenceSelector(player, retainedQuality, source.src)
+
+    if (isDashSource(source)) {
+      installDashQualityBridgeForSource(player, retainedQuality)
+    } else {
+      configureQualityPreferenceSelector(player, retainedQuality, source.src)
+    }
   }
 
   /**
@@ -1147,6 +1253,10 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
        inactivityTimeout: props.controls ? 2000 : 0,
        enableDocumentPictureInPicture: props.controls ?? false,
        liveui: true,
+       // Required by the DASH source handler so dash.js owns text track rendering.
+       html5: {
+         nativeCaptions: false,
+       },
        notSupportedMessage: t('errors.videoNotSupported'),
      }) as VideoJsPlayer
 
@@ -1193,11 +1303,20 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
          }
          installStoryboardVttCueOverride(player)
 
-        if (props.controls && source.chapters && source.chapters.length > 0) {
-          installChapterOverlay(player, source.chapters)
-          installChapterSegments(player, source.chapters)
-          installSkipChapterButton(player, source.chapters, 'intro')
-          installSkipChapterButton(player, source.chapters, 'outro')
+        if (props.controls) {
+          const baseChapters = source.chapters ?? []
+          const dashChaptersHandled = isDashSource(source) && installDashPeriodChapters(player, baseChapters)
+
+          if (!dashChaptersHandled && baseChapters.length > 0) {
+            installChapterOverlay(player, baseChapters)
+            installChapterSegments(player, baseChapters)
+            installSkipChapterButton(player, baseChapters, 'ads')
+          }
+
+          if (baseChapters.length > 0) {
+            installSkipChapterButton(player, baseChapters, 'intro')
+            installSkipChapterButton(player, baseChapters, 'outro')
+          }
         }
 
        /** Last playback step that was saved to persist progress. */

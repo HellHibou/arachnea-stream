@@ -229,7 +229,9 @@
       "intro": "Intro",
       "skipIntro": "Skip Intro",
       "outro": "Outro",
-      "skipOutro": "Skip Outro"
+      "skipOutro": "Skip Outro",
+      "ads": "Ad",
+      "skipAds": "Skip Ads"
     }
   },
   "live": {

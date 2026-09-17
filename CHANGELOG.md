@@ -5,6 +5,9 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ## Unreleased
 
 ### Fixed
+- **Player menus vs. skip button**: player popup menus (quality, subtitles, ...)
+  now use a higher z-index so they render in front of the skip intro/outro/ads
+  button instead of being covered by it.
 - **Live list thumbnail fit**: the live channel list on the public front now
   applies the `thumbnailImageFit` parameter instead of always cropping its
   thumbnails. `EntryDetailsCatalogSection` exposes an optional
@@ -1729,3 +1732,74 @@ redémarrage du processus ni du systray :
   executable cannot be hashed), so bundle caches survive restarts of the
   same binary. Directory sources (mutable on disk) never carry an ETag.
   No `Cache-Control` is emitted (ETag revalidation only).
+
+- **Antenne Réunion playback investigation**: documented the authenticated Broadpeak multiperiod DASH incompatibility with the installed Video.js/VHS parser, verified initial media delivery through the local proxy, and recorded remediation options and remaining playback validation in the development analysis (§13). No playback implementation changed.
+
+- **Antenne Réunion supplied MPD verification**: confirmed fragmented video/audio playlist grouping with the installed parser on the user-provided 35-period manifest; added exact results to the playback investigation.
+
+- **Video.js DASH integration plan**: added a detailed implementation analysis for `videojs-contrib-dash`, covering source-handler selection, dependency compatibility, DRM ownership, quality and track controls, multiperiod transitions, lifecycle cleanup, validation and rollback while preserving the existing Video.js interface. Implementation remains pending approval.
+
+- **Video.js DASH source handler integration (front)**: `front/public-app` now
+  registers `videojs-contrib-dash`, so DASH manifests are played through dash.js
+  instead of VHS, which mis-groups the multiperiod Broadpeak manifests used by
+  Antenne Réunion. An npm `overrides` entry plus Vite `resolve.dedupe` force the
+  handler onto the application copy of Video.js 8, keeping a single player
+  instance (verified in both the dev dependency pre-bundle and the production
+  chunk). The new `video-js-media-renderer/dash.ts` module owns source detection,
+  the `keySystemOptions` Widevine mapping (license URL and headers, replacing the
+  `videojs-contrib-eme` `keySystems` path for DASH), the
+  `player.dash.mediaPlayer` quality bridge (representation list, manual and
+  automatic selection, per-period refresh) and its cleanup, while HLS and
+  progressive sources keep their VHS/native path. The player now runs with
+  `html5.nativeCaptions: false`, as required by the handler for dash.js-managed
+  text tracks, and DASH-generated audio track identifiers no longer outrank
+  language, kind, or label when a track preference is restored. Bundle impact:
+  the main chunk grows from 1.03 MB to 1.78 MB (322 kB to 535 kB gzipped), as the
+  handler inlines dash.js 4.2.0. Browser playback validation is still pending.
+
+- **DASH ad-period chapters (front)**: DASH multiperiod manifests that assemble
+  advertising through external period assets (Antenne Réunion Broadpeak
+  session manifests) now expose their ad breaks as chapters of type `ads`.
+  The new `installDashPeriodChapters` hook in `video-js-media-renderer/dash.ts`
+  reads the parsed periods through the dash.js adapter, groups them by period
+  `BaseURL` (the program group is the one with the largest accumulated
+  duration), and publishes the remaining periods as chapters labeled
+  "Publicité"/"Ad" through the existing chapter overlay and seek-bar
+  segments. Backend-provided chapters are merged in; intro/outro skip buttons
+  keep using backend chapters only. Because the dash.js engine is attached
+  after the source is applied, the installation is deferred: it retries on
+  the next tick, on `loadedmetadata`, and on dash.js manifest events, then
+  installs the chapter UI once the periods are readable. Static chapter
+  installation remains the fallback for non-DASH sources only. During ad
+  periods a "Skip Ads"/"Passer la publicité" button seeks to the end of the
+  current advertising period; `installSkipChapterButton` now supports
+  multiple chapters per type. The chapter overlay no longer truncates the
+  chapter title over the timecode when the preview tooltip has no sprite
+  thumbnail: it floats above the timecode with a content-based width.
+
+- **DASH quality selector fix (front)**: The dash.js quality bridge was never
+  attached because the videojs-contrib-dash source handler creates its
+  MediaPlayer asynchronously after `player.src()`, while the composable only
+  retried once on the next tick. `installDashQualityBridgeForSource` now
+  retries on a 250 ms interval within a bounded 10 s window; each source
+  application clears pending attempts, so stale retries never attach a bridge
+  to a replaced source. Verified in headless Chromium against a public
+  multiperiod DASH manifest: the bridge attaches once the engine appears and
+  a manual quality preference is applied by dash.js (`getQualityFor` moves to
+  the requested rendition index). The quality-menu plugin applies user choices
+  by assigning `QualityLevel.enabled`, rather than emitting a selection event;
+  the DASH representations now implement that setter, collect the resulting
+  enabled set, force the sole selected dash.js rendition, and re-enable dash.js
+  ABR for the Auto item. The dash.js `qualityIndex` is also mapped separately
+  from the Video.js quality-level list index for multiperiod manifests.
+
+- **DASH audio and subtitle track renewal (front)**: Verified that
+  `videojs-contrib-dash` converts DASH audio and text tracks to the standard
+  Video.js lists and relays `AudioTrack.enabled` to `setCurrentTrack` and
+  `TextTrack.mode` to `setTextTrack`. The handler renews these lists during
+  DASH metadata/period changes, so the renderer now retains the latest
+  semantic audio/subtitle choice and reapplies it after
+  `playbackMetaDataLoaded`, `periodSwitchCompleted`, or
+  `allTextTracksAdded`. Restoration matches language, role and label rather
+  than the unstable `dash-audio-<index>` identifier; disabled subtitles remain
+  disabled when the list is recreated.

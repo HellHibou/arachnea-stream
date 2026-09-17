@@ -184,6 +184,10 @@ export type VideoJsPlayer = ReturnType<typeof videojs> & {
    */
   audioTracks?: () => VideoJsAudioTrackListHandle
   /**
+   * Runtime state exposed by the DASH source handler for the active source.
+   */
+  dash?: VideoJsDashPluginHandle
+  /**
    * Handler for document fullscreen change events.
    * @param event - The fullscreen change event.
    */
@@ -408,11 +412,64 @@ export type QualityMenuItemHandle = {
 }
 
 /**
+ * Representation accepted by the Video.js quality level list.
+ */
+export type QualityLevelRepresentation = {
+  /** Unique identifier of the quality level. */
+  id: string
+  /** Video width in pixels. */
+  width?: number
+  /** Video height in pixels. */
+  height?: number
+  /** Bitrate of the quality level in bits per second. */
+  bandwidth?: number
+  /**
+   * Reports the enabled state of the quality level.
+   * @param enable - Value assigned by the quality menu.
+   * @returns Whether this quality level is enabled.
+   */
+  enabled: (enable?: boolean) => boolean
+}
+
+/**
+ * Handle to one registered Video.js quality level.
+ */
+export type QualityLevelHandle = {
+  /** Unique identifier of the quality level. */
+  id: string
+  /** Video height in pixels. */
+  height?: number
+  /** Bitrate of the quality level in bits per second. */
+  bitrate?: number
+}
+
+/**
  * Handle to the Video.js quality level list.
  */
 export type QualityLevelListHandle = {
   /** Index of the currently selected quality level. */
   selectedIndex: number
+  /** Mutable index backing the read-only public accessor. */
+  selectedIndex_?: number
+  /** Number of quality levels currently registered. */
+  length?: number
+  /**
+   * Registers one quality level.
+   * @param representation - Quality level description.
+   * @returns The registered quality level.
+   */
+  addQualityLevel?: (representation: QualityLevelRepresentation) => QualityLevelHandle
+  /**
+   * Removes one registered quality level.
+   * @param qualityLevel - Quality level returned by `addQualityLevel`.
+   * @returns The removed quality level, or `null` when it was not registered.
+   */
+  removeQualityLevel?: (qualityLevel: QualityLevelHandle) => QualityLevelHandle | null
+  /**
+   * Emits one event on the quality level list.
+   * @param event - Event name or event object.
+   */
+  trigger?: (event: string | Record<string, unknown>) => void
 }
 
 /**
@@ -470,6 +527,130 @@ export type VideoJsTechHandle = {
   vhs?: VhsHandlerHandle
 }
 
+/**
+ * One key system entry accepted by the Video.js DASH source handler.
+ */
+export type VideoJsDashKeySystemOption = {
+  /** Key system name, for example `com.widevine.alpha`. */
+  name: string
+  /** Protection options forwarded to dash.js. */
+  options: {
+    /** License server URL used by dash.js. */
+    serverURL: string
+    /** Headers applied to license requests. */
+    httpRequestHeaders: Record<string, string>
+  }
+}
+
+/**
+ * Bitrate information exposed by the dash.js MediaPlayer for one media type.
+ */
+export type VideoJsDashBitrateInfo = {
+  /** Bitrate of the representation in bits per second. */
+  bitrate?: number
+  /** Video height in pixels. */
+  height?: number
+  /** Video width in pixels. */
+  width?: number
+  /** Index of the representation inside the dash.js bitrate list. */
+  qualityIndex?: number
+}
+
+/**
+ * Raw period object parsed from the manifest by dash.js.
+ */
+export type VideoJsDashManifestPeriod = {
+  /** Base URL elements declared inside the period. */
+  BaseURL_asArray?: Array<string | {
+    /** Text content of the BaseURL element. */
+    __text?: string
+  }>
+  /** Base URI inherited from the parent element. */
+  baseUri?: string
+}
+
+/**
+ * Period information exposed by the dash.js adapter.
+ */
+export type VideoJsDashPeriodInfo = {
+  /** Identifier of the period. */
+  id?: string
+  /** Index of the period inside the manifest. */
+  index?: number
+  /** Start time of the period in presentation seconds. */
+  start?: number
+  /** Duration of the period in seconds. */
+  duration?: number
+  /** Manifest context owning the period. */
+  mpd?: {
+    /** Raw manifest parsed by dash.js. */
+    manifest?: {
+      /** Raw period objects ordered by appearance in the manifest. */
+      Period_asArray?: VideoJsDashManifestPeriod[]
+    }
+  }
+}
+
+/**
+ * Handle to the dash.js MediaPlayer instance created by the DASH source handler.
+ */
+export type VideoJsDashMediaPlayerHandle = {
+  /**
+   * Registers a listener for one dash.js event.
+   * @param eventName - dash.js event name.
+   * @param listener - Event listener callback.
+   */
+  on: (eventName: string, listener: (event: Record<string, unknown>) => void) => void
+  /**
+   * Removes a listener registered for one dash.js event.
+   * @param eventName - dash.js event name.
+   * @param listener - Event listener callback to remove.
+   */
+  off: (eventName: string, listener: (event: Record<string, unknown>) => void) => void
+  /**
+   * Returns the representations available for one media type.
+   * @param type - Media type such as `video` or `audio`.
+   * @returns Available representations ordered by increasing bitrate.
+   */
+  getBitrateInfoListFor: (type: string) => VideoJsDashBitrateInfo[]
+  /**
+   * Returns the quality index currently used for one media type.
+   * @param type - Media type such as `video` or `audio`.
+   * @returns Current quality index, or `-1` when unavailable.
+   */
+  getQualityFor: (type: string) => number
+  /**
+   * Forces one quality index for a media type.
+   * @param type - Media type such as `video` or `audio`.
+   * @param value - Quality index to apply.
+   */
+  setQualityFor: (type: string, value: number) => void
+  /**
+   * Merges runtime settings into the dash.js configuration.
+   * @param settings - Partial settings object applied to the MediaPlayer.
+   */
+  updateSettings: (settings: Record<string, unknown>) => void
+  /**
+   * Returns the dash.js adapter exposing manifest period information.
+   * @returns Adapter handle, or `null` when unavailable.
+   */
+  getDashAdapter?: () => {
+    /**
+     * Reads the regular periods known by the adapter.
+     * @returns Ordered periods of the manifest.
+     */
+    getRegularPeriods?: () => VideoJsDashPeriodInfo[]
+  } | null
+}
+
+/**
+ * Runtime state exposed by the DASH source handler on the Video.js player.
+ */
+export type VideoJsDashPluginHandle = {
+  /** dash.js MediaPlayer created for the active DASH source. */
+  mediaPlayer?: VideoJsDashMediaPlayerHandle
+}
+
 /** Runtime state exposed by the sprite thumbnail plugin. */
 export type VideoJsSpriteThumbnailsPlugin = {
   /** Mutable plugin options used while rendering storyboard previews. */
@@ -486,6 +667,8 @@ export type VideoJsSourceInput = {
   type?: string
   /** Key systems for encrypted content. */
   keySystems?: Record<string, unknown>
+  /** DASH protection entries consumed by the DASH source handler. */
+  keySystemOptions?: VideoJsDashKeySystemOption[]
   /** Configuration for sprite thumbnails. */
   spriteThumbnails?: Record<string, unknown>
 }
