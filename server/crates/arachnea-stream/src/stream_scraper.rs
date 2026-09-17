@@ -20,6 +20,7 @@ use arachnea_scrapyfy::{scraper_result::ScraperAggregationResult, *};
 
 use crate::reloadable_stream_scraper::ReloadableStreamScraper;
 use crate::services::{
+    antennereunion_resolver::AntenneReunionResolver,
     francetv_resolver::FrancetvResolver,
     m6play_resolver::M6PlayResolver,
     player_resolver::{PlayerResolverEndpoints, PlayerStreamResolver},
@@ -157,6 +158,7 @@ pub const DEFAULT_SERVICES_CONFIG_PATH: &str = concatcp!(
 const HTTP_PROXY_COMMAND: &str = "proxy";
 pub(crate) const DRM_LICENSE_PROXY_COMMAND: &str = "get_drm_license";
 
+static ANTENNE_REUNION_RESOLVER: AntenneReunionResolver = AntenneReunionResolver;
 static M6PLAY_RESOLVER: M6PlayResolver = M6PlayResolver;
 static RTBF_AUVIO_RESOLVER: RtbfAuvioResolver = RtbfAuvioResolver;
 static RTLPLAY_RESOLVER: RtlPlayResolver = RtlPlayResolver;
@@ -1411,6 +1413,7 @@ pub(crate) fn category_sources_from_request(
 
 fn player_resolver_for_source(source: &str) -> Option<&'static dyn PlayerStreamResolver> {
     match source.trim() {
+        source if source == ANTENNE_REUNION_RESOLVER.source_id() => Some(&ANTENNE_REUNION_RESOLVER),
         source if source == M6PLAY_RESOLVER.source_id() => Some(&M6PLAY_RESOLVER),
         source if source == RTBF_AUVIO_RESOLVER.source_id() => Some(&RTBF_AUVIO_RESOLVER),
         source if source == RTLPLAY_RESOLVER.source_id() => Some(&RTLPLAY_RESOLVER),
@@ -1424,6 +1427,7 @@ fn player_resolver_for_source(source: &str) -> Option<&'static dyn PlayerStreamR
 fn player_resolver_for_id(resolver_id: &str) -> Option<&'static dyn PlayerStreamResolver> {
     let resolver_id = resolver_id.trim();
     [
+        &ANTENNE_REUNION_RESOLVER as &dyn PlayerStreamResolver,
         &M6PLAY_RESOLVER as &dyn PlayerStreamResolver,
         &RTBF_AUVIO_RESOLVER,
         &RTLPLAY_RESOLVER,

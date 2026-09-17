@@ -4,6 +4,9 @@ logo: "https://antennereunion-production.eu-west-3.ancdn.tv/configuration/HadCog
 description:
   fr: "Plateforme de streaming légale de la chaîne de télévision régionale Antenne Réunion (La Réunion) : replay, séries, films et chaînes en direct."
   en: "Legal streaming platform of the regional TV channel Antenne Réunion (La Réunion): catch-up TV, series, movies and live channels."
+credentials:
+  required: true
+  signup_url: https://www.antennereunion.fr/inscription
 
 http:
   mode: direct
@@ -131,7 +134,6 @@ shared:
     - name: morality
       type: number
       pointer: /moralityLevel
-
   entries_episode: &entries_episode
     - name: title
       type: string
@@ -195,6 +197,27 @@ shared:
     - name: morality
       type: number
       pointer: /moralityLevel
+    - name: players
+      type: object[]
+      pointer: /
+      select: all
+      entries:
+        - name: name
+          type: string
+          actions:
+            - type: format_text
+              argument: "Antenne Réunion"
+        - name: resolver
+          type: object
+          entries:
+            - name: kind
+              type: string
+              actions:
+                - type: format_text
+                  argument: "antennereunion-video"
+            - name: target_id
+              type: string
+              pointer: /idAsset
 
 queries:
   - name: service_stream_metadata
@@ -810,6 +833,27 @@ queries:
             base: "{cdn_base_url}/proxy/imgdata?type=category_vod-logo&objectId={id}&languageId={language_id}"
             fields:
               id: /payload/idCatalog
+      - name: players
+        type: object[]
+        pointer: /
+        select: all
+        entries:
+          - name: name
+            type: string
+            actions:
+              - type: format_text
+                argument: "Antenne Réunion"
+          - name: resolver
+            type: object
+            entries:
+              - name: kind
+                type: string
+                actions:
+                  - type: format_text
+                    argument: "antennereunion-video"
+              - name: target_id
+                type: string
+                pointer: /idAsset
       - name: trailer
         type: object
         pointer: /directMetadata

@@ -1,3 +1,4 @@
+pub(crate) mod antennereunion_resolver;
 pub(crate) mod francetv_resolver;
 pub(crate) mod m6play_resolver;
 pub(crate) mod player_resolver;

@@ -41,6 +41,14 @@ All notable changes to the server workspace are recorded here. Add new entries a
   one-based `pageNumber`, `pageSize`, and `totalCount` response fields.
 
 ### Added
+- **Antenne Réunion authenticated VOD resolver**: Added the
+  `antennereunion-video` Tucano resolver. It reads encrypted service credentials,
+  authenticates through OAuth, activates the first account profile, resolves a
+  fresh signed VOD manifest, and forwards Widevine challenges through a
+  short-lived same-origin license proxy supporting Irdeto, Castlabs/DRM Today,
+  and Vualto token conventions. Antenne Réunion VOD assets and season episodes
+  now expose this player and declare their account requirement; the work-in-progress
+  service remains disabled pending end-to-end verification with a real account.
 - **TV5MONDE+ protected playback resolver**: Added the `tv5mondeplus-video`
   source resolver. It creates an anonymous RedBee session, requests a fresh
   entitlement for the episode asset id, proxies the DASH manifest and storyboard,
