@@ -107,6 +107,7 @@ function toBookmarkMediaItem(record: EntryBookmarkRecord): MediaItem {
     episodeLabel: seasonEpisodeLabel,
     releaseDateLabel: null,
     expireLabel: null,
+    price: null,
     metaLine: record.isFullyWatched ? t('bookmarks.watchedBadge') : null,
   }
 }

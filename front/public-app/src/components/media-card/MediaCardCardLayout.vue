@@ -184,6 +184,7 @@ function handleCardClick(event: MouseEvent): void {
         :duration-label="item.durationLabel"
         :formatted-rating="formattedRating"
         :rating-class="ratingClass"
+        :price="item.price"
         :service-title="serviceTitle"
         :service-logo="showServiceLogo ? serviceLogo : null"
         @image-error="$emit('imageError')"

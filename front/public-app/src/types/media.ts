@@ -105,6 +105,8 @@ export interface MediaItem extends MediaSelectionTarget {
   releaseDateLabel: string | null
   /** Display label for the expiration date. */
   expireLabel: string | null
+  /** Normalized paid-access indicator, or null when no paid offer applies. */
+  price: string | null
   /** Additional metadata line to display. */
   metaLine: string | null
 }

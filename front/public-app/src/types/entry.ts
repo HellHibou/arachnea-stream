@@ -24,6 +24,8 @@ export interface EntryPlayableItem {
   expireLabel: string | null
   /** The display label for the duration. */
   durationLabel: string | null
+  /** Normalized paid-access indicator, or null when no paid offer applies. */
+  price: string | null
   /** The URL for the preview of this item. */
   previewUrl: string | null
 }
@@ -253,4 +255,6 @@ export interface EntryDetails {
   seasons: EntrySeason[]
   /** The score or rating for this entry. */
   score: number | null
+  /** Normalized paid-access indicator, or null when no paid offer applies. */
+  price: string | null
 }

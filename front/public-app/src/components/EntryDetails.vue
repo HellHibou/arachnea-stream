@@ -152,6 +152,8 @@ import type { ThumbnailImageFit } from '@/types/media'
     directorText: string | null
     /** Score to display for the entry. */
     score: number | null
+    /** Normalized paid-access indicator for the entry. */
+    price?: string | null
  }
 
 /** Component props with applied defaults. */
@@ -172,6 +174,7 @@ const props = withDefaults(defineProps<Props>(), {
    heroBackgroundLandscapeUrl: null,
    useCatalogBannersAsBackground: true,
     securityMode: 'safe',
+    price: null,
   })
 /** Internationalization utilities. */
 const { t } = useI18n()
@@ -372,6 +375,7 @@ const emit = defineEmits<{
              :casting-text="props.castingText"
              :director-text="props.directorText"
              :score="props.score"
+              :price="props.price"
            />
 
            <slot />

@@ -23,6 +23,7 @@ import type {
 } from '@/types/home'
 import { t, tm } from '@/i18n'
 import { resolveAppPath } from '@/services/baseUrl'
+import { normalizePriceAccess } from '@/services/priceAccess'
 import type { ServiceMetadata, ServiceThemeMetadata } from '@/types/serviceMetadata'
 import { enqueueErrorNotification } from '@/composables/useErrorNotifications'
 import type {
@@ -1639,6 +1640,7 @@ function normalizeMediaItem(
   const episodeLabel = firstNonEmptyString([readPath(record, 'episode', 'label')])
   const releaseDateLabel = formatReleaseDateLabel(firstNonEmptyString([record['release-date']]))
   const expireLabel = formatReleaseDateLabel(firstNonEmptyString([record.expire]))
+  const price = normalizePriceAccess(record.price)
   const metaLine = buildMetaLine(record, options.includeMediaTypeInMetaLine ?? true)
 
 return {
@@ -1662,6 +1664,7 @@ return {
     episodeLabel,
     releaseDateLabel,
     expireLabel,
+    price,
     metaLine,
   }
 }
@@ -1724,6 +1727,7 @@ function normalizeEntryDetails(entry: unknown, source: string, entryUrl: string)
     directorLabels: dedupeDisplayStrings(readStringList(record.director)),
     seasons,
     score: firstNumber(record.rating),
+    price: normalizePriceAccess(record.price),
   }
 }
 
@@ -2198,6 +2202,7 @@ function normalizeEntryEpisode(
     releaseDateLabel: formatReleaseDateLabel(firstNonEmptyString([entry['release-date']])),
     expireLabel: formatReleaseDateLabel(firstNonEmptyString([entry.expire])),
     durationLabel: formatDurationLabel(duration),
+    price: normalizePriceAccess(entry.price),
     previewUrl: resolveAssetUrl(
       firstNonEmptyString([imagePosterUrl, ...previewEntries.map((preview) => preview.link)]),
       source,

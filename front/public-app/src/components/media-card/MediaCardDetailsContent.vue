@@ -3,6 +3,7 @@ import { computed } from 'vue'
 
 import type { MediaItem } from '@/types/media'
 import { useI18n } from '@/i18n'
+import { formatPriceAccess } from '@/services/priceAccess'
 
 /**
  * Props accepted by the shared media card details content block.
@@ -40,7 +41,12 @@ const props = withDefaults(defineProps<Props>(), {
   serviceLogo: null,
 })
 /** Internationalization utilities. */
-const { t } = useI18n()
+const { resolvedLanguage, t } = useI18n()
+
+/** Display label for the item paid-access condition, when it needs one. */
+const priceLabel = computed(() =>
+  formatPriceAccess(props.item.price, resolvedLanguage.value, t),
+)
 
 /**
  * CSS class for score color based on rating value (matches other components).
@@ -77,6 +83,7 @@ const showFacts = computed(() =>
       props.serviceTitle ||
       props.item.releaseDateLabel ||
       props.item.expireLabel ||
+      priceLabel.value ||
       (props.variant === 'list' && props.item.rating != null),
   ),
 )
@@ -146,6 +153,14 @@ const hasDetails = computed(() =>
       >
         <span class="media-card-details__fact-label">{{ t('media.availableUntil') }} :</span>
         {{ ' ' }}{{ item.expireLabel }}
+      </p>
+
+      <p
+        v-if="priceLabel"
+        class="media-card-details__fact"
+        :class="{ 'media-card-details__fact--list': variant === 'list' }"
+      >
+        {{ priceLabel }}
       </p>
 
       <div

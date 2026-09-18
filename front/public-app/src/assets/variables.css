@@ -84,6 +84,7 @@
   --common-focus-ring-danger: 2px solid var(--focus-ring-danger-color);
 
   /* Semantic accents */
+  --color-premium-crown: #ffb700;
   --bg-rating-good: linear-gradient(180deg, #13c261 0%, #0ca24f 100%);
   --bg-rating-average: linear-gradient(180deg, #ff8a2b 0%, #f06a0d 100%);
   --bg-rating-low: linear-gradient(180deg, #ff5b5b 0%, #d53e3e 100%);

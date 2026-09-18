@@ -5,6 +5,13 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ## Unreleased
 
 ### Fixed
+- **Entry access metadata order**: the paid-access fact is now rendered first
+  in the `get_entry` metadata grid whenever it is available.
+- **Premium crown color**: the catalog premium crown now uses the shared dark
+  yellow `--color-premium-crown` theme token.
+- **Premium card badge**: catalog thumbnails now render premium access as a
+  compact crown icon using the same translucent surface treatment as service
+  logos, while preview popups retain the explicit subscription-required text.
 - **Player menus vs. skip button**: player popup menus (quality, subtitles, ...)
   now use a higher z-index so they render in front of the skip intro/outro/ads
   button instead of being covered by it.
@@ -44,6 +51,13 @@ All notable changes to the server workspace are recorded here. Add new entries a
   one-based `pageNumber`, `pageSize`, and `totalCount` response fields.
 
 ### Added
+- **Paid-access indicators**: legal-stream scraper rows can now expose an
+  optional `price` value. TF1+ maps explicit premium video offers, RTBF Auvio
+  maps `MEDIA_PREMIUM` catalogue entries, and Antenne Réunion maps explicit
+  non-free-to-air assets to `premium`. The public frontend normalizes
+  `premium` and canonical `<amount> <ISO>` values, displays subscription or
+  purchase/rental information on catalog cards, episodes, and entry metadata,
+  and intentionally remains silent for free or absent values.
 - **Antenne Réunion authenticated VOD resolver**: Added the
   `antennereunion-video` Tucano resolver. It reads encrypted service credentials,
   authenticates through OAuth, activates the first account profile, resolves a
@@ -1825,3 +1839,7 @@ redémarrage du processus ni du systray :
   Live players now request `RE` country routing and the source query forwards the
   hint to its HTTP client, so `channelStream` can be called through a Réunion
   proxy egress when one is configured.
+
+- **Catalog premium and media type badges**: premium crowns and media type
+  labels on catalog thumbnails now share the same top-left row when there is
+  enough horizontal space, while retaining a wrapped layout for narrow cards.

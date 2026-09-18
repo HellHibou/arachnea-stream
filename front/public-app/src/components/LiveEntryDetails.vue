@@ -166,6 +166,7 @@ const selectedPlayableItem = computed<EntryPlayableItem | null>(() => {
     releaseDateLabel: liveItem.releaseDateLabel,
     expireLabel: liveItem.expireLabel,
     durationLabel: liveItem.durationLabel,
+    price: null,
     previewUrl: liveItem.imagePosterUrl ?? liveItem.imageLandscapeUrl ?? liveItem.imageUrl,
   }
 })
@@ -209,6 +210,7 @@ const details = computed<EntryDetailsModel | null>(() => {
     seasons: [],
     episodes: [],
     score: null,
+    price: null,
   }
 })
 

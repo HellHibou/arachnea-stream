@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { ThumbnailImageFit, ThumbnailOrientation } from '@/types/media'
+import { useI18n } from '@/i18n'
+import { formatPriceAccess } from '@/services/priceAccess'
 
 /**
  * Props accepted by the shared media poster component.
@@ -54,6 +56,8 @@ interface Props {
    * CSS class applied to the rating badge.
    */
   ratingClass?: string
+  /** Normalized paid-access indicator rendered on the poster. */
+  price?: string | null
   /**
    * Controls whether overlay badges should be displayed.
    * @default true
@@ -76,10 +80,14 @@ const props = withDefaults(defineProps<Props>(), {
   durationLabel: null,
   formattedRating: null,
   ratingClass: '',
+  price: null,
   showBadges: true,
   serviceTitle: null,
   serviceLogo: null,
 })
+
+/** Internationalization utilities. */
+const { resolvedLanguage, t } = useI18n()
 
 /**
  * Selects the appropriate image source based on orientation preference
@@ -92,6 +100,14 @@ const imageSource = computed(() => {
     return props.imagePosterUrl ?? props.imageLandscapeUrl ?? props.imageUrl
   }
 })
+
+/** Display label for a paid-access badge, when the item needs one. */
+const priceLabel = computed(() =>
+  formatPriceAccess(props.price, resolvedLanguage.value, t),
+)
+
+/** Whether the paid-access badge should use the compact premium crown treatment. */
+const showPremiumCrown = computed(() => props.price === 'premium' && Boolean(priceLabel.value))
 
 defineEmits<{
   /** Emitted when the poster image fails to load. */
@@ -156,9 +172,24 @@ defineEmits<{
     </div>
 
     <template v-if="showBadges">
-      <span v-if="mediaTypeLabel" class="media-card__media-type">
-        {{ mediaTypeLabel }}
-      </span>
+      <div v-if="priceLabel || mediaTypeLabel" class="media-card__top-left-badges">
+        <span
+          v-if="showPremiumCrown"
+          class="media-card__premium-crown"
+          :title="priceLabel ?? undefined"
+          :aria-label="priceLabel ?? undefined"
+        >
+          <v-icon icon="mdi-crown" size="18" aria-hidden="true" />
+        </span>
+
+        <span v-else-if="priceLabel" class="media-card__price">
+          {{ priceLabel }}
+        </span>
+
+        <span v-if="mediaTypeLabel" class="media-card__media-type">
+          {{ mediaTypeLabel }}
+        </span>
+      </div>
 
       <span v-if="durationLabel" class="media-card__duration">
         {{ durationLabel }}
@@ -261,6 +292,17 @@ defineEmits<{
   max-width: 100%;
 }
 
+.media-card__top-left-badges {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  max-width: 100%;
+}
+
 .media-card__top-right-badges .media-card__audio,
 .media-card__top-right-badges .media-card__preview-source-logo {
   position: static;
@@ -273,7 +315,8 @@ defineEmits<{
 .media-card__media-type,
 .media-card__audio,
 .media-card__duration,
-.media-card__rating {
+.media-card__rating,
+.media-card__price {
   position: absolute;
   z-index: 3;
   display: inline-flex;
@@ -290,10 +333,30 @@ defineEmits<{
 }
 
 .media-card__media-type {
-  top: 0;
-  left: 0;
+  position: static;
   border-radius: 0 0 14px 0;
   background: var(--bg-surface);
+}
+
+.media-card__price {
+  position: static;
+  max-width: 100%;
+  border-radius: 0 0 14px;
+  background: var(--color-primary);
+  text-align: left;
+}
+
+.media-card__premium-crown {
+  display: inline-flex;
+  min-width: 34px;
+  min-height: 26px;
+  padding: 0 8px;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-premium-crown);
+  background: var(--bg-surface);
+  border-radius: 0 0 14px;
+  backdrop-filter: var(--backdrop-filter-soft);
 }
 
 .media-card__audio {

@@ -980,6 +980,7 @@ async function handleMediaPlaybackEnded() {
      :casting-text="castingText"
      :director-text="directorText"
      :score="details?.score ?? null"
+     :price="details?.price ?? null"
     @toggle-trailer="handlePlayerTrailerToggle"
     @step-playable="handlePlayerEpisodeStep"
     @step-playable-autoplay="handlePlayerControlStep"

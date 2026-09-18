@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { useI18n } from '@/i18n'
+import { computed } from 'vue'
+import { formatPriceAccess } from '@/services/priceAccess'
 /** Internationalization utilities. */
-const { t } = useI18n()
+const { resolvedLanguage, t } = useI18n()
 
 /**
  * Props accepted by the metadata section rendered below the hero area.
@@ -33,10 +35,17 @@ interface Props {
   directorText: string | null
   /** Score to display. */
   score: number | null
+  /** Normalized paid-access indicator for the entry. */
+  price: string | null
 }
 
 /** Component props without defaults. */
-defineProps<Props>()
+const props = defineProps<Props>()
+
+/** Display label for the entry paid-access condition, when it needs one. */
+const priceLabel = computed(() =>
+  formatPriceAccess(props.price, resolvedLanguage.value, t),
+)
 </script>
 
 <template>
@@ -58,6 +67,11 @@ defineProps<Props>()
     </div>
 
     <dl class="entry-details__facts">
+      <div v-if="priceLabel" class="entry-details__fact">
+        <dt>{{ t('media.access') }}</dt>
+        <dd>{{ priceLabel }}</dd>
+      </div>
+
       <div v-if="genreText" class="entry-details__fact">
         <dt>{{ t('media.theme') }}</dt>
         <dd>{{ genreText }}</dd>

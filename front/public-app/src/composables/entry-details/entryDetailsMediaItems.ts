@@ -37,6 +37,7 @@ export function toEntrySeasonMediaItem(
     episodeLabel: null,
     releaseDateLabel: null,
     expireLabel: null,
+    price: null,
     metaLine: null,
   }
 }
@@ -70,6 +71,7 @@ export function toEntryEpisodeMediaItem(episode: EntryEpisode, source: string): 
     episodeLabel: null,
     releaseDateLabel: episode.releaseDateLabel,
     expireLabel: episode.expireLabel,
+    price: episode.price,
     metaLine: null,
   }
 }

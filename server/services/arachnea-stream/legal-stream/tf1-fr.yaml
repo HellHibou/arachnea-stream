@@ -363,6 +363,13 @@ shared:
       type: string
       select: first
       pointer: /program/name
+    - name: price
+      type: string
+      select: first
+      pointer: /program/offers/*[isPremium=true]/isPremium
+      actions:
+        - type: map
+          argument: { "true": "premium" }
     - name: media-type
       type: string[]
       pointer: /program/typology
@@ -425,6 +432,13 @@ shared:
       type: string
       select: first
       pointer: /video/playingInfos/duration
+    - name: price
+      type: string
+      select: first
+      pointer: /video/offers/*[isPremium=true]/isPremium
+      actions:
+        - type: map
+          argument: { "true": "premium" }
     - name: media-type
       type: string[]
       pointer: /video/program/typology
@@ -484,6 +498,13 @@ shared:
       type: string
       select: first
       pointer: /decoration/description
+    - name: price
+      type: string
+      select: first
+      pointer: /offers/*[isPremium=true]/isPremium
+      actions:
+        - type: map
+          argument: { "true": "premium" }
     - name: theme
       type: string[]
       pointer: /topics/*
@@ -888,6 +909,13 @@ queries:
             type: string
             select: first
             pointer: /program/decoration/description
+          - name: price
+            type: string
+            select: first
+            pointer: /program/offers/*[isPremium=true]/isPremium
+            actions:
+              - type: map
+                argument: { "true": "premium" }
           - name: theme
             type: string[]
             pointer: /program/topics/*
@@ -939,6 +967,13 @@ queries:
             type: string
             select: first
             pointer: /video/decoration/label
+          - name: price
+            type: string
+            select: first
+            pointer: /video/offers/*[isPremium=true]/isPremium
+            actions:
+              - type: map
+                argument: { "true": "premium" }
           - name: description
             type: string
             select: first
@@ -1115,6 +1150,13 @@ queries:
             format: '{graphql_url}?id=76bc5c35edb166fa637a6c6686cb05c7140d2a8b&variables=%7B%22programSlug%22%3A%22{1}%22%2C%22listId%22%3A%22{2}%22%2C%22offset%22%3A0%2C%22limit%22%3A1%7D'
         row_pointer: /data/programBySlug/editorialSections/*/listById/items/0/video
         entries:
+          - name: price
+            type: string
+            select: first
+            pointer: /offers/*[isPremium=true]/isPremium
+            actions:
+              - type: map
+                argument: { "true": "premium" }
           - name: video/trailer
             type: string
             select: first
@@ -1155,6 +1197,13 @@ queries:
         request_headers: *generic_request_headers
         row_pointer: /data/sliderOfSearchVideos/items/0/video
         entries:
+          - name: price
+            type: string
+            select: first
+            pointer: /offers/*[isPremium=true]/isPremium
+            actions:
+              - type: map
+                argument: { "true": "premium" }
           - name: video/trailer
             type: string
             select: first
@@ -1233,6 +1282,13 @@ queries:
             type: string
             select: first
             pointer: /video/playingInfos/duration
+          - name: price
+            type: string
+            select: first
+            pointer: /video/offers/*[isPremium=true]/isPremium
+            actions:
+              - type: map
+                argument: { "true": "premium" }
           - name: release-date
             type: string
             select: first
