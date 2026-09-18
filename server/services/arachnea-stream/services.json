@@ -1,5 +1,4 @@
 [
   { "import": "legal-stream/services.json" },
-  { "import": "dark-stream/services.json"  },
-  { "import": "work-in-progress/services.json"  }
+  { "import": "dark-stream/services.json"  }
 ]

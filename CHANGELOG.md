@@ -1803,3 +1803,25 @@ redémarrage du processus ni du systray :
   `allTextTracksAdded`. Restoration matches language, role and label rather
   than the unstable `dash-audio-<index>` identifier; disabled subtitles remain
   disabled when the list is recreated.
+
+- **Antenne Réunion search media types**: search results now refine the raw
+  `asset`/`series` type with the API's genre tags. Films, series, documentaries,
+  sport, youth content, and news or magazine entries expose their corresponding
+  `media-type` instead of all falling back to `video/show/other`; unclassified
+  content retains that generic fallback.
+
+- **Antenne Réunion custom search labels**: assets with an editorial genre that
+  does not map to a canonical media type now expose
+  `video/show/other/<genre>`, allowing the frontend to display labels such as
+  `Collabs` or `Le sens de la vie`. Assets without any genre keep the generic
+  `video/show/other` fallback.
+
+- **Antenne Réunion live players**: `get_live` no longer calls the EPG endpoint
+  with unavailable runtime parameters. It now returns a `scraper-query` player
+  targeting `channelStream` directly, while `resolve_stream` posts the relevant
+  `idMedia`, `idChannel`, or `idAsset` parsed from the supplied target URL. This
+  replaces the unregistered `antennereunion-live` resolver and exposes the API's
+  actual access errors, such as IP restrictions, instead of an empty player list.
+  Live players now request `RE` country routing and the source query forwards the
+  hint to its HTTP client, so `channelStream` can be called through a Réunion
+  proxy egress when one is configured.

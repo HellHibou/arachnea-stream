@@ -12,6 +12,7 @@
 
 ## Documentation Hygiene
 - Keep existing comments and documentation accurate when behavior changes.
+- When source code and a `README.md` or `docs/specifications/*.md` file disagree, update the Markdown documentation in the same change. Also add missing documentation when it is needed to describe a relevant behavior, contract, limitation, or configuration requirement discovered during the work.
 - Keep inline comments rare and only use them for non-obvious logic.
 - Update or remove stale comments as part of the same change.
 - Create analysis files under `docs/dev-tracking/` by default when requested.

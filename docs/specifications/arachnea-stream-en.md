@@ -245,13 +245,13 @@ Common structure used in `sections[].entries`, `search.entries`,
 
 | YAML field | YAML type | Required | Description |
 |---|---|---|---|
-| `source` | `string` | see note | Source identifier (automatically injected by the engine) |
+| `source` | `string` | yes for an openable card | Source identifier. It must be emitted by YAML on each `MediaItem`, or on its enclosing result row so the frontend can inherit it. It is not automatically injected for every response shape. |
 | `title` | `string` | yes | Main title |
 | `title/alt` | `string` | no | Alternative title |
 | `link` | `string` | yes | Internal URL for `get_entry` |
 | `web-link` | `string` | no | Public content URL |
 | `description` | `string` | no | Synopsis / description |
-| `media-type` | `string` or `string[]` | no | Media type (e.g. `video/show/serie`) |
+| `media-type` | `string` or `string[]` | no | Media type (e.g. `video/show/serie`). Custom `video/other/<label>` and `video/show/other/<label>` forms display their label directly in the frontend. |
 | `duration` | `string` | no | Formatted duration |
 | `release-date` | `string` | no | Publication date (`YYYY-MM-DD`) |
 | `expire` | `string` | no | Expiration date |
@@ -272,9 +272,10 @@ Common structure used in `sections[].entries`, `search.entries`,
 | `img/preview > link` | `string` | no | Preview URL |
 | `img/logo > link` | `string` | no | Logo URL |
 
-> **Note**: the `source` field is automatically injected by
-> `execute_query_async` when `source_field_name` is `Some("source")`.
-> It must not be set manually.
+> **Note**: `execute_query_async` can inject `source` when its
+> `source_field_name` parameter is `Some("source")`. Queries that do not request
+> this injection, including `search`, must extract `source` in YAML on the
+> result row or on every `MediaItem` to preserve an openable card.
 
 ---
 

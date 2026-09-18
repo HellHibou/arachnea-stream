@@ -38,6 +38,47 @@ shared:
     - video/live
     - video/other
 
+  # Search assets share the same raw `asset` type regardless of whether they
+  # are films, series episodes, news, sport, documentaries, or kids content.
+  # Each category uses a separate scalar extractor so multi-tag entries keep a
+  # single `media-type`; later extractors intentionally override earlier ones.
+  # Unclassified editorial genres remain useful labels through the supported
+  # `video/show/other/<label>` media-type form.
+  actions_search_genre_custom_media_type: &actions_search_genre_custom_media_type
+    - type: map
+      argument: {}
+      default: "video/show/other/{}"
+
+  actions_search_genre_news: &actions_search_genre_news
+    - type: regex_find_all
+      pattern: "^(Infos|INFOS|Info|d'actualité|Journal|MAGAZINE|Magazine d'actualité|Magazine d'information|Magazine de reportages|Magazine de société|Magazine scientifique|Magazine régional|Magazine de l'automobile)$"
+      format: "video/news"
+
+  actions_search_genre_kids: &actions_search_genre_kids
+    - type: regex_find_all
+      pattern: '^(Tout petits|Jeunesse)$'
+      format: "video/show/kids"
+
+  actions_search_genre_sport: &actions_search_genre_sport
+    - type: regex_find_all
+      pattern: '^FOOTBALL$'
+      format: "video/show/sport"
+
+  actions_search_genre_documentary: &actions_search_genre_documentary
+    - type: regex_find_all
+      pattern: '^(Documentaires|REPORTAGE)$'
+      format: "video/show/documentary"
+
+  actions_search_genre_movie: &actions_search_genre_movie
+    - type: regex_find_all
+      pattern: "^(FILM|Téléfilm sentimental|Téléfilm d'action)$"
+      format: "video/movie"
+
+  actions_search_genre_series: &actions_search_genre_series
+    - type: regex_find_all
+      pattern: '^Série$'
+      format: "video/show/serie"
+
   request_identity_header: &request_identity_header
     - name: "X-AN-WebService-IdentityKey"
       select: first
@@ -561,6 +602,14 @@ queries:
     media_types: *media_types_antennereunion
     row_pointer: /result/data
     entries:
+      # The frontend requires both `source` and `link` to build a clickable
+      # entry route. Keep the source on the result row for inherited cards.
+      - name: source
+        type: string
+        select: first
+        actions:
+          - type: format_text
+            argument: "{source}"
       # select: first: the scalar pagination fields are evaluated once per
       # result row and would otherwise accumulate one value per row.
       - name: current_page
@@ -580,6 +629,11 @@ queries:
         pointer: "*"
         select: all
         entries:
+          - name: source
+            type: string
+            actions:
+              - type: format_text
+                argument: "{source}"
           - name: title
             type: string
             pointer: /item/payload/title
@@ -588,6 +642,7 @@ queries:
             pointer: /item/payload/synopsis
           - name: media-type
             type: string
+            select: first
             pointer: /item/type
             actions:
               - type: map
@@ -595,6 +650,41 @@ queries:
                 argument:
                   "asset": video/show/other
                   "series": video/show/serie
+          - name: media-type
+            type: string
+            select: first
+            pointer: /item/payload/genre/0
+            actions: *actions_search_genre_custom_media_type
+          - name: media-type
+            type: string
+            select: first
+            pointer: /item/payload/genre
+            actions: *actions_search_genre_news
+          - name: media-type
+            type: string
+            select: first
+            pointer: /item/payload/genre
+            actions: *actions_search_genre_kids
+          - name: media-type
+            type: string
+            select: first
+            pointer: /item/payload/genre
+            actions: *actions_search_genre_sport
+          - name: media-type
+            type: string
+            select: first
+            pointer: /item/payload/genre
+            actions: *actions_search_genre_documentary
+          - name: media-type
+            type: string
+            select: first
+            pointer: /item/payload/genre
+            actions: *actions_search_genre_movie
+          - name: media-type
+            type: string
+            select: first
+            pointer: /item/payload/genre
+            actions: *actions_search_genre_series
           # Series rows expose their catalog id in `usedIn.vod[0].idCatalog`.
           - name: link
             type: string
@@ -610,8 +700,9 @@ queries:
             actions:
               - type: format_text
                 argument: "{base_url}/proxy/assets?assetIds=%5B{}%5D&languageId={language_id}"
-          # Images: series use the category artwork, assets fall back to the
-          # reliable asset background (asset posters return 404 on the CDN).
+          # Series expose distinct portrait and landscape category artwork.
+          # Assets only expose `asset_vod-background`; keep it in the landscape
+          # slot because `asset_vod-poster` returns 404 on the CDN.
           - name: img/poster > link
             type: string
             pointer: /usedIn/vod/0/idCatalog
@@ -620,14 +711,6 @@ queries:
                 base: "{cdn_base_url}/proxy/imgdata?type=category_vod-poster&objectId={id}&languageId={language_id}"
                 fields:
                   id: /usedIn/vod/0/idCatalog
-          - name: img/poster > link
-            type: string
-            pointer: /usedIn/vod/0/idAsset
-            actions:
-              - type: build_url
-                base: "{cdn_base_url}/proxy/imgdata?type=asset_vod-background&objectId={id}&languageId={language_id}"
-                fields:
-                  id: /usedIn/vod/0/idAsset
           - name: img/landscape > link
             type: string
             pointer: /usedIn/vod/0/idCatalog
@@ -918,13 +1001,18 @@ queries:
     scraper_type: json
     request_method: post
     base_url: "{base_url}"
-    query_url: "{base_url}/proxy/readTrailer"
+    # Trailer and live players both provide their source-specific proxy URL.
+    # `readTrailer` receives `idMedia`; `channelStream` receives `idChannel`.
+    query_url: "{url}"
+    http:
+      # Live players request a Réunion egress through their resolver descriptor.
+      proxy_country: "{proxy_country}"
     request_body_pointer: /url
     request_body_select: first
     request_body_actions:
       - type: regex_find_all
-        pattern: '[?&]idMedia=([^&#]+)'
-        format: 'idMedia={1}'
+        pattern: '[?&](idMedia|idChannel|idAsset)=([^&#]+)'
+        format: '{1}={2}'
     request_headers: *request_headers_json
     row_pointer: /result
     entries:
@@ -1030,59 +1118,15 @@ queries:
             actions: *actions_channel_image_to_url
 
   - name: get_live
-    scraper_type: json
-    request_method: post
-    base_url: "{base_url}"
-    query_url: "{base_url}/proxy/epg"
-    request_body_actions:
-      - type: format_text
-        argument: 'languageId={language_id}&midnight={midnight}&startHour=0&endHour={epg_hours}&channelIds={channel_id}'
-    request_headers: *request_headers_json
+    scraper_type: static
     media_types:
       - video/live
-    row_pointer: /result/epg/*/*
     entries:
-      - name: key
-        type: string
-        actions:
-          - type: format_text
-            argument: "{channel_id}"
-      - name: title
-        type: string
-        pointer: /title
-      - name: description
-        type: string
-        pointer: /synopsis
-      - name: release-date
-        type: number
-        pointer: /startutc
-      - name: expire
-        type: number
-        pointer: /endutc
-      - name: genre
-        type: string
-        pointer: /genre
-      - name: rating
-        type: number
-        pointer: /rating
       - name: players
         type: object[]
-        entries:
-          - name: name
-            type: string
-            actions:
-              - type: format_text
-                argument: "Antenne Réunion"
-          - name: resolver
-            type: object
-            entries:
-              - name: kind
-                type: string
-                actions:
-                  - type: format_text
-                    argument: "antennereunion-live"
-              - name: target_id
-                type: string
-                actions:
-                  - type: format_text
-                    argument: "{channel_id}"
+        items:
+          - name: "Antenne Réunion"
+            resolver > kind: scraper-query
+            resolver > target_id: "{base_url}/proxy/channelStream?idChannel={channel}"
+            resolver > source: antennereunion-fr
+            resolver > proxy > country: FR

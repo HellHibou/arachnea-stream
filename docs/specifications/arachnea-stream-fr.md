@@ -246,13 +246,13 @@ Structure commune utilisée dans `sections[].entries`, `search.entries`,
 
 | Champ YAML | Type YAML | Obligatoire | Description |
 |---|---|---|---|
-| `source` | `string` | voir note | Identifiant de la source (injecté automatiquement par le moteur) |
+| `source` | `string` | oui pour une carte ouvrable | Identifiant de la source. Il doit être émis par le YAML sur chaque `MediaItem`, ou sur son enveloppe de résultat afin que le frontend puisse l'hériter. Il n'est pas injecté automatiquement pour toutes les formes de réponse. |
 | `title` | `string` | oui | Titre principal |
 | `title/alt` | `string` | non | Titre alternatif |
 | `link` | `string` | oui | URL interne pour `get_entry` |
 | `web-link` | `string` | non | URL publique du contenu |
 | `description` | `string` | non | Synopsis / description |
-| `media-type` | `string` ou `string[]` | non | Type de média (ex: `video/show/serie`) |
+| `media-type` | `string` ou `string[]` | non | Type de média (ex: `video/show/serie`). Les formes personnalisées `video/other/<libellé>` et `video/show/other/<libellé>` affichent directement leur libellé dans le frontend. |
 | `duration` | `string` | non | Durée formatée |
 | `release-date` | `string` | non | Date de publication (`YYYY-MM-DD`) |
 | `expire` | `string` | non | Date d'expiration |
@@ -273,9 +273,11 @@ Structure commune utilisée dans `sections[].entries`, `search.entries`,
 | `img/preview > link` | `string` | non | URL d'aperçu |
 | `img/logo > link` | `string` | non | URL du logo |
 
-> **Note** : le champ `source` est injecté automatiquement par
-> `execute_query_async` quand `source_field_name` vaut `Some("source")`.
-> Il ne doit pas être défini manuellement.
+> **Note** : `execute_query_async` peut injecter `source` lorsque son paramètre
+> `source_field_name` vaut `Some("source")`. Les requêtes qui ne demandent pas
+> cette injection, notamment `search`, doivent extraire `source` dans le YAML
+> sur la ligne de résultat ou sur chaque `MediaItem` afin de conserver une carte
+> ouvrable.
 
 ---
 

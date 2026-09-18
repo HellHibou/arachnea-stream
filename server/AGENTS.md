@@ -23,6 +23,7 @@
 - Do not group, flatten, or otherwise shape scraper response structures in `stream_scraper.rs`; organize fields such as `source`, `entries`, pagination metadata, and `source_params` in YAML/actions or generic post-processors.
 
 ## Documentation Rules
+- When source code and a `README.md` or `docs/specifications/*.md` file disagree, update the Markdown documentation in the same change. Also add missing documentation when it is needed to describe a relevant behavior, contract, limitation, or configuration requirement discovered during the work.
 - Add or maintain Rust doc comments with `///` on modified public or non-trivial items when behavior, inputs, outputs, or invariants are not obvious.
 - Document public constants, enum types, enum variants, and struct fields with `///` doc comments to describe their purpose and invariants.
 - For function and method documentation, use idiomatic Rust `rustdoc` format rather than JavaDoc style.
@@ -33,7 +34,7 @@
 - Keep crate README files aligned with public behavior, commands, configuration, and known gaps.
 - Keep `docs/TODO.md` current when DNS, HTTP, or proxy planned work is added, completed, renamed, moved, or made obsolete.
 - Append to `CHANGELOG.md` when server workspace behavior, public APIs, configuration, documentation, or operational workflows change.
-- The file `docs/specifications/arachnea-scrapyfy-*.md` documents the complete YAML schema for arachnea-scrapyfy. Any modification to scraper types, actions, or post-processors in the crate must be reported in that file to keep it in sync.
+- The files `docs/specifications/arachnea-scrapyfy-*.md` document the complete YAML schema for arachnea-scrapyfy. Any modification to scraper types, actions, or post-processors in the crate must be reported there to keep them in sync.
 
 ## Engineering Defaults
 - Avoid making the scraper more aggressive or brittle without an explicit reason.
