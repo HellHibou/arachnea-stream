@@ -3,7 +3,7 @@
 ## 1. Aperçu
 
 Une collection arachnea-stream déclare une source de streaming (plateforme
-légale ou catalogue alternatif). Chaque source définit jusqu'à 9 requêtes qui
+légale ou catalogue alternatif). Chaque source définit jusqu'à 10 requêtes qui
 produisent des données catalogues structurées — pages d'accueil, catégories,
 recherche, détails d'entrée, épisodes, directs.
 
@@ -54,7 +54,7 @@ http:
 
 ## 3. Requêtes standard
 
-Chaque source peut implémenter tout ou partie des 9 requêtes suivantes :
+Chaque source peut implémenter tout ou partie des 10 requêtes suivantes :
 
 | Nom de requête | Type | Description |
 |---|---|---|
@@ -62,6 +62,7 @@ Chaque source peut implémenter tout ou partie des 9 requêtes suivantes :
 | `load_home` | `json` / `html` | Page d'accueil (catégories, sections, bannières) |
 | `get_category` | `json` / `html` | Contenu filtré par chaîne/catégorie |
 | `get_section` | `json` / `html` | Section paginée (liste d'entrées) |
+| `get_banners` | `json` / `html` | Données de bannières promotionnelles chargées depuis un lien de l'accueil |
 | `search` | `json` / `html` | Recherche avec filtres |
 | `get_entry` | `json` / `html` | Détail d'une entrée (programme) |
 | `get_season` | `json` / `html` | Épisodes d'une saison |
@@ -152,6 +153,19 @@ Requête statique. Chaque source retourne exactement une ligne.
 
 ### 5.2 Page d'accueil — `load_home`
 
+`load_home` est la requête légère de découverte de la page. Quand l'API amont
+propose des endpoints séparés pour les bannières, le contenu d'une catégorie ou
+les éléments d'une section, elle doit retourner leurs liens au lieu de charger
+et d'intégrer tout leur contenu immédiatement. Le frontend appelle ensuite
+`get_banners`, `get_category` ou `get_section` à la demande.
+
+**Ne pas utiliser des `sub_queries` YAML dans `load_home` pour enrichir chaque
+bannière, catégorie ou section lorsqu'une de ces requêtes stream standard peut
+charger le même payload.** Ce modèle transforme une requête d'accueil en N+1
+requêtes, augmente la charge du cache et du fournisseur, et retarde le premier
+affichage. Les `sub_queries` restent réservées aux cas où aucune requête stream
+dédiée ne peut représenter le contrat de suivi.
+
 Structure produite par chaque source :
 
 ```yaml
@@ -212,7 +226,11 @@ Structure produite par chaque source :
 | `request > channel` | `string` | Identifiant de chaîne pour les paramètres |
 | `request > channel_label` | `string` | Nom de chaîne |
 | `request > page_size` | `number` | Taille de page |
-| `request > source` | `string` | Source pour les sous-requêtes |
+| `request > source` | `string` | Identifiant de source pour `get_category` |
+
+Pour une catégorie chargée paresseusement, `request > query_url` est l'endpoint
+de catégorie consommé par `get_category`. `request > name` (ou
+`request > source`) doit identifier la source propriétaire de cet endpoint.
 
 #### Section
 
@@ -221,6 +239,11 @@ Structure produite par chaque source :
 | `label` | `string` | Titre du rail (ex: « Derniers ajouts », « Tendances ») |
 | `entries` | `object[]` | Objets `MediaItem` (voir section suivante) |
 | `link` | `string` | URL pour `get_section` (pagination) |
+
+Pour une section chargée paresseusement, émettre `link` même si `entries` est
+initialement absent ou vide. `get_section` reçoit ce lien et le numéro de page
+un basé demandé. Ne pas précharger les entrées de chaque section dans
+`load_home` au moyen d'une `sub_query`.
 
 #### Bannière
 
@@ -236,6 +259,12 @@ Structure produite par chaque source :
 | `web-link` | `string` | URL publique |
 | `subtitle` | `string` | Sous-titre |
 | `entryUrl` | `string` | Variante de lien |
+
+Pour des bannières chargées paresseusement, `load_home` peut n'émettre que
+`banners > link`. Le frontend transmet cette valeur à `get_banners`, qui
+retourne alors le tableau `banners` complet. Ne pas charger les détails des
+bannières via une `sub_query` de `load_home` lorsque `get_banners` est
+disponible.
 
 ---
 
@@ -304,11 +333,18 @@ contiennent des `entries` (MediaItem) et des métadonnées de pagination :
       - type: derive_pagination
 ```
 
+`get_category` est le pendant chargé à la demande d'une catégorie émise par
+`load_home`. Elle reçoit le descripteur de catégorie via les champs `request`,
+dont `request > query_url`, et doit charger elle-même le payload de catégorie.
+Ne pas précharger chaque catégorie dans `load_home` par des `sub_queries`.
+
 ---
 
 ### 5.5 Section paginée — `get_section`
 
-Retourne une liste d'entrées avec pagination.
+Retourne une liste d'entrées avec pagination. C'est le pendant chargé à la
+demande d'une section émise par `load_home` : le backend reçoit le `link` de la
+section et la valeur `page` un basée demandée.
 
 | Champ YAML | Type | Description |
 |---|---|---|
@@ -331,6 +367,40 @@ post_process:
       - total_pages
       - page_size
 ```
+
+### 5.5.1 Bannières promotionnelles — `get_banners`
+
+Retourne le payload de bannières complet pour un `banners > link` émis par
+`load_home`. Le backend expose ce lien au YAML sous les deux paramètres
+`{query_url}` et `{link}`.
+
+```yaml
+- name: get_banners
+  scraper_type: json
+  base_url: "{base_url}"
+  query_url: "{query_url}"
+  row_pointer: /
+  entries:
+    - name: banners
+      type: object[]
+      pointer: /items/*
+      select: all
+      entries:
+        - name: key
+          type: string
+          pointer: /id
+        - name: title
+          type: string
+          pointer: /title
+        - name: image
+          type: string
+          pointer: /image
+```
+
+Utiliser `get_banners` plutôt qu'une `sub_query` de `load_home` dès que les
+données de bannières ont leur propre endpoint ou sont coûteuses à assembler.
+Cela accélère le chargement initial de l'accueil et permet aux bannières de
+profiter de leur propre durée de cache client.
 
 ---
 
@@ -446,6 +516,38 @@ Retourne un objet unique avec les métadonnées complètes d'un programme.
 | `players` | `object[]` | Lecteurs (voir 5.9) |
 | `img/preview > link` | `string` | Aperçu |
 | `img/poster > link` | `string` | Fallback aperçu |
+
+### 5.8.1 Lecteurs différés — `get_players`
+
+Commande dédiée au chargement différé des lecteurs d'un élément isolé
+(typiquement un épisode) dont le payload d'origine ne déclare aucun `players`.
+Le backend la lance avec l'URL média de l'élément.
+
+| Champ YAML | Type | Description |
+|---|---|---|
+| `query_url` | `string` | URL média de l'élément, fournie par le backend |
+| `link` | `string` | Alias de `query_url` |
+| `players` | `object[]` | Lecteurs (voir 5.9) |
+
+La requête produit le même `players` que `get_entry`. Lorsqu'une source
+n'expose pas de lecteurs embarqués sur ses épisodes, elle doit déclarer
+`get_players` : le frontend publie le `link` média de l'épisode comme collection
+`players` et charge celle-ci via cette commande. Sans cette requête, l'API ne
+renvoie aucun lecteur et la lecture reste indisponible pour ces éléments.
+
+```yaml
+- name: get_players
+  scraper_type: json
+  base_url: "{base_url}"
+  query_url: "{query_url}"
+  row_pointer: /
+  entries:
+    - name: players
+      type: object[]
+      pointer: /uuid
+      select: all
+      entries: *entries_player
+```
 
 ---
 

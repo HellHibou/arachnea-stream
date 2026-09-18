@@ -5,6 +5,33 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ## Unreleased
 
 ### Fixed
+- **TVMonaco episode playback**: the source now declares the `get_players`
+  query, so the lazy player load performed by the frontend for season episodes
+  (whose payload carries no embedded players) returns the `scraper-query`
+  resolver pointing at the OKAST offer endpoint instead of an empty response.
+  The player descriptor is now shared through a single YAML anchor between
+  `get_entry` and `get_players`.
+- **Deferred player query specification**: documented `get_players` in the
+  English and French stream YAML specifications, including its `query_url` /
+  `link` inputs and the requirement for sources that do not embed players in
+  their episodes.
+- **TVMonaco season episodes and labels**: `get_entry` now labels a series'
+  seasons with their OKAST item rank (`Saison 1`, `Saison 2`, ...) instead of a
+  constant `Saison`, and emits a page-agnostic season items URL. `get_season`
+  appends the requested page through `{query_separator}`, replacing the invalid
+  `page={{page}}` season URL that made the storefront answer HTTP 500 and left
+  the episode list empty.
+- **TVMonaco home topology and links**: TVMonaco now loads its `Home page -
+  Hero (Inter)` smartlist as home banners and its `Catégories` smartlist as
+  individual home categories, each with its own lazy category request. Media
+  and smartlist web links use their respective official `/content` and
+  `/smartlists` routes, and the storefront's `le-direct` page is exposed as
+  the TVMonaco live channel with an official-page fallback.
+- **Stream lazy-loading specification**: Documented `get_banners` alongside
+  `get_category` and `get_section` in the English and French stream YAML
+  specifications. Home queries must publish lightweight follow-up links and
+  delegate expensive payloads to those standard queries instead of eagerly
+  enriching every home item through YAML sub-queries.
 - **Entry access metadata order**: the paid-access fact is now rendered first
   in the `get_entry` metadata grid whenever it is available.
 - **Premium crown color**: the catalog premium crown now uses the shared dark
@@ -51,6 +78,11 @@ All notable changes to the server workspace are recorded here. Add new entries a
   one-based `pageNumber`, `pageSize`, and `totalCount` response fields.
 
 ### Added
+- **TVMonaco VOD source**: Added a disabled-by-default YAML-only source for
+  TVMonaco's public OKAST catalogue. It exposes the editorial home banners,
+  categories and rails, full-text search, programme and series details, season
+  episodes, and fresh HLS playback URLs through the service-owned
+  `scraper-query` resolver.
 - **Paid-access indicators**: legal-stream scraper rows can now expose an
   optional `price` value. TF1+ maps explicit premium video offers, RTBF Auvio
   maps `MEDIA_PREMIUM` catalogue entries, and Antenne Réunion maps explicit

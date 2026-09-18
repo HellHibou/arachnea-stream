@@ -1,0 +1,889 @@
+id: tvmonaco-fr
+title: TVMonaco
+logo: "https://production.content.okast.tv/2116dc08-1959-465d-857f-3619daefb66b/storefront_projects/f8817419-73a4-4c55-85c2-c135542fde09/favicon.2487188FDBBF29917B5E7E76766FD48A7630BF488F54B44F0FAF25B456A87998.fr.png"
+description:
+  fr: "TVMonaco propose gratuitement ses programmes, reportages et documentaires en replay."
+  en: "TVMonaco offers free on-demand access to its programmes, reports, and documentaries."
+http:
+  mode: direct
+
+# ############################################################################
+# Parameters
+# ############################################################################
+parameters:
+  - name: base_url
+    value: https://videos.tvmonaco.com
+    description: "Public OKAST storefront base URL"
+  - name: language
+    value: fr
+    description: "Catalogue language"
+  - name: page_size
+    value: 24
+    description: "Number of media cards per paginated request"
+  - name: home_page_uuid
+    value: d91fcdb5-58fb-43df-aec2-23801461acc0
+    description: "Default storefront page UUID from the public site architecture"
+  - name: home_hero_uuid
+    value: 18ec9891-ce09-471d-9341-6c71a4a99665
+    description: "Home page hero smartlist UUID"
+
+# ############################################################################
+# Shared structs
+# ############################################################################
+shared:
+  media_types_tvmonaco: &media_types_tvmonaco
+    - video/movie
+    - video/show/serie
+    - video/show/documentary
+    - video/show/sport
+    - video/show/other
+    - video/news
+
+  request_headers_json: &request_headers_json
+    - name: accept
+      actions:
+        - type: format_text
+          argument: "application/json"
+    - name: content-type
+      actions:
+        - type: format_text
+          argument: "application/json"
+
+  actions_duration: &actions_duration
+    - type: suffix
+      argument: " sec"
+    - type: normalize_duration
+
+  entries_media_card: &entries_media_card
+    - name: source
+      type: string
+      actions:
+        - type: format_text
+          argument: "{source}"
+    - name: title
+      type: string
+      select: first
+      pointer: /translation/name
+    - name: title
+      type: string
+      select: first
+      pointer: /translations/0/name
+    - name: description
+      type: string
+      select: first
+      pointer: /translation/description
+    - name: description
+      type: string
+      select: first
+      pointer: /translations/0/description
+    - name: link
+      type: string
+      select: first
+      pointer: /uuid
+      actions:
+        - type: format_text
+          argument: "{base_url}/api/media/v7/media/{}?lang={language}"
+    - name: web-link
+      type: string
+      select: first
+      pointer: /uuid
+      actions:
+        - type: build_url
+          base: "{base_url}/{type}/{slug}"
+          fields:
+            type: /type
+            slug: /translation/slug
+        - type: regex_replace_all
+          pattern: '/hosted/'
+          replacement: '/content/'
+        - type: regex_replace_all
+          pattern: '/(?:standard|auto)/'
+          replacement: '/smartlists/'
+    - name: web-link
+      type: string
+      select: first
+      pointer: /uuid
+      actions:
+        - type: build_url
+          base: "{base_url}/{type}/{slug}"
+          fields:
+            type: /type
+            slug: /translations/0/slug
+        - type: regex_replace_all
+          pattern: '/hosted/'
+          replacement: '/content/'
+        - type: regex_replace_all
+          pattern: '/(?:standard|auto)/'
+          replacement: '/smartlists/'
+    - name: duration
+      type: string
+      select: first
+      pointer: /duration
+      actions: *actions_duration
+    - name: release-date
+      type: string
+      select: first
+      pointer: /begin_date
+      actions:
+        - type: get_date
+          format: yyyy_mm_dd
+    - name: year
+      type: number
+      select: first
+      pointer: /production_date
+      actions:
+        - type: regex_find_all
+          pattern: '^(\d{4})'
+          format: "{1}"
+    - name: media-type
+      type: string[]
+      select: first
+      pointer: /new_genre/key
+      actions:
+        - type: map
+          argument:
+            docs: video/show/documentary
+            sports: video/show/sport
+            news: video/news
+          default: video/show/other
+    - name: media-type
+      type: string[]
+      select: first
+      pointer: /type
+      actions:
+        - type: map
+          argument:
+            series: video/show/serie
+          default: video/show/other
+    - name: img/poster > link
+      type: string
+      select: first
+      pointer: /translation/picture/cover_picture_3_4/url
+    - name: img/poster > link
+      type: string
+      select: first
+      pointer: /translations/0/picture/cover_picture_3_4/url
+    - name: img/landscape > link
+      type: string
+      select: first
+      pointer: /translation/picture/cover_picture_16_9/url
+    - name: img/landscape > link
+      type: string
+      select: first
+      pointer: /translations/0/picture/cover_picture_16_9/url
+
+  entries_season_episode: &entries_season_episode
+    - name: title
+      type: string
+      select: first
+      pointer: /translation/name
+    - name: description
+      type: string
+      select: first
+      pointer: /translation/description
+    - name: link
+      type: string
+      select: first
+      pointer: /uuid
+      actions:
+        - type: format_text
+          argument: "{base_url}/api/media/v7/media/{}?lang={language}"
+    - name: web-link
+      type: string
+      select: first
+      pointer: /uuid
+      actions:
+        - type: build_url
+          base: "{base_url}/{type}/{slug}"
+          fields:
+            type: /type
+            slug: /translation/slug
+        - type: regex_replace_all
+          pattern: '/(?:standard|auto)/'
+          replacement: '/smartlists/'
+    - name: duration
+      type: string
+      select: first
+      pointer: /duration
+      actions: *actions_duration
+    - name: release-date
+      type: string
+      select: first
+      pointer: /begin_date
+      actions:
+        - type: get_date
+          format: yyyy_mm_dd
+    - name: media-type
+      type: string[]
+      actions:
+        - type: format_text
+          argument: "video/show/serie"
+    - name: img/poster > link
+      type: string
+      select: first
+      pointer: /translation/picture/cover_picture_3_4/url
+    - name: img/landscape > link
+      type: string
+      select: first
+      pointer: /translation/picture/cover_picture_16_9/url
+
+  # OKAST exposes a series' seasons as ranked smartlist items. A season's own
+  # translation name usually repeats the series title, so the item rank is the
+  # only reliable source for a numbered season label.
+  entries_season_card: &entries_season_card
+    - name: label
+      type: string
+      pointer: /rank
+      actions:
+        - type: format_text
+          argument: "Saison {}"
+    - name: link
+      type: string
+      pointer: /content_uuid
+      actions:
+        # `get_season` appends the requested page, so the season URL stays
+        # page-agnostic and can be reused as-is by the frontend.
+        - type: format_text
+          argument: "{base_url}/api/smartlist/v5/smartlist/{}/items?lang={language}&per_page={page_size}"
+
+  entries_smartlist_card: &entries_smartlist_card
+    - name: source
+      type: string
+      actions:
+        - type: format_text
+          argument: "{source}"
+    - name: title
+      type: string
+      select: first
+      pointer: /translation/name
+    - name: description
+      type: string
+      select: first
+      pointer: /translation/description
+    - name: link
+      type: string
+      select: first
+      pointer: /uuid
+      actions:
+        - type: format_text
+          argument: "{base_url}/api/smartlist/v5/smartlist/{}?lang={language}"
+    - name: web-link
+      type: string
+      select: first
+      pointer: /translation/slug
+      actions:
+        - type: format_text
+          argument: "{base_url}/smartlists/{}"
+    - name: media-type
+      type: string[]
+      select: first
+      pointer: /type
+      actions:
+        - type: map
+          argument:
+            series: video/show/serie
+            season: video/show/serie
+          default: video/show/other
+    - name: img/poster > link
+      type: string
+      select: first
+      pointer: /translation/picture/cover_picture_3_4/url
+    - name: img/landscape > link
+      type: string
+      select: first
+      pointer: /translation/picture/cover_picture_16_9/url
+
+  # OKAST exposes the playable stream through its offer API. The media UUID is
+  # the only input required, so the player descriptor is built from it and
+  # resolved lazily by the backend `scraper-query` resolver.
+  entries_player: &entries_player
+    - name: name
+      type: string
+      actions:
+        - type: format_text
+          argument: "TVMonaco"
+    - name: resolver
+      type: object
+      entries:
+        - name: kind
+          type: string
+          actions:
+            - type: format_text
+              argument: "scraper-query"
+        - name: target_id
+          type: string
+          actions:
+            - type: format_text
+              argument: "{base_url}/api/offer/v4/media/{}/url?language={language}"
+        - name: source
+          type: string
+          actions:
+            - type: format_text
+              argument: "tvmonaco-fr"
+
+  entries_home_section: &entries_home_section
+    - name: label
+      type: string
+      select: first
+      pointer: /translation/name
+    - name: link
+      type: string
+      select: first
+      pointer: /uuid
+    - name: _is_home_container
+      type: string
+      select: first
+      pointer: /uuid
+      actions:
+        - type: map
+          argument:
+            18ec9891-ce09-471d-9341-6c71a4a99665: "true"
+            252d0403-e9db-4cc5-a8ae-31917bf23b66: "true"
+          default: "false"
+
+  entries_home_category: &entries_home_category
+    - name: key
+      type: string
+      select: first
+      pointer: /uuid
+    - name: label
+      type: string
+      select: first
+      pointer: /translation/name
+    - name: image
+      type: string
+      select: first
+      pointer: /translation/picture/cover_picture_3_4/url
+    - name: image_url
+      type: string
+      select: first
+      pointer: /translation/picture/cover_picture_3_4/url
+    - name: img/poster > link
+      type: string
+      select: first
+      pointer: /translation/picture/cover_picture_3_4/url
+    - name: img/landscape > link
+      type: string
+      select: first
+      pointer: /translation/picture/cover_picture_16_9/url
+    - name: link
+      type: string
+      select: first
+      pointer: /uuid
+      actions:
+        - type: format_text
+          argument: "{base_url}/api/smartlist/v5/smartlist/{}/items?lang={language}&page=1&per_page={page_size}"
+    - name: request > name
+      type: string
+      actions:
+        - type: format_text
+          argument: "{source}"
+    - name: request > source
+      type: string
+      actions:
+        - type: format_text
+          argument: "{source}"
+    - name: request > query_url
+      type: string
+      select: first
+      pointer: /uuid
+      actions:
+        - type: format_text
+          argument: "{base_url}/api/smartlist/v5/smartlist/{}/items?lang={language}&page=1&per_page={page_size}"
+    - name: request > category_label
+      type: string
+      select: first
+      pointer: /translation/name
+    - name: request > category_link
+      type: string
+      select: first
+      pointer: /uuid
+    - name: _is_category
+      type: string
+      select: first
+      pointer: /uuid
+      actions:
+        - type: map
+          argument:
+            2365b136-6bef-4369-888d-ea41090fe010: "true"
+            989ae5e7-6b8b-4863-90ab-100dc2880bf8: "true"
+            31de3f71-c0d8-41de-a649-01e19148567c: "true"
+            03b015f2-07f1-4680-8903-4c0d292ea32a: "true"
+            a16a5e3c-490b-499b-be16-ee284b396783: "true"
+            f0869003-5e40-494c-b5eb-9c4756845a6f: "true"
+            75d45341-88e9-4854-b7f9-7c4c3867437d: "true"
+          default: "false"
+
+  entries_home_banner_media: &entries_home_banner_media
+    - name: key
+      type: string
+      select: first
+      pointer: /uuid
+    - name: title
+      type: string
+      select: first
+      pointer: /translation/name
+    - name: description
+      type: string
+      select: first
+      pointer: /translation/description
+    - name: image
+      type: string
+      select: first
+      pointer: /translation/picture/cover_picture_16_9/url
+    - name: link
+      type: string
+      select: first
+      pointer: /uuid
+      actions:
+        - type: format_text
+          argument: "{base_url}/api/media/v7/media/{}?lang={language}"
+    - name: web-link
+      type: string
+      select: first
+      pointer: /uuid
+      actions:
+        - type: build_url
+          base: "{base_url}/{type}/{slug}"
+          fields:
+            type: /type
+            slug: /translation/slug
+        - type: regex_replace_all
+          pattern: '/hosted/'
+          replacement: '/content/'
+        - type: regex_replace_all
+          pattern: '/(?:standard|auto)/'
+          replacement: '/smartlists/'
+
+  entries_home_banner_smartlist: &entries_home_banner_smartlist
+    - name: key
+      type: string
+      select: first
+      pointer: /uuid
+    - name: title
+      type: string
+      select: first
+      pointer: /translation/name
+    - name: description
+      type: string
+      select: first
+      pointer: /translation/description
+    - name: image
+      type: string
+      select: first
+      pointer: /translation/picture/cover_picture_16_9/url
+    - name: link
+      type: string
+      select: first
+      pointer: /uuid
+      actions:
+        - type: format_text
+          argument: "{base_url}/api/smartlist/v5/smartlist/{}?lang={language}"
+    - name: web-link
+      type: string
+      select: first
+      pointer: /uuid
+      actions:
+        - type: build_url
+          base: "{base_url}/{type}/{slug}"
+          fields:
+            type: /type
+            slug: /translation/slug
+        - type: regex_replace_all
+          pattern: '/(?:standard|auto)/'
+          replacement: '/smartlists/'
+
+# ############################################################################
+# Queries
+# ############################################################################
+queries:
+  - name: service_stream_metadata
+    scraper_type: static
+    entries:
+      - name: id
+        type: string
+        value: "{service_id}"
+      - name: title
+        type: string
+        value: "{service_title}"
+      - name: logo
+        type: string
+        value: "{service_logo}"
+      - name: description
+        type: object
+        value: "{service_description}"
+
+  # The public storefront home is a paginated SEO page. Its hero and category
+  # smartlists are fetched separately, while the remaining smartlists are rails.
+  - name: load_home
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{base_url}/api/seo/v5/site_architecture/pages/{home_page_uuid}?lang={language}&page=1"
+    media_types: *media_types_tvmonaco
+    row_pointer: /
+    entries:
+      - name: source
+        type: string
+        actions:
+          - type: format_text
+            argument: "{source}"
+      # Hero contents are fetched lazily by get_banners.
+      - name: banners > link
+        type: string
+        actions:
+          - type: format_text
+            argument: "{base_url}/api/smartlist/v5/smartlist/{home_hero_uuid}/items?lang={language}&page=1&per_page=100"
+      - name: categories
+        type: object[]
+        pointer: /data/smartlists/data/*
+        select: all
+        entries: *entries_home_category
+      - name: sections
+        type: object[]
+        pointer: /data/smartlists/data/*
+        select: all
+        entries: *entries_home_section
+    post_process:
+      - type: filter_items
+        source: categories
+        field: _is_category
+        pattern: "^true$"
+      - type: filter_fields
+        source: categories
+        field: _is_category
+        pattern: "^true$"
+        remove:
+          - _is_category
+      - type: filter_items
+        source: sections
+        field: _is_home_container
+        pattern: "^true$"
+        keep_matching: false
+      - type: filter_fields
+        source: sections
+        field: _is_home_container
+        pattern: "^false$"
+        remove:
+          - _is_home_container
+
+  - name: get_category
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    media_types: *media_types_tvmonaco
+    row_pointer: /
+    entries:
+      - name: sections
+        type: object[]
+        pointer: /
+        entries:
+          - name: label
+            type: string
+            actions:
+              - type: format_text
+                argument: "{category_label}"
+          - name: link
+            type: string
+            actions:
+              - type: format_text
+                argument: "{category_link}"
+          - name: current_page
+            type: number
+            select: first
+            pointer: /page
+          - name: total_pages
+            type: number
+            select: first
+            pointer: /total_pages
+          - name: entries
+            type: object[]
+            pointer: /data/*[content_type=video]
+            select: all
+            entries: *entries_media_card
+          - name: entries
+            type: object[]
+            pointer: /data/*[content_type=smartlist]
+            select: all
+            entries: *entries_smartlist_card
+    post_process:
+      - type: derive_pagination
+        source: sections
+        total_pages_field: total_pages
+        remove_fields:
+          - total_pages
+
+  - name: get_section
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{base_url}/api/smartlist/v5/smartlist/{link}/items?lang={language}&page={page}&per_page={page_size}"
+    media_types: *media_types_tvmonaco
+    row_pointer: /
+    entries:
+      - name: current_page
+        type: number
+        select: first
+        pointer: /page
+      - name: total_pages
+        type: number
+        select: first
+        pointer: /total_pages
+      - name: entries
+        type: object[]
+        pointer: /data/*[content_type=video]
+        select: all
+        entries: *entries_media_card
+      - name: entries
+        type: object[]
+        pointer: /data/*[content_type=smartlist]
+        select: all
+        entries: *entries_smartlist_card
+    post_process:
+      - type: derive_pagination
+        total_pages_field: total_pages
+        remove_fields:
+          - total_pages
+
+  - name: get_banners
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    row_pointer: /
+    entries:
+      - name: banners
+        type: object[]
+        pointer: /data/*[content_type=video]
+        select: all
+        entries: *entries_home_banner_media
+      - name: banners
+        type: object[]
+        pointer: /data/*[content_type=smartlist]
+        select: all
+        entries: *entries_home_banner_smartlist
+
+  - name: search
+    scraper_type: json
+    request_method: post
+    base_url: "{base_url}"
+    query_url: "{base_url}/api/search/v3/search"
+    request_headers: *request_headers_json
+    request_body_actions:
+      - type: format_text
+        argument: '{"page":{page},"per_page":{page_size},"value":{search_query_json},"sort":"relevance","lang":"{language}","types":["medias"]}'
+    media_types: *media_types_tvmonaco
+    row_pointer: /
+    entries:
+      - name: source
+        type: string
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: current_page
+        type: number
+        actions:
+          - type: format_text
+            argument: "{page}"
+      - name: total_pages
+        type: number
+        select: first
+        pointer: /medias/page/total
+      - name: entries
+        type: object[]
+        pointer: /medias/data/*
+        select: all
+        entries: *entries_media_card
+    post_process:
+      - type: derive_pagination
+        total_pages_field: total_pages
+        remove_fields:
+          - total_pages
+
+  # Supports both media links emitted by cards and smartlist links emitted by
+  # series cards. The first matching row provides the appropriate detail shape.
+  - name: get_entry
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    row_pointer: /
+    entries:
+      - name: title
+        type: string
+        select: first
+        pointer: /translation/name
+      - name: title
+        type: string
+        select: first
+        pointer: /translations/0/name
+      - name: description
+        type: string
+        select: first
+        pointer: /translation/description
+      - name: description
+        type: string
+        select: first
+        pointer: /translations/0/description
+      - name: link
+        type: string
+        actions:
+          - type: format_text
+            argument: "{query_url}"
+      - name: web-link
+        type: string
+        select: first
+        pointer: /uuid
+        actions:
+          - type: build_url
+            base: "{base_url}/{type}/{slug}"
+            fields:
+              type: /type
+              slug: /translation/slug
+          - type: regex_replace_all
+            pattern: '/hosted/'
+            replacement: '/content/'
+          - type: regex_replace_all
+            pattern: '/(?:standard|auto)/'
+            replacement: '/smartlists/'
+      - name: duration
+        type: string
+        select: first
+        pointer: /duration
+        actions: *actions_duration
+      - name: release-date
+        type: string
+        select: first
+        pointer: /begin_date
+        actions:
+          - type: get_date
+            format: yyyy_mm_dd
+      - name: year
+        type: number
+        select: first
+        pointer: /production_date
+        actions:
+          - type: regex_find_all
+            pattern: '^(\d{4})'
+            format: "{1}"
+      - name: theme
+        type: string[]
+        pointer: /themes/*/translations/*[language=fr]/title
+        select: all
+      - name: theme
+        type: string[]
+        pointer: /new_genre/translations/*[language=fr]/title
+        select: all
+      - name: media-type
+        type: string[]
+        select: first
+        pointer: /type
+        actions:
+          - type: map
+            argument:
+              series: video/show/serie
+            default: video/show/other
+      - name: img/poster > link
+        type: string
+        select: first
+        pointer: /translation/picture/cover_picture_3_4/url
+      - name: img/poster > link
+        type: string
+        select: first
+        pointer: /translations/0/picture/cover_picture_3_4/url
+      - name: img/landscape > link
+        type: string
+        select: first
+        pointer: /translation/picture/cover_picture_16_9/url
+      - name: img/landscape > link
+        type: string
+        select: first
+        pointer: /translations/0/picture/cover_picture_16_9/url
+      - name: players
+        type: object[]
+        pointer: /uuid
+        select: all
+        entries: *entries_player
+      - name: seasons
+        type: object[]
+        pointer: /smartlist_items/*[content_type=smartlist]
+        select: all
+        entries: *entries_season_card
+      # A season has no nested seasons itself. OKAST links it to its parent
+      # series through serie_uuid; fetch that series to expose its season list.
+      - name: _series_link
+        type: string
+        select: first
+        pointer: /serie_uuid
+        actions:
+          - type: format_text
+            argument: "{base_url}/api/smartlist/v5/smartlist/{}?lang={language}"
+        sub_queries:
+          - scraper_type: json
+            target: parent
+            row_pointer: /
+            entries:
+              - name: seasons
+                type: object[]
+                pointer: /smartlist_items/*[content_type=smartlist]
+                select: all
+                entries: *entries_season_card
+    post_process:
+      - type: remove_fields
+        fields:
+          - _series_link
+
+  - name: get_season
+    scraper_type: json
+    base_url: "{base_url}"
+    # `get_entry > seasons > link` points at the season items endpoint without a
+    # page parameter, so the requested page is appended here.
+    query_url: "{query_url}{query_separator}page={page}"
+    media_types: *media_types_tvmonaco
+    row_pointer: /
+    entries:
+      - name: current_page
+        type: number
+        select: first
+        pointer: /page
+      - name: total_pages
+        type: number
+        select: first
+        pointer: /total_pages
+      - name: episodes
+        type: object[]
+        pointer: /data/*[content_type=video]
+        select: all
+        entries: *entries_season_episode
+    post_process:
+      - type: derive_pagination
+        total_pages_field: total_pages
+        remove_fields:
+          - total_pages
+
+  # Season episodes only publish their media URL, so the frontend loads their
+  # player descriptor lazily through the standard `get_players` command fed with
+  # that media URL.
+  - name: get_players
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    row_pointer: /
+    entries:
+      - name: players
+        type: object[]
+        pointer: /uuid
+        select: all
+        entries: *entries_player
+
+  - name: resolve_stream
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    row_pointer: /
+    entries:
+      - name: stream_url
+        type: string[]
+        pointer: /source
+        select: all
+      - name: manifest_type
+        type: string
+        actions:
+          - type: format_text
+            argument: "m3u8"

@@ -3,7 +3,7 @@
 ## 1. Overview
 
 An arachnea-stream collection declares a streaming source (legal platform or
-alternative catalogue). Each source defines up to 9 queries that produce
+alternative catalogue). Each source defines up to 10 queries that produce
 structured catalogue data — home pages, categories, search results, entry
 details, episodes, and live channels.
 
@@ -54,7 +54,7 @@ http:
 
 ## 3. Standard queries
 
-Each source may implement any subset of the following 9 queries:
+Each source may implement any subset of the following 10 queries:
 
 | Query name | Type | Description |
 |---|---|---|
@@ -62,6 +62,7 @@ Each source may implement any subset of the following 9 queries:
 | `load_home` | `json` / `html` | Home page (categories, sections, banners) |
 | `get_category` | `json` / `html` | Content filtered by channel/category |
 | `get_section` | `json` / `html` | Paginated section (list of entries) |
+| `get_banners` | `json` / `html` | Promotional banner payload loaded from a home banner link |
 | `search` | `json` / `html` | Search with filters |
 | `get_entry` | `json` / `html` | Entry detail (programme) |
 | `get_season` | `json` / `html` | Season episodes |
@@ -151,6 +152,18 @@ Static query. Each source returns exactly one row.
 
 ### 5.2 Home page — `load_home`
 
+`load_home` is the lightweight page-discovery query. When the upstream API
+provides separate endpoints for banner payloads, category content, or section
+items, it should return their links rather than eagerly fetching and embedding
+their full contents. The frontend then calls `get_banners`, `get_category`, or
+`get_section` on demand.
+
+**Do not use YAML `sub_queries` in `load_home` to enrich every banner, category,
+or section when one of these standard queries can load the same payload.** That
+pattern turns a single home request into N+1 requests, increases cache and
+provider load, and delays first-page rendering. Use `sub_queries` only when no
+dedicated stream query can represent the follow-up contract.
+
 Structure produced by each source:
 
 ```yaml
@@ -211,7 +224,11 @@ Structure produced by each source:
 | `request > channel` | `string` | Channel identifier for parameters |
 | `request > channel_label` | `string` | Channel name |
 | `request > page_size` | `number` | Page size |
-| `request > source` | `string` | Source for sub-queries |
+| `request > source` | `string` | Source identifier for `get_category` |
+
+For a lazy category, `request > query_url` is the category endpoint consumed by
+`get_category`. `request > name` (or `request > source`) must identify the
+source that owns that endpoint.
 
 #### Section
 
@@ -220,6 +237,10 @@ Structure produced by each source:
 | `label` | `string` | Rail title (e.g. `Latest additions`, `Trending`) |
 | `entries` | `object[]` | `MediaItem` objects (see next section) |
 | `link` | `string` | URL for `get_section` (pagination) |
+
+For a lazy section, emit `link` even if `entries` is initially absent or empty.
+`get_section` receives this link and the requested one-based page number. Do
+not prefetch every section's entries in `load_home` with a `sub_query`.
 
 #### Banner
 
@@ -235,6 +256,11 @@ Structure produced by each source:
 | `web-link` | `string` | Public URL |
 | `subtitle` | `string` | Subtitle |
 | `entryUrl` | `string` | Link variant |
+
+For lazy banners, `load_home` may emit only `banners > link`. The frontend
+passes that value to `get_banners`, which returns the populated `banners`
+array. Do not fetch banner details through a `load_home` `sub_query` when
+`get_banners` is available.
 
 ---
 
@@ -302,11 +328,18 @@ contain `entries` (MediaItem) and pagination metadata:
       - type: derive_pagination
 ```
 
+`get_category` is the on-demand counterpart of a category emitted by
+`load_home`. It receives the category descriptor through `request` fields,
+including `request > query_url`, and should fetch the category payload itself.
+Do not prefetch every category in `load_home` through `sub_queries`.
+
 ---
 
 ### 5.5 Paginated section — `get_section`
 
-Returns a list of entries with pagination.
+Returns a list of entries with pagination. It is the on-demand counterpart of
+a section emitted by `load_home`: the backend receives the section `link` and
+the requested one-based `page` value.
 
 | YAML field | Type | Description |
 |---|---|---|
@@ -328,6 +361,39 @@ post_process:
       - total_pages
       - page_size
 ```
+
+### 5.5.1 Promotional banners — `get_banners`
+
+Returns the populated banner payload for a `banners > link` emitted by
+`load_home`. The backend exposes the link to YAML as both `{query_url}` and
+`{link}`.
+
+```yaml
+- name: get_banners
+  scraper_type: json
+  base_url: "{base_url}"
+  query_url: "{query_url}"
+  row_pointer: /
+  entries:
+    - name: banners
+      type: object[]
+      pointer: /items/*
+      select: all
+      entries:
+        - name: key
+          type: string
+          pointer: /id
+        - name: title
+          type: string
+          pointer: /title
+        - name: image
+          type: string
+          pointer: /image
+```
+
+Use `get_banners` rather than a `load_home` `sub_query` whenever banner data
+has its own endpoint or is expensive to assemble. This keeps initial home
+navigation fast and lets banner data use its own client-cache lifetime.
 
 ---
 
@@ -443,6 +509,38 @@ Returns a single object with full programme metadata.
 | `players` | `object[]` | Players (see 5.9) |
 | `img/preview > link` | `string` | Preview |
 | `img/poster > link` | `string` | Preview fallback |
+
+### 5.8.1 Deferred players — `get_players`
+
+Dedicated command for the deferred loading of the players of a single item
+(typically an episode) whose original payload declares no `players`. The backend
+runs it with the media URL of that item.
+
+| YAML field | Type | Description |
+|---|---|---|
+| `query_url` | `string` | Item media URL provided by the backend |
+| `link` | `string` | Alias for `query_url` |
+| `players` | `object[]` | Players (see 5.9) |
+
+The query produces the same `players` shape as `get_entry`. When a source does
+not embed players in its episodes, it must declare `get_players`: the frontend
+then publishes the episode media `link` as its `players` collection and loads
+that collection through this command. Without this query, the API returns no
+player and playback stays unavailable for those items.
+
+```yaml
+- name: get_players
+  scraper_type: json
+  base_url: "{base_url}"
+  query_url: "{query_url}"
+  row_pointer: /
+  entries:
+    - name: players
+      type: object[]
+      pointer: /uuid
+      select: all
+      entries: *entries_player
+```
 
 ---
 
