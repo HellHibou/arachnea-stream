@@ -590,11 +590,22 @@ pub(crate) async fn resolve_scraper_query_stream(
     }
 
     let proxy_country = normalize_scraper_query_proxy_country(proxy_country)?;
-    let params = HashMap::from([
+    let mut params = HashMap::from([
         ("url".to_string(), target.to_string()),
         ("query_url".to_string(), target.to_string()),
         ("proxy_country".to_string(), proxy_country.clone()),
     ]);
+    if let Some(proxy_path) = endpoints
+        .http_proxy_public_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        params.insert(
+            HTTP_PROXY_PUBLIC_PATH_PARAM.to_string(),
+            proxy_path.to_string(),
+        );
+    }
     let sources = vec![source.to_string()];
     let results = scraper_agregator
         .execute_query_async(

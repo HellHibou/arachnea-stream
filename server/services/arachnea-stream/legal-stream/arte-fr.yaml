@@ -930,6 +930,25 @@ queries:
         type: string[]
         pointer: /streams/*/url
         select: all
+        # The Arte player config exposes no storyboard URL. The HLS master
+        # manifest appends it as a `#SPRITES: <vtt-url>` comment, so fetch
+        # each manifest as raw text and extract that VTT URL as a sibling
+        # `storyboard_vtt_url` field. `target: parent` preserves stream_url.
+        sub_queries:
+          - scraper_type: html
+            target: parent
+            row_selector: "html"
+            entries:
+              - name: storyboard_vtt_url
+                type: string
+                select: first
+                actions:
+                  - type: get_response_body
+                  - type: regex_find_all
+                    pattern: '(?m)^#SPRITES:\s*(\S+)'
+                    format: "{1}"
+                  - type: resolve_url
+                    proxy: true
       - name: manifest_type
         type: string
         pointer: /streams/0/url
