@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onUnmounted, watch } from 'vue'
 
 import HomeCatalog from '@/components/HomeCatalog.vue'
 import RouteStateMessage from '@/components/routing/RouteStateMessage.vue'
 import { decodeCategoryRoutePayload } from '@/router/routePayloads'
 import { useStorage } from '@/services/storage'
 import { useI18n } from '@/i18n'
+import { APP_TITLE } from '@/constants'
 import type { HomeCategory } from '@/types/home'
 import type { BackgroundMediaCandidate, MediaSelectionTarget } from '@/types/media'
 
@@ -58,6 +59,23 @@ const category = computed<HomeCategory | null>(() => {
     sources: payload.sources,
   }
 })
+
+/** Builds the browser tab title from the category label and the application title. */
+const pageTitle = computed(() => {
+  const label = category.value?.label
+  return label ? `${label} - ${APP_TITLE}` : APP_TITLE
+})
+
+/** Updates the browser tab title whenever the page title changes. */
+watch(pageTitle, (title) => {
+  document.title = title
+}, { immediate: true })
+
+/** Restores the default application title when the component is unmounted. */
+onUnmounted(() => {
+  document.title = APP_TITLE
+})
+
 </script>
 
 <template>
