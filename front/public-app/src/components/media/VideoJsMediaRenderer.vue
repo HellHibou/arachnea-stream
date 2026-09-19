@@ -8,13 +8,6 @@ import {
 } from '@/composables/video/useVideoJsMediaRenderer'
 import { markImageUrlFailed } from '@/composables/media/useFailedImageUrls'
 
-/** Display size of a storyboard preview frame. */
-const STORYBOARD_PREVIEW_SIZE = 15
-/** Display width, in pixels, of a storyboard preview frame. */
-const STORYBOARD_PREVIEW_WIDTH = 16 * STORYBOARD_PREVIEW_SIZE
-/** Display height, in pixels, of a storyboard preview frame. */
-const STORYBOARD_PREVIEW_HEIGHT = 9 * STORYBOARD_PREVIEW_SIZE
-
 defineOptions({
   inheritAttrs: false,
 })
@@ -66,8 +59,8 @@ const {
   shouldRenderPosterOverlay,
   /** Whether the video is in initial loading state. */
   isVideoInitialLoading,
-  /** Resolved VTT storyboard grid info (async, null until resolved). */
-  vttStoryboardGrid,
+  /** Fixed storyboard preview size derived from the sprite cell dimensions. */
+  storyboardPreviewSize,
 } = useVideoJsMediaRenderer({
   props,
   emit,
@@ -102,46 +95,28 @@ const mergedAttrs = computed(() => ({
  * Keeps the storyboard preview size independent from the source sprite cell dimensions.
  *
  * The sprite thumbnail plugin uses `width` and `height` both to crop a cell from the
- * source image and to size its tooltip. Scaling the tooltip here preserves the source
- * dimensions for cropping while rendering a fixed-size preview.
+ * source image and to size its tooltip. The tooltip layout box is resized in the
+ * renderer composable instead of CSS-scaled so Video.js measures the displayed size
+ * when clamping the tooltip inside the player near the seek bar edges.
  *
- * The scale factors use content-only dimensions (without border) so that every source
- * cell renders at the exact preview size.  The 1 px border set by the plugin is scaled
- * along with the content, but the tiny difference is consistent across sources.
- *
- * `--sb-bg-src-w` preserves the sprite's declared column width. The height remains `auto` so
- * the browser keeps the image's intrinsic aspect ratio when a VTT declares trailing cues outside
- * the actual sprite image.
- *
- * `--storyboard-preview-text-scale` counter-scales the tooltip font-size so that time
- * text renders at the intended size regardless of the source cell dimensions.
+ * `storyboardTooltipStyle` exposes the fixed preview size as CSS variables so the
+ * layout box is correct synchronously, and counter-scales the time text so it keeps
+ * its intended size whatever the source cell dimensions.
  */
-const storyboardPreviewStyle = computed(() => {
-  const vttSize = vttStoryboardGrid.value
-  const storyboard = props.source.storyboard
-  const cellWidth = vttSize?.width ?? storyboard?.width
-  const cellHeight = vttSize?.height ?? storyboard?.height
+const storyboardTooltipStyle = computed(() => {
+  const previewSize = storyboardPreviewSize.value
 
-  if (!cellWidth || !cellHeight) {
+  if (!previewSize) {
     return undefined
   }
 
-  // Fit the cell preview into the fixed 16:9 frame with a uniform scale so the
-  // source aspect ratio is preserved (an independent x/y scale would stretch
-  // off-ratio cells and deform the thumbnail).
-  const fitScale = Math.min(
-    STORYBOARD_PREVIEW_WIDTH / cellWidth,
-    STORYBOARD_PREVIEW_HEIGHT / cellHeight,
-  )
-
-  const cols = vttSize?.columns ?? storyboard?.columns
   return {
-    '--storyboard-preview-scale-x': String(fitScale),
-    '--storyboard-preview-scale-y': String(fitScale),
-    '--storyboard-preview-text-scale': String(1 / fitScale),
-    ...(cols ? {
-      '--sb-bg-src-w': String(cellWidth * cols),
-    } : {}),
+    '--storyboard-preview-width': `${previewSize.displayWidth}px`,
+    '--storyboard-preview-height': `${previewSize.displayHeight}px`,
+    '--storyboard-preview-background-width': previewSize.columns > 0
+      ? `${previewSize.displayWidth * previewSize.columns}px`
+      : undefined,
+    '--storyboard-preview-display-to-source-scale': String(previewSize.displayToSourceScale),
   }
 })
 </script>
@@ -151,7 +126,7 @@ const storyboardPreviewStyle = computed(() => {
     ref="hostElement"
     v-bind="mergedAttrs"
     class="videojs-media-host"
-    :style="storyboardPreviewStyle"
+    :style="storyboardTooltipStyle"
   >
     <video
       ref="videoElement"
@@ -869,18 +844,16 @@ const storyboardPreviewStyle = computed(() => {
   display: flex !important;
   align-items: flex-end !important;
   justify-content: center !important;
+  width: var(--storyboard-preview-width, auto) !important;
+  height: var(--storyboard-preview-height, auto) !important;
   padding-bottom: 4px !important;
-  transform: translateY(-10px) scale(
-    var(--storyboard-preview-scale-x, 1),
-    var(--storyboard-preview-scale-y, 1)
-  ) !important;
-  font-size: calc(var(--player-font-size, 1rem) * var(--storyboard-preview-text-scale, 1)) !important;
+  margin-right: 1px !important;
+  transform: translateY(5px) !important;
+  font-size: var(--player-font-size, 1rem) !important;
   font-weight: 700 !important;
-  border: 1px solid rgba(255, 255, 255, .9) !important;
+  border: 2px solid rgba(255, 255, 255, .8) !important;
   background-color: rgba(0,0,0, 0.40);
-  background-size:
-    calc(var(--sb-bg-src-w) * 1px)
-    auto !important;
+  background-size: var(--storyboard-preview-background-width, auto) auto !important;
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-play-progress .vjs-time-tooltip) {

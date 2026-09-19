@@ -61,6 +61,16 @@ import { t } from '@/i18n'
 import { markImageUrlFailed } from '@/composables/media/useFailedImageUrls'
 
 const STORYBOARD_VTT_REQUEST_TIMEOUT_MS = 5_000
+/** Display size of a storyboard preview frame. */
+const STORYBOARD_PREVIEW_FRAME_SIZE = 15
+/** Display width, in pixels, of a storyboard preview frame. */
+const STORYBOARD_PREVIEW_WIDTH = 16 * STORYBOARD_PREVIEW_FRAME_SIZE
+/** Display height, in pixels, of a storyboard preview frame. */
+const STORYBOARD_PREVIEW_HEIGHT = 9 * STORYBOARD_PREVIEW_FRAME_SIZE
+/** Player width below which the sprite plugin applies its responsive factor. */
+const STORYBOARD_RESPONSIVE_WIDTH = 600
+/** Gap kept between the storyboard tooltip and the seek bar. */
+const STORYBOARD_TOOLTIP_GAP = 12
 /** Interval between attempts to attach the dash.js quality bridge. */
 const DASH_QUALITY_BRIDGE_RETRY_INTERVAL = 250
 /** Bounded window after which pending dash.js bridge attach attempts stop. */
@@ -130,6 +140,42 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     const vttStoryboardGrid = shallowRef<{
       width: number; height: number; columns: number; rows: number
     } | null>(null)
+    /** Fixed 16:9 storyboard preview size used for the tooltip layout box. */
+    const storyboardPreviewSize = computed(() => {
+      // Read the player width so the preview follows the plugin responsive factor
+      // applied below 600 px wide players.
+      const playerWidth = activePlayer.value?.currentWidth() ?? 0
+      const grid = vttStoryboardGrid.value
+      const storyboard = props.source.storyboard
+      const cellWidth = grid?.width ?? storyboard?.width
+      const cellHeight = grid?.height ?? storyboard?.height
+      const columns = grid?.columns ?? storyboard?.columns ?? 0
+
+      if (!cellWidth || !cellHeight) {
+        return null
+      }
+
+      // Fit the cell preview into the fixed 16:9 frame with a uniform scale so the
+      // source aspect ratio is preserved (an independent x/y scale would stretch
+      // off-ratio cells and deform the thumbnail).
+      const fitScale = Math.min(
+        STORYBOARD_PREVIEW_WIDTH / cellWidth,
+        STORYBOARD_PREVIEW_HEIGHT / cellHeight,
+      )
+      const responsiveScale = playerWidth > 0 && playerWidth < STORYBOARD_RESPONSIVE_WIDTH
+        ? playerWidth / STORYBOARD_RESPONSIVE_WIDTH
+        : 1
+      const scale = fitScale * responsiveScale
+
+      return {
+        displayWidth: scale * cellWidth,
+        displayHeight: scale * cellHeight,
+        columns,
+        fitScale,
+        responsiveScale,
+        displayToSourceScale: scale,
+      }
+    })
 
    /**
     * Emits the video initial load complete event once per player instance.
@@ -685,11 +731,15 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
   }
 
   /**
-   * Applies exact VTT cue geometry after the sprite plugin updates its uniform-grid preview.
+   * Applies exact VTT cue geometry and the fixed preview size after the sprite
+   * plugin updates its uniform-grid preview.
    *
    * The plugin only supports one fixed interval, whereas valid VTT documents can contain cues
    * with different durations. Deferring the override keeps plugin layout behavior while selecting
    * the image region declared for the actual hover timestamp.
+   *
+   * The tooltip layout box is resized here instead of CSS-scaled so Video.js measures
+   * the displayed size when clamping the tooltip inside the player near the seek bar edges.
    *
    * @param player Video.js player owning the seek bar and thumbnail tooltip.
    */
@@ -701,7 +751,51 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       return
     }
 
+    const rescaleStoryboardTooltip = () => {
+      const previewSize = storyboardPreviewSize.value
+      const tooltip = playerElement.querySelector<HTMLElement>('.vjs-mouse-display .vjs-time-tooltip')
+
+      if (!previewSize || !tooltip) {
+        return
+      }
+
+      const pluginWidth = Number.parseFloat(tooltip.style.width)
+      const pluginHeight = Number.parseFloat(tooltip.style.height)
+
+      // The sprite plugin rewrites these inline styles on every mousemove, so skip
+      // tooltips without plugin geometry.
+      if (
+        !Number.isFinite(pluginWidth) || pluginWidth <= 0 ||
+        !Number.isFinite(pluginHeight) || pluginHeight <= 0
+      ) {
+        return
+      }
+
+      tooltip.style.width = `${previewSize.displayWidth}px`
+      tooltip.style.height = `${previewSize.displayHeight}px`
+      tooltip.style.top = `${-(previewSize.displayHeight + STORYBOARD_TOOLTIP_GAP)}px`
+      tooltip.style.backgroundPosition = tooltip.style.backgroundPosition
+        .split(' ')
+        .map((component) => {
+          const value = Number.parseFloat(component)
+
+          return Number.isFinite(value) ? `${value * previewSize.fitScale}px` : component
+        })
+        .join(' ')
+
+      if (previewSize.columns > 0) {
+        const backgroundSize = tooltip.style.backgroundSize.split(' ')
+        const backgroundHeight = backgroundSize.length > 1
+          ? backgroundSize.slice(1).join(' ').trim() || 'auto'
+          : 'auto'
+
+        tooltip.style.backgroundSize = `${pluginWidth * previewSize.fitScale * previewSize.columns}px ${backgroundHeight}`
+      }
+    }
+
     const handleMouseMove = (event: MouseEvent) => {
+      queueMicrotask(rescaleStoryboardTooltip)
+
       const duration = player.duration()
       const bounds = seekBarElement.getBoundingClientRect()
 
@@ -730,6 +824,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
 
         tooltip.style.backgroundImage = `url("${cue.imageUrl}")`
         tooltip.style.backgroundPosition = `${-cue.x}px ${-cue.y}px`
+        rescaleStoryboardTooltip()
       })
     }
 
@@ -1615,6 +1710,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
      isPosterOverlayVisible,
      shouldRenderPosterOverlay,
      isVideoInitialLoading,
+     storyboardPreviewSize,
      vttStoryboardGrid,
    }
 }

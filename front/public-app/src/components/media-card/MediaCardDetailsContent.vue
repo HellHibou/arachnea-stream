@@ -328,16 +328,16 @@ const hasDetails = computed(() =>
 
 .media-card-details__score-value.media-card__rating--good {
   background: var(--bg-rating-good);
-  color: var(--text-on-rating-good);
+  color: var(--text-primary);
 }
 
 .media-card-details__score-value.media-card__rating--average {
   background: var(--bg-rating-average);
-  color: var(--text-on-rating-average);
+  color: var(--text-primary);
 }
 
 .media-card-details__score-value.media-card__rating--low {
   background: var(--bg-rating-low);
-  color: var(--text-on-rating-low);
+  color: var(--text-primary);
 }
 </style>
