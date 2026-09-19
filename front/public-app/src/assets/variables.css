@@ -88,6 +88,9 @@
   --bg-rating-good: linear-gradient(180deg, #13c261 0%, #0ca24f 100%);
   --bg-rating-average: linear-gradient(180deg, #ff8a2b 0%, #f06a0d 100%);
   --bg-rating-low: linear-gradient(180deg, #ff5b5b 0%, #d53e3e 100%);
+  --text-on-rating-good: #ffffff;
+  --text-on-rating-average: #ffffff;
+  --text-on-rating-low: #ffffff;
 
   --bg-accent-marker-primary: linear-gradient(
     180deg,

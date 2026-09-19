@@ -43,10 +43,6 @@ const props = withDefaults(defineProps<Props>(), {
 <template>
   <div class="media-card__list-copy">
     <div class="media-card__list-body">
-      <div v-if="item.audioLabel" class="media-card__list-badges">
-        <span class="media-card__list-badge">{{ item.audioLabel }}</span>
-      </div>
-
       <h2 class="media-card__preview-title media-card__preview-title--list">
         {{ displayTitle }}
       </h2>
@@ -58,7 +54,6 @@ const props = withDefaults(defineProps<Props>(), {
       <MediaCardDetailsContent
         :item="item"
         variant="list"
-        :show-duration-fact="true"
         :service-title="serviceTitle"
         :service-logo="serviceLogo"
       />
@@ -80,29 +75,6 @@ const props = withDefaults(defineProps<Props>(), {
   min-width: 0;
   flex-direction: column;
   gap: 8px;
-}
-
-.media-card__list-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.media-card__list-badge {
-  display: inline-flex;
-  align-items: center;
-  min-height: 28px;
-  padding: 0 12px;
-  border-radius: 999px;
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  font-size: 0.82rem;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-}
-
-.media-card__list-badge--rating {
-  color: var(--text-primary);
 }
 
 .media-card__preview-title {

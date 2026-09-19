@@ -1875,3 +1875,14 @@ redémarrage du processus ni du systray :
 - **Catalog premium and media type badges**: premium crowns and media type
   labels on catalog thumbnails now share the same top-left row when there is
   enough horizontal space, while retaining a wrapped layout for narrow cards.
+
+- **Card facts layout**: the catalog thumbnails hover popup and the list rows
+  now share the same labeled facts layout: media type, duration, language,
+  genres, score, and source flow as inline label+value groups separated by a
+  dot, wrapping whole groups to the next line when the width runs out (the
+  separator stays with the preceding group). These labeled facts replace the
+  compact meta line whenever they are available, the paid-access fact shows
+  the premium crown icon before the subscription-required text, and the score
+  value renders white on its rating pill through the previously missing
+  `--text-on-rating-*` theme variables. The list rows no longer repeat the
+  language as an unlabeled badge above the title.

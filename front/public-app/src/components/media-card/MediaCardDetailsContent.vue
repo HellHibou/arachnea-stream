@@ -19,11 +19,6 @@ interface Props {
    */
   variant?: 'preview' | 'list'
   /**
-   * Indicates whether the duration should be displayed in the facts block.
-   * @default false
-   */
-  showDurationFact?: boolean
-  /**
    * Display title for the backend service attached to the previewed item.
    */
   serviceTitle?: string | null
@@ -36,7 +31,6 @@ interface Props {
 /** Component props with applied defaults. */
 const props = withDefaults(defineProps<Props>(), {
   variant: 'preview',
-  showDurationFact: false,
   serviceTitle: null,
   serviceLogo: null,
 })
@@ -46,6 +40,11 @@ const { resolvedLanguage, t } = useI18n()
 /** Display label for the item paid-access condition, when it needs one. */
 const priceLabel = computed(() =>
   formatPriceAccess(props.item.price, resolvedLanguage.value, t),
+)
+
+/** Indicates whether the paid-access fact uses the premium crown treatment. */
+const showPremiumCrown = computed(() =>
+  props.item.price === 'premium' && Boolean(priceLabel.value),
 )
 
 /**
@@ -74,17 +73,39 @@ const formattedRating = computed(() => {
   return props.item.rating.toFixed(1).replace('.', ',')
 })
 
+/** Language label rendered as a labeled fact instead of the compact meta line. */
+const languageFact = computed(() => props.item.audioLabel)
+
+/** Media type label rendered as a labeled fact instead of the compact meta line. */
+const mediaTypeFact = computed(() => props.item.mediaTypeLabel)
+
+/** Genre labels joined for the labeled fact rendered instead of the compact meta line. */
+const genreFact = computed(() =>
+  props.item.themeLabels.length > 0 ? props.item.themeLabels.join(', ') : null,
+)
+
+/**
+ * Indicates whether the labeled catalog facts replace the compact meta line,
+ * which would otherwise repeat the same information.
+ */
+const replacesMetaLine = computed(() =>
+  Boolean(languageFact.value || mediaTypeFact.value || genreFact.value),
+)
+
 /**
  * Indicates whether any labeled fact should be rendered.
  */
 const showFacts = computed(() =>
   Boolean(
-    (props.showDurationFact && props.item.durationLabel) ||
+    languageFact.value ||
+      mediaTypeFact.value ||
+      genreFact.value ||
+      props.item.durationLabel ||
       props.serviceTitle ||
       props.item.releaseDateLabel ||
       props.item.expireLabel ||
       priceLabel.value ||
-      (props.variant === 'list' && props.item.rating != null),
+      props.item.rating != null,
   ),
 )
 
@@ -108,67 +129,63 @@ const hasDetails = computed(() =>
     :class="`media-card-details--${variant}`"
   >
     <p
-      v-if="item.metaLine"
+      v-if="item.metaLine && !replacesMetaLine"
       class="media-card-details__meta"
       :class="{ 'media-card-details__meta--list': variant === 'list' }"
     >
       {{ item.metaLine }}
     </p>
 
-    <div
-      v-if="showFacts"
-      class="media-card-details__facts"
-      :class="{ 'media-card-details__facts--list': variant === 'list' }"
-    >
-      <p
-        v-if="showDurationFact && item.durationLabel"
-        class="media-card-details__fact"
-        :class="{ 'media-card-details__fact--list': variant === 'list' }"
-      >
+    <div v-if="showFacts" class="media-card-details__facts">
+      <p v-if="mediaTypeFact" class="media-card-details__fact">
+        <span class="media-card-details__fact-label">{{ t('media.type') }} :</span>
+        <span class="media-card-details__fact-value">{{ mediaTypeFact }}</span>
+      </p>
+
+      <p v-if="genreFact" class="media-card-details__fact">
+        <span class="media-card-details__fact-label">{{ t('media.theme') }} :</span>
+        <span class="media-card-details__fact-value">{{ genreFact }}</span>
+      </p>
+
+      <p v-if="item.durationLabel" class="media-card-details__fact">
         <span class="media-card-details__fact-label">{{ t('media.duration') }} :</span>
-        {{ ' ' }}{{ item.durationLabel }}
+        <span class="media-card-details__fact-value">{{ item.durationLabel }}</span>
       </p>
 
-      <div
-        v-if="serviceTitle && variant === 'list'"
-        class="media-card-details__fact media-card-details__fact--list media-card-details__source"
-      >
-        <span class="media-card-details__fact-label">{{ t('media.source') }} :</span>
-        <span class="media-card-details__source-title">{{ serviceTitle }}</span>
-      </div>
+      <p v-if="languageFact" class="media-card-details__fact">
+        <span class="media-card-details__fact-label">{{ t('media.theme') }} :</span>
+        <span class="media-card-details__fact-value">{{ genreFact }}</span>
+      </p>
 
-      <p
-        v-if="item.releaseDateLabel"
-        class="media-card-details__fact"
-        :class="{ 'media-card-details__fact--list': variant === 'list' }"
-      >
+      <p v-if="item.releaseDateLabel" class="media-card-details__fact">
         <span class="media-card-details__fact-label">{{ t('media.releaseDate') }} :</span>
-        {{ ' ' }}{{ item.releaseDateLabel }}
+        <span class="media-card-details__fact-value">{{ item.releaseDateLabel }}</span>
       </p>
 
-      <p
-        v-if="item.expireLabel"
-        class="media-card-details__fact"
-        :class="{ 'media-card-details__fact--list': variant === 'list' }"
-      >
+      <p v-if="item.expireLabel" class="media-card-details__fact">
         <span class="media-card-details__fact-label">{{ t('media.availableUntil') }} :</span>
-        {{ ' ' }}{{ item.expireLabel }}
+        <span class="media-card-details__fact-value">{{ item.expireLabel }}</span>
       </p>
 
-      <p
-        v-if="priceLabel"
-        class="media-card-details__fact"
-        :class="{ 'media-card-details__fact--list': variant === 'list' }"
-      >
+      <p v-if="priceLabel" class="media-card-details__fact">
+        <span
+          v-if="showPremiumCrown"
+          class="media-card-details__premium-crown"
+          aria-hidden="true"
+        >
+          <v-icon icon="mdi-crown" size="14" />
+        </span>
         {{ priceLabel }}
       </p>
 
-      <div
-        v-if="formattedRating && variant === 'list'"
-        class="media-card-details__fact media-card-details__fact--list media-card-details__score"
-      >
+      <div v-if="formattedRating" class="media-card-details__fact media-card-details__score">
         <span class="media-card-details__fact-label">{{ t('media.score') }} :</span>
         <span class="media-card-details__score-value" :class="scoreClass">{{ formattedRating }}</span>
+      </div>
+
+      <div v-if="serviceTitle" class="media-card-details__fact media-card-details__source">
+        <span class="media-card-details__fact-label">{{ t('media.source') }} :</span>
+        <span class="media-card-details__source-title">{{ serviceTitle }}</span>
       </div>
     </div>
 
@@ -204,34 +221,52 @@ const hasDetails = computed(() =>
   margin: 0;
 }
 
+/* Facts flow as inline label+value groups separated by a dot; each group
+   wraps to the next line as a whole (its separator stays with the preceding
+   group) without being cut. The 6px rhythm is uniform: label to value, value
+   to separator, and separator to the next group. */
 .media-card-details__facts {
-  display: grid;
-  gap: 8px;
-}
-
-.media-card-details__facts--list {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 18px;
+  align-items: center;
+  gap: 4px 6px;
 }
 
-.media-card-details__fact,
+.media-card-details__fact {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  overflow: visible;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.media-card-details__fact:not(:last-child)::after {
+  content: "•";
+  color: var(--text-disabled);
+}
+
+.media-card-details__fact-label {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+/* Premium crown shown before the paid-access fact, matching the card badge. */
+.media-card-details__premium-crown {
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-premium-crown);
+}
+
 .media-card-details__episode {
   display: block;
   overflow: visible;
   color: var(--text-secondary);
   font-size: 0.9rem;
   line-height: 1.3;
-}
-
-.media-card-details__fact--list {
-  margin: 0;
-  white-space: nowrap;
-}
-
-.media-card-details__fact-label {
-  color: var(--text-primary);
-  font-weight: 700;
 }
 
 .media-card-details__overview {
@@ -304,11 +339,5 @@ const hasDetails = computed(() =>
 .media-card-details__score-value.media-card__rating--low {
   background: var(--bg-rating-low);
   color: var(--text-on-rating-low);
-}
-
-@media (max-width: 720px) {
-  .media-card-details__facts--list {
-    gap: 6px 14px;
-  }
 }
 </style>
