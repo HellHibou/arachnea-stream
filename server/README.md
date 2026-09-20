@@ -65,7 +65,7 @@ sudo apt install -y build-essential cmake pkg-config libwebkit2gtk-4.1-dev libay
 - `cargo build` - Build the backend workspace.
 - `cargo check --workspace` - Type-check the backend workspace.
 - `cargo test --workspace` - Run existing backend tests.
-- `cargo run -p arachnea-stream --bin arachnea` - Run the `arachnea` backend executable. Add `--server-public` to bind the server to `0.0.0.0` so the web interface and API are reachable through any local network hostname or IP (for example `http://pc-jeremy:8080/`).
+- `cargo run -p arachnea-stream --bin arachnea` - Run the `arachnea` backend executable. Add `--server-public` to bind the server to `0.0.0.0` so the web interface and API are reachable through any local network hostname or IP (for example `http://localhost:8080/`).
 - `cd crates/arachnea-stream && cargo tauri build` - Build the Tauri desktop application and release bundles.
 - `cargo build-doc` - Generate backend documentation without external dependencies.
 - `cargo show-doc` - Generate backend documentation without external dependencies and open it in the browser.

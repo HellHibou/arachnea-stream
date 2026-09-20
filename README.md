@@ -1,157 +1,164 @@
-# Arachnea
+<p align="center">
+  <img src="server/crates/arachnea-stream/icons/icon.png" alt="Arachnea Stream logo" width="120" />
+</p>
 
-## Project Structure
+# Arachnea Stream
 
-- `front/` - Vue.js frontend application.
-- `server/` - Rust backend Cargo workspace.
+**Arachnea Stream** is a streaming application that centralizes multiple
+streaming services behind a single interface. Instead of juggling separate
+apps and websites (legal platforms, alternative catalogs, live TV
+channels...), the user finds all catalogs, searches, and video players in one
+place.
 
-## Rust Crates
+The application ships in two execution modes:
 
-- `arachnea-stream` (`server/crates/arachnea-stream/`) - Backend executable crate. It owns the `arachnea` binary, stream service logic, player resolvers, and Tauri application configuration/assets.
-- `arachnea-core` (`server/crates/arachnea-core/`) - Shared backend primitives, including controller abstractions/backends and persistence/resource helpers. Its Tauri backend is parameterized by application-supplied context, assets, URI scheme, and API prefix.
-- `arachnea-scrapyfy` (`server/crates/arachnea-scrapyfy/`) - Generic YAML-driven scraper engine, query models, actions, post-processors, and aggregation logic.
-- `arachnea-dns` (`server/crates/arachnea-dns/`) - DNS resolver core with policies, cache, upstream transports, recursive resolution, and optional server support.
-- `arachnea-http` (`server/crates/arachnea-http/`) - Outbound HTTP client facade with optional Cloudflare-oriented engines.
-- `arachnea-proxy` (`server/crates/arachnea-proxy/`) - Proxy routing core, outbound transports, client connectors, and optional HTTP/HTTPS/SOCKS server listeners.
+- **Desktop application** (Tauri) for Windows, macOS, and Linux;
+- **Server mode**: the web interface and API are reachable from a browser on
+  the local network (for example `http://localhost:8080/`).
 
-## Installation
+## Features
 
-Install Rust with `rustup`, Node.js with npm, and the platform build tools required by Tauri and native Rust dependencies. After installation, open a new terminal and verify `rustc -V`, `cargo -V`, `node -v`, `npm -v`, and `cmake --version`.
+### Centralizing streaming services
 
-Windows PowerShell:
+- Every streaming service (TF1+, M6 Play, France TV, RTBF Auvio, Anime-Sama,
+  etc.) is described by a **collection file** and exposed as a uniform source
+  in the interface.
+- A unified catalog aggregates entries from every enabled service: users
+  browse media cards without caring about the originating platform.
+- Services can be **enabled or disabled** individually from the
+  administration interface, with persisted preferences.
 
-```powershell
-winget install --id Rustlang.Rustup -e
-winget install --id Kitware.CMake -e
-rustup default stable-msvc
-```
+### Extensible through YAML files
 
-Also install Microsoft C++ Build Tools with the `Desktop development with C++` workload. WebView2 is normally present on Windows 10 1803 and later, but install the Evergreen runtime if Tauri reports it missing. If CMake was installed with the MSI or Chocolatey instead of Winget, make sure `C:\Program Files\CMake\bin` is on `PATH`; the Chocolatey package supports `choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System'`.
+- The core of the system is a **YAML-driven scraping engine**
+  (`arachnea-scrapyfy`): adding a new service means writing a YAML file that
+  describes its HTTP requests and how to shape the responses (JSON or HTML),
+  without touching application code.
+- Each collection declares up to **10 standard queries**: service metadata,
+  home page, categories and paginated sections, promotional banners, search,
+  entry details, season episodes, and live channels.
+- Per-source HTTP configuration handles both plain APIs (`direct`) and
+  Cloudflare-protected sites (`auto`), with user-agent profiles and proxy
+  support.
+- Services can be hot-reloaded through the administration API, without
+  restarting the application.
 
-macOS:
+### Watching videos
 
-```bash
-xcode-select --install
-brew install cmake
-```
+- **Built-in video player** (Video.js) with HLS and DASH support, including
+  multi-period streams.
+- **Stream resolution**: player resolvers extract the actual playback URL
+  from service pages, including third-party streaming hosters.
+- Plays **live TV** and VOD episodes (movies, series, anime, documentaries,
+  sport, kids, news...).
 
-Linux Debian/Ubuntu:
+<p align="center">
+  <a href="docs/screenshots/entry_01.png"><img src="docs/screenshots/entry_01.png" alt="Entry details — player" width="80%"></a>
+</p>
+<p align="center">
+  <a href="docs/screenshots/entry_02.png"><img src="docs/screenshots/entry_02.png" alt="Entry details — seasons and episodes" width="80%"></a>
+</p>
 
-```bash
-sudo apt update
-sudo apt install -y build-essential cmake pkg-config libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
-```
+### Browsing and discovery
 
-Use the official CMake download page if the distribution package is too old for a native dependency.
+- **Per-service home page**: sections, categories, and highlighted banners,
+  just like the original platform.
+- **Categories and sections**: filtered navigation by channel or topic, with
+  pagination.
+- **Detailed entry pages**: synopsis, artwork (posters, banners), seasons,
+  and episodes.
+- **Normalized media types** (movie, series, anime, documentary, sport, kids,
+  news, live, manga/webtoon) for consistent navigation across sources.
 
-## Cargo Commands
+<p align="center">
+  <a href="docs/screenshots/home_01.png"><img src="docs/screenshots/home_01.png" alt="Home view — desktop" height="260"></a>
+  <a href="docs/screenshots/home_02.png"><img src="docs/screenshots/home_02.png" alt="Home view — smartphone" height="260"></a>
+</p>
+<p align="center">
+  <a href="docs/screenshots/home_03.png"><img src="docs/screenshots/home_03.png" alt="Home view — desktop" height="260"></a>
+  <a href="docs/screenshots/home_04.png"><img src="docs/screenshots/home_04.png" alt="Home view — smartphone" height="260"></a>
+</p>
 
-The following commands are available for the Rust backend workspace in `server/`. Alias commands are defined in `server/.cargo/config.toml`.
+### Search
 
-- `cargo build` - Build the backend workspace.
-- `cargo check --workspace` - Check the backend workspace.
-- `cargo run -p arachnea-stream --bin arachnea` - Build and run the backend executable. Add `--server-public` to bind the server to `0.0.0.0` so the web interface and API are reachable through any local network hostname or IP (for example `http://pc-jeremy:8080/`).
-- `cargo run -p arachnea-dns -- validate-config crates/arachnea-dns/config-sample/system_relay.toml` - Validate a DNS configuration sample.
-- `cargo run -p arachnea-proxy -- validate-config crates/arachnea-proxy/config-sample/direct.toml` - Validate a proxy configuration sample.
-- `cd server/crates/arachnea-stream && cargo tauri build` - Build the Tauri desktop application and generate release bundles.
-- `cargo build-doc` - Generate backend documentation without external dependencies.
-- `cargo show-doc` - Generate backend documentation without external dependencies and open it in the browser.
+- **Multi-source search**: a single search bar queries every enabled service
+  and aggregates the results.
+- Supports the **filters** declared by each source in its YAML.
+- Caching and conditional validation (ETag) keep responses fast and cheap on
+  bandwidth.
 
-## Cross-Platform Build Commands
+<p align="center">
+  <a href="docs/screenshots/search_01.png"><img src="docs/screenshots/search_01.png" alt="Multi-source search" width="80%"></a>
+</p>
 
-Rust cross-compilation starts by installing the target standard library, but `rustup target add` does not install the platform linker, C/C++ compiler, SDK, WebView, or CMake. Prefer native OS builders for release installers; use cross-compilation mainly for checks or when Tauri documents a supported runner.
+### Administration interface
 
-Common target setup:
+- Admin API mounted under `/api/admin/...` (web) or reachable through Tauri
+  `invoke` commands (desktop).
+- **Service management**: enable/disable, full catalog with localized
+  descriptions and logos.
+- **Credential management**: encrypted per-service credential storage (for
+  platforms that require sign-in).
+- **Settings**: port, root, and network mode, applied hot whenever possible.
+- **Admin password** (Argon2id hashing), cookie sessions, login rate
+  limiting, and CSRF protection.
+- **Hot reload** of service groups with atomic runtime swap.
 
-```bash
-rustup target add x86_64-pc-windows-msvc
-rustup target add aarch64-pc-windows-msvc
-rustup target add x86_64-apple-darwin aarch64-apple-darwin
-rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu
-```
+### Privacy and network infrastructure
 
-Backend checks:
+- **Built-in proxy** (`arachnea-proxy`): outbound request routing,
+  configurable transports (HTTP/HTTPS/SOCKS), loopback-only listener by
+  default.
+- **Custom DNS resolution** (`arachnea-dns`) with policies, cache, and
+  upstream transports.
+- **Egress country detection** (`arachnea-ip-countries`) to adapt
+  geo-restricted requests.
+
+## Screenshots
+
+Feature screenshots are shown inline in the sections above
+([Watching videos](#watching-videos),
+[Browsing and discovery](#browsing-and-discovery),
+[Search](#search)). Images are rendered centered at 80% width (the home
+desktop/smartphone pairs share a fixed height); click any image to view it
+full size. Screenshot files live in `docs/screenshots/`.
+
+## Getting started
+
+### Download a release
+
+Prebuilt installers (Windows NSIS/MSI, macOS `.dmg`, Linux `.deb`/`.rpm`/
+`.AppImage`, plus a portable Windows `.zip`) are produced for every release —
+grab the latest one from the repository's **Releases** page.
+
+### Run from sources
+
+See [`docs/BUILDING.md`](docs/BUILDING.md) for full prerequisites and build
+commands. The short version:
 
 ```bash
 cd server
-cargo check -p arachnea-core --target x86_64-pc-windows-msvc
-cargo check -p arachnea-stream --target x86_64-pc-windows-msvc
+cargo run -p arachnea-stream --bin arachnea   # desktop executable / local server
 ```
 
-Desktop bundles:
+## Legal notice
 
-```bash
-cd server/crates/arachnea-stream
-cargo tauri build
-cargo tauri build --target x86_64-pc-windows-msvc
-cargo tauri build --target aarch64-pc-windows-msvc
-cargo tauri build --target universal-apple-darwin
-cargo tauri build --target x86_64-unknown-linux-gnu
-```
+Arachnea Stream is an aggregator: it does not host any media. Content comes
+from third-party sources described by YAML collections, and some sources may
+be subject to the laws of your country. Use the sources available to you in
+accordance with applicable legislation.
 
-For macOS/Linux to Windows MSVC Tauri builds, use Tauri's documented `cargo-xwin` runner instead of plain `cargo tauri build --target ...`; plain cross-builds can fail in the Windows resource step, for example with a missing `llvm-rc`.
+## License
 
-```bash
-cargo install cargo-xwin
-rustup target add x86_64-pc-windows-msvc
-cd server/crates/arachnea-stream
-cargo tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc
-```
+Arachnea Stream is dual-licensed under the **MIT license** and the
+**Apache License 2.0**, at your option — see
+[`LICENSE-MIT`](LICENSE-MIT) and [`LICENSE-APACHE`](LICENSE-APACHE).
+This matches the `license = "MIT OR Apache-2.0"` declaration used across the
+workspace manifests.
 
-## Local Cross-Platform Release Build
-
-A Node-based release builder lives in `build-release/` and drives the Tauri CLI for every platform the current host can produce locally, without Docker — see `build-release/README.md` for the full documentation. It reads project paths and the platform list from `build-release/release-config.json`, resolves the version from `server/Cargo.toml`, builds with `cargo tauri build`, then assembles a `releases/release-<VERSION>/` folder with version-named installers, companion `*.sha256`/`*.md5` checksum files, the project CHANGELOG at its root, and a portable Windows `.zip` (executable + `services/`) for Windows platforms.
-
-```bash
-node build-release/install-tools.mjs                # install rust targets + cargo-xwin (+ Linux packages)
-node build-release/release.mjs                      # build all platforms available on this host
-node build-release/release.mjs -p windows            # build one family (osx = alias of darwin)
-node build-release/release.mjs -p "darwin-*"         # build by wildcard pattern
-node build-release/release.mjs -p darwin-universal -p windows   # several selectors (repeat or comma)
-node build-release/release.mjs --list                # show which platforms this host can build
-node build-release/release.mjs --version             # print the project version
-node build-release/release.mjs --skip-build          # assemble only, reusing existing target/ artifacts
-```
-
-`-p/--platform` accepts exact ids (`darwin-arm64`), family names (`darwin`, `windows`, `linux`), `*` patterns (`darwin-*`), and the alias `osx` (maps to `darwin`). Multiple selectors can be repeated (`-p darwin -p windows-*`) or comma-separated (`-p "darwin,windows"`). Platform subfolders are named after the family part: `darwin-*` → `osx`, `windows-*` → `windows`, `linux-*` → `linux` (mapping centralized in `build-release/capabilities.mjs`).
-
-The frontend is built **once** and shared by all targets: each `cargo tauri build` invocation is passed a `--config` override that disables `beforeBuildCommand` (which stays active for manual `cargo tauri build` runs outside this tooling). Use `--no-frontend-build` to reuse an existing `front/dist`. Every installer and portable Windows zip gets companion `*.sha256` and `*.md5` checksum files (formats `sha256sum`/`md5sum`). Only the outputs being rebuilt are cleaned: rebuilding a whole family (e.g. `-p osx`) clears that family folder, while rebuilding a single platform (e.g. `-p darwin-x86_64`) removes only that build's artifacts and checksums, leaving other platforms' files untouched.
-
-Cross-compiling Windows NSIS installers from macOS/Linux requires a few native tools that `install-tools` provisions automatically: LLVM (`llvm-rc`, for cargo-xwin), CMake + Ninja + NASM (for BoringSSL-based dependencies), and `makensis` — for the latter a `makensis.exe` shim wrapping the native compiler is created in `~/.arachnea-cross-tools/bin/` because the Tauri NSIS bundler looks for the Windows-style executable name; spawned builds automatically get this directory on their PATH.
-
-Example output layout:
-
-```
-releases/release-0.1.0/
-  CHANGELOG.md
-  osx/        arachnea_0.1.0_universal.dmg
-  windows/    arachnea_0.1.0_x64-setup.exe
-              arachnea_0.1.0_x64-portable.zip   # arachnea.exe + services/
-  linux/      arachnea_0.1.0_amd64.deb
-```
-
-The cross-compilation capability matrix (which bundles each host can produce) is encoded in `build-release/capabilities.mjs`:
-
-| Host \ Target bundle | macOS `.dmg` | Windows NSIS | Windows MSI | Linux `.deb`/`.rpm`/`.AppImage` |
-|---|---|---|---|---|
-| macOS | native | via `cargo-xwin` | not possible (WiX) | not possible |
-| Windows | not possible | native | native | not possible (use WSL2) |
-| Linux | not possible | via `cargo-xwin` | not possible (WiX) | native |
-
-The Windows portable archive is the only generated zip; it ships the release executable plus the runtime `services/` folder read by the app in release mode, excluding local-only state such as `credentials.json` and the cache. The `data/` folder is not included and is created at runtime. The installer bundles (NSIS `.exe`, `.msi`, `.deb`, `.rpm`, `.AppImage`, `.dmg`) also embed the same `services/` folder through the Tauri `bundle.resources` setting; on Windows it is installed next to the executable (the application root in release mode), while on Linux/macOS it lands in the platform resource directory.
-
-## NPM Commands
-
-The following commands are available for the frontend project in `front/`.
-
-- `npm install` - Install frontend dependencies.
-- `npm run dev` - Start the Vite development server.
-- `npm run build` - Run type checks and build the production bundle.
-- `npm run preview` - Preview the production build locally.
-- `npm run build-only` - Build the production bundle with Vite.
-- `npm run type-check` - Run Vue TypeScript type checking.
-- `npm run lint:css` - Run Stylelint on CSS and Vue style blocks.
-- `npm run lint:css:fix` - Run Stylelint with automatic fixes.
+Unless you explicitly state otherwise, any contribution submitted for
+inclusion in the project is licensed, at the project's option, under both
+licenses, without any additional terms or conditions.
 
 ## Skills
 
@@ -160,12 +167,10 @@ The following Codex skills are provided by this project.
 - `#build-yaml-source` - Create or update one Arachnea scraper YAML from one or more source URLs by analyzing the target website, reusing patterns from `server/services/*.yaml`, and checking supported scraper capabilities in `server/crates/arachnea-scrapyfy/src/scrapyfy/*`.
 - `#update-readme` - Maintain all Arachnea README.md files by updating Cargo commands, NPM commands, crate summaries, and the list of project-related Codex skills.
 
-## References
+## Documentation
 
-- [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
-- [Tauri CLI build options](https://v2.tauri.app/reference/cli/)
-- [Tauri Windows installer and cargo-xwin notes](https://v2.tauri.app/distribute/windows-installer/)
-- [Rustup cross-compilation](https://rust-lang.github.io/rustup/cross-compilation.html)
-- [CMake downloads](https://cmake.org/download/)
-- [Homebrew CMake formula](https://formulae.brew.sh/formula/cmake.html)
-- [Winget install command](https://learn.microsoft.com/en-us/windows/package-manager/winget/install)
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) - how to contribute (workflow, source YAML guide, licensing of contributions).
+- [`SECURITY.md`](SECURITY.md) - how to report security vulnerabilities.
+- [`docs/BUILDING.md`](docs/BUILDING.md) - build prerequisites, commands, and release packaging.
+- [`docs/specifications/`](docs/specifications/) - YAML scraper format specifications (English and French).
+- [`CHANGELOG.md`](CHANGELOG.md) - notable changes.

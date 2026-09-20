@@ -12,7 +12,7 @@ Keep repository README files in English and in sync with current repository-loca
 1. Read every repository-authored `README.md`, repository-local `Cargo.toml` files, adjacent `.cargo/config.toml` files, and repository-local `package.json` files.
 2. Ensure all updated or added README text is in English.
 3. Ensure all interactions with the user are in the user's language. 
-4. Update the root `README.md` `Project Structure`, `Rust Crates`, `Cargo Commands`, `NPM Commands`, and `Skills` sections when the discovered repository state differs.
+4. The technical sections (`Project Structure`, `Rust Crates`, `Cargo Commands`, `NPM Commands`) live in `docs/BUILDING.md`; update them there when the discovered repository state differs. The root `README.md` only keeps the `Skills` section.
 5. Enumerate repository-local Cargo projects only. Exclude `target`, build output directories, and global or system paths.
 6. For each Cargo project, ensure entries for `cargo build` and `cargo run`: use plain commands at the repository root, or `cd <dir> && cargo ...` for subdirectories. For virtual workspaces, include `-p <package>` and `--bin <binary>` when needed to make run commands unambiguous.
 7. For each alias under a nearby `[alias]` table, add `cargo <alias>` at the repository root, or `cd <dir> && cargo <alias>` for subdirectories, with a one-line description.

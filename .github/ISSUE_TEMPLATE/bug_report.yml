@@ -1,0 +1,89 @@
+name: Bug report
+description: Report a broken feature, a failing source, or a crash.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report!
+        For security matters, please use the [security policy](SECURITY.md) instead of a public issue.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Release version, or commit hash when running from sources.
+      placeholder: e.g. 0.1.0 or master@abcdef
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Execution mode
+      options:
+        - Desktop (Tauri)
+        - Server (web interface)
+        - Both
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Windows
+        - macOS
+        - Linux
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Also tell us what you expected to happen instead.
+      placeholder: A clear and concise description of the problem.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open '...'
+        2. Click '...'
+        3. See error
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - A specific YAML source (which one?)
+        - Home / browsing / entry details
+        - Search
+        - Video player / stream resolution
+        - Live TV
+        - Administration interface
+        - Server mode / networking
+        - Build / packaging
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or console output
+      description: Any relevant backend or browser console output. Remove personal data first.
+      render: shell
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: If applicable, drag and drop screenshots here.
