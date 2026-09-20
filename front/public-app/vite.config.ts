@@ -31,6 +31,42 @@ export default defineConfig(({ command }) => ({
   ],
   build: {
     outDir: '../dist',
+    rollupOptions: {
+      output: {
+        // Split the player into dedicated chunks: the shared player business
+        // logic (composables + media components used by lives, entry details
+        // and the background video), the Video.js core, its plugins, and the
+        // DASH playback stack (handler and dash.js engine) are cached
+        // independently from the main entry and from each other.
+        manualChunks(id) {
+          // CommonJS interop helpers are shared by the Video.js chunks; keeping
+          // them in the core chunk avoids a circular chunk dependency
+          // (core imports helpers, plugins import core).
+          if (id.includes('commonjsHelpers')) {
+            return 'video-player'
+          }
+          if (id.includes('node_modules')) {
+            if (/[\\/]node_modules[\\/]dashjs(?:[\\/][^\\/]+)?/.test(id)) {
+              return 'video-player-dashjs'
+            }
+            if (id.includes('videojs-contrib-dash')) {
+              return 'video-player-dash'
+            }
+            if (/[\\/]node_modules[\\/](video\.js(?:[\\/][^\\/]+)?|videojs-vtt\.js(?:[\\/][^\\/]+)?|@videojs[\\/](?:http-streaming|vhs-utils|xhr)(?:[\\/][^\\/]+)?|global[\\/](?:document|window))/.test(id)) {
+              return 'video-player'
+            }
+            if (/[\\/]node_modules[\\/](videojs-[^\\/]+|@videojs[\\/][^\\/]+)/.test(id)) {
+              return 'video-player-plugins'
+            }
+            return undefined
+          }
+          if (/[\\/]src[\\/](components[\\/]media|composables[\\/]video)[\\/]/.test(id)) {
+            return 'video-player-core'
+          }
+          return undefined
+        },
+      },
+    },
   },
   server: {
     port: 5173,

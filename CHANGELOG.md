@@ -4,6 +4,19 @@ All notable changes to the server workspace are recorded here. Add new entries a
 
 ## Unreleased
 
+### Changed
+- **Frontend player chunk split**: the player code is now isolated into
+  dedicated Vite chunks: `video-player` (Video.js core with its internal
+  dependencies: `@videojs/http-streaming`, `vhs-utils`, `xhr`,
+  `videojs-vtt.js`, `global/*`), `video-player-dash` (`videojs-contrib-dash`),
+  `video-player-dashjs` (`dash.js` engine) and `video-player-plugins`
+  (EME, quality menu, hotkeys, sprite thumbnails, themes), plus
+  `video-player-core` for the shared player business logic (media components
+  and composables used by lives, entry details and the background video). The
+  main `index` bundle shrinks from ~1.8 MB to ~120 kB and each player layer is
+  cached independently.
+
+### Fixed
 ### Fixed
 - **Desktop tab fullscreen**: entering browser fullscreen from a managed Tauri
   page now hides the native tab strip and lets the page use the full content
