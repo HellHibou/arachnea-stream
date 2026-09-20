@@ -10,5 +10,5 @@
   { "path": "ln24-be.yaml","enabled": true },
   { "path": "tv5mondeplus-fr.yaml", "enabled": false },
   { "path": "antennereunion-fr.yaml", "enabled": false },
-  { "path": "tvmonaco-fr.yaml", "enabled": false }
+  { "path": "tvmonaco-fr.yaml", "enabled": true }
 ]

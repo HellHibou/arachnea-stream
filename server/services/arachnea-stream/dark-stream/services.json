@@ -1,7 +1,7 @@
 [
   {
     "path": "anime-sama.yaml",
-    "enabled": true,
+    "enabled": false,
     "parameters": [
       {
         "name": "base_url",
@@ -11,15 +11,15 @@
   },
   {
     "path": "animeultime.yaml",
-    "enabled": true
+    "enabled": false
   },
   {
     "path": "coflix.yaml",
-    "enabled": true
+    "enabled": false
   },
   {
     "path": "frenchanimes.yaml",
-    "enabled": true
+    "enabled": false
   },
   {
     "path": "papadustream-v2.yaml",
