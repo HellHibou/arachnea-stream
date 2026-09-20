@@ -701,7 +701,7 @@ queries:
         select: all
       - name: subtitles
         type: string[]
-        pointer: /subtitleTracks/*/displayName
+        pointer: /subtitles/*
         select: all
       - name: content-advisor
         type: string
@@ -717,6 +717,20 @@ queries:
             format: "{1}"
           - type: map
             argument:
+              comedie: "Comédie"
+              comedie-dramatique: "Comédie dramatique"
+            default: "{}"
+      - name: theme
+        type: string[]
+        pointer: /tags/*[type=subcategory_new]/tagValues/*/tagId
+        select: all
+        actions:
+          - type: regex_find_all
+            pattern: "^subcat_new_(.+)_74079A$"
+            format: "{1}"
+          - type: map
+            argument:
+              comedie: "Comédie"
               comedie-dramatique: "Comédie dramatique"
             default: "{}"
       - name: genre
@@ -729,7 +743,83 @@ queries:
             format: "{1}"
           - type: map
             argument:
+              comedie: "Comédie"
               comedie-dramatique: "Comédie dramatique"
+            default: "{}"
+      - name: genre
+        type: string[]
+        pointer: /tags/*[type=subcategory_new]/tagValues/*/tagId
+        select: all
+        actions:
+          - type: regex_find_all
+            pattern: "^subcat_new_(.+)_74079A$"
+            format: "{1}"
+          - type: map
+            argument:
+              comedie: "Comédie"
+              comedie-dramatique: "Comédie dramatique"
+            default: "{}"
+      - name: categories
+        type: string[]
+        pointer: /tags/*[type=category]/tagValues/*/tagId
+        select: all
+        actions:
+          - type: regex_find_all
+            pattern: "^cat_(.+)_74079A$"
+            format: "{1}"
+          - type: map
+            argument:
+              series: "Séries"
+              films: Films
+              documentaires: Documentaires
+              jeunesse: Jeunesse
+            default: "{}"
+      - name: categories
+        type: string[]
+        pointer: /tags/*[type=category_new]/tagValues/*/tagId
+        select: all
+        actions:
+          - type: regex_find_all
+            pattern: "^cat_new_(.+)_74079A$"
+            format: "{1}"
+          - type: map
+            argument:
+              series: "Séries"
+              films: Films
+              documentaires: Documentaires
+              jeunesse: Jeunesse
+            default: "{}"
+      - name: categories
+        type: string[]
+        pointer: /tags/*[type=subcategory]/tagValues/*/tagId
+        select: all
+        actions:
+          - type: regex_find_all
+            pattern: "^subcat_(.+)_74079A$"
+            format: "{1}"
+          - type: map
+            argument:
+              comedie: "Comédie"
+              comedie-dramatique: "Comédie dramatique"
+              drame: Drame
+              action: Action
+              aventure: Aventure
+            default: "{}"
+      - name: categories
+        type: string[]
+        pointer: /tags/*[type=subcategory_new]/tagValues/*/tagId
+        select: all
+        actions:
+          - type: regex_find_all
+            pattern: "^subcat_new_(.+)_74079A$"
+            format: "{1}"
+          - type: map
+            argument:
+              comedie: "Comédie"
+              comedie-dramatique: "Comédie dramatique"
+              drame: Drame
+              action: Action
+              aventure: Aventure
             default: "{}"
       - name: director
         type: string[]
@@ -751,6 +841,19 @@ queries:
             pattern: "^(.*)$"
             name: "@web_category"
             value: "{1}"
+      - name: _web-category
+        type: string
+        select: first
+        pointer: /tags/*[type=subcategory_new]/tagValues/*/tagId
+        actions:
+          - type: regex_find_all
+            pattern: "^subcat_new_(.+)_74079A$"
+            format: "{1}"
+          - type: extract_variables
+            pattern: "^(.*)$"
+            name: "@web_category"
+            value: "{1}"
+            on_duplicate: replace
       - name: _web-slug
         type: string
         select: first
@@ -789,123 +892,193 @@ queries:
         request_pointer: /assetId
         request_actions:
           - type: format_text
-            argument: "{base_url}/api/graphql/v1/?operationName=VODContentSeasons&variables=%7B%22contentId%22%3A%22{}%3Afr%22%7D&extensions=%7B%22persistedQuery%22%3A%7B%22version%22%3A1%2C%22sha256Hash%22%3A%223dd0d1d4b917a2f453410c92603fe7d066ab3c5eebf050549fcec74006cfd367%22%7D%7D"
-        request_headers:
-          - name: referer
-            actions:
-              - type: format_text
-                argument: "{base_url}/"
-        row_pointer: /data/lookupContent/seasons/items/*
+            argument: "{api_base_url}/v1/customer/TV5MONDE/businessunit/TV5MONDEplus/content/asset/{}/season"
+        row_pointer: /items/*
         target: seasons
         entries:
           - name: label
             type: string
             select: first
-            pointer: /seasonNumber
+            pointer: /season
             actions:
               - type: format_text
                 argument: "Saison {}"
+          - name: _series-id
+            type: string
+            actions:
+              - type: format_text
+                argument: "{request_url}"
+              - type: extract_variables
+                pattern: "/asset/([^/]+)/season"
+                name: "@series_id"
+                value: "{1}"
+                on_duplicate: replace
           - name: link
             type: string
             select: first
-            pointer: /id
+            pointer: /season
+            actions:
+              - type: format_text
+                argument: "{api_base_url}/v1/customer/TV5MONDE/businessunit/TV5MONDEplus/content/asset/{@series_id}/season/{}/episode"
+              - type: replace_variables
+
+  # ---------------------------------------------------------------------------
+  # 9. Season episodes from the public catalogue API
+  # ---------------------------------------------------------------------------
+  - name: get_season
+    scraper_type: json
+    base_url: "{api_base_url}"
+    query_url: "{query_url}"
+    media_types: *media_types_tv5mondeplus
+    row_pointer: /
+    entries:
+      - name: source
+        type: string
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: current_page
+        type: number
+        select: first
+        pointer: /pageNumber
+      - name: page_size
+        type: number
+        select: first
+        pointer: /pageSize
+      - name: infer_have_more_from_full_page
+        type: boolean
+        actions:
+          - type: format_text
+            argument: "true"
+      - name: episodes
+        type: object[]
+        pointer: /items/*
+        select: all
+        entries:
+          - name: _episode
+            type: string
+            select: first
+            pointer: /episode
+            actions:
+              - type: extract_variables
+                pattern: "^(.*)$"
+                name: "@episode"
+                value: "{1}"
+                on_duplicate: replace
+          - name: title
+            type: string
+            select: first
+            pointer: /localized/*[locale=fr]/title
+            actions:
+              - type: map
+                argument:
+                  "": "Épisode {@episode}"
+                  " ": "Épisode {@episode}"
+                default: "{}"
+              - type: replace_variables
+          - name: title/alt
+            type: string
+            select: first
+            pointer: /localized/*[locale=fr]/longDescription
           - name: description
             type: string
             select: first
-            pointer: /description
-        sub_queries:
-          - scraper_type: json
-            context_pointer: /
-            request_pointer: /id
-            request_actions:
+            pointer: /localized/*[locale=fr]/description
+          - name: year
+            type: number
+            select: first
+            pointer: /productionYear
+          - name: duration
+            type: string
+            select: first
+            pointer: /duration
+            actions:
+              - type: ratio
+                argument: 0.001
+              - type: suffix
+                argument: " sec"
+              - type: normalize_duration
+          - name: link
+            type: string
+            select: first
+            pointer: /assetId
+            actions:
               - type: format_text
-                argument: "{base_url}/api/graphql/v1/?operationName=VODContentEpisodes&variables=%7B%22contentId%22%3A%22{}%22%7D&extensions=%7B%22persistedQuery%22%3A%7B%22version%22%3A1%2C%22sha256Hash%22%3A%22fe8d9bf478e3542a91dd70d989747fba7097b169d7de9b1c8a18748281f29a13%22%7D%7D"
-            request_headers:
-              - name: referer
-                actions:
-                  - type: format_text
-                    argument: "{base_url}/"
-            row_pointer: /data/lookupContent/episodes/items/*
-            target: episodes
+                argument: "{api_base_url}/v1/customer/TV5MONDE/businessunit/TV5MONDEplus/content/asset?assetIds={}&fieldSet=ALL&allowedCountry={allowed_country}"
+          - name: _web-category
+            type: string
+            actions:
+              - type: format_text
+                argument: "{query_url}"
+              - type: regex_find_all
+                pattern: "(?:[?&]subcategory=)([^&]+)"
+                format: "{1}"
+              - type: extract_variables
+                pattern: "^(.*)$"
+                name: "@web_category"
+                value: "{1}"
+                on_duplicate: replace
+          - name: web-link
+            type: string
+            select: first
+            pointer: /slugs/0
+            actions:
+              - type: format_text
+                argument: "{base_url}/fr/series/{@web_category}/{}"
+              - type: replace_variables
+          - name: season
+            type: string
+            select: first
+            pointer: /season
+          - name: season-name
+            type: string
+            select: first
+            pointer: /season
+            actions:
+              - type: format_text
+                argument: "Saison {}"
+          - name: episode-number
+            type: number
+            select: first
+            pointer: /episode
+          - name: subtitles
+            type: string[]
+            pointer: /subtitles/*
+            select: all
+          - name: players
+            type: object[]
+            pointer: /
+            select: all
             entries:
-              - name: title
+              - name: name
                 type: string
-                select: first
-                pointer: /title
-              - name: description
-                type: string
-                select: first
-                pointer: /description
-              - name: episode-number
-                type: number
-                select: first
-                pointer: /episodeNumber
-              - name: year
-                type: number
-                select: first
-                pointer: /year
-              - name: duration
-                type: string
-                select: first
-                pointer: /originalDuration
-                actions:
-                  - type: ratio
-                    argument: 60
-                  - type: suffix
-                    argument: " sec"
-                  - type: normalize_duration
-              - name: link
-                type: string
-                select: first
-                pointer: /externalIds/*[scheme=DATA_PROVIDER]/identifier
                 actions:
                   - type: format_text
-                    argument: "{api_base_url}/v1/customer/TV5MONDE/businessunit/TV5MONDEplus/content/asset?assetIds={}&fieldSet=ALL&allowedCountry={allowed_country}"
-                sub_queries:
-                  - scraper_type: json
-                    target: parent
-                    row_pointer: /items/*
-                    entries:
-                      - name: web-link
-                        type: string
-                        select: first
-                        pointer: /slugs/0
-                        actions:
-                          - type: format_text
-                            argument: "{base_url}/fr/series/{@web_category}/{}"
-                          - type: replace_variables
-                      - name: players
-                        type: object[]
-                        pointer: /
-                        select: all
-                        entries:
-                          - name: name
-                            type: string
-                            actions:
-                              - type: format_text
-                                argument: "TV5MONDE+"
-                          - name: web-link
-                            type: string
-                            pointer: /slugs/0
-                            select: first
-                            actions:
-                              - type: format_text
-                                argument: "{base_url}/fr/series/{@web_category}/{}"
-                              - type: replace_variables
-                          - name: resolver
-                            type: object
-                            select: first
-                            entries:
-                              - name: kind
-                                type: string
-                                actions:
-                                  - type: format_text
-                                    argument: "tv5mondeplus-video"
-                              - name: target_id
-                                type: string
-                                pointer: /assetId
-                                select: first
-              - name: img/preview > link
-                type: string
+                    argument: "TV5MONDE+"
+              - name: resolver
+                type: object
                 select: first
-                pointer: /artworks/0/source
+                entries:
+                  - name: kind
+                    type: string
+                    actions:
+                      - type: format_text
+                        argument: "tv5mondeplus-video"
+                  - name: target_id
+                    type: string
+                    select: first
+                    pointer: /assetId
+          - name: img/preview > link
+            type: string
+            select: first
+            pointer: /localized/*[locale=fr]/images/*/url
+    post_process:
+      - type: derive_pagination
+        current_page_field: current_page
+        page_size_field: page_size
+        infer_from_full_page_field: infer_have_more_from_full_page
+        next_param: page
+        remove_fields:
+          - current_page
+          - page_size
+          - infer_have_more_from_full_page

@@ -5,6 +5,13 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ## Unreleased
 
 ### Fixed
+- **TV5MONDE+ entry seasons and metadata**: replaced the stale GraphQL season
+  queries with the public REST catalogue endpoints and added lazy `get_season`
+  episode loading. Season links are now directly queryable URLs and retain the
+  subcategory needed to build episode public links. Entry metadata now supports
+  legacy and current tag formats, publishes categories, and reads subtitle
+  language codes from `subtitles` instead of the frequently empty
+  `subtitleTracks` collection.
 - **TVMonaco episode playback**: the source now declares the `get_players`
   query, so the lazy player load performed by the frontend for season episodes
   (whose payload carries no embedded players) returns the `scraper-query`
