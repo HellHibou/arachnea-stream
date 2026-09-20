@@ -5,6 +5,10 @@ All notable changes to the server workspace are recorded here. Add new entries a
 ## Unreleased
 
 ### Fixed
+- **Desktop tab fullscreen**: entering browser fullscreen from a managed Tauri
+  page now hides the native tab strip and lets the page use the full content
+  area; leaving fullscreen restores the strip whenever more than one tab is
+  open.
 - **TV5MONDE+ entry seasons and metadata**: replaced the stale GraphQL season
   queries with the public REST catalogue endpoints and added lazy `get_season`
   episode loading. Season links are now directly queryable URLs and retain the

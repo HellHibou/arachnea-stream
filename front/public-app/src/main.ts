@@ -5,7 +5,11 @@ import 'vuetify/styles'
 import { createApp } from 'vue'
 import App from './App.vue'
 import DesktopTabShell from './components/desktop/DesktopTabShell.vue'
-import { isDesktopTabShell } from './services/desktopTabs'
+import {
+  isDesktopTabPage,
+  isDesktopTabShell,
+  reportDesktopTabsFullscreen,
+} from './services/desktopTabs'
 import { createVuetify } from 'vuetify'
 import { aliases as mdiAliases, mdi } from 'vuetify/iconsets/mdi'
 import { createPinia } from 'pinia'
@@ -36,8 +40,16 @@ const vuetify = createVuetify({
 
 /** Whether this webview renders the desktop tab strip. */
 const desktopShell = isDesktopTabShell()
+/** Whether this webview renders a page managed by the native desktop tab host. */
+const desktopTabPage = isDesktopTabPage()
 /** The Vue application instance for this webview. */
 const app = createApp(desktopShell ? DesktopTabShell : App)
+
+if (desktopTabPage) {
+  document.addEventListener('fullscreenchange', () => {
+    void reportDesktopTabsFullscreen(document.fullscreenElement !== null)
+  })
+}
 
 app
   .use(vuetify)

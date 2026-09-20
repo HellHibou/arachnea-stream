@@ -103,6 +103,7 @@ struct TabHost {
     queue: Sender<Job>,
     tabs: Vec<Tab>,
     active: String,
+    fullscreen_tab: Option<String>,
     sequence: u64,
     config: tauri::utils::config::WindowConfig,
     running: bool,
@@ -150,6 +151,7 @@ pub(super) fn setup(
             queue: tx,
             tabs: Vec::new(),
             active: String::new(),
+            fullscreen_tab: None,
             sequence: 0,
             config: config.clone(),
             running: true,
@@ -203,7 +205,8 @@ impl TabHost {
     fn resize(&self) -> Result<()> {
         let layout = content_layout(&self.window)?;
         let size = layout.size;
-        let strip_height = if self.tabs.len() > 1 {
+        let fullscreen = self.fullscreen_tab.is_some() || self.window.is_fullscreen()?;
+        let strip_height = if self.tabs.len() > 1 && !fullscreen {
             STRIP_HEIGHT
         } else {
             0.0
@@ -237,6 +240,26 @@ impl TabHost {
         Ok(())
     }
 
+    /// Updates the fullscreen page and reapplies the native child-webview layout.
+    ///
+    /// # Arguments
+    /// * `id` - Label of the page reporting its document fullscreen state.
+    /// * `fullscreen` - Whether the page currently owns document fullscreen.
+    fn set_fullscreen(&mut self, id: &str, fullscreen: bool) -> Result<()> {
+        if !self.tabs.iter().any(|tab| tab.id == id) {
+            return Err(anyhow!("Unknown desktop tab"));
+        }
+        if fullscreen && self.active != id {
+            return Err(anyhow!("Only the active desktop tab can enter fullscreen"));
+        }
+        if fullscreen {
+            self.fullscreen_tab = Some(id.to_string());
+        } else if self.fullscreen_tab.as_deref() == Some(id) {
+            self.fullscreen_tab = None;
+        }
+        self.resize()
+    }
+
     /// Creates a real page webview, retaining its state until explicitly closed.
     ///
     /// # Arguments
@@ -253,6 +276,7 @@ impl TabHost {
         config.label = id.clone();
         config.url = url;
         let builder = WebviewBuilder::from_config(&config)
+            .initialization_script("window.__DESKTOP_TAB_PAGE__ = true;")
             .on_new_window(move |url, _| {
                 let _ = requests.send(Box::new(move |host| {
                     if let Err(error) = host.open_requested(url) {
@@ -349,6 +373,9 @@ impl TabHost {
             page.close()?;
         }
         self.tabs.remove(index);
+        if self.fullscreen_tab.as_deref() == Some(id) {
+            self.fullscreen_tab = None;
+        }
         self.resize()?;
         self.publish();
         Ok(())
@@ -377,19 +404,35 @@ pub(super) fn handle_invoke(invoke: Invoke<Wry>) -> bool {
             .to_string(),
         _ => String::new(),
     };
+    let fullscreen = match invoke.message.payload() {
+        InvokeBody::Json(value) => value
+            .get("fullscreen")
+            .and_then(|fullscreen| fullscreen.as_bool())
+            .unwrap_or(false),
+        _ => false,
+    };
     let fallback_resolver = invoke.resolver.clone();
     let job: Job = Box::new(move |host| {
         let result = (|| -> Result<serde_json::Value> {
-            if source != host.shell {
-                return Err(anyhow!(
-                    "Desktop tab commands are restricted to the tab shell"
-                ));
-            }
             match command.as_str() {
-                "desktop_tabs_snapshot" => {}
-                "desktop_tabs_open" => host.open(host.home.clone())?,
-                "desktop_tabs_activate" => host.activate(&id)?,
-                "desktop_tabs_close" => host.close(&id)?,
+                "desktop_tabs_set_fullscreen" => host.set_fullscreen(&source, fullscreen)?,
+                "desktop_tabs_snapshot"
+                | "desktop_tabs_open"
+                | "desktop_tabs_activate"
+                | "desktop_tabs_close" => {
+                    if source != host.shell {
+                        return Err(anyhow!(
+                            "Desktop tab commands are restricted to the tab shell"
+                        ));
+                    }
+                    match command.as_str() {
+                        "desktop_tabs_snapshot" => {}
+                        "desktop_tabs_open" => host.open(host.home.clone())?,
+                        "desktop_tabs_activate" => host.activate(&id)?,
+                        "desktop_tabs_close" => host.close(&id)?,
+                        _ => unreachable!(),
+                    }
+                }
                 _ => return Err(anyhow!("Unknown desktop tab command")),
             }
             Ok(serde_json::to_value(host.snapshot())?)
