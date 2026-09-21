@@ -7,6 +7,7 @@ Local, zero-dependency Node tooling that builds the Arachnea Tauri application f
 | File | Role |
 |---|---|
 | `release-config.json` | Release configuration: project paths (including `frontendProject`), platform ids, Rust target triples, requested bundles, and portable archive config (`.zip` for Windows, `.tar.gz` for Linux/macOS). Single source of truth for what gets built. |
+| `build-config.json` | Build tool versions: minimum rustc (`minRustcVersion`), cross image tag (`crossImage`), in-image Tauri CLI (`tauriCliVersion`). Single source of truth for the `ensureRustcVersion()` guard (offers `rustup update` with confirmation when outdated) and the Docker image build. |
 | `capabilities.mjs` | Cross-compilation capability matrix per host (which bundles each OS can actually produce), family/output-folder naming, selector aliases, architecture short names. |
 | `lib.mjs` | Shared helpers: config loading, workspace version parsing, platform resolution, artifact discovery, checksums, zip/tar.gz creation. |
 | `install-tools.mjs` | Installs everything required to build on this host (see below). |
@@ -131,7 +132,9 @@ the current host cannot natively produce them. With
 `--force-use-docker-builder`, Docker-capable platforms go through the image
 even when the host could build them natively. `--list` shows the chosen method
 (`native`/`docker`), and `--dry-run` prints the exact `docker run` commands
-without executing them.
+without executing them. The workspace requires rustc >= 1.91.0 (locked
+`foyer@0.22.4+` dependency); both entry points fail fast with an actionable
+error when the toolchain is older — run `rustup update`, then rebuild.
 
 The Docker path assumes Docker is available; run
 `node build-release/install-tools.mjs` to build the cross image (asks for

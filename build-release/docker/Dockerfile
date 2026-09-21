@@ -46,6 +46,8 @@ RUN apt-get update \
 # which fails to link (mixed glibc/musl objects, missing libm symbols).
 # `--root /usr/local` places `cargo-tauri` into /usr/local/bin so the plain
 # `cargo tauri ...` form works.
+# The version defaults to the `tauriCliVersion` in `build-config.json`,
+# forwarded by `docker.mjs` as a build arg; keep the fallback in sync.
 ARG TARGETARCH
 ARG TAURI_CLI_VERSION=2.11.4
 RUN set -e; \
@@ -62,7 +64,7 @@ RUN set -e; \
 
 # Bring Rust up to the latest stable and re-install the cross targets on it.
 # The base image pins an older rustc (earlier 1.8x) that cannot compile the
-# project's dependency graph (boa, cookie_store, time, ... require >= 1.88).
+# project's dependency graph (foyer@0.22.4+ requires rustc >= 1.91.0).
 # `rustup` keeps /root/.cargo/config.toml untouched, so the osxcross compiler
 # wrappers configured by the base image still drive macOS linking.
 RUN rustup update stable \

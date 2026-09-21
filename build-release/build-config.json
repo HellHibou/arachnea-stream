@@ -1,0 +1,5 @@
+{
+  "minRustcVersion": "1.91.0",
+  "tauriCliVersion": "2.11.4",
+  "crossImage": "arachnea-cross-builder:1.0.0"
+}

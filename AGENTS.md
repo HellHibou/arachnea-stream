@@ -18,6 +18,7 @@
 - Create analysis files under `docs/dev-tracking/` by default when requested.
 - Keep `docs/TODO.md` current when work adds, completes, renames, or invalidates tracked follow-up items.
 - Append relevant user-visible or structural changes to `CHANGELOG.md` instead of rewriting older entries.
+- Structure every `CHANGELOG.md` release section (including `Unreleased`) as release > module > Added/Changed/Fixed: group entries under one underlined module subtitle each (`### <u>build-release</u>`, `### <u>front-admin</u>`, `### <u>front-public</u>`, `### <u><arachnea crate name></u>`, `### <u>Other</u>`), with `#### Added`, `#### Changed` and `#### Fixed` subsections inside each module group.
 
 ## When to Stop and Ask
 Before implementing, provide an analysis and wait for user confirmation if the request involves:

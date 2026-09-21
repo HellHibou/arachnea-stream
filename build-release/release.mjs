@@ -37,6 +37,7 @@ import {
   createArchive,
   writeChecksum,
   fileDigestHex,
+  ensureRustcVersion,
 } from './lib.mjs';
 import { archShort, outputFolderName, familyOf, dockerBundlesFor } from './capabilities.mjs';
 import {
@@ -795,9 +796,19 @@ async function main() {
     process.exit(1);
   }
 
+  if (!canRun('cargo')) {
+    throw new Error('`cargo` is not installed. Install Rust first: https://rustup.rs');
+  }
+
   if (!options.noInstall) {
     console.log('[release] Ensuring build tools...');
     await installTools(platforms);
+  } else if (!options.skipBuild) {
+    // installTools() enforces the rustc floor when it runs; without it, check
+    // here so a stale toolchain still fails fast before the frontend build.
+    // --skip-build only reassembles prebuilt artifacts without invoking cargo.
+    // Offers `rustup update` with confirmation when interactive.
+    await ensureRustcVersion();
   }
 
   // Build the frontend once, shared by every target. Each platform build later
@@ -815,10 +826,6 @@ async function main() {
     console.log(
       `[release] ${options.skipBuild ? '--skip-build' : '--no-frontend-build'}: reusing existing ${config.frontendProject}/dist.`,
     );
-  }
-
-  if (!canRun('cargo')) {
-    throw new Error('`cargo` is not installed. Install Rust first: https://rustup.rs');
   }
 
   // Only clean what this run rebuilds (family folder or single-platform files).

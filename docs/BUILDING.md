@@ -20,7 +20,7 @@ contributors. For a functional overview of the project, see the root
 
 ## Installation
 
-Install Rust with `rustup`, Node.js with npm, and the platform build tools required by Tauri and native Rust dependencies. After installation, open a new terminal and verify `rustc -V`, `cargo -V`, `node -v`, `npm -v`, and `cmake --version`.
+Install Rust with `rustup`, Node.js with npm, and the platform build tools required by Tauri and native Rust dependencies. The workspace requires rustc >= 1.91.0 (locked `foyer@0.22.4+` dependency); run `rustup update` if the release tooling reports your toolchain as too old. After installation, open a new terminal and verify `rustc -V`, `cargo -V`, `node -v`, `npm -v`, and `cmake --version`.
 
 Windows PowerShell:
 

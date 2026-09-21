@@ -13,7 +13,8 @@ import {
   closeSync,
 } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, execFileSync } from 'node:child_process';
+import { createInterface } from 'node:readline/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -189,6 +190,103 @@ export function commandPath(cmd) {
   if (result.status !== 0 || !result.stdout) return null;
   const first = result.stdout.trim().split(/\r?\n/)[0];
   return first || null;
+}
+
+/**
+ * Loads `build-config.json` (single source of truth for toolchain floors and
+ * build tool versions).
+ */
+export function loadBuildConfig() {
+  return JSON.parse(readFileSync(path.join(RELEASE_DIR, 'build-config.json'), 'utf8'));
+}
+
+/**
+ * Minimum rustc version required to compile the workspace dependency graph.
+ * Bumped when a locked dependency raises its MSRV (e.g. `foyer@0.22.4+`
+ * requires rustc 1.91.0 while earlier 0.22.x releases built with 1.85.0).
+ *
+ * @returns {string} Minimum `major.minor.patch` rustc version.
+ */
+export function minRustcVersion() {
+  return loadBuildConfig().minRustcVersion;
+}
+
+/**
+ * Compares two `major.minor.patch` version strings.
+ *
+ * @param {string} a - First version.
+ * @param {string} b - Second version.
+ * @returns {number} Negative when a < b, 0 when equal, positive when a > b.
+ */
+export function compareVersions(a, b) {
+  const parts = (v) => v.split('.').map((n) => parseInt(n, 10) || 0);
+  const [aParts, bParts] = [parts(a), parts(b)];
+  for (let i = 0; i < Math.max(aParts.length, bParts.length); i += 1) {
+    const diff = (aParts[i] ?? 0) - (bParts[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+/**
+ * Reads the active rustc version (e.g. `rustc 1.90.0 (...)` -> `1.90.0`).
+ *
+ * @returns {string} The installed rustc version.
+ */
+export function rustcVersion() {
+  if (!canRun('rustc')) {
+    throw new Error('`rustc` is not installed. Install Rust first: https://rustup.rs');
+  }
+  const output = execFileSync('rustc', ['--version'], { encoding: 'utf8' }).trim();
+  const match = output.match(/^rustc\s+(\d+\.\d+\.\d+)/);
+  if (!match) throw new Error(`Could not parse rustc version from: ${output}`);
+  return match[1];
+}
+
+/**
+ * Asks a yes/no question on the terminal, following the `install-tools`
+ * confirmation pattern (readline instead of a raw stdin read, explicit prompt
+ * through stdout since readline ignores its own prompt without `terminal`).
+ *
+ * @param {string} question - Question to display (without the `[y/N]` suffix).
+ * @returns {Promise<boolean>} `true` when the user answers `y`/`yes`.
+ */
+export async function confirmYesNo(question) {
+  if (!process.stdin.isTTY) return false;
+  const rl = createInterface({ input: process.stdin, terminal: false });
+  try {
+    process.stdout.write(`\n${question} [y/N] `);
+    const answer = (await rl.question('')).trim().toLowerCase();
+    return answer === 'y' || answer === 'yes';
+  } finally {
+    rl.close();
+  }
+}
+
+/**
+ * Ensures the active rustc meets the floor declared in `build-config.json`,
+ * before any lengthy build step (frontend build, `cargo tauri build`) runs.
+ * When the toolchain is outdated, prints the version error, then offers to
+ * run `rustup update` (same confirmation pattern as `install-tools`): on
+ * acceptance the update runs and the new version is re-checked; on refusal
+ * (or in a non-interactive terminal) the original error is thrown unchanged.
+ */
+export async function ensureRustcVersion() {
+  const { minRustcVersion: minimum } = loadBuildConfig();
+  const outdated = () => compareVersions(rustcVersion(), minimum) < 0;
+  if (!outdated()) return;
+  const current = rustcVersion();
+  if (await confirmYesNo(
+    `[release] rustc ${current} is too old: this workspace requires rustc >= ${minimum}.\n` +
+      'Run `rustup update` now to update the Rust toolchain?',
+  )) {
+    run('rustup', ['update']);
+    if (!outdated()) return;
+  }
+  throw new Error(
+    `rustc ${current} is too old: this workspace requires rustc >= ${minimum}. ` +
+      `Update with \`rustup update\`, then rebuild.`,
+  );
 }
 
 /** Recursively copies a directory tree, skipping excluded top-level entries. */

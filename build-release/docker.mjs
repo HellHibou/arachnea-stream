@@ -15,13 +15,24 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
-import { ROOT, canRun, run, releaseDir } from './lib.mjs';
+import { ROOT, canRun, run, releaseDir, loadBuildConfig } from './lib.mjs';
 import { dockerBundlesFor } from './capabilities.mjs';
 
 const RELEASE_DIR = releaseDir();
 
-/** Tag of the locally-built Arachnea cross image. */
-export const CROSS_IMAGE = 'arachnea-cross-builder:1.0.0';
+/**
+ * Tag of the locally-built Arachnea cross image (single source of truth:
+ * `crossImage` in `build-config.json`; bump the tag whenever the Dockerfile
+ * or its build context changes, see `build-release/AGENTS.md`).
+ *
+ * Read lazily through a function (instead of a module-level constant) so a
+ * config edit is picked up without re-importing the module.
+ *
+ * @returns {string} The cross image tag, e.g. `arachnea-cross-builder:1.0.0`.
+ */
+export function crossImage() {
+  return loadBuildConfig().crossImage;
+}
 
 /** Directory holding the cross image Dockerfile. */
 export const DOCKERFILE_DIR = path.join(RELEASE_DIR, 'docker');
@@ -107,7 +118,7 @@ function dockerImageRefs() {
 
 /** Returns `true` when the cross image has already been built locally. */
 export function crossImagePresent() {
-  return dockerImageRefs().has(CROSS_IMAGE);
+  return dockerImageRefs().has(crossImage());
 }
 
 /**
@@ -135,10 +146,11 @@ function effectiveImagePlatform(platform) {
 export async function assertCrossImageFor(platform) {
   await assertDocker();
   const plat = effectiveImagePlatform(platform);
+  const image = crossImage();
   // Cheap one-shot container that only succeeds when the variant is stored
   // locally; otherwise docker attempts a pull and exits non-zero right away.
   const probe = () =>
-    spawnSync('docker', ['run', '--rm', '--platform', plat, CROSS_IMAGE, 'true'], {
+    spawnSync('docker', ['run', '--rm', '--platform', plat, image, 'true'], {
       stdio: 'ignore',
     });
   let probeResult = probe();
@@ -149,14 +161,14 @@ export async function assertCrossImageFor(platform) {
     if (probeResult.status === 0) return;
   }
   throw new Error(
-    `The Arachnea cross image \`${CROSS_IMAGE}\` has no ${plat} variant locally ` +
+    `The Arachnea cross image \`${image}\` has no ${plat} variant locally ` +
       `(docker exited with status ${probeResult.status}). Build both variants from the ` +
       'repository root with:\n' +
-      `  docker buildx build --platform ${CROSS_IMAGE_PLATFORMS.join(',')} --tag ${CROSS_IMAGE} build-release/docker\n` +
+      `  docker buildx build --platform ${CROSS_IMAGE_PLATFORMS.join(',')} --tag ${image} --build-arg TAURI_CLI_VERSION=${tauriCliVersion()} build-release/docker\n` +
       'This keeps both variants under one tag with the containerd image store (Docker ' +
       'Desktop: "Use containerd for pulling and storing images"); the classic store holds ' +
       'a single variant per tag, so build the missing one only:\n' +
-      `  docker build --platform ${plat} --tag ${CROSS_IMAGE} build-release/docker`,
+      `  docker build --platform ${plat} --tag ${image} --build-arg TAURI_CLI_VERSION=${tauriCliVersion()} build-release/docker`,
   );
 }
 
@@ -195,6 +207,17 @@ function dockerStorageDriver() {
 }
 
 /**
+ * Tauri CLI version installed inside the cross image (single source of truth:
+ * `tauriCliVersion` in `build-config.json`, forwarded to the Dockerfile as
+ * `TAURI_CLI_VERSION` build arg).
+ *
+ * @returns {string} The Tauri CLI version, e.g. `2.11.4`.
+ */
+export function tauriCliVersion() {
+  return loadBuildConfig().tauriCliVersion;
+}
+
+/**
  * Builds the cross image for both architecture ports through buildx. With the
  * containerd image store (the expected setup) the resulting manifest list
  * keeps the `linux/amd64` and `linux/arm64` variants together under the tag.
@@ -206,6 +229,8 @@ function dockerStorageDriver() {
  *   available, the platform to build (`null` = `linux/amd64`).
  */
 export function buildCrossImage(singlePlatform = null) {
+  const image = crossImage();
+  const buildArgs = ['--build-arg', `TAURI_CLI_VERSION=${tauriCliVersion()}`];
   if (dockerStorageDriver() === 'overlayfs') {
     run('docker', [
       'buildx',
@@ -213,7 +238,8 @@ export function buildCrossImage(singlePlatform = null) {
       '--platform',
       CROSS_IMAGE_PLATFORMS.join(','),
       '--tag',
-      CROSS_IMAGE,
+      image,
+      ...buildArgs,
       DOCKERFILE_DIR,
     ]);
     return;
@@ -221,11 +247,11 @@ export function buildCrossImage(singlePlatform = null) {
   const plat = singlePlatform ?? CROSS_IMAGE_PLATFORMS[0];
   console.warn(
     `[docker] Classic Docker image store in use: only one variant can exist per tag. ` +
-      `Building the ${plat} variant of \`${CROSS_IMAGE}\`; any other variant stored under ` +
+      `Building the ${plat} variant of \`${image}\`; any other variant stored under ` +
       'this tag is replaced. Enable "Use containerd for pulling and storing images" in ' +
       'Docker Desktop to keep both variants side by side.',
   );
-  run('docker', ['build', '--platform', plat, '--tag', CROSS_IMAGE, DOCKERFILE_DIR]);
+  run('docker', ['build', '--platform', plat, '--tag', image, ...buildArgs, DOCKERFILE_DIR]);
 }
 
 /**
@@ -242,7 +268,7 @@ async function confirmCrossImageBuild(plat) {
   const rl = createInterface({ input: process.stdin, terminal: false });
   try {
     process.stdout.write(
-      `\n[release] The ${plat} variant of \`${CROSS_IMAGE}\` is missing. Build it now? ` +
+      `\n[release] The ${plat} variant of \`${crossImage()}\` is missing. Build it now? ` +
         'First run pulls a large base image, and the arm64 half compiles its Tauri ' +
         'CLI under QEMU emulation (can take 30-60 min). [y/N] ',
     );
@@ -412,7 +438,7 @@ function crossBundleCacheDir(platform) {
 function buildCrossRunArgs(platform, tauriDir, command, extraEnv) {
   const { args } = crossRunBase(platform, tauriDir);
   for (const [name, value] of extraEnv) args.push('--env', `${name}=${value}`);
-  args.push(CROSS_IMAGE, 'sh', '-c', command);
+  args.push(crossImage(), 'sh', '-c', command);
   return args;
 }
 

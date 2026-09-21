@@ -1,7 +1,7 @@
 # Arachnea build-release Agent Profile
 
 Scope: every file under `build-release/` — release tooling (`*.mjs`),
-configuration (`release-config.json`) and the cross-build image
+configuration (`release-config.json`, `build-config.json`) and the cross-build image
 (`build-release/docker/Dockerfile`). This file extends the repository-root
 `AGENTS.md`; its baseline rules apply here too.
 
@@ -10,8 +10,8 @@ configuration (`release-config.json`) and the cross-build image
 - Any change that impacts the Docker image (`build-release/docker/Dockerfile`
   or anything copied into the image context) MUST be followed by a version tag
   bump of `arachnea-cross-builder`: increment the last part of the number
-  (`1.0.0` -> `1.0.1`), and keep `CROSS_IMAGE` in `build-release/docker.mjs`
-  in sync.
+  (`1.0.0` -> `1.0.1`) in the `crossImage` field of `build-config.json`
+  (single source of truth, read by `build-release/docker.mjs`).
 
 ## Multi-platform constraint
 

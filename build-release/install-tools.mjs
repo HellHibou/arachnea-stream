@@ -15,7 +15,7 @@ import { spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { canRun, commandPath, run, loadConfig, resolvePlatforms, hostLabel, CROSS_TOOLS_BIN_DIR, findVsInstallation, msvcToolsetDir, vsWhereExe, windowsNativeMsvcArm64State, isElevated, runElevatedSync } from './lib.mjs';
+import { canRun, commandPath, run, loadConfig, resolvePlatforms, hostLabel, CROSS_TOOLS_BIN_DIR, findVsInstallation, msvcToolsetDir, vsWhereExe, windowsNativeMsvcArm64State, isElevated, runElevatedSync, ensureRustcVersion } from './lib.mjs';
 import { assertDocker, crossImagePresent, ensureCrossImage } from './docker.mjs';
 
 function parseArgs(argv) {
@@ -579,6 +579,10 @@ export async function installTools(platforms) {
   }
   const targets = [...new Set(buildable.flatMap((p) => p.needsTargets))];
   console.log(`[install-tools] Host: ${hostLabel()}`);
+  // Fail fast before provisioning anything: an outdated rustc would reject the
+  // locked dependency graph (e.g. foyer@0.22.4+ requires rustc >= 1.91.0).
+  // Offers `rustup update` with confirmation when interactive.
+  await ensureRustcVersion();
   console.log(`[install-tools] Toolchain targets to ensure: ${targets.join(', ') || '(none)'}`);
   // Docker-built targets compile inside the container via osxcross/its own
   // toolchains, so only install host rustup targets for natively-built ones.
