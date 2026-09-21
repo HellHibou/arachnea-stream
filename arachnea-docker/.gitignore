@@ -1,0 +1,3 @@
+# Local scratch folder. The archives now come from the release tree through the
+# `releases` build context, so staging them here is no longer part of the build.
+/bin/

@@ -10,8 +10,8 @@ path = "src/main.rs"
 
 [dependencies]
 arachnea-core = { path = "../arachnea-core", features = ["sqlite-persistence"] }
-arachnea-http = { path = "../arachnea-http", default-features = false }
-arachnea-scrapyfy = { path = "../arachnea-scrapyfy", features = ["chaser-cf", "arachnea-proxy", "sqlite-persistence"] }
+arachnea-http = { path = "../arachnea-http", default-features = false, features = ["chaser-cf"] }
+arachnea-scrapyfy = { path = "../arachnea-scrapyfy", default-features = false, features = ["arachnea-proxy", "sqlite-persistence"] }
 arachnea-proxy =    { path = "../arachnea-proxy", features = ["controller-service"] }
 argon2 = { workspace = true }
 anyhow.workspace = true
@@ -38,4 +38,4 @@ serde_json.workspace = true
 tauri-build.workspace = true
 
 [dev-dependencies]
-arachnea-scrapyfy = { path = "../arachnea-scrapyfy", features = ["test-support"] }
+arachnea-scrapyfy = { path = "../arachnea-scrapyfy", default-features = false, features = ["test-support"] }

@@ -1,9 +1,10 @@
 #!/bin/bash
-SCRIPT_DIR="$(pwd)"
+SCRIPT_DIR=$(dirname "$0")
 
 chmod +x "$0"
 chmod +x "$SCRIPT_DIR/build.sh"
 chmod +x "$SCRIPT_DIR/build-release/build-release.sh"
+chmod +x "$SCRIPT_DIR/arachnea-docker/build-image.sh"
 
 cd "$SCRIPT_DIR/front"
 npm update

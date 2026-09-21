@@ -1,0 +1,82 @@
+services:
+  arachnea:
+    # The image carries the release version: the versioned tag is what
+    # `docker compose up` runs, `latest` stays as the convenience alias.
+    image: arachnea-stream:${ARACHNEA_VERSION:?ARACHNEA_VERSION is not set — copy .env.example to .env or export the variable}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      tags:
+        # Mirror of the service `image:` above (`ARACHNEA_VERSION` is already
+        # required there) plus the `latest` alias.
+        - arachnea-stream:${ARACHNEA_VERSION:?ARACHNEA_VERSION is not set — copy .env.example to .env or export the variable}
+        - arachnea-stream:latest
+      # Cross-build both native Linux ports in one go. Comment one line to
+      # build a single architecture.
+      platforms:
+        - linux/amd64
+        - linux/arm64
+      # The release tree (`<project>/releases`, output of
+      # `node build-release/release.mjs`) lives outside this folder, so Buildkit
+      # cannot COPY from it directly: it travels as a named build context that
+      # the Dockerfile reads (`COPY --from=releases ...`). Its root is
+      # `ARACHNEA_RELEASES_DIR` in `arachnea-docker/.env` (see `.env.example`),
+      # relative to this compose file so it follows the repository wherever it
+      # is checked out; there is no default here on purpose (fail fast when the
+      # variable is missing). Expected layout:
+      #   <ARACHNEA_RELEASES_DIR>/release-<ARACHNEA_VERSION>/linux/
+      #     arachnea-<ARACHNEA_VERSION>-linux-<arch>-portable.tar.gz
+      additional_contexts:
+        releases: "${ARACHNEA_RELEASES_DIR:?ARACHNEA_RELEASES_DIR is not set — copy .env.example to .env or export the variable}"
+      args:
+        # Release packaged into the image. There is deliberately no default
+        # here: the version lives in exactly one place — the environment or
+        # `arachnea-docker/.env` (committed, see `.env.example`). Compose
+        # interpolates ${ARACHNEA_VERSION} into the two archive paths below
+        # (never from sibling args, only from the environment/.env), stamps
+        # `ENV ARACHNEA_VERSION` (logged at startup by the entrypoint) and
+        # fails fast if the variable is missing. Per-build override:
+        # `ARACHNEA_VERSION=0.2.0 docker compose build`.
+        ARACHNEA_VERSION: "${ARACHNEA_VERSION:?ARACHNEA_VERSION is not set — copy .env.example to .env or export the variable}"
+        # Portable archive paths, relative to the `releases` build context
+        # (additional_contexts above; a `../...` COPY path is forbidden by
+        # BuildKit). Kept as explicit variables so another release layout
+        # (folder or file naming) only needs editing these two lines.
+        ARACHNEA_AMD64_ARCHIVE: "release-${ARACHNEA_VERSION}/linux/arachnea-${ARACHNEA_VERSION}-linux-amd64-portable.tar.gz"
+        ARACHNEA_ARM64_ARCHIVE: "release-${ARACHNEA_VERSION}/linux/arachnea-${ARACHNEA_VERSION}-linux-arm64-portable.tar.gz"
+    container_name: arachnea-stream
+    ports:
+      # Web interface + API. The host side maps the same `ARACHNEA_PORT`, so
+      # changing the port in `.env` moves both sides together; use the
+      # `HOST:CONTAINER` form (`- "127.0.0.1:${ARACHNEA_PORT:?}...`) to bind
+      # loopback only.
+      - "${ARACHNEA_PORT:?ARACHNEA_PORT is not set — copy .env.example to .env or export the variable}:${ARACHNEA_PORT:?ARACHNEA_PORT is not set — copy .env.example to .env or export the variable}"
+    environment:
+      # REST server port inside the container. The entrypoint pins it in the
+      # persisted config.json (`server_port`); the binary itself rejects
+      # `--server-port <value>` on the command line.
+      ARACHNEA_PORT: "${ARACHNEA_PORT:?ARACHNEA_PORT is not set — copy .env.example to .env or export the variable}"
+      # `local` (loopback only) | `private` (container-local networks) |
+      # `public` (any peer). `public` is the working default for published
+      # ports: traffic forwarded by the Docker host does not originate from
+      # the container's own subnets, so `private`/`local` answer 404 to it.
+      # Use `private` only for container-to-container calls on the same
+      # Docker network.
+      ARACHNEA_NETWORK: "${ARACHNEA_NETWORK:?ARACHNEA_NETWORK is not set — copy .env.example to .env or export the variable}"
+      # Public URL prefix when the service sits behind a path-based reverse
+      # proxy (empty by default: the app is served from `/`). The entrypoint
+      # pins it in the persisted config.json (`entrypoint_root`); an empty
+      # value removes the key so `GET /` keeps working.
+      ARACHNEA_ROOT: "${ARACHNEA_ROOT:-}"
+      # The image starts Xvfb itself and chaser-cf reuses it
+      # (CHROME_BIN, CHASER_VIRTUAL_DISPLAY=0); uncomment to tune flags.
+      # CHASER_EXTRA_ARGS: "--disable-gpu"
+    volumes:
+      # Persisted state: config.json, caches, Cloudflare session store
+      # (the application `data/` directory).
+      - arachnea-data:/app/data
+    shm_size: 256m
+    restart: unless-stopped
+
+volumes:
+  arachnea-data:

@@ -5,7 +5,7 @@ edition = "2021"
 
 [features]
 test-support = []
-default = ["ghostwire"]
+default = []
 sqlite-persistence = ["arachnea-core/sqlite-persistence", "dep:rusqlite"]
 ghostwire = ["arachnea-http/ghostwire"]
 tauri-cloudflare-solver = ["arachnea-http/ghostwire", "arachnea-http/tauri-cloudflare-solver"]

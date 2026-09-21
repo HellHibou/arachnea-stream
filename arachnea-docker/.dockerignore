@@ -1,0 +1,8 @@
+# Keep the build context minimal: only the Dockerfile, the entrypoint and the
+# compose file are read from it. The portable archives come from the `releases`
+# named build context, not from here (see README.md §1).
+*
+!Dockerfile
+!docker-entrypoint.sh
+!docker-compose.yml
+!README.md

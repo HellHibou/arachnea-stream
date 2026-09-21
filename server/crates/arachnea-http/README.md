@@ -174,12 +174,12 @@ let config = ArachneaHttpConfig::builder()
 | Feature | Purpose |
 | --- | --- |
 | `arachnea-proxy` | Enables `arachnea-proxy` integration through a managed loopback compatibility helper shared by built-in engines. |
-| `ghostwire` | Enables the Ghostwire engine and is active by default. |
+| `ghostwire` | Enables the optional Ghostwire engine. |
 | `chaser-cf` | Enables the chaser-cf Cloudflare solver integration. |
 | `tauri-cloudflare-solver` | Enables the Tauri/Wry-based solver path. |
 | `tauri-cloudflare-solver-devtools` | Enables Tauri solver support with Wry devtools. |
 
-Use `--no-default-features` to build the `rquest`-only client.
+The default feature set is empty, so the crate builds as an `rquest`-only client unless a solver feature is enabled explicitly.
 
 ## Known Gaps
 
