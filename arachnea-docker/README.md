@@ -153,6 +153,14 @@ Notes on multi-arch builds:
   socket and a fresh server is started, otherwise headed Chromium would
   inherit a dead `DISPLAY`. A warning is logged when the fresh server fails
   to come up.
+- **Line endings on Windows checkouts:** the entrypoint is copied verbatim
+  from the build context, so a CRLF working-tree copy ships a `#!/bin/sh\r`
+  shebang and the container dies in a tini restart loop (`exec
+  /usr/local/bin/docker-entrypoint.sh failed: No such file or directory`).
+  The root `.gitattributes` pins `*.sh`/`Dockerfile` to LF on every checkout
+  (`*.cmd`/`*.bat` stay CRLF), and the `Dockerfile` additionally strips a
+  trailing CR from the entrypoint's first line at `COPY` time, so working
+  trees checked out before that pinning still build a working image.
 
 ### Build scripts
 
@@ -226,7 +234,8 @@ Compose fails fast with an explicit message when a variable is missing. Notes:
 ## 3. Run
 
 ```bash
-# Compose (recommended: persists /app/data, maps 8080):
+# Compose (recommended: persists /app/data, maps 8080, sets the seccomp
+# option Chromium's sandbox needs — see the notes below):
 cd arachnea-docker
 docker compose up -d
 open http://localhost:8080/
@@ -236,6 +245,7 @@ docker run -d --name arachnea \
   -p 8080:8080 \
   -v arachnea-data:/app/data \
   --shm-size=256m \
+  --security-opt seccomp=unconfined \
   arachnea-stream:0.1.0
 ```
 
@@ -244,8 +254,22 @@ Notes:
 - `--shm-size=256m` (or the `shm_size:` Compose key) avoids Chromium tab
   crashes on the default 64M `/dev/shm`; the entrypoint also injects
   `--disable-dev-shm-usage` as a safety net.
-- No `--privileged` / `--no-sandbox` needed: the image runs as the
-  non-root `arachnea` user so Chromium's sandbox works out of the box.
+- `--security-opt seccomp=unconfined` (`security_opt:` in the Compose file) is
+  required for Chromium to start. Docker's default seccomp profile blocks the
+  `clone`/`unshare` syscalls Chromium uses to create its user-namespace
+  sandbox, so the browser aborts with
+  `No usable sandbox! ... you can try using --no-sandbox` and `chaser-cf` fails
+  every Cloudflare fetch with
+  `Failed to initialize browser: Browser process exited with status
+  ExitStatus(unix_wait_status(256))`. Unconfining seccomp restores a *working*
+  sandbox, which is preferable to `--no-sandbox`: the browser keeps its
+  process isolation, and the container's other hardening (non-root
+  `arachnea` user, dropped capabilities, AppArmor, masked `/proc` paths) is
+  unaffected. No `--privileged` and no host-side change is needed — this is
+  what makes the image portable across Docker Desktop hosts (verified on
+  Windows/WSL2 and Apple Silicon), unlike a host-side
+  `kernel.unprivileged_userns_clone` toggle or a custom AppArmor profile, both
+  of which are unsettable inside WSL2's managed VM anyway.
 - State persists in `/app/data` (config, caches, Cloudflare session store):
   the data root is the executable directory in the portable layout, so the
   volume must be mounted there (override with `ARACHNEA_DATA_DIR` and mount
@@ -287,8 +311,14 @@ shared Docker network.
 | `ARACHNEA_DATA_DIR` | `/app/data` | Writable state directory (config + persistence; also `HOME`). |
 | `CHROME_BIN` | `/usr/bin/chromium` | Chromium binary used by `chaser-cf`. |
 | `CHASER_VIRTUAL_DISPLAY` | `0` | The entrypoint starts Xvfb on `DISPLAY=:99`; chaser-cf launches headed Chromium there. Set to `1` only to let chaser-cf create and own a separate Xvfb; the entrypoint then skips its own. |
-| `CHASER_EXTRA_ARGS` | `--disable-dev-shm-usage` (ensured) | Extra Chromium flags (e.g. `--disable-gpu`). |
+| `CHASER_EXTRA_ARGS` | `--disable-dev-shm-usage` (ensured) | Extra Chromium flags, appended to the engine defaults (`--disable-gpu` for GPU-less hosts is the common one). The entrypoint appends `--disable-dev-shm-usage` when the value does not already contain it. |
 | `DISPLAY` | `:99` | X display started by the entrypoint, unless `CHASER_VIRTUAL_DISPLAY=1` or `DISPLAY_SKIP_XVFB` is set. |
+
+Docker option (Compose key, no environment variable):
+
+| Option | Value | Effect |
+|---|---|---|
+| `security_opt` | `seccomp=unconfined` | Lets Chromium build its user-namespace sandbox; without it the browser refuses to start under Docker's default seccomp profile. See the run notes above. |
 
 Extra arguments after the image name are forwarded to `arachnea`, e.g.
 `docker run arachnea-stream --help`.

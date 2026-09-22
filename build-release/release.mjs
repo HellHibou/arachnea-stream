@@ -272,8 +272,9 @@ function readTauriConf(config) {
  * @param {object} platform - A platform entry with a `portable` block.
  * @param {object} config - Release configuration.
  * @param {string} version - Project version.
- * @returns {string} The directory receiving the runtime data
- *   (`Contents/Resources`), i.e. where the resource tree must be staged.
+ * @returns {{resourcesDir: string, executable: string}} The directory receiving
+ *   the runtime data (`Contents/Resources`), i.e. where the resource tree must
+ *   be staged, and the archive-relative path of the embedded executable.
  */
 function stageMacApp(portableDir, exe, platform, config, version) {
   const tauri = readTauriConf(config);
@@ -329,7 +330,7 @@ function stageMacApp(portableDir, exe, platform, config, version) {
   } else {
     console.warn(`macOS app icon \`${icon}\` not found; the .app bundle ships without an icon.`);
   }
-  return resourcesDir;
+  return { resourcesDir, executable: `${appName}/Contents/MacOS/${exeName}` };
 }
 
 /**
@@ -681,7 +682,8 @@ async function buildPlatform(platform, config, version, releaseDir, tauriDir, sk
       copyRuntimeData(portableDir);
       const archivePath = path.join(platformOutDir, portableName);
       console.log(`${label} packaging portable archive ${path.basename(archivePath)}...`);
-      createArchive(portableDir, archivePath);
+      // The executable is the only entry that must stay runnable once extracted.
+      createArchive(portableDir, archivePath, [path.basename(exe)]);
       copied.push(path.basename(archivePath));
       // One checksum file per algorithm: archive hash first, then every inner
       // file's hash (computed on the staged originals, never via extraction).
@@ -696,11 +698,17 @@ async function buildPlatform(platform, config, version, releaseDir, tauriDir, sk
         const appDir = path.join(releaseDir, `.tmp-${appName}`);
         removeDir(appDir);
         mkdirSync(appDir, { recursive: true });
-        const resourcesDir = stageMacApp(appDir, exe, platform, config, version);
+        const { resourcesDir, executable: macExecutable } = stageMacApp(
+          appDir,
+          exe,
+          platform,
+          config,
+          version,
+        );
         copyRuntimeData(resourcesDir);
         const appArchivePath = path.join(platformOutDir, appName);
         console.log(`${label} packaging macOS .app archive ${path.basename(appArchivePath)}...`);
-        createArchive(appDir, appArchivePath);
+        createArchive(appDir, appArchivePath, [macExecutable]);
         copied.push(path.basename(appArchivePath));
         addPortableChecksums(appDir, appArchivePath, copied);
         removeDir(appDir);

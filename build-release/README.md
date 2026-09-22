@@ -202,6 +202,19 @@ Two portable formats, each getting `.sha256`/`.md5` checksums:
   executable: launch it with `open 'Arachnéa.app'` (or double-click), or run
   the inner binary directly (`Arachnéa.app/Contents/MacOS/arachnea`).
 
+The POSIX modes of every `.tar.gz` are normalized after archiving
+(`normalizeTarGzModes` in `lib.mjs`). Windows has no permission bits, so the
+`bsdtar` shipped with it records every entry as `0666`/`0777` — which produced a
+**non-executable** `arachnea` in archives built on Windows: `arachnea-docker`'s
+`test -x` aborted the image build, and anyone extracting the archive on Linux
+got a binary that refused to run. Windows' `bsdtar` also rejects `--mode`, so
+the tooling rewrites the modes inside the archive itself: files to `0644`,
+directories to `0755`, and the release executable (plus
+`Arachnéa.app/Contents/MacOS/arachnea` for the macOS `-app.tar.gz`) to `0755` —
+the values macOS and GNU tar record, so the archive no longer depends on the
+host that produced it. The builder stops with an explicit error when the
+expected executable has no matching entry in the archive.
+
 ## Installer resources
 
 The installer bundles (NSIS `.exe`, `.msi`, `.deb`, `.rpm`, `.AppImage`, `.dmg`)

@@ -1,0 +1,16 @@
+# Line-ending policy.
+#
+# Windows checkouts (core.autocrlf=true) must not corrupt files that Linux
+# executes: a CRLF working-tree copy of arachnea-docker/docker-entrypoint.sh
+# was copied verbatim into the Docker image, its shebang became `#!/bin/sh\r`
+# and tini died in a restart loop with
+#   [FATAL tini (7)] exec /usr/local/bin/docker-entrypoint.sh failed:
+#   No such file or directory
+# because the kernel searched for an interpreter literally named `/bin/sh\r`.
+# Shell scripts and Dockerfiles are therefore pinned to LF on every checkout.
+*.sh text eol=lf
+Dockerfile text eol=lf
+
+# Windows batch scripts stay CRLF.
+*.cmd text eol=crlf
+*.bat text eol=crlf

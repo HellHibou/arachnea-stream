@@ -59,8 +59,11 @@ export CHROME_BIN="$CHROME_BIN"
 export DISPLAY="$DISPLAY_NUM"
 
 # Chromium crashes without `--disable-dev-shm-usage` when /dev/shm is small
-# (default 64M in Docker). `--no-sandbox` stays opt-in: the image runs as a
-# non-root user, so Chromium's sandbox works out of the box.
+# (default 64M in Docker). Flags set here only reach the browser through
+# `ChaserConfig::from_env`; `--no-sandbox` stays a last resort — the image runs
+# as a non-root user, so Chromium's sandbox is functional as soon as the
+# container lets it create a user namespace (Docker's default seccomp profile
+# blocks that, hence `security_opt: seccomp=unconfined` in docker-compose.yml).
 case " ${CHASER_EXTRA_ARGS:-} " in
   *" --disable-dev-shm-usage "*) ;;
   *) export CHASER_EXTRA_ARGS="${CHASER_EXTRA_ARGS:+$CHASER_EXTRA_ARGS }--disable-dev-shm-usage" ;;

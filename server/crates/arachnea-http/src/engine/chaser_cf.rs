@@ -171,25 +171,27 @@ impl ChaserCfEngine {
         proxy_url: Option<&str>,
         session_store: Arc<dyn TypedEntityStore<CachedChaserSession>>,
     ) -> Result<Self, ArachneaHttpError> {
+        // Defaults are appended one by one with `add_extra_arg` instead of
+        // `with_extra_args`: the latter *replaces* the whole set, which would
+        // silently discard the flags `ChaserConfig::from_env` just parsed from
+        // `CHASER_EXTRA_ARGS` and turn that documented override into a no-op.
         let chaser_config = ChaserConfig::from_env()
             .with_headless(false)
             .with_timeout(CHASER_SOLVE_TIMEOUT)
             .with_lazy_init(true)
             .with_profile(Profile::Windows)
-            .with_extra_args([
-                "--disable-blink-features=AutomationControlled",
-                "--disable-infobars",
-                "--no-first-run",
-                "--no-default-browser-check",
-                "--no-startup-window",
-                // Turnstile's proof-of-work and fingerprinting rely on WebGPU /
-                // WebGL. In GPU-less environments (VMs, RDP sessions, software
-                // rendering) `navigator.gpu.requestAdapter()` otherwise returns
-                // null ("No available adapters") and the challenge never
-                // completes. SwiftShader is Chrome's software GPU.
-                "--enable-unsafe-swiftshader",
-                "--ignore-gpu-blocklist",
-            ]);
+            .add_extra_arg("--disable-blink-features=AutomationControlled")
+            .add_extra_arg("--disable-infobars")
+            .add_extra_arg("--no-first-run")
+            .add_extra_arg("--no-default-browser-check")
+            .add_extra_arg("--no-startup-window")
+            // Turnstile's proof-of-work and fingerprinting rely on WebGPU /
+            // WebGL. In GPU-less environments (VMs, RDP sessions, software
+            // rendering) `navigator.gpu.requestAdapter()` otherwise returns
+            // null ("No available adapters") and the challenge never
+            // completes. SwiftShader is Chrome's software GPU.
+            .add_extra_arg("--enable-unsafe-swiftshader")
+            .add_extra_arg("--ignore-gpu-blocklist");
 
         let engine = Self {
             config: chaser_config,

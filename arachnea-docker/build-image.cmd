@@ -107,7 +107,7 @@ if errorlevel 1 (
 :: built.
 echo.
 echo Image arachnea-stream:%VERSION% is ready. Start it with ^(from %CD%^):
-echo   set "ARACHNEA_VERSION=%VERSION%" ^&^& docker compose up -d
+echo docker compose up -d
 exit /b 0
 
 :BAD_VERSION

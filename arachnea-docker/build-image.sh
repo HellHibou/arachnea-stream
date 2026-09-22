@@ -128,4 +128,4 @@ docker compose build "${EXTRA_ARGS[@]}"
 # built.
 echo
 echo "Image arachnea-stream:$VERSION is ready. Start it with (from $SCRIPT_DIR):"
-echo "  ARACHNEA_VERSION=$VERSION docker compose up -d"
+echo "docker compose up -d"

@@ -21,6 +21,11 @@
 #   ./                 main context: this Dockerfile + docker-entrypoint.sh
 #   <release tree>     named context `releases`
 #
+# The entrypoint is copied from the build context, which in practice is a
+# Windows working tree: any carriage return there is stripped from its first
+# line at COPY time (a CRLF shebang makes exec fail, see the root
+# `.gitattributes` line-ending policy).
+#
 # The release tree is the project's `releases/` folder produced by
 # `node build-release/release.mjs`. It cannot live inside the main context
 # (Buildx refuses to COPY across contexts), hence the named context.
@@ -44,8 +49,12 @@
 #   release-0.1.0/linux/arachnea-0.1.0-linux-arm64-portable.tar.gz  # ARACHNEA_ARM64_ARCHIVE
 #
 # Runtime: see `docker-entrypoint.sh` for the Xvfb + CHROME_BIN wiring and the
-# ensured Chrome flag (`--disable-dev-shm-usage`; `--no-sandbox` stays opt-in
-# via `CHASER_EXTRA_ARGS` since the image runs as non-root).
+# ensured Chrome flag (`--disable-dev-shm-usage`). The image runs as non-root,
+# but Chromium still needs the container to allow user-namespace creation for
+# its sandbox: docker-compose.yml therefore sets
+# `security_opt: [seccomp=unconfined]` (Docker's default seccomp profile blocks
+# the required syscalls). `--no-sandbox` remains available through
+# `CHASER_EXTRA_ARGS` as a last resort.
 
 # Debian Bookworm (glibc 2.36) is too old for the prebuilt `arachnea` binary:
 # the release archives were linked against glibc >= 2.38, so the runtime base
@@ -83,6 +92,11 @@ COPY --from=releases ${ARACHNEA_ARM64_ARCHIVE} /tmp/bin/arachnea-arm64-portable.
 # binary of that port: the ELF `e_machine` field (bytes 18-19 of the header)
 # is `3e00` for x86_64 and `b700` for AArch64. Swapped archive paths are
 # otherwise only detected at runtime (`exec format error`).
+#
+# The executable bit is restored before the check: a `.tar.gz` produced on a
+# Windows host records no POSIX mode at all (`build-release/release.mjs`
+# normalizes them since 0.1.0, older archives do not), which would otherwise
+# fail `test -x` here.
 RUN set -e; \
     case "$TARGETARCH" in \
       amd64) MACHINE="3e00" ;; \
@@ -93,6 +107,7 @@ RUN set -e; \
     echo "Using portable archive: $ARCHIVE"; \
     mkdir -p /tmp/app; \
     tar -xzf "$ARCHIVE" -C /tmp/app; \
+    chmod +x /tmp/app/arachnea; \
     test -x /tmp/app/arachnea; \
     test -d /tmp/app/services; \
     FOUND="$(od -An -tx1 -j 18 -N 2 /tmp/app/arachnea | tr -d ' \n')"; \
@@ -184,8 +199,14 @@ RUN set -e; \
 # Portable app layout from the fetcher stage: `/app/arachnea` + `/app/services`.
 COPY --from=fetcher --chown=arachnea:arachnea /tmp/app/arachnea /app/arachnea
 COPY --from=fetcher --chown=arachnea:arachnea /tmp/app/services /app/services
+# `1s/\r$//` strips a trailing CR from the first line only: a Windows checkout
+# (`core.autocrlf=true`) otherwise ships a CRLF shebang and the kernel fails
+# to exec it with "No such file or directory" (tini then restart-loops). The
+# root `.gitattributes` already pins `*.sh`/`Dockerfile` to LF; this guards
+# working trees checked out before that pinning.
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+RUN sed -i '1s/\r$//' /usr/local/bin/docker-entrypoint.sh \
+    && chmod +x /usr/local/bin/docker-entrypoint.sh
 
 USER arachnea
 WORKDIR /app

@@ -13,6 +13,7 @@ import {
   closeSync,
 } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 import os from 'node:os';
@@ -347,17 +348,99 @@ export function createZip(srcDir, zipPath) {
 }
 
 /**
+ * Reads a NUL-terminated (or space-padded) string field of a tar header.
+ * Latin-1 keeps the bytes intact for names that are not valid UTF-8, which is
+ * all the archive-relative paths compared here need.
+ *
+ * @param {Uint8Array} header - The 512-byte header block.
+ * @param {number} offset - Field offset inside the block.
+ * @param {number} length - Field length in bytes.
+ * @returns {string} The decoded field, without its terminator.
+ */
+function tarField(header, offset, length) {
+  const field = Buffer.from(header.subarray(offset, offset + length));
+  const end = field.indexOf(0);
+  return (end === -1 ? field : field.subarray(0, end)).toString('latin1');
+}
+
+/**
+ * Normalizes the POSIX modes recorded in a `.tar.gz` built on a host whose
+ * filesystem cannot express them.
+ *
+ * Windows has no POSIX permission bits, so the `bsdtar` shipped with it records
+ * every entry as `0666` (files) or `0777` (directories) — including the release
+ * executable, which then fails `test -x` in `arachnea-docker`'s build and is not
+ * runnable for anyone extracting the archive on Linux. Windows' `bsdtar` also
+ * rejects `--mode`, so the modes are rewritten in the archive itself. Files are
+ * pinned to `0644` and directories to `0755` — the values macOS and GNU tar
+ * record — so the produced archive no longer depends on the build host, and
+ * every path listed in `executables` gets `0755`.
+ *
+ * Entries are rewritten in place; the trailing padding is left untouched.
+ *
+ * @param {string} tarPath - Absolute path of the `.tar.gz` to rewrite.
+ * @param {string[]} executables - Archive-relative paths that must be
+ *   executable (leading `./` is ignored).
+ * @throws {Error} When one of `executables` is missing from the archive.
+ */
+export function normalizeTarGzModes(tarPath, executables = []) {
+  const wanted = new Set(
+    executables.map((entry) => entry.replace(/^\.\//, '').replace(/\/+$/, '')),
+  );
+  const found = new Set();
+  const archive = gunzipSync(readFileSync(tarPath));
+
+  for (let offset = 0; offset + 512 <= archive.length; ) {
+    const header = archive.subarray(offset, offset + 512);
+    // Two zeroed blocks mark the end of the entry list.
+    if (header.every((byte) => byte === 0)) break;
+    const name = tarField(header, 0, 100);
+    const prefix = tarField(header, 345, 155);
+    const entry = (prefix ? `${prefix}/${name}` : name).replace(/^\.\//, '').replace(/\/+$/, '');
+    const type = String.fromCharCode(header[156] || 0x30);
+    const size = parseInt(tarField(header, 124, 12).trim() || '0', 8);
+    if (type === '0' || type === '5') {
+      const executable = wanted.has(entry);
+      if (executable) found.add(entry);
+      const mode = type === '5' || executable ? 0o755 : 0o644;
+      header.write(`${mode.toString(8).padStart(7, '0')}\0`, 100, 8, 'latin1');
+      // The checksum field must be blanked before the sum is computed, then
+      // written as the conventional `6 octal digits + NUL + space`.
+      header.fill(0x20, 148, 156);
+      let sum = 0;
+      for (const byte of header) sum += byte;
+      header.write(`${sum.toString(8).padStart(6, '0')}\0 `, 148, 8, 'latin1');
+    }
+    offset += 512 + Math.ceil(size / 512) * 512;
+  }
+
+  const missing = [...wanted].filter((entry) => !found.has(entry));
+  if (missing.length > 0) {
+    throw new Error(
+      `Cannot mark ${missing.join(', ')} executable in ${tarPath}: no matching entry ` +
+        'in the archive. The staged release tree does not match the expected layout.',
+    );
+  }
+  writeFileSync(tarPath, gzipSync(archive));
+}
+
+/**
  * Creates a `.tar.gz` archive from a source directory using `tar` (bsdtar on
  * Windows/macOS, GNU tar elsewhere), which is available on every supported
  * host. Used for portable Linux/macOS builds produced through Docker.
  *
+ * The modes are normalized afterwards (see `normalizeTarGzModes`), because
+ * bsdtar under Windows stores none of them.
+ *
  * @param {string} srcDir - Directory whose content is archived (relative paths).
  * @param {string} tarPath - Absolute destination `.tar.gz` archive path.
+ * @param {string[]} [executables] - Archive-relative paths to mark executable.
  */
-export function createTarGz(srcDir, tarPath) {
+export function createTarGz(srcDir, tarPath, executables = []) {
   mkdirSync(path.dirname(tarPath), { recursive: true });
   if (!canRun('tar')) throw new Error('`tar` is required to create the portable archive.');
   run('tar', ['-czf', tarPath, '.'], { cwd: srcDir });
+  normalizeTarGzModes(tarPath, executables);
 }
 
 /**
@@ -366,10 +449,12 @@ export function createTarGz(srcDir, tarPath) {
  *
  * @param {string} srcDir - Directory whose content is archived.
  * @param {string} archivePath - Absolute destination archive path.
+ * @param {string[]} [executables] - Archive-relative paths to mark executable
+ *   (`.tar.gz` only; a `.zip` stores the mode differently and is not normalized).
  */
-export function createArchive(srcDir, archivePath) {
+export function createArchive(srcDir, archivePath, executables = []) {
   if (archivePath.endsWith('.tar.gz')) {
-    createTarGz(srcDir, archivePath);
+    createTarGz(srcDir, archivePath, executables);
     return;
   }
   createZip(srcDir, archivePath);
