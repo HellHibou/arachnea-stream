@@ -90,21 +90,43 @@ if errorlevel 1 (
     exit /b 1
 )
 
+:: Compose otherwise follows the globally selected Buildx builder. A
+:: docker-container builder keeps the result only in its BuildKit cache unless
+:: it is explicitly exported. The builder named after the active Docker
+:: context writes both tags to the local image store used by Compose.
+for /f "delims=" %%I in ('docker context show') do set "LOCAL_BUILDER=%%I"
+if not defined LOCAL_BUILDER (
+    echo Error: could not determine the active Docker context.
+    exit /b 1
+)
+docker buildx inspect "%LOCAL_BUILDER%" >nul 2>&1
+if errorlevel 1 (
+    echo Error: no local Buildx builder found for Docker context "%LOCAL_BUILDER%".
+    exit /b 1
+)
+
 :: The environment wins over `.env`, so the image tag, the two archive paths and
 :: the stamped `ENV ARACHNEA_VERSION` all follow this version.
 set "ARACHNEA_VERSION=%VERSION%"
 echo Building arachnea-stream:%VERSION% from "%RELEASE_DIR%" ^(ARACHNEA_VERSION=%VERSION%^)...
 :: --no-cache is not forced: pass it as an extra argument (see usage) to
 :: rebuild every layer instead of reusing the cache of a previous release.
-docker compose build %EXTRA_ARGS%
+docker compose build --builder "%LOCAL_BUILDER%" %EXTRA_ARGS%
 if errorlevel 1 (
     echo Error: docker compose build failed.
     exit /b 1
 )
+docker image inspect "arachnea-stream:%VERSION%" >nul 2>&1
+if errorlevel 1 (
+    echo Error: the build completed but arachnea-stream:%VERSION% was not exported to the local Docker image store.
+    exit /b 1
+)
+docker image inspect "arachnea-stream:latest" >nul 2>&1
+if errorlevel 1 (
+    echo Error: the build completed but arachnea-stream:latest was not exported to the local Docker image store.
+    exit /b 1
+)
 
-:: The version is pinned on purpose: `.env` may point at another release, and a
-:: bare `docker compose up` would then start that tag instead of the one just
-:: built.
 echo.
 echo Image arachnea-stream:%VERSION% is ready. Start it with ^(from %CD%^):
 echo docker compose up -d

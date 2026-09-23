@@ -193,9 +193,14 @@ explicit error. The default `docker compose build` reuses the layer cache; any
 other argument is forwarded to it, so `--no-cache` forces a full rebuild of
 every layer instead of reusing a layer cached from a previous release
 (`--progress=plain` or `--push` change the output). `-h`/`--help` prints the
-usage. The script ends by printing the version-pinned command that starts the
-image it just built (`ARACHNEA_VERSION=<version> docker compose up -d`, or
-`set "ARACHNEA_VERSION=<version>" && docker compose up -d` on Windows).
+usage. The wrapper explicitly selects the Buildx builder named after the active
+Docker context, which exports into Docker's local image store even when a
+separate `docker-container` builder is globally selected (that driver otherwise
+keeps the result only in its BuildKit cache). It also verifies both local tags
+after the build. The script creates `arachnea-stream:<version>` and the local
+`arachnea-stream:latest` alias. Its final `docker compose up -d` starts that
+local `latest` alias; Compose never pulls it or falls back to a
+`release-latest` build.
 
 ### Build arguments
 

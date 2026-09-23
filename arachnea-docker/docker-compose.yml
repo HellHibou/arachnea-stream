@@ -1,14 +1,17 @@
 services:
   arachnea:
-    # The image carries the release version: the versioned tag is what
-    # `docker compose up` runs, `latest` stays as the convenience alias.
-    image: arachnea-stream:${ARACHNEA_VERSION:-latest}
+    # Runtime always consumes the local `latest` alias. The build wrapper tags
+    # its resolved release both as `arachnea-stream:<version>` and `:latest`.
+    image: arachnea-stream:latest
+    # Do not pull or fall back to rebuilding with ARACHNEA_VERSION=latest.
+    # Build the image first with `./build-image.sh`.
+    pull_policy: never
     build:
       context: .
       dockerfile: Dockerfile
       tags:
-        # Mirror of the service `image:` above (`ARACHNEA_VERSION` is already
-        # required there) plus the `latest` alias.
+        # Versioned release tag plus the local runtime alias consumed by
+        # `docker compose up`.
         - arachnea-stream:${ARACHNEA_VERSION:-latest}
         - arachnea-stream:latest
       # Cross-build both native Linux ports in one go. Comment one line to
@@ -29,14 +32,10 @@ services:
       additional_contexts:
         releases: "${ARACHNEA_RELEASES_DIR:?ARACHNEA_RELEASES_DIR is not set — copy .env.example to .env or export the variable}"
       args:
-        # Release packaged into the image. There is deliberately no default
-        # here: the version lives in exactly one place — the environment or
-        # `arachnea-docker/.env` (committed, see `.env.example`). Compose
-        # interpolates ${ARACHNEA_VERSION} into the two archive paths below
-        # (never from sibling args, only from the environment/.env), stamps
-        # `ENV ARACHNEA_VERSION` (logged at startup by the entrypoint) and
-        # fails fast if the variable is missing. Per-build override:
-        # `ARACHNEA_VERSION=0.2.0 docker compose build`.
+        # Release packaged into the image. `build-image.sh` resolves and
+        # exports ARACHNEA_VERSION before calling Compose. Direct Compose builds
+        # require an explicit environment value; the `latest` fallback exists
+        # only for interpolation and cannot match a real release archive.
         ARACHNEA_VERSION: "${ARACHNEA_VERSION:-latest}"
         # Portable archive paths, relative to the `releases` build context
         # (additional_contexts above; a `../...` COPY path is forbidden by
