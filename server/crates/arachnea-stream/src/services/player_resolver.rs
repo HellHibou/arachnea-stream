@@ -65,6 +65,19 @@ pub(crate) struct ResolvedPlayerImageTitle {
     pub link: String,
 }
 
+/// External subtitle track exposed by a resolved player stream.
+#[derive(Serialize)]
+pub(crate) struct ResolvedPlayerSubtitle {
+    /// Language code declared by the source.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lang: Option<String>,
+    /// Human-readable track label displayed by the player.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Browser-readable WebVTT URL.
+    pub link: String,
+}
+
 /// Playback stream resolved by a source-specific player resolver.
 #[derive(Default, Serialize)]
 pub(crate) struct ResolvedPlayerStream {
@@ -98,6 +111,9 @@ pub(crate) struct ResolvedPlayerStream {
     /// Optional ordered list of chapters extracted from the player metadata.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chapters: Option<Vec<Chapter>>,
+    /// Optional external subtitle tracks associated with the resolved stream.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub subtitles: Vec<ResolvedPlayerSubtitle>,
 }
 
 /// Binary response returned by a resolver-owned stream proxy.

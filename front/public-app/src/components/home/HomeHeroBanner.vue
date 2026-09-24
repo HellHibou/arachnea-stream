@@ -142,14 +142,15 @@ watch(activeBanner, async (banner) => {
       ? null
       : 'embedLink' in response
         ? resolveIframeMediaSource(response.embedLink)
-        : resolveBackendStreamMediaSource(
-            response.streamUrl[0] ?? null,
-            response.manifestType,
-            response.licenseUrl,
-            response.licenseHeaders,
-            response.storyboardVttUrl,
-            response.chapters,
-          )
+        : resolveBackendStreamMediaSource({
+            streamUrl: response.streamUrl[0] ?? null,
+            manifestType: response.manifestType,
+            licenseUrl: response.licenseUrl,
+            licenseHeaders: response.licenseHeaders,
+            storyboardVttUrl: response.storyboardVttUrl,
+            chapters: response.chapters,
+            subtitles: response.subtitles,
+          })
   } catch (error) {
     if (requestId === bannerStreamRequestId) {
       resolvedBannerMediaSource.value = null

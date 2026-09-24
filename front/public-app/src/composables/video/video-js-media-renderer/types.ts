@@ -179,6 +179,17 @@ export interface UseVideoJsMediaRendererOptions {
  */
 export type VideoJsPlayer = ReturnType<typeof videojs> & {
   /**
+   * Adds one remote text track owned by the renderer.
+   *
+   * @param options Remote text track configuration.
+   * @param manualCleanup Whether the renderer explicitly removes the track.
+   * @returns Handle used to remove the remote track.
+   */
+  addRemoteTextTrack?: (
+    options: VideoJsRemoteTextTrackOptions,
+    manualCleanup?: boolean,
+  ) => VideoJsRemoteTextTrackHandle
+  /**
    * Gets the audio track list handle.
    * @returns The audio track list handle.
    */
@@ -232,6 +243,12 @@ export type VideoJsPlayer = ReturnType<typeof videojs> & {
     resolutionLabelBitrates?: boolean
   }) => void
   /**
+   * Removes one remote text track previously added by the renderer.
+   *
+   * @param track Remote text track handle to remove.
+   */
+  removeRemoteTextTrack?: (track: VideoJsRemoteTextTrackHandle) => void
+  /**
    * Initializes sprite thumbnails.
    * @param options - Sprite thumbnail configuration.
    */
@@ -261,6 +278,27 @@ export type VideoJsPlayer = ReturnType<typeof videojs> & {
     liveCurrentTime?: () => number
   }
 }
+
+/**
+ * Configuration for one remote Video.js subtitle track.
+ */
+export type VideoJsRemoteTextTrackOptions = {
+  /** Text track kind. */
+  kind: 'subtitles'
+  /** URL of the WebVTT track. */
+  src: string
+  /** User-visible text track label. */
+  label: string
+  /** Optional subtitle language code. */
+  srclang?: string
+}
+
+/**
+ * Opaque handle returned by Video.js for one remote text track.
+ */
+export type VideoJsRemoteTextTrackHandle = ReturnType<
+  ReturnType<typeof videojs>['addRemoteTextTrack']
+>
 
 /**
  * Handle to a single Video.js audio track.

@@ -724,14 +724,15 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
         }
         resolvedTrailerMediaSource.value = 'embedLink' in resolvedStream
           ? resolveIframeMediaSource(resolvedStream.embedLink)
-          : resolveBackendStreamMediaSource(
-              resolvedStream.streamUrl[0] ?? null,
-              resolvedStream.manifestType,
-              resolvedStream.licenseUrl,
-              resolvedStream.licenseHeaders,
-              resolvedStream.storyboardVttUrl,
-              resolvedStream.chapters ?? undefined,
-            )
+          : resolveBackendStreamMediaSource({
+              streamUrl: resolvedStream.streamUrl[0] ?? null,
+              manifestType: resolvedStream.manifestType,
+              licenseUrl: resolvedStream.licenseUrl,
+              licenseHeaders: resolvedStream.licenseHeaders,
+              storyboardVttUrl: resolvedStream.storyboardVttUrl,
+              chapters: resolvedStream.chapters,
+              subtitles: resolvedStream.subtitles,
+            })
       } catch {
         if (resolutionId === activeTrailerResolutionId) {
           resolvedTrailerMediaSource.value = null
@@ -777,14 +778,15 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
             ? resolveIframeMediaSource(resolvedStream.embedLink)
             : (() => {
                 resolvedStreamResponse.value = resolvedStream
-                return resolveBackendStreamMediaSource(
-                  resolvedStream.streamUrl[0] ?? null,
-                  resolvedStream.manifestType,
-                  resolvedStream.licenseUrl,
-                  resolvedStream.licenseHeaders,
-                  resolvedStream.storyboardVttUrl,
-                  resolvedStream.chapters ?? undefined,
-                )
+                return resolveBackendStreamMediaSource({
+                  streamUrl: resolvedStream.streamUrl[0] ?? null,
+                  manifestType: resolvedStream.manifestType,
+                  licenseUrl: resolvedStream.licenseUrl,
+                  licenseHeaders: resolvedStream.licenseHeaders,
+                  storyboardVttUrl: resolvedStream.storyboardVttUrl,
+                  chapters: resolvedStream.chapters,
+                  subtitles: resolvedStream.subtitles,
+                })
               })()
 
         if (!nextMediaSource) {
@@ -837,14 +839,15 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
 
     activeResolvedStreamIndex.value = nextIndex
     resolvedMediaSource.value = attachStoryboardToVideoSource(
-      resolveBackendStreamMediaSource(
-        nextUrl,
-        stream.manifestType,
-        stream.licenseUrl,
-        stream.licenseHeaders,
-        stream.storyboardVttUrl,
-        stream.chapters ?? undefined,
-      ),
+      resolveBackendStreamMediaSource({
+        streamUrl: nextUrl,
+        manifestType: stream.manifestType,
+        licenseUrl: stream.licenseUrl,
+        licenseHeaders: stream.licenseHeaders,
+        storyboardVttUrl: stream.storyboardVttUrl,
+        chapters: stream.chapters,
+        subtitles: stream.subtitles,
+      }),
       stream.storyboard ?? resolvePlayerStoryboard(selectedPlayer.value),
       stream.chapters ?? null,
     )

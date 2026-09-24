@@ -1,3 +1,5 @@
+import type { ResolvedPlayerSubtitle } from '@/types/entry'
+
 /**
  * Resolved media source for iframe-based player rendering.
  */
@@ -64,6 +66,8 @@ export interface ResolvedVideoMediaSource {
   storyboardVttUrl?: string | null
   /** Optional ordered list of chapters extracted from the player metadata. */
   chapters: ResolvedVideoChapter[] | null
+  /** Subtitle tracks available for the media source. */
+  subtitles: ResolvedPlayerSubtitle[]
 }
 
 /** Union type for all resolved player media sources. */
@@ -86,6 +90,26 @@ interface ResolvedNativeVideoAsset {
   mimeType: string | null
   /** The transport protocol used for the video. */
   transport: ResolvedVideoMediaSource['transport']
+}
+
+/**
+ * Backend stream data required to build a playable media source.
+ */
+export interface BackendStreamMediaSourceOptions {
+  /** Resolved stream URL returned by the backend. */
+  streamUrl: string | null
+  /** Stream manifest type returned by the backend. */
+  manifestType: string | null
+  /** Optional DRM license URL returned by the backend. */
+  licenseUrl?: string | null
+  /** Optional DRM license headers returned by the backend. */
+  licenseHeaders?: Record<string, string>
+  /** Optional storyboard WebVTT URL returned by the backend. */
+  storyboardVttUrl?: string | null
+  /** Optional chapters extracted from the player metadata. */
+  chapters?: ResolvedVideoChapter[] | null
+  /** Optional subtitle tracks extracted from the player metadata. */
+  subtitles?: ResolvedPlayerSubtitle[]
 }
 
 /**
@@ -379,6 +403,7 @@ export function resolvePlayerMediaSource(value: string | null): ResolvedPlayerMe
       licenseHeaders: {},
       storyboard: null,
       chapters: null,
+      subtitles: [],
     }
   }
 
@@ -396,20 +421,19 @@ export function resolvePlayerMediaSource(value: string | null): ResolvedPlayerMe
 /**
  * Resolves one backend-provided manifest payload into the renderer used by the embedded player.
  *
- * @param streamUrl Resolved stream URL returned by the backend.
- * @param manifestType Stream manifest type returned by the backend.
- * @param licenseUrl Optional DRM license URL returned by the backend.
- * @param licenseHeaders Optional DRM license headers returned by the backend.
- * @param storyboardVttUrl Optional storyboard WebVTT URL returned by the backend.
+ * @param options Backend stream data returned by the resolver.
  * @returns Resolved player source describing whether to render DASH or a native video asset.
  */
 export function resolveBackendStreamMediaSource(
-  streamUrl: string | null,
-  manifestType: string | null,
-  licenseUrl: string | null = null,
-  licenseHeaders: Record<string, string> = {},
-  storyboardVttUrl: string | null = null,
-  chapters: ResolvedVideoChapter[] | null = null,
+  {
+    streamUrl,
+    manifestType,
+    licenseUrl = null,
+    licenseHeaders = {},
+    storyboardVttUrl = null,
+    chapters = null,
+    subtitles = [],
+  }: BackendStreamMediaSourceOptions,
 ): ResolvedPlayerMediaSource | null {
   const normalizedManifestType = manifestType?.trim().toLocaleLowerCase() ?? null
   const normalizedStreamUrl = resolveAbsoluteUrl(streamUrl)
@@ -429,6 +453,10 @@ export function resolveBackendStreamMediaSource(
       storyboard: null,
       chapters,
       storyboardVttUrl: resolveAbsoluteUrl(storyboardVttUrl),
+      subtitles: subtitles.flatMap((subtitle) => {
+        const link = resolveAbsoluteUrl(subtitle.link)
+        return link ? [{ ...subtitle, link }] : []
+      }),
     }
   }
 
@@ -443,6 +471,10 @@ export function resolveBackendStreamMediaSource(
       storyboard: null,
       chapters,
       storyboardVttUrl: resolveAbsoluteUrl(storyboardVttUrl),
+      subtitles: subtitles.flatMap((subtitle) => {
+        const link = resolveAbsoluteUrl(subtitle.link)
+        return link ? [{ ...subtitle, link }] : []
+      }),
     }
   }
 
@@ -457,6 +489,10 @@ export function resolveBackendStreamMediaSource(
       storyboard: null,
       chapters,
       storyboardVttUrl: resolveAbsoluteUrl(storyboardVttUrl),
+      subtitles: subtitles.flatMap((subtitle) => {
+        const link = resolveAbsoluteUrl(subtitle.link)
+        return link ? [{ ...subtitle, link }] : []
+      }),
     }
   }
 
@@ -535,6 +571,7 @@ export function resolveBackgroundMediaSource(
       licenseHeaders: {},
       storyboard: null,
       chapters: null,
+      subtitles: [],
     }
   }
 

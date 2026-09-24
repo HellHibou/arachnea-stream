@@ -36,6 +36,50 @@ shared:
       argument:
         "false": null
 
+  # Player fields read from one `/ajax/episode/player` message row. The owning
+  # post-process captures the serialized row as group 1, and every field applies
+  # its own regex so the extraction does not depend on the JSON key order.
+  entries_coflix_player: &entries_coflix_player
+    - name: name
+      type: string
+      capture_group: 1
+      actions:
+        # `server_name` is `false` for the first server, whose name is only
+        # exposed by the player list page: fall back to the link host.
+        - type: regex_find_all
+          pattern: '"server_name":"([^"]+)"'
+          format: "{1}"
+    - name: web-link
+      type: string
+      capture_group: 1
+      actions:
+        - type: regex_find_all
+          pattern: '"server_link":"([^"]+)"'
+          format: "{1}"
+    - name: resolver > kind
+      type: string
+      actions:
+        - type: format_text
+          argument: "stream-resolver"
+    - name: resolver > target_id
+      type: string
+      capture_group: 1
+      actions:
+        - type: regex_find_all
+          pattern: '"server_link":"([^"]+)"'
+          format: "{1}"
+    - name: lang
+      type: string[]
+      capture_group: 1
+      actions:
+        - type: regex_find_all
+          pattern: '"version":"([^"]+)"'
+          format: "{1}"
+        - type: map
+          argument:
+            VF: vf
+            VOSTFR: vostfr
+
 # ############################################################################
 # Queries
 # ############################################################################
@@ -657,52 +701,27 @@ queries:
                 argument:
                   VF: vf
                   VOSTFR: vostfr
-      - name: players
+      - name: player-requests
         type: object[]
-        actions:
-          - type: get_response_body
-          - type: regex_find_all
-            pattern: 'episode_play\s*=\s*\{[\s\S]*?id\s*:\s*"(\d+)"'
-            format: "{base_url}/ajax/episode/player?episode_id={1}"
-        sub_queries:
-          - scraper_type: json
-            request_method: post
-            row_pointer: "/message/*"
-            request_headers:
-              - name: "Referer"
-                actions:
-                  - type: format_text
-                    argument: "{base_url}"
-            entries:
-              - name: resolver > kind
-                type: string
-                actions:
-                  - type: format_text
-                    argument: "stream-resolver"
-              - name: resolver > target_id
-                type: string
-                select: first
-                pointer: "/server_link"
-              - name: web-link
-                type: string
-                select: first
-                pointer: "/server_link"
-              - name: name
-                type: string
-                select: first
-                pointer: "/server_link"
-                actions:
-                  - type: get_url_host
-              - name: lang
-                type: string[]
-                select: first
-                pointer: "/version"
-                actions:
-                  - type: map
-                    argument:
-                      VF: vf
-                      VOSTFR: vostfr
+        entries:
+          - name: link
+            type: string
+            actions:
+              - type: get_response_body
+              - type: regex_find_all
+                pattern: 'episode_play\s*=\s*\{[\s\S]*?id\s*:\s*"(\d+)"'
+                format: "{base_url}/ajax/episode/player?episode_id={1}"
     post_process:
+      # Entry-level players, fetched from the player endpoint indexed by
+      # `episode_play` (films and the currently watched episode of a series).
+      - type: fetch_regex_items_from_items
+        source: player-requests
+        request_field: link
+        request_method: post
+        response_pointer: /message/*
+        target: players
+        pattern: '^(.+)$'
+        entries: *entries_coflix_player
       - type: fetch_regex_items_from_items
         source: episode-requests
         request_field: link
@@ -735,30 +754,11 @@ queries:
         source: seasons > episodes
         request_field: player-request
         request_method: post
-        response_pointer: /message/*/server_link
+        response_pointer: /message/*
         target: players
         target_per_source: true
         pattern: '^(.+)$'
-        entries:
-          - name: web-link
-            type: string
-            capture_group: 1
-          - name: resolver > kind
-            type: string
-            actions:
-              - type: format_text
-                argument: "stream-resolver"
-          - name: resolver > target_id
-            type: string
-            capture_group: 1
-          - name: name
-            type: string
-            capture_group: 1
-            actions:
-              - type: get_url_host
-        copy_item_fields:
-          - source: lang
-            target: lang
+        entries: *entries_coflix_player
       - type: filter_fields
         source: seasons > episodes
         field: id
@@ -768,3 +768,4 @@ queries:
       - type: remove_fields
         fields:
           - episode-requests
+          - player-requests

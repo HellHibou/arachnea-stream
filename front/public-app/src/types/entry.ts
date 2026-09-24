@@ -99,6 +99,18 @@ export interface EntryPlayerChapter {
 }
 
 /**
+ * A subtitle track returned by a resolved player stream.
+ */
+export interface ResolvedPlayerSubtitle {
+  /** Optional language code for the subtitle track. */
+  lang?: string
+  /** Optional display label for the subtitle track. */
+  label?: string
+  /** Browser-consumable WebVTT URL. */
+  link: string
+}
+
+/**
  * Resolved media stream returned by the backend `get_stream` command.
  *
  * This is one branch of the exclusive union `GetStreamResponse`:
@@ -121,6 +133,8 @@ export interface EntryResolvedPlayerStream {
   storyboard: EntryPlayerStoryboard | null
   /** Optional ordered list of chapters extracted from the player metadata. */
   chapters: EntryPlayerChapter[] | null
+  /** Subtitle tracks available for the resolved media stream. */
+  subtitles: ResolvedPlayerSubtitle[]
 }
 
 /**

@@ -53,6 +53,7 @@ import type {
   VideoJsMediaRendererEmits,
   VideoJsMediaRendererProps,
   VideoJsPlayer,
+  VideoJsRemoteTextTrackHandle,
   VideoJsSpriteThumbnailsPlugin,
   VideoJsSourceInput,
   VideoJsTechHandle,
@@ -91,6 +92,49 @@ type ResolvedSpriteThumbnailOptions = {
   cues: StoryboardVttCue[]
 }
 
+/**
+ * Derives a display label from a WebVTT file URL when the resolver did not provide one.
+ *
+ * @param link Subtitle track URL.
+ * @returns Decoded filename without its `.vtt` extension, or undefined when unavailable.
+ */
+function getSubtitleFileLabel(link: string): string | undefined {
+  try {
+    const url = new URL(link, window.location.origin)
+    const pathSegments = url.pathname.split('/').filter(Boolean)
+    const filename = pathSegments[pathSegments.length - 1]
+
+    if (!filename) {
+      return undefined
+    }
+
+    const label = decodeURIComponent(filename).replace(/\.vtt$/i, '').trim()
+    return label || undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Checks whether two subtitle lists identify the same remote text tracks.
+ *
+ * @param left First subtitle list.
+ * @param right Second subtitle list.
+ * @returns True when the lists have identical track links and display metadata in the same order.
+ */
+function areSubtitlesEqual(
+  left: ResolvedVideoMediaSource['subtitles'],
+  right: ResolvedVideoMediaSource['subtitles'],
+): boolean {
+  return left.length === right.length && left.every((subtitle, index) => {
+    const other = right[index]
+    return other !== undefined &&
+      subtitle.link === other.link &&
+      subtitle.lang === other.lang &&
+      subtitle.label === other.label
+  })
+}
+
 export type {
   VideoJsMediaDimensions,
   VideoJsMediaRendererEmits,
@@ -124,6 +168,8 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
    let pendingDashQualityBridgeCleanup: (() => void) | null = null
    /** Sprite thumbnail plugin instance attached to the active player. */
    let spriteThumbnailsPlugin: VideoJsSpriteThumbnailsPlugin | null = null
+    /** Remote subtitle tracks explicitly owned by the active renderer. */
+    let remoteSubtitleTracks: VideoJsRemoteTextTrackHandle[] = []
  /** Preferred quality selected by the user. */
      let preferredQuality: string | null = null
     /** Latest state used to restore tracks after DASH renews the Video.js track lists. */
@@ -306,6 +352,49 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     activeDashQualityBridge = null
   }
 
+  /**
+   * Removes all remote subtitle tracks created by this renderer.
+   *
+   * @param player Video.js player that owns the tracks.
+   */
+  function clearRemoteSubtitleTracks(player: VideoJsPlayer) {
+    for (const track of remoteSubtitleTracks) {
+      player.removeRemoteTextTrack?.(track)
+    }
+
+    remoteSubtitleTracks = []
+  }
+
+  /**
+   * Adds the resolver-provided subtitle tracks to the current Video.js player.
+   *
+   * @param player Video.js player receiving the remote tracks.
+   * @param source Media source containing normalized subtitle metadata.
+   */
+  function addRemoteSubtitleTracks(player: VideoJsPlayer, source: ResolvedVideoMediaSource) {
+    for (const subtitle of source.subtitles) {
+      const label = subtitle.label ?? subtitle.lang ?? getSubtitleFileLabel(subtitle.link)
+
+      if (!label) {
+        continue
+      }
+
+      const track = player.addRemoteTextTrack?.(
+        {
+          kind: 'subtitles',
+          src: subtitle.link,
+          label,
+          ...(subtitle.lang ? { srclang: subtitle.lang } : {}),
+        },
+        true,
+      )
+
+      if (track) {
+        remoteSubtitleTracks.push(track)
+      }
+    }
+  }
+
    /**
     * Disposes the current Video.js instance before the renderer switches source or unmounts.
     */
@@ -315,6 +404,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
      clearPendingDashQualityBridge()
 
      if (activePlayer.value) {
+        clearRemoteSubtitleTracks(activePlayer.value)
        emitCurrentPlayerState(activePlayer.value)
      }
 
@@ -1176,6 +1266,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       clearPendingSourceRestoreCleanup()
       clearPendingQualitySelectorCleanup()
       clearPendingDashQualityBridge()
+      clearRemoteSubtitleTracks(player)
       markVideoInitialLoadStart()
       isPosterOverlayVisible.value = shouldRenderPosterOverlay.value && !(props.autoplay || switchAutoplay)
       preferredQuality = resolveRetainedQuality(preferredQuality, playerState)
@@ -1316,6 +1407,8 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       player.off('playing', handlePlaying)
     }
     player.src(buildPlayerSource(source, spriteThumbnailOptions))
+    addRemoteSubtitleTracks(player, source)
+    restorePersistedTrackPreferences(player, retainedPlayerState)
 
     if (isDashSource(source)) {
       installDashQualityBridgeForSource(player, retainedQuality)
@@ -1611,7 +1704,11 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
   watch(
     () => props.source,
     (nextSource, previousSource) => {
-      if (!activePlayer.value || !previousSource || previousSource.src === nextSource.src) {
+      if (
+        !activePlayer.value ||
+        !previousSource ||
+        (previousSource.src === nextSource.src && areSubtitlesEqual(previousSource.subtitles, nextSource.subtitles))
+      ) {
         return
       }
 

@@ -313,13 +313,14 @@ async function resolveSelectedLiveMedia(player: EntryPlayer | null) {
               ? resolveIframeMediaSource(resolvedStream.embedLink)
               : (() => {
                   resolvedLiveStream.value = resolvedStream
-                  return resolveBackendStreamMediaSource(
-                    resolvedStream.streamUrl[0] ?? null,
-                    resolvedStream.manifestType,
-                    resolvedStream.licenseUrl,
-                    resolvedStream.licenseHeaders,
-                    resolvedStream.storyboardVttUrl,
-                  )
+                  return resolveBackendStreamMediaSource({
+                    streamUrl: resolvedStream.streamUrl[0] ?? null,
+                    manifestType: resolvedStream.manifestType,
+                    licenseUrl: resolvedStream.licenseUrl,
+                    licenseHeaders: resolvedStream.licenseHeaders,
+                    storyboardVttUrl: resolvedStream.storyboardVttUrl,
+                    subtitles: resolvedStream.subtitles,
+                  })
                 })(),
         )
       : resolvePlayerMediaSource(player.directLink)
@@ -359,13 +360,14 @@ function handleLiveMediaSourceError() {
   }
 
   activeResolvedLiveStreamIndex.value = nextIndex
-  resolvedLiveMediaSource.value = resolveBackendStreamMediaSource(
-    nextUrl,
-    stream.manifestType,
-    stream.licenseUrl,
-    stream.licenseHeaders,
-    stream.storyboardVttUrl,
-  )
+  resolvedLiveMediaSource.value = resolveBackendStreamMediaSource({
+    streamUrl: nextUrl,
+    manifestType: stream.manifestType,
+    licenseUrl: stream.licenseUrl,
+    licenseHeaders: stream.licenseHeaders,
+    storyboardVttUrl: stream.storyboardVttUrl,
+    subtitles: stream.subtitles,
+  })
 }
 
 /**

@@ -636,6 +636,7 @@ une réponse de type union exclusive :
 | `license_headers` | `object` | En-têtes HTTP pour la requête de licence |
 | `storyboard_vtt_url` | `string` | URL du WebVTT de miniatures du storyboard (optionnel, préféré à `storyboard`) |
 | `storyboard` | `object` | Métadonnées du sprite storyboard (optionnel) |
+| `subtitles` | `object[]` | Pistes externes de sous-titres WebVTT ordonnées (optionnel) |
 | `embed-link` | `string` | URL de repli iframe (exclusif de `stream_url`) |
 
 Les champs `stream_url` et `embed-link` sont mutuellement exclusifs :
@@ -651,6 +652,24 @@ WebVTT dont la ligne commence par `http://` ou `https://` vers une URL proxy, pu
 convertit les coordonnées `#xywh` en configuration de sprite Video.js. Les VTT qui utilisent une
 image sprite unique et des cellules homogènes sont pris en charge. En cas de chargement ou de format
 incompatible, le frontend utilise le champ `storyboard` lorsqu'il est disponible.
+
+`subtitles` contient des pistes WebVTT externes lisibles par le navigateur, dans l'ordre du
+résolveur :
+
+| Champ | Type | Description |
+|---|---|---|
+| `lang` | `string` | Code de langue optionnel annoncé par la source ; il est conservé sans conversion |
+| `label` | `string` | Libellé humain optionnel affiché par le lecteur |
+| `link` | `string` | URL WebVTT HTTP(S), ou URL de proxy applicatif, obligatoire |
+
+Les pistes dont `link` est vide ou invalide sont ignorées. Les valeurs `lang` et `label` vides sont
+omises ; une piste reste toutefois conservée lorsqu'elles sont toutes les deux absentes. Une liste
+vide n'est pas sérialisée dans la réponse JSON. Les résolveurs doivent proxifier les URLs de
+sous-titres qui nécessitent des en-têtes de requête ou qui ne seraient pas lisibles directement par
+le navigateur. Le lecteur public ajoute ces pistes comme pistes distantes Video.js après avoir défini
+la source média, n'en active aucune par défaut et retire ses propres pistes distantes lors d'un
+changement de source ou de la destruction du lecteur. Les pistes texte natives HLS/DASH restent
+gérées par leurs moteurs de lecture respectifs.
 
 Le champ `storyboard` contient :
 
@@ -688,7 +707,7 @@ par YAML pour les hébergeurs externes. Chaque fichier YAML déclare au minimum
 |---|---|---|
 | `can_resolve_url` | `static` | Préfiltre optionnel avant tentative directe ; un résultat positif autorise `resolve_stream` à charger l'URL |
 | `can_resolve_html` | `static` / `html` | Reconnaissance optionnelle d'un HTML déjà téléchargé avec les paramètres `{url, origine, html}` ; `{origine}` est le schéma, l'hôte et le port éventuel de l'URL finale après redirections |
-| `resolve_stream` | `html` / `json` / `text` | Extrait le flux média et les métadonnées optionnelles `title`, `image/title > link`, `stream_headers`, `storyboard_vtt_url` et `storyboard`. Une sortie optionnelle non vide `error_message` signale une erreur métier terminale. |
+| `resolve_stream` | `html` / `json` / `text` | Extrait le flux média et les métadonnées optionnelles `title`, `image/title > link`, `stream_headers`, `storyboard_vtt_url`, `storyboard` et `subtitles`. Une sortie optionnelle non vide `error_message` signale une erreur métier terminale. |
 
 La façade `StreamResolver` parcourt les YAML actifs dans l'ordre de `services.json`.
 Pour le chemin direct, elle appelle `can_resolve_url` quand la requête existe ; seuls les

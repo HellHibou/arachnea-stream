@@ -39,7 +39,9 @@ queries:
       # Extract the /pass_md5/... endpoint from the inline player script, then
       # fetch it through the entry sub-query with the embed page Referer. The
       # endpoint returns only the CDN base URL; Dood requires a random suffix,
-      # token, and expiry timestamp to form the actual media URL.
+      # token, and expiry timestamp to form the actual media URL. `exec_js`
+      # exposes strings only through `document.write`, so extract that channel
+      # before proxying the generated media URL.
       - name: stream_url
         type: string
         actions:
@@ -63,12 +65,15 @@ queries:
                   - type: get_response_body
                   - type: format_text
                     argument: >-
-                      var base = '{}'; var token = '{request_url}'.split('/').pop(); var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'; var suffix = ''; for (var i = 0; i < 10; i++) { suffix += chars.charAt(Math.floor(Math.random() * chars.length)); } base + suffix + '?token=' + token + '&expiry=' + Date.now();
+                      var base = '{}'; var token = '{request_url}'.split('/').pop(); var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'; var suffix = ''; for (var i = 0; i < 10; i++) { suffix += chars.charAt(Math.floor(Math.random() * chars.length)); } document.write(base + suffix + '?token=' + token + '&expiry=' + Date.now());
                   - type: exec_js
+                  - type: regex_find_all
+                    pattern: '^document_write=(.+)$'
+                    format: "{1}"
                   - type: resolve_url
                     proxy: true
                     proxy_headers:
-                      Referer: "https://playmogo.com/"
+                      Referer: "{request_origin}/"
                       User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
       # DoodStream checks encoding asynchronously. Its initial HTML only starts
       # the request with `encStatus('<id>', 1)`; `/dood?op=enc_status&id=<id>`
@@ -116,41 +121,3 @@ queries:
             argument: content
           - type: resolve_url
             proxy: true
-      - name: storyboard
-        type: object
-        select: first
-        entries:
-          - name: url
-            type: string
-            actions:
-              - type: get_response_body
-              - type: regex_find_all
-                pattern: 'thumbnails:\s*\{\s*vtt:\s*[''"](?:https?:)?//i\.doodcdn\.io/get_slides/\d+/([^''"]+)'
-                format: "https://dodoimg.com/slides/{1}"
-              - type: resolve_url
-                proxy: true
-          - name: width
-            type: number
-            actions:
-              - type: format_text
-                argument: "200"
-          - name: height
-            type: number
-            actions:
-              - type: format_text
-                argument: "112"
-          - name: columns
-            type: number
-            actions:
-              - type: format_text
-                argument: "6"
-          - name: rows
-            type: number
-            actions:
-              - type: format_text
-                argument: "6"
-          - name: first_page_index
-            type: number
-            actions:
-              - type: format_text
-                argument: "0"

@@ -9,6 +9,7 @@ import type {
   EntryPlayerStoryboard,
   EntryPlayerResolver,
   EntryResolvedPlayerStream,
+  ResolvedPlayerSubtitle,
   EntrySeason,
   GetStreamResponse,
 } from '@/types/entry'
@@ -2010,7 +2011,44 @@ function normalizeResolvedPlayerStream(payload: unknown): EntryResolvedPlayerStr
     storyboardVttUrl:payload.storyboard_vtt_url as string ?? null,
     storyboard: normalizeRustifyStoryboard(payload.storyboard),
     chapters: normalizeRustifyChapters(payload.chapters),
+    subtitles: normalizeResolvedPlayerSubtitles(payload.subtitles),
   }
+}
+
+/**
+ * Normalizes the optional subtitle tracks returned by the backend.
+ *
+ * @param value Backend subtitle track array.
+ * @returns Normalized subtitle tracks, or an empty array when absent or invalid.
+ */
+function normalizeResolvedPlayerSubtitles(value: unknown): ResolvedPlayerSubtitle[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const subtitles: ResolvedPlayerSubtitle[] = []
+
+  for (const item of value) {
+    if (!isJsonRecord(item)) {
+      continue
+    }
+
+    const link = typeof item.link === 'string' ? item.link.trim() : ''
+    if (!link) {
+      continue
+    }
+
+    const lang = typeof item.lang === 'string' ? item.lang.trim() : ''
+    const label = typeof item.label === 'string' ? item.label.trim() : ''
+
+    subtitles.push({
+      link,
+      ...(lang ? { lang } : {}),
+      ...(label ? { label } : {}),
+    })
+  }
+
+  return subtitles
 }
 
 /**

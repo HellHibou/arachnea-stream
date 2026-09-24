@@ -644,6 +644,7 @@ The `get_stream` backend command receives `{ resolver, target }` and returns an 
 | `license_headers` | `object` | HTTP headers for the DRM license request |
 | `storyboard_vtt_url` | `string` | Optional storyboard thumbnail WebVTT URL; preferred over `storyboard` |
 | `storyboard` | `object` | Optional sprite storyboard metadata |
+| `subtitles` | `object[]` | Optional ordered external WebVTT subtitle tracks |
 | `embed-link` | `string` | Iframe fallback URL, exclusive with `stream_url` |
 
 `stream_url` and `embed-link` are mutually exclusive: the former creates a native video player,
@@ -656,6 +657,22 @@ line that starts with `http://` or `https://` to a proxy URL, then the frontend 
 the `#xywh` coordinates into Video.js sprite configuration. WebVTT files using one sprite image
 with uniform cells are supported. If loading or parsing fails, the frontend uses `storyboard` when
 available.
+
+`subtitles` contains browser-consumable external WebVTT tracks in resolver order:
+
+| Field | Type | Description |
+|---|---|---|
+| `lang` | `string` | Optional language code declared by the source; preserved without conversion |
+| `label` | `string` | Optional human-readable label displayed by the player |
+| `link` | `string` | Required HTTP(S) or application-proxy WebVTT URL |
+
+Tracks with a blank or invalid `link` are discarded. Blank `lang` and `label` values are omitted;
+otherwise a track is retained even when both are absent. Empty subtitle lists are omitted from the
+JSON response. Resolver implementations must proxy subtitle URLs that require request headers or
+would otherwise be unreadable by the browser. The public player adds these tracks as Video.js remote
+subtitle tracks after its media source is set, does not enable one by default, and removes its own
+remote tracks when the source changes or the player is disposed. Embedded HLS/DASH text tracks remain
+managed by their respective playback engines.
 
 `storyboard` contains:
 
@@ -690,7 +707,7 @@ used to avoid unnecessary network fetches or to identify a page that has already
 |---|---|---|
 | `can_resolve_url` | `static` | Optional prefilter before direct resolution; a positive result allows `resolve_stream` to fetch the URL |
 | `can_resolve_html` | `static` / `html` | Optional recognition of pre-fetched HTML with `{url, origine, html}` runtime parameters; `{origine}` is the scheme, host, and optional port of the final URL after redirects |
-| `resolve_stream` | `html` / `json` / `text` | Extracts the media stream and optional `title`, `image/title > link`, `stream_headers`, `storyboard_vtt_url`, and `storyboard` metadata. An optional non-empty `error_message` output signals a terminal business error. |
+| `resolve_stream` | `html` / `json` / `text` | Extracts the media stream and optional `title`, `image/title > link`, `stream_headers`, `storyboard_vtt_url`, `storyboard`, and `subtitles` metadata. An optional non-empty `error_message` output signals a terminal business error. |
 
 `StreamResolver` walks active YAML services in `services.json` order. On the direct path, it
 calls `can_resolve_url` when present; only services with a positive result then run

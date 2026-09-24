@@ -10,7 +10,8 @@ use arachnea_scrapyfy::*;
 use url::Url;
 
 use crate::services::player_resolver::{
-    PlayerResolverEndpoints, ResolvedPlayerImageTitle, ResolvedPlayerStream, SpriteThumbnail,
+    PlayerResolverEndpoints, ResolvedPlayerImageTitle, ResolvedPlayerStream,
+    ResolvedPlayerSubtitle, SpriteThumbnail,
 };
 
 const MAX_EMBED_HTML_BYTES: usize = 1_048_576;
@@ -848,6 +849,7 @@ fn convert_resolver_entry_to_stream(
         storyboard_vtt_url: extract_first_string(entry, "storyboard_vtt_url"),
         storyboard: extract_storyboard(entry),
         chapters: None,
+        subtitles: extract_subtitles(entry),
     };
 
     // Ensure stream_headers includes at least Referer = source_url when not specified
@@ -981,6 +983,75 @@ fn extract_storyboard(entry: &HashMap<String, ScraperDataNode>) -> Option<Sprite
         first_page_index,
         interval,
     })
+}
+
+/// Extracts ordered external subtitle tracks from a resolver entry.
+///
+/// Reads every `subtitles` item and keeps tracks with a usable `link`.
+/// `lang` and `label` stay optional; blank values normalize to `None`.
+/// Order follows the resolver output and exact `(lang, label, link)`
+/// duplicates are dropped.
+fn extract_subtitles(entry: &HashMap<String, ScraperDataNode>) -> Vec<ResolvedPlayerSubtitle> {
+    let Some(node) = entry.get("subtitles") else {
+        return Vec::new();
+    };
+
+    let mut subtitles = Vec::new();
+    if node.items.is_empty() {
+        if let Some(subtitle) = build_subtitle(node) {
+            subtitles.push(subtitle);
+        }
+        return subtitles;
+    }
+
+    for item in &node.items {
+        let Some(subtitle) = build_subtitle(item) else {
+            continue;
+        };
+        let is_duplicate = subtitles.iter().any(|existing: &ResolvedPlayerSubtitle| {
+            existing.link == subtitle.link
+                && existing.lang == subtitle.lang
+                && existing.label == subtitle.label
+        });
+        if !is_duplicate {
+            subtitles.push(subtitle);
+        }
+    }
+
+    subtitles
+}
+
+/// Builds one subtitle track from a `subtitles` item node.
+/// Returns `None` when `link` is missing or not browser-consumable.
+fn build_subtitle(item: &ScraperDataNode) -> Option<ResolvedPlayerSubtitle> {
+    let link = first_child_value(item, "link")?.trim().to_string();
+    if !is_browser_consumable_subtitle_link(&link) {
+        return None;
+    }
+
+    Some(ResolvedPlayerSubtitle {
+        lang: normalize_optional_child_value(item, "lang"),
+        label: normalize_optional_child_value(item, "label"),
+        link,
+    })
+}
+
+/// Returns the trimmed child value, normalizing blank values to `None`.
+fn normalize_optional_child_value(node: &ScraperDataNode, name: &str) -> Option<String> {
+    first_child_value(node, name)
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+/// Returns whether a subtitle link is directly consumable by the browser.
+///
+/// Accepts absolute HTTP(S) URLs and root-relative application paths such as
+/// the backend HTTP proxy. Anything else is ignored so resolver payloads can
+/// never smuggle headers, tokens, or non-web schemes into the public JSON.
+fn is_browser_consumable_subtitle_link(link: &str) -> bool {
+    link.starts_with("http://")
+        || link.starts_with("https://")
+        || (link.starts_with('/') && !link.starts_with("//"))
 }
 
 #[cfg(test)]

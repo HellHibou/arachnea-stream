@@ -1159,6 +1159,12 @@ Generic transformations for text values.
 Executes JavaScript in an isolated sandbox (`boa_engine`) and returns new global
 numeric variables as `Name=Value` lines.
 
+Anything written with `document.write(...)` / `document.writeln(...)` is returned
+as a single `document_write=<content>` line. That is the only channel that carries
+a JavaScript **string** back into the pipeline (the value of the last evaluated
+expression is not returned): for example `...;document.write(decoded);` followed by
+a `regex_find_all` action with `pattern: '^document_write=(.+)$'` and `format: "{1}"`.
+
 The current pipeline value (`text`) is treated as JS code to execute.
 
 Three JS sources can be injected, in this order:

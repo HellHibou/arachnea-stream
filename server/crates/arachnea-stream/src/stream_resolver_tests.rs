@@ -292,6 +292,120 @@ queries:
 }
 
 #[test]
+fn resolve_stream_keeps_proxied_subtitle_items_and_filters_storyboards() {
+    configure_test_application_data_dir();
+
+    let html_body = concat!(
+        "<html><body>",
+        "stream=https://cdn.test/fallback.m3u8\n",
+        "track kind=subtitles lang=eng label=English url=https://cdn.test/subtitles/en.vtt\n",
+        "track kind=storyboard lang= label=sprite url=https://cdn.test/storyboards/sprite.vtt\n",
+        "track kind=subtitles lang=fre label=French url=https://cdn.test/subtitles/fr.vtt\n",
+        "track kind=subtitles lang=eng label=English url=https://cdn.test/subtitles/en.vtt",
+        "</body></html>"
+    );
+    let (url, request_count) = serve_html_once(html_body);
+
+    let resolver_yaml = r#"
+id: subtitle-resolver
+queries:
+  - name: can_resolve_url
+    scraper_type: static
+    entries:
+      - name: resolver
+        type: string
+        value: "{service_id}"
+  - name: resolve_stream
+    scraper_type: html
+    base_url: "{url}"
+    query_url: "{url}"
+    row_selector: "html"
+    entries:
+      - name: stream_url
+        type: string
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: 'stream=(https://cdn\.test/fallback\.m3u8)'
+            format: "{1}"
+      - name: _subtitle_tracks_source
+        type: string
+        actions:
+          - type: get_response_body
+    post_process:
+      - type: extract_regex_items
+        source: _subtitle_tracks_source
+        target: subtitles
+        pattern: 'track kind=([^ ]+) lang=([^ ]*) label=([^ ]+) url=([^ ]+)'
+        entries:
+          - name: kind
+            type: string
+            capture_group: 1
+          - name: lang
+            type: string
+            capture_group: 2
+          - name: label
+            type: string
+            capture_group: 3
+          - name: link
+            type: string
+            capture_group: 4
+            actions:
+              - type: resolve_url
+                proxy: true
+                proxy_headers:
+                  Referer: "{url}"
+      - type: filter_items
+        source: subtitles
+        field: kind
+        pattern: '^subtitles$'
+      - type: remove_fields
+        fields:
+          - _subtitle_tracks_source
+"#;
+
+    let (agregator, temp_dir) = setup_resolver_sources(&[("subtitles", resolver_yaml)]);
+    let mut endpoints = crate::services::player_resolver::PlayerResolverEndpoints::default();
+    endpoints.http_proxy_public_path = Some("/api/http-proxy".to_string());
+    let resolver = StreamResolver::new(&agregator, &endpoints);
+
+    let result = block_on(resolver.get_stream(&url)).expect("resolver should return a stream");
+
+    match result {
+        ResolvedStream::Stream(stream) => {
+            assert_eq!(stream.subtitles.len(), 2);
+            assert_eq!(stream.subtitles[0].lang.as_deref(), Some("eng"));
+            assert_eq!(stream.subtitles[0].label.as_deref(), Some("English"));
+            assert_eq!(stream.subtitles[1].lang.as_deref(), Some("fre"));
+            assert_eq!(stream.subtitles[1].label.as_deref(), Some("French"));
+
+            for (subtitle, upstream_url) in stream.subtitles.iter().zip([
+                "https://cdn.test/subtitles/en.vtt",
+                "https://cdn.test/subtitles/fr.vtt",
+            ]) {
+                assert!(subtitle.link.starts_with("/api/http-proxy/opts_"));
+                assert!(
+                    subtitle.link.contains(upstream_url),
+                    "proxied subtitle URL should contain its upstream URL: {}",
+                    subtitle.link
+                );
+                let opts = decode_proxy_opts(&subtitle.link);
+                assert_eq!(opts["headers"], serde_json::json!([["Referer", url]]));
+            }
+
+            let public_json = serde_json::to_string(&stream).expect("stream should serialize");
+            assert!(public_json.contains("subtitles"));
+            assert!(!public_json.contains("storyboards/sprite.vtt"));
+            assert!(!public_json.contains("_subtitle_tracks_source"));
+        }
+        ResolvedStream::EmbedLink { .. } => panic!("expected stream with subtitles"),
+    }
+    assert_eq!(request_count.load(Ordering::SeqCst), 1);
+
+    let _ = std::fs::remove_dir_all(temp_dir);
+}
+
+#[test]
 fn html_fallback_returns_embed_link_when_no_yaml_recognizes_document() {
     let (url, request_count) = serve_html_once("<html><body>unknown hoster</body></html>");
 

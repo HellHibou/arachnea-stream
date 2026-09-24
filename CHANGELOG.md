@@ -47,9 +47,17 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- `resolve_stream` responses can now expose an optional `subtitles` list (`{ lang?, label?, link }`) on `ResolvedPlayerStream`. Generic YAML-to-Rust conversion preserves resolver order, trims optional fields, discards tracks without a browser-consumable HTTP(S) or application-proxy `link`, and deduplicates exact `(lang, label, link)` entries. The field is omitted from JSON when empty, so existing resolvers keep their current payloads.
+- Vidzy (`vidzy.cc` and `vidzy.live`) now extracts subtitle entries from `player.loadTracks`, retains only `kind: 'subtitles'` WebVTT tracks, and proxies each track with its required `Referer`, `Origin`, and `User-Agent` headers.
+
 #### Changed
 
+- The `arachnea-stream-hoster` Vidzy resolver is unified for `vidzy.cc` and `vidzy.live` (including optional `www.`). Its HLS decoder derives the XOR key from the request hostname, and all stream and subtitle proxy requests use the resolved request origin. The decoder returns its string through `document.write`, which is the supported `exec_js` string channel.
+- The public Vue player propagates resolved subtitles through primary and fallback media sources, adds them as Video.js remote subtitle tracks, restores saved text-track preferences, and explicitly removes renderer-owned tracks on source changes and disposal.
+
 #### Fixed
+
+- DoodStream-compatible embeds now return the generated CDN media URL instead of proxying their intermediate `/pass_md5/...` request. The resolver sends its JavaScript result through `document.write`, which is the `exec_js` string-return channel, extracts it before proxy wrapping, derives the media `Referer` from the resolved embed origin rather than hardcoding `playmogo.com`, and no longer exposes an unsupported storyboard.
 
 - `arachnea-stream` no longer compiles or initializes the Ghostwire smart Cloudflare solver. Automatic Cloudflare handling now goes from `rquest` directly to the Chromium-backed `chaser-cf` solver, preventing the native `SIGSEGV` that restarted the Docker container during Papadustream searches on Linux arm64.
 
