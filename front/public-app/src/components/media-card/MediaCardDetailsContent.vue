@@ -153,8 +153,8 @@ const hasDetails = computed(() =>
       </p>
 
       <p v-if="languageFact" class="media-card-details__fact">
-        <span class="media-card-details__fact-label">{{ t('media.theme') }} :</span>
-        <span class="media-card-details__fact-value">{{ genreFact }}</span>
+        <span class="media-card-details__fact-label">{{ t('entry.language') }} :</span>
+        <span class="media-card-details__fact-value">{{ languageFact }}</span>
       </p>
 
       <p v-if="item.releaseDateLabel" class="media-card-details__fact">

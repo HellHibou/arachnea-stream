@@ -49,6 +49,7 @@ All notable changes to the server workspace are recorded here.
 
 - `resolve_stream` responses can now expose an optional `subtitles` list (`{ lang?, label?, link }`) on `ResolvedPlayerStream`. Generic YAML-to-Rust conversion preserves resolver order, trims optional fields, discards tracks without a browser-consumable HTTP(S) or application-proxy `link`, and deduplicates exact `(lang, label, link)` entries. The field is omitted from JSON when empty, so existing resolvers keep their current payloads.
 - Vidzy (`vidzy.cc` and `vidzy.live`) now extracts subtitle entries from `player.loadTracks`, retains only `kind: 'subtitles'` WebVTT tracks, and proxies each track with its required `Referer`, `Origin`, and `User-Agent` headers.
+- Anime-Sama now exposes its daily release panels as selectable `subsections` under one daily-releases section, while Coflix adds its day, week, and month popular-content rails from the asynchronous `/ajax/movie/top` endpoints. Coflix preserves the source title, entry URL, and poster image without treating view counters as ratings or guessing a media type from its `/film/` URLs.
 
 #### Changed
 
@@ -57,6 +58,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Anime-Sama catalog cards now extract genres only once from their genre tags and exclude the decorative ellipsis tag, preventing duplicate or empty genre labels in search and home rails.
+- Coflix search now parses the HTML returned by `/filter?keyword=…` instead of treating it as the retired JSON payload, restoring result titles, links, poster extraction, VF/VOSTFR language metadata, and next-page navigation.
 - DoodStream-compatible embeds now return the generated CDN media URL instead of proxying their intermediate `/pass_md5/...` request. The resolver sends its JavaScript result through `document.write`, which is the `exec_js` string-return channel, extracts it before proxy wrapping, derives the media `Referer` from the resolved embed origin rather than hardcoding `playmogo.com`, and no longer exposes an unsupported storyboard.
 
 - `arachnea-stream` no longer compiles or initializes the Ghostwire smart Cloudflare solver. Automatic Cloudflare handling now goes from `rquest` directly to the Chromium-backed `chaser-cf` solver, preventing the native `SIGSEGV` that restarted the Docker container during Papadustream searches on Linux arm64.
@@ -80,6 +83,22 @@ All notable changes to the server workspace are recorded here.
 #### Fixed
 
 - The `chaser-cf` engine builds its default Chromium flags with `ChaserConfig::add_extra_arg` instead of `with_extra_args`. The latter *replaces* the whole flag set, so the defaults appended after `ChaserConfig::from_env()` silently discarded the flags that function had just parsed from `CHASER_EXTRA_ARGS`, making the documented override a no-op — a container passing `--no-sandbox` still started Chromium without it and hit `No usable sandbox!`.
+
+### <u>front-public</u>
+
+#### Added
+
+- Home and category rails can now render optional catalog subsections. The visible rail title combines parent and subsection labels, and accessible previous/next controls cycle through subsection rails with wraparound navigation.
+
+#### Changed
+
+- Home catalog normalization and multi-source merging preserve subsection boundaries and merge equivalent subsections only by their stable key under the same parent section.
+
+#### Fixed
+
+- Media-card details now render the language fact with its own label and value, instead of incorrectly rendering the genre a second time or an empty genre value when only a language is available.
+- Pinned home rails now render the active subsection entries and retain the cyclic subsection controls, rather than rendering the empty parent item list.
+- The previous subsection control now appears before the rail title, while the next control remains in the header actions.
 
 ### <u>Other</u>
 

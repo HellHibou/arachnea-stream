@@ -192,6 +192,16 @@ Structure produced by each source:
         - name: entries       # MediaItem objects
           type: object[]
           entries: [ … ]
+        - name: subsections   # Optional selectable rails
+          type: object[]
+          entries:
+            - name: key
+              type: string
+            - name: label
+              type: string
+            - name: entries   # MediaItem objects specific to this subsection
+              type: object[]
+              entries: [ … ]
 
     - name: banners           # Promotional banners
       type: object[]
@@ -237,10 +247,18 @@ source that owns that endpoint.
 | `label` | `string` | Rail title (e.g. `Latest additions`, `Trending`) |
 | `entries` | `object[]` | `MediaItem` objects (see next section) |
 | `link` | `string` | URL for `get_section` (pagination) |
+| `subsections` | `object[]` | Optional selectable rails below the parent section |
 
 For a lazy section, emit `link` even if `entries` is initially absent or empty.
 `get_section` receives this link and the requested one-based page number. Do
 not prefetch every section's entries in `load_home` with a `sub_query`.
+
+A subsection contains a stable `key`, a `label`, `entries`, and may carry the
+same pagination fields as a section (`link`, `current_page`, `have_more`).
+Entries from distinct subsections are never flattened or combined: multi-source
+aggregation merges them by `key` beneath their parent section. The frontend
+renders one active rail at a time and composes its title from the section and
+subsection labels.
 
 #### Banner
 

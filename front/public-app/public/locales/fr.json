@@ -167,7 +167,10 @@
     "enableBannerSound": "Activer le son de la video de la banniere",
     "disableBannerSound": "Desactiver le son de la video de la banniere",
     "contentLogo": "Logo du contenu",
-    "viewDetails": "Voir la fiche"
+    "viewDetails": "Voir la fiche",
+    "subsectionNavigation": "Navigation des sous-sections",
+    "previousSubsection": "Sous-section précédente",
+    "nextSubsection": "Sous-section suivante"
   },
   "home": {
     "bookmarksSection": "Favoris"

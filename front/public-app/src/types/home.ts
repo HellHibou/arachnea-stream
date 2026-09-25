@@ -91,6 +91,26 @@ export interface HomeSectionSource {
 }
 
 /**
+ * One selectable subsection within a grouped home media rail.
+ */
+export interface HomeSectionSubsection {
+  /** Stable identifier used to merge the same subsection across sources. */
+  key: string
+  /** The display label for the subsection. */
+  label: string | null
+  /** The list of media items in this subsection. */
+  items: MediaItem[]
+  /** Source order used to interleave media items in this subsection. */
+  sourceOrder: string[]
+  /** The list of source descriptors for this subsection. */
+  sources: HomeSectionSource[]
+  /** The current page number for pagination. */
+  currentPage: number
+  /** Whether there are more pages available. */
+  haveMore: boolean
+}
+
+/**
  * One grouped media rail rendered below the featured content.
  */
 export interface HomeSection {
@@ -112,6 +132,8 @@ export interface HomeSection {
   currentPage: number
   /** Whether there are more pages available. */
   haveMore: boolean
+  /** Optional selectable rails nested below this parent section. */
+  subsections?: HomeSectionSubsection[]
 }
 
 /**

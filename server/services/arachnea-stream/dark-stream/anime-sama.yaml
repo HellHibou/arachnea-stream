@@ -113,12 +113,9 @@ shared:
       actions: *actions_get_href_resolve
     - name: theme
       type: string[]
-      selector: "div.catalog-info > div.info-row:nth-child(1) > p.info-value"
-      actions: *actions_split_comma_text
-    - name: theme
-      type: string[]
-      selector: "span.genre-tag"
-      actions: *actions_split_comma_text     
+      selector: "span.genre-tag:not([style])"
+      actions:
+        - type: get_text
     - name: lang
       type: string[]
       selector: "span.lang-flag"
@@ -178,12 +175,9 @@ shared:
       actions: *actions_get_href_resolve
     - name: theme
       type: string[]
-      selector: "div.catalog-info > div.info-row:nth-child(1) > p.info-value"
-      actions: *actions_split_comma_text
-    - name: theme
-      type: string[]
-      selector: "span.genre-tag"
-      actions: *actions_split_comma_text
+      selector: "span.genre-tag:not([style])"
+      actions:
+        - type: get_text
     - name: lang
       type: string[]
       selector: "div.catalog-info > div.info-row:nth-child(3) > p.info-value"
@@ -388,6 +382,87 @@ queries:
           actions:
             - type: format_text
               argument: "{base_url}/catalogue/?type%5B%5D=Webtoon"
+    - name: sections
+      type: object[]
+      entries:
+        - name: key
+          type: string
+          actions:
+            - type: format_text
+              argument: "daily-releases"
+        - name: label
+          type: string
+          actions:
+            - type: format_text
+              argument: "Sorties quotidiennes"
+        - name: subsections
+          type: object[]
+          selector: "div.fadeJours"
+          select: all
+          entries:
+            - name: key
+              type: string
+              select: first
+              actions:
+                - type: get_attribut
+                  argument: id
+            - name: label
+              type: string
+              select: first
+              selector: "h2.titreJours"
+              actions:
+                - type: get_text
+            - name: entries
+              type: object[]
+              selector: "div.anime-card-premium.card-base"
+              select: all
+              entries:
+                - name: title
+                  type: string
+                  select: first
+                  selector: "h2.card-title"
+                  actions:
+                    - type: get_text
+                - name: media-type
+                  type: string[]
+                  select: first
+                  actions:
+                    - type: format_text
+                      argument: "video/show/anime"
+                - name: episode > label
+                  type: string
+                  select: first
+                  selector: "div.info-item.episode span.info-text"
+                  actions:
+                    - type: get_text
+                - name: release-date
+                  type: string
+                  select: first
+                  selector: "div.info-item.release-time span.time-text"
+                  actions: *actions_release_date_dd_mm_yyyy
+                - name: lang
+                  type: string[]
+                  selector: ".language-badge-top img"
+                  actions:
+                    - type: get_attribut
+                      argument: alt
+                - name: link
+                  type: string
+                  select: first
+                  selector: "a"
+                  actions: *actions_get_href_catalog_root_resolve
+                - name: web-link
+                  type: string
+                  select: first
+                  selector: "a"
+                  actions: *actions_get_href_catalog_root_resolve
+                - name: img/landscape > link
+                  type: string
+                  select: first
+                  selector: "img.card-image"
+                  actions:
+                    - type: get_attribut
+                      argument: src
     - name: sections
       type: object[]
       selector: "div#containerSorties"
@@ -818,8 +893,9 @@ queries:
                 argument: href
           - name: theme
             type: string[]
-            selector: "span.genre-tag"
-            actions: *actions_split_comma_text
+            selector: "span.genre-tag:not([style])"
+            actions:
+              - type: get_text
           - name: lang
             type: string[]
             selector: "span.lang-flag"

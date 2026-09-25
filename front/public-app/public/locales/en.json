@@ -167,7 +167,10 @@
     "enableBannerSound": "Enable banner video sound",
     "disableBannerSound": "Disable banner video sound",
     "contentLogo": "Content logo",
-    "viewDetails": "View details"
+    "viewDetails": "View details",
+    "subsectionNavigation": "Subsection navigation",
+    "previousSubsection": "Previous subsection",
+    "nextSubsection": "Next subsection"
   },
   "home": {
     "bookmarksSection": "Bookmarks"

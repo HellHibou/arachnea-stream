@@ -231,6 +231,190 @@ queries:
                 argument: "{base_url}/wp-json/apiflix/v1/options/?post_type=animes&sort=1"
       - name: sections
         type: object[]
+        entries:
+          - name: key
+            type: string
+            actions:
+              - type: format_text
+                argument: "coflix-popular"
+          - name: label
+            type: string
+            actions:
+              - type: format_text
+                argument: "Films et Séries Populaires"
+          - name: popular-day-url
+            type: string
+            actions:
+              - type: format_text
+                argument: "{base_url}/ajax/movie/top?type=day"
+            sub_queries:
+              - scraper_type: html
+                target: parent
+                row_selector: "html"
+                entries:
+                  - name: subsections
+                    type: object[]
+                    entries:
+                      - name: key
+                        type: string
+                        actions:
+                          - type: format_text
+                            argument: "day"
+                      - name: label
+                        type: string
+                        actions:
+                          - type: format_text
+                            argument: "Jour"
+                      - name: entries
+                        type: object[]
+                        selector: "a.item"
+                        select: all
+                        entries:
+                          - name: title
+                            type: string
+                            select: first
+                            selector: "div.name.d-title"
+                            actions:
+                              - type: get_attribut
+                                argument: data-jp
+                          - name: link
+                            type: string
+                            select: first
+                            actions:
+                              - type: get_attribut
+                                argument: href
+                          - name: web-link
+                            type: string
+                            select: first
+                            actions:
+                              - type: get_attribut
+                                argument: href
+                          - name: img/poster > link
+                            type: string
+                            select: first
+                            selector: "div.poster > span"
+                            actions:
+                              - type: get_attribut
+                                argument: style
+                              - type: regex_find_all
+                                pattern: "url\\(['\"]?([^)'\"]+)"
+                                format: "{1}"
+          - name: popular-week-url
+            type: string
+            actions:
+              - type: format_text
+                argument: "{base_url}/ajax/movie/top?type=week"
+            sub_queries:
+              - scraper_type: html
+                target: parent
+                row_selector: "html"
+                entries:
+                  - name: subsections
+                    type: object[]
+                    entries:
+                      - name: key
+                        type: string
+                        actions:
+                          - type: format_text
+                            argument: "week"
+                      - name: label
+                        type: string
+                        actions:
+                          - type: format_text
+                            argument: "Semaine"
+                      - name: entries
+                        type: object[]
+                        selector: "a.item"
+                        select: all
+                        entries:
+                          - name: title
+                            type: string
+                            select: first
+                            selector: "div.name.d-title"
+                            actions:
+                              - type: get_attribut
+                                argument: data-jp
+                          - name: link
+                            type: string
+                            select: first
+                            actions:
+                              - type: get_attribut
+                                argument: href
+                          - name: web-link
+                            type: string
+                            select: first
+                            actions:
+                              - type: get_attribut
+                                argument: href
+                          - name: img/poster > link
+                            type: string
+                            select: first
+                            selector: "div.poster > span"
+                            actions:
+                              - type: get_attribut
+                                argument: style
+                              - type: regex_find_all
+                                pattern: "url\\(['\"]?([^)'\"]+)"
+                                format: "{1}"
+          - name: popular-month-url
+            type: string
+            actions:
+              - type: format_text
+                argument: "{base_url}/ajax/movie/top?type=month"
+            sub_queries:
+              - scraper_type: html
+                target: parent
+                row_selector: "html"
+                entries:
+                  - name: subsections
+                    type: object[]
+                    entries:
+                      - name: key
+                        type: string
+                        actions:
+                          - type: format_text
+                            argument: "month"
+                      - name: label
+                        type: string
+                        actions:
+                          - type: format_text
+                            argument: "Mois"
+                      - name: entries
+                        type: object[]
+                        selector: "a.item"
+                        select: all
+                        entries:
+                          - name: title
+                            type: string
+                            select: first
+                            selector: "div.name.d-title"
+                            actions:
+                              - type: get_attribut
+                                argument: data-jp
+                          - name: link
+                            type: string
+                            select: first
+                            actions:
+                              - type: get_attribut
+                                argument: href
+                          - name: web-link
+                            type: string
+                            select: first
+                            actions:
+                              - type: get_attribut
+                                argument: href
+                          - name: img/poster > link
+                            type: string
+                            select: first
+                            selector: "div.poster > span"
+                            actions:
+                              - type: get_attribut
+                                argument: style
+                              - type: regex_find_all
+                                pattern: "url\\(['\"]?([^)'\"]+)"
+                                format: "{1}"
+      - name: sections
+        type: object[]
         selector: "aside.main > section"
         select: all
         entries:
@@ -537,89 +721,82 @@ queries:
   # Search
   # --------------------------------------------------------------------------
   - name: search
-    scraper_type: json
+    scraper_type: html
     base_url: "{base_url}"
-    query_url: "{base_url}/filter?keyword={search_terms}"
+    query_url: "{base_url}/filter?keyword={search_terms}&page={page}"
     media_types: *media_types_coflix
-    row_pointer: "/"
+    row_selector: "html"
+    post_process:
+      - type: derive_pagination
+        next_value_field: next_page
+        remove_fields:
+          - next_page
     entries:
-    - name: source
-      type: string
-      pointer: "/0"
-      select: first
-      actions:
-        - type: format_text
-          argument: "{source}"
-    - name: current_page
-      type: number
-      pointer: "/0"
-      select: first
-      actions:
-        - type: format_text
-          argument: "1"
-    - name: have_more
-      type: boolean
-      pointer: "/0"
-      select: first
-      actions:
-        - type: format_text
-          argument: "false"
-    - name: entries
-      type: object[]
-      pointer: "/*"
-      select: all
-      entries:
-        - name: title
-          type: string
-          select: first
-          pointer: "/title"
-        - name: link
-          type: string
-          select: first
-          pointer: "/url"
-        - name: web-link
-          type: string
-          select: first
-          pointer: "/url"
-        - name: img/poster > link
-          type: string
-          select: first
-          pointer: "/image"
-          actions: *actions_img_html_to_url
-        - name: media-type
-          type: string[]
-          pointer: "/post_type"
-          actions:
-            - type: map
-              argument:
-                movies: "video/movie"
-                series: "video/show/serie"
-                animes: "video/show/anime"
-        - name: year
-          type: number
-          select: first
-          pointer: "/year"
-          actions:
-          - type: map
-            default: "{}"
-            argument:
-              "false": null
-        - name: description
-          type: string
-          select: first
-          pointer: "/excerpt"
-        - name: rating
-          type: number
-          select: first
-          pointer: "/rating"
-        - name: director
-          type: string[]
-          pointer: "/director"
-          actions: *optional_html_entry
-        - name: casting
-          type: string[]
-          pointer: "/cast"
-          actions: *optional_html_entry
+      - name: source
+        type: string
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: current_page
+        type: number
+        actions:
+          - type: format_text
+            argument: "{page}"
+      - name: next_page
+        type: string
+        select: first
+        selector: 'ul.pagination a[title="Next"]'
+        actions:
+          - type: get_attribut
+            argument: href
+          - type: regex_find_all
+            pattern: '[?&]page=(\d+)'
+            format: "{1}"
+      - name: entries
+        type: object[]
+        selector: "aside.main div.ani.items > div.item"
+        select: all
+        entries:
+          - name: title
+            type: string
+            select: first
+            selector: "a.name"
+            actions:
+              - type: get_attribut
+                argument: data-jp
+          - name: link
+            type: string
+            select: first
+            selector: "a.ani.poster"
+            actions:
+              - type: get_attribut
+                argument: href
+          - name: web-link
+            type: string
+            select: first
+            selector: "a.ani.poster"
+            actions:
+              - type: get_attribut
+                argument: href
+          - name: img/poster > link
+            type: string
+            select: first
+            selector: "a.ani.poster > img"
+            actions:
+              - type: get_attribut
+                argument: src
+          - name: lang
+            type: string[]
+            select: first
+            selector: "div.version"
+            actions:
+              - type: get_text
+              - type: map
+                argument:
+                  VF: vf
+                  VOSTFR: vostfr
+                  French: vf
+                  TrueFrench: vf
 
   # ---------------------------------------------------------------
   # Entry detail page

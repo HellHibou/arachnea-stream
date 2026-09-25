@@ -194,6 +194,16 @@ Structure produite par chaque source :
         - name: entries       # Objets MediaItem
           type: object[]
           entries: [ … ]
+        - name: subsections   # Rails sélectionnables optionnels
+          type: object[]
+          entries:
+            - name: key
+              type: string
+            - name: label
+              type: string
+            - name: entries   # Objets MediaItem propres à la sous-section
+              type: object[]
+              entries: [ … ]
 
     - name: banners           # Bannières promotionnelles
       type: object[]
@@ -239,11 +249,19 @@ de catégorie consommé par `get_category`. `request > name` (ou
 | `label` | `string` | Titre du rail (ex: « Derniers ajouts », « Tendances ») |
 | `entries` | `object[]` | Objets `MediaItem` (voir section suivante) |
 | `link` | `string` | URL pour `get_section` (pagination) |
+| `subsections` | `object[]` | Rails optionnels sélectionnables sous la section parente |
 
 Pour une section chargée paresseusement, émettre `link` même si `entries` est
 initialement absent ou vide. `get_section` reçoit ce lien et le numéro de page
 un basé demandé. Ne pas précharger les entrées de chaque section dans
 `load_home` au moyen d'une `sub_query`.
+
+Une sous-section contient un `key` stable, un `label`, des `entries` et peut
+porter les mêmes champs de pagination que la section (`link`, `current_page`,
+`have_more`). Les entrées de sous-sections distinctes ne sont jamais aplaties ni
+fusionnées entre elles : lors de l'agrégation multi-source, elles sont fusionnées
+par `key` sous leur section parente. Le frontend affiche un seul rail actif à la
+fois, dont le titre combine le libellé de la section et celui de la sous-section.
 
 #### Bannière
 

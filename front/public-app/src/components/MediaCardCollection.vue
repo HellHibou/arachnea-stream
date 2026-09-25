@@ -140,6 +140,8 @@ const viewportRef = useTemplateRef<HTMLDivElement>('viewport')
 const itemsLength = computed(() => props.items.length)
 /** Whether header actions should be displayed. */
 const hasHeaderActions = computed(() => props.showHeaderActions && Boolean(slots['header-actions']))
+/** Whether content should be displayed before the collection title. */
+const hasHeaderLeading = computed(() => Boolean(slots['header-leading']))
 
 /** Scroll management utilities. */
 const { canScrollLeft, canScrollRight, showScrollControls, updateScrollState, scrollRow } =
@@ -249,11 +251,14 @@ watch(
     :aria-labelledby="label ? labelId : undefined"
   >
     <header
-      v-if="label || hasHeaderActions || showScrollControls"
+      v-if="label || hasHeaderLeading || hasHeaderActions || showScrollControls"
       class="media-card-collection__header"
-      :class="{ 'media-card-collection__header--controls-only': !label && !hasHeaderActions }"
+      :class="{ 'media-card-collection__header--controls-only': !label && !hasHeaderLeading && !hasHeaderActions }"
     >
-      <div v-if="label || hasHeaderActions" class="media-card-collection__heading">
+      <div v-if="label || hasHeaderLeading || hasHeaderActions" class="media-card-collection__heading">
+        <div v-if="hasHeaderLeading" class="media-card-collection__header-leading">
+          <slot name="header-leading" />
+        </div>
         <v-icon
           v-if="label && labelIcon"
           :icon="labelIcon"
@@ -426,6 +431,12 @@ watch(
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  flex: 0 0 auto;
+}
+
+.media-card-collection__header-leading {
+  display: inline-flex;
+  align-items: center;
   flex: 0 0 auto;
 }
 

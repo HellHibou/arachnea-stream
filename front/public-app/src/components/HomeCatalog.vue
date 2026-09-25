@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { toRef } from 'vue'
+import { computed, shallowRef, toRef } from 'vue'
 
 import HomeCategoryStrip from '@/components/home/HomeCategoryStrip.vue'
 import HomeHeroBanner from '@/components/home/HomeHeroBanner.vue'
@@ -11,7 +11,7 @@ import { useScrollToTop } from '@/composables/useScrollToTop'
 import { useI18n } from '@/i18n'
 import { BOOKMARKS_SECTION_PREFERENCE_KEY } from '@/services/entryBookmarks'
 import { useStorage } from '@/services/storage'
-import type { HomeCategory } from '@/types/home'
+import type { HomeCategory, HomeSection, HomeSectionSubsection } from '@/types/home'
 import type {
   MediaCardCollectionMode,
   MediaItem,
@@ -147,6 +147,75 @@ const {
 const { showScrollToTop, scrollToTop } = useScrollToTop()
 /** Internationalization utilities. */
 const { t } = useI18n()
+/** Active subsection index tracked independently for every parent section. */
+const activeSubsectionIndexes = shallowRef<Record<string, number>>({})
+
+interface RenderedHomeSection {
+  section: HomeSection
+  subsection: HomeSectionSubsection | null
+  items: MediaItem[]
+  label: string | null
+  haveMore: boolean
+}
+
+/**
+ * Resolves the active selectable subsection for one parent section.
+ *
+ * @param section Parent section currently rendered in the catalog.
+ * @returns Active subsection, or null for an ordinary section.
+ */
+function getActiveSubsection(section: HomeSection): HomeSectionSubsection | null {
+  const subsections = section.subsections ?? []
+  if (subsections.length === 0) {
+    return null
+  }
+
+  const activeIndex = activeSubsectionIndexes.value[section.preferenceKey] ?? 0
+  return subsections[((activeIndex % subsections.length) + subsections.length) % subsections.length] ?? null
+}
+
+/**
+ * Builds the display model for a parent section and its active subsection.
+ *
+ * @param section Parent section currently rendered in the catalog.
+ * @returns Data consumed by one visible media rail.
+ */
+function toRenderedHomeSection(section: HomeSection): RenderedHomeSection {
+  const subsection = getActiveSubsection(section)
+  return {
+    section,
+    subsection,
+    items: subsection?.items ?? section.items,
+    label: subsection ? [section.label, subsection.label].filter(Boolean).join(' — ') : section.label,
+    haveMore: subsection?.haveMore ?? section.haveMore,
+  }
+}
+
+/** Rendered home-mode section rails. */
+const renderedPinnedSections = computed(() => pinnedSections.value.map(toRenderedHomeSection))
+/** Rendered home-mode section rails that are not pinned. */
+const renderedOtherSections = computed(() => otherSections.value.map(toRenderedHomeSection))
+/** Rendered category-mode section rails. */
+const renderedCatalogSections = computed(() => currentCatalog.value.sections.map(toRenderedHomeSection))
+
+/**
+ * Cycles a parent section through its selectable subsections.
+ *
+ * @param section Parent section owning the subsections.
+ * @param direction Direction in which to cycle.
+ */
+function cycleSubsection(section: HomeSection, direction: -1 | 1): void {
+  const subsectionCount = section.subsections?.length ?? 0
+  if (subsectionCount < 2) {
+    return
+  }
+
+  const currentIndex = activeSubsectionIndexes.value[section.preferenceKey] ?? 0
+  activeSubsectionIndexes.value = {
+    ...activeSubsectionIndexes.value,
+    [section.preferenceKey]: (currentIndex + direction + subsectionCount) % subsectionCount,
+  }
+}
 
 /**
  * Emits the selected entry target so the parent can open the details screen.
@@ -216,41 +285,65 @@ function handleSelectCollectionItem(item: MediaItem) {
           </header>
 
           <section
-            v-if="isHomeMode && pinnedSections.length > 0"
+            v-if="isHomeMode && renderedPinnedSections.length > 0"
             class="home-catalog__sections"
           >
             <div
-              v-for="section in pinnedSections"
-              :key="section.id"
-              :ref="(element) => setSectionElementRef(section, element as Element | null)"
+              v-for="renderedSection in renderedPinnedSections"
+              :key="renderedSection.section.id"
+              :ref="(element) => setSectionElementRef(renderedSection.section, element as Element | null)"
               class="home-catalog__section-shell"
             >
               <MediaCardCollection
-                :items="section.items"
-                :label="section.label ?? undefined"
-                :label-icon="section.preferenceKey === BOOKMARKS_SECTION_PREFERENCE_KEY ? 'mdi-bookmark' : undefined"
-                :mode="getSectionCollectionMode(section)"
-                :thumbnail-orientation="getSectionThumbnailOrientation(section) ?? props.thumbnailOrientation"
-                :thumbnail-image-fit="getSectionThumbnailImageFit(section) ?? props.thumbnailImageFit"
+                :items="renderedSection.items"
+                :label="renderedSection.label ?? undefined"
+                :label-icon="renderedSection.section.preferenceKey === BOOKMARKS_SECTION_PREFERENCE_KEY ? 'mdi-bookmark' : undefined"
+                :mode="getSectionCollectionMode(renderedSection.section)"
+                :thumbnail-orientation="getSectionThumbnailOrientation(renderedSection.section) ?? props.thumbnailOrientation"
+                :thumbnail-image-fit="getSectionThumbnailImageFit(renderedSection.section) ?? props.thumbnailImageFit"
                 :thumbnail-size-multiplier="props.thumbnailSizeMultiplier"
-                :show-header-actions="showSectionEditingButtons"
-                :is-loading-more="isSectionLoading(section)"
-                :have-more="section.haveMore"
-                :load-more-error-message="getSectionLoadError(section)"
-                :on-load-more="() => handleLoadMoreSection(section)"
+                :show-header-actions="showSectionEditingButtons || Boolean(renderedSection.subsection)"
+                :is-loading-more="isSectionLoading(renderedSection.section)"
+                :have-more="renderedSection.haveMore"
+                :load-more-error-message="getSectionLoadError(renderedSection.section)"
+                :on-load-more="() => handleLoadMoreSection(renderedSection.section)"
                 @select="handleSelectCollectionItem"
               >
+                <template v-if="renderedSection.subsection" #header-leading>
+                  <button
+                    class="home-catalog__subsection-navigation-button"
+                    type="button"
+                    :aria-label="t('catalog.previousSubsection')"
+                    @click="cycleSubsection(renderedSection.section, -1)"
+                  >
+                    <v-icon icon="mdi-chevron-left" size="20" aria-hidden="true" />
+                  </button>
+                </template>
                 <template #header-actions>
+                  <div
+                    v-if="renderedSection.subsection"
+                    class="home-catalog__subsection-navigation"
+                    :aria-label="t('catalog.subsectionNavigation')"
+                  >
+                    <button
+                      class="home-catalog__subsection-navigation-button"
+                      type="button"
+                      :aria-label="t('catalog.nextSubsection')"
+                      @click="cycleSubsection(renderedSection.section, 1)"
+                    >
+                      <v-icon icon="mdi-chevron-right" size="20" aria-hidden="true" />
+                    </button>
+                  </div>
                   <HomeSectionActions
                     v-if="showSectionEditingButtons"
-                    :section="section"
-                    :is-pinned="isSectionPinned(section)"
-                    :hide-pin-button="section.preferenceKey === BOOKMARKS_SECTION_PREFERENCE_KEY"
-                    :can-move-up="canMovePinnedSection(section, 'up')"
-                    :can-move-down="canMovePinnedSection(section, 'down')"
-                    :thumbnail-orientation="getSectionThumbnailOrientation(section) ?? props.thumbnailOrientation"
-                    :thumbnail-image-fit="getSectionThumbnailImageFit(section) ?? props.thumbnailImageFit"
-                    :collection-mode="getSectionCollectionMode(section)"
+                    :section="renderedSection.section"
+                    :is-pinned="isSectionPinned(renderedSection.section)"
+                    :hide-pin-button="renderedSection.section.preferenceKey === BOOKMARKS_SECTION_PREFERENCE_KEY"
+                    :can-move-up="canMovePinnedSection(renderedSection.section, 'up')"
+                    :can-move-down="canMovePinnedSection(renderedSection.section, 'down')"
+                    :thumbnail-orientation="getSectionThumbnailOrientation(renderedSection.section) ?? props.thumbnailOrientation"
+                    :thumbnail-image-fit="getSectionThumbnailImageFit(renderedSection.section) ?? props.thumbnailImageFit"
+                    :collection-mode="getSectionCollectionMode(renderedSection.section)"
                     @toggle-pinned="toggleSectionPinned"
                     @move-pinned="movePinnedSection"
                     @update-thumbnail-orientation="updateSectionThumbnailOrientation"
@@ -273,35 +366,59 @@ function handleSelectCollectionItem(item: MediaItem) {
         <section v-if="currentCatalog.sections.length > 0" class="home-catalog__sections">
           <template v-if="isHomeMode">
             <div
-              v-for="section in otherSections"
-              :key="section.id"
-              :ref="(element) => setSectionElementRef(section, element as Element | null)"
+              v-for="renderedSection in renderedOtherSections"
+              :key="renderedSection.section.id"
+              :ref="(element) => setSectionElementRef(renderedSection.section, element as Element | null)"
               class="home-catalog__section-shell"
             >
               <MediaCardCollection
-                :items="section.items"
-                :label="section.label ?? undefined"
+                :items="renderedSection.items"
+                :label="renderedSection.label ?? undefined"
                 :mode="homeCollectionMode"
-                :thumbnail-orientation="getSectionThumbnailOrientation(section) ?? props.thumbnailOrientation"
-                :thumbnail-image-fit="getSectionThumbnailImageFit(section) ?? props.thumbnailImageFit"
+                :thumbnail-orientation="getSectionThumbnailOrientation(renderedSection.section) ?? props.thumbnailOrientation"
+                :thumbnail-image-fit="getSectionThumbnailImageFit(renderedSection.section) ?? props.thumbnailImageFit"
                 :thumbnail-size-multiplier="props.thumbnailSizeMultiplier"
-                :show-header-actions="showSectionEditingButtons"
-                :is-loading-more="isSectionLoading(section)"
-                :have-more="section.haveMore"
-                :load-more-error-message="getSectionLoadError(section)"
-                :on-load-more="() => handleLoadMoreSection(section)"
+                :show-header-actions="showSectionEditingButtons || Boolean(renderedSection.subsection)"
+                :is-loading-more="isSectionLoading(renderedSection.section)"
+                :have-more="renderedSection.haveMore"
+                :load-more-error-message="getSectionLoadError(renderedSection.section)"
+                :on-load-more="() => handleLoadMoreSection(renderedSection.section)"
                 @select="handleSelectCollectionItem"
               >
+                <template v-if="renderedSection.subsection" #header-leading>
+                  <button
+                    class="home-catalog__subsection-navigation-button"
+                    type="button"
+                    :aria-label="t('catalog.previousSubsection')"
+                    @click="cycleSubsection(renderedSection.section, -1)"
+                  >
+                    <v-icon icon="mdi-chevron-left" size="20" aria-hidden="true" />
+                  </button>
+                </template>
                 <template #header-actions>
+                  <div
+                    v-if="renderedSection.subsection"
+                    class="home-catalog__subsection-navigation"
+                    :aria-label="t('catalog.subsectionNavigation')"
+                  >
+                    <button
+                      class="home-catalog__subsection-navigation-button"
+                      type="button"
+                      :aria-label="t('catalog.nextSubsection')"
+                      @click="cycleSubsection(renderedSection.section, 1)"
+                    >
+                      <v-icon icon="mdi-chevron-right" size="20" aria-hidden="true" />
+                    </button>
+                  </div>
                   <HomeSectionActions
                     v-if="showSectionEditingButtons"
-                    :section="section"
-                    :is-pinned="isSectionPinned(section)"
-                    :can-move-up="canMovePinnedSection(section, 'up')"
-                    :can-move-down="canMovePinnedSection(section, 'down')"
-                    :thumbnail-orientation="getSectionThumbnailOrientation(section) ?? props.thumbnailOrientation"
-                    :thumbnail-image-fit="getSectionThumbnailImageFit(section) ?? props.thumbnailImageFit"
-                    :collection-mode="getSectionCollectionMode(section)"
+                    :section="renderedSection.section"
+                    :is-pinned="isSectionPinned(renderedSection.section)"
+                    :can-move-up="canMovePinnedSection(renderedSection.section, 'up')"
+                    :can-move-down="canMovePinnedSection(renderedSection.section, 'down')"
+                    :thumbnail-orientation="getSectionThumbnailOrientation(renderedSection.section) ?? props.thumbnailOrientation"
+                    :thumbnail-image-fit="getSectionThumbnailImageFit(renderedSection.section) ?? props.thumbnailImageFit"
+                    :collection-mode="getSectionCollectionMode(renderedSection.section)"
                     @toggle-pinned="toggleSectionPinned"
                     @move-pinned="movePinnedSection"
                     @update-thumbnail-orientation="updateSectionThumbnailOrientation"
@@ -315,24 +432,52 @@ function handleSelectCollectionItem(item: MediaItem) {
 
           <template v-else>
             <div
-              v-for="section in currentCatalog.sections"
-              :key="section.id"
-              :ref="(element) => setSectionElementRef(section, element as Element | null)"
+              v-for="renderedSection in renderedCatalogSections"
+              :key="renderedSection.section.id"
+              :ref="(element) => setSectionElementRef(renderedSection.section, element as Element | null)"
               class="home-catalog__section-shell"
             >
               <MediaCardCollection
-                :items="section.items"
-                :label="section.label ?? undefined"
+                :items="renderedSection.items"
+                :label="renderedSection.label ?? undefined"
                 :mode="categoryCollectionMode"
                 :thumbnail-orientation="props.thumbnailOrientation"
                 :thumbnail-image-fit="props.thumbnailImageFit"
                 :thumbnail-size-multiplier="props.thumbnailSizeMultiplier"
-                :is-loading-more="isSectionLoading(section)"
-                :have-more="section.haveMore"
-                :load-more-error-message="getSectionLoadError(section)"
-                :on-load-more="() => handleLoadMoreSection(section)"
+                :show-header-actions="Boolean(renderedSection.subsection)"
+                :is-loading-more="isSectionLoading(renderedSection.section)"
+                :have-more="renderedSection.haveMore"
+                :load-more-error-message="getSectionLoadError(renderedSection.section)"
+                :on-load-more="() => handleLoadMoreSection(renderedSection.section)"
                 @select="handleSelectCollectionItem"
-              />
+              >
+                <template v-if="renderedSection.subsection" #header-leading>
+                  <button
+                    class="home-catalog__subsection-navigation-button"
+                    type="button"
+                    :aria-label="t('catalog.previousSubsection')"
+                    @click="cycleSubsection(renderedSection.section, -1)"
+                  >
+                    <v-icon icon="mdi-chevron-left" size="20" aria-hidden="true" />
+                  </button>
+                </template>
+                <template #header-actions>
+                  <div
+                    v-if="renderedSection.subsection"
+                    class="home-catalog__subsection-navigation"
+                    :aria-label="t('catalog.subsectionNavigation')"
+                  >
+                    <button
+                      class="home-catalog__subsection-navigation-button"
+                      type="button"
+                      :aria-label="t('catalog.nextSubsection')"
+                      @click="cycleSubsection(renderedSection.section, 1)"
+                    >
+                      <v-icon icon="mdi-chevron-right" size="20" aria-hidden="true" />
+                    </button>
+                  </div>
+                </template>
+              </MediaCardCollection>
             </div>
           </template>
         </section>
@@ -403,6 +548,29 @@ function handleSelectCollectionItem(item: MediaItem) {
 .home-catalog__section-shell {
   display: grid;
   gap: 12px;
+}
+
+.home-catalog__subsection-navigation {
+  display: flex;
+  gap: 4px;
+}
+
+.home-catalog__subsection-navigation-button {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid var(--border-color-primary);
+  border-radius: 50%;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.home-catalog__subsection-navigation-button:hover,
+.home-catalog__subsection-navigation-button:focus-visible {
+  border-color: var(--color-primary);
+  background: var(--bg-surface-strong);
 }
 
 .home-catalog__empty {

@@ -401,7 +401,7 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
     }
 
     for (const section of currentCatalog.value.sections) {
-      for (const mediaItem of section.items) {
+      for (const mediaItem of [section.items, ...(section.subsections ?? []).map((subsection) => subsection.items)].flat()) {
         if (items.length >= BACKGROUND_MEDIA_ITEMS_LIMIT) {
           return items
         }
@@ -806,7 +806,12 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
   watch(
     () =>
       currentCatalog.value.sections
-        .map((section) => `${section.preferenceKey}:${section.items.length}:${section.sources.length}`)
+        .map((section) => [
+          `${section.preferenceKey}:${section.items.length}:${section.sources.length}`,
+          ...(section.subsections ?? []).map((subsection) =>
+            `${subsection.key}:${subsection.items.length}:${subsection.sources.length}`,
+          ),
+        ].join(':'))
         .join('|'),
     () => {
       void nextTick(observeDeferredSections)

@@ -31,6 +31,15 @@ queries:
       - categories > label
       - categories > request > query_url
       - sections > label
+      - sections > subsections > key
+      - sections > subsections > label
+      - sections > subsections > entries > title
+      - sections > subsections > entries > link
+      - sections > subsections > entries > web-link
+      - sections > subsections > entries > img/landscape > link
+      - sections > subsections > entries > release-date
+      - sections > subsections > entries > media-type
+      - sections > subsections > entries > lang
       - sections > entries > description
       - sections > entries > title
       - sections > entries > link

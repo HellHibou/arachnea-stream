@@ -20,6 +20,7 @@ import type {
   HomeCategory,
   HomeCategorySource,
   HomeSection,
+  HomeSectionSubsection,
   HomeSectionSource,
 } from '@/types/home'
 import { t, tm } from '@/i18n'
@@ -874,7 +875,11 @@ function normalizeHomeCatalog(payload: unknown): HomeCatalogData {
 
     readRecordList(row.sections).forEach((section) => {
       const normalizedSection = normalizeHomeSection(section, sections.length, rowSource)
-      if (normalizedSection.items.length > 0 || normalizedSection.sources.length > 0) {
+      if (
+        normalizedSection.items.length > 0 ||
+        normalizedSection.sources.length > 0 ||
+        (normalizedSection.subsections?.length ?? 0) > 0
+      ) {
         sections.push(normalizedSection)
       }
     })
@@ -1238,6 +1243,7 @@ function normalizeHomeSection(
 ): HomeSection {
   const record = isJsonRecord(payload) ? payload : {}
   const rawItems = readRecordList(record.entries)
+  const rawSubsections = readRecordList(record.subsections)
   const label = firstNonEmptyString([record.label])
   const currentPage = Math.max(1, Math.trunc(firstNumber(record.current_page) ?? 1))
   const haveMore = readBoolean(record.have_more)
@@ -1262,6 +1268,43 @@ function normalizeHomeSection(
     items: rawItems.map((item, itemIndex) => normalizeMediaItem(item, itemIndex, inheritedSource)),
     sourceOrder: [inheritedSource ?? id],
     sources,
+    currentPage,
+    haveMore,
+    subsections: rawSubsections.length > 0
+      ? rawSubsections.map((subsection, subsectionIndex) =>
+          normalizeHomeSectionSubsection(subsection, subsectionIndex, inheritedSource),
+        )
+      : undefined,
+  }
+}
+
+/**
+ * Converts one raw backend subsection into a selectable media rail.
+ *
+ * @param payload Raw backend subsection payload.
+ * @param index Stable fallback index used to build a subsection key.
+ * @param inheritedSource Source inherited from the parent scraper row.
+ * @returns Normalized home subsection.
+ */
+function normalizeHomeSectionSubsection(
+  payload: unknown,
+  index: number,
+  inheritedSource: string | null = null,
+): HomeSectionSubsection {
+  const record = isJsonRecord(payload) ? payload : {}
+  const rawItems = readRecordList(record.entries)
+  const label = firstNonEmptyString([record.label])
+  const currentPage = Math.max(1, Math.trunc(firstNumber(record.current_page) ?? 1))
+  const haveMore = readBoolean(record.have_more)
+  const key = firstNonEmptyString([record.key, record.id]) ??
+    (slugify(label ?? '') || `subsection-${index + 1}`)
+
+  return {
+    key,
+    label,
+    items: rawItems.map((item, itemIndex) => normalizeMediaItem(item, itemIndex, inheritedSource)),
+    sourceOrder: [inheritedSource ?? key],
+    sources: normalizeHomeSectionSources(record, inheritedSource, currentPage, haveMore, rawItems.length > 0),
     currentPage,
     haveMore,
   }
@@ -1311,6 +1354,7 @@ function normalizeHomeSectionSources(
 function mergeHomeSections(sections: HomeSection[]): HomeSection[] {
   const sectionsByPreferenceKey = new Map<string, HomeSection>()
   const itemListsByPreferenceKey = new Map<string, MediaItem[][]>()
+  const subsectionsByPreferenceKey = new Map<string, HomeSectionSubsection[]>()
   const mergedSections: HomeSection[] = []
 
   const sectionsBySource = new Map<string, HomeSection[]>()
@@ -1334,12 +1378,14 @@ function mergeHomeSections(sections: HomeSection[]): HomeSection[] {
 
       sectionsByPreferenceKey.set(section.preferenceKey, mergedSection)
       itemListsByPreferenceKey.set(section.preferenceKey, [section.items])
+      subsectionsByPreferenceKey.set(section.preferenceKey, section.subsections ?? [])
       mergedSections.push(mergedSection)
       return
     }
 
     existingSection.label ??= section.label
     itemListsByPreferenceKey.get(section.preferenceKey)?.push(section.items)
+    subsectionsByPreferenceKey.get(section.preferenceKey)?.push(...(section.subsections ?? []))
     existingSection.sourceOrder = dedupeDisplayStrings([
       ...existingSection.sourceOrder,
       ...section.sourceOrder,
@@ -1356,9 +1402,62 @@ function mergeHomeSections(sections: HomeSection[]): HomeSection[] {
     section.items = dedupeMediaItems(
       interleaveLists(itemListsByPreferenceKey.get(section.preferenceKey) ?? []),
     )
+    const subsections = mergeHomeSectionSubsections(
+      subsectionsByPreferenceKey.get(section.preferenceKey) ?? [],
+    )
+    section.subsections = subsections.length > 0 ? subsections : undefined
   })
 
   return mergedSections
+}
+
+/**
+ * Merges subsections by stable key without combining separate time periods.
+ *
+ * @param subsections Normalized subsections collected for one parent section.
+ * @returns Selectable rails with period-specific entries retained.
+ */
+function mergeHomeSectionSubsections(subsections: HomeSectionSubsection[]): HomeSectionSubsection[] {
+  const subsectionsByKey = new Map<string, HomeSectionSubsection>()
+  const itemListsByKey = new Map<string, MediaItem[][]>()
+  const mergedSubsections: HomeSectionSubsection[] = []
+
+  subsections.forEach((subsection) => {
+    const existingSubsection = subsectionsByKey.get(subsection.key)
+    if (!existingSubsection) {
+      const mergedSubsection: HomeSectionSubsection = {
+        ...subsection,
+        items: dedupeMediaItems(subsection.items),
+        sourceOrder: [...subsection.sourceOrder],
+        sources: dedupeHomeSectionSources(subsection.sources),
+      }
+      subsectionsByKey.set(subsection.key, mergedSubsection)
+      itemListsByKey.set(subsection.key, [subsection.items])
+      mergedSubsections.push(mergedSubsection)
+      return
+    }
+
+    existingSubsection.label ??= subsection.label
+    itemListsByKey.get(subsection.key)?.push(subsection.items)
+    existingSubsection.sourceOrder = dedupeDisplayStrings([
+      ...existingSubsection.sourceOrder,
+      ...subsection.sourceOrder,
+    ])
+    existingSubsection.sources = dedupeHomeSectionSources([
+      ...existingSubsection.sources,
+      ...subsection.sources,
+    ])
+    existingSubsection.currentPage = Math.max(existingSubsection.currentPage, subsection.currentPage)
+    existingSubsection.haveMore = existingSubsection.haveMore || subsection.haveMore
+  })
+
+  mergedSubsections.forEach((subsection) => {
+    subsection.items = dedupeMediaItems(
+      interleaveLists(itemListsByKey.get(subsection.key) ?? []),
+    )
+  })
+
+  return mergedSubsections
 }
 
 /**
