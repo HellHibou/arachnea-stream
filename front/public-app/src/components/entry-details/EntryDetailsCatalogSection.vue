@@ -162,14 +162,7 @@ watch(
 
 <template>
   <section class="entry-details-episodes">
-    <section v-if="props.groupItems.length === 1" class="entry-details__season-single">
-      <p class="entry-details__season-single-eyebrow">{{ groupSectionLabel }}</p>
-      <h2 class="entry-details__season-single-title">
-        {{ props.groupItems[0]?.title }}
-      </h2>
-    </section>
-
-    <section v-else-if="props.groupItems.length > 1" class="entry-details__seasons">
+    <section v-if="props.groupItems.length > 1" class="entry-details__seasons">
       <p class="entry-details__season-single-eyebrow">{{ groupSectionLabel }}</p>
       <label class="entry-details__select-field" for="entry-group-select">
         <span class="entry-details__select-label">{{ selectFieldLabel }}</span>
@@ -261,12 +254,6 @@ watch(
   gap: 18px;
 }
 
-.entry-details__season-single {
-  display: grid;
-  gap: 6px;
-  padding: 4px 0;
-}
-
 .entry-details__season-single-eyebrow {
   margin: 0;
   color: var(--text-secondary);
@@ -274,13 +261,6 @@ watch(
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-}
-
-.entry-details__season-single-title {
-  margin: 0;
-  color: var(--text-primary);
-  font-size: clamp(1.2rem, 1.08rem + 0.4vw, 1.45rem);
-  font-weight: 700;
 }
 
 .entry-details__select-field {
@@ -338,6 +318,10 @@ watch(
 
 .entry-details__episodes :deep(.media-card-collection__title) {
   font-size: clamp(1.2rem, 1.1rem + 0.45vw, 1.5rem);
+}
+
+.entry-details__episodes :deep(.media-card-details__source) {
+  display: none;
 }
 
 .entry-details__season-state {

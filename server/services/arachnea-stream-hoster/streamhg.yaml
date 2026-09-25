@@ -1,0 +1,185 @@
+id: streamhg
+title: StreamHG
+description:
+  en: "Resolver for StreamHG embed pages and the hgcloud.to JavaScript router"
+http:
+  mode: auto
+
+# ############################################################################
+# Queries
+# ############################################################################
+queries:
+
+  # --------------------------------------------------------------------------
+  # can_resolve_url — recognizes the public hgcloud.to router.
+  #
+  # hgcloud.to does not serve the player itself: its obfuscated main.js selects
+  # a StreamHG mirror and assigns the matching `/e/<id>` URL to window.location.
+  # The generic resolver does not execute arbitrary page JavaScript, so
+  # resolve_stream maps this stable router URL to one known player mirror while
+  # preserving the embed path and query string.
+  # --------------------------------------------------------------------------
+  - name: can_resolve_url
+    scraper_type: static
+    entries:
+      - name: resolver
+        type: string
+        value: "{url}"
+        actions:
+          - type: regex_find_all
+            pattern: '^https?://(?:www\.)?hgcloud\.to/e/[A-Za-z0-9]+(?:[/?#].*)?$'
+            format: "{service_id}"
+
+  # --------------------------------------------------------------------------
+  # can_resolve_html — identifies the StreamHG player independently of the
+  # mirror domain serving it.
+  #
+  # The embed page is a JW Player 8 shell whose setup is emitted through a
+  # Dean Edwards Packer block, so the brand declared to the player
+  # (`abouttext: "StreamHG"`, `aboutlink: "https://streamhg.com"`) is only
+  # present in the packer dictionary of the raw response. Matching the
+  # pipe-delimited dictionary token therefore requires the packed player setup
+  # itself: StreamHG pages that are not embeds (download pages, FAQ, home) only
+  # mention the brand as a link and are deliberately left to the iframe
+  # fallback. The token is brand-specific because the same player script is
+  # reused by sibling brands (VidHide, Earnvids) that declare their own
+  # `abouttext`. resolve_stream fetches the recognized player page again because
+  # the same query must also fetch the player selected for an hgcloud.to router
+  # URL, for which the recognition HTML is only the intermediate loading shell.
+  # --------------------------------------------------------------------------
+  - name: can_resolve_html
+    scraper_type: static
+    entries:
+      - name: resolver
+        type: string
+        value: "{html}"
+        actions:
+          - type: regex_find_all
+            pattern: '(?i)\|streamhg\|'
+            format: "{service_id}"
+
+
+  # --------------------------------------------------------------------------
+  # resolve_stream — extracts the HLS sources from the packed player setup
+  #
+  # The unpacked setup declares its sources in a `links` object
+  # (`{"hls1": …, "hls2": …, "hls3": …, "hls4": …}`) and picks one with
+  # `sources: [{ file: links.hls4 || links.hls3 || links.hls2, type: "hls" }]`.
+  # The three same-named `stream_url` entries mirror that page preference: the
+  # same-origin `/stream/<…>/master.m3u8` link first (hls4), then the absolute
+  # CDN links that carry a viewer-bound signed token (hls3, then hls2).
+  # Same-named entries append their values in declaration order, so clients keep
+  # the page's priority whatever order the hoster emits the `links` keys in, and
+  # can fall back to the next candidate on playback error.
+  # --------------------------------------------------------------------------
+  - name: resolve_stream
+    scraper_type: html
+    base_url: "{url}"
+    query_url: "{url}"
+    request_url_actions:
+      - type: regex_replace_all
+        pattern: '^https?://(?:www\.)?hgcloud\.to(/.*)$'
+        replacement: 'https://audinifer.com$1'
+    row_selector: "html"
+    entries:
+      - name: stream_url
+        type: string[]
+        actions:
+          - type: get_response_body
+          - type: unpack_packer
+          - type: regex_find_all
+            pattern: '["'']hls4["'']\s*:\s*["''](/stream/[^"'']+)["'']'
+            format: "{1}"
+          - type: resolve_url
+            proxy: true
+            proxy_headers:
+              User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+              Referer: "{request_url}"
+            proxy_replace_all:
+              - pattern: '(?m)^(https?://[^\r\n]+)'
+                replacement: '{proxy_inherited}/$1'
+                content_types:
+                  - application/vnd.apple.mpegurl
+      - name: stream_url
+        type: string[]
+        actions:
+          - type: get_response_body
+          - type: unpack_packer
+          - type: regex_find_all
+            pattern: '["'']hls3["'']\s*:\s*["''](https?://[^"'']+)["'']'
+            format: "{1}"
+          - type: resolve_url
+            proxy: true
+            proxy_headers:
+              User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+              Referer: "{request_url}"
+            proxy_replace_all:
+              - pattern: '(?m)^(https?://[^\r\n]+)'
+                replacement: '{proxy_inherited}/$1'
+                content_types:
+                  - application/vnd.apple.mpegurl
+      - name: stream_url
+        type: string[]
+        actions:
+          - type: get_response_body
+          - type: unpack_packer
+          - type: regex_find_all
+            pattern: '["'']hls2["'']\s*:\s*["''](https?://[^"'']+)["'']'
+            format: "{1}"
+          - type: resolve_url
+            proxy: true
+            proxy_headers:
+              User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+              Referer: "{request_url}"
+            proxy_replace_all:
+              - pattern: '(?m)^(https?://[^\r\n]+)'
+                replacement: '{proxy_inherited}/$1'
+                content_types:
+                  - application/vnd.apple.mpegurl
+      - name: stream_headers
+        type: object
+        select: first
+        entries:
+          - name: Referer
+            type: string
+            actions:
+              - type: format_text
+                argument: "{url}"
+      - name: manifest_type
+        type: string
+        actions:
+          - type: format_text
+            argument: "hls"
+      - name: title
+        type: string
+        select: first
+        selector: "title"
+        actions:
+          - type: get_text
+      # The poster is the `_xt` preview served by the hoster's image service and
+      # rendered inside the player container; it is kept as extracted.
+      - name: image/title > link
+        type: string
+        select: first
+        selector: "#vplayer img"
+        actions:
+          - type: get_attribut
+            argument: src
+          - type: resolve_url
+            proxy: true
+      - name: storyboard_vtt_url
+        type: string
+        actions:
+          - type: get_response_body
+          - type: unpack_packer
+          - type: regex_find_all
+            pattern: '(/dl\?op=get_slides[^"''\s]+)'
+            format: "{1}"
+          - type: resolve_url
+            proxy: true
+            proxy_replace_all:
+              - pattern: '(?m)^(https?://[^\r\n]+)'
+                replacement: '{proxy_inherited}/$1'
+                content_types:
+                  - text/vtt
+                  - application/vnd.apple.mpegurl
