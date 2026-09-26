@@ -2,7 +2,7 @@ import videojs from 'video.js'
 import type { ShallowRef } from 'vue'
 
 import type { ResolvedVideoMediaSource } from '@/services/players'
-import type { VideoJsPlayerState } from '@/types/media'
+import type { MediaItem, VideoJsPlayerState } from '@/types/media'
 
 /**
  * Natural dimensions exposed by one loaded video source.
@@ -130,6 +130,12 @@ export interface VideoJsMediaRendererProps {
    previousVideoTitle?: string | null
    /** Title displayed when hovering the next-video control. */
    nextVideoTitle?: string | null
+   /** Media item displayed when hovering the previous-video control. */
+   previousVideoItem?: MediaItem | null
+   /** Media item displayed when hovering the next-video control. */
+   nextVideoItem?: MediaItem | null
+   /** Display title for the backend service. */
+   serviceTitle?: string | null
 }
 
 /**

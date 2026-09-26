@@ -26,6 +26,11 @@ interface Props {
    * Logo URL for the backend service attached to the previewed item.
    */
   serviceLogo?: string | null
+  /**
+   * Hides the backend service source fact, for surfaces that already expose it elsewhere.
+   * @default false
+   */
+  hideSource?: boolean
 }
 
 /** Component props with applied defaults. */
@@ -33,6 +38,7 @@ const props = withDefaults(defineProps<Props>(), {
   variant: 'preview',
   serviceTitle: null,
   serviceLogo: null,
+  hideSource: false,
 })
 /** Internationalization utilities. */
 const { resolvedLanguage, t } = useI18n()
@@ -101,7 +107,7 @@ const showFacts = computed(() =>
       mediaTypeFact.value ||
       genreFact.value ||
       props.item.durationLabel ||
-      props.serviceTitle ||
+      (!props.hideSource && props.serviceTitle) ||
       props.item.releaseDateLabel ||
       props.item.expireLabel ||
       priceLabel.value ||
@@ -183,7 +189,10 @@ const hasDetails = computed(() =>
         <span class="media-card-details__score-value" :class="scoreClass">{{ formattedRating }}</span>
       </div>
 
-      <div v-if="serviceTitle" class="media-card-details__fact media-card-details__source">
+      <div
+        v-if="serviceTitle && !hideSource"
+        class="media-card-details__fact media-card-details__source"
+      >
         <span class="media-card-details__fact-label">{{ t('media.source') }} :</span>
         <span class="media-card-details__source-title">{{ serviceTitle }}</span>
       </div>

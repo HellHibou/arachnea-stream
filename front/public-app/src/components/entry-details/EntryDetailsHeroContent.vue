@@ -4,6 +4,7 @@ import { computed } from 'vue'
 import type { EntryPlayer } from '@/types/entry'
 import type { EntryPlayerLanguageOption } from '@/composables/entry-details/entryVideoPlayer'
 import type { ResolvedPlayerMediaSource } from '@/services/players'
+import type { MediaItem } from '@/types/media'
 
 import VideoPlayer from '@/components/media/VideoPlayer.vue'
 import EntryDetailsHeroHeader from './EntryDetailsHeroHeader.vue'
@@ -21,6 +22,9 @@ interface Props {
   hasNextPlayable: boolean
   previousPlayableTitle: string | null
   nextPlayableTitle: string | null
+  previousPlayableItem?: MediaItem | null
+  nextPlayableItem?: MediaItem | null
+  serviceTitle?: string | null
   showBookmarkAction: boolean
   isBookmarked: boolean
   showTrailerPlayer: boolean
@@ -176,6 +180,9 @@ function handleAutoplayStep(offset: -1 | 1) {
         :has-next-video="hasNextPlayable"
         :previous-video-title="previousPlayableTitle"
         :next-video-title="nextPlayableTitle"
+        :previous-video-item="previousPlayableItem"
+        :next-video-item="nextPlayableItem"
+        :service-title="serviceTitle"
         @update:active-language-key="emit('update:active-language-key', $event)"
         @remember-current-language="emit('remember-current-language')"
         @update:active-player-id="emit('update:active-player-id', $event)"

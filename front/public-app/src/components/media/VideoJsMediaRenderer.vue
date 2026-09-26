@@ -6,7 +6,10 @@ import {
   type VideoJsMediaRendererEmits,
   type VideoJsMediaRendererProps,
 } from '@/composables/video/useVideoJsMediaRenderer'
-import { markImageUrlFailed } from '@/composables/media/useFailedImageUrls'
+import { markImageUrlFailed, resolveImageUrl } from '@/composables/media/useFailedImageUrls'
+import { useI18n } from '@/i18n'
+
+import MediaCardDetailsContent from '@/components/media-card/MediaCardDetailsContent.vue'
 
 defineOptions({
   inheritAttrs: false,
@@ -41,6 +44,9 @@ const props = withDefaults(defineProps<VideoJsMediaRendererProps & {
   isEpisodeAutoplayEnabled: false,
   initialPlayerState: null,
   isExternalLoading: false,
+  previousVideoItem: null,
+  nextVideoItem: null,
+  serviceTitle: null,
 })
 
 const emit = defineEmits<VideoJsMediaRendererEmits>()
@@ -61,6 +67,8 @@ const {
   isVideoInitialLoading,
   /** Fixed storyboard preview size derived from the sprite cell dimensions. */
   storyboardPreviewSize,
+  /** Direction of the prev/next control currently previewed, or null when none is. */
+  previewedNavigationDirection,
 } = useVideoJsMediaRenderer({
   props,
   emit,
@@ -119,6 +127,56 @@ const storyboardTooltipStyle = computed(() => {
     '--storyboard-preview-display-to-source-scale': String(previewSize.displayToSourceScale),
   }
 })
+
+/** Internationalization utilities. */
+const { t } = useI18n()
+
+/**
+ * Media item previewed by the adjacent-navigation control currently hovered or focused.
+ */
+const previewedNavigationItem = computed(() => {
+  if (previewedNavigationDirection.value === -1) {
+    return props.previousVideoItem ?? null
+  }
+
+  if (previewedNavigationDirection.value === 1) {
+    return props.nextVideoItem ?? null
+  }
+
+  return null
+})
+
+/** Label describing the navigation direction of the previewed adjacent item. */
+const previewedNavigationLabel = computed(() => {
+  if (!previewedNavigationItem.value) {
+    return null
+  }
+
+  return t(
+    previewedNavigationDirection.value === -1 ? 'entry.previousVideo' : 'entry.nextVideo',
+  )
+})
+
+/** Title of the previewed adjacent item, or null when the backend does not provide one. */
+const previewedNavigationTitle = computed(() =>
+  previewedNavigationItem.value?.title?.trim() || null,
+)
+
+/** Poster of the previewed adjacent item, or null when no image can be resolved. */
+const previewedNavigationImageUrl = computed(() => {
+  const item = previewedNavigationItem.value
+
+  if (!item) {
+    return null
+  }
+
+  return resolveImageUrl([
+    item.imageLandscapeUrl,
+    item.imagePosterUrl,
+    item.imagePortraitUrl,
+    item.imageUrl,
+  ])
+})
 </script>
 
 <template>
@@ -145,6 +203,39 @@ const storyboardTooltipStyle = computed(() => {
         alt=""
         @error="markImageUrlFailed(props.overlayLogoUrl)"
       >
+    </div>
+
+    <div
+      v-if="previewedNavigationItem && previewedNavigationLabel"
+      class="videojs-media-navigation-preview"
+      role="tooltip"
+    >
+      <img
+        v-if="previewedNavigationImageUrl"
+        class="videojs-media-navigation-preview__image"
+        :src="previewedNavigationImageUrl"
+        alt=""
+        @error="markImageUrlFailed(previewedNavigationImageUrl)"
+      >
+
+      <div class="videojs-media-navigation-preview__copy">
+        <p class="videojs-media-navigation-preview__label">
+          {{ previewedNavigationLabel }}
+        </p>
+
+        <h3
+          v-if="previewedNavigationTitle"
+          class="videojs-media-navigation-preview__title"
+        >
+          {{ previewedNavigationTitle }}
+        </h3>
+
+        <MediaCardDetailsContent
+          :item="previewedNavigationItem"
+          :service-title="props.serviceTitle"
+          :hide-source="true"
+        />
+      </div>
     </div>
   </div>
 </template>
@@ -960,5 +1051,75 @@ const storyboardTooltipStyle = computed(() => {
 .videojs-media-host :deep(.vjs-skip-outro-button:active),
 .videojs-media-host :deep(.vjs-skip-ads-button:active) {
   background: rgb(0 0 0 / 0.9);
+}
+
+/* Rich preview of the adjacent episode, anchored bottom-left above the control bar.
+   It replaces the native control tooltip and must stay display-only so the player
+   keeps receiving pointer events. */
+.videojs-media-navigation-preview {
+  position: absolute;
+  bottom: calc(var(--videojs-control-bar-height) + 12px);
+  left: 16px;
+  z-index: 3;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  width: fit-content;
+  max-width: min(720px, calc(100% - 32px));
+  max-height: calc(100% - var(--videojs-control-bar-height) - 24px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  pointer-events: none;
+  padding: 14px 16px;
+  border: 1px solid var(--border-color-primary);
+  border-radius: var(--radius);
+  background: var(--bg-surface-strong);
+  box-shadow: var(--shadow-heavy);
+  backdrop-filter: var(--backdrop-filter-medium);
+  color: var(--text-primary);
+}
+
+.videojs-media-navigation-preview::-webkit-scrollbar {
+  display: none;
+}
+
+/* Preview image rendered to the left of the preview text, when the backend exposes one. */
+.videojs-media-navigation-preview__image {
+  flex: 0 0 auto;
+  width: 200px;
+  max-width: 45%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+  object-fit: cover;
+}
+
+.videojs-media-navigation-preview__copy {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.videojs-media-navigation-preview__label {
+  display: block;
+  overflow: visible;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.videojs-media-navigation-preview__title {
+  display: block;
+  overflow: visible;
+  color: var(--text-primary);
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1.2;
 }
 </style>

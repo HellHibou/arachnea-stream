@@ -260,10 +260,18 @@ interface SyncPrevNextVideoControlsOptions {
   previousVideoTitle: string | null
   /** Title displayed when hovering the next video control. */
   nextVideoTitle: string | null
+  /** Whether the previous video control native title is replaced by a rich preview. */
+  suppressPreviousVideoTitle: boolean
+  /** Whether the next video control native title is replaced by a rich preview. */
+  suppressNextVideoTitle: boolean
   /** Callback invoked when the previous video button is clicked. */
   onPrevVideo: () => void
   /** Callback invoked when the next video button is clicked. */
   onNextVideo: () => void
+  /** Callback invoked when the previous video control preview state changes. */
+  onPrevVideoPreviewChange: (isPreviewed: boolean) => void
+  /** Callback invoked when the next video control preview state changes. */
+  onNextVideoPreviewChange: (isPreviewed: boolean) => void
 }
 
 /**
@@ -272,12 +280,15 @@ interface SyncPrevNextVideoControlsOptions {
  * @param button - Control button element.
  * @param isHidden - Whether the button should be hidden.
  * @param labelKey - Translation key for the aria-label.
+ * @param videoTitle - Neighbouring media title exposed through the native tooltip.
+ * @param suppressNativeTitle - Whether the native tooltip is replaced by a rich preview.
  */
 function syncPrevNextVideoControlState(
   button: HTMLButtonElement | null,
   isHidden: boolean,
   labelKey: string,
   videoTitle: string | null,
+  suppressNativeTitle: boolean,
 ) {
   if (!button) {
     return
@@ -286,7 +297,29 @@ function syncPrevNextVideoControlState(
   button.classList.toggle('vjs-prev-video-control--hidden', isHidden && button.classList.contains('vjs-prev-video-control'))
   button.classList.toggle('vjs-next-video-control--hidden', isHidden && button.classList.contains('vjs-next-video-control'))
   button.setAttribute('aria-label', t(labelKey))
+
+  if (suppressNativeTitle) {
+    button.removeAttribute('title')
+    return
+  }
+
   button.title = videoTitle?.trim() || t(labelKey)
+}
+
+/**
+ * Registers the preview lifecycle listeners used by the rich navigation preview.
+ *
+ * @param button - Control button element receiving the listeners.
+ * @param onPreviewChange - Callback invoked when the control preview state changes.
+ */
+function registerPrevNextVideoPreviewListeners(
+  button: HTMLButtonElement,
+  onPreviewChange: (isPreviewed: boolean) => void,
+) {
+  button.addEventListener('pointerenter', () => onPreviewChange(true))
+  button.addEventListener('pointerleave', () => onPreviewChange(false))
+  button.addEventListener('focus', () => onPreviewChange(true))
+  button.addEventListener('blur', () => onPreviewChange(false))
 }
 
 /**
@@ -343,6 +376,7 @@ export function syncPrevNextVideoControls(
       prevBtn.className = 'vjs-control vjs-button vjs-prev-video-control'
       prevBtn.setAttribute('aria-label', t('entry.previousContent'))
       prevBtn.addEventListener('click', options.onPrevVideo)
+      registerPrevNextVideoPreviewListeners(prevBtn, options.onPrevVideoPreviewChange)
 
       const qualityButton = controlBarElement.querySelector(
         '.vjs-quality-menu-wrapper, .vjs-quality-menu-button',
@@ -368,6 +402,7 @@ export function syncPrevNextVideoControls(
       !options.hasPreviousVideo,
       'entry.previousContent',
       options.previousVideoTitle,
+      options.suppressPreviousVideoTitle,
     )
   }
 
@@ -384,6 +419,7 @@ export function syncPrevNextVideoControls(
       nextBtn.className = 'vjs-control vjs-button vjs-next-video-control'
       nextBtn.setAttribute('aria-label', t('entry.nextContent'))
       nextBtn.addEventListener('click', options.onNextVideo)
+      registerPrevNextVideoPreviewListeners(nextBtn, options.onNextVideoPreviewChange)
 
       const prevBtnForInsert = controlBarElement.querySelector('.vjs-prev-video-control')
 
@@ -415,6 +451,7 @@ export function syncPrevNextVideoControls(
       !options.hasNextVideo,
       'entry.nextContent',
       options.nextVideoTitle,
+      options.suppressNextVideoTitle,
     )
   }
 

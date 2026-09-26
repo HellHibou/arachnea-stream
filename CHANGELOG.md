@@ -90,6 +90,7 @@ All notable changes to the server workspace are recorded here.
 #### Added
 
 - Home and category rails can now render optional catalog subsections. The visible rail title combines parent and subsection labels, and accessible previous/next controls cycle through subsection rails with wraparound navigation.
+- The player previous/next episode controls (`vjs-prev-video-control` / `vjs-next-video-control`) now show a rich preview on hover or keyboard focus instead of the former plain native tooltip, which is suppressed as soon as the neighboring episode is available. The preview is anchored bottom-left above the control bar and renders the navigation direction label (`entry.previousVideo` / `entry.nextVideo`), the adjacent episode title, its landscape poster on the left when the backend exposes one, and the shared media-card details block without its source fact (new `hideSource` prop on `MediaCardDetailsContent`). It stays display-only (`pointer-events: none`) so it never steals player interactions, its width is capped to the player width, and it hides itself when the neighboring item is unknown. The neighboring navigable episode is mapped to a `MediaItem` in `ProgramEntryDetails` (`toEntryEpisodeMediaItem`), the source display title is resolved in `EntryDetails` through `useServiceMetadata`, and both are threaded down through `EntryDetailsHeroContent`, `VideoPlayer` and `VideoJsMediaRenderer`.
 
 #### Changed
 

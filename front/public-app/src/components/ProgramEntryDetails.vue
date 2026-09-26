@@ -11,6 +11,7 @@ import { useI18n } from '@/i18n'
 import { entryDetailsData } from '@/composables/entry-details/entryDetailsData'
 import { entryEpisodeSelection } from '@/composables/entry-details/entryEpisodeSelection'
 import { entryDetailsPresentation } from '@/composables/entry-details/entryDetailsPresentation'
+import { toEntryEpisodeMediaItem } from '@/composables/entry-details/entryDetailsMediaItems'
 import { entryVideoPlayer } from '@/composables/entry-details/entryVideoPlayer'
 import { getSeasonEpisodes } from '@/services/rustify'
 import { type EntryBookmark, useStorage } from '@/services/storage'
@@ -182,6 +183,20 @@ const {
   details,
   seasonEpisodes,
 })
+
+/** Media item previewed on the player's previous episode control. */
+const previousPlayableItem = computed<MediaItem | null>(() =>
+  previousNavigableEpisode.value
+    ? toEntryEpisodeMediaItem(previousNavigableEpisode.value, source.value)
+    : null,
+)
+
+/** Media item previewed on the player's next episode control. */
+const nextPlayableItem = computed<MediaItem | null>(() =>
+  nextNavigableEpisode.value
+    ? toEntryEpisodeMediaItem(nextNavigableEpisode.value, source.value)
+    : null,
+)
 
 /** Entry video player composable results. */
 const {
@@ -943,6 +958,8 @@ async function handleMediaPlaybackEnded() {
     :has-next-playable="hasNextEpisode"
     :previous-playable-title="previousNavigableEpisode?.title ?? null"
     :next-playable-title="nextNavigableEpisode?.title ?? null"
+    :previous-playable-item="previousPlayableItem"
+    :next-playable-item="nextPlayableItem"
     :is-bookmarked="isBookmarked"
     :show-trailer-player="showTrailerPlayer"
     :show-media-player="showMediaPlayer"

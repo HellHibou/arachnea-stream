@@ -157,6 +157,8 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
   const isPosterOverlayVisible = shallowRef(false)
   /** Whether the video is in initial loading state. */
   const isVideoInitialLoading = shallowRef(true)
+  /** Direction of the prev/next control currently previewed, or null when none is. */
+  const previewedNavigationDirection = shallowRef<-1 | 1 | null>(null)
 
    /** Cleanup function for pending source restore operation. */
    let pendingSourceRestoreCleanup: (() => void) | null = null
@@ -414,6 +416,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
      retainedPlayerState = null
      isPosterOverlayVisible.value = false
      hasEmittedInitialLoadComplete = false
+     previewedNavigationDirection.value = null
    }
 
   /**
@@ -1023,11 +1026,19 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
         hasNextVideo: props.hasNextVideo ?? false,
         previousVideoTitle: props.previousVideoTitle ?? null,
         nextVideoTitle: props.nextVideoTitle ?? null,
+        suppressPreviousVideoTitle: Boolean(props.previousVideoItem),
+        suppressNextVideoTitle: Boolean(props.nextVideoItem),
        onPrevVideo: () => {
          emit('navigate-video', -1)
        },
        onNextVideo: () => {
          emit('navigate-video', 1)
+       },
+       onPrevVideoPreviewChange: (isPreviewed) => {
+         previewedNavigationDirection.value = isPreviewed ? -1 : null
+       },
+       onNextVideoPreviewChange: (isPreviewed) => {
+         previewedNavigationDirection.value = isPreviewed ? 1 : null
        },
      })
    }
@@ -1789,6 +1800,8 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       () => props.hasNextVideo,
       () => props.previousVideoTitle,
       () => props.nextVideoTitle,
+      () => props.previousVideoItem,
+      () => props.nextVideoItem,
     ],
     () => {
       if (!activePlayer.value) {
@@ -1809,5 +1822,6 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
      isVideoInitialLoading,
      storyboardPreviewSize,
      vttStoryboardGrid,
+     previewedNavigationDirection,
    }
 }

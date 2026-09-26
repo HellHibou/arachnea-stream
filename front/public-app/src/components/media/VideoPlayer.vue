@@ -5,6 +5,7 @@ import LoadingSpinner from '@/components/icons/LoadingSpinner.vue'
 import { useI18n } from '@/i18n'
 import type { ResolvedVideoMediaSource } from '@/services/players'
 import type { VideoJsMediaDimensions } from '@/composables/video/useVideoJsMediaRenderer'
+import type { MediaItem } from '@/types/media'
 import { markImageUrlFailed } from '@/composables/media/useFailedImageUrls'
 
 defineOptions({
@@ -218,6 +219,12 @@ const props = withDefaults(defineProps<{
   previousVideoTitle?: string | null
   /** Title displayed when hovering the next-video control. */
   nextVideoTitle?: string | null
+  /** Media item displayed when hovering the previous-video control. */
+  previousVideoItem?: MediaItem | null
+  /** Media item displayed when hovering the next-video control. */
+  nextVideoItem?: MediaItem | null
+  /** Service title of the entry. */
+  serviceTitle?: string | null
   /**
    * Mode used to render embedded iframe players.
     * @default 'safe'
@@ -263,6 +270,9 @@ const props = withDefaults(defineProps<{
   isEpisodeAutoplayEnabled: false,
   previousVideoTitle: null,
   nextVideoTitle: null,
+  previousVideoItem: null,
+  nextVideoItem: null,
+  serviceTitle: null,
   securityMode: 'safe',
 })
 
@@ -497,6 +507,9 @@ const {
        :has-next-video="activeVideoHasNextVideo"
        :previous-video-title="props.previousVideoTitle"
        :next-video-title="props.nextVideoTitle"
+       :previous-video-item="props.previousVideoItem"
+       :next-video-item="props.nextVideoItem"
+       :service-title="props.serviceTitle"
       v-bind="standaloneRendererAttrs"
       @update:playback-progress="handleActiveVideoPlaybackProgressUpdate"
       @update:player-state="handlePlayerStateUpdate"

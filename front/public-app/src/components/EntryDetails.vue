@@ -6,13 +6,14 @@ import EntryDetailsMetadata from './entry-details/EntryDetailsMetadata.vue'
 import EntryDetailsPosterPanel from './entry-details/EntryDetailsPosterPanel.vue'
 import ScrollToTopButton from '@/components/ScrollToTopButton.vue'
 import { useScrollToTop } from '@/composables/useScrollToTop'
+import { useServiceMetadata } from '@/composables/useServiceMetadata'
 import { APP_TITLE } from '@/constants'
 import { useI18n } from '@/i18n'
 
 import type { EntryPlayer } from '@/types/entry'
 import type { EntryPlayerLanguageOption } from '@/composables/entry-details/entryVideoPlayer'
 import type { ResolvedPlayerMediaSource } from '@/services/players'
-import type { ThumbnailImageFit } from '@/types/media'
+import type { MediaItem, ThumbnailImageFit } from '@/types/media'
 
 /**
   * Props accepted by the shared entry details shell.
@@ -74,6 +75,10 @@ import type { ThumbnailImageFit } from '@/types/media'
     previousPlayableTitle?: string | null
     /** Title of the next playable item. */
     nextPlayableTitle?: string | null
+    /** Media item of the previous playable episode. */
+    previousPlayableItem?: MediaItem | null
+    /** Media item of the next playable episode. */
+    nextPlayableItem?: MediaItem | null
     /** Whether to show the bookmark action button. */
     showBookmarkAction?: boolean
     /** Whether the entry is currently bookmarked. */
@@ -165,6 +170,8 @@ const props = withDefaults(defineProps<Props>(), {
    hasNextPlayable: false,
    previousPlayableTitle: null,
    nextPlayableTitle: null,
+   previousPlayableItem: null,
+   nextPlayableItem: null,
    showBookmarkAction: true,
    isBookmarked: false,
    showAutoplayToggle: false,
@@ -178,6 +185,15 @@ const props = withDefaults(defineProps<Props>(), {
   })
 /** Internationalization utilities. */
 const { t } = useI18n()
+/** Service metadata utilities. */
+const { getService } = useServiceMetadata()
+
+/** Metadata for the entry source, used as the service label of the player previews. */
+const sourceMetadata = computed(() => getService(props.source))
+/** Display title for the backend service attached to the entry. */
+const serviceTitle = computed(() =>
+  sourceMetadata.value?.title?.trim() || props.source?.trim() || null,
+)
 
 /** Resolved loading title with fallback to translated default. */
 const loadingTitle = computed(() => props.loadingTitle ?? t('entry.loadingTitle'))
@@ -321,6 +337,9 @@ const emit = defineEmits<{
                :has-next-playable="props.hasNextPlayable"
                :previous-playable-title="props.previousPlayableTitle"
                :next-playable-title="props.nextPlayableTitle"
+               :previous-playable-item="props.previousPlayableItem"
+               :next-playable-item="props.nextPlayableItem"
+               :service-title="serviceTitle"
               :show-bookmark-action="props.showBookmarkAction"
               :is-bookmarked="props.isBookmarked"
               :show-trailer-player="props.showTrailerPlayer"
