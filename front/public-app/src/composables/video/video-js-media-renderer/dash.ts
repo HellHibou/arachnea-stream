@@ -3,7 +3,14 @@ import videojsDashModule from 'videojs-contrib-dash'
 import { DASH_MIME_TYPE } from '@/services/players'
 import type { ResolvedVideoChapter, ResolvedVideoMediaSource } from '@/services/players'
 
-import { installChapterOverlay, installChapterSegments, installSkipChapterButton } from '@/composables/video/video-js-media-renderer/chapters'
+import {
+  installAutoSkipChapters,
+  installChapterOverlay,
+  installChapterSegments,
+  installSkipChapterButton,
+  SKIP_CHAPTER_BUTTON_TYPES,
+  type SkipChapterType,
+} from '@/composables/video/video-js-media-renderer/chapters'
 import {
   normalizeQualityPreferenceLabel,
   resolveQualityPreferenceToken,
@@ -952,6 +959,16 @@ function mergeChaptersByStartTime(
 }
 
 /**
+ * Options accepted by the DASH chapter installer.
+ */
+export interface DashPeriodChaptersOptions {
+  /**
+   * Reads whether automatic skipping is enabled for a chapter type.
+   */
+  isAutoskipEnabled: (chapterType: SkipChapterType) => boolean
+}
+
+/**
  * Installs the chapter overlays including the DASH advertising periods.
  *
  * The DASH engine is attached asynchronously after the source is applied, and
@@ -963,11 +980,13 @@ function mergeChaptersByStartTime(
  *
  * @param player Video.js player bound to the DASH source.
  * @param baseChapters Chapters resolved from the backend metadata.
+ * @param options Auto-skip readers shared with the static chapter installation.
  * @returns `true` when the DASH engine owns the chapter installation.
  */
 export function installDashPeriodChapters(
   player: VideoJsPlayer,
   baseChapters: ResolvedVideoChapter[],
+  options: DashPeriodChaptersOptions,
 ): boolean {
   let chaptersInstalled = false
   let engineAttached = false
@@ -1057,8 +1076,18 @@ export function installDashPeriodChapters(
     }
 
     if (adChapters.length > 0) {
-      installSkipChapterButton(player, chapters, 'ads')
+      for (const chapterType of SKIP_CHAPTER_BUTTON_TYPES) {
+        const hasTypedChapters = adChapters.some((chapter) => chapter.type === chapterType)
+        if (hasTypedChapters) {
+          installSkipChapterButton(player, chapters, chapterType)
+        }
+      }
     }
+
+    installAutoSkipChapters(player, {
+      chapters,
+      isAutoskipEnabled: options.isAutoskipEnabled,
+    })
   }
 
   player.on('loadedmetadata', handleLoadedMetadata)

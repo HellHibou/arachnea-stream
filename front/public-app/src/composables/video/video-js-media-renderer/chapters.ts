@@ -16,6 +16,41 @@ const CHAPTER_SEGMENT_DIVIDER_CLASS = 'vjs-chapter-segment-divider'
 const CHAPTER_OVERLAY_FLOATING_CLASS = 'vjs-chapter-overlay--floating'
 /** CSS class prefix applied to skip chapter buttons. */
 const SKIP_CHAPTER_BUTTON_CLASS_PREFIX = 'vjs-skip-'
+/** CSS class applied to the skip chapter button label. */
+const SKIP_CHAPTER_BUTTON_LABEL_CLASS = 'vjs-skip-chapter-button-label'
+/** Material Design icon shown after the skip chapter button label. */
+const SKIP_CHAPTER_BUTTON_ICON = 'mdi mdi-skip-forward'
+/** CSS class applied to the skip chapter button icon. */
+const SKIP_CHAPTER_BUTTON_ICON_CLASS = 'vjs-skip-chapter-button-icon'
+/** CSS class suffix added to a skip chapter button while the player control bar is hidden. */
+const SKIP_CHAPTER_BUTTON_CONTROLS_HIDDEN_CLASS_SUFFIX = '--controls-hidden'
+/**
+ * Seconds a skip chapter button stays visible after its chapter starts while the player control bar
+ * is hidden, since the button otherwise fades out together with the controls.
+ */
+const SKIP_CHAPTER_BUTTON_HIDDEN_CONTROLS_REVEAL_SECONDS = 5
+/**
+ * Chapter types that display a dedicated skip button.
+ */
+export const SKIP_CHAPTER_BUTTON_TYPES = ['previously', 'intro', 'outro', 'ads'] as const
+
+/**
+ * Chapter types that can be skipped with a dedicated button.
+ */
+export type SkipChapterType = (typeof SKIP_CHAPTER_BUTTON_TYPES)[number]
+
+/**
+ * Skip button chapter types that stay visible for the whole chapter even
+ * while the player control bar is hidden.
+ */
+export const SKIP_CHAPTER_BUTTON_ALWAYS_VISIBLE_TYPES: ReadonlySet<SkipChapterType> = new Set([
+  'ads',
+])
+/**
+ * Player class added by Video.js as soon as playback starts for the current source, at the same
+ * moment the poster/title image is hidden.
+ */
+const PLAYBACK_STARTED_CLASS = 'vjs-has-started'
 
 /**
  * Returns the active duration when available and finite.
@@ -225,16 +260,125 @@ function findChapterAtTime(chapters: ResolvedVideoChapter[], time: number): Reso
   return chapters.find((chapter) => time >= chapter.start && time < chapter.end) ?? null
 }
 
-/**
- * Chapter types that can be skipped with a dedicated button.
- */
-export type SkipChapterType = 'intro' | 'outro' | 'ads'
-
 /** i18n key of the label used by each skip button type. */
 const SKIP_CHAPTER_LABEL_KEYS: Record<SkipChapterType, string> = {
   intro: 'player.chapter.skipIntro',
+  previously: 'player.chapter.skipPreviously',
   outro: 'player.chapter.skipOutro',
   ads: 'player.chapter.skipAds',
+}
+
+/**
+ * Options accepted by the automatic chapter skip installer.
+ */
+export interface AutoSkipChaptersOptions {
+  /**
+   * Chapters eligible for automatic skipping, typically the merged chapter list.
+   */
+  chapters: ResolvedVideoChapter[]
+  /**
+   * Reads whether automatic skipping is enabled for a chapter type.
+   */
+  isAutoskipEnabled: (chapterType: SkipChapterType) => boolean
+}
+
+/**
+ * Merges contiguous or overlapping chapters of the same type into single ranges.
+ *
+ * Collapsing a whole ad pod into one range lets the auto-skip jump over the
+ * series in a single seek instead of skipping pod segments one by one.
+ *
+ * @param chapters Ordered list of chapters from the resolved stream.
+ * @param gapToleranceSeconds Maximum gap between two same-type chapters merged together.
+ * @returns Merged chapter ranges ordered by start time.
+ */
+export function mergeContiguousChapters(
+  chapters: ResolvedVideoChapter[],
+  gapToleranceSeconds = 0.5,
+): ResolvedVideoChapter[] {
+  const sorted = [...chapters].sort((a, b) => a.start - b.start)
+  const merged: ResolvedVideoChapter[] = []
+
+  for (const chapter of sorted) {
+    const previous = merged[merged.length - 1]
+
+    if (
+      previous &&
+      previous.type === chapter.type &&
+      chapter.start <= previous.end + gapToleranceSeconds
+    ) {
+      previous.end = Math.max(previous.end, chapter.end)
+      if (!previous.title && chapter.title) {
+        previous.title = chapter.title
+      }
+      continue
+    }
+
+    merged.push({ ...chapter })
+  }
+
+  return merged
+}
+
+/**
+ * Installs automatic skipping of skippable chapters.
+ *
+ * Each skippable chapter type carries its own `videoPlayer.autoskip.*`
+ * parameter: the current chapter is skipped as soon as playback enters it
+ * when its parameter is enabled. Advertising is skipped unconditionally;
+ * other chapter types are only skipped automatically while episode autoplay
+ * is enabled (gated by the caller through `isAutoskipEnabled`). Contiguous
+ * chapters of the same type are merged beforehand so a whole advertising pod
+ * is jumped over with a single seek.
+ *
+ * @param player Video.js player instance.
+ * @param options Auto-skip configuration.
+ */
+export function installAutoSkipChapters(player: VideoJsPlayer, options: AutoSkipChaptersOptions): void {
+  const skippableTypes = new Set<SkipChapterType>(SKIP_CHAPTER_BUTTON_TYPES)
+  const merged = mergeContiguousChapters(
+    options.chapters.filter((chapter) => skippableTypes.has(chapter.type as SkipChapterType)),
+  )
+
+  if (merged.length === 0) {
+    return
+  }
+
+  const skipCurrentChapter = () => {
+    const currentTime = player.currentTime() ?? 0
+    const chapter = findChapterAtTime(merged, currentTime)
+
+    if (!chapter || !options.isAutoskipEnabled(chapter.type as SkipChapterType)) {
+      return
+    }
+
+    // A seek to the range end lands inside the next contiguous range when the
+    // source reports back-to-back ranges; jump over the whole merged range.
+    if (currentTime >= chapter.end - 0.25) {
+      return
+    }
+
+    const duration = player.duration() ?? chapter.end
+    const targetTime = Math.min(chapter.end, duration - 0.5)
+
+    if (targetTime > currentTime) {
+      player.currentTime(targetTime)
+    }
+  }
+
+  player.on('timeupdate', skipCurrentChapter)
+  player.on('seeked', skipCurrentChapter)
+  player.on('loadedmetadata', skipCurrentChapter)
+  player.on('play', skipCurrentChapter)
+  player.on('playing', skipCurrentChapter)
+
+  player.on('dispose', () => {
+    player.off('timeupdate', skipCurrentChapter)
+    player.off('seeked', skipCurrentChapter)
+    player.off('loadedmetadata', skipCurrentChapter)
+    player.off('play', skipCurrentChapter)
+    player.off('playing', skipCurrentChapter)
+  })
 }
 
 /**
@@ -244,6 +388,18 @@ const SKIP_CHAPTER_LABEL_KEYS: Record<SkipChapterType, string> = {
  * A type may cover several chapters (for example every advertising period of
  * a DASH multiperiod stream); the button stays visible across consecutive
  * chapters and always skips the one being played.
+ *
+ * Visibility follows the player control bar: while the control bar is shown
+ * the button stays available for the whole chapter, while it is hidden
+ * (playing with an inactive user) the button is only revealed during the
+ * first {@link SKIP_CHAPTER_BUTTON_HIDDEN_CONTROLS_REVEAL_SECONDS} seconds of
+ * the chapter and is anchored to the player bottom instead of sitting above
+ * the control bar. Chapter types listed in
+ * {@link SKIP_CHAPTER_BUTTON_ALWAYS_VISIBLE_TYPES} (advertising) stay visible
+ * for the whole chapter even while the control bar is hidden.
+ *
+ * The button also stays hidden until playback has started for the current
+ * source, mirroring how the poster/title image is hidden on the first play.
  *
  * @param player Video.js player instance.
  * @param chapters Ordered list of chapters from the resolved stream.
@@ -269,11 +425,26 @@ export function installSkipChapterButton(
     return findChapterAtTime(typeChapters, currentTime)
   }
 
+  /**
+   * Reports whether the control bar is hidden, mirroring the Video.js rule that
+   * fades it out while playing and the user is inactive.
+   */
+  const isControlBarHidden = () =>
+    playerElement.classList.contains('vjs-playing') &&
+    playerElement.classList.contains('vjs-user-inactive')
+
   const button = document.createElement('button')
   const buttonClass = `${SKIP_CHAPTER_BUTTON_CLASS_PREFIX}${chapterType}-button`
   const visibleButtonClass = `${buttonClass}--visible`
+  const controlsHiddenButtonClass = `${buttonClass}${SKIP_CHAPTER_BUTTON_CONTROLS_HIDDEN_CLASS_SUFFIX}`
   button.className = buttonClass
-  button.textContent = t(SKIP_CHAPTER_LABEL_KEYS[chapterType])
+  const buttonLabel = document.createElement('span')
+  buttonLabel.className = SKIP_CHAPTER_BUTTON_LABEL_CLASS
+  buttonLabel.textContent = t(SKIP_CHAPTER_LABEL_KEYS[chapterType])
+  const buttonIcon = document.createElement('span')
+  buttonIcon.className = `${SKIP_CHAPTER_BUTTON_ICON_CLASS} ${SKIP_CHAPTER_BUTTON_ICON}`
+  buttonIcon.setAttribute('aria-hidden', 'true')
+  button.append(buttonLabel, buttonIcon)
   button.addEventListener('click', () => {
     const chapter = findCurrentChapter() ?? typeChapters[typeChapters.length - 1]
     if (!chapter) {
@@ -285,20 +456,46 @@ export function installSkipChapterButton(
     player.currentTime(targetTime)
   })
 
-  const handleTimeUpdate = () => {
-    button.classList.toggle(visibleButtonClass, findCurrentChapter() !== null)
+  const syncButtonState = () => {
+    const chapter = findCurrentChapter()
+    const isControlBarVisible = !isControlBarHidden()
+    const elapsedInChapter = chapter ? (player.currentTime() ?? chapter.start) - chapter.start : 0
+    const isWithinRevealWindow =
+      isControlBarVisible ||
+      SKIP_CHAPTER_BUTTON_ALWAYS_VISIBLE_TYPES.has(chapterType) ||
+      elapsedInChapter < SKIP_CHAPTER_BUTTON_HIDDEN_CONTROLS_REVEAL_SECONDS
+    const hasPlaybackStarted = playerElement.classList.contains(PLAYBACK_STARTED_CLASS)
+
+    button.classList.toggle(
+      visibleButtonClass,
+      chapter !== null && hasPlaybackStarted && isWithinRevealWindow,
+    )
+    button.classList.toggle(controlsHiddenButtonClass, !isControlBarVisible)
   }
 
-  player.on('timeupdate', handleTimeUpdate)
-  player.on('loadedmetadata', handleTimeUpdate)
-  player.on('seeked', handleTimeUpdate)
+  player.on('timeupdate', syncButtonState)
+  player.on('loadedmetadata', syncButtonState)
+  player.on('seeked', syncButtonState)
+  player.on('useractive', syncButtonState)
+  player.on('userinactive', syncButtonState)
+  player.on('play', syncButtonState)
+  player.on('playing', syncButtonState)
+  player.on('pause', syncButtonState)
+  player.on('loadstart', syncButtonState)
 
   playerElement.appendChild(button)
+  syncButtonState()
 
   player.on('dispose', () => {
-    player.off('timeupdate', handleTimeUpdate)
-    player.off('loadedmetadata', handleTimeUpdate)
-    player.off('seeked', handleTimeUpdate)
+    player.off('timeupdate', syncButtonState)
+    player.off('loadedmetadata', syncButtonState)
+    player.off('seeked', syncButtonState)
+    player.off('useractive', syncButtonState)
+    player.off('userinactive', syncButtonState)
+    player.off('play', syncButtonState)
+    player.off('playing', syncButtonState)
+    player.off('pause', syncButtonState)
+    player.off('loadstart', syncButtonState)
     button.remove()
   })
 }

@@ -9,6 +9,7 @@ import 'videojs-sprite-thumbnails'
 import { computed, onBeforeUnmount, shallowRef, watch } from 'vue'
 
 import type { ResolvedVideoMediaSource } from '@/services/players'
+import { useStorage } from '@/services/storage'
 import type { VideoJsPlayerState } from '@/types/media'
 
 import { PLAYBACK_SAVE_STEP_SECONDS, REMAINING_TIME_CLASS } from '@/composables/video/video-js-media-renderer/constants'
@@ -18,9 +19,17 @@ import {
   installTimerToggle,
   syncEpisodeAutoplayToggleControl,
   syncPrevNextVideoControls,
+  type AutoplayMenuEntry,
 } from '@/composables/video/video-js-media-renderer/controls'
 import { installStableFullscreenBridge } from '@/composables/video/video-js-media-renderer/fullscreen'
-import { installChapterOverlay, installChapterSegments, installSkipChapterButton } from '@/composables/video/video-js-media-renderer/chapters'
+import {
+  installAutoSkipChapters,
+  installChapterOverlay,
+  installChapterSegments,
+  installSkipChapterButton,
+  SKIP_CHAPTER_BUTTON_TYPES,
+  type SkipChapterType,
+} from '@/composables/video/video-js-media-renderer/chapters'
 import {
   buildDashKeySystemOptions,
   installDashPeriodChapters,
@@ -996,21 +1005,72 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     return sourceInput
   }
 
-   /**
-    * Updates the control bar with the current autoplay toggle state.
-    *
-    * @param player Video.js player currently bound to the renderer.
-    */
-   function syncEpisodeAutoplayControl(player: VideoJsPlayer) {
-     syncEpisodeAutoplayToggleControl(player, {
-       controls: props.controls ?? false,
-       showEpisodeAutoplayToggle: props.showEpisodeAutoplayToggle ?? false,
-       isEpisodeAutoplayEnabled: props.isEpisodeAutoplayEnabled ?? false,
-       onEpisodeAutoplayToggle: () => {
-         emitEpisodeAutoplayEnabledUpdate(!(props.isEpisodeAutoplayEnabled ?? false))
-       },
-     })
-   }
+  /**
+   * Builds the menu entries controlling episode autoplay and chapter autoskip.
+   *
+   * Advertising autoskip is skipped unconditionally and stays configured from
+   * the parameters panel, so it is excluded from the menu.
+   *
+   * @returns Entries rendered inside the episode autoplay menu.
+   */
+  function buildEpisodeAutoplayMenuEntries(): AutoplayMenuEntry[] {
+    const parameters = useStorage().getParameters()
+    const entries: AutoplayMenuEntry[] = [
+      {
+        key: 'autoplay',
+        labelKey: 'player.autoplayMenu.autoplay',
+        isEnabled: props.isEpisodeAutoplayEnabled ?? false,
+        onToggle: () => {
+          emitEpisodeAutoplayEnabledUpdate(!(props.isEpisodeAutoplayEnabled ?? false))
+        },
+      },
+    ]
+
+    for (const chapterType of SKIP_CHAPTER_BUTTON_TYPES) {
+      if (chapterType === 'ads') {
+        continue
+      }
+
+      entries.push({
+        key: `autoskip-${chapterType}`,
+        labelKey: `settings.autoskip.${chapterType}`,
+        isEnabled: parameters[`videoPlayer.autoskip.${chapterType}`].value,
+        onToggle: () => {
+          const parameter = useStorage().getParameters()[`videoPlayer.autoskip.${chapterType}`]
+          parameter.value = !parameter.value
+
+          const currentPlayer = activePlayer.value
+
+          if (currentPlayer) {
+            syncEpisodeAutoplayControl(currentPlayer)
+          }
+        },
+      })
+    }
+
+    return entries
+  }
+
+  /**
+   * Updates the control bar with the current autoplay menu state.
+   *
+   * @param player Video.js player currently bound to the renderer.
+   */
+  function syncEpisodeAutoplayControl(player: VideoJsPlayer) {
+    syncEpisodeAutoplayToggleControl(player, {
+      controls: props.controls ?? false,
+      showEpisodeAutoplayToggle: props.showEpisodeAutoplayToggle ?? false,
+      isEpisodeAutoplayEnabled: props.isEpisodeAutoplayEnabled ?? false,
+      menuEntries: buildEpisodeAutoplayMenuEntries(),
+      onMenuOpen: () => {
+        const currentPlayer = activePlayer.value
+
+        if (currentPlayer) {
+          syncEpisodeAutoplayControl(currentPlayer)
+        }
+      },
+    })
+  }
 
    /**
     * Updates the control bar with prev/next video navigation controls.
@@ -1504,17 +1564,35 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
 
         if (props.controls) {
           const baseChapters = source.chapters ?? []
-          const dashChaptersHandled = isDashSource(source) && installDashPeriodChapters(player, baseChapters)
+          const isAutoskipEnabled = (chapterType: SkipChapterType): boolean => {
+            if (!useStorage().getParameters()[`videoPlayer.autoskip.${chapterType}`].value) {
+              return false
+            }
+
+            // Advertising is skipped unconditionally; other chapter types are
+            // only skipped automatically while episode autoplay is enabled.
+            return chapterType === 'ads' || (props.isEpisodeAutoplayEnabled ?? false)
+          }
+          const dashChaptersHandled = isDashSource(source) &&
+            installDashPeriodChapters(player, baseChapters, { isAutoskipEnabled })
 
           if (!dashChaptersHandled && baseChapters.length > 0) {
             installChapterOverlay(player, baseChapters)
             installChapterSegments(player, baseChapters)
-            installSkipChapterButton(player, baseChapters, 'ads')
           }
 
           if (baseChapters.length > 0) {
-            installSkipChapterButton(player, baseChapters, 'intro')
-            installSkipChapterButton(player, baseChapters, 'outro')
+            for (const chapterType of SKIP_CHAPTER_BUTTON_TYPES) {
+              if (dashChaptersHandled && chapterType === 'ads') {
+                continue
+              }
+
+              installSkipChapterButton(player, baseChapters, chapterType)
+            }
+
+            if (!dashChaptersHandled) {
+              installAutoSkipChapters(player, { chapters: baseChapters, isAutoskipEnabled })
+            }
           }
         }
 

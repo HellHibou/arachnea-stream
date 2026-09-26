@@ -209,6 +209,22 @@ export interface Parameters {
    */
   isEpisodeAutoplayEnabled: Ref<boolean>
   /**
+   * Indicates whether the integrated player should automatically skip recap chapters.
+   */
+  'videoPlayer.autoskip.previously': Ref<boolean>
+  /**
+   * Indicates whether the integrated player should automatically skip intro chapters.
+   */
+  'videoPlayer.autoskip.intro': Ref<boolean>
+  /**
+   * Indicates whether the integrated player should automatically skip outro chapters.
+   */
+  'videoPlayer.autoskip.outro': Ref<boolean>
+  /**
+   * Indicates whether the integrated player should automatically skip advertising chapters.
+   */
+  'videoPlayer.autoskip.ads': Ref<boolean>
+  /**
    * Mode used to render embedded iframe players.
    * - 'unsafe' : loads the iframe immediately.
    * - 'confirmation' : shows the episode image and a switch before loading the iframe.
@@ -265,6 +281,10 @@ const PARAMETERS_DEF: ParameterEntry[] = [
   { key: 'isBackgroundAnimated',          defaultValue: true       },
   { key: 'backgroundImageFit',            defaultValue: 'cover'    },
   { key: 'isEpisodeAutoplayEnabled',      defaultValue: false      },
+  { key: 'videoPlayer.autoskip.previously', defaultValue: false      },
+  { key: 'videoPlayer.autoskip.intro',      defaultValue: false      },
+  { key: 'videoPlayer.autoskip.outro',      defaultValue: false      },
+  { key: 'videoPlayer.autoskip.ads',      defaultValue: false      },
   { key: 'securityMode',            defaultValue: 'safe'         },
   { key: 'language',                      defaultValue: null       },
   { key: 'theme',                         defaultValue: 'arachnea-blue' },

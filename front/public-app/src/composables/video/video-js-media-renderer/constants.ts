@@ -13,6 +13,9 @@ export const EPISODE_AUTOPLAY_CONTROL_CLASS = 'vjs-episode-autoplay-toggle'
 /** CSS class name for the active state of the episode autoplay toggle control. */
 export const EPISODE_AUTOPLAY_CONTROL_ACTIVE_CLASS = 'vjs-episode-autoplay-toggle--active'
 
+/** CSS class name for the episode autoplay menu wrapper control. */
+export const EPISODE_AUTOPLAY_MENU_CLASS = 'vjs-episode-autoplay-menu'
+
 /** CSS class name for the previous video control. */
 export const PREV_VIDEO_CONTROL_CLASS = 'vjs-prev-video-control'
 

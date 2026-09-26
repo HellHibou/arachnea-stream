@@ -1,6 +1,7 @@
 import {
   EPISODE_AUTOPLAY_CONTROL_ACTIVE_CLASS,
   EPISODE_AUTOPLAY_CONTROL_CLASS,
+  EPISODE_AUTOPLAY_MENU_CLASS,
   NEXT_VIDEO_CONTROL_CLASS,
   PREV_VIDEO_CONTROL_CLASS,
   REMAINING_TIME_CLASS,
@@ -32,17 +33,42 @@ interface InstallSeekOnClickOptions {
 /** Padding in pixels from the edges of the control bar for menu positioning. */
 const CONTROL_BAR_MENU_EDGE_PADDING_PX = 8
 
-/** Options for syncing episode autoplay toggle control. */
+/** Entry rendered as a checkbox item inside the episode autoplay menu. */
+export interface AutoplayMenuEntry {
+  /** Stable entry identifier, also used to restore focus after a rebuild. */
+  key: string
+  /** Translation key of the entry label. */
+  labelKey: string
+  /** Whether the entry is currently enabled. */
+  isEnabled: boolean
+  /** Callback invoked when the entry is activated. */
+  onToggle: () => void
+}
+
+/** Options for syncing the episode autoplay menu control. */
 interface SyncEpisodeAutoplayToggleControlOptions {
   /** Whether player controls are enabled. */
   controls: boolean
-  /** Whether the episode autoplay toggle should be shown. */
+  /** Whether the episode autoplay menu should be shown. */
   showEpisodeAutoplayToggle: boolean
   /** Whether episode autoplay is currently enabled. */
   isEpisodeAutoplayEnabled: boolean
-  /** Callback invoked when the toggle is clicked. */
-  onEpisodeAutoplayToggle: () => void
+  /** Entries rendered as checkbox items inside the menu. */
+  menuEntries: AutoplayMenuEntry[]
+  /** Callback invoked when the menu opens so stale entries are refreshed. */
+  onMenuOpen?: () => void
 }
+
+/** Live handle registered for each mounted episode autoplay menu. */
+interface EpisodeAutoplayMenuHandle {
+  /** Options captured by the latest sync. */
+  options: SyncEpisodeAutoplayToggleControlOptions
+  /** Closes the menu and releases its outside-click listener. */
+  close: () => void
+}
+
+/** Registry of mounted episode autoplay menus keyed by their wrapper element. */
+const episodeAutoplayMenus = new WeakMap<HTMLElement, EpisodeAutoplayMenuHandle>()
 
 /**
  * Clamps a value between minimum and maximum bounds.
@@ -61,13 +87,13 @@ function clampMenuLeftOffset(value: number, min: number, max: number): number {
 }
 
 /**
- * Gets the episode autoplay toggle button element from the player.
+ * Gets the episode autoplay menu wrapper element from the player.
  *
  * @param player - Video.js player instance.
- * @returns Episode autoplay toggle button element or null.
+ * @returns Episode autoplay menu wrapper element or null.
  */
-function getEpisodeAutoplayToggleElement(player: VideoJsPlayer): HTMLButtonElement | null {
-  return player.el()?.querySelector<HTMLButtonElement>(`.${EPISODE_AUTOPLAY_CONTROL_CLASS}`) ?? null
+function getEpisodeAutoplayMenuElement(player: VideoJsPlayer): HTMLElement | null {
+  return player.el()?.querySelector<HTMLElement>(`.${EPISODE_AUTOPLAY_MENU_CLASS}`) ?? null
 }
 
 /**
@@ -131,25 +157,236 @@ function positionControlBarMenu(playerElement: HTMLElement, menuButtonElement: H
 }
 
 /**
- * Synchronizes the visual state of the episode autoplay toggle button.
+ * Activates a menu entry from its item element using the latest synced options.
  *
- * @param button - Episode autoplay toggle button element.
- * @param isEpisodeAutoplayEnabled - Whether episode autoplay is currently enabled.
+ * The entry is resolved again at activation time so the callback always comes
+ * from the latest sync instead of the one captured when the item was built.
+ *
+ * @param item - Menu item element carrying the entry key.
  */
-function syncEpisodeAutoplayToggleState(button: HTMLButtonElement, isEpisodeAutoplayEnabled: boolean) {
-  const nextTitle = isEpisodeAutoplayEnabled ? t('player.disableAutoplay') : t('player.enableAutoplay')
+function activateEpisodeAutoplayMenuEntry(item: HTMLElement) {
+  const entryKey = item.dataset.autoplayMenuEntry
+  const wrapper = item.closest<HTMLElement>(`.${EPISODE_AUTOPLAY_MENU_CLASS}`)
 
-  button.classList.toggle(EPISODE_AUTOPLAY_CONTROL_ACTIVE_CLASS, isEpisodeAutoplayEnabled)
-  button.setAttribute('aria-pressed', String(isEpisodeAutoplayEnabled))
-  button.setAttribute('aria-label', nextTitle)
-  button.setAttribute('title', nextTitle)
+  if (!entryKey || !wrapper) {
+    return
+  }
+
+  const entry = episodeAutoplayMenus.get(wrapper)?.options.menuEntries
+    .find((candidate) => candidate.key === entryKey)
+
+  entry?.onToggle()
 }
 
 /**
- * Mounts or updates the autoplay toggle inside the Video.js control bar.
+ * Rebuilds the menu content when the entry list shape changed.
+ *
+ * @param contentElement - Menu content element holding the items.
+ * @param entries - Entries to render.
+ */
+function buildEpisodeAutoplayMenuItems(contentElement: HTMLElement, entries: AutoplayMenuEntry[]) {
+  const focusedKey = contentElement.querySelector<HTMLElement>(':focus')?.dataset.autoplayMenuEntry ?? null
+
+  contentElement.replaceChildren()
+
+  for (const entry of entries) {
+    const item = document.createElement('li')
+    item.className = 'vjs-menu-item'
+    item.dataset.autoplayMenuEntry = entry.key
+    item.setAttribute('role', 'menuitemcheckbox')
+    item.setAttribute('tabindex', '0')
+    item.addEventListener('click', () => activateEpisodeAutoplayMenuEntry(item))
+    item.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') {
+        return
+      }
+
+      event.preventDefault()
+      activateEpisodeAutoplayMenuEntry(item)
+    })
+    contentElement.append(item)
+  }
+
+  if (focusedKey) {
+    contentElement
+      .querySelector<HTMLElement>(`:scope > [data-autoplay-menu-entry="${focusedKey}"]`)
+      ?.focus()
+  }
+}
+
+/**
+ * Synchronizes the checkbox items of the episode autoplay menu.
+ *
+ * Labels and states are refreshed on every sync so they follow language and
+ * parameter changes. The items are only rebuilt when the entry list itself
+ * changed, so activating an item never detaches it mid-click.
+ *
+ * @param menuElement - Menu element holding the content list.
+ * @param options - Latest sync options carrying the entries to render.
+ */
+function syncEpisodeAutoplayMenuEntries(
+  menuElement: HTMLElement,
+  options: SyncEpisodeAutoplayToggleControlOptions,
+) {
+  const contentElement = menuElement.querySelector<HTMLElement>('.vjs-menu-content')
+
+  if (!contentElement) {
+    return
+  }
+
+  const entries = options.menuEntries
+  const items = Array.from(contentElement.querySelectorAll<HTMLElement>(':scope > .vjs-menu-item'))
+  const hasSameShape =
+    items.length === entries.length &&
+    items.every((item, index) => item.dataset.autoplayMenuEntry === entries[index]?.key)
+
+  if (!hasSameShape) {
+    buildEpisodeAutoplayMenuItems(contentElement, entries)
+  }
+
+  const syncedItems = Array.from(contentElement.querySelectorAll<HTMLElement>(':scope > .vjs-menu-item'))
+
+  for (const [index, item] of syncedItems.entries()) {
+    const entry = entries[index]
+
+    if (!entry) {
+      continue
+    }
+
+    item.textContent = t(entry.labelKey)
+    item.setAttribute('aria-checked', String(entry.isEnabled))
+    item.classList.toggle('vjs-selected', entry.isEnabled)
+  }
+}
+
+/**
+ * Synchronizes the visual state of the episode autoplay menu control.
+ *
+ * @param wrapper - Episode autoplay menu wrapper element.
+ * @param options - Latest sync options.
+ */
+function syncEpisodeAutoplayToggleState(
+  wrapper: HTMLElement,
+  options: SyncEpisodeAutoplayToggleControlOptions,
+) {
+  const button = wrapper.querySelector<HTMLButtonElement>(`.${EPISODE_AUTOPLAY_CONTROL_CLASS}`)
+  const menuElement = wrapper.querySelector<HTMLElement>(':scope > .vjs-menu')
+
+  if (!button || !menuElement) {
+    return
+  }
+
+  const menuLabel = t('player.autoplayMenu.label')
+
+  button.classList.toggle(EPISODE_AUTOPLAY_CONTROL_ACTIVE_CLASS, options.isEpisodeAutoplayEnabled)
+  button.setAttribute('aria-label', menuLabel)
+  button.setAttribute('title', menuLabel)
+  button.setAttribute('aria-expanded', String(menuElement.classList.contains('vjs-lock-showing')))
+
+  syncEpisodeAutoplayMenuEntries(menuElement, options)
+}
+
+/**
+ * Creates the episode autoplay menu wrapper around its toggle button.
+ *
+ * The wrapper follows the Video.js popup pattern: a `div` holding the toggle
+ * button and a `.vjs-menu` sibling. The menu stays open when an entry is
+ * activated and closes on outside clicks, on Escape, and when the controls go
+ * inactive.
+ *
+ * @param player - Video.js player instance.
+ * @returns Wrapper element together with its close helper.
+ */
+function createEpisodeAutoplayMenu(player: VideoJsPlayer): {
+  wrapper: HTMLElement
+  close: () => void
+} {
+  const playerElement = player.el()
+  const wrapper = document.createElement('div')
+  wrapper.className = `vjs-menu-button vjs-menu-button-popup ${EPISODE_AUTOPLAY_MENU_CLASS}`
+
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.className = `vjs-control vjs-button ${EPISODE_AUTOPLAY_CONTROL_CLASS}`
+  button.setAttribute('aria-haspopup', 'true')
+  button.setAttribute('aria-expanded', 'false')
+  button.innerHTML =
+    '<span class="vjs-episode-autoplay-track"><span class="vjs-episode-autoplay-thumb"><span class="vjs-episode-autoplay-icon"></span></span></span>'
+
+  const menuElement = document.createElement('div')
+  menuElement.className = 'vjs-menu'
+  const contentElement = document.createElement('ul')
+  contentElement.className = 'vjs-menu-content'
+  menuElement.append(contentElement)
+  wrapper.append(button, menuElement)
+
+  const isOpen = () => menuElement.classList.contains('vjs-lock-showing')
+
+  const close = () => {
+    if (!isOpen()) {
+      return
+    }
+
+    menuElement.classList.remove('vjs-lock-showing')
+    button.setAttribute('aria-expanded', 'false')
+    document.removeEventListener('click', handleOutsideClick)
+
+    if (document.activeElement !== button && wrapper.contains(document.activeElement)) {
+      button.focus()
+    }
+  }
+
+  function handleOutsideClick(event: MouseEvent) {
+    // The composed path is captured at dispatch start, so an item replaced by
+    // a re-sync during this very click still counts as an inside click.
+    if (!event.composedPath().includes(wrapper)) {
+      close()
+    }
+  }
+
+  const open = () => {
+    menuElement.classList.add('vjs-lock-showing')
+    button.setAttribute('aria-expanded', 'true')
+    document.addEventListener('click', handleOutsideClick)
+    // Refresh the entries first so a change made from the parameters panel
+    // while the player was mounted never shows stale states.
+    episodeAutoplayMenus.get(wrapper)?.options.onMenuOpen?.()
+
+    if (playerElement instanceof HTMLElement) {
+      positionControlBarMenu(playerElement, wrapper)
+    }
+
+    contentElement.querySelector<HTMLElement>('.vjs-menu-item')?.focus()
+  }
+
+  button.addEventListener('click', () => {
+    if (isOpen()) {
+      close()
+      return
+    }
+
+    open()
+  })
+
+  wrapper.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      close()
+    }
+  })
+
+  player.on('userinactive', close)
+  player.on('dispose', () => {
+    document.removeEventListener('click', handleOutsideClick)
+  })
+
+  return { wrapper, close }
+}
+
+/**
+ * Mounts or updates the episode autoplay menu inside the Video.js control bar.
  *
  * @param player Video.js player currently bound to the renderer.
- * @param options Reactive configuration and callback used by the control.
+ * @param options Reactive configuration and callbacks used by the control.
  */
 export function syncEpisodeAutoplayToggleControl(
   player: VideoJsPlayer,
@@ -185,41 +422,42 @@ export function syncEpisodeAutoplayToggleControl(
     }
   }
 
-  const existingButton = getEpisodeAutoplayToggleElement(player)
+  let menuWrapper = getEpisodeAutoplayMenuElement(player)
 
   if (!options.showEpisodeAutoplayToggle) {
-    existingButton?.remove()
+    if (menuWrapper) {
+      episodeAutoplayMenus.get(menuWrapper)?.close()
+      menuWrapper.remove()
+    }
+
     return
   }
 
-  const button = existingButton ?? document.createElement('button')
-
-  if (!existingButton) {
-    button.type = 'button'
-    button.className = `vjs-control vjs-button ${EPISODE_AUTOPLAY_CONTROL_CLASS}`
-    button.innerHTML = '<span class="vjs-episode-autoplay-track"><span class="vjs-episode-autoplay-thumb"><span class="vjs-episode-autoplay-icon"></span></span></span>'
-    button.addEventListener('click', options.onEpisodeAutoplayToggle)
+  if (!menuWrapper) {
+    const created = createEpisodeAutoplayMenu(player)
+    menuWrapper = created.wrapper
+    episodeAutoplayMenus.set(menuWrapper, { options, close: created.close })
 
     const qualityButton = controlBarElement.querySelector(
       '.vjs-quality-menu-wrapper, .vjs-quality-menu-button',
     )
+    const fullscreenButton = controlBarElement.querySelector('.vjs-fullscreen-control')
+    const anchorButton = qualityButton ?? fullscreenButton
 
-    if (qualityButton) {
-      controlBarElement.insertBefore(button, qualityButton)
+    if (anchorButton) {
+      controlBarElement.insertBefore(menuWrapper, anchorButton)
     } else {
-      const fullscreenButton = controlBarElement.querySelector('.vjs-fullscreen-control')
-
-      if (fullscreenButton) {
-        controlBarElement.insertBefore(button, fullscreenButton)
-        syncEpisodeAutoplayToggleState(button, options.isEpisodeAutoplayEnabled)
-        return
-      }
-
-      controlBarElement.append(button)
+      controlBarElement.append(menuWrapper)
     }
   }
 
-  syncEpisodeAutoplayToggleState(button, options.isEpisodeAutoplayEnabled)
+  const menuHandle = episodeAutoplayMenus.get(menuWrapper)
+
+  if (menuHandle) {
+    menuHandle.options = options
+  }
+
+  syncEpisodeAutoplayToggleState(menuWrapper, options)
 }
 
 /**

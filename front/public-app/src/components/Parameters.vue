@@ -7,6 +7,7 @@ import {
   type Parameters as StorageParameters,
   useStorage,
 } from '@/services/storage'
+import { type SkipChapterType } from '@/composables/video/video-js-media-renderer/chapters'
 import { useI18n } from '@/i18n'
 import { useTheme } from '@/composables/useTheme'
 import { isDesktopApp, openAdministrationWindow } from '@/services/rustify'
@@ -50,6 +51,13 @@ const useCatalogBannersAsBackgroundInputId = `${componentId}-use-catalog-banners
 const themeInputName = `${componentId}-theme`
 /** Unique ID for the embedded player mode select. */
 const embeddedPlayerModeInputId = `${componentId}-embedded-player-mode`
+/** Skippable chapter types whose autoskip switch stays in the parameters panel; the other types are configured from the player menu. */
+const AUTOSKIP_PARAMETER_TYPES = ['ads'] as const satisfies readonly SkipChapterType[]
+
+/** Unique input ID suffix per autoskip switch exposed in the parameters panel. */
+const autoskipInputIdSuffix: Record<(typeof AUTOSKIP_PARAMETER_TYPES)[number], string> = {
+  ads: 'autoskip-ads',
+}
 /** Collection mode type excluding single-row for search. */
 type SearchCollectionMode = Exclude<MediaCardCollectionMode, 'single-row'>
 /** Available options for search collection mode selection. */
@@ -211,6 +219,16 @@ function handleEmbeddedPlayerModeUpdate(event: Event) {
   parameters.securityMode.value = target.value as 'unsafe' | 'confirmation' | 'safe'
 }
 
+/**
+ * Persists the automatic chapter skip preference selected by the switch.
+ *
+ * @param chapterType Skippable chapter type owning the `videoPlayer.autoskip.*` parameter.
+ * @param checked Checked state reported by the reusable switch component.
+ */
+function handleAutoskipUpdate(chapterType: SkipChapterType, checked: boolean) {
+  parameters[`videoPlayer.autoskip.${chapterType}`].value = checked
+}
+
 /** Opens the dedicated administration window in the desktop application. */
 function handleOpenAdministration(): void {
   void openAdministrationWindow()
@@ -328,6 +346,19 @@ function handleOpenAdministration(): void {
               </option>
             </select>
           </label>
+        </ParametersPanel>
+        <ParametersPanel
+          v-for="chapterType in AUTOSKIP_PARAMETER_TYPES"
+          :key="chapterType"
+          :title="t(`settings.autoskip.${chapterType}`)"
+        >
+          <ParameterSwitch
+            :input-id="`${componentId}-${autoskipInputIdSuffix[chapterType]}`"
+            :leading-label="t('settings.inactive')"
+            :trailing-label="t('settings.active')"
+            :checked="parameters[`videoPlayer.autoskip.${chapterType}`].value"
+            @update:checked="(checked: boolean) => handleAutoskipUpdate(chapterType, checked)"
+          />
         </ParametersPanel>
       </div>
     </ParametersSection>

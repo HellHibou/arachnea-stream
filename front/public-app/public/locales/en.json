@@ -134,6 +134,12 @@
     "theme": "Theme",
     "colorTheme": "Color theme",
     "player": "Player",
+    "autoskip": {
+      "previously": "Automatic recap skipping",
+      "intro": "Automatic intro skipping",
+      "outro": "Automatic outro skipping",
+      "ads": "Automatic ad skipping"
+    },
     "securityMode": "Security mode",
     "unsafe": "Unsafe",
     "confirmation": "Confirmation",
@@ -221,8 +227,10 @@
   "player": {
     "undefined": "Not defined",
     "defaultLabel": "Player {index}",
-    "enableAutoplay": "Enable autoplay of the next episode",
-    "disableAutoplay": "Disable autoplay of the next episode",
+    "autoplayMenu": {
+      "label": "Autoplay options",
+      "autoplay": "Autoplay"
+    },
     "showElapsedTime": "Show elapsed time",
     "showRemainingTime": "Show remaining time",
     "defaultDisplayTitle": "this content",
@@ -233,6 +241,8 @@
     "chapter": {
       "intro": "Intro",
       "skipIntro": "Skip Intro",
+      "previously": "Recap",
+      "skipPreviously": "Skip Recap",
       "outro": "Outro",
       "skipOutro": "Skip Outro",
       "ads": "Ad",

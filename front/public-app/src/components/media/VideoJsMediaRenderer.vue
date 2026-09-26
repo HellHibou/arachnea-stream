@@ -710,15 +710,22 @@ const previewedNavigationImageUrl = computed(() => {
   display: none !important;
 }
 
-.videojs-media-host :deep(.arachnea-videojs-theme .vjs-episode-autoplay-toggle) {
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-episode-autoplay-menu) {
   order: 39;
   flex: 0 0 auto;
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 100%;
+  margin-left: auto;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-episode-autoplay-toggle) {
   display: flex !important;
   align-items: center;
   justify-content: center;
   width: auto !important;
   min-width: 44px;
-  margin-left: auto;
   padding: 0 10px;
   background: transparent !important;
   cursor: pointer;
@@ -882,6 +889,41 @@ const previewedNavigationImageUrl = computed(() => {
   white-space: nowrap;
 }
 
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-menu-button-popup.vjs-episode-autoplay-menu .vjs-menu .vjs-menu-content .vjs-menu-item) {
+  position: relative;
+  padding-left: 1.9rem;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-episode-autoplay-menu .vjs-menu .vjs-menu-item.vjs-selected) {
+  font-weight: normal;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-episode-autoplay-menu .vjs-menu .vjs-menu-item::before) {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0.65rem;
+  box-sizing: border-box;
+  width: 0.85rem;
+  height: 0.85rem;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  transform: translateY(-50%);
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-episode-autoplay-menu .vjs-menu .vjs-menu-item.vjs-selected::after) {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0.93rem;
+  box-sizing: border-box;
+  width: 0.25rem;
+  height: 0.5rem;
+  border: solid currentColor;
+  border-width: 0 2px 2px 0;
+  transform: translateY(-58%) rotate(45deg);
+}
+
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-subs-caps-button.vjs-menu-button-popup .vjs-menu) {
   width: max-content;
   min-width: 10em;
@@ -1021,6 +1063,7 @@ const previewedNavigationImageUrl = computed(() => {
 }
 
 .videojs-media-host :deep(.vjs-skip-intro-button),
+.videojs-media-host :deep(.vjs-skip-previously-button),
 .videojs-media-host :deep(.vjs-skip-outro-button),
 .videojs-media-host :deep(.vjs-skip-ads-button) {
   display: none;
@@ -1033,21 +1076,38 @@ const previewedNavigationImageUrl = computed(() => {
   color: #fff;
   background: var(--bg-surface);
   border: 1px solid rgb(255 255 255 / 0.3);
-  border-radius: 6px;
+  border-radius: 99px !important;
   cursor: pointer;
   z-index: 2;
   white-space: nowrap;
   backdrop-filter: blur(4px);
   transition: opacity 0.2s;
+  align-items: center;
+  gap: 8px;
+}
+
+.videojs-media-host :deep(.vjs-skip-chapter-button-icon) {
+  font-size: 18px;
+  line-height: 1;
 }
 
 .videojs-media-host :deep(.vjs-skip-intro-button--visible),
+.videojs-media-host :deep(.vjs-skip-previously-button--visible),
 .videojs-media-host :deep(.vjs-skip-outro-button--visible),
 .videojs-media-host :deep(.vjs-skip-ads-button--visible) {
-  display: block;
+  display: inline-flex;
+}
+
+/* While the control bar is hidden the button drops near the player bottom edge. */
+.videojs-media-host :deep(.vjs-skip-intro-button--controls-hidden),
+.videojs-media-host :deep(.vjs-skip-previously-button--controls-hidden),
+.videojs-media-host :deep(.vjs-skip-outro-button--controls-hidden),
+.videojs-media-host :deep(.vjs-skip-ads-button--controls-hidden) {
+  bottom: 20px;
 }
 
 .videojs-media-host :deep(.vjs-skip-intro-button:active),
+.videojs-media-host :deep(.vjs-skip-previously-button:active),
 .videojs-media-host :deep(.vjs-skip-outro-button:active),
 .videojs-media-host :deep(.vjs-skip-ads-button:active) {
   background: rgb(0 0 0 / 0.9);

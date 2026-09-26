@@ -1,27 +1,26 @@
 # TODO
 
 Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes pour l'espace de travail serveur. Il doit être mis à jour lorsque des tâches sont ajoutées, terminées, déplacées vers un outil de suivi ou rendues obsolètes par des décisions de conception ultérieures.
+## Streaming
 
-
-## Divers
-
-## Divers
-
-- **Fenêtre de logs du tray : création de fenêtre depuis un callback de thread principal** : dans `server/crates/arachnea-core/src/controler/rest/tray.rs` (~ligne 515), la fenêtre de logs est créée via `WebviewWindowBuilder::build()` directement dans le callback d'événement de menu, exécuté sur le thread principal. Même anti-pattern que le deadlock corrigé pour la fenêtre d'administration (voir CHANGELOG) : deadlock possible sous Windows, gel UI possible sous macOS/Linux. Appliquer le même `std::thread::spawn` autour de la création.
-
-- **Follow-ups release builder (partiel — Docker cross-build Linux/macOS `tar.gz`)** : production de binaires portables Linux/macOS via l'image `build-release/docker/Dockerfile` (dérivée de `joseluisq/rust-linux-darwin-builder`). Suivis : signer *ad-hoc* (`ldid -S`) les binaires `aarch64-apple-darwin` avant distribution ; valider un build réel dans le conteneur (image non encore tirée, premier `cargo build` complet coûteux) ; décider si les portables Linux/macOS doivent embarquer les `services/` runtime (aujourd'hui binaire seul) ; évaluer `darwin-universal` via Docker (`lipo`) et une image complète avec bundling `.AppImage`/`.deb` si une distribution Linux autonome est visée. Voir `docs/dev-tracking/docker-build.txt`.
-- **Image Docker `arachnea-docker/` (runtime multi-arch)** : l'image `linux/amd64` + `linux/arm64` construite depuis les archives portables démarre le serveur, répond sur `/`, `/api/load_home` et `/api/search` (`HTTP 200` sur les deux plateformes) et son healthcheck passe. L’entrypoint fournit un unique Xvfb sur `:99`; `chaser-cf` le réutilise par défaut (`CHASER_VIRTUAL_DISPLAY=0`) au lieu de démarrer un second Xvfb (le verrou périmé après `docker restart` est désormais purgé après contrôle de vivacité, avec avertissement si Xvfb ne démarre pas). Suivis : ~~valider le navigateur amd64 sur du matériel x86_64 réel ou un runner amd64~~ — validé depuis sur un hôte x86_64 réel (Windows + Docker Desktop/WSL2, image amd64 non émulée) : le serveur démarre, le healthcheck passe et `chaser-cf` initialise bien Chromium, à la seule condition que le conteneur autorise la création de *user namespace* — ce que le profil seccomp **par défaut** de Docker bloque, d'où l'échec `No usable sandbox!` puis `Failed to initialize browser: ... ExitStatus(unix_wait_status(256))` sur chaque requête Cloudflare ; `docker-compose.yml` porte donc `security_opt: [seccomp=unconfined]`, sans aucune configuration de l'hôte (le noyau WSL2 n'expose ni `kernel.unprivileged_userns_clone` ni un profil AppArmor modifiable) ; sous Rosetta 2 d'Apple Silicon le Chromium x86_64 refuse toujours de démarrer (« lacks support for the sse3 instruction set », cf. crbug.com/1123353) mais ce chemin n'est plus nécessaire ; publier un manifest multi-arch sur un registre (`--push`) car le chargement local des deux plateformes n'est possible qu'avec le *containerd image store* ; réduire la taille (~1,66 Go) en publiant un binaire serveur sans dépendances Tauri/WebKit, ce qui permettrait de retirer toute la pile GTK/WebKitGTK.
-
-- ~~Implémenter le cache serveur (Redis / mémoire) pour la phase 2 (rattrapage) de la validation conditionnelle ETag~~ : réalisé via le cache hybride foyer (`ScraperServerCache`) dans `arachnea-scrapyfy`, piloté par `QueryParameters::cache_type` (`ServerCache` / `FullCache`). Voir `docs/dev-tracking/server-cache-foyer-analysis.md`. Suivis éventuels : ~~exposer la configuration du cache (`set_cache_config`) dans les options applicatives~~ : réalisé — les options `--cache-max-disk-bytes` / `--cache-max-memory-bytes` (valeurs en K) ainsi que `--cache-block-size` sont résolues par `SrcapyfyApplicationOptions::scraper_cache_config()` puis appliquées au runtime via `ScraperRuntimeOptions` porté par la façade rechargable (voir `docs/dev-tracking/scrapyfy-cache-core-server-settings-analysis.md` et `docs/dev-tracking/cache-block-size-analysis.md`) ; ajuster la TTL garde-fou (`SERVER_CACHE_ENTRY_TTL`, 1 an) si besoin.
-- Rendre persistant le cache ETag frontal (IndexedDB) pour survivre aux rechargements de page. Voir `docs/dev-tracking/etag-fragments-parallel-validation-analysis.md` §12.
-- ~~Réparer la compilation des tests du workspace~~ : corrigé — les blocs de test référencent désormais `arachnea_core::application::get_application_root()` au lieu de la crate `resources` non liée. Restent connus comme en échec (préexistant, hors périmètre) : les tests `exec_js` / `replace_variables` / `query_helpers` (comportement du moteur boa), `conditional::legacy_fragments_without_yaml_hash_are_divergent` (assertion divergente du commit « Ajout hash service dans etag »), et les tests `arachnea-stream` `stream_scraper` / `stream_resolver` qui dépendent d'un fichier de fixtures `data-test/services.json` absent et d'accès réseau réels. Les tests `arachnea-proxy` de pool (`proxy_pool_selects_and_caches_first_working_member`, `proxy_pool_socks5_selection_uses_dns_fallback`, `proxy_pool_fails_over_when_cached_member_stops_accepting_connections`), anciennement en échec/blocage car écrits pour l'ancien préflight systématique, ont été alignés sur le mode `Tunnel` actuel et passent à nouveau.
-- Facultatif (frontend) : cesser d'envoyer `arachneaEtag` / `enableEtag` dans `front/src/services/rustify.ts` — l'en-tête `If-None-Match` suffit depuis la migration du contexte contrôleur (`docs/dev-tracking/request-context-query-parameters-analysis.md`).
-- Antenne Réunion (`antennereunion-fr.yaml`) : les items de section de type asset brut (`idType=4`, ex. « Films à l'affiche », « Les derniers bons plans ») exposent désormais un `link` unique par asset (`<categoryId>|<assetId>`, ex. `85044|32614`) et `get_entry` retire la partie après `|`, donc la déduplication front n'écrase plus les cartes (fait). La lecture VOD authentifiée est désormais gérée par `antennereunion-video` (OAuth Tucano, profil, URL de manifeste signée et proxy Widevine) ; la résolution authentifiée et les premières ressources via le proxy ont été vérifiées sur l’asset `28609`, mais la lecture reste bloquée par la gestion des périodes DASH hétérogènes dans Video.js/VHS (analyse §13). Valider puis implémenter l’intégration `videojs-contrib-dash` proposée dans [l’analyse détaillée](dev-tracking/videojs-dash-multiperiod-integration-analysis.md), en conservant le lecteur Video.js unique ; vérifier d’abord la compatibilité des versions, puis qualité, pistes, DRM, transitions publicitaires et non-régression HLS/MP4. Reste aussi le détail propre de l'asset : l'endpoint `POST /proxy/assets` (corps `assetIds=[<id>]&languageId=fra`, mêmes en-têtes que `listContent`) renvoie le détail complet de l'asset (découvert dans les bundles Nuxt du site officiel), mais Scrapyfy n'a pas de branchement conditionnel sur le format du `entry_id` pour router `get_entry` vers `listContent` ou `assets`. Intégrer soit un post-process générique de type `fallback_query` dans `arachnea-scrapyfy` (tenter `listContent`, basculer sur `assets` si 0 ligne), soit un format de lien préfixé interprété par le backend. Voir `docs/dev-tracking/antennereunion-home-missing-elements-analysis.md` §6-7 et `docs/dev-tracking/antennereunion-vod-stream-playback-analysis.md` §10.
+- Pour la géolocalisation:  
+    - Ajout support de plusieurs pays lors du chargement des proxy (inclure porxy)
+    - France,M6, TV5 plus, Arte (cas plus sensible), TF1 on un système de géolocalisation par vidéo (avec plusieurs codes pays). Elle doit être prise en compte pour le sélection de proxy.
+- Modifier load_home pour inclure la possibilité d'inclure une liste de sources a prendre en compte + modifier le front pour pouvoir afficher 1 source a la fois. Dans un 2e temp, ajouter la possibilité de créer des homes personalisées basé sur une source + section de load_home ou categorie.
+- Dans la description des services, ajouter des tags cle/valeur pour pouvoir distinguer le pays et la langue des vidéos.
+- Ajouter un système de vidéos associées.
 - Tests `arachnea-scrapyfy` : les tests `resolve_url` (appel de `apply` sans le paramètre `ProxyFollowRedirects`) ne compilent plus suite au changement de signature du proxy ; préexistant et hors périmètre, à réaligner comme les tests `arachnea-proxy`.
-- Utiliser obscura pour contourner Cloudflare (navigateur rust avec résolution cloudflare interne).
-- Ajouter la gestion réutilisable du mode serveur et du mode application de bureau :
-    - En mode serveur, si le mode graphique est disponible, afficher une icône de notification pour :
-        - Redémarrer le serveur en rechargeant la configuration (à compléter).
+- Utiliser obscura pour contourner Cloudflare (navigateur rust avec résolution cloudflare interne). 
+
+## Front
+
+- Si on affiche le dernier épisode chargé de la liste et que 'Charger plus' est dispo, il faut charger plus de données. Si le signet est actif, il faut charger plus si l'épisode courant n'a pas été chargé dans la liste.
+
+- Ajouter le support de diffusion ChromeCast et AirPlay.
+- Facultatif (frontend) : cesser d'envoyer `arachneaEtag` / `enableEtag` dans `front/src/services/rustify.ts` — l'en-tête `If-None-Match` suffit depuis la migration du contexte contrôleur (`docs/dev-tracking/request-context-query-parameters-analysis.md`).
+
+
+
 
 
 ## Server/DNS
@@ -54,8 +53,6 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 
 
 ## Server/Proxy
-
-- ~~Migrer le backend de `PersistenceStore` vers une base de données~~ : réalisé — l'inventaire de proxys, les sessions Cloudflare et les activations de source sont désormais stockés dans des bases SQLite typées (`SqliteEntityStore`, un fichier `records.sqlite3` par store sous `data/persistence/<store-name>/`), derrière la feature `sqlite-persistence`. Voir `docs/dev-tracking/persistence-store.md`. Aucune migration des anciens fichiers JSON n'est prévue : la bascule réinitialise les caches concernés.
 - Surveiller la croissance de la base SQLite `proxy-inventory` ; l'élagage par `expires_at` (purge SQL lors des recherches) et les suppressions par autorité la maintiennent à taille raisonnable, mais un très grand nombre de proxys justifiera un suivi de volume et, au besoin, un vacuum planifié.
 - Évaluer MASQUE CONNECT-UDP après la stabilisation du socle UDP et d'une pile Rust HTTP/3 compatible.
 - Ajouter l'orchestration `ExternalTunnel` pour les processus locaux comme obfs4proxy, WebTunnel, les plugins Shadowsocks ou un daemon Tor local.
@@ -76,10 +73,6 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 - Continuer à valider les composants anti-censure comme fonctionnalités modulaires : serveurs amont Tor, transports enfichables, tunnels externes, expérimentations de padding/jitter, recherche ECH et documentation claire du modèle de menace.
 
 
-## Front
 
-- Si on affiche le dernier épisode chargé de la liste et que 'Charger plus' est dispo, il faut charger plus de données. Si le signet est actif, il faut charger plus si l'épisode courant n'a pas été chargé dans la liste.
-- Dans l'accueil et les catégories, ajouter des boutons Section suivante / précédente en bas à droite.
-- Ajouter le support de diffusion ChromeCast et AirPlay.
-- Valider en navigateur l'intégration `videojs-contrib-dash` (lecture DASH multipériode Antenne Réunion, DRM Widevine via le proxy de licence, qualité manuelle/Auto aux transitions de période, audio/sous-titres, absence de régression HLS/MP4). La matrice de scénarios du §10 de `docs/dev-tracking/videojs-dash-multiperiod-integration-analysis.md` sert de référence ; les contrôles TypeScript/build et un harnais Chromium ciblé pour la qualité ont été exécutés, mais une session Antenne Réunion fraîche reste nécessaire, en particulier pour vérifier le retour d’une langue ou d’un sous-titre après une publicité.
-- Front : `videojs-contrib-dash` inligne dash.js 4.2.0 et ajoute ~745 kB au chunk principal (~213 kB gzip). Évaluer un chargement différé (import dynamique avant l'affectation d'une source DASH) si le poids devient gênant, en tenant compte de l'enregistrement du source handler et de l'annulation au changement de source. Le paquet `dashjs` déclaré en dépendance transitive n'est pas utilisé par le build ESM du plugin ; la mise à niveau du moteur passe donc par un adaptateur dédié.
+ 
+## Divers
