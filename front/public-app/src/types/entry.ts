@@ -49,7 +49,9 @@ export interface EntryPlayerResolver {
   targetId: string
   /** Optional source owning a fixed YAML `resolve_stream` query. */
   source?: string
-  /** Optional ISO country hint used to route the resolver request through a geo proxy. */
+  /** Ordered ISO country hints used to route the resolver request through geo proxies. */
+  proxyCountries?: string[]
+  /** Legacy single-country fallback used only when `proxyCountries` is absent or empty. */
   proxyCountry?: string
   /**
    * When enabled, absolute URLs inside proxied HLS manifests are rewritten to the

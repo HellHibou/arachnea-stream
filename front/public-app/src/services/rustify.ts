@@ -1054,9 +1054,12 @@ function extractBannerPlayer(record: Record<string, unknown>): HomeBannerPlayer 
     const kind = isJsonRecord(resolver) ? firstNonEmptyString([(resolver as Record<string, unknown>).kind]) : null
     const targetId = isJsonRecord(resolver) ? firstNonEmptyString([(resolver as Record<string, unknown>).target_id]) : null
     const source = isJsonRecord(resolver) ? firstNonEmptyString([(resolver as Record<string, unknown>).source]) : null
-    const proxyCountry = isJsonRecord(resolver)
-      ? firstNonEmptyString([readPath(resolver, 'proxy', 'country')])
-      : null
+    const proxyCountries = isJsonRecord(resolver)
+      ? normalizeProxyCountries(
+          readPath(resolver, 'proxy', 'countries'),
+          firstNonEmptyString([readPath(resolver, 'proxy', 'country')]),
+        )
+      : []
     const rewriteManifestUrls = isJsonRecord(resolver)
       ? readBooleanFlag(readPath(resolver, 'proxy', 'rewrite_manifest_urls'))
       : false
@@ -1066,7 +1069,7 @@ function extractBannerPlayer(record: Record<string, unknown>): HomeBannerPlayer 
         kind,
         targetId,
         ...(source ? { source } : {}),
-        ...(proxyCountry ? { proxyCountry } : {}),
+        ...(proxyCountries.length > 0 ? { proxyCountries } : {}),
         ...(rewriteManifestUrls ? { proxyRewriteManifestUrls: true } : {}),
       }
     }
@@ -1622,7 +1625,8 @@ export async function getStream(
     resolver: player.resolver.kind,
     target: player.resolver.targetId,
     source: player.resolver.source,
-    proxy_country: player.resolver.proxyCountry,
+    proxy_countries: player.resolver.proxyCountries,
+    proxy_country: player.resolver.proxyCountries?.[0] ?? player.resolver.proxyCountry,
     proxy_rewrite_manifest_urls: player.resolver.proxyRewriteManifestUrls,
   })
 
@@ -1949,10 +1953,13 @@ function normalizeEntryPlayerResolver(entry: JsonRecord): EntryPlayerResolver | 
 
   if (flatKind && flatTarget) {
     const flatSource = firstNonEmptyString([entry.source, entry.resolverSource])
-    const flatProxyCountry = firstNonEmptyString([
-      readPath(entry, 'proxy', 'country'),
-      entry.resolverProxyCountry,
-    ])
+    const flatProxyCountries = normalizeProxyCountries(
+      readPath(entry, 'proxy', 'countries'),
+      firstNonEmptyString([
+        readPath(entry, 'proxy', 'country'),
+        entry.resolverProxyCountry,
+      ]),
+    )
     const flatRewriteManifestUrls =
       readBooleanFlag(readPath(entry, 'proxy', 'rewrite_manifest_urls')) ||
       readBooleanFlag(readPath(entry, 'resolverProxy', 'rewrite_manifest_urls')) ||
@@ -1961,7 +1968,7 @@ function normalizeEntryPlayerResolver(entry: JsonRecord): EntryPlayerResolver | 
       kind: flatKind,
       targetId: flatTarget,
       ...(flatSource ? { source: flatSource } : {}),
-      ...(flatProxyCountry ? { proxyCountry: flatProxyCountry } : {}),
+      ...(flatProxyCountries.length > 0 ? { proxyCountries: flatProxyCountries } : {}),
       ...(flatRewriteManifestUrls ? { proxyRewriteManifestUrls: true } : {}),
     }
   }
@@ -1984,11 +1991,14 @@ function normalizeEntryPlayerResolver(entry: JsonRecord): EntryPlayerResolver | 
     readPath(resolver, 'source'),
     readPath(entry, 'resolverSource'),
   ])
-  const proxyCountry = firstNonEmptyString([
-    readPath(resolver, 'proxy', 'country'),
-    readPath(entry, 'resolverProxy', 'country'),
-    readPath(entry, 'resolverProxyCountry'),
-  ])
+  const proxyCountries = normalizeProxyCountries(
+    readPath(resolver, 'proxy', 'countries') ?? readPath(entry, 'resolverProxy', 'countries'),
+    firstNonEmptyString([
+      readPath(resolver, 'proxy', 'country'),
+      readPath(entry, 'resolverProxy', 'country'),
+      readPath(entry, 'resolverProxyCountry'),
+    ]),
+  )
   const rewriteManifestUrls =
     readBooleanFlag(readPath(resolver, 'proxy', 'rewrite_manifest_urls')) ||
     readBooleanFlag(readPath(entry, 'resolverProxy', 'rewrite_manifest_urls')) ||
@@ -2002,7 +2012,7 @@ function normalizeEntryPlayerResolver(entry: JsonRecord): EntryPlayerResolver | 
     kind,
     targetId,
     ...(source ? { source } : {}),
-    ...(proxyCountry ? { proxyCountry } : {}),
+    ...(proxyCountries.length > 0 ? { proxyCountries } : {}),
     ...(rewriteManifestUrls ? { proxyRewriteManifestUrls: true } : {}),
   }
 }
@@ -2686,6 +2696,37 @@ function firstNonEmptyString(values: unknown[]): string | null {
   }
 
   return null
+}
+
+/**
+ * Normalizes ordered ISO alpha-2 proxy countries and uses the legacy country only
+ * when the list is missing or has no valid entries.
+ *
+ * @param countries Raw country list returned by a resolver descriptor.
+ * @param legacyCountry Historical single-country resolver value.
+ * @returns Uppercase, deduplicated country codes in declaration order.
+ */
+function normalizeProxyCountries(countries: unknown, legacyCountry: string | null): string[] {
+  const normalized = Array.isArray(countries)
+    ? countries.reduce<string[]>((result, country) => {
+        if (typeof country !== 'string') {
+          return result
+        }
+
+        const normalizedCountry = country.trim().toUpperCase()
+        if (/^[A-Z]{2}$/.test(normalizedCountry) && !result.includes(normalizedCountry)) {
+          result.push(normalizedCountry)
+        }
+        return result
+      }, [])
+    : []
+
+  if (normalized.length > 0 || !legacyCountry) {
+    return normalized
+  }
+
+  const normalizedLegacyCountry = legacyCountry.trim().toUpperCase()
+  return /^[A-Z]{2}$/.test(normalizedLegacyCountry) ? [normalizedLegacyCountry] : []
 }
 
 /**

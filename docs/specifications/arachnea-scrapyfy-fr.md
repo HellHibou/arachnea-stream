@@ -122,14 +122,17 @@ http:
   mode: auto                    # auto | direct | cloudflare_smart | cloudflare_browser
   user_agent_profile: chrome    # chrome | chrome_stable | firefox | firefox_stable
   user_agent: "Custom UA"       # optionnel : surcharge complète du User-Agent
-  proxy_country: "US"           # optionnel : pays hint pour le proxy
+  proxy_countries: ["US", "CA"] # optionnel : pays proxy ordonnés
+  proxy_country: "US"           # fallback mono-pays historique
   max_redirects: 16             # optionnel : nombre max de redirections (défaut global: 16)
 ```
-
-Les champs HTTP compatibles avec les templates, dont `proxy_country`, sont
-résolus à chaque exécution de query depuis ses paramètres runtime. Une query
-pilotée par un lecteur peut ainsi activer le routage géographique avec
-`http.proxy_country: "{proxy_country}"`.
+`proxy_countries` est normalisé en codes ISO alpha-2 ordonnés et en majuscules,
+sans doublon. Il est prioritaire sur `proxy_country`, qui reste un fallback de
+compatibilité à un élément. Chaque élément de `proxy_countries` accepte
+l'interpolation de template runtime. Une liste JSON runtime peut être développée
+avec `http.proxy_countries: ["{proxy_countries}"]` et combinée avec des entrées
+statiques. Utilisez `http.proxy_country: "{proxy_country}"` lorsqu'une query
+nécessite un pays unique fourni à l'exécution.
 
 ### Modes HTTP (`mode`)
 
@@ -183,11 +186,27 @@ request_headers:                      # optionnel : en-têtes HTTP
     pointer: "/auth/token"
     select: first
     actions: []
-http: {}                              # optionnel : configuration HTTP (surcharge)
+http:                                # optionnel : configuration HTTP (surcharge)
+  empty_on_statuses: []              # statuts HTTP traités comme une réponse vide
 query_param_mappings: []              # optionnel : mappings de paramètres
 result_item_field: "entries"          # optionnel : champ groupe à aplatir en lignes
 pre_process: []                       # optionnel : transformations du corps avant parsing et hash ETag de fallback
 post_process: []                      # optionnel : post-traitements
+```
+
+### `http.empty_on_statuses`
+
+`http.empty_on_statuses` contient les codes HTTP qui représentent une absence de
+résultat valide plutôt qu'un échec de requête. Le corps retourné est alors
+ignoré et remplacé par une réponse vide adaptée au scraper : `[]` pour `json`,
+ou une chaîne vide pour `html` et `text`. Par défaut, la liste est vide et les
+statuts non configurés conservent le comportement normal, notamment les erreurs
+de parsing. Comme les autres options `http`, ce champ est hérité de la collection
+vers les requêtes et sous-requêtes, sauf surcharge locale.
+
+```yaml
+http:
+  empty_on_statuses: [404]
 ```
 
 ### `pre_process`

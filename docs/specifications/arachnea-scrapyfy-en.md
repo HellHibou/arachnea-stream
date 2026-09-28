@@ -122,13 +122,17 @@ http:
   mode: auto                    # auto | direct | cloudflare_smart | cloudflare_browser
   user_agent_profile: chrome    # chrome | chrome_stable | firefox | firefox_stable
   user_agent: "Custom UA"       # optional: complete User-Agent override
-  proxy_country: "US"           # optional: country hint for proxy
+  proxy_countries: ["US", "CA"] # optional: ordered proxy country hints
+  proxy_country: "US"           # legacy single-country fallback
   max_redirects: 16             # optional: max redirect count (global default: 16)
 ```
-
-Template-capable HTTP fields, including `proxy_country`, are resolved for each
-query execution from its runtime parameters. This allows a player-owned query
-to opt into geo routing with `http.proxy_country: "{proxy_country}"`.
+`proxy_countries` is normalized as ordered, uppercase ISO alpha-2 codes with
+duplicates removed. It takes precedence over `proxy_country`, which remains a
+one-item compatibility fallback. `proxy_countries` is a static YAML list;
+each list item supports runtime template interpolation. A runtime JSON country
+list can be expanded with `http.proxy_countries: ["{proxy_countries}"]`;
+static entries can be combined with it. Use `http.proxy_country:
+"{proxy_country}"` when a query needs a runtime-supplied single country.
 
 ### HTTP modes (`mode`)
 
@@ -182,11 +186,27 @@ request_headers:                    # optional: HTTP headers
     pointer: "/auth/token"
     select: first
     actions: []
-http: {}                            # optional: HTTP configuration (override)
+http:                              # optional: HTTP configuration (override)
+  empty_on_statuses: []            # HTTP statuses treated as an empty response
 query_param_mappings: []            # optional: parameter mappings
 result_item_field: "entries"        # optional: group field to flatten into rows
 pre_process: []                     # optional: body transformations before parsing and fallback ETag hashing
 post_process: []                    # optional: post-processing
+```
+
+### `http.empty_on_statuses`
+
+`http.empty_on_statuses` lists HTTP status codes that represent a valid absence of
+results rather than a failed query. The returned body is ignored and replaced
+with an empty response matching the scraper type: `[]` for `json`, or an empty
+string for `html` and `text`. The list is empty by default, and unconfigured
+statuses keep the normal behavior, including parsing failures. This field
+is inherited like the other `http` options from collections to queries and
+sub-queries unless overridden locally.
+
+```yaml
+http:
+  empty_on_statuses: [404]
 ```
 
 ### `pre_process`

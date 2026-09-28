@@ -2,7 +2,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use arachnea_proxy::http::actions::{
     ProxyHttpActionConfig, RemoveHeader, ReplaceAll, REMOVE_HEADER_ACTION_HEADER,
 };
-use arachnea_proxy::http::proxy_service::proxied_url;
+use arachnea_proxy::http::proxy_service::proxied_url_with_countries;
 use arachnea_proxy::PROXY_HEADER_PARAMETER_COUNTRY;
 use async_trait::async_trait;
 use regex::Regex;
@@ -13,7 +13,9 @@ use std::time::{Duration, Instant};
 use tokio::sync::Mutex as AsyncMutex;
 
 use arachnea_core::persistence::CredentialsStore;
-use arachnea_scrapyfy::{HttpClient, ScraperAgregator, ScraperQueryCollectionParameter};
+use arachnea_scrapyfy::{
+    HttpClient, ScraperAgregator, ScraperHttpConfig, ScraperQueryCollectionParameter,
+};
 
 use crate::services::player_resolver::{
     normalize_stream_kind, proxy_drm_today_license_request, save_drm_today_license_proxy_url,
@@ -40,7 +42,6 @@ const SIXPLAY_CALLBACK_NAME: &str = "jsonp_arachnea";
 const SIXPLAY_DEVICE_ID: &str = "_luid_arachnea";
 const SIXPLAY_SESSION_TTL: Duration = Duration::from_secs(15 * 60);
 const M6PLAY_SERVICE_ID: &str = "m6play-fr";
-const M6PLAY_PROXY_COUNTRY: &str = "fr";
 
 static SIXPLAY_JS_ID_REGEX: OnceLock<Regex> = OnceLock::new();
 static SIXPLAY_API_KEY_REGEX: OnceLock<Regex> = OnceLock::new();
@@ -79,6 +80,7 @@ impl PlayerStreamResolver for M6PlayResolver {
         resolver: &str,
         target: &str,
         _service_parameters: &[ScraperQueryCollectionParameter],
+        proxy_countries: &[String],
         endpoints: &PlayerResolverEndpoints,
     ) -> Result<ResolvedPlayerStream> {
         match resolver.trim() {
@@ -88,6 +90,7 @@ impl PlayerStreamResolver for M6PlayResolver {
                     credentials_store,
                     target,
                     None,
+                    proxy_countries,
                     endpoints,
                 )
                 .await
@@ -98,6 +101,7 @@ impl PlayerStreamResolver for M6PlayResolver {
                     credentials_store,
                     target,
                     None,
+                    proxy_countries,
                     endpoints,
                 )
                 .await
@@ -125,6 +129,7 @@ async fn resolve_replay_stream(
     credentials_store: &dyn CredentialsStore,
     video_id: &str,
     stream_kind: Option<String>,
+    proxy_countries: &[String],
     endpoints: &PlayerResolverEndpoints,
 ) -> Result<ResolvedPlayerStream> {
     let normalized_video_id = video_id.trim();
@@ -132,7 +137,8 @@ async fn resolve_replay_stream(
         bail!("Missing 6play video identifier.");
     }
 
-    let http_client = scraper_agregator.create_http_client(Default::default());
+    let http_client = scraper_agregator
+        .create_http_client(ScraperHttpConfig::default().proxy_countries(proxy_countries.to_vec()));
     let session = get_or_login_session(&http_client, credentials_store).await?;
     let upfront_token = fetch_upfront_token(&http_client, &session, normalized_video_id).await?;
 
@@ -159,10 +165,10 @@ async fn resolve_replay_stream(
     let stream_actions = stream_headers();
 
     Ok(ResolvedPlayerStream {
-        stream_url: vec![proxied_url(
+        stream_url: vec![proxied_url_with_countries(
             &manifest_url,
             endpoints.http_proxy_public_path.as_deref(),
-            Some(M6PLAY_PROXY_COUNTRY),
+            proxy_countries,
             &stream_actions,
             &[],
         )],
@@ -180,6 +186,7 @@ async fn resolve_live_stream(
     credentials_store: &dyn CredentialsStore,
     channel_id: &str,
     stream_kind: Option<String>,
+    proxy_countries: &[String],
     endpoints: &PlayerResolverEndpoints,
 ) -> Result<ResolvedPlayerStream> {
     let normalized_channel = channel_id.trim();
@@ -187,7 +194,8 @@ async fn resolve_live_stream(
         bail!("Missing 6play channel identifier.");
     }
 
-    let http_client = scraper_agregator.create_http_client(Default::default());
+    let http_client = scraper_agregator
+        .create_http_client(ScraperHttpConfig::default().proxy_countries(proxy_countries.to_vec()));
     let session = get_or_login_session(&http_client, credentials_store).await?;
 
     // Map channel identifier to the API's live_item_id format.
@@ -274,10 +282,10 @@ async fn resolve_live_stream(
     let stream_actions = stream_headers();
 
     Ok(ResolvedPlayerStream {
-        stream_url: vec![proxied_url(
+        stream_url: vec![proxied_url_with_countries(
             &manifest_url,
             endpoints.http_proxy_public_path.as_deref(),
-            Some(M6PLAY_PROXY_COUNTRY),
+            proxy_countries,
             &stream_actions,
             &[],
         )],

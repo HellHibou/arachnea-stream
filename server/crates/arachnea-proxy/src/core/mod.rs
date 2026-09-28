@@ -62,7 +62,8 @@ pub use parameters::{
     build_parameter_handler, context_from_parameter_pairs, normalize_parameter_value,
     CountryRoutingProxyHandler, DynamicCountryRoutingProxyHandler, ParameterDefinition,
     ParameterHandlerConfig, ParameterHandlerDecision, ParameterHandlerKind, ParameterProxyRoute,
-    ParameterRegistry, ProxyParameterHandler, SmartDnsProxyHandler, PROXY_HEADER_PARAMETER_COUNTRY,
+    ParameterRegistry, ProxyParameterHandler, SmartDnsProxyHandler,
+    PROXY_HEADER_PARAMETER_COUNTRIES, PROXY_HEADER_PARAMETER_COUNTRY, PROXY_PARAMETER_COUNTRIES,
     PROXY_PARAMETER_COUNTRY,
 };
 pub use policy::{

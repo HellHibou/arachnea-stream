@@ -154,37 +154,21 @@ async fn fetch_single(
     body: Option<&str>,
     extract_next_data: bool,
     scraper_type: ScraperType,
+    empty_on_statuses: &[u16],
     pre_processes: &[PreProcessAction],
     query_name: &str,
     base_url: &str,
     params: &HashMap<String, String>,
 ) -> Result<FetchedResponse> {
+    let response = client.send_for_request(method, url, headers, body).await?;
+    if empty_on_statuses.contains(&response.status().as_u16()) {
+        return Ok(empty_response(scraper_type));
+    }
+    let text = response.text().await?;
+
     match scraper_type {
         ScraperType::Json => {
-            if pre_processes.is_empty() {
-                if extract_next_data {
-                    return Ok(FetchedResponse::Json(
-                        client
-                            .get_next_data_json_for_request(method, url, headers, body)
-                            .await?,
-                    ));
-                }
-                return Ok(FetchedResponse::Json(
-                    client
-                        .get_json_for_request(method, url, headers, body)
-                        .await?,
-                ));
-            }
-
-            let text = apply_pre_processes(
-                client
-                    .query_http_for_request(method, url, headers, body)
-                    .await?,
-                pre_processes,
-                query_name,
-                base_url,
-                params,
-            )?;
+            let text = apply_pre_processes(text, pre_processes, query_name, base_url, params)?;
             if extract_next_data {
                 Ok(FetchedResponse::Json(HttpClient::extract_next_data_json(
                     url, &text,
@@ -196,30 +180,30 @@ async fn fetch_single(
             }
         }
         ScraperType::Html => {
-            let html = apply_pre_processes(
-                client
-                    .query_http_for_request(method, url, headers, body)
-                    .await?,
-                pre_processes,
-                query_name,
-                base_url,
-                params,
-            )?;
+            let html = apply_pre_processes(text, pre_processes, query_name, base_url, params)?;
             Ok(FetchedResponse::Html(html))
         }
         ScraperType::Text => {
-            let text = apply_pre_processes(
-                client
-                    .query_http_for_request(method, url, headers, body)
-                    .await?,
-                pre_processes,
-                query_name,
-                base_url,
-                params,
-            )?;
+            let text = apply_pre_processes(text, pre_processes, query_name, base_url, params)?;
             Ok(FetchedResponse::Text(text))
         }
         ScraperType::Static => Ok(FetchedResponse::Static),
+    }
+}
+
+fn empty_response(scraper_type: ScraperType) -> FetchedResponse {
+    match scraper_type {
+        ScraperType::Json => FetchedResponse::Json(Value::Array(Vec::new())),
+        ScraperType::Html => FetchedResponse::Html(String::new()),
+        ScraperType::Text => FetchedResponse::Text(String::new()),
+        ScraperType::Static => FetchedResponse::Static,
+    }
+}
+
+fn empty_response_body(scraper_type: ScraperType) -> &'static str {
+    match scraper_type {
+        ScraperType::Json => "[]",
+        ScraperType::Html | ScraperType::Text | ScraperType::Static => "",
     }
 }
 
@@ -333,6 +317,22 @@ async fn fetch_responses_with_validation(
         .send_for_request(method, &url, &headers, body.as_deref())
         .await?;
     let status = response.status();
+
+    if query
+        .http_config()
+        .empty_on_statuses
+        .contains(&status.as_u16())
+    {
+        let empty = empty_response(query.scraper_type());
+        let fragment = fragment_from_response(
+            validation.yaml_hash(),
+            None,
+            None,
+            empty_response_body(query.scraper_type()),
+        );
+        record_outcome(false, fragment);
+        return Ok(vec![(url, empty)]);
+    }
 
     let etag_header = response
         .headers()
@@ -734,6 +734,7 @@ async fn execute_query_internal(
                                                 body.as_deref(),
                                                 sibling.extract_next_data(),
                                                 sibling.scraper_type(),
+                                                &sibling.http_config().empty_on_statuses,
                                                 sibling.pre_processes(),
                                                 sibling.name(),
                                                 sibling.base_url(),
@@ -1245,6 +1246,7 @@ async fn fetch_responses(
                         body.as_deref(),
                         extract_next_data,
                         scraper_type,
+                        &query.http_config().empty_on_statuses,
                         query.pre_processes(),
                         query.name(),
                         query.base_url(),
@@ -2154,6 +2156,7 @@ async fn fetch_and_extract_for_entry_sub_query(
             body.as_deref(),
             sub_query.extract_next_data(),
             sub_query.scraper_type(),
+            &sub_query.http_config().empty_on_statuses,
             sub_query.pre_processes(),
             sub_query.name(),
             sub_query.base_url(),

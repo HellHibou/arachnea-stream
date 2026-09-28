@@ -72,6 +72,15 @@ shared:
     - type: get_date
       format: yyyy_mm_dd_hh_mm_ss
 
+  actions_proxy_countries_from_area: &actions_proxy_countries_from_area
+    - type: map
+      argument:
+        "11": "AD,FR,GP,GF,MQ,YT,MC,NC,PF,RE,BL,MF,PM,TF,WF"
+        "34": null
+      default: null
+    - type: split
+      argument: ","
+
 
 # ############################################################################
 # Queries
@@ -710,6 +719,11 @@ queries:
             type: string
             select: first
             pointer: /id
+          - name: players > resolver > proxy > countries
+            type: string[]
+            select: all
+            pointer: /clips/0/areas/*/zone_id
+            actions: *actions_proxy_countries_from_area
           - name: link
             type: string
             actions:

@@ -428,6 +428,17 @@ impl ProxyInventory {
             .await
     }
 
+    /// Selects a proxy from the first requested country that yields an eligible
+    /// candidate. Countries are tried in caller-provided order.
+    pub async fn select_any(
+        &self,
+        countries: &[String],
+        require_https: bool,
+    ) -> Result<ProxyRecord> {
+        self.select_any_for_destination(countries, require_https, None)
+            .await
+    }
+
     /// Selects the best available proxy for a country and destination.
     ///
     /// Destination-specific cooldowns are applied when `destination` is
@@ -479,6 +490,36 @@ impl ProxyInventory {
                     "no working proxy available for country '{country}'"
                 ))
             })
+    }
+
+    /// Selects a proxy for a destination from the first country with an
+    /// eligible candidate. Loading failures and negative-cache entries remain
+    /// isolated to each country and do not prevent later countries being tried.
+    pub async fn select_any_for_destination(
+        &self,
+        countries: &[String],
+        require_https: bool,
+        destination: Option<&Destination>,
+    ) -> Result<ProxyRecord> {
+        let mut attempted = Vec::new();
+        let mut last_error = None;
+        for country in countries {
+            let country = country.trim();
+            if country.is_empty() || attempted.iter().any(|attempted| attempted == country) {
+                continue;
+            }
+            attempted.push(country.to_string());
+            match self
+                .select_for_destination(country, require_https, destination)
+                .await
+            {
+                Ok(record) => return Ok(record),
+                Err(error) => last_error = Some(error),
+            }
+        }
+        Err(last_error.unwrap_or_else(|| {
+            ProxyError::RouteUnavailable("no proxy countries were requested".to_string())
+        }))
     }
 
     /// Imports cached records for `country` from the persistence store into
@@ -621,7 +662,7 @@ impl ProxyInventory {
 
         let result = provider
             .load_proxies(crate::core::ProxyLoadRequest {
-                country: Some(country.to_string()),
+                countries: vec![country.to_string()],
             })
             .await;
 

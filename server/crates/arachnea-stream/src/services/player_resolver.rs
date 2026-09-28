@@ -173,6 +173,7 @@ pub(crate) trait PlayerStreamResolver: Send + Sync {
         resolver: &str,
         target: &str,
         service_parameters: &[ScraperQueryCollectionParameter],
+        proxy_countries: &[String],
         endpoints: &PlayerResolverEndpoints,
     ) -> Result<ResolvedPlayerStream>;
 

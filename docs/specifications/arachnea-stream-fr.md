@@ -760,15 +760,23 @@ Retourne une liste d'objets MediaItem avec `key` et `media-type: video/live` :
 | `web-link` | URL publique du direct |
 | `release-date` | Début du programme en cours |
 | `expire` | Fin du programme en cours |
-| `channel` | Nom de la chaîne |
 
-Un lecteur peut demander un routage géographique pour une résolution
-`scraper-query` en déclarant `resolver > proxy > country` dans le YAML. Le
-frontend transmet cette valeur comme `proxy_country` à `get_stream`; la query
-`resolve_stream` de la source doit ensuite l'utiliser explicitement avec
-`http.proxy_country: "{proxy_country}"`. Les URLs proxy générées embarquent
-aussi `Arachnea-Proxy-Country` dans leurs `opts` afin que la récupération du
-manifeste passe par le pool de proxy dynamique du pays demandé.
+Un lecteur peut demander un routage géographique ordonné pour une résolution
+`scraper-query` en déclarant `resolver > proxy > countries` dans le YAML comme
+liste de codes ISO alpha-2, par exemple `countries: ["FR", "BE"]`. Les valeurs
+vides, invalides et dupliquées sont écartées ; les valeurs valides sont mises
+en majuscules en préservant leur ordre. Le frontend transmet le résultat comme
+`proxy_countries` à `get_stream` et envoie également le premier pays comme
+`proxy_country` historique pendant la transition. La liste est prioritaire
+lorsque les deux formes sont présentes.
+
+La query `resolve_stream` de la source peut consommer la liste JSON structurée
+avec `http.proxy_countries: ["{proxy_countries}"]`; `http.proxy_country:
+"{proxy_country}"` reste réservé aux queries compatibles mono-pays. Les URLs
+proxy générées embarquent la liste JSON ordonnée dans leurs `opts` sous
+`Arachnea-Proxy-Countries`, afin que la récupération du manifeste tente les
+pools de proxy dynamiques de chaque pays dans l'ordre. `resolver > proxy >
+country` reste un fallback à un élément lorsque `countries` est absente ou vide.
 
 Un lecteur peut en outre demander la réécriture des URLs absolues rencontrées
 dans les manifestes HLS proxifiés en déclarant

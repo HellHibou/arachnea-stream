@@ -94,13 +94,26 @@ impl ScrapyfyProxyDataProvider {
 #[async_trait]
 impl ProxyDataProvider for ScrapyfyProxyDataProvider {
     async fn load_proxies(&self, request: ProxyLoadRequest) -> Result<Vec<ProxyRecord>> {
-        let country = request
-            .country
-            .map(|country| normalize_proxy_country(&country));
-        let Some(ref country) = country else {
+        let countries = request
+            .countries
+            .iter()
+            .map(|country| normalize_proxy_country(country))
+            .filter(|country| !country.is_empty())
+            .collect::<Vec<_>>();
+        if countries.is_empty() {
             return Ok(Vec::new());
-        };
+        }
 
+        let mut records = Vec::new();
+        for country in countries {
+            records.extend(self.load_proxies_for_country(&country).await?);
+        }
+        Ok(records)
+    }
+}
+
+impl ScrapyfyProxyDataProvider {
+    async fn load_proxies_for_country(&self, country: &str) -> Result<Vec<ProxyRecord>> {
         info!("Loading proxies for country: {}...", country);
 
         // SAFETY: the raw pointer is valid for the lifetime of the provider
@@ -109,7 +122,7 @@ impl ProxyDataProvider for ScrapyfyProxyDataProvider {
         let agregator = unsafe { &*self.scraper_agregator };
 
         let mut params: HashMap<String, String> = HashMap::new();
-        params.insert("country".to_string(), country.clone());
+        params.insert("country".to_string(), country.to_string());
         let results = agregator
             .execute_query_async(
                 &RequestControlerContext::default(),
@@ -191,7 +204,7 @@ impl ProxyDataProvider for ScrapyfyProxyDataProvider {
 
         let filtered: Vec<ProxyRecord> = records
             .into_iter()
-            .filter(|r| r.country.as_deref() == Some(country.as_str()))
+            .filter(|r| r.country.as_deref() == Some(country))
             .collect();
 
         let mut seen = HashSet::new();

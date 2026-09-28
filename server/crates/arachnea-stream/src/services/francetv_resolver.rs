@@ -1,21 +1,20 @@
 use anyhow::{bail, Context, Result};
 use arachnea_proxy::http::{
     actions::{ProxyHttpActionConfig, ReplaceAll},
-    proxy_service::proxied_url,
+    proxy_service::proxied_url_with_countries,
 };
 use async_trait::async_trait;
 use rand::{distr::Alphanumeric, Rng};
-use rquest::{
-    header::{HeaderValue, CONTENT_TYPE},
-    Url,
-};
+use rquest::Url;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use arachnea_core::persistence::CredentialsStore;
-use arachnea_scrapyfy::{HttpClient, ScraperAgregator, ScraperQueryCollectionParameter};
+use arachnea_scrapyfy::{
+    HttpClient, ScraperAgregator, ScraperHttpConfig, ScraperQueryCollectionParameter,
+};
 
 use crate::services::player_resolver::{
     PlayerResolverEndpoints, PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream,
@@ -40,6 +39,7 @@ struct CachedFrancetvLicense {
     authorization_token: String,
     license_url: String,
     stream_kind: String,
+    proxy_countries: Vec<String>,
     expires_at: Instant,
 }
 
@@ -63,6 +63,7 @@ impl PlayerStreamResolver for FrancetvResolver {
         resolver: &str,
         target: &str,
         service_parameters: &[ScraperQueryCollectionParameter],
+        proxy_countries: &[String],
         endpoints: &PlayerResolverEndpoints,
     ) -> Result<ResolvedPlayerStream> {
         match resolver.trim() {
@@ -72,6 +73,7 @@ impl PlayerStreamResolver for FrancetvResolver {
                     target,
                     None,
                     service_parameters,
+                    proxy_countries,
                     endpoints,
                     false,
                 )
@@ -83,6 +85,7 @@ impl PlayerStreamResolver for FrancetvResolver {
                     target,
                     None,
                     service_parameters,
+                    proxy_countries,
                     endpoints,
                     true,
                 )
@@ -98,11 +101,11 @@ impl PlayerStreamResolver for FrancetvResolver {
 
     async fn get_drm_license(
         &self,
-        _scraper_agregator: &ScraperAgregator,
+        scraper_agregator: &ScraperAgregator,
         stream_token: &str,
         body: &[u8],
     ) -> Result<ProxiedStreamResponse> {
-        proxy_francetv_license_request(stream_token, body).await
+        proxy_francetv_license_request(scraper_agregator, stream_token, body).await
     }
 }
 
@@ -111,6 +114,7 @@ async fn resolve_francetv_stream(
     media_id: &str,
     stream_kind: Option<String>,
     service_parameters: &[ScraperQueryCollectionParameter],
+    proxy_countries: &[String],
     endpoints: &PlayerResolverEndpoints,
     is_live: bool,
 ) -> Result<ResolvedPlayerStream> {
@@ -121,7 +125,8 @@ async fn resolve_francetv_stream(
 
     let country_code =
         parameter_value(service_parameters, "country_code").unwrap_or_else(|| "FR".to_string());
-    let http_client = scraper_agregator.create_http_client(Default::default());
+    let http_client = scraper_agregator
+        .create_http_client(ScraperHttpConfig::default().proxy_countries(proxy_countries.to_vec()));
     let media_info =
         fetch_media_info(&http_client, normalized_media_id, country_code.trim()).await?;
     let video = media_info
@@ -149,10 +154,10 @@ async fn resolve_francetv_stream(
         fetch_signed_manifest_url(&http_client, &manifest_token_url, &raw_manifest_url).await?;
     let manifest_type = manifest_type_from_format_or_url(format, &stream_url);
     let stream_actions = stream_headers(endpoints.http_proxy_public_path.as_deref());
-    let stream_url_proxy = proxied_url(
+    let stream_url_proxy = proxied_url_with_countries(
         &stream_url,
         endpoints.http_proxy_public_path.as_deref(),
-        Some("fr"),
+        proxy_countries,
         &stream_actions,
         &[],
     );
@@ -177,6 +182,7 @@ async fn resolve_francetv_stream(
         &authorization_token,
         &stream_kind,
         FRANCETV_WIDEVINE_LICENSE_URL,
+        proxy_countries,
     );
 
     Ok(ResolvedPlayerStream {
@@ -385,12 +391,23 @@ fn save_francetv_license_proxy_url(
     authorization_token: &str,
     stream_kind: &str,
     license_url: &str,
+    proxy_countries: &[String],
 ) -> String {
-    let token = save_cached_license(authorization_token, stream_kind, license_url);
+    let token = save_cached_license(
+        authorization_token,
+        stream_kind,
+        license_url,
+        proxy_countries,
+    );
     endpoints.drm_license_url(FRANCETV_SERVICE_ID, &token)
 }
 
-fn save_cached_license(authorization_token: &str, stream_kind: &str, license_url: &str) -> String {
+fn save_cached_license(
+    authorization_token: &str,
+    stream_kind: &str,
+    license_url: &str,
+    proxy_countries: &[String],
+) -> String {
     let cache = FRANCETV_LICENSE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let token: String = rand::rng()
         .sample_iter(&Alphanumeric)
@@ -410,6 +427,7 @@ fn save_cached_license(authorization_token: &str, stream_kind: &str, license_url
             authorization_token: authorization_token.to_string(),
             license_url: license_url.to_string(),
             stream_kind: stream_kind.to_string(),
+            proxy_countries: proxy_countries.to_vec(),
             expires_at: now + FRANCETV_LICENSE_TTL,
         },
     );
@@ -429,6 +447,7 @@ fn load_cached_license(token: &str) -> Option<CachedFrancetvLicense> {
 }
 
 async fn proxy_francetv_license_request(
+    scraper_agregator: &ScraperAgregator,
     token: &str,
     challenge_body: &[u8],
 ) -> Result<ProxiedStreamResponse> {
@@ -443,28 +462,29 @@ async fn proxy_francetv_license_request(
         bail!("Unsupported FranceTV stream kind `{}`.", cached.stream_kind);
     }
 
-    let response = rquest::Client::builder()
-        .user_agent(USER_AGENT)
-        .timeout(Duration::from_secs(25))
-        .build()
-        .context("Failed to build the FranceTV license proxy client.")?
-        .post(cached.license_url.trim())
-        .header("nv-authorizations", cached.authorization_token.trim())
-        .header("origin", FRANCETV_BASE_URL)
-        .header("referer", format!("{}/", FRANCETV_BASE_URL))
-        .header(
-            CONTENT_TYPE,
-            HeaderValue::from_static("application/octet-stream"),
+    let response = scraper_agregator
+        .create_http_client(ScraperHttpConfig::default().proxy_countries(cached.proxy_countries))
+        .send_bytes_for_request(
+            http::Method::POST,
+            cached.license_url.trim(),
+            &HashMap::from([
+                ("nv-authorizations".to_string(), cached.authorization_token),
+                ("origin".to_string(), FRANCETV_BASE_URL.to_string()),
+                ("referer".to_string(), format!("{}/", FRANCETV_BASE_URL)),
+                (
+                    "content-type".to_string(),
+                    "application/octet-stream".to_string(),
+                ),
+            ]),
+            Some(challenge_body.to_vec()),
         )
-        .body(challenge_body.to_vec())
-        .send()
         .await
         .context("Failed to call the FranceTV Widevine license server.")?;
 
     let status = response.status();
     let content_type = response
         .headers()
-        .get(CONTENT_TYPE)
+        .get(http::header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
         .map(str::to_string)
         .unwrap_or_else(|| "application/octet-stream".to_string());

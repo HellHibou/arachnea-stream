@@ -26,6 +26,8 @@ queries:
     scraper_type: json
     base_url: "{base_url}"
     query_url: "{base_url}/countries/{country}/data.json"
+    http:
+      empty_on_statuses: [404]
     media_types:
       - application/arachnea-proxy
     row_pointer: "/*"

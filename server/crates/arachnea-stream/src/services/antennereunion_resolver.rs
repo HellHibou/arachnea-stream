@@ -69,6 +69,7 @@ impl PlayerStreamResolver for AntenneReunionResolver {
         resolver: &str,
         target: &str,
         _service_parameters: &[ScraperQueryCollectionParameter],
+        _proxy_countries: &[String],
         endpoints: &PlayerResolverEndpoints,
     ) -> Result<ResolvedPlayerStream> {
         if resolver.trim() != "antennereunion-video" {

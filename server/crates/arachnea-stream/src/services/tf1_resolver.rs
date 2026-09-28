@@ -1,5 +1,5 @@
 use anyhow::{bail, Context, Result};
-use arachnea_proxy::http::{actions::ReplaceAll, proxy_service::proxied_url};
+use arachnea_proxy::http::{actions::ReplaceAll, proxy_service::proxied_url_with_countries};
 use async_trait::async_trait;
 use rand::{distr::Alphanumeric, Rng};
 use serde_json::{json, Value};
@@ -28,7 +28,6 @@ const TF1_TOKEN_URL: &str = "https://www.tf1.fr/token/gigya/web";
 const TF1_MEDIA_INFO_URL_TEMPLATE: &str = "https://mediainfo.tf1.fr/mediainfocombo/{}";
 const TF1_FALLBACK_LICENSE_URL_TEMPLATE: &str = "https://drm-wide.tf1.fr/proxy?id={}";
 const TF1_PROXY_STREAM_KIND: &str = "widevine-license-proxy";
-const TF1_PROXY_COUNTRY: &str = "FR";
 const TF1_SESSION_TTL: Duration = Duration::from_secs(15 * 60);
 const TF1_LICENSE_TTL: Duration = Duration::from_secs(15 * 60);
 
@@ -51,6 +50,7 @@ struct CachedTf1License {
     license_url: String,
     headers: HashMap<String, String>,
     stream_kind: String,
+    proxy_countries: Vec<String>,
     expires_at: Instant,
 }
 
@@ -74,6 +74,7 @@ impl PlayerStreamResolver for Tf1Resolver {
         resolver: &str,
         target: &str,
         _service_parameters: &[ScraperQueryCollectionParameter],
+        proxy_countries: &[String],
         endpoints: &PlayerResolverEndpoints,
     ) -> Result<ResolvedPlayerStream> {
         match resolver.trim() {
@@ -83,6 +84,7 @@ impl PlayerStreamResolver for Tf1Resolver {
                     credentials_store,
                     target,
                     None,
+                    proxy_countries,
                     endpoints,
                 )
                 .await
@@ -93,6 +95,7 @@ impl PlayerStreamResolver for Tf1Resolver {
                     credentials_store,
                     target,
                     None,
+                    proxy_countries,
                     endpoints,
                 )
                 .await
@@ -120,6 +123,7 @@ async fn resolve_replay_stream(
     credentials_store: &dyn CredentialsStore,
     video_id: &str,
     stream_kind: Option<String>,
+    proxy_countries: &[String],
     endpoints: &PlayerResolverEndpoints,
 ) -> Result<ResolvedPlayerStream> {
     let normalized_video_id = video_id.trim();
@@ -133,7 +137,8 @@ async fn resolve_replay_stream(
             credentials_store,
             normalized_video_id,
             stream_kind.clone(),
-            tf1_http_config(),
+            tf1_http_config(proxy_countries),
+            proxy_countries,
             endpoints,
         )
         .await
@@ -163,6 +168,7 @@ async fn resolve_replay_stream(
         normalized_video_id,
         stream_kind,
         ScraperHttpConfig::default(),
+        &[],
         endpoints,
     )
     .await
@@ -174,6 +180,7 @@ async fn resolve_replay_stream_with_config(
     normalized_video_id: &str,
     stream_kind: Option<String>,
     http_config: ScraperHttpConfig,
+    proxy_countries: &[String],
     endpoints: &PlayerResolverEndpoints,
 ) -> Result<ResolvedPlayerStream> {
     let http_client = scraper_agregator.create_http_client(http_config);
@@ -185,6 +192,7 @@ async fn resolve_replay_stream_with_config(
         normalized_video_id,
         &media_info,
         stream_kind,
+        proxy_countries,
         endpoints,
     )
     .await
@@ -195,6 +203,7 @@ async fn resolve_live_stream(
     credentials_store: &dyn CredentialsStore,
     channel_id: &str,
     stream_kind: Option<String>,
+    proxy_countries: &[String],
     endpoints: &PlayerResolverEndpoints,
 ) -> Result<ResolvedPlayerStream> {
     let normalized_channel_id = channel_id.trim();
@@ -208,7 +217,8 @@ async fn resolve_live_stream(
             credentials_store,
             normalized_channel_id,
             stream_kind.clone(),
-            tf1_http_config(),
+            tf1_http_config(proxy_countries),
+            proxy_countries,
             endpoints,
         )
         .await
@@ -238,6 +248,7 @@ async fn resolve_live_stream(
         normalized_channel_id,
         stream_kind,
         ScraperHttpConfig::default(),
+        &[],
         endpoints,
     )
     .await
@@ -249,6 +260,7 @@ async fn resolve_live_stream_with_config(
     normalized_channel_id: &str,
     stream_kind: Option<String>,
     http_config: ScraperHttpConfig,
+    proxy_countries: &[String],
     endpoints: &PlayerResolverEndpoints,
 ) -> Result<ResolvedPlayerStream> {
     let http_client = scraper_agregator.create_http_client(http_config);
@@ -261,13 +273,14 @@ async fn resolve_live_stream_with_config(
         &live_video_id,
         &media_info,
         stream_kind,
+        proxy_countries,
         endpoints,
     )
     .await
 }
 
-fn tf1_http_config() -> ScraperHttpConfig {
-    ScraperHttpConfig::default().proxy_country(TF1_PROXY_COUNTRY)
+fn tf1_http_config(proxy_countries: &[String]) -> ScraperHttpConfig {
+    ScraperHttpConfig::default().proxy_countries(proxy_countries.to_vec())
 }
 
 fn is_proxy_error(error: &anyhow::Error) -> bool {
@@ -284,6 +297,7 @@ async fn build_resolved_player_stream(
     video_id: &str,
     media_info: &Value,
     stream_kind: Option<String>,
+    proxy_countries: &[String],
     endpoints: &PlayerResolverEndpoints,
 ) -> Result<ResolvedPlayerStream> {
     let delivery = media_info
@@ -332,8 +346,13 @@ async fn build_resolved_player_stream(
         .to_string();
     let license_headers = extract_license_headers(delivery);
     let stream_kind = normalize_stream_kind(stream_kind);
-    let proxy_url =
-        save_tf1_license_proxy_url(endpoints, &license_url, &license_headers, &stream_kind);
+    let proxy_url = save_tf1_license_proxy_url(
+        endpoints,
+        &license_url,
+        &license_headers,
+        &stream_kind,
+        proxy_countries,
+    );
 
     let title = media_info
         .pointer("/media/title")
@@ -356,15 +375,15 @@ async fn build_resolved_player_stream(
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|t| !t.is_empty())
-        .map(|url| proxied_tf1_storyboard_vtt_url(endpoints, url));
+        .map(|url| proxied_tf1_storyboard_vtt_url(endpoints, url, proxy_countries));
 
     let chapters = extract_chapters(media_info);
 
     Ok(ResolvedPlayerStream {
-        stream_url: vec![proxied_url(
+        stream_url: vec![proxied_url_with_countries(
             &manifest_url,
             endpoints.http_proxy_public_path.as_deref(),
-            None,
+            proxy_countries,
             &[],
             &[],
         )],
@@ -416,17 +435,21 @@ fn extract_chapter(
     })
 }
 
-fn proxied_tf1_storyboard_vtt_url(endpoints: &PlayerResolverEndpoints, vtt_url: &str) -> String {
+fn proxied_tf1_storyboard_vtt_url(
+    endpoints: &PlayerResolverEndpoints,
+    vtt_url: &str,
+    proxy_countries: &[String],
+) -> String {
     let actions = [ReplaceAll::new(
         r"(?m)^\s*(/[^#\r\n]+)(#xywh=\d+,\d+,\d+,\d+)",
         "{base_url}$1$2",
         None,
     )];
 
-    proxied_url(
+    proxied_url_with_countries(
         vtt_url,
         endpoints.http_proxy_public_path.as_deref(),
-        None,
+        proxy_countries,
         &actions,
         &[],
     )
@@ -818,8 +841,9 @@ fn save_tf1_license_proxy_url(
     license_url: &str,
     headers: &HashMap<String, String>,
     stream_kind: &str,
+    proxy_countries: &[String],
 ) -> String {
-    let token = save_cached_license(license_url, headers, stream_kind);
+    let token = save_cached_license(license_url, headers, stream_kind, proxy_countries);
     endpoints.drm_license_url(TF1_SERVICE_ID, &token)
 }
 
@@ -827,6 +851,7 @@ fn save_cached_license(
     license_url: &str,
     headers: &HashMap<String, String>,
     stream_kind: &str,
+    proxy_countries: &[String],
 ) -> String {
     let cache = TF1_LICENSE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let token: String = rand::rng()
@@ -847,6 +872,7 @@ fn save_cached_license(
             license_url: license_url.to_string(),
             headers: headers.clone(),
             stream_kind: stream_kind.to_string(),
+            proxy_countries: proxy_countries.to_vec(),
             expires_at: now + TF1_LICENSE_TTL,
         },
     );
@@ -870,12 +896,15 @@ async fn proxy_tf1_license_request(
     token: &str,
     challenge_body: &[u8],
 ) -> Result<ProxiedStreamResponse> {
+    let proxy_countries = load_cached_license(token)
+        .map(|cached| cached.proxy_countries)
+        .context("Expired or missing TF1 stream token.")?;
     for attempt in 1..=3 {
         match proxy_tf1_license_request_with_config(
             scraper_agregator,
             token,
             challenge_body,
-            tf1_http_config(),
+            tf1_http_config(&proxy_countries),
         )
         .await
         {

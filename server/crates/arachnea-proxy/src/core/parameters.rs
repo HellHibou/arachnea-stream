@@ -9,8 +9,15 @@ use crate::core::{
 /// Proxy country parameter header name.
 pub const PROXY_HEADER_PARAMETER_COUNTRY: &str = "Arachnea-Proxy-Country";
 
+/// Proxy countries parameter header name. Its value is a JSON array of ISO
+/// alpha-2 country codes so comma-like values cannot be ambiguous.
+pub const PROXY_HEADER_PARAMETER_COUNTRIES: &str = "Arachnea-Proxy-Countries";
+
 /// Proxy country parameter name.
 pub const PROXY_PARAMETER_COUNTRY: &str = "country";
+
+/// Proxy countries parameter name.
+pub const PROXY_PARAMETER_COUNTRIES: &str = "countries";
 
 /// One inbound parameter definition shared by servers and routing handlers.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -450,7 +457,14 @@ impl DynamicCountryRoutingProxyHandler {
 
 impl ProxyParameterHandler for DynamicCountryRoutingProxyHandler {
     fn parameter_definitions(&self) -> Vec<ParameterDefinition> {
-        vec![self.definition.clone()]
+        vec![
+            self.definition.clone(),
+            ParameterDefinition::new(
+                PROXY_HEADER_PARAMETER_COUNTRIES,
+                PROXY_PARAMETER_COUNTRIES,
+                false,
+            ),
+        ]
     }
 
     fn proxy_from_parameters(
@@ -460,11 +474,24 @@ impl ProxyParameterHandler for DynamicCountryRoutingProxyHandler {
         if self.coexistence_policy == CoexistencePolicy::StaticOnly {
             return Ok(ParameterHandlerDecision::continue_without_proxy());
         }
-        let Some(country) = parameters.get_string(&self.definition.name) else {
+        let countries = parameters
+            .get_string(PROXY_PARAMETER_COUNTRIES)
+            .and_then(parse_countries_parameter)
+            .filter(|countries| !countries.is_empty())
+            .or_else(|| {
+                parameters
+                    .get_string(&self.definition.name)
+                    .map(normalize_country)
+                    .filter(|country| !country.is_empty())
+                    .map(|country| vec![country])
+            });
+        let Some(countries) = countries else {
             return Ok(ParameterHandlerDecision::continue_without_proxy());
         };
-        let country = normalize_country(country);
-        let pool_name = format!("dynamic-country:{country}");
+        let pool_name = format!(
+            "dynamic-countries:{}",
+            serde_json::to_string(&countries).expect("country list serializes")
+        );
         let proxy = ProxyNode {
             kind: TransportKind::ProxyPool,
             name: pool_name,
@@ -645,9 +672,29 @@ pub fn default_country_parameter_definition() -> ParameterDefinition {
 pub fn normalize_parameter_value(name: &str, value: &str) -> String {
     if name == PROXY_PARAMETER_COUNTRY {
         normalize_country(value)
+    } else if name == PROXY_PARAMETER_COUNTRIES {
+        parse_countries_parameter(value)
+            .and_then(|countries| serde_json::to_string(&countries).ok())
+            .unwrap_or_default()
     } else {
         value.trim().to_string()
     }
+}
+
+/// Parses, validates, uppercases and deduplicates an ordered JSON country list.
+fn parse_countries_parameter(value: &str) -> Option<Vec<String>> {
+    let countries = serde_json::from_str::<Vec<String>>(value).ok()?;
+    let mut normalized = Vec::new();
+    for country in countries {
+        let country = normalize_country(&country);
+        if country.len() == 2
+            && country.bytes().all(|byte| byte.is_ascii_alphabetic())
+            && !normalized.contains(&country)
+        {
+            normalized.push(country);
+        }
+    }
+    Some(normalized)
 }
 
 /// Validates that a proxy node can be appended by a handler.

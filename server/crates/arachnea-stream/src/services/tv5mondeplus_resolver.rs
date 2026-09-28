@@ -1,8 +1,6 @@
 use anyhow::{bail, Context, Result};
-use arachnea_proxy::http::proxy_service::proxied_url;
 use async_trait::async_trait;
 use rand::{distr::Alphanumeric, Rng};
-use rquest::header::{HeaderValue, CONTENT_TYPE};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
@@ -10,7 +8,9 @@ use std::time::{Duration, Instant};
 use url::Url;
 
 use arachnea_core::persistence::CredentialsStore;
-use arachnea_scrapyfy::{HttpClient, ScraperAgregator, ScraperQueryCollectionParameter};
+use arachnea_scrapyfy::{
+    HttpClient, ScraperAgregator, ScraperHttpConfig, ScraperQueryCollectionParameter,
+};
 
 use crate::services::player_resolver::{
     PlayerResolverEndpoints, PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream,
@@ -30,6 +30,7 @@ static TV5MONDEPLUS_LICENSE_CACHE: OnceLock<Mutex<HashMap<String, CachedTv5monde
 #[derive(Clone)]
 struct CachedTv5mondeplusLicense {
     license_url: String,
+    proxy_countries: Vec<String>,
     expires_at: Instant,
 }
 
@@ -53,6 +54,7 @@ impl PlayerStreamResolver for Tv5mondeplusResolver {
         resolver: &str,
         target: &str,
         _service_parameters: &[ScraperQueryCollectionParameter],
+        proxy_countries: &[String],
         endpoints: &PlayerResolverEndpoints,
     ) -> Result<ResolvedPlayerStream> {
         if resolver.trim() != "tv5mondeplus-video" {
@@ -63,22 +65,23 @@ impl PlayerStreamResolver for Tv5mondeplusResolver {
             );
         }
 
-        resolve_tv5mondeplus_stream(scraper_agregator, target, endpoints).await
+        resolve_tv5mondeplus_stream(scraper_agregator, target, proxy_countries, endpoints).await
     }
 
     async fn get_drm_license(
         &self,
-        _scraper_agregator: &ScraperAgregator,
+        scraper_agregator: &ScraperAgregator,
         stream_token: &str,
         body: &[u8],
     ) -> Result<ProxiedStreamResponse> {
-        proxy_tv5mondeplus_license_request(stream_token, body).await
+        proxy_tv5mondeplus_license_request(scraper_agregator, stream_token, body).await
     }
 }
 
 async fn resolve_tv5mondeplus_stream(
     scraper_agregator: &ScraperAgregator,
     asset_id: &str,
+    proxy_countries: &[String],
     endpoints: &PlayerResolverEndpoints,
 ) -> Result<ResolvedPlayerStream> {
     let asset_id = asset_id.trim();
@@ -86,7 +89,8 @@ async fn resolve_tv5mondeplus_stream(
         bail!("Missing TV5MONDE+ asset identifier.");
     }
 
-    let http_client = scraper_agregator.create_http_client(Default::default());
+    let http_client = scraper_agregator
+        .create_http_client(ScraperHttpConfig::default().proxy_countries(proxy_countries.to_vec()));
     let device_id = random_device_id();
     let session_token = authenticate_anonymous(&http_client, &device_id).await?;
     let entitlement = fetch_entitlement(&http_client, asset_id, &device_id, &session_token).await?;
@@ -96,18 +100,25 @@ async fn resolve_tv5mondeplus_stream(
     let license_url = selected_format
         .license_url
         .as_deref()
-        .map(|url| save_tv5mondeplus_license_proxy_url(endpoints, url));
+        .map(|url| save_tv5mondeplus_license_proxy_url(endpoints, url, proxy_countries));
     let storyboard_vtt_url = entitlement
         .pointer("/sprites/0/vtt")
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|url| !url.is_empty())
-        .map(|url| proxied_media_url(url, endpoints.http_proxy_public_path.as_deref()));
+        .map(|url| {
+            proxied_media_url(
+                url,
+                endpoints.http_proxy_public_path.as_deref(),
+                proxy_countries,
+            )
+        });
 
     Ok(ResolvedPlayerStream {
         stream_url: vec![proxied_media_url(
             &selected_format.media_locator,
             endpoints.http_proxy_public_path.as_deref(),
+            proxy_countries,
         )],
         manifest_type: Some(selected_format.manifest_type),
         license_url,
@@ -248,13 +259,24 @@ fn entitlement_error_message(entitlement: &Value) -> String {
         .to_string()
 }
 
-fn proxied_media_url(media_locator: &str, proxy_path: Option<&str>) -> String {
-    proxied_url(media_locator, proxy_path, None, &[], &[])
+fn proxied_media_url(
+    media_locator: &str,
+    proxy_path: Option<&str>,
+    proxy_countries: &[String],
+) -> String {
+    arachnea_proxy::http::proxy_service::proxied_url_with_countries(
+        media_locator,
+        proxy_path,
+        proxy_countries,
+        &[],
+        &[],
+    )
 }
 
 fn save_tv5mondeplus_license_proxy_url(
     endpoints: &PlayerResolverEndpoints,
     license_url: &str,
+    proxy_countries: &[String],
 ) -> String {
     let token_id = random_device_id();
     let cache = TV5MONDEPLUS_LICENSE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
@@ -265,6 +287,7 @@ fn save_tv5mondeplus_license_proxy_url(
             token_id.clone(),
             CachedTv5mondeplusLicense {
                 license_url: license_url.to_string(),
+                proxy_countries: proxy_countries.to_vec(),
                 expires_at: now + TV5MONDEPLUS_LICENSE_TTL,
             },
         );
@@ -273,11 +296,12 @@ fn save_tv5mondeplus_license_proxy_url(
 }
 
 async fn proxy_tv5mondeplus_license_request(
+    scraper_agregator: &ScraperAgregator,
     token_id: &str,
     challenge_body: &[u8],
 ) -> Result<ProxiedStreamResponse> {
     let cache = TV5MONDEPLUS_LICENSE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let license_url = {
+    let cached = {
         let mut cache = cache
             .lock()
             .map_err(|error| anyhow::anyhow!("TV5MONDE+ license cache lock failed: {error}"))?;
@@ -285,29 +309,28 @@ async fn proxy_tv5mondeplus_license_request(
         cache.retain(|_, entry| entry.expires_at > now);
         cache
             .get(token_id.trim())
-            .map(|entry| entry.license_url.clone())
+            .cloned()
             .context("Expired or missing TV5MONDE+ license token.")?
     };
 
-    let response = rquest::Client::builder()
-        .user_agent(TV5MONDEPLUS_USER_AGENT)
-        .timeout(Duration::from_secs(25))
-        .build()
-        .context("Failed to build the TV5MONDE+ license proxy client.")?
-        .post(license_url)
-        .header(
-            CONTENT_TYPE,
-            HeaderValue::from_static("application/octet-stream"),
+    let response = scraper_agregator
+        .create_http_client(ScraperHttpConfig::default().proxy_countries(cached.proxy_countries))
+        .send_bytes_for_request(
+            http::Method::POST,
+            &cached.license_url,
+            &HashMap::from([(
+                "content-type".to_string(),
+                "application/octet-stream".to_string(),
+            )]),
+            Some(challenge_body.to_vec()),
         )
-        .body(challenge_body.to_vec())
-        .send()
         .await
         .context("Failed to call the TV5MONDE+ Widevine license server.")?;
 
     let status = response.status();
     let content_type = response
         .headers()
-        .get(CONTENT_TYPE)
+        .get(http::header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
         .unwrap_or("application/octet-stream")
         .to_string();

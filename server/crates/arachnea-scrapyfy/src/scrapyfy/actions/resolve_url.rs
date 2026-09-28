@@ -323,6 +323,7 @@ mod tests {
             true,
             &HashMap::new(),
             &[],
+            None,
         );
 
         assert_eq!(
@@ -345,6 +346,7 @@ mod tests {
             false,
             &HashMap::new(),
             &[],
+            None,
         );
 
         assert_eq!(values, vec!["https://french-anime.com/images/poster.jpg"]);

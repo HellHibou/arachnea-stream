@@ -25,7 +25,7 @@ use crate::core::http::actions::{
 use crate::core::http::{ProxiedHttpRequest, ProxiedResponseBody, SimpleHttpClient};
 use crate::core::{
     normalize_parameter_value, ArachneaProxyCore, ClientContext, ClientParameter,
-    ParameterDefinition, PROXY_HEADER_PARAMETER_COUNTRY,
+    ParameterDefinition, PROXY_HEADER_PARAMETER_COUNTRIES, PROXY_HEADER_PARAMETER_COUNTRY,
 };
 use arachnea_core::controler::{
     ControlerService, ControlerServiceExt, ControlerStreamInput, ControlerStreamOutput,
@@ -1043,6 +1043,69 @@ pub fn proxied_url(
         headers,
         false,
         None,
+    )
+}
+
+/// Builds a proxied media URL carrying an ordered JSON country list.
+pub fn proxied_url_with_countries(
+    media_locator: &str,
+    http_proxy_public_path: Option<&str>,
+    countries: &[String],
+    actions: &[ProxyHttpActionConfig],
+    headers: &[(&str, &str)],
+) -> String {
+    proxied_url_with_countries_and_insecure_tls(
+        media_locator,
+        http_proxy_public_path,
+        countries,
+        actions,
+        headers,
+        false,
+    )
+}
+
+/// Builds a proxied media URL carrying an ordered JSON country list and an
+/// optional TLS bypass flag.
+pub fn proxied_url_with_countries_and_insecure_tls(
+    media_locator: &str,
+    http_proxy_public_path: Option<&str>,
+    countries: &[String],
+    actions: &[ProxyHttpActionConfig],
+    headers: &[(&str, &str)],
+    insecure_tls: bool,
+) -> String {
+    let countries = countries
+        .iter()
+        .map(|country| country.trim().to_ascii_uppercase())
+        .filter(|country| {
+            country.len() == 2 && country.bytes().all(|byte| byte.is_ascii_alphabetic())
+        })
+        .fold(Vec::new(), |mut result, country| {
+            if !result.contains(&country) {
+                result.push(country);
+            }
+            result
+        });
+    if countries.is_empty() {
+        return proxied_url_with_insecure_tls(
+            media_locator,
+            http_proxy_public_path,
+            None,
+            actions,
+            headers,
+            insecure_tls,
+        );
+    }
+    let mut all_headers = headers.to_vec();
+    let encoded = serde_json::to_string(&countries).expect("country list serializes");
+    all_headers.push((PROXY_HEADER_PARAMETER_COUNTRIES, encoded.as_str()));
+    proxied_url_with_insecure_tls(
+        media_locator,
+        http_proxy_public_path,
+        None,
+        actions,
+        &all_headers,
+        insecure_tls,
     )
 }
 

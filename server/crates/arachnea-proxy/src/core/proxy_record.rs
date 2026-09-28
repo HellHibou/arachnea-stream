@@ -308,8 +308,9 @@ impl std::fmt::Display for ProxyProtocol {
 /// Parameters for requesting a dynamic proxy load.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProxyLoadRequest {
-    /// Optional country code to filter by.
-    pub country: Option<String>,
+    /// Ordered ISO country codes to load. An empty list does not constrain the
+    /// provider.
+    pub countries: Vec<String>,
 }
 
 /// Provider that loads dynamic proxy records from an external source.

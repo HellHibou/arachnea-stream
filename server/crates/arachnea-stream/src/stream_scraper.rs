@@ -238,6 +238,8 @@ pub(crate) struct GetStreamRequest {
     pub(crate) source: Option<String>,
     #[serde(default, alias = "proxyCountry")]
     pub(crate) proxy_country: Option<String>,
+    #[serde(default, alias = "proxyCountries")]
+    pub(crate) proxy_countries: Vec<String>,
     /// Optional request to rewrite absolute URLs inside proxied HLS manifests.
     #[serde(default, alias = "proxyRewriteManifestUrls")]
     pub(crate) proxy_rewrite_manifest_urls: Option<bool>,
@@ -1260,6 +1262,7 @@ impl StreamScraper {
         target: String,
         source: Option<String>,
         proxy_country: Option<String>,
+        proxy_countries: Vec<String>,
         proxy_rewrite_manifest_urls: Option<bool>,
     ) -> Result<ScraperAggregationResult<ResolvedStream>> {
         let resolved = if resolver_id.trim() == SCRAPER_QUERY_STREAM_RESOLVER_ID {
@@ -1269,7 +1272,7 @@ impl StreamScraper {
                     &self.player_resolver_endpoints,
                     source.as_deref().unwrap_or_default(),
                     &target,
-                    proxy_country.as_deref(),
+                    &normalize_proxy_countries(proxy_countries, proxy_country),
                     proxy_rewrite_manifest_urls.unwrap_or(false),
                 )
                 .await?,
@@ -1294,6 +1297,7 @@ impl StreamScraper {
                         &resolver_id,
                         &target,
                         service_parameters,
+                        &normalize_proxy_countries(proxy_countries, proxy_country),
                         &self.player_resolver_endpoints,
                     )
                     .await?,
@@ -1393,6 +1397,23 @@ impl StreamScraper {
             self.proxy_http_core = Some(proxy_core.clone());
         }
     }
+}
+
+fn normalize_proxy_countries(
+    proxy_countries: Vec<String>,
+    proxy_country: Option<String>,
+) -> Vec<String> {
+    let mut normalized = Vec::new();
+    for country in proxy_countries.into_iter().chain(proxy_country) {
+        let country = country.trim().to_ascii_uppercase();
+        if country.len() == 2
+            && country.bytes().all(|byte| byte.is_ascii_alphabetic())
+            && !normalized.contains(&country)
+        {
+            normalized.push(country);
+        }
+    }
+    normalized
 }
 
 /// Groups the category filters sent by category requests.
