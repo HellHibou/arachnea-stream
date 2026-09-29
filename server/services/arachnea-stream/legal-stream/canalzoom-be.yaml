@@ -1,8 +1,8 @@
-id: bouke-be
-title: Bouké
-logo: "https://www.bouke.media/themes/custom/bouke_theme/images/bouke-logo.svg"
+id: canalzoom-be
+title: Canal Zoom
+logo: "https://www.canalzoom.be/sites/default/files/logo3.png"
 description:
-  fr: "Bouké est la télévision locale de la région de Namur, accessible en direct et en replay sur son site web."
+  fr: "Canal Zoom est la télévision locale de Gembloux, Chastre, Perwez et Walhain, accessible en direct et en replay sur son site web."
 http:
   mode: auto
   user_agent_profile: firefox
@@ -13,7 +13,7 @@ http:
 # ############################################################################
 parameters:
   - name: base_url
-    value: https://www.bouke.media
+    value: https://www.canalzoom.be
     description: "Base URL — update on domain change"
   - name: player_base_url
     value: https://tvlocales-player.freecaster.com
@@ -24,10 +24,13 @@ parameters:
 # Shared structs
 # ############################################################################
 shared:
-  media_types_bouke: &media_types_bouke
+  media_types_canalzoom: &media_types_canalzoom
     - video/show/other
     - video/show/serie
+    - video/show/documentary
+    - video/show/sport
     - video/news
+    - video/other
     - video/live
 
   media_type_category_map: &media_type_category_map
@@ -36,11 +39,29 @@ shared:
     Culture: video/show/documentary
     Sport: video/show/sport
 
+  # Card category label (`div.bullet … div.field-item`) → media type. Labels
+  # outside the known categories (sub-categories such as Basketball or Football,
+  # "Émissions", …) keep their own label through the generic
+  # `video/other/<label>` media-type form that the frontend displays verbatim.
   actions_card_category_media_type: &actions_card_category_media_type
     - type: get_text
     - type: map
       argument: *media_type_category_map
       default: "video/other/{}"
+
+  # Entry pages have no category bullet: the taxonomy label only lives in the
+  # `article:tag` meta tags, mixed with town and programme labels, so the
+  # response body is scanned for the known categories. The `~` key of the shared
+  # map keeps `video/show/other` for pages without any category tag (for instance
+  # `/emission/<slug>` programme pages).
+  actions_entry_category_media_type: &actions_entry_category_media_type
+    - type: get_response_body
+    - type: regex_find_all
+      pattern: 'property="article:tag"[^>]*content="(Actu|Culture|Sport)"'
+      format: "{1}"
+    - type: map
+      argument: *media_type_category_map
+
   actions_get_href_resolve: &actions_get_href_resolve
     - type: get_attribut
       argument: href
@@ -51,50 +72,57 @@ shared:
       argument: src
     - type: resolve_url
 
-  # A rail title lives in the `h2` of its section-header paragraph and is
-  # followed by a `<cite>` link ("Tous les sujets"). `html_to_text` always
-  # converts the selected element markup, so the cite suffix is stripped from
-  # the produced text instead of from the markup.
-  actions_get_rail_title: &actions_get_rail_title
-    - type: html_to_text
-    - type: regex_replace_all
-      pattern: '\s*Tous les sujets\s*$'
-      replacement: ""
-
-  # Home rails list their cards as `div.view-mode-content_slide`: title in
-  # `h3 span`, publication date as `time` text and the card link on
-  # `a.overlink`. There is no `div.content` block and no summary field there.
-  # Each card field is anchored on its own so `load_home` can inline the same
-  # fields at row level next to its header flags.
-  entries_slide_card: &entries_slide_card
-    - &entry_slide_title
-      name: title
+  # Featured rail cards (`paragraph--type--feat-content`, e.g. Actu / Sport /
+  # Culture): the rail title lives in
+  # `.field-paragraph--field-feat-content-title` and the "see all" link in
+  # `.field-paragraph--field-feat-content-link a`. The lead story uses
+  # `view-mode-content_spotlight_w_half` with a dedicated spotlight block
+  # while the following stories use smaller spotlight view modes with no
+  # `div.content` block, so card fields are anchored generically (`h2 span`
+  # title, `time` date, `a.overlink` link). The rails mix video and text
+  # articles and only videos get the `camera-icon` class on their
+  # `div.view-mode-* > div.content-media` wrapper (the text-only article keeps
+  # a plain `div.content-media`), so `:has()` restricts the row selector to
+  # video cards. `article[id]` only matches the outer card articles, not the
+  # nested bare `<article>` media wrappers.
+  entries_feat_card: &entries_feat_card
+    - name: source
+      type: string
+      actions:
+        - type: format_text
+          argument: "{source}"
+    - name: title
       type: string
       select: first
-      selector: "h3 span"
+      selector: "h2 span"
       actions:
         - type: get_text
-    - &entry_slide_title_any
-      name: title
+    - name: title
       type: string
       select: first
-      selector: "h3"
+      selector: "h2"
       actions:
         - type: get_text
-    - &entry_slide_link
-      name: link
+    - name: link
       type: string
       select: first
       selector: "a.overlink"
       actions: *actions_get_href_resolve
-    - &entry_slide_web_link
-      name: web-link
+    - name: web-link
       type: string
       select: first
       selector: "a.overlink"
       actions: *actions_get_href_resolve
-    - &entry_slide_release_date
-      name: release-date
+    - name: release-date
+      type: string
+      select: first
+      selector: "time[datetime]"
+      actions:
+        - type: get_attribut
+          argument: datetime
+        - type: get_date
+          format: yyyy_mm_dd
+    - name: release-date
       type: string
       select: first
       selector: "time"
@@ -105,24 +133,100 @@ shared:
           format: "{1}"
         - type: get_date
           format: dd_mm_yyyy
-    - &entry_slide_image
-      name: img/poster > link
+    - name: img/landscape > link
       type: string
       select: first
       selector: "img"
       actions: *actions_get_src_resolve
-    - &entry_slide_media_type
-      name: media-type
+    - name: media-type
+      type: string[]
+      actions:
+        - type: format_text
+          argument: "video/show/other"
+    # Category-aware override: `select: first` replaces the generic value as soon
+    # as the card exposes its category bullet.
+    - name: media-type
+      type: string[]
+      select: first
+      selector: "div.bullet div.field-item"
+      actions: *actions_card_category_media_type
+
+  # Suggestion cards (`paragraph--type--recommendation`, "Nos suggestions") use
+  # `div.view-mode-editor_suggestion`: title in `h3 span`, publication date as
+  # `time` text plus `datetime` attribute, synopsis in
+  # `.field-type-text-with-summary` and the card link on `a.overlink`.
+  entries_suggestion_card: &entries_suggestion_card
+    - name: source
+      type: string
+      actions:
+        - type: format_text
+          argument: "{source}"
+    - name: title
+      type: string
+      select: first
+      selector: "h3 span"
+      actions:
+        - type: get_text
+    - name: title
+      type: string
+      select: first
+      selector: "h3"
+      actions:
+        - type: get_text
+    - name: link
+      type: string
+      select: first
+      selector: "a.overlink"
+      actions: *actions_get_href_resolve
+    - name: web-link
+      type: string
+      select: first
+      selector: "a.overlink"
+      actions: *actions_get_href_resolve
+    - name: description
+      type: string
+      select: first
+      selector: "div.field-type-text-with-summary div.field-item"
+      actions:
+        - type: get_text
+    - name: release-date
+      type: string
+      select: first
+      selector: "time[datetime]"
+      actions:
+        - type: get_attribut
+          argument: datetime
+        - type: get_date
+          format: yyyy_mm_dd
+    - name: release-date
+      type: string
+      select: first
+      selector: "time"
+      actions:
+        - type: get_text
+        - type: regex_find_all
+          pattern: '(\d{2}/\d{2}/\d{4})'
+          format: "{1}"
+        - type: get_date
+          format: dd_mm_yyyy
+    - name: img/landscape > link
+      type: string
+      select: first
+      selector: "img"
+      actions: *actions_get_src_resolve
+    - name: media-type
       type: string[]
       actions:
         - type: format_text
           argument: "video/show/other"
 
-
-  # Taxonomy listing cards (`/info`, `/sport`, `/culture`) are
+  # Taxonomy listing cards (`/actu`, `/culture`, `/sport`) are
   # `article.teaser-item` rows exposing a real `div.content` block: category
   # bullet, `<time>` text date, `h2 span` title, the summary field and an
-  # `a.overlink` card link.
+  # `a.overlink` card link. Those listings also mix video and text articles,
+  # and only videos carry the `camera-icon` class on the
+  # `div.view-mode-* > div.teaser-item` media wrapper, so the rows are
+  # filtered with `:has()` to keep playable cards only.
   entries_video_card: &entries_video_card
     - name: source
       type: string
@@ -167,6 +271,13 @@ shared:
       select: first
       selector: "img"
       actions: *actions_get_src_resolve
+    - name: media-type
+      type: string[]
+      actions:
+        - type: format_text
+          argument: "video/show/other"
+    # Category-aware override: `select: first` replaces the generic value as soon
+    # as the card exposes its category bullet.
     - name: media-type
       type: string[]
       select: first
@@ -238,9 +349,7 @@ shared:
       actions: *actions_get_href_resolve
       # The teaser card does not carry the synopsis, so each episode page is
       # fetched once. `target: parent` keeps `link` and merges the extracted
-      # fields next to it, as required by the entry sub-query contract. The
-      # synopsis is read from `og:description`, whose value the HTML parser
-      # already decodes into plain text, so no `html_to_text` is needed.
+      # fields next to it, as required by the entry sub-query contract.
       sub_queries:
         - scraper_type: html
           target: parent
@@ -276,10 +385,6 @@ shared:
         - type: regex_find_all
           pattern: '(\d+\s*min)'
           format: "{1}"
-    # `get_season` episodes follow the season episode contract, where the
-    # frontend only reads `img/preview` (and `img/poster` as fallback) to feed
-    # the episode card image. The rail image is the 16:9 teaser picture, so it
-    # is published as the preview rather than as a poster.
     - name: img/preview > link
       type: string
       select: first
@@ -292,9 +397,8 @@ shared:
           argument: "video/show/other"
 
   # Both `get_entry` and `get_players` resolve the same Freecaster player: a
-  # playable page carries `div.freecaster-player[data-video-id]`, and the
-  # player JSON exposes every rendition at `/video/src`, including the HLS
-  # manifest used by the frontend.
+  # playable replay page carries `div.freecaster-player[data-video-id]`, and
+  # the player JSON exposes every rendition at `/video/src`.
   entry_players_freecaster: &entry_players_freecaster
     name: players
     type: object[]
@@ -303,7 +407,7 @@ shared:
         type: string
         actions:
           - type: format_text
-            argument: "Bouké"
+            argument: "Canal Zoom"
       - name: direct-link
         type: string
         select: first
@@ -325,8 +429,7 @@ shared:
         type: string
         actions:
           - type: format_text
-            argument: "{query_url}" 
-
+            argument: "{query_url}"
 
 # ############################################################################
 # Queries
@@ -356,18 +459,21 @@ queries:
 
 
   # --------------------------------------------------------------------------
-  # Home page — lazy categories, hero banners and the editorial rails
-  # The landing page is a flat list of sibling paragraphs: promo banners,
-  # section headers, content rails, a programme schedule and programme teasers.
-  # Categories come from the main navigation, banners from the promo
-  # paragraphs (their CTA link feeds the click-through entry), and rails from
-  # header rows plus their slide cards regrouped by `group_items_by_header`.
+  # Home page — categories plus the three featured rails, the suggestion rail
+  # and the programme teaser rail. Featured paragraphs
+  # (`paragraph--type--feat-content`, e.g. Actu / Sport / Culture) expose
+  # their rail title in `.field-paragraph--field-feat-content-title`, their
+  # "see all" link in `.field-paragraph--field-feat-content-link a` and their
+  # cards as `article[id]` (the lead story and the smaller spotlights share
+  # the same generic `h2` / `time` / `a.overlink` shape) and keep only the
+  # cards whose media wrapper carries the `camera-icon` class, since the rails
+  # also advertise text-only articles.
   # --------------------------------------------------------------------------
   - name: load_home
     scraper_type: html
     base_url: "{base_url}"
     query_url: "{base_url}"
-    media_types: *media_types_bouke
+    media_types: *media_types_canalzoom
     row_selector: "html"
     entries:
       - name: source
@@ -377,8 +483,7 @@ queries:
             argument: "{source}"
 
       # Main navigation entries are the browsable categories consumed by
-      # `get_category`; `/liste-localite` is a locality directory and is
-      # dropped below because it exposes no media card.
+      # `get_category`.
       - name: categories
         type: object[]
         selector: "nav#block-main-nav-page ul[block='block-main-nav-page'] li a"
@@ -403,128 +508,91 @@ queries:
             type: string
             actions: *actions_get_href_resolve
 
-      # Promo paragraphs are the hero banners of the home page.
-      - name: banners
+      # Featured rails (Actu / Sport / Culture): one section per paragraph.
+      - name: sections
         type: object[]
-        selector: "div.field-node--field-landing-page-content > .field-items > .field-item > .paragraph--type--promo-content"
+        selector: "div.paragraph--type--feat-content"
         select: all
         entries:
-          - name: key
+          - name: label
             type: string
             select: first
-            selector: ".field-paragraph--field-promo-content-cta-link a"
-            actions:
-              - type: get_attribut
-                argument: href
-              - type: regex_replace_all
-                pattern: "^.*/([^/]+)/?$"
-                replacement: "$1"
-          - name: title
-            type: string
-            select: first
-            selector: ".field-paragraph--field-promo-content-title .field-item"
+            selector: ".field-paragraph--field-feat-content-title .field-item"
             actions:
               - type: get_text
-          - name: subtitle
-            type: string
-            select: first
-            selector: ".field-paragraph--field-promo-content-subtitle .field-item"
-            actions:
-              - type: get_text
-          # The text field sometimes only holds an inline `<style>` block
-          # (e.g. `/liste-localite`), so only real paragraph text is kept.
-          - name: description
-            type: string
-            select: first
-            selector: ".field-paragraph--field-promo-content-txt .field-item p"
-            actions:
-              - type: get_text
-          - name: image
-            type: string
-            select: first
-            selector: "img"
-            actions: *actions_get_src_resolve
           - name: link
             type: string
             select: first
-            selector: ".field-paragraph--field-promo-content-cta-link a"
+            selector: ".field-paragraph--field-feat-content-link a"
             actions: *actions_get_href_resolve
-          - name: web-link
-            type: string
-            select: first
-            selector: ".field-paragraph--field-promo-content-cta-link a"
-            actions: *actions_get_href_resolve
+          - name: entries
+            type: object[]
+            selector: "article[id]:has(> div > div.camera-icon)"
+            select: all
+            entries: *entries_feat_card
 
-      # Flat row list mixing section-header paragraphs (flagged `is_header`,
-      # carrying the rail label) and the individual cards of their content
-      # slides, in document order. `group_items_by_header` opens a section on
-      # every header row and appends the following card rows to it, so each
-      # row must stay a single card rather than a whole slide paragraph.
-      - name: home_rows
+      # Suggestion rail ("Nos suggestions"): one section whose cards use the
+      # `view-mode-editor_suggestion` shape with their synopsis.
+      - name: sections
         type: object[]
-        selector: "div.field-node--field-landing-page-content > .field-items > .field-item > .paragraph--type--section-header, div.field-node--field-landing-page-content > .field-items > .field-item > .paragraph--type--content-slide div.view-mode-content_slide:has(> div.camera-icon)"
+        selector: "div.paragraph--type--recommendation"
         select: all
         entries:
-          - name: is_header
-            type: boolean
-            select: first
-            selector: "h2 .field-item"
-            actions:
-              - type: format_text
-                argument: "true"
-          - name: header_label
+          - name: label
             type: string
             select: first
-            selector: "h2 .field-item p"
-            actions: *actions_get_rail_title
-          - *entry_slide_title
-          - *entry_slide_title_any
-          - *entry_slide_link
-          - *entry_slide_web_link
-          - *entry_slide_release_date
-          - *entry_slide_image
-          - *entry_slide_media_type
+            selector: ".field-paragraph--field-recommendation-title .field-item"
+            actions:
+              - type: get_text
+          - name: entries
+            type: object[]
+            selector: "article[id]"
+            select: all
+            entries: *entries_suggestion_card
+
+      # Programme teaser rail ("Nos émissions"): one section whose cards reuse
+      # the `/emissions` portrait shape (`/emission/<slug>` program pages).
+      - name: sections
+        type: object[]
+        selector: "div.paragraph--type--teasing-slider"
+        select: all
+        entries:
+          - name: label
+            type: string
+            select: first
+            selector: ".field-paragraph--field-teasing-slider-title .field-item"
+            actions:
+              - type: get_text
+          - name: link
+            type: string
+            select: first
+            selector: ".field-paragraph--field-teasing-slider-link a"
+            actions: *actions_get_href_resolve
+          - name: entries
+            type: object[]
+            selector: "div.view-mode-portrait"
+            select: all
+            entries: *entries_program_card
     post_process:
       - type: filter_items
         source: categories
         field: link
         pattern: "^https?://"
         keep_matching: true
-      - type: filter_items
-        source: categories
-        field: link
-        pattern: "/liste-localite"
-        keep_matching: false
-      - type: filter_items
-        source: banners
-        field: link
-        pattern: "^https?://"
-        keep_matching: true
-      - type: group_items_by_header
-        source: home_rows
-        target: sections
-        is_header_field: is_header
-        label_field: header_label
-        remove_item_fields:
-          - is_header
-          - header_label
-        remove_source: true
-
 
   # --------------------------------------------------------------------------
-  # Category — first page of a taxonomy listing (`/info`, `/sport`, `/culture`)
-  # or of the `/emissions` programme index. Drupal pagers are zero-based
-  # (`?page=N`) while `{page}` is the one-based page requested by the
-  # frontend, so `{page_index}` (= page - 1) is appended. Both card shapes are
-  # extracted: taxonomy pages list `article.teaser-item` rows and `/emissions`
-  # lists `div.view-mode-portrait` program cards. The shape that is absent
-  # yields no entries and is merged into the other section by the frontend.
+  # Category — first page of a taxonomy listing (`/actu`, `/culture`,
+  # `/sport`) or of the `/emissions` programme index. Drupal pagers are
+  # zero-based (`?page=N`) while `{page}` is the one-based page requested by
+  # the frontend, so `{page_index}` (= page - 1) is appended. Both card shapes
+  # are extracted: taxonomy pages list `article.teaser-item` rows and
+  # `/emissions` lists `div.view-mode-portrait` program cards.
   # --------------------------------------------------------------------------
   - name: get_category
     scraper_type: html
     base_url: "{base_url}"
     query_url: "{query_url}{query_separator}page={page_index}"
-    media_types: *media_types_bouke
+    media_types: *media_types_canalzoom
     row_selector: "html"
     entries:
       - name: source
@@ -540,8 +608,6 @@ queries:
             actions:
               - type: format_text
                 argument: "Vidéos"
-          # Exposed so the frontend can load further pages through
-          # `get_section` with the same listing URL.
           - name: link
             type: string
             actions:
@@ -551,8 +617,6 @@ queries:
             actions:
               - type: format_text
                 argument: "{page}"
-          # The infinite-scroll pager only renders a "Load more" link while
-          # more rows exist; its presence is the only pagination signal.
           - name: have_more
             type: boolean
             select: first
@@ -575,7 +639,6 @@ queries:
         source: sections
         next_param: page
 
-
   # --------------------------------------------------------------------------
   # Section — next pages of a category listing, requested by the frontend with
   # the `link` emitted by `get_category` and a one-based page number.
@@ -584,7 +647,7 @@ queries:
     scraper_type: html
     base_url: "{base_url}"
     query_url: "{query_url}{query_separator}page={page_index}"
-    media_types: *media_types_bouke
+    media_types: *media_types_canalzoom
     row_selector: "html"
     entries:
       - name: source
@@ -619,20 +682,17 @@ queries:
         entries_field: entries
         next_param: page
 
-
   # --------------------------------------------------------------------------
   # Entry — one programme, episode or news article page
   # `/emission/<slug>` describes a programme and lists its episodes,
-  # `/replay/emission/...` and `/info/...` describe one playable page and embed
-  # its Freecaster player in `div.freecaster-player[data-video-id]`. The
-  # episode list only exists on programme pages, so `seasons` (a single
-  # pseudo-season pre-filled with nothing but its link) is emitted only there.
+  # `/replay/emission/...` and `/actu/...` describe one playable page and
+  # embed its Freecaster player in `div.freecaster-player[data-video-id]`.
   # --------------------------------------------------------------------------
   - name: get_entry
     scraper_type: html
     base_url: "{base_url}"
     query_url: "{query_url}"
-    media_types: *media_types_bouke
+    media_types: *media_types_canalzoom
     row_selector: "html"
     entries:
       - name: source
@@ -652,9 +712,6 @@ queries:
         selector: "h1"
         actions:
           - type: get_text
-      # The HTML parser already decodes the attribute entities, and
-      # `html_to_text` would replace the attribute value with the (empty)
-      # inner markup of the `<meta>` element.
       - name: description
         type: string
         select: first
@@ -673,6 +730,7 @@ queries:
             format: "{1}"
           - type: get_date
             format: yyyy_mm_dd
+
       - name: link
         type: string
         actions:
@@ -689,13 +747,12 @@ queries:
           - type: get_attribut
             argument: content
           - type: resolve_url
+      # Category-aware media type: the entry page exposes its taxonomy label
+      # through the `article:tag` meta tags only.
       - name: media-type
         type: string[]
-        actions:
-          - type: format_text
-            argument: "video/show/other"
-      # Episode rail of a programme page. Episodes are loaded lazily through
-      # `get_season` with this link, so the HTTP cache stays payload-based.
+        select: first
+        actions: *actions_entry_category_media_type
       - name: seasons
         type: object[]
         selector: "div.view-episode"
@@ -715,31 +772,26 @@ queries:
 
 
   # --------------------------------------------------------------------------
-  # Get players — the frontend calls this with the `link` of a `get_season`
-  # episode card, which carries no embedded player. The episode page embeds the
-  # same `div.freecaster-player` as `get_entry`, so both queries share one
-  # player block.
+  # Get players — same Freecaster player as `get_entry`.
   # --------------------------------------------------------------------------
   - name: get_players
     scraper_type: html
     base_url: "{base_url}"
     query_url: "{query_url}"
-    media_types: *media_types_bouke
+    media_types: *media_types_canalzoom
     row_selector: "html"
     entries:
       - *entry_players_freecaster
 
-
   # --------------------------------------------------------------------------
   # Season — episodes of a programme page, paginated with the same zero-based
-  # Drupal pager. The frontend calls this with the `link` emitted by
-  # `get_entry.seasons` and a one-based page number.
+  # Drupal pager.
   # --------------------------------------------------------------------------
   - name: get_season
     scraper_type: html
     base_url: "{base_url}"
     query_url: "{query_url}{query_separator}page={page_index}"
-    media_types: *media_types_bouke
+    media_types: *media_types_canalzoom
     row_selector: "html"
     entries:
       - name: source
@@ -771,7 +823,7 @@ queries:
 
 
   # --------------------------------------------------------------------------
-  # List live channels — Bouké exposes a single live channel on `/direct`
+  # List live channels — Canal Zoom exposes a single live channel on `/direct`
   # --------------------------------------------------------------------------
   - name: list_lives
     scraper_type: html
@@ -794,32 +846,27 @@ queries:
             type: string
             actions:
               - type: format_text
-                argument: "Bouké"
-          - name: title/alt
-            type: string
-            actions:
-              - type: format_text
-                argument: "Direct"
+                argument: "Canal Zoom"
           - name: link
             type: string
             actions:
               - type: format_text
-                argument: "{base_url}/direct"
+                argument: "{query_url}"
           - name: web-link
             type: string
             actions:
               - type: format_text
-                argument: "{base_url}/direct"
+                argument: "{query_url}"
           - name: key
             type: string
             actions:
               - type: format_text
-                argument: "bouke"
+                argument: "canalzoom"
           - name: channel
             type: string
             actions:
               - type: format_text
-                argument: "Bouké"
+                argument: "Canal Zoom"
           - name: media-type
             type: string[]
             actions:
@@ -837,8 +884,10 @@ queries:
 
   # --------------------------------------------------------------------------
   # Get live stream — the Drupal settings JSON of `/direct` carries the
-  # `live_token` used by the Freecaster embed, whose JSON then exposes the HLS
-  # live manifest at `/video/src`.
+  # `live_token` used by the Freecaster embed, whose JSON then exposes the
+  # HLS live manifest at `/video/src`. This ports the `canalzoom.py`
+  # `get_live_url` resolver (`live_token` then
+  # `tvlocales-live.freecaster.com/<token>/<token>.isml/master.m3u8`).
   # --------------------------------------------------------------------------
   - name: get_live
     scraper_type: html
@@ -857,7 +906,7 @@ queries:
         type: string
         actions:
           - type: format_text
-            argument: "Bouké"
+            argument: "Canal Zoom"
       - name: players
         type: object[]
         entries:
@@ -865,7 +914,7 @@ queries:
             type: string
             actions:
               - type: format_text
-                argument: "Bouké"
+                argument: "Canal Zoom"
           - name: direct-link
             type: string
             actions:
@@ -881,4 +930,3 @@ queries:
                     type: string
                     select: first
                     pointer: "/*[type=application/x-mpegurl]/src"
-
