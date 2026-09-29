@@ -32,7 +32,13 @@ const SKIP_CHAPTER_BUTTON_HIDDEN_CONTROLS_REVEAL_SECONDS = 5
 /**
  * Chapter types that display a dedicated skip button.
  */
-export const SKIP_CHAPTER_BUTTON_TYPES = ['previously', 'intro', 'outro', 'ads'] as const
+export const SKIP_CHAPTER_BUTTON_TYPES = [
+  'previously',
+  'intro',
+  'coming_next',
+  'outro',
+  'ads',
+] as const
 
 /**
  * Chapter types that can be skipped with a dedicated button.
@@ -264,6 +270,7 @@ function findChapterAtTime(chapters: ResolvedVideoChapter[], time: number): Reso
 const SKIP_CHAPTER_LABEL_KEYS: Record<SkipChapterType, string> = {
   intro: 'player.chapter.skipIntro',
   previously: 'player.chapter.skipPreviously',
+  coming_next: 'player.chapter.skipComingNext',
   outro: 'player.chapter.skipOutro',
   ads: 'player.chapter.skipAds',
 }

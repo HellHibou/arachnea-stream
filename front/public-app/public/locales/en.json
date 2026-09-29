@@ -137,6 +137,7 @@
     "autoskip": {
       "previously": "Automatic recap skipping",
       "intro": "Automatic intro skipping",
+      "coming_next": "Automatic next-episode preview skipping",
       "outro": "Automatic outro skipping",
       "ads": "Automatic ad skipping"
     },
@@ -243,6 +244,8 @@
       "skipIntro": "Skip Intro",
       "previously": "Recap",
       "skipPreviously": "Skip Recap",
+      "coming_next": "Next Episode",
+      "skipComingNext": "Skip Next-Episode Preview",
       "outro": "Outro",
       "skipOutro": "Skip Outro",
       "ads": "Ad",

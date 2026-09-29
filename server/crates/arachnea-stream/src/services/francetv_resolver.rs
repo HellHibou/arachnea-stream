@@ -17,7 +17,8 @@ use arachnea_scrapyfy::{
 };
 
 use crate::services::player_resolver::{
-    PlayerResolverEndpoints, PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream,
+    Chapter, PlayerResolverEndpoints, PlayerStreamResolver, ProxiedStreamResponse,
+    ResolvedPlayerStream,
 };
 
 const FRANCETV_SERVICE_ID: &str = "francetv";
@@ -149,6 +150,7 @@ async fn resolve_francetv_stream(
         .map(str::trim)
         .unwrap_or_default();
     let drm_enabled = video.get("drm").and_then(Value::as_bool).unwrap_or(false);
+    let chapters = extract_chapters(video);
 
     let manifest_token_url = if drm_enabled && !is_live {
         FRANCETV_DEFAULT_TOKEN_URL.to_string()
@@ -175,6 +177,7 @@ async fn resolve_francetv_stream(
             manifest_type: Some(manifest_type),
             license_url: None,
             license_headers: HashMap::new(),
+            chapters,
             ..Default::default()
         });
     }
@@ -198,7 +201,67 @@ async fn resolve_francetv_stream(
         manifest_type: Some(manifest_type),
         license_url: Some(license_url),
         license_headers: HashMap::new(),
+        chapters,
         ..Default::default()
+    })
+}
+
+fn extract_chapters(video: &Value) -> Option<Vec<Chapter>> {
+    let video_duration = video
+        .get("duration")
+        .and_then(Value::as_f64)
+        .filter(|duration| duration.is_finite() && *duration > 0.0);
+    let coming_next = extract_chapter(video, "coming_next", "coming_next", video_duration);
+    let mut outro = extract_chapter(video, "closing_credits", "outro", video_duration);
+
+    if let (Some(coming_next), Some(current_outro)) = (&coming_next, &mut outro) {
+        if (coming_next.start - current_outro.start).abs() <= 0.001 {
+            if coming_next.end < current_outro.end {
+                current_outro.start = coming_next.end;
+            } else {
+                outro = None;
+            }
+        }
+    }
+
+    let mut chapters = [
+        extract_chapter(video, "previously", "previously", video_duration),
+        coming_next,
+        extract_chapter(video, "skip_intro", "intro", video_duration),
+        outro,
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
+
+    chapters.sort_by(|left, right| left.start.total_cmp(&right.start));
+    (!chapters.is_empty()).then_some(chapters)
+}
+
+fn extract_chapter(
+    video: &Value,
+    marker_name: &str,
+    chapter_type: &str,
+    video_duration: Option<f64>,
+) -> Option<Chapter> {
+    let marker = video.get(marker_name)?;
+    let start = marker.get("timecode").and_then(Value::as_f64)?;
+    let end = marker
+        .get("duration")
+        .and_then(Value::as_f64)
+        .map(|duration| start + duration)
+        .or(video_duration)
+        .map(|end| video_duration.map_or(end, |duration| end.min(duration)))?;
+
+    if !start.is_finite() || !end.is_finite() || start < 0.0 || end <= start {
+        return None;
+    }
+
+    Some(Chapter {
+        start,
+        end,
+        title: None,
+        chapter_type: chapter_type.to_string(),
     })
 }
 

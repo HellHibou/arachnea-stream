@@ -217,6 +217,10 @@ export interface Parameters {
    */
   'videoPlayer.autoskip.intro': Ref<boolean>
   /**
+   * Indicates whether the integrated player should automatically skip coming-next chapters.
+   */
+  'videoPlayer.autoskip.coming_next': Ref<boolean>
+  /**
    * Indicates whether the integrated player should automatically skip outro chapters.
    */
   'videoPlayer.autoskip.outro': Ref<boolean>
@@ -283,6 +287,7 @@ const PARAMETERS_DEF: ParameterEntry[] = [
   { key: 'isEpisodeAutoplayEnabled',      defaultValue: false      },
   { key: 'videoPlayer.autoskip.previously', defaultValue: false      },
   { key: 'videoPlayer.autoskip.intro',      defaultValue: false      },
+  { key: 'videoPlayer.autoskip.coming_next', defaultValue: false      },
   { key: 'videoPlayer.autoskip.outro',      defaultValue: false      },
   { key: 'videoPlayer.autoskip.ads',      defaultValue: false      },
   { key: 'securityMode',            defaultValue: 'safe'         },

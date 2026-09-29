@@ -1064,6 +1064,7 @@ const previewedNavigationImageUrl = computed(() => {
 
 .videojs-media-host :deep(.vjs-skip-intro-button),
 .videojs-media-host :deep(.vjs-skip-previously-button),
+.videojs-media-host :deep(.vjs-skip-coming_next-button),
 .videojs-media-host :deep(.vjs-skip-outro-button),
 .videojs-media-host :deep(.vjs-skip-ads-button) {
   display: none;
@@ -1093,6 +1094,7 @@ const previewedNavigationImageUrl = computed(() => {
 
 .videojs-media-host :deep(.vjs-skip-intro-button--visible),
 .videojs-media-host :deep(.vjs-skip-previously-button--visible),
+.videojs-media-host :deep(.vjs-skip-coming_next-button--visible),
 .videojs-media-host :deep(.vjs-skip-outro-button--visible),
 .videojs-media-host :deep(.vjs-skip-ads-button--visible) {
   display: inline-flex;
@@ -1101,6 +1103,7 @@ const previewedNavigationImageUrl = computed(() => {
 /* While the control bar is hidden the button drops near the player bottom edge. */
 .videojs-media-host :deep(.vjs-skip-intro-button--controls-hidden),
 .videojs-media-host :deep(.vjs-skip-previously-button--controls-hidden),
+.videojs-media-host :deep(.vjs-skip-coming_next-button--controls-hidden),
 .videojs-media-host :deep(.vjs-skip-outro-button--controls-hidden),
 .videojs-media-host :deep(.vjs-skip-ads-button--controls-hidden) {
   bottom: 20px;
@@ -1108,6 +1111,7 @@ const previewedNavigationImageUrl = computed(() => {
 
 .videojs-media-host :deep(.vjs-skip-intro-button:active),
 .videojs-media-host :deep(.vjs-skip-previously-button:active),
+.videojs-media-host :deep(.vjs-skip-coming_next-button:active),
 .videojs-media-host :deep(.vjs-skip-outro-button:active),
 .videojs-media-host :deep(.vjs-skip-ads-button:active) {
   background: rgb(0 0 0 / 0.9);
