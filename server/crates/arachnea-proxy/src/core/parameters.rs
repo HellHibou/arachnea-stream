@@ -13,11 +13,18 @@ pub const PROXY_HEADER_PARAMETER_COUNTRY: &str = "Arachnea-Proxy-Country";
 /// alpha-2 country codes so comma-like values cannot be ambiguous.
 pub const PROXY_HEADER_PARAMETER_COUNTRIES: &str = "Arachnea-Proxy-Countries";
 
+/// Proxy affinity parameter header name. Its opaque value pins related
+/// requests to the same eligible dynamic proxy.
+pub const PROXY_HEADER_PARAMETER_AFFINITY: &str = "Arachnea-Proxy-Affinity";
+
 /// Proxy country parameter name.
 pub const PROXY_PARAMETER_COUNTRY: &str = "country";
 
 /// Proxy countries parameter name.
 pub const PROXY_PARAMETER_COUNTRIES: &str = "countries";
+
+/// Proxy affinity parameter name.
+pub const PROXY_PARAMETER_AFFINITY: &str = "proxy_affinity";
 
 /// One inbound parameter definition shared by servers and routing handlers.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -464,6 +471,11 @@ impl ProxyParameterHandler for DynamicCountryRoutingProxyHandler {
                 PROXY_PARAMETER_COUNTRIES,
                 false,
             ),
+            ParameterDefinition::new(
+                PROXY_HEADER_PARAMETER_AFFINITY,
+                PROXY_PARAMETER_AFFINITY,
+                false,
+            ),
         ]
     }
 
@@ -676,6 +688,13 @@ pub fn normalize_parameter_value(name: &str, value: &str) -> String {
         parse_countries_parameter(value)
             .and_then(|countries| serde_json::to_string(&countries).ok())
             .unwrap_or_default()
+    } else if name == PROXY_PARAMETER_AFFINITY {
+        value
+            .trim()
+            .chars()
+            .filter(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+            .take(128)
+            .collect()
     } else {
         value.trim().to_string()
     }

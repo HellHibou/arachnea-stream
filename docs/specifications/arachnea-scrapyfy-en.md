@@ -124,6 +124,8 @@ http:
   user_agent: "Custom UA"       # optional: complete User-Agent override
   proxy_countries: ["US", "CA"] # optional: ordered proxy country hints
   proxy_country: "US"           # legacy single-country fallback
+  proxy_affinity: "opaque-session-id" # optional: retain the same eligible proxy
+  proxy_rejection_statuses: [403] # optional: rotate the dynamic proxy and retry once
   max_redirects: 16             # optional: max redirect count (global default: 16)
 ```
 `proxy_countries` is normalized as ordered, uppercase ISO alpha-2 codes with
@@ -133,6 +135,16 @@ each list item supports runtime template interpolation. A runtime JSON country
 list can be expanded with `http.proxy_countries: ["{proxy_countries}"]`;
 static entries can be combined with it. Use `http.proxy_country:
 "{proxy_country}"` when a query needs a runtime-supplied single country.
+
+`proxy_affinity` is an opaque process-local identifier. Requests sharing it
+reuse the same dynamic proxy while that proxy remains eligible for the country,
+protocol and destination. The identifier does not expose the proxy authority,
+and its binding expires after 15 minutes of inactivity.
+
+`proxy_rejection_statuses` lists origin response statuses that invalidate the
+currently selected dynamic proxy for that destination. A matching request is
+retried once with another cached eligible candidate. The list is empty by
+default and has no effect without an in-process dynamic proxy route.
 
 ### HTTP modes (`mode`)
 

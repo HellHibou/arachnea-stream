@@ -53,7 +53,9 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 
 
 ## Server/Proxy
-- Surveiller la croissance de la base SQLite `proxy-inventory` ; l'élagage par `expires_at` (purge SQL lors des recherches) et les suppressions par autorité la maintiennent à taille raisonnable, mais un très grand nombre de proxys justifiera un suivi de volume et, au besoin, un vacuum planifié.
+- Réduire encore la latence du chargement dynamique après la mise en place du single-flight et de la validation glissante par proxy : dédupliquer les entrées fournisseur contre l'inventaire persistant, ne sonder que les entrées nouvelles ou dont `last_checked` dépasse `probe_ttl`, puis sonder par lots progressifs avec arrêt du chemin bloquant au premier candidat compatible (et décider si le reste se poursuit en arrière-plan).
+- Évaluer la priorité de `FR` sur `AD` pour les listes M6 et rendre la concurrence de sondage configurable depuis la configuration applicative. La passe cache-first multi-pays, le cooldown partagé des consultations fournisseur et la préférence pour le dernier proxy validé sont maintenant implémentés dans l'inventaire.
+- Surveiller la croissance de la base SQLite `proxy-inventory` ; les proxys dont la dernière validation dépasse 24 heures ne sont supprimés qu'après un échec observé, donc un très grand nombre de proxys jamais réutilisés justifiera un suivi de volume et, au besoin, une politique de nettoyage ou un vacuum planifié.
 - Évaluer MASQUE CONNECT-UDP après la stabilisation du socle UDP et d'une pile Rust HTTP/3 compatible.
 - Ajouter l'orchestration `ExternalTunnel` pour les processus locaux comme obfs4proxy, WebTunnel, les plugins Shadowsocks ou un daemon Tor local.
 - Ajouter les modes d'intégration Tor :

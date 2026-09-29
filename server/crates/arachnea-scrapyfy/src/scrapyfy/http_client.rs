@@ -8,7 +8,7 @@ use arachnea_http::{
     SharedCookieCache,
 };
 #[cfg(feature = "arachnea-proxy")]
-use arachnea_proxy::core::{ArachneaProxyCore, UsageProfile};
+use arachnea_proxy::core::{ApplicationProtocol, ArachneaProxyCore, Destination, UsageProfile};
 use http::{HeaderMap, Method};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -275,6 +275,12 @@ pub struct ScraperHttpConfig {
     /// precedence over the legacy `proxy_country` field.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub proxy_countries: Vec<String>,
+    /// Opaque affinity key used to keep related requests on the same eligible proxy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy_affinity: Option<String>,
+    /// HTTP statuses that should invalidate the selected dynamic proxy and retry once.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub proxy_rejection_statuses: Vec<u16>,
     /// HTTP statuses that should produce an empty scraper response.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub empty_on_statuses: Vec<u16>,
@@ -305,6 +311,8 @@ impl ScraperHttpConfig {
             && self.user_agent.is_none()
             && self.proxy_country.is_none()
             && self.proxy_countries.is_empty()
+            && self.proxy_affinity.is_none()
+            && self.proxy_rejection_statuses.is_empty()
             && self.empty_on_statuses.is_empty()
             && self.max_redirects.is_none()
             && self.execution.is_none()
@@ -333,6 +341,16 @@ impl ScraperHttpConfig {
                 self.proxy_countries.clone()
             } else {
                 child.proxy_countries.clone()
+            },
+            proxy_affinity: child
+                .proxy_affinity
+                .as_ref()
+                .or(self.proxy_affinity.as_ref())
+                .cloned(),
+            proxy_rejection_statuses: if child.proxy_rejection_statuses.is_empty() {
+                self.proxy_rejection_statuses.clone()
+            } else {
+                child.proxy_rejection_statuses.clone()
             },
             empty_on_statuses: if child.empty_on_statuses.is_empty() {
                 self.empty_on_statuses.clone()
@@ -368,6 +386,14 @@ impl ScraperHttpConfig {
     /// Sets ordered proxy country hints after normalization and deduplication.
     pub fn proxy_countries(mut self, countries: impl IntoIterator<Item = String>) -> Self {
         self.proxy_countries = normalize_proxy_countries(countries);
+        self
+    }
+
+    /// Sets an opaque proxy affinity key after trimming it.
+    pub fn proxy_affinity(mut self, affinity: impl Into<String>) -> Self {
+        self.proxy_affinity = Some(affinity.into())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
         self
     }
 
@@ -661,6 +687,8 @@ impl HttpClient {
         if http_config.request_mode() == self.http_config.request_mode()
             && http_config.browser_profile() == self.http_config.browser_profile()
             && http_config.proxy_countries_hint() == self.http_config.proxy_countries_hint()
+            && http_config.proxy_affinity == self.http_config.proxy_affinity
+            && http_config.proxy_rejection_statuses == self.http_config.proxy_rejection_statuses
             && http_config.max_redirects == self.http_config.max_redirects
         {
             return Self {
@@ -797,6 +825,15 @@ impl HttpClient {
                 serde_json::to_string(&proxy_countries).expect("country list serializes"),
             );
         }
+        if let Some(proxy_affinity) = self
+            .http_config
+            .proxy_affinity
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            builder = builder.proxy_parameter("proxy_affinity", proxy_affinity.to_string());
+        }
         let config = builder.build()?;
         let client = Arc::new(
             ArachneaHttpClient::new_with_cookie_cache_browser_session_manager_and_session_store(
@@ -815,6 +852,126 @@ impl HttpClient {
             client: client.clone(),
         });
         Ok(client)
+    }
+
+    /// Invalidates a dynamic proxy rejected by the origin and drops the cached
+    /// HTTP client so its connection pool cannot reuse the rejected tunnel.
+    #[cfg(feature = "arachnea-proxy")]
+    async fn rotate_rejected_proxy(&self, url: &str, status: u16) -> Result<bool> {
+        if !self.http_config.proxy_rejection_statuses.contains(&status) {
+            return Ok(false);
+        }
+
+        let proxy_state = self.proxy_handle.snapshot();
+        let Some(HttpProxyConfig::Arachnea(core)) = proxy_state.proxy else {
+            return Ok(false);
+        };
+        let destination = proxy_destination_from_url(url)?;
+        if !core
+            .mark_dynamic_proxy_blocked_by_origin(&destination)
+            .await
+        {
+            return Ok(false);
+        }
+
+        *self.client.write().await = None;
+        tracing::warn!(
+            status,
+            url,
+            "origin rejected dynamic proxy; retrying with another candidate"
+        );
+        Ok(true)
+    }
+
+    /// Renews the selected dynamic proxy after any non-rejected HTTP response.
+    #[cfg(feature = "arachnea-proxy")]
+    async fn validate_accepted_proxy_response(&self, url: &str, status: u16) -> Result<()> {
+        if self.http_config.proxy_rejection_statuses.contains(&status) {
+            return Ok(());
+        }
+
+        let proxy_state = self.proxy_handle.snapshot();
+        let Some(HttpProxyConfig::Arachnea(core)) = proxy_state.proxy else {
+            return Ok(());
+        };
+        let destination = proxy_destination_from_url(url)?;
+        core.mark_dynamic_proxy_validated(&destination).await;
+        Ok(())
+    }
+
+    /// Records a rejected retry without attempting a third request.
+    #[cfg(feature = "arachnea-proxy")]
+    async fn record_final_proxy_response(&self, url: &str, status: u16) -> Result<()> {
+        if self.http_config.proxy_rejection_statuses.contains(&status) {
+            let proxy_state = self.proxy_handle.snapshot();
+            if let Some(HttpProxyConfig::Arachnea(core)) = proxy_state.proxy {
+                let destination = proxy_destination_from_url(url)?;
+                core.mark_dynamic_proxy_blocked_by_origin(&destination)
+                    .await;
+            }
+            return Ok(());
+        }
+        self.validate_accepted_proxy_response(url, status).await
+    }
+
+    /// Sends one textual request without applying status-based proxy rotation.
+    async fn send_text_once(
+        &self,
+        method: Method,
+        url: &str,
+        request_headers: &HashMap<String, String>,
+        request_body: Option<&str>,
+    ) -> Result<ArachneaResponse> {
+        let is_post = method == Method::POST;
+        let http_client = self.http_client().await?;
+        let mut request_builder =
+            http_client.request_with_mode(method, url, self.http_config.request_mode());
+
+        if !request_headers.is_empty() {
+            request_builder =
+                request_builder.headers(header_map_from_strings(request_headers.clone())?);
+        }
+
+        if is_post {
+            let body = request_body.map(str::to_string).unwrap_or_else(|| {
+                url.split_once('?')
+                    .map(|(_, value)| value.to_string())
+                    .unwrap_or_default()
+            });
+            request_builder = request_builder.body(body);
+        }
+
+        request_builder
+            .send()
+            .await
+            .with_context(|| format!("Fetch fail {}", url))
+    }
+
+    /// Sends one binary request without applying status-based proxy rotation.
+    async fn send_bytes_once(
+        &self,
+        method: Method,
+        url: &str,
+        request_headers: &HashMap<String, String>,
+        request_body: Option<Vec<u8>>,
+    ) -> Result<ArachneaResponse> {
+        let http_client = self.http_client().await?;
+        let mut request_builder =
+            http_client.request_with_mode(method, url, self.http_config.request_mode());
+
+        if !request_headers.is_empty() {
+            request_builder =
+                request_builder.headers(header_map_from_strings(request_headers.clone())?);
+        }
+
+        if let Some(body) = request_body {
+            request_builder = request_builder.body(body);
+        }
+
+        request_builder
+            .send()
+            .await
+            .with_context(|| format!("Fetch fail {}", url))
     }
 
     /// Fetches the raw response body for one request.
@@ -1244,29 +1401,25 @@ impl HttpClient {
             ));
         }
 
-        let is_post = method == Method::POST;
-        let http_client = self.http_client().await?;
-        let mut request_builder =
-            http_client.request_with_mode(method, url, self.http_config.request_mode());
-
-        if !request_headers.is_empty() {
-            request_builder =
-                request_builder.headers(header_map_from_strings(request_headers.clone())?);
+        let response = self
+            .send_text_once(method.clone(), url, request_headers, request_body)
+            .await?;
+        #[cfg(feature = "arachnea-proxy")]
+        if self
+            .rotate_rejected_proxy(response.url(), response.status().as_u16())
+            .await?
+        {
+            let response = self
+                .send_text_once(method, url, request_headers, request_body)
+                .await?;
+            self.record_final_proxy_response(response.url(), response.status().as_u16())
+                .await?;
+            return Ok(response);
         }
-
-        if is_post {
-            let body = request_body.map(str::to_string).unwrap_or_else(|| {
-                url.split_once('?')
-                    .map(|(_, value)| value.to_string())
-                    .unwrap_or_default()
-            });
-            request_builder = request_builder.body(body);
-        }
-
-        request_builder
-            .send()
-            .await
-            .with_context(|| format!("Fetch fail {}", url))
+        #[cfg(feature = "arachnea-proxy")]
+        self.validate_accepted_proxy_response(response.url(), response.status().as_u16())
+            .await?;
+        Ok(response)
     }
 
     /// Sends an HTTP request with an optional binary body.
@@ -1306,22 +1459,41 @@ impl HttpClient {
             ));
         }
 
-        let http_client = self.http_client().await?;
-        let mut request_builder =
-            http_client.request_with_mode(method, url, self.http_config.request_mode());
-
-        if !request_headers.is_empty() {
-            request_builder =
-                request_builder.headers(header_map_from_strings(request_headers.clone())?);
+        let response = self
+            .send_bytes_once(method.clone(), url, request_headers, request_body.clone())
+            .await?;
+        #[cfg(feature = "arachnea-proxy")]
+        if self
+            .rotate_rejected_proxy(response.url(), response.status().as_u16())
+            .await?
+        {
+            let response = self
+                .send_bytes_once(method, url, request_headers, request_body)
+                .await?;
+            self.record_final_proxy_response(response.url(), response.status().as_u16())
+                .await?;
+            return Ok(response);
         }
-
-        if let Some(body) = request_body {
-            request_builder = request_builder.body(body);
-        }
-
-        request_builder
-            .send()
-            .await
-            .with_context(|| format!("Fetch fail {}", url))
+        #[cfg(feature = "arachnea-proxy")]
+        self.validate_accepted_proxy_response(response.url(), response.status().as_u16())
+            .await?;
+        Ok(response)
     }
+}
+
+#[cfg(feature = "arachnea-proxy")]
+fn proxy_destination_from_url(url: &str) -> Result<Destination> {
+    let parsed = Url::parse(url).with_context(|| format!("Invalid proxy response URL `{url}`"))?;
+    let host = parsed
+        .host_str()
+        .with_context(|| format!("Missing host in proxy response URL `{url}`"))?;
+    let port = parsed
+        .port_or_known_default()
+        .with_context(|| format!("Missing port in proxy response URL `{url}`"))?;
+    let protocol = match parsed.scheme() {
+        "http" => ApplicationProtocol::Http,
+        "https" => ApplicationProtocol::Https,
+        scheme => ApplicationProtocol::Other(scheme.to_string()),
+    };
+    Ok(Destination::host_port(host, port).with_protocol(protocol))
 }

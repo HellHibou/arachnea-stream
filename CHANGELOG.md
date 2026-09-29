@@ -43,6 +43,22 @@ All notable changes to the server workspace are recorded here.
   strips a trailing CR from the entrypoint's first line at `COPY` time so
   working trees checked out before that pinning still build a working image.
 
+### <u>arachnea-proxy</u>
+
+#### Added
+
+#### Changed
+
+- Dynamic proxy provider loading is now single-flight per country and governed by a shared inventory cooldown: concurrent selections wait for the same refresh, and independent clients cannot repeat a provider consultation for 120 seconds after an attempt, including failures and empty lists. Multi-country selection checks every requested country's memory and persistent caches before provider loading, then progresses through eligible country refreshes in caller order.
+- Dynamic proxy cache lifetime now uses a fixed 24-hour per-record validation age instead of a provider-refresh TTL or hard persistence expiration. Accepted HTTP responses renew the selected proxy without clearing unrelated destination failures; stale proxies remain selectable and are removed only after an observed proxy failure or configured origin rejection.
+- Accepted origin responses now make the corresponding dynamic proxy the preferred candidate for its country. Sticky reuse still passes every normal eligibility check, including global KO, protocol and HTTPS support, probe freshness, global cooldown, and destination-specific rejection state.
+
+#### Fixed
+
+- Dynamic geo-proxy selection no longer reloads an earlier country before checking cached candidates from later requested countries. Origin-specific proxy blocks remain scoped to their destination and no longer contribute to the threshold that marks a proxy globally unavailable.
+- Dynamic proxy provider consultation is no longer controlled by a per-HTTP-client load scope. `ProxyInventory` alone decides whether exhausted cached candidates justify a refresh, while Scrapyfy clients only retain destination-to-proxy correlation needed to report accepted or rejected origin responses.
+- Dynamic country proxies that time out or fail during transport/TLS setup are now marked globally KO for their cooldown instead of only being excluded from the current destination. This prevents a known dead proxy from adding another full timeout to subsequent M6+ origin requests; HTTP origin rejections remain destination-scoped, and SOCKS5 local-DNS fallback remains reserved for explicit remote DNS failures.
+
 ### <u>arachnea-stream</u>
 
 #### Added
@@ -63,6 +79,10 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- FranceTV playback now defaults to a French geo-proxy when no country is supplied and keeps one opaque proxy affinity across K7, manifest signing, DRM authorization, proxied manifest/subresource loading, and deferred Widevine licensing. Both internal HTTP calls and returned `/api/proxy` URLs classify HTTP 403 as a destination-specific rejection, clear the rejected affinity binding, rotate to another eligible proxy, and retry once; rewritten HLS key URLs preserve the inherited proxy options.
+- Dynamic proxy selection now delegates exhausted-cache refresh decisions to the shared inventory, so independently created M6+ clients reuse the same per-country refresh cooldown instead of downloading and probing the same list again.
+- A configured origin rejection (such as M6+ HTTP 403) now rotates away from the rejected proxy without granting the HTTP client a new provider refresh. The inventory may refresh only when its shared per-country cooldown allows it.
+- M6+ now treats HTTP 403 responses during its authenticated playback sequence as rejection of the current geo-proxy, records a destination-scoped cooldown, and retries the request once with another cached proxy candidate.
 - Boukè now declares `get_players`. Season episode cards carry no embedded player, so the frontend publishes their media link as the `players` collection and lazily loads it through the `get_players` command; without that query the backend returned an empty player list and "Regarder" silently started nothing. The Freecaster player block is factored into the shared `entry_players_freecaster` anchor reused by `get_entry` and `get_players`, both resolving `div.freecaster-player[data-video-id]` to the HLS rendition exposed at `/video/src`.
 - Anime-Sama catalog cards now extract genres only once from their genre tags and exclude the decorative ellipsis tag, preventing duplicate or empty genre labels in search and home rails.
 - Coflix search now parses the HTML returned by `/filter?keyword=…` instead of treating it as the retired JSON payload, restoring result titles, links, poster extraction, VF/VOSTFR language metadata, and next-page navigation.
@@ -75,6 +95,7 @@ All notable changes to the server workspace are recorded here.
 #### Added
 
 - Scraper HTTP configuration now supports `proxy_countries`, an ordered normalized country list that is forwarded to proxy routing as a JSON array and takes precedence over legacy `proxy_country`.
+- Scraper HTTP configuration now supports `proxy_rejection_statuses`, allowing selected origin statuses to rotate a dynamic proxy and retry the request once.
 - HTTP scraper queries now support `empty_on_statuses`, allowing source configurations to map selected response statuses to an empty typed result instead of parsing the error body.
 
 #### Changed

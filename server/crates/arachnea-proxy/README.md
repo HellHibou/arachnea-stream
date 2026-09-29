@@ -24,13 +24,14 @@ This README is the design and usage home for the proxy crate. Remaining work is 
 - Multi-hop TCP chaining, proxy pools, route selection, fallback behavior, and typed route errors.
 - `tower` and hyper-oriented client connector adapters.
 - `rquest` loopback helper for clients that require a proxy URL.
-- Controller HTTP proxy URL helpers can carry optional request-local country routing hints and redirect-time `RemoveHeader` rules through the existing `opts` header mechanism.
+- Controller HTTP proxy URL helpers can carry optional request-local country routing hints, opaque dynamic-proxy affinity keys, origin-rejection statuses, and redirect-time `RemoveHeader` rules through the existing `opts` mechanism. Related requests with the same affinity key reuse the same eligible proxy; a configured rejection clears that binding, records the destination cooldown, and retries once with another candidate.
 - Post-response text replacement actions can carry an optional per-action content-type allowlist for manifests that use non-default textual MIME types.
 - Scrapyfy `resolve_url` can attach declarative `proxy_replace_all` rules to proxied textual responses, for example to proxy storyboard WebVTT cue-image URLs.
 - Optional HTTP proxy, HTTP CONNECT, HTTPS proxy, SOCKS4/SOCKS4a, SOCKS5 CONNECT, and SOCKS5 UDP ASSOCIATE server listeners.
 - Public-bind safety checks, ACLs, optional HTTP/SOCKS authentication, connection limits, and typed errors.
 - Optional integration with `arachnea-dns` when local resolution or Smart DNS decisions are required.
-- Optional persistent cache for dynamic proxies (feature `persistence`): the inventory consults a shared `PersistenceStore` per country before falling back to the provider, and writes mutations back through namespace-bound transactions committed at the end of each processing batch. Records are keyed by authority in the `proxy-inventory` namespace, expire through cooldown/probe freshness or a 24 h global TTL, and are filtered by country through field queries.
+- Optional persistent cache for dynamic proxies (feature `persistence`): the inventory consults a shared `PersistenceStore` per country before falling back to the provider and writes mutations back through namespace-bound transactions. Records are keyed by authority in the `proxy-inventory` namespace and filtered by country through field queries. Their fixed 24-hour validation age is not a hard expiration: stale records remain selectable and are deleted only when a later proxy connection or configured origin-rejection check fails.
+- Dynamic provider refresh policy belongs to the shared inventory rather than HTTP clients. Refreshes are single-flight per country and suppressed for 120 seconds after every provider attempt, including failures and empty lists. Multi-country selection searches every requested country's memory and persistent cache before consulting providers, then refreshes eligible countries in caller order. Accepted origin responses renew the selected proxy's 24-hour validation age and make it the preferred country candidate while it remains eligible. Optional affinity bindings are retained for 15 minutes and are reused only while the bound proxy still passes country, protocol, freshness, global cooldown, and destination-cooldown checks. Statuses listed in `proxy_rejection_statuses` record a destination rejection, clear the rejected affinity binding, and rotate without bypassing those checks.
 
 ## Profiles
 
@@ -62,8 +63,9 @@ The retired design notes also reserved `censorship_resistance`; it remains track
 - `Destination` should keep either an IP address or a hostname without forcing early resolution.
 - SOCKS4a, SOCKS5, and HTTP CONNECT can carry hostnames upstream.
 - SOCKS4 uses local IPv4 resolution by default; `socks4a://` uses proxy-side hostname transmission.
-- SOCKS5 supports `local`, `proxy_then_local_fallback`, and `proxy_only` DNS strategies; `proxy_then_local_fallback` is the default.
+- SOCKS5 supports `local`, `proxy_then_local_fallback`, and `proxy_only` DNS strategies; `proxy_then_local_fallback` is the default and is used only after SOCKS5 reports a remote hostname-resolution failure.
 - `arachnea-dns` should be called only when the proxy truly needs local resolution or a precomputed Smart DNS route decision.
+- Dynamic proxies that time out or fail at transport/TLS setup are marked globally unavailable for their cooldown, whereas configured HTTP origin rejections remain scoped to the rejected destination.
 - The proxy should consume DNS decisions; it should not redefine DNS security, privacy, cache, DNSSEC, or anti-censorship policy.
 
 ## Security and Privacy

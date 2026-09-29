@@ -42,6 +42,7 @@ const SIXPLAY_CALLBACK_NAME: &str = "jsonp_arachnea";
 const SIXPLAY_DEVICE_ID: &str = "_luid_arachnea";
 const SIXPLAY_SESSION_TTL: Duration = Duration::from_secs(15 * 60);
 const M6PLAY_SERVICE_ID: &str = "m6play-fr";
+const M6PLAY_PROXY_REJECTION_STATUS: u16 = 403;
 
 static SIXPLAY_JS_ID_REGEX: OnceLock<Regex> = OnceLock::new();
 static SIXPLAY_API_KEY_REGEX: OnceLock<Regex> = OnceLock::new();
@@ -137,8 +138,7 @@ async fn resolve_replay_stream(
         bail!("Missing 6play video identifier.");
     }
 
-    let http_client = scraper_agregator
-        .create_http_client(ScraperHttpConfig::default().proxy_countries(proxy_countries.to_vec()));
+    let http_client = scraper_agregator.create_http_client(m6play_http_config(proxy_countries));
     let session = get_or_login_session(&http_client, credentials_store).await?;
     let upfront_token = fetch_upfront_token(&http_client, &session, normalized_video_id).await?;
 
@@ -194,8 +194,7 @@ async fn resolve_live_stream(
         bail!("Missing 6play channel identifier.");
     }
 
-    let http_client = scraper_agregator
-        .create_http_client(ScraperHttpConfig::default().proxy_countries(proxy_countries.to_vec()));
+    let http_client = scraper_agregator.create_http_client(m6play_http_config(proxy_countries));
     let session = get_or_login_session(&http_client, credentials_store).await?;
 
     // Map channel identifier to the API's live_item_id format.
@@ -294,6 +293,13 @@ async fn resolve_live_stream(
         license_headers: HashMap::new(),
         ..Default::default()
     })
+}
+
+fn m6play_http_config(proxy_countries: &[String]) -> ScraperHttpConfig {
+    ScraperHttpConfig {
+        proxy_rejection_statuses: vec![M6PLAY_PROXY_REJECTION_STATUS],
+        ..ScraperHttpConfig::default().proxy_countries(proxy_countries.to_vec())
+    }
 }
 
 fn stream_headers() -> Vec<ProxyHttpActionConfig> {

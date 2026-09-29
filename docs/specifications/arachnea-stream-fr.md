@@ -778,6 +778,15 @@ proxy générées embarquent la liste JSON ordonnée dans leurs `opts` sous
 pools de proxy dynamiques de chaque pays dans l'ordre. `resolver > proxy >
 country` reste un fallback à un élément lorsque `countries` est absente ou vide.
 
+Le résolveur FranceTV utilise `FR` comme fallback lorsque le lecteur ne fournit
+aucun pays. Une résolution crée en outre une affinité proxy opaque commune aux
+appels K7, à la signature du manifeste, au jeton DRM, au chargement du manifeste
+via `/api/proxy` et à la licence Widevine différée. L'URL proxy encode aussi le
+rejet du statut `403` : le proxy sélectionné est alors rejeté pour la destination,
+l'affinité est déplacée vers un autre candidat admissible et la requête est
+réessayée une fois. Les URLs de clés HLS réécrites utilisent
+`{proxy_inherited}` afin de conserver ces options.
+
 Un lecteur peut en outre demander la réécriture des URLs absolues rencontrées
 dans les manifestes HLS proxifiés en déclarant
 `resolver > proxy > rewrite_manifest_urls: "true"`. Le frontend la transmet

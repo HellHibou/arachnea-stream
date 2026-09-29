@@ -123,7 +123,7 @@ impl ScrapyfyProxyDataProvider {
 
         let mut params: HashMap<String, String> = HashMap::new();
         params.insert("country".to_string(), country.to_string());
-        let results = agregator
+        let result = agregator
             .execute_query_async(
                 &RequestControlerContext::default(),
                 QueryParameters {
@@ -139,10 +139,25 @@ impl ScrapyfyProxyDataProvider {
                 None,
                 "load_proxies",
             )
-            .await
-            .data;
+            .await;
 
-        let mut records: Vec<ProxyRecord> = results
+        if !result.errors.is_empty() {
+            tracing::warn!(
+                country,
+                error_count = result.errors.len(),
+                errors = ?result.errors,
+                "dynamic proxy sources reported errors"
+            );
+        }
+        if result.data.is_empty() {
+            tracing::warn!(
+                country,
+                "dynamic proxy sources returned no rows; verify that at least one source is enabled"
+            );
+        }
+
+        let mut records: Vec<ProxyRecord> = result
+            .data
             .into_iter()
             .filter_map(|entry| entry_to_proxy_record(&entry))
             .collect();
@@ -270,6 +285,7 @@ fn entry_to_proxy_record(entry: &HashMap<String, ScraperDataNode>) -> Option<Pro
         availability,
         destination_failures: Vec::new(),
         last_checked: None,
+        last_validated_at: None,
         cooldown_until: None,
     };
 

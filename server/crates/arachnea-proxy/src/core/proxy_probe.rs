@@ -234,6 +234,7 @@ impl ProxyProbe {
     fn apply_result(&self, record: &mut ProxyRecord, result: ProtocolProbeResult) {
         if result.success {
             record.status = ProxyRuntimeStatus::Ok;
+            record.last_validated_at = Some(SystemTime::now());
             if result.protocol.is_some() {
                 record.protocol = result.protocol;
             }

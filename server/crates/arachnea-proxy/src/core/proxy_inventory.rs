@@ -1,16 +1,23 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 #[cfg(feature = "persistence")]
 use crate::core::ProxyRepository;
 use crate::core::{
     Destination, IpCountryResolver, ProxyDataProvider, ProxyError, ProxyProbe, ProxyProtocol,
-    ProxyRecord, ProxyRuntimeStatus, Result,
+    ProxyRecord, ProxyRuntimeStatus, Result, PROXY_CACHE_TTL,
 };
+
+const PROXY_AFFINITY_TTL: Duration = Duration::from_secs(15 * 60);
+
+struct ProxyAffinityBinding {
+    authority: String,
+    expires_at: Instant,
+}
 
 /// Policy controlling how static and dynamic proxy pools coexist.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -36,13 +43,13 @@ pub struct InventoryConfig {
     pub ko_cooldown: Duration,
     /// How long a per-destination failure stays active before retrying.
     pub destination_failure_cooldown: Duration,
-    /// Maximum number of active per-destination failures before the proxy is
-    /// marked globally KO.
+    /// Maximum number of active non-origin-block destination failures before
+    /// the proxy is marked globally KO.
     pub max_destination_failures_before_ko: usize,
-    /// How long to remember that a country returned no usable proxies.
-    pub negative_cache_duration: Duration,
     /// Maximum number of concurrent probes when testing newly loaded proxies.
     pub probe_batch_size: usize,
+    /// Minimum delay between provider refresh attempts for the same country.
+    pub provider_refresh_cooldown: Duration,
 }
 
 impl Default for InventoryConfig {
@@ -52,8 +59,8 @@ impl Default for InventoryConfig {
             ko_cooldown: Duration::from_secs(900),
             destination_failure_cooldown: Duration::from_secs(300),
             max_destination_failures_before_ko: 10,
-            negative_cache_duration: Duration::from_secs(120),
             probe_batch_size: 8,
+            provider_refresh_cooldown: Duration::from_secs(120),
         }
     }
 }
@@ -62,11 +69,12 @@ impl Default for InventoryConfig {
 struct InventoryInner {
     records: HashMap<String, ProxyRecord>,
     country_records: HashMap<String, Vec<String>>,
-    loading_countries: HashSet<String>,
-    negative_cache: HashMap<String, Instant>,
-    /// Last selected proxy authority per country, for sticky selection.
-    #[allow(dead_code)]
+    country_load_locks: HashMap<String, Arc<Mutex<()>>>,
+    country_last_refresh_attempts: HashMap<String, Instant>,
+    /// Last successfully validated proxy authority per country.
     last_selected: HashMap<String, String>,
+    /// Opaque request affinity keys mapped to one eligible proxy authority.
+    affinity_bindings: HashMap<String, ProxyAffinityBinding>,
 }
 
 /// Runtime inventory of dynamic proxy records.
@@ -107,9 +115,10 @@ impl ProxyInventory {
             inner: RwLock::new(InventoryInner {
                 records: HashMap::new(),
                 country_records: HashMap::new(),
-                loading_countries: HashSet::new(),
-                negative_cache: HashMap::new(),
+                country_load_locks: HashMap::new(),
+                country_last_refresh_attempts: HashMap::new(),
                 last_selected: HashMap::new(),
+                affinity_bindings: HashMap::new(),
             }),
             provider,
             probe,
@@ -238,9 +247,30 @@ impl ProxyInventory {
 
         let mut inner = self.inner.write().await;
         let mut retained = Vec::with_capacity(records.len());
+        let mut removed_keys = Vec::new();
         for record in records {
             let key = record.authority();
             let old_country = inner.records.get(&key).and_then(|r| r.country.clone());
+            let remove_stale_failed_probe = inner.records.get(&key).is_some_and(|existing| {
+                proxy_validation_is_stale(existing, SystemTime::now())
+                    && has_fresh_runtime_update(&record)
+                    && !matches!(record.status, ProxyRuntimeStatus::Ok)
+            });
+            if remove_stale_failed_probe {
+                if let Some(existing) = inner.records.remove(&key) {
+                    if let Some(country) = &existing.country {
+                        if let Some(keys) = inner.country_records.get_mut(country) {
+                            keys.retain(|authority| authority != &key);
+                        }
+                    }
+                    removed_keys.push(existing.key());
+                }
+                tracing::debug!(
+                    authority = %key,
+                    "removed stale dynamic proxy after failed provider probe"
+                );
+                continue;
+            }
             let retained_record = if let Some(existing) = inner.records.get(&key) {
                 let mut merged = record.clone();
                 if should_preserve_runtime_exclusion(existing) || !has_fresh_runtime_update(&record)
@@ -250,6 +280,7 @@ impl ProxyInventory {
                     merged.failure_count = existing.failure_count;
                     merged.authentication_required = existing.authentication_required;
                     merged.last_checked = existing.last_checked;
+                    merged.last_validated_at = existing.last_validated_at;
                     merged.cooldown_until = existing.cooldown_until;
                 }
                 merged.destination_failures = existing.destination_failures.clone();
@@ -278,6 +309,15 @@ impl ProxyInventory {
             }
             retained.push(retained_record);
         }
+        drop(inner);
+
+        #[cfg(feature = "persistence")]
+        for key in removed_keys {
+            self.delete_persisted_record(&key).await;
+        }
+        #[cfg(not(feature = "persistence"))]
+        drop(removed_keys);
+
         retained
     }
 
@@ -493,33 +533,180 @@ impl ProxyInventory {
     }
 
     /// Selects a proxy for a destination from the first country with an
-    /// eligible candidate. Loading failures and negative-cache entries remain
-    /// isolated to each country and do not prevent later countries being tried.
+    /// eligible candidate.
+    ///
+    /// All requested countries are searched in memory first, then in the
+    /// persistent cache when enabled. The provider is consulted only if those
+    /// complete cache passes yield no candidate. Provider loads then progress
+    /// once through the countries in caller-provided order until one produces
+    /// an eligible candidate.
     pub async fn select_any_for_destination(
         &self,
         countries: &[String],
         require_https: bool,
         destination: Option<&Destination>,
     ) -> Result<ProxyRecord> {
+        self.select_any_for_destination_with_affinity(countries, require_https, destination, None)
+            .await
+    }
+
+    /// Selects a proxy for a destination while reusing an eligible proxy bound
+    /// to the supplied opaque affinity key.
+    pub async fn select_any_for_destination_with_affinity(
+        &self,
+        countries: &[String],
+        require_https: bool,
+        destination: Option<&Destination>,
+        affinity: Option<&str>,
+    ) -> Result<ProxyRecord> {
         let mut attempted = Vec::new();
-        let mut last_error = None;
         for country in countries {
             let country = country.trim();
             if country.is_empty() || attempted.iter().any(|attempted| attempted == country) {
                 continue;
             }
             attempted.push(country.to_string());
-            match self
-                .select_for_destination(country, require_https, destination)
+        }
+        if attempted.is_empty() {
+            return Err(ProxyError::RouteUnavailable(
+                "no proxy countries were requested".to_string(),
+            ));
+        }
+
+        let affinity = affinity.map(str::trim).filter(|value| !value.is_empty());
+        if let Some(record) = self
+            .select_affinity_binding(&attempted, require_https, destination, affinity)
+            .await
+        {
+            return Ok(record);
+        }
+
+        if let Some(record) = self
+            .select_cached_any(&attempted, require_https, destination)
+            .await
+        {
+            self.bind_affinity(affinity, &record).await;
+            return Ok(record);
+        }
+
+        #[cfg(feature = "persistence")]
+        {
+            for country in &attempted {
+                self.load_cached_country(country).await;
+            }
+            if let Some(record) = self
+                .select_cached_any(&attempted, require_https, destination)
                 .await
             {
-                Ok(record) => return Ok(record),
-                Err(error) => last_error = Some(error),
+                self.bind_affinity(affinity, &record).await;
+                return Ok(record);
             }
         }
-        Err(last_error.unwrap_or_else(|| {
-            ProxyError::RouteUnavailable("no proxy countries were requested".to_string())
-        }))
+
+        for country in &attempted {
+            self.load_if_needed(country).await;
+            if let Some(record) = self
+                .select_cached_any(&attempted, require_https, destination)
+                .await
+            {
+                self.bind_affinity(affinity, &record).await;
+                return Ok(record);
+            }
+        }
+
+        Err(ProxyError::RouteUnavailable(format!(
+            "no working proxy available for requested countries [{}]",
+            attempted.join(", ")
+        )))
+    }
+
+    async fn select_affinity_binding(
+        &self,
+        countries: &[String],
+        require_https: bool,
+        destination: Option<&Destination>,
+        affinity: Option<&str>,
+    ) -> Option<ProxyRecord> {
+        let affinity = affinity?;
+        let now = Instant::now();
+        let system_now = SystemTime::now();
+        let mut inner = self.inner.write().await;
+        inner
+            .affinity_bindings
+            .retain(|_, binding| binding.expires_at > now);
+        let authority = inner.affinity_bindings.get(affinity)?.authority.clone();
+        let record = inner.records.get(&authority).filter(|record| {
+            record
+                .country
+                .as_ref()
+                .is_some_and(|country| countries.iter().any(|wanted| wanted == country))
+                && is_eligible(
+                    record,
+                    record.country.as_deref().unwrap_or_default(),
+                    require_https,
+                    destination,
+                    system_now,
+                )
+        });
+        if let Some(record) = record {
+            return Some(record.clone());
+        }
+        inner.affinity_bindings.remove(affinity);
+        None
+    }
+
+    async fn bind_affinity(&self, affinity: Option<&str>, record: &ProxyRecord) {
+        let Some(affinity) = affinity else {
+            return;
+        };
+        self.inner.write().await.affinity_bindings.insert(
+            affinity.to_string(),
+            ProxyAffinityBinding {
+                authority: record.authority(),
+                expires_at: Instant::now() + PROXY_AFFINITY_TTL,
+            },
+        );
+    }
+
+    /// Removes an affinity binding when its selected proxy is rejected.
+    pub async fn clear_affinity(&self, affinity: &str, authority: &str) {
+        let mut inner = self.inner.write().await;
+        if inner
+            .affinity_bindings
+            .get(affinity)
+            .is_some_and(|binding| binding.authority == authority)
+        {
+            inner.affinity_bindings.remove(affinity);
+        }
+    }
+
+    /// Renews an affinity binding after an accepted origin response.
+    pub async fn renew_affinity(&self, affinity: &str, authority: &str) {
+        self.inner.write().await.affinity_bindings.insert(
+            affinity.to_string(),
+            ProxyAffinityBinding {
+                authority: authority.to_string(),
+                expires_at: Instant::now() + PROXY_AFFINITY_TTL,
+            },
+        );
+    }
+
+    /// Selects from the first requested country with a cached eligible record.
+    async fn select_cached_any(
+        &self,
+        countries: &[String],
+        require_https: bool,
+        destination: Option<&Destination>,
+    ) -> Option<ProxyRecord> {
+        for country in countries {
+            if let Some(record) = self
+                .select_cached(country, require_https, destination)
+                .await
+            {
+                return Some(record);
+            }
+        }
+        None
     }
 
     /// Imports cached records for `country` from the persistence store into
@@ -596,28 +783,24 @@ impl ProxyInventory {
 
         let mut candidates: Vec<&ProxyRecord> = records
             .into_iter()
-            .filter(|r| {
-                is_eligible(
-                    r,
-                    country,
-                    require_https,
-                    destination,
-                    now,
-                    self.config.probe_ttl,
-                )
-            })
+            .filter(|r| is_eligible(r, country, require_https, destination, now))
             .collect();
 
         if candidates.is_empty() {
             return None;
         }
 
+        let sticky_authority = inner.last_selected.get(country);
         candidates.sort_by(|a, b| {
-            a.latency_ms
-                .unwrap_or(u64::MAX)
-                .cmp(&b.latency_ms.unwrap_or(u64::MAX))
-                .then(a.failure_count.cmp(&b.failure_count))
-                .then_with(|| a.authority().cmp(&b.authority()))
+            let a_sticky = sticky_authority.is_some_and(|authority| authority == &a.authority());
+            let b_sticky = sticky_authority.is_some_and(|authority| authority == &b.authority());
+            b_sticky.cmp(&a_sticky).then_with(|| {
+                a.latency_ms
+                    .unwrap_or(u64::MAX)
+                    .cmp(&b.latency_ms.unwrap_or(u64::MAX))
+                    .then(a.failure_count.cmp(&b.failure_count))
+                    .then_with(|| a.authority().cmp(&b.authority()))
+            })
         });
 
         let selected = candidates[0];
@@ -628,37 +811,61 @@ impl ProxyInventory {
             protocol = ?selected.protocol,
             supports_https = ?selected.supports_https,
             latency_ms = ?selected.latency_ms,
+            sticky = sticky_authority.is_some_and(|authority| authority == &selected.authority()),
             "selected dynamic proxy candidate"
         );
         Some(selected.clone())
     }
 
-    /// Loads proxies from the provider for a country, unless a load is
-    /// already in progress or the country is in the negative cache.
+    /// Loads proxies from the provider after selection found no eligible cached
+    /// candidate.
+    ///
+    /// Calls for the same country share a per-country asynchronous lock and a
+    /// refresh-attempt cooldown. One call performs the network work while
+    /// concurrent or subsequent calls reuse inventory state until the cooldown
+    /// expires, including when the provider failed or returned no candidates.
     async fn load_if_needed(&self, country: &str) {
         let provider = match &self.provider {
             Some(p) => p,
             None => return,
         };
 
-        {
-            let inner = self.inner.read().await;
-            if inner.loading_countries.contains(country) {
-                return;
-            }
-            if let Some(expires_at) = inner.negative_cache.get(country) {
-                if Instant::now() < *expires_at {
-                    return;
-                }
-            }
-        }
+        let load_lock = {
+            let mut inner = self.inner.write().await;
+            Arc::clone(
+                inner
+                    .country_load_locks
+                    .entry(country.to_string())
+                    .or_insert_with(|| Arc::new(Mutex::new(()))),
+            )
+        };
+        let _load_guard = load_lock.lock().await;
 
         {
             let mut inner = self.inner.write().await;
-            if !inner.loading_countries.insert(country.to_string()) {
-                return;
+            let now = Instant::now();
+            if let Some(last_attempt) = inner.country_last_refresh_attempts.get(country) {
+                let elapsed = now.duration_since(*last_attempt);
+                if elapsed < self.config.provider_refresh_cooldown {
+                    tracing::debug!(
+                        country = %country,
+                        elapsed_ms = elapsed.as_millis(),
+                        cooldown_ms = self.config.provider_refresh_cooldown.as_millis(),
+                        "dynamic proxy provider refresh suppressed by inventory cooldown"
+                    );
+                    return;
+                }
             }
+            inner
+                .country_last_refresh_attempts
+                .insert(country.to_string(), now);
         }
+
+        tracing::info!(
+            country = %country,
+            cooldown_seconds = self.config.provider_refresh_cooldown.as_secs(),
+            "refreshing dynamic proxy provider after cache yielded no eligible candidate"
+        );
 
         let result = provider
             .load_proxies(crate::core::ProxyLoadRequest {
@@ -715,15 +922,6 @@ impl ProxyInventory {
                     "dynamic proxy inventory updated"
                 );
 
-                let has_usable = self.select_cached(country, false, None).await.is_some();
-                if !has_usable {
-                    let mut inner = self.inner.write().await;
-                    inner.negative_cache.insert(
-                        country.to_string(),
-                        Instant::now() + self.config.negative_cache_duration,
-                    );
-                }
-
                 #[cfg(feature = "persistence")]
                 self.persist_records(&records_to_persist).await;
                 #[cfg(not(feature = "persistence"))]
@@ -731,16 +929,8 @@ impl ProxyInventory {
             }
             Err(error) => {
                 tracing::warn!(country = %country, %error, "failed to load proxies");
-                let mut inner = self.inner.write().await;
-                inner.negative_cache.insert(
-                    country.to_string(),
-                    Instant::now() + self.config.negative_cache_duration,
-                );
             }
         }
-
-        let mut inner = self.inner.write().await;
-        inner.loading_countries.remove(country);
     }
 
     async fn selection_stats_for_country(
@@ -766,9 +956,11 @@ impl ProxyInventory {
 
     /// Records a per-destination failure against a proxy.
     ///
-    /// When the number of active destination failures reaches
+    /// When the number of active non-origin-block destination failures reaches
     /// `max_destination_failures_before_ko`, the proxy is marked globally KO
-    /// and its destination failures list is cleared.
+    /// and its destination failures list is cleared. `BlockedByOrigin`
+    /// failures remain scoped to their destination and never contribute to the
+    /// global failure threshold.
     ///
     /// # Returns
     ///
@@ -779,55 +971,96 @@ impl ProxyInventory {
         destination: &Destination,
         reason: crate::core::ProxyDestinationFailureReason,
     ) -> bool {
-        let outcome = {
+        let (outcome, removed_key) = {
             let mut inner = self.inner.write().await;
-            let record = match inner.records.get_mut(authority) {
-                Some(r) => r,
-                None => return false,
-            };
-
-            let now = SystemTime::now();
-            let failure_host = destination.host_for_protocol();
-
-            let entry = record.destination_failures.iter_mut().find(|f| {
-                f.scheme == destination_scheme(destination)
-                    && f.host == failure_host
-                    && f.port == destination.port
-            });
-
-            match entry {
-                Some(failure) => {
-                    failure.failure_count += 1;
-                    failure.last_failed = now;
-                    failure.reason = reason;
-                    failure.cooldown_until = Some(now + self.config.destination_failure_cooldown);
+            let stale = inner
+                .records
+                .get(authority)
+                .is_some_and(|record| proxy_validation_is_stale(record, SystemTime::now()));
+            if stale {
+                let removed = inner.records.remove(authority);
+                if let Some(record) = &removed {
+                    if let Some(country) = &record.country {
+                        if let Some(keys) = inner.country_records.get_mut(country) {
+                            keys.retain(|key| key != authority);
+                        }
+                    }
                 }
-                None => {
-                    record
-                        .destination_failures
-                        .push(crate::core::ProxyDestinationFailure {
-                            scheme: destination_scheme(destination),
-                            host: failure_host,
-                            port: destination.port,
-                            reason,
-                            failure_count: 1,
-                            last_failed: now,
-                            cooldown_until: Some(now + self.config.destination_failure_cooldown),
-                        });
-                }
-            }
-
-            if record.destination_failures.len() >= self.config.max_destination_failures_before_ko {
-                record.status = ProxyRuntimeStatus::Ko;
-                record.failure_count += 1;
-                record.cooldown_until = Some(now + self.config.ko_cooldown);
-                record.destination_failures.clear();
-                (true, record.clone())
+                (None, removed.map(|record| record.key()))
             } else {
-                (false, record.clone())
+                let record = match inner.records.get_mut(authority) {
+                    Some(record) => record,
+                    None => return false,
+                };
+
+                let now = SystemTime::now();
+                let failure_host = destination.host_for_protocol();
+
+                let entry = record.destination_failures.iter_mut().find(|f| {
+                    f.scheme == destination_scheme(destination)
+                        && f.host == failure_host
+                        && f.port == destination.port
+                });
+
+                match entry {
+                    Some(failure) => {
+                        failure.failure_count += 1;
+                        failure.last_failed = now;
+                        failure.reason = reason;
+                        failure.cooldown_until =
+                            Some(now + self.config.destination_failure_cooldown);
+                    }
+                    None => {
+                        record
+                            .destination_failures
+                            .push(crate::core::ProxyDestinationFailure {
+                                scheme: destination_scheme(destination),
+                                host: failure_host,
+                                port: destination.port,
+                                reason,
+                                failure_count: 1,
+                                last_failed: now,
+                                cooldown_until: Some(
+                                    now + self.config.destination_failure_cooldown,
+                                ),
+                            });
+                    }
+                }
+
+                let global_failure_count = record
+                    .destination_failures
+                    .iter()
+                    .filter(|failure| {
+                        failure.reason
+                            != crate::core::ProxyDestinationFailureReason::BlockedByOrigin
+                    })
+                    .count();
+                if global_failure_count >= self.config.max_destination_failures_before_ko {
+                    record.status = ProxyRuntimeStatus::Ko;
+                    record.failure_count += 1;
+                    record.cooldown_until = Some(now + self.config.ko_cooldown);
+                    record.destination_failures.clear();
+                    (Some((true, record.clone())), None)
+                } else {
+                    (Some((false, record.clone())), None)
+                }
             }
         };
 
+        #[cfg(feature = "persistence")]
+        if let Some(key) = removed_key {
+            self.delete_persisted_record(&key).await;
+        }
+        #[cfg(not(feature = "persistence"))]
+        let _ = removed_key;
+
+        let Some(outcome) = outcome else {
+            tracing::debug!(
+                authority,
+                "removed stale dynamic proxy after observed failure"
+            );
+            return true;
+        };
         #[cfg(feature = "persistence")]
         self.persist_records(std::slice::from_ref(&outcome.1)).await;
         outcome.0
@@ -835,6 +1068,9 @@ impl ProxyInventory {
 
     /// Marks a proxy as globally failed (KO) with cooldown.
     pub async fn record_global_failure(&self, authority: &str) {
+        if self.remove_if_stale(authority).await {
+            return;
+        }
         let updated = {
             let mut inner = self.inner.write().await;
             if let Some(record) = inner.records.get_mut(authority) {
@@ -858,6 +1094,9 @@ impl ProxyInventory {
 
     /// Records that a proxy requires authentication.
     pub async fn record_auth_required(&self, authority: &str) {
+        if self.remove_if_stale(authority).await {
+            return;
+        }
         let updated = {
             let mut inner = self.inner.write().await;
             if let Some(record) = inner.records.get_mut(authority) {
@@ -877,7 +1116,7 @@ impl ProxyInventory {
         }
     }
 
-    /// Updates a record's status to `Ok` and clears failure state.
+    /// Records a successful proxy use and renews its 24-hour validation age.
     pub async fn record_ok(&self, authority: &str) {
         let updated = {
             let mut inner = self.inner.write().await;
@@ -886,6 +1125,7 @@ impl ProxyInventory {
                 record.failure_count = 0;
                 record.cooldown_until = None;
                 record.destination_failures.clear();
+                record.last_validated_at = Some(SystemTime::now());
                 Some(record.clone())
             } else {
                 None
@@ -898,6 +1138,68 @@ impl ProxyInventory {
             drop(record);
         }
     }
+
+    /// Renews the validation age after an accepted origin response and records
+    /// the proxy as the preferred candidate for its country without clearing
+    /// unrelated proxy or destination failure state.
+    pub async fn record_validated_response(&self, authority: &str) {
+        let updated = {
+            let mut inner = self.inner.write().await;
+            let updated = inner.records.get_mut(authority).map(|record| {
+                record.last_validated_at = Some(SystemTime::now());
+                record.clone()
+            });
+            if let Some(country) = updated.as_ref().and_then(|record| record.country.as_ref()) {
+                inner
+                    .last_selected
+                    .insert(country.clone(), authority.to_string());
+            }
+            updated
+        };
+        if let Some(record) = updated {
+            #[cfg(feature = "persistence")]
+            self.persist_records(std::slice::from_ref(&record)).await;
+            #[cfg(not(feature = "persistence"))]
+            drop(record);
+        }
+    }
+
+    /// Removes a proxy only when its last successful validation is older than
+    /// [`PROXY_CACHE_TTL`].
+    async fn remove_if_stale(&self, authority: &str) -> bool {
+        let removed_key = {
+            let mut inner = self.inner.write().await;
+            let stale = inner
+                .records
+                .get(authority)
+                .is_some_and(|record| proxy_validation_is_stale(record, SystemTime::now()));
+            if !stale {
+                return false;
+            }
+            let removed = inner.records.remove(authority);
+            if let Some(record) = &removed {
+                if let Some(country) = &record.country {
+                    if let Some(keys) = inner.country_records.get_mut(country) {
+                        keys.retain(|key| key != authority);
+                    }
+                }
+            }
+            removed.map(|record| record.key())
+        };
+
+        #[cfg(feature = "persistence")]
+        if let Some(key) = removed_key {
+            self.delete_persisted_record(&key).await;
+        }
+        #[cfg(not(feature = "persistence"))]
+        let _ = removed_key;
+
+        tracing::debug!(
+            authority,
+            "removed stale dynamic proxy after observed failure"
+        );
+        true
+    }
 }
 
 /// Writes `records` through the typed proxy repository.
@@ -909,18 +1211,24 @@ async fn persist_proxy_records(
     persistence.save_many(records).await
 }
 
-#[cfg(all(test, feature = "persistence"))]
+#[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "persistence")]
     use crate::core::proxy_repository::memory_proxy_store;
-    use crate::core::{ProxyAvailabilityHint, ProxyDestinationFailure, TypedProxyRepository};
+    use crate::core::ProxyAvailabilityHint;
+    #[cfg(feature = "persistence")]
+    use crate::core::{ProxyDestinationFailure, TypedProxyRepository};
     use anyhow::Result as AnyResult;
     use async_trait::async_trait;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
+    #[cfg(feature = "persistence")]
     struct StaticProvider {
         records: Vec<ProxyRecord>,
     }
 
+    #[cfg(feature = "persistence")]
     #[async_trait]
     impl ProxyDataProvider for StaticProvider {
         async fn load_proxies(
@@ -928,6 +1236,43 @@ mod tests {
             _request: crate::core::ProxyLoadRequest,
         ) -> crate::core::Result<Vec<ProxyRecord>> {
             Ok(self.records.clone())
+        }
+    }
+
+    struct CountingProvider {
+        records: Vec<ProxyRecord>,
+        calls: AtomicUsize,
+        delay: Duration,
+    }
+
+    #[async_trait]
+    impl ProxyDataProvider for CountingProvider {
+        async fn load_proxies(
+            &self,
+            _request: crate::core::ProxyLoadRequest,
+        ) -> crate::core::Result<Vec<ProxyRecord>> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            tokio::time::sleep(self.delay).await;
+            Ok(self.records.clone())
+        }
+    }
+
+    struct FailingProvider {
+        calls: AtomicUsize,
+        delay: Duration,
+    }
+
+    #[async_trait]
+    impl ProxyDataProvider for FailingProvider {
+        async fn load_proxies(
+            &self,
+            _request: crate::core::ProxyLoadRequest,
+        ) -> crate::core::Result<Vec<ProxyRecord>> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            tokio::time::sleep(self.delay).await;
+            Err(ProxyError::RouteUnavailable(
+                "test provider unavailable".to_string(),
+            ))
         }
     }
 
@@ -945,10 +1290,12 @@ mod tests {
             availability: ProxyAvailabilityHint::High,
             destination_failures: Vec::new(),
             last_checked: Some(SystemTime::now()),
+            last_validated_at: Some(SystemTime::now()),
             cooldown_until: None,
         }
     }
 
+    #[cfg(feature = "persistence")]
     #[tokio::test]
     async fn provider_reload_persists_post_merge_runtime_exclusion() -> AnyResult<()> {
         let store = memory_proxy_store()?;
@@ -979,6 +1326,279 @@ mod tests {
 
         assert_eq!(store.get(&key).await?, Some(retained));
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn concurrent_country_loads_wait_for_one_provider_refresh() -> AnyResult<()> {
+        let provider = Arc::new(CountingProvider {
+            records: vec![record(ProxyRuntimeStatus::Ok)],
+            calls: AtomicUsize::new(0),
+            delay: Duration::from_millis(50),
+        });
+        let inventory = Arc::new(ProxyInventory::new(
+            InventoryConfig::default(),
+            Some(provider.clone()),
+            None,
+        ));
+
+        let first = {
+            let inventory = Arc::clone(&inventory);
+            tokio::spawn(async move { inventory.select("BE", true).await })
+        };
+        let second = {
+            let inventory = Arc::clone(&inventory);
+            tokio::spawn(async move { inventory.select("BE", true).await })
+        };
+
+        assert!(first.await??.supports_https.unwrap_or(false));
+        assert!(second.await??.supports_https.unwrap_or(false));
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn concurrent_country_loads_share_one_provider_failure() -> AnyResult<()> {
+        let provider = Arc::new(FailingProvider {
+            calls: AtomicUsize::new(0),
+            delay: Duration::from_millis(50),
+        });
+        let inventory = Arc::new(ProxyInventory::new(
+            InventoryConfig::default(),
+            Some(provider.clone()),
+            None,
+        ));
+
+        let first = {
+            let inventory = Arc::clone(&inventory);
+            tokio::spawn(async move { inventory.select("BE", true).await })
+        };
+        let second = {
+            let inventory = Arc::clone(&inventory);
+            tokio::spawn(async move { inventory.select("BE", true).await })
+        };
+
+        assert!(first.await?.is_err());
+        assert!(second.await?.is_err());
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+        assert!(inventory.select("BE", true).await.is_err());
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn successive_selections_share_provider_refresh_cooldown() {
+        let mut http_only = record(ProxyRuntimeStatus::Ok);
+        http_only.protocol = Some(ProxyProtocol::Http);
+        http_only.supports_https = Some(false);
+        let provider = Arc::new(CountingProvider {
+            records: vec![http_only],
+            calls: AtomicUsize::new(0),
+            delay: Duration::ZERO,
+        });
+        let inventory = ProxyInventory::new(
+            InventoryConfig {
+                provider_refresh_cooldown: Duration::from_secs(60),
+                ..InventoryConfig::default()
+            },
+            Some(provider.clone()),
+            None,
+        );
+
+        assert!(inventory.select("BE", true).await.is_err());
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+        assert!(inventory.select("BE", true).await.is_err());
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn provider_refresh_resumes_after_cooldown() {
+        let provider = Arc::new(CountingProvider {
+            records: Vec::new(),
+            calls: AtomicUsize::new(0),
+            delay: Duration::ZERO,
+        });
+        let inventory = ProxyInventory::new(
+            InventoryConfig {
+                provider_refresh_cooldown: Duration::from_millis(20),
+                ..InventoryConfig::default()
+            },
+            Some(provider.clone()),
+            None,
+        );
+
+        assert!(inventory.select("BE", true).await.is_err());
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        assert!(inventory.select("BE", true).await.is_err());
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn validated_proxy_is_preferred_while_eligible() {
+        let inventory = ProxyInventory::new(InventoryConfig::default(), None, None);
+        let mut fastest = record(ProxyRuntimeStatus::Ok);
+        fastest.host = "fastest.example".to_string();
+        fastest.latency_ms = Some(5);
+        let mut validated = record(ProxyRuntimeStatus::Ok);
+        validated.host = "validated.example".to_string();
+        validated.latency_ms = Some(100);
+        inventory
+            .add_or_update(vec![fastest, validated.clone()])
+            .await;
+
+        inventory
+            .record_validated_response(&validated.authority())
+            .await;
+
+        assert_eq!(
+            inventory.select("BE", true).await.unwrap().authority(),
+            validated.authority()
+        );
+    }
+
+    #[tokio::test]
+    async fn validated_proxy_preference_never_bypasses_eligibility() {
+        let inventory = ProxyInventory::new(InventoryConfig::default(), None, None);
+        let mut fallback = record(ProxyRuntimeStatus::Ok);
+        fallback.host = "fallback.example".to_string();
+        fallback.latency_ms = Some(50);
+        let mut validated = record(ProxyRuntimeStatus::Ok);
+        validated.host = "validated.example".to_string();
+        validated.latency_ms = Some(5);
+        let validated_authority = validated.authority();
+        inventory
+            .add_or_update(vec![fallback.clone(), validated])
+            .await;
+        inventory
+            .record_validated_response(&validated_authority)
+            .await;
+        let destination = Destination::host_port("blocked.example", 443)
+            .with_protocol(crate::core::ApplicationProtocol::Https);
+        inventory
+            .record_destination_failure(
+                &validated_authority,
+                &destination,
+                crate::core::ProxyDestinationFailureReason::BlockedByOrigin,
+            )
+            .await;
+
+        assert_eq!(
+            inventory
+                .select_for_destination("BE", true, Some(&destination))
+                .await
+                .unwrap()
+                .authority(),
+            fallback.authority()
+        );
+
+        inventory.record_global_failure(&validated_authority).await;
+        assert_eq!(
+            inventory.select("BE", true).await.unwrap().authority(),
+            fallback.authority()
+        );
+    }
+
+    #[tokio::test]
+    async fn multi_country_selection_checks_all_cached_countries_before_loading() {
+        let provider = Arc::new(CountingProvider {
+            records: Vec::new(),
+            calls: AtomicUsize::new(0),
+            delay: Duration::ZERO,
+        });
+        let inventory =
+            ProxyInventory::new(InventoryConfig::default(), Some(provider.clone()), None);
+        let mut cached = record(ProxyRuntimeStatus::Ok);
+        cached.host = "fr-proxy.example".to_string();
+        cached.country = Some("FR".to_string());
+        inventory.add_or_update(vec![cached.clone()]).await;
+
+        let countries = vec!["AD".to_string(), "FR".to_string()];
+        let selected = inventory.select_any(&countries, true).await.unwrap();
+
+        assert_eq!(selected.authority(), cached.authority());
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn multi_country_selection_loads_each_country_at_most_once_per_call() {
+        let provider = Arc::new(CountingProvider {
+            records: Vec::new(),
+            calls: AtomicUsize::new(0),
+            delay: Duration::ZERO,
+        });
+        let inventory =
+            ProxyInventory::new(InventoryConfig::default(), Some(provider.clone()), None);
+        let countries = vec!["AD".to_string(), "FR".to_string(), "WF".to_string()];
+
+        assert!(inventory.select_any(&countries, true).await.is_err());
+        assert_eq!(provider.calls.load(Ordering::SeqCst), countries.len());
+    }
+
+    #[tokio::test]
+    async fn blocked_by_origin_remains_scoped_to_its_destination() {
+        let mut provider_record = record(ProxyRuntimeStatus::Ok);
+        provider_record.host = "replacement.example".to_string();
+        let provider = Arc::new(CountingProvider {
+            records: vec![provider_record.clone()],
+            calls: AtomicUsize::new(0),
+            delay: Duration::ZERO,
+        });
+        let inventory = ProxyInventory::new(
+            InventoryConfig {
+                max_destination_failures_before_ko: 1,
+                ..InventoryConfig::default()
+            },
+            Some(provider.clone()),
+            None,
+        );
+        let cached = record(ProxyRuntimeStatus::Ok);
+        let authority = cached.authority();
+        inventory.add_or_update(vec![cached]).await;
+        let blocked_destination = Destination::host_port("blocked.example", 443)
+            .with_protocol(crate::core::ApplicationProtocol::Https);
+        let other_destination = Destination::host_port("allowed.example", 443)
+            .with_protocol(crate::core::ApplicationProtocol::Https);
+
+        let marked_globally_ko = inventory
+            .record_destination_failure(
+                &authority,
+                &blocked_destination,
+                crate::core::ProxyDestinationFailureReason::BlockedByOrigin,
+            )
+            .await;
+
+        assert!(!marked_globally_ko);
+        assert_eq!(
+            inventory
+                .select_for_destination("BE", true, Some(&blocked_destination))
+                .await
+                .unwrap()
+                .authority(),
+            provider_record.authority()
+        );
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            inventory
+                .select_for_destination("BE", true, Some(&other_destination))
+                .await
+                .unwrap()
+                .authority(),
+            authority
+        );
+    }
+
+    #[tokio::test]
+    async fn multi_country_failure_reports_every_attempted_country() {
+        let inventory = ProxyInventory::new(InventoryConfig::default(), None, None);
+        let countries = vec!["AD".to_string(), "FR".to_string(), "WF".to_string()];
+
+        let error = inventory
+            .select_any(&countries, true)
+            .await
+            .expect_err("selection should fail without records or provider")
+            .to_string();
+
+        assert!(error.contains("AD, FR, WF"));
     }
 }
 
@@ -1040,7 +1660,7 @@ fn selection_stats<'a>(
             stats.https_rejected += 1;
         }
 
-        if is_eligible(record, country, require_https, destination, now, probe_ttl) {
+        if is_eligible(record, country, require_https, destination, now) {
             stats.eligible += 1;
         }
     }
@@ -1054,7 +1674,6 @@ fn is_eligible(
     require_https: bool,
     destination: Option<&Destination>,
     now: SystemTime,
-    probe_ttl: Duration,
 ) -> bool {
     if record.country.as_deref() != Some(country) {
         return false;
@@ -1072,10 +1691,6 @@ fn is_eligible(
         if cooldown > now {
             return false;
         }
-    }
-
-    if probe_is_expired(record, now, probe_ttl) {
-        return false;
     }
 
     if destination
@@ -1110,6 +1725,16 @@ fn probe_is_expired(record: &ProxyRecord, now: SystemTime, probe_ttl: Duration) 
 
     now.duration_since(last_checked)
         .map(|age| age > probe_ttl)
+        .unwrap_or(false)
+}
+
+fn proxy_validation_is_stale(record: &ProxyRecord, now: SystemTime) -> bool {
+    let Some(last_validated_at) = record.last_validated_at.or(record.last_checked) else {
+        return false;
+    };
+
+    now.duration_since(last_validated_at)
+        .map(|age| age > PROXY_CACHE_TTL)
         .unwrap_or(false)
 }
 

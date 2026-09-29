@@ -1,7 +1,7 @@
 use anyhow::{bail, Context, Result};
 use arachnea_proxy::http::{
     actions::{ProxyHttpActionConfig, ReplaceAll},
-    proxy_service::proxied_url_with_countries,
+    proxy_service::proxied_url_with_countries_and_policy,
 };
 use async_trait::async_trait;
 use rand::{distr::Alphanumeric, Rng};
@@ -27,6 +27,8 @@ const FRANCETV_DEFAULT_TOKEN_URL: &str = "https://hdfauth.ftven.fr/esi/TA";
 const FRANCETV_WIDEVINE_LICENSE_URL: &str =
     "https://api-drm.ftven.fr/v1/wvls/contentlicenseservice/v1/licenses/";
 const FRANCETV_PROXY_STREAM_KIND: &str = "francetv-license-proxy";
+const FRANCETV_PROXY_COUNTRY: &str = "FR";
+const FRANCETV_PROXY_REJECTION_STATUS: u16 = 403;
 const FRANCETV_LICENSE_TTL: Duration = Duration::from_secs(15 * 60);
 const USER_AGENT: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:148.0) Gecko/20100101 Firefox/148.0";
@@ -40,6 +42,7 @@ struct CachedFrancetvLicense {
     license_url: String,
     stream_kind: String,
     proxy_countries: Vec<String>,
+    proxy_affinity: String,
     expires_at: Instant,
 }
 
@@ -125,8 +128,10 @@ async fn resolve_francetv_stream(
 
     let country_code =
         parameter_value(service_parameters, "country_code").unwrap_or_else(|| "FR".to_string());
+    let proxy_countries = francetv_proxy_countries(proxy_countries);
+    let proxy_affinity = random_proxy_affinity();
     let http_client = scraper_agregator
-        .create_http_client(ScraperHttpConfig::default().proxy_countries(proxy_countries.to_vec()));
+        .create_http_client(francetv_http_config(&proxy_countries, &proxy_affinity));
     let media_info =
         fetch_media_info(&http_client, normalized_media_id, country_code.trim()).await?;
     let video = media_info
@@ -153,11 +158,13 @@ async fn resolve_francetv_stream(
     let stream_url =
         fetch_signed_manifest_url(&http_client, &manifest_token_url, &raw_manifest_url).await?;
     let manifest_type = manifest_type_from_format_or_url(format, &stream_url);
-    let stream_actions = stream_headers(endpoints.http_proxy_public_path.as_deref());
-    let stream_url_proxy = proxied_url_with_countries(
+    let stream_actions = stream_headers();
+    let stream_url_proxy = proxied_url_with_countries_and_policy(
         &stream_url,
         endpoints.http_proxy_public_path.as_deref(),
-        proxy_countries,
+        &proxy_countries,
+        Some(&proxy_affinity),
+        &[FRANCETV_PROXY_REJECTION_STATUS],
         &stream_actions,
         &[],
     );
@@ -182,7 +189,8 @@ async fn resolve_francetv_stream(
         &authorization_token,
         &stream_kind,
         FRANCETV_WIDEVINE_LICENSE_URL,
-        proxy_countries,
+        &proxy_countries,
+        &proxy_affinity,
     );
 
     Ok(ResolvedPlayerStream {
@@ -338,6 +346,31 @@ fn generic_headers() -> HashMap<String, String> {
     HashMap::from([("user-agent".to_string(), USER_AGENT.to_string())])
 }
 
+fn francetv_http_config(proxy_countries: &[String], proxy_affinity: &str) -> ScraperHttpConfig {
+    ScraperHttpConfig {
+        proxy_rejection_statuses: vec![FRANCETV_PROXY_REJECTION_STATUS],
+        ..ScraperHttpConfig::default()
+            .proxy_countries(proxy_countries.to_vec())
+            .proxy_affinity(proxy_affinity)
+    }
+}
+
+fn francetv_proxy_countries(proxy_countries: &[String]) -> Vec<String> {
+    if proxy_countries.is_empty() {
+        vec![FRANCETV_PROXY_COUNTRY.to_string()]
+    } else {
+        proxy_countries.to_vec()
+    }
+}
+
+fn random_proxy_affinity() -> String {
+    rand::rng()
+        .sample_iter(&Alphanumeric)
+        .take(32)
+        .map(char::from)
+        .collect()
+}
+
 fn normalize_francetv_stream_kind(stream_kind: Option<String>) -> String {
     stream_kind
         .map(|value| value.trim().to_string())
@@ -392,12 +425,14 @@ fn save_francetv_license_proxy_url(
     stream_kind: &str,
     license_url: &str,
     proxy_countries: &[String],
+    proxy_affinity: &str,
 ) -> String {
     let token = save_cached_license(
         authorization_token,
         stream_kind,
         license_url,
         proxy_countries,
+        proxy_affinity,
     );
     endpoints.drm_license_url(FRANCETV_SERVICE_ID, &token)
 }
@@ -407,6 +442,7 @@ fn save_cached_license(
     stream_kind: &str,
     license_url: &str,
     proxy_countries: &[String],
+    proxy_affinity: &str,
 ) -> String {
     let cache = FRANCETV_LICENSE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let token: String = rand::rng()
@@ -428,6 +464,7 @@ fn save_cached_license(
             license_url: license_url.to_string(),
             stream_kind: stream_kind.to_string(),
             proxy_countries: proxy_countries.to_vec(),
+            proxy_affinity: proxy_affinity.to_string(),
             expires_at: now + FRANCETV_LICENSE_TTL,
         },
     );
@@ -463,7 +500,10 @@ async fn proxy_francetv_license_request(
     }
 
     let response = scraper_agregator
-        .create_http_client(ScraperHttpConfig::default().proxy_countries(cached.proxy_countries))
+        .create_http_client(francetv_http_config(
+            &cached.proxy_countries,
+            &cached.proxy_affinity,
+        ))
         .send_bytes_for_request(
             http::Method::POST,
             cached.license_url.trim(),
@@ -510,17 +550,12 @@ async fn proxy_francetv_license_request(
     })
 }
 
-fn stream_headers(http_proxy_public_path: Option<&str>) -> Vec<ProxyHttpActionConfig> {
-    let proxy_path = http_proxy_public_path
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or_default()
-        .trim_end_matches('/');
+fn stream_headers() -> Vec<ProxyHttpActionConfig> {
     let hls_content_types = hls_manifest_content_types();
 
     vec![ReplaceAll::new(
         r#"#EXT-X-(SESSION-)?KEY:([^\r\n]*?)URI="(https://[^/"]+/keys/[^"]+\.key)""#,
-        format!(r#"#EXT-X-${{1}}KEY:${{2}}URI="{}/${{3}}""#, proxy_path),
+        r#"#EXT-X-${1}KEY:${2}URI="{proxy_inherited}/${3}""#,
         Some(hls_content_types.clone()),
     )]
 }

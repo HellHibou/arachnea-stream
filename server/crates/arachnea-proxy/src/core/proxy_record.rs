@@ -1,9 +1,15 @@
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::core::{ProxyNode, Result, TransportKind};
+
+/// Maximum age of a proxy validation before a subsequent failure removes it.
+///
+/// Stale proxies remain selectable: this is a conditional eviction threshold,
+/// not a hard expiration deadline.
+pub const PROXY_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// Proxy protocol variant advertised or detected for a record.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -164,6 +170,16 @@ pub struct ProxyRecord {
         with = "option_system_time_serde"
     )]
     pub last_checked: Option<SystemTime>,
+    /// Timestamp of the last successful probe or non-rejected origin response.
+    ///
+    /// Records older than [`PROXY_CACHE_TTL`] remain usable, but are deleted if
+    /// their next observed proxy or origin interaction fails.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "option_system_time_serde"
+    )]
+    pub last_validated_at: Option<SystemTime>,
     /// Cooldown expiry before retrying a globally-failed proxy.
     #[serde(
         default,

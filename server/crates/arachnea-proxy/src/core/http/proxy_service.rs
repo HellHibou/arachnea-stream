@@ -25,7 +25,8 @@ use crate::core::http::actions::{
 use crate::core::http::{ProxiedHttpRequest, ProxiedResponseBody, SimpleHttpClient};
 use crate::core::{
     normalize_parameter_value, ArachneaProxyCore, ClientContext, ClientParameter,
-    ParameterDefinition, PROXY_HEADER_PARAMETER_COUNTRIES, PROXY_HEADER_PARAMETER_COUNTRY,
+    ParameterDefinition, PROXY_HEADER_PARAMETER_AFFINITY, PROXY_HEADER_PARAMETER_COUNTRIES,
+    PROXY_HEADER_PARAMETER_COUNTRY,
 };
 use arachnea_core::controler::{
     ControlerService, ControlerServiceExt, ControlerStreamInput, ControlerStreamOutput,
@@ -41,6 +42,7 @@ const ALLOWED_OPTS_FIELDS: &[&str] = &[
     "proxy",
     "insecure_tls",
     "follow_redirects",
+    "proxy_rejection_statuses",
 ];
 
 /// Parsed options from the `opts` segment of a proxy URL.
@@ -57,6 +59,8 @@ struct ProxyHttpOpts {
     insecure_tls: bool,
     /// Optional maximum number of upstream redirects to follow.
     follow_redirects: Option<usize>,
+    /// HTTP statuses that reject the selected dynamic proxy and trigger one retry.
+    proxy_rejection_statuses: Vec<u16>,
 }
 
 struct MergedProxyHttpInput {
@@ -88,6 +92,7 @@ fn parse_opts_value(value: &serde_json::Value) -> Result<ProxyHttpOpts, (u16, St
                 proxy: serde_json::Value::Null,
                 insecure_tls: false,
                 follow_redirects: None,
+                proxy_rejection_statuses: Vec::new(),
             });
         }
         _ => return Err((400, "'opts' must be a JSON object".to_string())),
@@ -193,6 +198,31 @@ fn parse_opts_value(value: &serde_json::Value) -> Result<ProxyHttpOpts, (u16, St
         }
         None => None,
     };
+    let proxy_rejection_statuses = match obj.get("proxy_rejection_statuses") {
+        Some(serde_json::Value::Array(values)) => values
+            .iter()
+            .map(|value| {
+                value
+                    .as_u64()
+                    .and_then(|value| u16::try_from(value).ok())
+                    .filter(|value| (100..=599).contains(value))
+                    .ok_or_else(|| {
+                        (
+                            400,
+                            "'proxy_rejection_statuses' must contain HTTP status integers"
+                                .to_string(),
+                        )
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+        Some(_) => {
+            return Err((
+                400,
+                "'proxy_rejection_statuses' must be an array".to_string(),
+            ))
+        }
+        None => Vec::new(),
+    };
 
     Ok(ProxyHttpOpts {
         headers,
@@ -200,6 +230,7 @@ fn parse_opts_value(value: &serde_json::Value) -> Result<ProxyHttpOpts, (u16, St
         proxy,
         insecure_tls,
         follow_redirects,
+        proxy_rejection_statuses,
     })
 }
 
@@ -483,6 +514,7 @@ fn encode_proxy_opts(opts: &ProxyHttpOpts) -> String {
         && opts.proxy.is_null()
         && !opts.insecure_tls
         && opts.follow_redirects.is_none()
+        && opts.proxy_rejection_statuses.is_empty()
     {
         return String::new();
     }
@@ -504,6 +536,12 @@ fn encode_proxy_opts(opts: &ProxyHttpOpts) -> String {
     }
     if let Some(limit) = opts.follow_redirects {
         object.insert("follow_redirects".to_string(), serde_json::json!(limit));
+    }
+    if !opts.proxy_rejection_statuses.is_empty() {
+        object.insert(
+            "proxy_rejection_statuses".to_string(),
+            serde_json::json!(opts.proxy_rejection_statuses),
+        );
     }
 
     URL_SAFE_NO_PAD.encode(serde_json::Value::Object(object).to_string())
@@ -902,7 +940,18 @@ pub async fn handle_proxy_http(
     );
 
     // Execute proxy request
-    let client = SimpleHttpClient::new((*proxy_core).clone());
+    let request_proxy_core = if client_context
+        .get_string("countries")
+        .is_some_and(|value| !value.is_empty())
+        || client_context
+            .get_string("country")
+            .is_some_and(|value| !value.is_empty())
+    {
+        proxy_core.with_dynamic_proxy_observation_scope()
+    } else {
+        (*proxy_core).clone()
+    };
+    let client = SimpleHttpClient::new(request_proxy_core.clone());
     let headers_only = method == "HEAD";
     let proxy_request = ProxiedHttpRequest {
         url: target_url_str.clone(),
@@ -925,10 +974,47 @@ pub async fn handle_proxy_http(
             .and_then(|opts| opts.follow_redirects),
     };
 
-    let proxy_response = match client.request_proxied(proxy_request).await {
+    let mut proxy_response = match client.request_proxied(proxy_request.clone()).await {
         Ok(response) => response,
         Err(error) => return Ok(stream_error(502, format!("Proxy error: {error}"))),
     };
+    let destination = crate::core::Destination::host_port(
+        parsed_target.host_str().unwrap_or_default(),
+        parsed_target.port_or_known_default().unwrap_or(443),
+    )
+    .with_protocol(if parsed_target.scheme() == "https" {
+        crate::core::ApplicationProtocol::Https
+    } else {
+        crate::core::ApplicationProtocol::Http
+    });
+    let rejection_statuses = redirect_opts
+        .as_ref()
+        .map(|opts| opts.proxy_rejection_statuses.as_slice())
+        .unwrap_or_default();
+    if rejection_statuses.contains(&proxy_response.status)
+        && request_proxy_core
+            .mark_dynamic_proxy_blocked_by_origin(&destination)
+            .await
+    {
+        tracing::warn!(
+            status = proxy_response.status,
+            target = %target_url_str,
+            "origin rejected proxied media request; retrying with another candidate"
+        );
+        proxy_response = match client.request_proxied(proxy_request).await {
+            Ok(response) => response,
+            Err(error) => return Ok(stream_error(502, format!("Proxy error: {error}"))),
+        };
+    }
+    if rejection_statuses.contains(&proxy_response.status) {
+        request_proxy_core
+            .mark_dynamic_proxy_blocked_by_origin(&destination)
+            .await;
+    } else {
+        request_proxy_core
+            .mark_dynamic_proxy_validated(&destination)
+            .await;
+    }
 
     let status = proxy_response.status;
     let mut response_headers = proxy_response.headers;
@@ -1025,6 +1111,8 @@ pub fn register_service(
 ///
 /// # Examples
 /// ```
+/// use arachnea_proxy::http::proxy_service::proxied_url;
+///
 /// let url = proxied_url("http://example.com/media", Some("/proxy"), None, &[], &[]);
 /// assert_eq!(url, "/proxy/http://example.com/media");
 /// ```
@@ -1043,6 +1131,7 @@ pub fn proxied_url(
         headers,
         false,
         None,
+        &[],
     )
 }
 
@@ -1061,6 +1150,51 @@ pub fn proxied_url_with_countries(
         actions,
         headers,
         false,
+    )
+}
+
+/// Builds a proxied media URL carrying countries, affinity and rejection statuses.
+pub fn proxied_url_with_countries_and_policy(
+    media_locator: &str,
+    http_proxy_public_path: Option<&str>,
+    countries: &[String],
+    proxy_affinity: Option<&str>,
+    proxy_rejection_statuses: &[u16],
+    actions: &[ProxyHttpActionConfig],
+    headers: &[(&str, &str)],
+) -> String {
+    let countries = countries
+        .iter()
+        .map(|country| country.trim().to_ascii_uppercase())
+        .filter(|country| {
+            country.len() == 2 && country.bytes().all(|byte| byte.is_ascii_alphabetic())
+        })
+        .fold(Vec::new(), |mut result, country| {
+            if !result.contains(&country) {
+                result.push(country);
+            }
+            result
+        });
+    let mut all_headers = headers.to_vec();
+    let encoded_countries = serde_json::to_string(&countries).expect("country list serializes");
+    if !countries.is_empty() {
+        all_headers.push((PROXY_HEADER_PARAMETER_COUNTRIES, encoded_countries.as_str()));
+    }
+    if let Some(affinity) = proxy_affinity
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        all_headers.push((PROXY_HEADER_PARAMETER_AFFINITY, affinity));
+    }
+    proxied_url_with_internal_options(
+        media_locator,
+        http_proxy_public_path,
+        None,
+        actions,
+        &all_headers,
+        false,
+        None,
+        proxy_rejection_statuses,
     )
 }
 
@@ -1126,6 +1260,7 @@ pub fn proxied_url_with_options(
         headers,
         false,
         follow_redirects,
+        &[],
     )
 }
 
@@ -1149,6 +1284,7 @@ pub fn proxied_url_with_insecure_tls(
         headers,
         insecure_tls,
         None,
+        &[],
     )
 }
 
@@ -1160,6 +1296,7 @@ fn proxied_url_with_internal_options(
     headers: &[(&str, &str)],
     insecure_tls: bool,
     follow_redirects: Option<serde_json::Value>,
+    proxy_rejection_statuses: &[u16],
 ) -> String {
     let normalized_media_locator = media_locator.trim();
     if normalized_media_locator.starts_with("http://")
@@ -1176,12 +1313,14 @@ fn proxied_url_with_internal_options(
             let has_actions = !actions.is_empty();
             let has_extra_headers = !headers.is_empty();
             let has_follow_redirects = follow_redirects.is_some();
+            let has_proxy_rejection_statuses = !proxy_rejection_statuses.is_empty();
 
             if has_country
                 || has_actions
                 || has_extra_headers
                 || insecure_tls
                 || has_follow_redirects
+                || has_proxy_rejection_statuses
             {
                 // Build proxy headers
                 let mut proxy_headers: Vec<Vec<String>> = Vec::new();
@@ -1220,6 +1359,12 @@ fn proxied_url_with_internal_options(
                 }
                 if let Some(follow_redirects) = follow_redirects {
                     opts.insert("follow_redirects".to_string(), follow_redirects);
+                }
+                if has_proxy_rejection_statuses {
+                    opts.insert(
+                        "proxy_rejection_statuses".to_string(),
+                        serde_json::json!(proxy_rejection_statuses),
+                    );
                 }
                 let opts_encoded =
                     URL_SAFE_NO_PAD.encode(serde_json::Value::Object(opts).to_string());
@@ -1328,6 +1473,7 @@ mod tests {
             proxy: serde_json::Value::Null,
             insecure_tls: false,
             follow_redirects: None,
+            proxy_rejection_statuses: Vec::new(),
         };
         let encoded = encode_proxy_opts(&opts);
         let redirect_actions = vec![ProxyHttpRedirectActionConfig::RemoveHeader(
@@ -1391,6 +1537,7 @@ mod tests {
             proxy: serde_json::Value::Null,
             insecure_tls: false,
             follow_redirects: None,
+            proxy_rejection_statuses: Vec::new(),
         };
         let encoded = encode_proxy_opts(&opts);
         let redirect_actions = vec![ProxyHttpRedirectActionConfig::RemoveHeader(

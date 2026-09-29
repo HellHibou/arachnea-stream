@@ -63,7 +63,8 @@ pub use parameters::{
     CountryRoutingProxyHandler, DynamicCountryRoutingProxyHandler, ParameterDefinition,
     ParameterHandlerConfig, ParameterHandlerDecision, ParameterHandlerKind, ParameterProxyRoute,
     ParameterRegistry, ProxyParameterHandler, SmartDnsProxyHandler,
-    PROXY_HEADER_PARAMETER_COUNTRIES, PROXY_HEADER_PARAMETER_COUNTRY, PROXY_PARAMETER_COUNTRIES,
+    PROXY_HEADER_PARAMETER_AFFINITY, PROXY_HEADER_PARAMETER_COUNTRIES,
+    PROXY_HEADER_PARAMETER_COUNTRY, PROXY_PARAMETER_AFFINITY, PROXY_PARAMETER_COUNTRIES,
     PROXY_PARAMETER_COUNTRY,
 };
 pub use policy::{
@@ -75,12 +76,10 @@ pub use proxy_probe::{ProbeConfig, ProbeMode, ProxyProbe};
 pub use proxy_record::{
     ProxyAvailabilityHint, ProxyDataProvider, ProxyDestinationFailure,
     ProxyDestinationFailureReason, ProxyKey, ProxyLoadRequest, ProxyProtocol, ProxyRecord,
-    ProxyRuntimeStatus,
+    ProxyRuntimeStatus, PROXY_CACHE_TTL,
 };
 #[cfg(feature = "persistence")]
-pub use proxy_repository::{
-    ProxyRepository, TypedProxyRepository, PROXY_CACHE_TTL, PROXY_STORE_NAME,
-};
+pub use proxy_repository::{ProxyRepository, TypedProxyRepository, PROXY_STORE_NAME};
 pub use routing::{RouteDecision, RoutePolicy, RouteRule};
 pub use stats::{ProxyStats, ProxyStatsSnapshot};
 pub use transport::{socks::Socks5UdpAssociation, OutboundTransport, UdpAssociation};

@@ -776,6 +776,14 @@ headers as `Arachnea-Proxy-Countries`, so the manifest fetch tries each
 country's dynamic proxy pool in order. `resolver > proxy > country` remains a
 one-item fallback when `countries` is absent or empty.
 
+The FranceTV resolver uses `FR` as a fallback when the player supplies no
+country. A resolution also creates one opaque proxy affinity shared by the K7
+calls, manifest signing, DRM token, manifest loading through `/api/proxy`, and
+the deferred Widevine license request. The proxy URL also encodes HTTP `403` as
+a rejection status: the selected proxy is rejected for that destination, the
+affinity moves to another eligible candidate, and the request is retried once.
+Rewritten HLS key URLs use `{proxy_inherited}` so these options are preserved.
+
 A player can also request the rewrite of absolute URLs found in proxied HLS
 manifests by declaring `resolver > proxy > rewrite_manifest_urls: "true"`. The
 frontend forwards it as `proxy_rewrite_manifest_urls` to `get_stream`, and the

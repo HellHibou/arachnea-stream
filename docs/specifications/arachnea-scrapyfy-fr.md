@@ -124,6 +124,8 @@ http:
   user_agent: "Custom UA"       # optionnel : surcharge complète du User-Agent
   proxy_countries: ["US", "CA"] # optionnel : pays proxy ordonnés
   proxy_country: "US"           # fallback mono-pays historique
+  proxy_affinity: "opaque-session-id" # optionnel : conserve le même proxy admissible
+  proxy_rejection_statuses: [403] # optionnel : change de proxy et réessaie une fois
   max_redirects: 16             # optionnel : nombre max de redirections (défaut global: 16)
 ```
 `proxy_countries` est normalisé en codes ISO alpha-2 ordonnés et en majuscules,
@@ -133,6 +135,17 @@ l'interpolation de template runtime. Une liste JSON runtime peut être développ
 avec `http.proxy_countries: ["{proxy_countries}"]` et combinée avec des entrées
 statiques. Utilisez `http.proxy_country: "{proxy_country}"` lorsqu'une query
 nécessite un pays unique fourni à l'exécution.
+
+`proxy_affinity` est un identifiant opaque limité au processus. Les requêtes qui
+partagent cet identifiant réutilisent le même proxy dynamique tant qu'il reste
+admissible pour le pays, le protocole et la destination. L'identifiant n'expose
+pas l'adresse du proxy et sa liaison expire après 15 minutes d'inactivité.
+
+`proxy_rejection_statuses` contient les statuts de réponse de l'origine qui
+invalident le proxy dynamique actuellement sélectionné pour cette destination.
+La requête correspondante est réessayée une fois avec un autre candidat éligible
+déjà en cache. La liste est vide par défaut et reste sans effet sans route proxy
+dynamique intégrée au processus.
 
 ### Modes HTTP (`mode`)
 
