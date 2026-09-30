@@ -399,6 +399,8 @@ queries:
   # (`paragraph--type--featured-program`), section headers and the programme
   # teaser slider (`paragraph--type--teasing-slider`). The contest blocks
   # (`paragraph--type--content-slide`) carry no video and are ignored.
+  # Categories come from the main navigation and from the locality index
+  # (`/liste-localite`), fetched by the `localities` sub-query.
   # Rails whose label lives in a separate `paragraph--type--section-header`
   # sibling (the Actu / Sports / Doudou feeds) are emitted as label-less
   # sections, because extracting the label would require regrouping rows in
@@ -442,6 +444,42 @@ queries:
           - name: request > query_url
             type: string
             actions: *actions_get_href_resolve
+
+#      - name: localities
+#        type: string
+#        actions:
+#          - type: format_text
+#            argument: "{base_url}/liste-localite"
+#        sub_queries:
+#          - scraper_type: html
+#            target: parent
+#            row_selector: "div#block-tv-theme-content div.locality-list a[href^='/commune/']"
+#            entries:
+#              - name: categories
+#                type: object[]
+#                entries:
+#                  - name: key
+#                    type: string
+#                    actions:
+#                      - type: get_attribut
+#                        argument: href
+#                      - type: regex_replace_all
+#                        pattern: "^.*/([^/]+)/?$"
+#                        replacement: "$1"
+#                  - name: label
+#                    type: string
+#                    actions:
+#                      - type: get_text
+#                      - type: map
+#                        default: "{}"
+#                        argument:     
+#                          "Toutes": "Toutes les communes"
+#                  - name: link
+#                    type: string
+#                    actions: *actions_get_href_resolve
+#                  - name: request > query_url
+#                    type: string
+#                    actions: *actions_get_href_resolve
 
       # Featured rails: one section per `feat-content` paragraph, its title in
       # `.title-feat-content h2` when the paragraph carries one (some rails

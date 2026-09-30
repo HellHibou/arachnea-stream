@@ -508,6 +508,42 @@ queries:
             type: string
             actions: *actions_get_href_resolve
 
+#      - name: localities
+#        type: string
+#        actions:
+#          - type: format_text
+#            argument: "{base_url}/liste-localite"
+#        sub_queries:
+#          - scraper_type: html
+#            target: parent
+#            row_selector: "div#block-tv-theme-content div.locality-list a[href^='/commune/']"
+#            entries:
+#              - name: categories
+#                type: object[]
+#                entries:
+#                  - name: key
+#                    type: string
+#                    actions:
+#                      - type: get_attribut
+#                        argument: href
+#                      - type: regex_replace_all
+#                        pattern: "^.*/([^/]+)/?$"
+#                        replacement: "$1"
+#                  - name: label
+#                    type: string
+#                    actions:
+#                      - type: get_text
+#                      - type: map
+#                        default: "{}"
+#                        argument:     
+#                          "Nos communes": "Toutes les communes"                     
+#                  - name: link
+#                    type: string
+#                    actions: *actions_get_href_resolve
+#                  - name: request > query_url
+#                    type: string
+#                    actions: *actions_get_href_resolve            
+
       # Featured rails (Actu / Sport / Culture): one section per paragraph.
       - name: sections
         type: object[]
