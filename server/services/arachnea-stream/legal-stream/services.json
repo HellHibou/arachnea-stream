@@ -12,5 +12,6 @@
   { "path": "antennereunion-fr.yaml", "enabled": false },
   { "path": "tvmonaco-fr.yaml", "enabled": true },
   { "path": "bouke-be.yaml", "enabled": false },
-  { "path": "canalzoom-be.yaml", "enabled": false }
+  { "path": "canalzoom-be.yaml", "enabled": false },
+  { "path": "telemb-be.yaml", "enabled": false }
 ]
