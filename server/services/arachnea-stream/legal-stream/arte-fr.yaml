@@ -903,16 +903,22 @@ queries:
     entries:
       - name: players
         type: object[]
-        items:
+        value:
           - name: "ARTE en direct"
-            resolver > kind: scraper-query
-            resolver > target_id: "https://api.arte.tv/api/player/v2/config/fr/{channel}"
-            resolver > source: arte-fr
-            resolver > proxy > country: FR
-            # ABSOLUTE child playlist URLs in the live master manifest must stay on
-            # the proxy path, otherwise the player leaves the geo-routed session
-            # after the first manifest.
-            resolver > proxy > rewrite_manifest_urls: "true"
+            resolver:
+              kind: scraper-query
+              target_id: "https://api.arte.tv/api/player/v2/config/fr/{channel}"
+              source: arte-fr
+              proxy:
+                # ARTE exposes DE_FR for the live channel. Prefer France for this
+                # source, then allow Germany before the shared direct fallback.
+                countries:
+                  - FR
+                  - DE
+                # ABSOLUTE child playlist URLs in the live master manifest must
+                # stay on the proxy path, otherwise the player leaves the
+                # geo-routed session after the first manifest.
+                rewrite_manifest_urls: "true"
 
   # --------------------------------------------------------------------------
   # Banner trailer / editorial clip resolution
@@ -923,7 +929,8 @@ queries:
     base_url: "{query_url}"
     query_url: "{query_url}"
     http:
-      proxy_country: "{proxy_country}"
+      proxy_countries:
+        - "{proxy_countries}"
     row_pointer: /data/attributes
     entries:
       - name: stream_url

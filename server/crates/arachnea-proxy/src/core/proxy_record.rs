@@ -26,6 +26,18 @@ pub enum ProxyProtocol {
     Socks5,
 }
 
+/// Preferred protocol order for source selection and runtime detection.
+///
+/// HTTP is intentionally last because it provides the weakest transport
+/// capabilities among the supported proxy protocols.
+pub const PROXY_PROTOCOL_PRIORITY: [ProxyProtocol; 5] = [
+    ProxyProtocol::Socks5,
+    ProxyProtocol::Socks4,
+    ProxyProtocol::Https,
+    ProxyProtocol::Socks4a,
+    ProxyProtocol::Http,
+];
+
 /// Runtime health status determined by the last probe.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

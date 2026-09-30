@@ -49,12 +49,16 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Dynamic proxy provider refreshes now deduplicate endpoints and compare them with the memory/persistent inventory before probing. Existing protocol, HTTPS capability, health, latency, failure and cooldown data are reused while `last_checked` remains within `probe_ttl`; only new, untested or expired endpoints incur capability probes.
 - Dynamic proxy provider loading is now single-flight per country and governed by a shared inventory cooldown: concurrent selections wait for the same refresh, and independent clients cannot repeat a provider consultation for 120 seconds after an attempt, including failures and empty lists. Multi-country selection checks every requested country's memory and persistent caches before provider loading, then progresses through eligible country refreshes in caller order.
 - Dynamic proxy cache lifetime now uses a fixed 24-hour per-record validation age instead of a provider-refresh TTL or hard persistence expiration. Accepted HTTP responses renew the selected proxy without clearing unrelated destination failures; stale proxies remain selectable and are removed only after an observed proxy failure or configured origin rejection.
-- Accepted origin responses now make the corresponding dynamic proxy the preferred candidate for its country. Sticky reuse still passes every normal eligibility check, including global KO, protocol and HTTPS support, probe freshness, global cooldown, and destination-specific rejection state.
+- Accepted origin responses now make the corresponding dynamic proxy the preferred candidate for that exact country, scheme, host and port instead of globally preferring it for every destination in the country. Concurrent domains therefore retain independent preferred proxies, and preferred reuse still passes every normal eligibility check.
 
 #### Fixed
 
+- Dynamic proxy failures reported by an HTTP engine after route establishment are now correlated back to the selected endpoint, persisted as destination-scoped failures, and allowed to release the provider-refresh cooldown. The stale HTTP connection pool and affinity are cleared before one replacement attempt, and a failed replacement is recorded without sending a third request.
+- Dynamic country proxy connection and tunnel failures now release the affected countries' provider-refresh cooldown after excluding the failed endpoint. If the remaining memory and persistent cache is exhausted, the same request can therefore refresh the provider and discover replacement endpoints instead of failing behind the cooldown created by its initial load; configured HTTP origin rejections continue to rotate without granting an early provider refresh.
+- Configured origin rejections such as HTTP 403 now exclude the dynamic proxy from the exact scheme, host and port for 24 hours through the exported `PROXY_DESTINATION_FAILURE_COOLDOWN` default. The exclusion remains persisted in `proxy-inventory`, and rejecting a preferred proxy clears only that destination's runtime preference.
 - Dynamic geo-proxy selection no longer reloads an earlier country before checking cached candidates from later requested countries. Origin-specific proxy blocks remain scoped to their destination and no longer contribute to the threshold that marks a proxy globally unavailable.
 - Dynamic proxy provider consultation is no longer controlled by a per-HTTP-client load scope. `ProxyInventory` alone decides whether exhausted cached candidates justify a refresh, while Scrapyfy clients only retain destination-to-proxy correlation needed to report accepted or rejected origin responses.
 - Dynamic country proxies that time out or fail during transport/TLS setup are now marked globally KO for their cooldown instead of only being excluded from the current destination. This prevents a known dead proxy from adding another full timeout to subsequent M6+ origin requests; HTTP origin rejections remain destination-scoped, and SOCKS5 local-DNS fallback remains reserved for explicit remote DNS failures.
@@ -74,13 +78,17 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- TV5MONDE+ playback now derives its ordered proxy-country list from the entitlement `/play` response's comma-separated `materialProfile`, normalizing and deduplicating alpha-2 codes before applying them to the manifest, storyboard, and deferred Widevine license request. The player-supplied list remains the fallback when the profile is absent or unusable.
 - M6 Play replay players now derive ordered geo-proxy countries from `/clips/0/areas/*/zone_id`: area `11` emits `AD, FR, GP, GF, MQ, YT, MC, NC, PF, RE, BL, MF, PM, TF, WF`, while area `34`, missing areas, and unknown values emit no geo-proxy constraint.
 - The `arachnea-stream-hoster` Vidzy resolver is unified for `vidzy.cc` and `vidzy.live` (including optional `www.`). Its HLS decoder derives the XOR key from the request hostname, and all stream and subtitle proxy requests use the resolved request origin. The decoder returns its string through `document.write`, which is the supported `exec_js` string channel.
 - The public Vue player propagates resolved subtitles through primary and fallback media sources, adds them as Video.js remote subtitle tracks, restores saved text-track preferences, and explicitly removes renderer-owned tracks on source changes and disposal.
 
 #### Fixed
 
-- FranceTV playback now defaults to a French geo-proxy when no country is supplied and keeps one opaque proxy affinity across K7, manifest signing, DRM authorization, proxied manifest/subresource loading, and deferred Widevine licensing. Both internal HTTP calls and returned `/api/proxy` URLs classify HTTP 403 as a destination-specific rejection, clear the rejected affinity binding, rotate to another eligible proxy, and retry once; rewritten HLS key URLs preserve the inherited proxy options.
+- ARTE live stream resolution now preserves the canonical `{proxy_countries}` HTTP template during configuration loading, then expands its runtime JSON list when `resolve_stream` executes instead of silently dropping the unresolved placeholder and using a direct connection. Its player descriptor uses the live config's `DE_FR` geoblocking rights as the ordered `[FR, DE]` proxy list, allowing a German proxy when no usable French proxy is available; the public frontend also accepts Scrapyfy's nested scalar-node representation for this static country list.
+- TF1+ now derives proxy countries from `media.geoList` in `mediainfocombo`, retries a geo-blocked negotiation through those territories, and preserves the discovered list for the manifest, storyboard, and deferred Widevine license request. Resolver-level proxy retry loops and direct fallbacks have been removed; internal requests and the manifest/storyboard `/api/proxy` URLs delegate HTTP 403 rotation to the proxy layer.
+
+- FranceTV playback now preserves every supplied non-empty proxy-country list and falls back to `FR` only when the player supplies no country, ensuring that HTTP 403 responses remain associated with a dynamic geo-proxy. It keeps one opaque proxy affinity across K7, manifest signing, DRM authorization, proxied manifest/subresource loading, and deferred Widevine licensing. Both internal HTTP calls and returned `/api/proxy` URLs classify HTTP 403 as a destination-specific rejection, clear the rejected affinity binding, rotate to another eligible proxy, and retry once; rewritten HLS key URLs preserve the inherited proxy options.
 - Dynamic proxy selection now delegates exhausted-cache refresh decisions to the shared inventory, so independently created M6+ clients reuse the same per-country refresh cooldown instead of downloading and probing the same list again.
 - A configured origin rejection (such as M6+ HTTP 403) now rotates away from the rejected proxy without granting the HTTP client a new provider refresh. The inventory may refresh only when its shared per-country cooldown allows it.
 - M6+ now treats HTTP 403 responses during its authenticated playback sequence as rejection of the current geo-proxy, records a destination-scoped cooldown, and retries the request once with another cached proxy candidate.
@@ -98,13 +106,16 @@ All notable changes to the server workspace are recorded here.
 - Scraper HTTP configuration now supports `proxy_countries`, an ordered normalized country list that is forwarded to proxy routing as a JSON array and takes precedence over legacy `proxy_country`.
 - Scraper HTTP configuration now supports `proxy_rejection_statuses`, allowing selected origin statuses to rotate a dynamic proxy and retry the request once.
 - HTTP scraper queries now support `empty_on_statuses`, allowing source configurations to map selected response statuses to an empty typed result instead of parsing the error body.
+- Proxy sources can expose a `protocols` array; the proxy provider selects one supported protocol deterministically while preserving a valid singular `protocol`. The disabled-by-default ProxyCompass source uses this support, maps ISO country codes to API country names, and requests at most 1,000 proxy candidates.
 
 #### Changed
 
+- Proxy protocol selection and runtime detection now share the priority `SOCKS5`, `SOCKS4`, `HTTPS`, `SOCKS4A`, then `HTTP`, making HTTP the lowest-priority option.
 - Ghostwire is no longer enabled by default. Consumers that still need the smart Cloudflare solver must explicitly enable the `ghostwire` feature.
 
 #### Fixed
 
+- Text and binary scraper requests now rotate a dynamically selected proxy once when `arachnea-http` reports a proxy transport failure before an HTTP response, including failures occurring after an HTTP CONNECT tunnel was accepted. If the replacement also fails, both error contexts are retained and no third request is sent.
 - Proxifly country lookups now treat a missing country file (`404`) as an empty proxy list, avoiding the misleading `Invalid JSON payload` error for unsupported countries such as Andorra (`AD`).
 
 ### <u>arachnea-http</u>

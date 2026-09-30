@@ -778,14 +778,30 @@ proxy générées embarquent la liste JSON ordonnée dans leurs `opts` sous
 pools de proxy dynamiques de chaque pays dans l'ordre. `resolver > proxy >
 country` reste un fallback à un élément lorsque `countries` est absente ou vide.
 
-Le résolveur FranceTV utilise `FR` comme fallback lorsque le lecteur ne fournit
-aucun pays. Une résolution crée en outre une affinité proxy opaque commune aux
-appels K7, à la signature du manifeste, au jeton DRM, au chargement du manifeste
-via `/api/proxy` et à la licence Widevine différée. L'URL proxy encode aussi le
-rejet du statut `403` : le proxy sélectionné est alors rejeté pour la destination,
-l'affinité est déplacée vers un autre candidat admissible et la requête est
-réessayée une fois. Les URLs de clés HLS réécrites utilisent
-`{proxy_inherited}` afin de conserver ces options.
+Le résolveur FranceTV conserve toute liste de pays non vide fournie par le
+lecteur et utilise `[FR]` uniquement lorsque cette liste est vide. Une résolution
+crée en outre une affinité proxy opaque commune aux appels K7, à la signature du
+manifeste, au jeton DRM, au chargement du manifeste via `/api/proxy` et à la
+licence Widevine différée. L'URL proxy encode aussi le rejet du statut `403` : le
+proxy sélectionné est alors rejeté pour la destination, l'affinité est déplacée
+vers un autre candidat admissible et la requête est réessayée une fois. Les URLs
+de clés HLS réécrites utilisent `{proxy_inherited}` afin de conserver ces options.
+
+Le résolveur TF1+ lit la liste de territoires autorisés dans `media.geoList`
+de la réponse `mediainfocombo`. Il normalise et déduplique ces codes, puis les
+utilise comme pays proxy pour relancer une négociation géobloquée avant
+d'évaluer `delivery.code`. La même liste est conservée pour le manifeste, le
+storyboard et la licence Widevine différée, sans retry local ni fallback direct.
+Les URLs `/api/proxy` du manifeste et du storyboard encodent le rejet du statut
+HTTP `403`, qui provoque un seul nouvel essai avec un autre candidat.
+
+Le résolveur TV5MONDE+ utilise la liste fournie par le lecteur pour
+l'authentification anonyme et l'appel entitlement initial. Il extrait ensuite
+les codes pays de la chaîne `materialProfile` retournée par l'entitlement
+`/play`, les normalise, les déduplique et conserve leur ordre. Cette liste
+devient le contexte proxy du manifeste, du storyboard et de la licence
+Widevine différée. Si le champ est absent ou ne contient aucun code alpha-2
+valide, la liste initiale du lecteur est conservée.
 
 Un lecteur peut en outre demander la réécriture des URLs absolues rencontrées
 dans les manifestes HLS proxifiés en déclarant

@@ -145,7 +145,11 @@ pas l'adresse du proxy et sa liaison expire après 15 minutes d'inactivité.
 invalident le proxy dynamique actuellement sélectionné pour cette destination.
 La requête correspondante est réessayée une fois avec un autre candidat éligible
 déjà en cache. La liste est vide par défaut et reste sans effet sans route proxy
-dynamique intégrée au processus.
+dynamique intégrée au processus. Le rejet est persisté dans l'inventaire des
+proxys pendant 24 heures et reste limité au triplet exact protocole, hôte et
+port. Après une réponse non rejetée, le proxy sélectionné devient le candidat
+prioritaire pour cette destination exacte tout en restant soumis à tous les
+contrôles d'éligibilité ; chaque destination conserve une préférence distincte.
 
 ### Modes HTTP (`mode`)
 

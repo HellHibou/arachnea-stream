@@ -71,12 +71,14 @@ pub use policy::{
     EgressPool, EgressPoolStrategy, EgressSelector, NoopEgressSelector, PrivacyPolicy,
     ProxyPoolMemberState, ProxyPoolMemberStatus, SecurityPolicy,
 };
-pub use proxy_inventory::{CoexistencePolicy, InventoryConfig, ProxyInventory};
+pub use proxy_inventory::{
+    CoexistencePolicy, InventoryConfig, ProxyInventory, PROXY_DESTINATION_FAILURE_COOLDOWN,
+};
 pub use proxy_probe::{ProbeConfig, ProbeMode, ProxyProbe};
 pub use proxy_record::{
     ProxyAvailabilityHint, ProxyDataProvider, ProxyDestinationFailure,
     ProxyDestinationFailureReason, ProxyKey, ProxyLoadRequest, ProxyProtocol, ProxyRecord,
-    ProxyRuntimeStatus, PROXY_CACHE_TTL,
+    ProxyRuntimeStatus, PROXY_CACHE_TTL, PROXY_PROTOCOL_PRIORITY,
 };
 #[cfg(feature = "persistence")]
 pub use proxy_repository::{ProxyRepository, TypedProxyRepository, PROXY_STORE_NAME};

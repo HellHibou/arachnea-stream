@@ -1,6 +1,8 @@
 use anyhow::{Context, Result};
 use arachnea_core::persistence::TypedEntityStore;
 use arachnea_http::chaser_session::{memory_session_store, CachedChaserSession};
+#[cfg(feature = "arachnea-proxy")]
+use arachnea_http::ArachneaHttpError;
 use arachnea_http::{
     global_cookie_cache, header_map_from_strings, ArachneaHttpClient, ArachneaHttpConfig,
     ArachneaResponse, BrowserProfile, BrowserSessionConfig, BrowserSessionManager, CookieEntry,
@@ -8,7 +10,10 @@ use arachnea_http::{
     SharedCookieCache,
 };
 #[cfg(feature = "arachnea-proxy")]
-use arachnea_proxy::core::{ApplicationProtocol, ArachneaProxyCore, Destination, UsageProfile};
+use arachnea_proxy::core::{
+    ApplicationProtocol, ArachneaProxyCore, Destination, ProxyDestinationFailureReason,
+    UsageProfile,
+};
 use http::{HeaderMap, Method};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -489,15 +494,24 @@ fn resolve_proxy_countries_templates(
     countries: &[String],
     params: &HashMap<String, String>,
 ) -> Vec<String> {
-    let resolved = countries.iter().flat_map(|country| {
+    countries.iter().fold(Vec::new(), |mut resolved, country| {
         let (value, missing_keys) = query_helpers::replace_template_placeholders(country, params);
-        if missing_keys.is_empty() {
-            serde_json::from_str::<Vec<String>>(&value).unwrap_or_else(|_| vec![value])
-        } else {
-            vec![value]
+
+        if !missing_keys.is_empty() {
+            if !value.trim().is_empty() && !resolved.contains(&value) {
+                resolved.push(value);
+            }
+            return resolved;
         }
-    });
-    normalize_proxy_countries(resolved)
+
+        let values = serde_json::from_str::<Vec<String>>(&value).unwrap_or_else(|_| vec![value]);
+        for country in normalize_proxy_countries(values) {
+            if !resolved.contains(&country) {
+                resolved.push(country);
+            }
+        }
+        resolved
+    })
 }
 
 #[cfg(test)]
@@ -510,6 +524,13 @@ mod tests {
             proxy_countries: vec!["{proxy_countries}".to_string()],
             ..Default::default()
         };
+
+        config
+            .resolve_collection_params("test", "resolve_stream", &HashMap::new())
+            .unwrap();
+
+        assert_eq!(config.proxy_countries, vec!["{proxy_countries}"]);
+
         let params = HashMap::from([(
             "proxy_countries".to_string(),
             "[\"fr\", \"BE\", \"fr\", \"invalid\"]".to_string(),
@@ -880,6 +901,42 @@ impl HttpClient {
             url,
             "origin rejected dynamic proxy; retrying with another candidate"
         );
+        Ok(true)
+    }
+
+    /// Invalidates a dynamic proxy after an HTTP engine transport failure.
+    ///
+    /// Only errors explicitly classified as proxy failures are eligible. The
+    /// cached HTTP client is dropped so its connection pool cannot reuse the
+    /// failed tunnel or endpoint.
+    #[cfg(feature = "arachnea-proxy")]
+    async fn invalidate_transport_failed_proxy(
+        &self,
+        url: &str,
+        error: &anyhow::Error,
+    ) -> Result<bool> {
+        if !error.chain().any(|cause| {
+            matches!(
+                cause.downcast_ref::<ArachneaHttpError>(),
+                Some(ArachneaHttpError::Proxy(_))
+            )
+        }) {
+            return Ok(false);
+        }
+
+        let proxy_state = self.proxy_handle.snapshot();
+        let Some(HttpProxyConfig::Arachnea(core)) = proxy_state.proxy else {
+            return Ok(false);
+        };
+        let destination = proxy_destination_from_url(url)?;
+        if !core
+            .mark_dynamic_proxy_transport_failed(&destination, ProxyDestinationFailureReason::Other)
+            .await
+        {
+            return Ok(false);
+        }
+
+        *self.client.write().await = None;
         Ok(true)
     }
 
@@ -1401,17 +1458,80 @@ impl HttpClient {
             ));
         }
 
-        let response = self
+        let response = match self
             .send_text_once(method.clone(), url, request_headers, request_body)
-            .await?;
+            .await
+        {
+            Ok(response) => response,
+            Err(initial_error) => {
+                #[cfg(feature = "arachnea-proxy")]
+                if self
+                    .invalidate_transport_failed_proxy(url, &initial_error)
+                    .await?
+                {
+                    tracing::warn!(
+                        url,
+                        error = %format!("{initial_error:#}"),
+                        "dynamic proxy transport failed; retrying with another candidate"
+                    );
+                    match self
+                        .send_text_once(method, url, request_headers, request_body)
+                        .await
+                    {
+                        Ok(response) => {
+                            self.record_final_proxy_response(
+                                response.url(),
+                                response.status().as_u16(),
+                            )
+                            .await?;
+                            return Ok(response);
+                        }
+                        Err(retry_error) => {
+                            if let Err(invalidation_error) = self
+                                .invalidate_transport_failed_proxy(url, &retry_error)
+                                .await
+                            {
+                                tracing::warn!(
+                                    url,
+                                    error = %format!("{invalidation_error:#}"),
+                                    "failed to invalidate dynamic proxy after transport retry failure"
+                                );
+                            }
+                            return Err(retry_error.context(format!(
+                                "Dynamic proxy transport retry failed after initial error: {initial_error:#}"
+                            )));
+                        }
+                    }
+                }
+                return Err(initial_error);
+            }
+        };
         #[cfg(feature = "arachnea-proxy")]
         if self
             .rotate_rejected_proxy(response.url(), response.status().as_u16())
             .await?
         {
-            let response = self
+            let response = match self
                 .send_text_once(method, url, request_headers, request_body)
-                .await?;
+                .await
+            {
+                Ok(response) => response,
+                Err(retry_error) => {
+                    if let Err(invalidation_error) = self
+                        .invalidate_transport_failed_proxy(url, &retry_error)
+                        .await
+                    {
+                        tracing::warn!(
+                            url,
+                            error = %format!("{invalidation_error:#}"),
+                            "failed to invalidate dynamic proxy after rejected-response retry failure"
+                        );
+                    }
+                    return Err(
+                        retry_error.context("Dynamic proxy retry after an origin rejection failed")
+                    );
+                }
+            };
             self.record_final_proxy_response(response.url(), response.status().as_u16())
                 .await?;
             return Ok(response);
@@ -1459,17 +1579,80 @@ impl HttpClient {
             ));
         }
 
-        let response = self
+        let response = match self
             .send_bytes_once(method.clone(), url, request_headers, request_body.clone())
-            .await?;
+            .await
+        {
+            Ok(response) => response,
+            Err(initial_error) => {
+                #[cfg(feature = "arachnea-proxy")]
+                if self
+                    .invalidate_transport_failed_proxy(url, &initial_error)
+                    .await?
+                {
+                    tracing::warn!(
+                        url,
+                        error = %format!("{initial_error:#}"),
+                        "dynamic proxy transport failed; retrying with another candidate"
+                    );
+                    match self
+                        .send_bytes_once(method, url, request_headers, request_body)
+                        .await
+                    {
+                        Ok(response) => {
+                            self.record_final_proxy_response(
+                                response.url(),
+                                response.status().as_u16(),
+                            )
+                            .await?;
+                            return Ok(response);
+                        }
+                        Err(retry_error) => {
+                            if let Err(invalidation_error) = self
+                                .invalidate_transport_failed_proxy(url, &retry_error)
+                                .await
+                            {
+                                tracing::warn!(
+                                    url,
+                                    error = %format!("{invalidation_error:#}"),
+                                    "failed to invalidate dynamic proxy after transport retry failure"
+                                );
+                            }
+                            return Err(retry_error.context(format!(
+                                "Dynamic proxy transport retry failed after initial error: {initial_error:#}"
+                            )));
+                        }
+                    }
+                }
+                return Err(initial_error);
+            }
+        };
         #[cfg(feature = "arachnea-proxy")]
         if self
             .rotate_rejected_proxy(response.url(), response.status().as_u16())
             .await?
         {
-            let response = self
+            let response = match self
                 .send_bytes_once(method, url, request_headers, request_body)
-                .await?;
+                .await
+            {
+                Ok(response) => response,
+                Err(retry_error) => {
+                    if let Err(invalidation_error) = self
+                        .invalidate_transport_failed_proxy(url, &retry_error)
+                        .await
+                    {
+                        tracing::warn!(
+                            url,
+                            error = %format!("{invalidation_error:#}"),
+                            "failed to invalidate dynamic proxy after rejected-response retry failure"
+                        );
+                    }
+                    return Err(
+                        retry_error.context("Dynamic proxy retry after an origin rejection failed")
+                    );
+                }
+            };
             self.record_final_proxy_response(response.url(), response.status().as_u16())
                 .await?;
             return Ok(response);

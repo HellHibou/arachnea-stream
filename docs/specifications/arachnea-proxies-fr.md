@@ -33,7 +33,8 @@ Les champs utilisables sont les suivants :
 
 | Champ YAML | Type YAML | Obligatoire | Description |
 |---|---|---|---|
-| `protocol` | `string` | oui | Protocole du proxy. Valeurs acceptées : `http`, `https`, `socks4`, `socks4a`, `socks5`. |
+| `protocol` | `string` | conditionnel | Protocole singulier du proxy. Valeurs acceptées : `http`, `https`, `socks4`, `socks4a`, `socks5`. Il est prioritaire lorsqu'il est valide. |
+| `protocols` | `string[]` | conditionnel | Protocoles disponibles lorsque la source expose plusieurs valeurs. Le provider en sélectionne un de façon déterministe dans cet ordre : `socks5`, `socks4`, `https`, `socks4a`, puis `http` en priorité la plus basse. Le moteur de sondes utilise le même ordre lorsqu'il doit déterminer le protocole. |
 | `host` | `string` | oui | Adresse IPv4, IPv6 ou nom d'hôte du proxy. |
 | `port` | `number` | oui | Port d'écoute du proxy. |
 | `country` | `string` | non | Code pays ISO (alpha-2, ex: `FR`, `US`). Le provider normalise automatiquement en majuscules. |
@@ -43,9 +44,10 @@ Les champs utilisables sont les suivants :
 | `failure_count` | `number` | non | Nombre d'échecs consécutifs rapportés par la source (défaut: `0`). |
 | `authentication_required` | `boolean` | non | Indique si le proxy nécessite une authentification. |
 
-Les champs `host` et `port` sont obligatoires. `protocol` est fortement
-recommandé — sans lui, le proxy ne peut pas être converti en nœud de transport
-et sera ignoré.
+Les champs `host` et `port` sont obligatoires. Au moins l'un des champs
+`protocol` ou `protocols` est fortement recommandé — sans protocole reconnu,
+le proxy ne peut pas être converti en nœud de transport et sera ignoré lors de
+la construction des nœuds de transport.
 
 Les champs `status`, `destination_failures`, `last_checked` et
 `cooldown_until` sont gérés par le moteur de sondes et ne doivent pas être
@@ -208,6 +210,7 @@ queries:
 Les champs extraits par le scraper sont mappés dans le code Rust comme suit :
 
 - `protocol` → `ProxyProtocol` (`http`, `https`, `socks4`, `socks4a`, `socks5`)
+- `protocols` → premier `ProxyProtocol` disponible selon la priorité déterministe `socks5`, `socks4`, `https`, `socks4a`, puis `http` ; le moteur de sondes utilise le même ordre pour déterminer un protocole inconnu et un champ singulier `protocol` valide reste prioritaire
 - `host` → `ProxyRecord.host` (`String`)
 - `port` → `ProxyRecord.port` (`u16`)
 - `country` → normalisé en `ProxyRecord.country` (`Option<String>`, majuscules)

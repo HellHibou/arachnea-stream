@@ -233,11 +233,11 @@ la règle de priorité.
 
 | Service | Lecteurs/résolveur | État de propagation technique | Source de droits observée | Règle de pays actuellement justifiée | Action restante |
 |---|---|---|---|---|---|
-| France TV | `francetv-video`, `francetv-live` | Prête : la liste atteint K7, le jeton de manifeste, l'URL média proxifiée et la licence Widevine différée. | Aucune dans les réponses catalogue consommées ; les droits doivent être relevés dans K7 ou une réponse player. | Aucune. Ne pas injecter `FR` dans les lecteurs. | Capturer le même `si_id` avec plusieurs sorties pays et relever le schéma K7, les erreurs et les URLs/manifestes. |
+| France TV | `francetv-video`, `francetv-live` | Complète : la liste effective atteint K7, le jeton de manifeste, l'URL média proxifiée et la licence Widevine différée. | Aucune dans les réponses catalogue consommées ; les droits doivent être relevés dans K7 ou une réponse player. | Conserver toute liste explicite ; utiliser `[FR]` uniquement lorsque le lecteur n'en fournit aucune. | Capturer le même `si_id` avec plusieurs sorties pays et relever le schéma K7, les erreurs et les URLs/manifestes. |
 | M6 Play | `m6play-video` | Complète pour les zones connues : le YAML extrait `/clips/0/areas/*/zone_id`, construit `resolver.proxy.countries` et le résolveur propage la liste vers la négociation et le média proxifié. | `areas` au niveau de la vidéo, vérifié sur des payloads réels. | `areas=11` → `[AD, FR, GP, GF, MQ, YT, MC, NC, PF, RE, BL, MF, PM, TF, WF]` ; `areas=34` → absence de proxy. | Confirmer toute nouvelle valeur avant de l'ajouter au mapping. |
-| TF1+ | Résolveur TF1+ | Prête : les négociations, URLs média et DRM reçoivent le contexte demandé. | Non relevée dans une fixture exploitable. | Aucune. | Capturer le nœud GraphQL vidéo et le média-info pour des contenus aux droits différents. |
-| TV5MONDE+ | Résolveur TV5MONDE+ | Prête : le contexte demandé est propagé à la négociation, au média et au DRM. | Non relevée dans un détail d'asset/entitlement exploitable. | Aucune. | Capturer le détail d'asset et l'entitlement `/play`, notamment pour des contenus disponibles dans plusieurs pays. |
-| Arte | `scraper-query` | Prête : Scrapyfy accepte `http.proxy_countries: ["{proxy_countries}"]` et les URLs de manifestes peuvent conserver ce contexte. | Non relevée dans les réponses EMAC utilisées. | Aucune, sauf le live qui portait historiquement `FR` et doit être revu avec des données. | Relever les champs de droits/territoires de programme et de player config. |
+| TF1+ | Résolveur TF1+ | Complète : `media.geoList` est réutilisé pour la négociation géolocalisée, les URLs média, le storyboard et le DRM différé. | `media.geoList` dans `mediainfocombo`, y compris sur une réponse métier géobloquée. | Liste ordonnée, normalisée et dédupliquée de `media.geoList`. | Vérifier avec des replays DRM/non-DRM et les directs. |
+| TV5MONDE+ | Résolveur TV5MONDE+ | Complète après entitlement : le contexte demandé atteint l'authentification et l'entitlement, puis `materialProfile` pilote le média, le storyboard et le DRM différé. | `materialProfile` dans l'entitlement `/play`, sous forme de chaîne de codes séparés par des virgules. | Liste ordonnée, normalisée et dédupliquée de `materialProfile`; conserver la liste du lecteur si le champ est absent ou inutilisable. | Vérifier sur des assets aux profils territoriaux différents et confirmer le comportement des sorties proxy hors profil. |
+| Arte | `scraper-query` | Complète pour le direct : Scrapyfy accepte `http.proxy_countries: ["{proxy_countries}"]` et les URLs de manifestes conservent ce contexte. | Le player config live expose `restriction.geoblocking.code: DE_FR`; hors zone, il répond HTTP 200 avec `streams: []` et `error.code: ERROR_GEOLOCATION`. | Le direct utilise `[FR, DE]`, dans cet ordre, afin de privilégier la France puis d'essayer l'autre territoire explicitement autorisé. | Relever les champs de droits/territoires des programmes non live dans les réponses programme ou player config. |
 | RTBF Auvio | Résolveur RTBF Auvio | Propagation multi-pays ajoutée au résolveur affecté. | Non analysée dans cette phase. | Aucune. | Analyser les réponses de lecture et les éventuels géoblocages avant d'émettre une liste. |
 | RTL Play | Résolveur RTL Play | Propagation multi-pays ajoutée au résolveur affecté. | Non analysée dans cette phase. | Aucune. | Analyser les réponses de lecture et les éventuels géoblocages avant d'émettre une liste. |
 | Antenne Réunion | Résolveur Antenne Réunion | Propagation multi-pays ajoutée au résolveur affecté. | Non analysée dans cette phase. | Aucune. | Analyser les réponses de lecture et les éventuels géoblocages avant d'émettre une liste. |
@@ -254,10 +254,12 @@ lecteurs à partir de `si_id`. Le résolveur
 
 - envoie `country_code`, configuré à `FR` dans le YAML, à l'API K7
   `https://k7.ftven.fr/videos/{si_id}` ;
-- construit un `ScraperHttpConfig` avec les `proxy_countries` reçus ;
+- construit un `ScraperHttpConfig` avec les `proxy_countries` reçus, ou `[FR]`
+  lorsque la liste est vide ;
 - emploie ce client pour K7, pour la signature du manifeste et pour le jeton
   Widevine ;
-- crée une URL média avec `proxied_url_with_countries` ;
+- crée une URL média avec `proxied_url_with_countries_and_policy`, l'affinité
+  commune et le rejet HTTP `403` ;
 - sauvegarde les mêmes pays dans le contexte de licence différée et les
   réemploie lors du `POST` Widevine.
 
@@ -289,10 +291,12 @@ ne démontre pas que `FR` soit autorisé pour toutes les vidéos.
 #### Conclusion France TV et plan de relevé
 
 La propagation multi-pays France TV est terminée, mais la décision par vidéo
-ne l'est pas. À ce stade, laisser `resolver.proxy.countries` absent est le seul
-comportement fondé sur les données disponibles. Ajouter systématiquement
-`[FR]`, ou dériver une liste du paramètre `country_code`, créerait une règle de
-droits non vérifiée.
+ne l'est pas. Les lecteurs peuvent laisser `resolver.proxy.countries` absent :
+le résolveur applique alors le fallback historique `[FR]` propre à FranceTV afin
+que les rejets HTTP `403` restent associés à une sélection dynamique et puissent
+déclencher la rotation centralisée. Toute liste explicite reste prioritaire et
+est transmise sans ajout de `FR`. Ce fallback opérationnel ne constitue pas une
+déduction des territoires autorisés pour chaque vidéo.
 
 Pour finaliser le mapping, capturer et versionner des fixtures anonymisées pour
 au moins :
@@ -341,31 +345,47 @@ produisent donc aucune contrainte géographique implicite. Toute nouvelle valeur
 ### Arte
 
 `server/services/arachnea-stream/legal-stream/arte-fr.yaml` crée des lecteurs
-`scraper-query` pour les programmes, épisodes, trailers et clips. Seul le
-lecteur live déclare aujourd'hui `resolver > proxy > country: FR`.
+`scraper-query` pour les programmes, épisodes, trailers et clips. Le player
+config du direct expose `restriction.geoblocking.code: DE_FR`. Depuis une sortie
+hors zone, ARTE répond HTTP 200 avec `streams: []`,
+`error.code: ERROR_GEOLOCATION` et le titre `Direct non disponible.`.
 
 La query `resolve_stream` peut désormais utiliser
 `http.proxy_countries: ["{proxy_countries}"]`. La liste est propagée dans les
 URLs de manifestes, y compris lors de la réécriture des playlists HLS enfant.
+Scrapyfy conserve ce placeholder lorsque la collection est chargée sans le
+paramètre runtime, puis l'expanse et le normalise au moment de l'exécution. Sans
+cette conservation en deux phases, le placeholder était supprimé comme code ISO
+invalide et l'appel au player config partait en direct.
+ARTE utilise cette forme canonique : le lecteur live déclare
+`resolver.proxy.countries: ["FR", "DE"]`, dans cet ordre, puis la query reçoit
+la même liste dans son paramètre runtime structuré. L'ancien template mono-pays
+`{proxy_country}` ne doit pas être utilisé ici, car le chemin `scraper-query` ne
+fournit que `proxy_countries`.
 
-Il faut identifier les champs de disponibilité par territoire dans les réponses
-EMAC/programme ou dans le player config afin de renseigner chaque lecteur, pas
-seulement le direct.
+Il reste à identifier les champs de disponibilité par territoire des programmes
+non live dans les réponses programme ou player config afin de renseigner leurs
+lecteurs sans fabriquer de contrainte implicite.
 
 ### TF1+
 
 `server/services/arachnea-stream/legal-stream/tf1-fr.yaml` construit les
-lecteurs depuis les nœuds `video` GraphQL. Les droits territoriaux ne sont pas
-encore extraits.
+lecteurs depuis les nœuds `video` GraphQL. La liste de droits territoriaux est
+fournie plus tard par la réponse `mediainfocombo`, sous `media.geoList`.
 
-`server/crates/arachnea-stream/src/services/tf1_resolver.rs` propage le
-contexte multi-pays aux requêtes de résolution, aux URLs média et aux requêtes
-DRM différées.
+`server/crates/arachnea-stream/src/services/tf1_resolver.rs` normalise et
+déduplique cette liste. Lorsque la première réponse est géobloquée, il relance
+`mediainfocombo` avec `geoList` comme paramètres proxy avant d'évaluer
+`delivery.code`. La même liste est ensuite propagée à la résolution finale du
+manifeste, à son URL `/api/proxy`, au storyboard et à la licence DRM différée.
+Le résolveur n'applique aucun retry supplémentaire ni fallback direct. Les
+réponses HTTP `403` sont configurées comme rejets proxy pour les appels internes
+et les URLs `/api/proxy` du manifeste et du storyboard ; la couche proxy effectue
+seule un nouvel essai avec un autre candidat admissible.
 
-Il faut relever le champ de disponibilité par pays dans les nœuds vidéo
-GraphQL, l'écrire dans `resolver.proxy.countries`, l'utiliser pour les appels
-de négociation et pour le manifeste, la licence et les ressources associées
-lorsqu'elles nécessitent le même contexte géographique.
+Le 29 septembre 2026, ce comportement a été confirmé sur une réponse
+`mediainfocombo` géobloquée contenant une liste explicite de territoires et un
+`delivery.code` égal à `403`.
 
 ### TV5MONDE+
 
@@ -377,11 +397,17 @@ l'asset.
 Les lecteurs `tv5mondeplus-video` sont créés depuis les assets, tandis que
 `server/crates/arachnea-stream/src/services/tv5mondeplus_resolver.rs` effectue
 une authentification anonyme puis une requête entitlement. Le contexte
-multi-pays demandé est maintenant propagé à ces appels, au média et au DRM.
+multi-pays demandé est propagé à ces deux premiers appels. La réponse
+entitlement `/play` expose ensuite `materialProfile`, une chaîne de valeurs
+séparées par des virgules qui contient les codes pays autorisés ainsi que la
+valeur non territoriale `default`.
 
-Il faut identifier les territoires disponibles dans le détail d'asset ou dans
-la réponse entitlement, les extraire au niveau du lecteur et fournir cette
-liste au résolveur pour les appels qui déterminent ou consomment la lecture.
+Le résolveur sépare cette chaîne, normalise en majuscules les codes alpha-2,
+écarte les valeurs invalides et les doublons, puis emploie cette liste ordonnée
+pour l'URL média proxifiée, le storyboard et la licence Widevine différée. Si
+`materialProfile` est absent ou ne contient aucun code valide, la liste fournie
+par le lecteur est conservée. La liste découverte ne peut pas piloter
+rétroactivement l'authentification ni l'appel entitlement qui l'a fournie.
 
 ## Données API à relever avant l'implémentation YAML finale
 
@@ -396,7 +422,7 @@ vidéo plus restreinte, les réponses suivantes :
 | M6 Play | `get_entry` avec `rights`, liste d'épisodes/clips et payload vidéo | nouvelles valeurs possibles de `areas` ; `34` signifie sans proxy et `11` correspond à `AD, FR, GP, GF, MQ, YT, MC, NC, PF, RE, BL, MF, PM, TF, WF` |
 | Arte | EMAC programme/épisode et player config | territoires ou contraintes de lecture par programme |
 | TF1+ | nœud `video` GraphQL et médiainfo | disponibilité pays ou droits de diffusion |
-| TV5MONDE+ | détail asset et entitlement `/play` | pays/territoires autorisés pour l'asset |
+| TV5MONDE+ | détail asset et entitlement `/play` | variations de `materialProfile` selon les droits de l'asset |
 
 Les pointeurs YAML ne doivent être ajoutés qu'après vérification de ces payloads
 réels. Les données absentes, invalides ou ambiguës doivent aboutir à l'absence

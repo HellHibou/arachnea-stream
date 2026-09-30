@@ -11,7 +11,7 @@ use tokio_rustls::TlsConnector;
 
 use crate::core::{
     Destination, DestinationAddress, ProxyError, ProxyProtocol, ProxyRecord, ProxyRuntimeStatus,
-    Result,
+    Result, PROXY_PROTOCOL_PRIORITY,
 };
 
 /// Probe mode that controls how strictly capabilities are verified.
@@ -52,12 +52,7 @@ impl Default for ProbeConfig {
             https_probe_url: None,
             timeout: Duration::from_secs(2),
             mode: ProbeMode::Relaxed,
-            protocol_detection_order: vec![
-                ProxyProtocol::Http,
-                ProxyProtocol::Socks5,
-                ProxyProtocol::Socks4a,
-                ProxyProtocol::Https,
-            ],
+            protocol_detection_order: PROXY_PROTOCOL_PRIORITY.to_vec(),
         }
     }
 }

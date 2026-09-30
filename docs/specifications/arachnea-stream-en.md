@@ -776,13 +776,30 @@ headers as `Arachnea-Proxy-Countries`, so the manifest fetch tries each
 country's dynamic proxy pool in order. `resolver > proxy > country` remains a
 one-item fallback when `countries` is absent or empty.
 
-The FranceTV resolver uses `FR` as a fallback when the player supplies no
-country. A resolution also creates one opaque proxy affinity shared by the K7
-calls, manifest signing, DRM token, manifest loading through `/api/proxy`, and
-the deferred Widevine license request. The proxy URL also encodes HTTP `403` as
-a rejection status: the selected proxy is rejected for that destination, the
-affinity moves to another eligible candidate, and the request is retried once.
-Rewritten HLS key URLs use `{proxy_inherited}` so these options are preserved.
+The FranceTV resolver preserves every non-empty country list supplied by the
+player and uses `[FR]` only when that list is empty. A resolution also creates
+one opaque proxy affinity shared by the K7 calls, manifest signing, DRM token,
+manifest loading through `/api/proxy`, and the deferred Widevine license
+request. The proxy URL also encodes HTTP `403` as a rejection status: the
+selected proxy is rejected for that destination, the affinity moves to another
+eligible candidate, and the request is retried once. Rewritten HLS key URLs use
+`{proxy_inherited}` so these options are preserved.
+
+The TF1+ resolver reads the allowed territory list from `media.geoList` in the
+`mediainfocombo` response. It normalizes and deduplicates these codes, then uses
+them as proxy countries to retry a geo-blocked negotiation before evaluating
+`delivery.code`. The same list is retained for the manifest, storyboard, and
+deferred Widevine license request, without a local retry or direct fallback.
+The manifest and storyboard `/api/proxy` URLs encode HTTP `403` as a rejection
+status, causing one retry with another eligible candidate.
+
+The TV5MONDE+ resolver uses the player-supplied list for anonymous
+authentication and the initial entitlement request. It then extracts country
+codes from the `materialProfile` string returned by the `/play` entitlement,
+normalizes and deduplicates them, and preserves their order. This list becomes
+the proxy context for the manifest, storyboard, and deferred Widevine license
+request. If the field is absent or contains no valid alpha-2 code, the initial
+player-supplied list is retained.
 
 A player can also request the rewrite of absolute URLs found in proxied HLS
 manifests by declaring `resolver > proxy > rewrite_manifest_urls: "true"`. The

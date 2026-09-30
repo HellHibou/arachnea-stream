@@ -32,7 +32,8 @@ The following fields are available:
 
 | YAML field | YAML type | Required | Description |
 |---|---|---|---|
-| `protocol` | `string` | yes | Proxy protocol. Accepted values: `http`, `https`, `socks4`, `socks4a`, `socks5`. |
+| `protocol` | `string` | conditionally | Singular proxy protocol. Accepted values: `http`, `https`, `socks4`, `socks4a`, `socks5`. Takes precedence when valid. |
+| `protocols` | `string[]` | conditionally | Available proxy protocols when the source exposes several values. The provider selects one deterministically in this order: `socks5`, `socks4`, `https`, `socks4a`, then lowest-priority `http`. The probe engine uses the same order when detecting a protocol. |
 | `host` | `string` | yes | IPv4 address, IPv6 address, or hostname of the proxy. |
 | `port` | `number` | yes | Listening port of the proxy. |
 | `country` | `string` | no | ISO country code (alpha-2, e.g. `FR`, `US`). The provider normalises to uppercase. |
@@ -42,8 +43,9 @@ The following fields are available:
 | `failure_count` | `number` | no | Consecutive failure count reported by the source (default: `0`). |
 | `authentication_required` | `boolean` | no | Whether the proxy requires authentication. |
 
-`host` and `port` are required. `protocol` is strongly recommended — without
-it the proxy cannot be converted to a transport node and will be ignored.
+`host` and `port` are required. At least one of `protocol` or `protocols` is
+strongly recommended — without a recognised protocol the proxy cannot be
+converted to a transport node and will be ignored when transport nodes are built.
 
 The fields `status`, `destination_failures`, `last_checked` and
 `cooldown_until` are managed by the probe engine and must not appear in
@@ -206,6 +208,7 @@ queries:
 Fields extracted by the scraper map to Rust code as follows:
 
 - `protocol` → `ProxyProtocol` (`http`, `https`, `socks4`, `socks4a`, `socks5`)
+- `protocols` → the first available `ProxyProtocol` according to the deterministic priority `socks5`, `socks4`, `https`, `socks4a`, then `http`; the probe engine uses the same order to detect an unknown protocol, while a valid singular `protocol` takes precedence
 - `host` → `ProxyRecord.host` (`String`)
 - `port` → `ProxyRecord.port` (`u16`)
 - `country` → normalised to `ProxyRecord.country` (`Option<String>`, uppercase)

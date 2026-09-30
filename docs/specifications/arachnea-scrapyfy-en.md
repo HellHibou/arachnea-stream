@@ -144,7 +144,12 @@ and its binding expires after 15 minutes of inactivity.
 `proxy_rejection_statuses` lists origin response statuses that invalidate the
 currently selected dynamic proxy for that destination. A matching request is
 retried once with another cached eligible candidate. The list is empty by
-default and has no effect without an in-process dynamic proxy route.
+default and has no effect without an in-process dynamic proxy route. The
+rejection is persisted in the proxy inventory for 24 hours and is scoped to the
+exact scheme, host and port. After a non-rejected response, the selected proxy
+becomes the preferred candidate for that exact destination while remaining
+subject to all normal eligibility checks; different destinations keep separate
+preferences.
 
 ### HTTP modes (`mode`)
 

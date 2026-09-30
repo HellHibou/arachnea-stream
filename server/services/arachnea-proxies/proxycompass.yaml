@@ -1,0 +1,149 @@
+id: proxycompass
+title: ProxyCompass free proxy list
+description:
+  en: "Continuously updated and verified free proxy servers from ProxyCompass."
+http:
+  mode: auto
+
+parameters:
+  - name: base_url
+    value: https://proxycompass.com/api/v1/free-proxies
+    description: Base URL used to resolve requests.
+
+queries:
+  - name: list_proxies_for_country
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{base_url}/live?country={country_name}&page=1&page_size=1000"
+    query_param_mappings:
+      - target_param: country_name
+        source_param: country
+        values:
+          AL: Albania
+          DZ: Algeria
+          AG: Antigua%20and%20Barbuda
+          AR: Argentina
+          AM: Armenia
+          AU: Australia
+          AT: Austria
+          BS: Bahamas
+          BD: Bangladesh
+          BB: Barbados
+          BE: Belgium
+          BZ: Belize
+          BW: Botswana
+          BR: Brazil
+          VG: British%20Virgin%20Islands
+          BG: Bulgaria
+          KH: Cambodia
+          CA: Canada
+          CL: Chile
+          CN: China
+          CO: Colombia
+          CR: Costa%20Rica
+          HR: Croatia
+          CW: Curacao
+          CY: Cyprus
+          CZ: Czechia
+          DK: Denmark
+          EC: Ecuador
+          EE: Estonia
+          FI: Finland
+          FR: France
+          DE: Germany
+          GH: Ghana
+          GD: Grenada
+          GT: Guatemala
+          HK: Hong%20Kong
+          HU: Hungary
+          IN: India
+          ID: Indonesia
+          IR: Iran
+          IQ: Iraq
+          IE: Ireland
+          IL: Israel
+          IT: Italy
+          JM: Jamaica
+          JP: Japan
+          KZ: Kazakhstan
+          KE: Kenya
+          LV: Latvia
+          LT: Lithuania
+          LU: Luxembourg
+          MY: Malaysia
+          MU: Mauritius
+          MX: Mexico
+          MD: Moldova
+          ME: Montenegro
+          NA: Namibia
+          NZ: New%20Zealand
+          NG: Nigeria
+          NO: Norway
+          PK: Pakistan
+          PY: Paraguay
+          PE: Peru
+          PH: Philippines
+          PL: Poland
+          PT: Portugal
+          PR: Puerto%20Rico
+          RO: Romania
+          RU: Russia
+          RW: Rwanda
+          LC: Saint%20Lucia
+          WS: Samoa
+          SA: Saudi%20Arabia
+          RS: Serbia
+          SG: Singapore
+          SK: Slovakia
+          SI: Slovenia
+          ZA: South%20Africa
+          KR: South%20Korea
+          ES: Spain
+          SE: Sweden
+          CH: Switzerland
+          SY: Syria
+          TW: Taiwan
+          TH: Thailand
+          NL: The%20Netherlands
+          TG: Togo
+          TC: Turks%20and%20Caicos%20Islands
+          TR: T%C3%BCrkiye
+          UG: Uganda
+          UA: Ukraine
+          AE: United%20Arab%20Emirates
+          GB: United%20Kingdom
+          US: United%20States
+          UZ: Uzbekistan
+          VN: Vietnam
+          ZW: Zimbabwe
+    request_headers:
+      - name: User-Agent
+        actions:
+          - type: format_text
+            argument: Mozilla/5.0
+    media_types:
+      - application/arachnea-proxy
+    row_pointer: /
+    result_item_field: proxies
+    entries:
+      - name: proxies
+        type: object[]
+        pointer: /results/*
+        select: all
+        entries:
+          - name: protocols
+            type: string[]
+            pointer: /protocols/*
+            select: all
+          - name: host
+            type: string
+            pointer: /ip_address
+          - name: port
+            type: number
+            pointer: /port
+          - name: country
+            type: string
+            pointer: /country_code
+          - name: latency_ms
+            type: number
+            pointer: /latency

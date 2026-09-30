@@ -1,5 +1,7 @@
 use anyhow::{bail, Context, Result};
-use arachnea_proxy::http::{actions::ReplaceAll, proxy_service::proxied_url_with_countries};
+use arachnea_proxy::http::{
+    actions::ReplaceAll, proxy_service::proxied_url_with_countries_and_policy,
+};
 use async_trait::async_trait;
 use rand::{distr::Alphanumeric, Rng};
 use serde_json::{json, Value};
@@ -28,6 +30,7 @@ const TF1_TOKEN_URL: &str = "https://www.tf1.fr/token/gigya/web";
 const TF1_MEDIA_INFO_URL_TEMPLATE: &str = "https://mediainfo.tf1.fr/mediainfocombo/{}";
 const TF1_FALLBACK_LICENSE_URL_TEMPLATE: &str = "https://drm-wide.tf1.fr/proxy?id={}";
 const TF1_PROXY_STREAM_KIND: &str = "widevine-license-proxy";
+const TF1_PROXY_REJECTION_STATUS: u16 = 403;
 const TF1_SESSION_TTL: Duration = Duration::from_secs(15 * 60);
 const TF1_LICENSE_TTL: Duration = Duration::from_secs(15 * 60);
 
@@ -131,44 +134,13 @@ async fn resolve_replay_stream(
         bail!("Missing TF1 video identifier.");
     }
 
-    for attempt in 1..=3 {
-        match resolve_replay_stream_with_config(
-            scraper_agregator,
-            credentials_store,
-            normalized_video_id,
-            stream_kind.clone(),
-            tf1_http_config(proxy_countries),
-            proxy_countries,
-            endpoints,
-        )
-        .await
-        {
-            Ok(stream) => return Ok(stream),
-            Err(error) if is_proxy_error(&error) => {
-                tracing::warn!(
-                    attempt,
-                    error = %error,
-                    "TF1 FR proxy failed while resolving replay stream"
-                );
-                if attempt < 3 {
-                    tokio::time::sleep(Duration::from_millis(250 * attempt)).await;
-                    continue;
-                }
-            }
-            Err(error) => return Err(error),
-        }
-    }
-
-    tracing::warn!(
-        "TF1 FR proxy retries exhausted while resolving replay stream; retrying without FR proxy"
-    );
     resolve_replay_stream_with_config(
         scraper_agregator,
         credentials_store,
         normalized_video_id,
         stream_kind,
-        ScraperHttpConfig::default(),
-        &[],
+        tf1_http_config(proxy_countries),
+        proxy_countries,
         endpoints,
     )
     .await
@@ -186,6 +158,27 @@ async fn resolve_replay_stream_with_config(
     let http_client = scraper_agregator.create_http_client(http_config);
     let session = get_or_login_session(&http_client, credentials_store).await?;
     let media_info = fetch_media_info(&http_client, &session, normalized_video_id, false).await?;
+
+    let media_proxy_countries = extract_media_proxy_countries(&media_info);
+    if !media_proxy_countries.is_empty() && media_proxy_countries != proxy_countries {
+        let media_http_client =
+            scraper_agregator.create_http_client(tf1_http_config(&media_proxy_countries));
+        let media_info = if delivery_rejected(&media_info) {
+            fetch_media_info(&media_http_client, &session, normalized_video_id, false).await?
+        } else {
+            media_info
+        };
+
+        return build_resolved_player_stream(
+            &media_http_client,
+            normalized_video_id,
+            &media_info,
+            stream_kind,
+            &media_proxy_countries,
+            endpoints,
+        )
+        .await;
+    }
 
     build_resolved_player_stream(
         &http_client,
@@ -211,44 +204,13 @@ async fn resolve_live_stream(
         bail!("Missing TF1 live channel identifier.");
     }
 
-    for attempt in 1..=3 {
-        match resolve_live_stream_with_config(
-            scraper_agregator,
-            credentials_store,
-            normalized_channel_id,
-            stream_kind.clone(),
-            tf1_http_config(proxy_countries),
-            proxy_countries,
-            endpoints,
-        )
-        .await
-        {
-            Ok(stream) => return Ok(stream),
-            Err(error) if is_proxy_error(&error) => {
-                tracing::warn!(
-                    attempt,
-                    error = %error,
-                    "TF1 FR proxy failed while resolving live stream"
-                );
-                if attempt < 3 {
-                    tokio::time::sleep(Duration::from_millis(250 * attempt)).await;
-                    continue;
-                }
-            }
-            Err(error) => return Err(error),
-        }
-    }
-
-    tracing::warn!(
-        "TF1 FR proxy retries exhausted while resolving live stream; retrying without FR proxy"
-    );
     resolve_live_stream_with_config(
         scraper_agregator,
         credentials_store,
         normalized_channel_id,
         stream_kind,
-        ScraperHttpConfig::default(),
-        &[],
+        tf1_http_config(proxy_countries),
+        proxy_countries,
         endpoints,
     )
     .await
@@ -268,6 +230,27 @@ async fn resolve_live_stream_with_config(
     let live_video_id = format!("L_{}", normalized_channel_id.to_uppercase());
     let media_info = fetch_media_info(&http_client, &session, &live_video_id, true).await?;
 
+    let media_proxy_countries = extract_media_proxy_countries(&media_info);
+    if !media_proxy_countries.is_empty() && media_proxy_countries != proxy_countries {
+        let media_http_client =
+            scraper_agregator.create_http_client(tf1_http_config(&media_proxy_countries));
+        let media_info = if delivery_rejected(&media_info) {
+            fetch_media_info(&media_http_client, &session, &live_video_id, true).await?
+        } else {
+            media_info
+        };
+
+        return build_resolved_player_stream(
+            &media_http_client,
+            &live_video_id,
+            &media_info,
+            stream_kind,
+            &media_proxy_countries,
+            endpoints,
+        )
+        .await;
+    }
+
     build_resolved_player_stream(
         &http_client,
         &live_video_id,
@@ -280,7 +263,41 @@ async fn resolve_live_stream_with_config(
 }
 
 fn tf1_http_config(proxy_countries: &[String]) -> ScraperHttpConfig {
-    ScraperHttpConfig::default().proxy_countries(proxy_countries.to_vec())
+    ScraperHttpConfig {
+        proxy_rejection_statuses: vec![TF1_PROXY_REJECTION_STATUS],
+        ..ScraperHttpConfig::default().proxy_countries(proxy_countries.to_vec())
+    }
+}
+
+fn extract_media_proxy_countries(media_info: &Value) -> Vec<String> {
+    let Some(countries) = media_info
+        .pointer("/media/geoList")
+        .and_then(Value::as_array)
+    else {
+        return Vec::new();
+    };
+
+    countries
+        .iter()
+        .filter_map(Value::as_str)
+        .map(str::trim)
+        .map(str::to_ascii_uppercase)
+        .filter(|country| {
+            country.len() == 2 && country.bytes().all(|byte| byte.is_ascii_alphabetic())
+        })
+        .fold(Vec::new(), |mut result, country| {
+            if !result.contains(&country) {
+                result.push(country);
+            }
+            result
+        })
+}
+
+fn delivery_rejected(media_info: &Value) -> bool {
+    media_info
+        .pointer("/delivery/code")
+        .and_then(Value::as_i64)
+        .is_some_and(|code| code >= 400)
 }
 
 fn is_proxy_error(error: &anyhow::Error) -> bool {
@@ -310,9 +327,17 @@ async fn build_resolved_player_stream(
     if delivery_code >= 400 {
         let message = delivery
             .get("message")
+            .or_else(|| delivery.get("error"))
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty())
+            .or_else(|| {
+                media_info
+                    .pointer("/media/error_desc")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+            })
             .map(String::from)
             .unwrap_or(format!(
                 "TF1 rejected playback for this video (http error {}).",
@@ -380,10 +405,12 @@ async fn build_resolved_player_stream(
     let chapters = extract_chapters(media_info);
 
     Ok(ResolvedPlayerStream {
-        stream_url: vec![proxied_url_with_countries(
+        stream_url: vec![proxied_url_with_countries_and_policy(
             &manifest_url,
             endpoints.http_proxy_public_path.as_deref(),
             proxy_countries,
+            None,
+            &[TF1_PROXY_REJECTION_STATUS],
             &[],
             &[],
         )],
@@ -446,10 +473,12 @@ fn proxied_tf1_storyboard_vtt_url(
         None,
     )];
 
-    proxied_url_with_countries(
+    proxied_url_with_countries_and_policy(
         vtt_url,
         endpoints.http_proxy_public_path.as_deref(),
         proxy_countries,
+        None,
+        &[TF1_PROXY_REJECTION_STATUS],
         &actions,
         &[],
     )
@@ -899,39 +928,11 @@ async fn proxy_tf1_license_request(
     let proxy_countries = load_cached_license(token)
         .map(|cached| cached.proxy_countries)
         .context("Expired or missing TF1 stream token.")?;
-    for attempt in 1..=3 {
-        match proxy_tf1_license_request_with_config(
-            scraper_agregator,
-            token,
-            challenge_body,
-            tf1_http_config(&proxy_countries),
-        )
-        .await
-        {
-            Ok(response) => return Ok(response),
-            Err(error) if is_proxy_error(&error) => {
-                tracing::warn!(
-                    attempt,
-                    error = %error,
-                    "TF1 FR proxy failed while proxying license request"
-                );
-                if attempt < 3 {
-                    tokio::time::sleep(Duration::from_millis(250 * attempt)).await;
-                    continue;
-                }
-            }
-            Err(error) => return Err(error),
-        }
-    }
-
-    tracing::warn!(
-        "TF1 FR proxy retries exhausted while proxying license request; retrying without FR proxy"
-    );
     proxy_tf1_license_request_with_config(
         scraper_agregator,
         token,
         challenge_body,
-        ScraperHttpConfig::default(),
+        tf1_http_config(&proxy_countries),
     )
     .await
 }

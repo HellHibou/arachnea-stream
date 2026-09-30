@@ -227,7 +227,8 @@ async fn resolve_live_stream(
 
     let token_payload = http_client
         .get_json_for_request(http::Method::GET, &token_url, &auth_headers, None)
-        .await?;
+        .await
+        .context("Failed to fetch the 6play live upfront token.")?;
 
     let token = read_json_string(
         &token_payload,
@@ -364,7 +365,8 @@ async fn get_or_login_session(
             &login_headers,
             Some(&payload),
         )
-        .await?;
+        .await
+        .context("Failed to submit 6play credentials to Gigya.")?;
 
     let login_payload = parse_jsonp_payload(&login_response)?;
     let account_id = read_json_string(
@@ -507,7 +509,8 @@ async fn fetch_upfront_token(
 
     let token_payload = http_client
         .get_json_for_request(http::Method::GET, &token_url, &headers, None)
-        .await?;
+        .await
+        .context("Failed to fetch the 6play replay upfront token.")?;
 
     read_json_string(
         &token_payload,

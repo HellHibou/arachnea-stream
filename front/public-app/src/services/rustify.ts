@@ -2702,6 +2702,9 @@ function firstNonEmptyString(values: unknown[]): string | null {
  * Normalizes ordered ISO alpha-2 proxy countries and uses the legacy country only
  * when the list is missing or has no valid entries.
  *
+ * Accepts direct strings and Scrapyfy scalar nodes (`{ _: "FR" }`) inside the
+ * array because nested static object arrays preserve scalar items in node form.
+ *
  * @param countries Raw country list returned by a resolver descriptor.
  * @param legacyCountry Historical single-country resolver value.
  * @returns Uppercase, deduplicated country codes in declaration order.
@@ -2709,11 +2712,15 @@ function firstNonEmptyString(values: unknown[]): string | null {
 function normalizeProxyCountries(countries: unknown, legacyCountry: string | null): string[] {
   const normalized = Array.isArray(countries)
     ? countries.reduce<string[]>((result, country) => {
-        if (typeof country !== 'string') {
+        const value = typeof country === 'string'
+          ? country
+          : firstNonEmptyString([isJsonRecord(country) ? country._ : null])
+
+        if (!value) {
           return result
         }
 
-        const normalizedCountry = country.trim().toUpperCase()
+        const normalizedCountry = value.trim().toUpperCase()
         if (/^[A-Z]{2}$/.test(normalizedCountry) && !result.includes(normalizedCountry)) {
           result.push(normalizedCountry)
         }

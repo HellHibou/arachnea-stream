@@ -96,11 +96,17 @@ async fn resolve_tv5mondeplus_stream(
     let entitlement = fetch_entitlement(&http_client, asset_id, &device_id, &session_token).await?;
     let selected_format = select_best_format(&entitlement)
         .with_context(|| entitlement_error_message(&entitlement))?;
+    let material_proxy_countries = extract_material_proxy_countries(&entitlement);
+    let effective_proxy_countries = if material_proxy_countries.is_empty() {
+        proxy_countries
+    } else {
+        &material_proxy_countries
+    };
 
     let license_url = selected_format
         .license_url
         .as_deref()
-        .map(|url| save_tv5mondeplus_license_proxy_url(endpoints, url, proxy_countries));
+        .map(|url| save_tv5mondeplus_license_proxy_url(endpoints, url, effective_proxy_countries));
     let storyboard_vtt_url = entitlement
         .pointer("/sprites/0/vtt")
         .and_then(Value::as_str)
@@ -110,7 +116,7 @@ async fn resolve_tv5mondeplus_stream(
             proxied_media_url(
                 url,
                 endpoints.http_proxy_public_path.as_deref(),
-                proxy_countries,
+                effective_proxy_countries,
             )
         });
 
@@ -118,7 +124,7 @@ async fn resolve_tv5mondeplus_stream(
         stream_url: vec![proxied_media_url(
             &selected_format.media_locator,
             endpoints.http_proxy_public_path.as_deref(),
-            proxy_countries,
+            effective_proxy_countries,
         )],
         manifest_type: Some(selected_format.manifest_type),
         license_url,
@@ -126,6 +132,25 @@ async fn resolve_tv5mondeplus_stream(
         storyboard_vtt_url,
         ..Default::default()
     })
+}
+
+fn extract_material_proxy_countries(entitlement: &Value) -> Vec<String> {
+    entitlement
+        .get("materialProfile")
+        .and_then(Value::as_str)
+        .into_iter()
+        .flat_map(|profile| profile.split(','))
+        .map(str::trim)
+        .map(str::to_ascii_uppercase)
+        .filter(|country| {
+            country.len() == 2 && country.bytes().all(|byte| byte.is_ascii_alphabetic())
+        })
+        .fold(Vec::new(), |mut result, country| {
+            if !result.contains(&country) {
+                result.push(country);
+            }
+            result
+        })
 }
 
 async fn authenticate_anonymous(http_client: &HttpClient, device_id: &str) -> Result<String> {

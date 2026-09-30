@@ -387,6 +387,69 @@ impl ArachneaProxyCore {
         true
     }
 
+    /// Records a transport failure observed after a dynamic proxy stream was opened.
+    ///
+    /// HTTP engines can report failures that happen after the proxy core has
+    /// successfully established the route, such as a TLS handshake or response
+    /// transfer failure inside an HTTP CONNECT tunnel. The failure remains scoped
+    /// to the destination because the observer cannot reliably determine whether
+    /// the proxy is globally unavailable. The current selection and optional
+    /// affinity are cleared, and the provider refresh cooldown is released so an
+    /// exhausted cache can discover replacement endpoints on the next selection.
+    ///
+    /// # Arguments
+    ///
+    /// - `destination`: Origin reached through the failed dynamic proxy stream.
+    /// - `reason`: Best available classification of the observed failure.
+    ///
+    /// # Returns
+    ///
+    /// `true` when a dynamic selection was found and invalidated.
+    pub async fn mark_dynamic_proxy_transport_failed(
+        &self,
+        destination: &Destination,
+        reason: crate::core::ProxyDestinationFailureReason,
+    ) -> bool {
+        let selection = self
+            .dynamic_proxy_selections
+            .as_ref()
+            .and_then(|selections| selections.write().ok()?.remove(destination));
+        let Some(selection) = selection else {
+            return false;
+        };
+
+        if let Ok(mut states) = self.proxy_pool_states.write() {
+            let state = states.entry(selection.pool_name.clone()).or_default();
+            state
+                .statuses
+                .insert(selection.upstream.clone(), ProxyPoolMemberStatus::Ko);
+            if state.selected.as_deref() == Some(selection.upstream.as_str()) {
+                state.selected = None;
+            }
+        }
+
+        if let Some(inventory) = &self.proxy_inventory {
+            let authority = selection
+                .endpoint
+                .as_deref()
+                .or_else(|| selection.upstream.rsplit_once('-').map(|(_, addr)| addr))
+                .unwrap_or(&selection.upstream);
+            inventory
+                .record_destination_failure(authority, destination, reason)
+                .await;
+            if let Some(affinity) = selection.affinity.as_deref() {
+                inventory.clear_affinity(affinity, authority).await;
+            }
+            if let Ok(Some(countries)) = dynamic_pool_countries(&selection.pool_name) {
+                inventory
+                    .allow_provider_refresh_after_observed_failure(&countries)
+                    .await;
+            }
+        }
+
+        true
+    }
+
     /// Renews the validation age of the dynamic proxy selected for a destination.
     ///
     /// HTTP clients call this after receiving any origin response that is not
@@ -409,7 +472,9 @@ impl ArachneaProxyCore {
             .as_deref()
             .or_else(|| selection.upstream.rsplit_once('-').map(|(_, addr)| addr))
             .unwrap_or(&selection.upstream);
-        inventory.record_validated_response(authority).await;
+        inventory
+            .record_validated_response(authority, destination)
+            .await;
         if let Some(affinity) = selection.affinity.as_deref() {
             inventory.renew_affinity(affinity, authority).await;
         }
@@ -1659,6 +1724,9 @@ impl ArachneaProxyCore {
                             )
                             .await;
                     }
+                    inventory
+                        .allow_provider_refresh_after_observed_failure(&countries)
+                        .await;
                 }
             }
         }
