@@ -1055,10 +1055,7 @@ function extractBannerPlayer(record: Record<string, unknown>): HomeBannerPlayer 
     const targetId = isJsonRecord(resolver) ? firstNonEmptyString([(resolver as Record<string, unknown>).target_id]) : null
     const source = isJsonRecord(resolver) ? firstNonEmptyString([(resolver as Record<string, unknown>).source]) : null
     const proxyCountries = isJsonRecord(resolver)
-      ? normalizeProxyCountries(
-          readPath(resolver, 'proxy', 'countries'),
-          firstNonEmptyString([readPath(resolver, 'proxy', 'country')]),
-        )
+      ? normalizeProxyCountries(readPath(resolver, 'proxy', 'countries'))
       : []
     const rewriteManifestUrls = isJsonRecord(resolver)
       ? readBooleanFlag(readPath(resolver, 'proxy', 'rewrite_manifest_urls'))
@@ -1626,7 +1623,6 @@ export async function getStream(
     target: player.resolver.targetId,
     source: player.resolver.source,
     proxy_countries: player.resolver.proxyCountries,
-    proxy_country: player.resolver.proxyCountries?.[0] ?? player.resolver.proxyCountry,
     proxy_rewrite_manifest_urls: player.resolver.proxyRewriteManifestUrls,
   })
 
@@ -1953,13 +1949,7 @@ function normalizeEntryPlayerResolver(entry: JsonRecord): EntryPlayerResolver | 
 
   if (flatKind && flatTarget) {
     const flatSource = firstNonEmptyString([entry.source, entry.resolverSource])
-    const flatProxyCountries = normalizeProxyCountries(
-      readPath(entry, 'proxy', 'countries'),
-      firstNonEmptyString([
-        readPath(entry, 'proxy', 'country'),
-        entry.resolverProxyCountry,
-      ]),
-    )
+    const flatProxyCountries = normalizeProxyCountries(readPath(entry, 'proxy', 'countries'))
     const flatRewriteManifestUrls =
       readBooleanFlag(readPath(entry, 'proxy', 'rewrite_manifest_urls')) ||
       readBooleanFlag(readPath(entry, 'resolverProxy', 'rewrite_manifest_urls')) ||
@@ -1993,11 +1983,6 @@ function normalizeEntryPlayerResolver(entry: JsonRecord): EntryPlayerResolver | 
   ])
   const proxyCountries = normalizeProxyCountries(
     readPath(resolver, 'proxy', 'countries') ?? readPath(entry, 'resolverProxy', 'countries'),
-    firstNonEmptyString([
-      readPath(resolver, 'proxy', 'country'),
-      readPath(entry, 'resolverProxy', 'country'),
-      readPath(entry, 'resolverProxyCountry'),
-    ]),
   )
   const rewriteManifestUrls =
     readBooleanFlag(readPath(resolver, 'proxy', 'rewrite_manifest_urls')) ||
@@ -2699,18 +2684,16 @@ function firstNonEmptyString(values: unknown[]): string | null {
 }
 
 /**
- * Normalizes ordered ISO alpha-2 proxy countries and uses the legacy country only
- * when the list is missing or has no valid entries.
+ * Normalizes ordered ISO alpha-2 proxy countries.
  *
  * Accepts direct strings and Scrapyfy scalar nodes (`{ _: "FR" }`) inside the
  * array because nested static object arrays preserve scalar items in node form.
  *
  * @param countries Raw country list returned by a resolver descriptor.
- * @param legacyCountry Historical single-country resolver value.
  * @returns Uppercase, deduplicated country codes in declaration order.
  */
-function normalizeProxyCountries(countries: unknown, legacyCountry: string | null): string[] {
-  const normalized = Array.isArray(countries)
+function normalizeProxyCountries(countries: unknown): string[] {
+  return Array.isArray(countries)
     ? countries.reduce<string[]>((result, country) => {
         const value = typeof country === 'string'
           ? country
@@ -2727,13 +2710,6 @@ function normalizeProxyCountries(countries: unknown, legacyCountry: string | nul
         return result
       }, [])
     : []
-
-  if (normalized.length > 0 || !legacyCountry) {
-    return normalized
-  }
-
-  const normalizedLegacyCountry = legacyCountry.trim().toUpperCase()
-  return /^[A-Z]{2}$/.test(normalizedLegacyCountry) ? [normalizedLegacyCountry] : []
 }
 
 /**

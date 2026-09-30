@@ -77,6 +77,10 @@ The retired design notes also reserved `censorship_resistance`; it remains track
 - Sensitive client parameters must not be logged by default.
 - Privacy mode reduces accidental leaks and direct fallback, but it does not protect against account identity, cookies, application fingerprinting, TLS/SNI leaks from the application, traffic correlation, or a logging upstream proxy.
 
+## Country Routing Parameters
+
+Country routing accepts only the ordered JSON `countries` parameter. HTTP proxy clients must send it in the `Arachnea-Proxy-Countries` header, for example `Arachnea-Proxy-Countries: ["FR", "DE"]`; SOCKS5 clients can provide `countries=["FR","DE"]` through the parameterized username format. Country codes are normalized to uppercase, duplicates are removed while preserving order, and static or dynamic routing selects the first available country. The legacy singular `country` parameter and `Arachnea-Proxy-Country` header are not supported.
+
 ## Known Gaps
 
 The durable remaining work from the retired specification is tracked in the root `docs/TODO.md`. Important proxy gaps include MASQUE CONNECT-UDP, ExternalTunnel orchestration, richer Tor integration, concrete `hyper-util` support, stronger auth tests and secret handling, true per-IP rate limiting, benchmarks, a possible `rquest` in-process connector, and the reserved `censorship_resistance` profile.

@@ -67,7 +67,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
-- Player geo-proxy routing now accepts ordered `proxy_countries` lists end to end, while preserving the legacy single-country request and YAML fields as fallbacks. Specialized M6 Play, TF1+, France TV and TV5MONDE+ resolvers carry the selected list through negotiation, proxied media URLs and deferred DRM requests.
+- Player geo-proxy routing uses ordered `proxy_countries` lists end to end. Specialized M6 Play, TF1+, France TV and TV5MONDE+ resolvers carry the selected list through negotiation, proxied media URLs and deferred DRM requests; the singular request and YAML forms are no longer accepted.
 - FranceTV resolved streams now expose `previously`, `coming_next`, `intro`, and `outro` chapters from K7 playback markers. Marker durations define chapter ends, bounded by the full video duration, while closing credits fall back to that duration when FranceTV only provides their start time. When `coming_next` and `outro` share a start time, the outro now starts at the end of `coming_next` and is discarded if no valid interval remains.
 
 - `resolve_stream` responses can now expose an optional `subtitles` list (`{ lang?, label?, link }`) on `ResolvedPlayerStream`. Generic YAML-to-Rust conversion preserves resolver order, trims optional fields, discards tracks without a browser-consumable HTTP(S) or application-proxy `link`, and deduplicates exact `(lang, label, link)` entries. The field is omitted from JSON when empty, so existing resolvers keep their current payloads.
@@ -103,13 +103,17 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
-- Scraper HTTP configuration now supports `proxy_countries`, an ordered normalized country list that is forwarded to proxy routing as a JSON array and takes precedence over legacy `proxy_country`.
+- Scraper HTTP configuration uses `proxy_countries`, an ordered normalized country list forwarded to proxy routing as a JSON array; the singular `proxy_country` field is not accepted.
 - Scraper HTTP configuration now supports `proxy_rejection_statuses`, allowing selected origin statuses to rotate a dynamic proxy and retry the request once.
 - HTTP scraper queries now support `empty_on_statuses`, allowing source configurations to map selected response statuses to an empty typed result instead of parsing the error body.
 - Proxy sources can expose a `protocols` array; the proxy provider selects one supported protocol deterministically while preserving a valid singular `protocol`. The disabled-by-default ProxyCompass source uses this support, maps ISO country codes to API country names, and requests at most 1,000 proxy candidates.
 
 #### Changed
 
+- `ScraperHttpConfig` now accepts only ordered `proxy_countries`; Scrapyfy no
+  longer accepts or emits the singular `proxy_country` / `country` contract.
+  One country is forwarded to proxy routing as a one-item JSON `countries`
+  array.
 - Proxy protocol selection and runtime detection now share the priority `SOCKS5`, `SOCKS4`, `HTTPS`, `SOCKS4A`, then `HTTP`, making HTTP the lowest-priority option.
 - Ghostwire is no longer enabled by default. Consumers that still need the smart Cloudflare solver must explicitly enable the `ghostwire` feature.
 
@@ -132,7 +136,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
-- Player resolver descriptors now normalize ordered `resolver.proxy.countries` values and send `proxy_countries` to stream resolution, while also forwarding the first country through the legacy `proxy_country` field during the transition.
+- Player resolver descriptors normalize ordered `resolver.proxy.countries` values and send `proxy_countries` to stream resolution. The singular `resolver.proxy.country`, frontend `proxyCountry`, and request `proxy_country` forms are not accepted.
 
 - Home and category rails can now render optional catalog subsections. The visible rail title combines parent and subsection labels, and accessible previous/next controls cycle through subsection rails with wraparound navigation.
 - The player previous/next episode controls (`vjs-prev-video-control` / `vjs-next-video-control`) now show a rich preview on hover or keyboard focus instead of the former plain native tooltip, which is suppressed as soon as the neighboring episode is available. The preview is anchored bottom-left above the control bar and renders the navigation direction label (`entry.previousVideo` / `entry.nextVideo`), the adjacent episode title, its landscape poster on the left when the backend exposes one, and the shared media-card details block without its source fact (new `hideSource` prop on `MediaCardDetailsContent`). It stays display-only (`pointer-events: none`) so it never steals player interactions, its width is capped to the player width, and it hides itself when the neighboring item is unknown. The neighboring navigable episode is mapped to a `MediaItem` in `ProgramEntryDetails` (`toEntryEpisodeMediaItem`), the source display title is resolved in `EntryDetails` through `useServiceMetadata`, and both are threaded down through `EntryDetailsHeroContent`, `VideoPlayer` and `VideoJsMediaRenderer`.
@@ -158,4 +162,5 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Proxy country routing now accepts only the ordered JSON `countries` parameter and `Arachnea-Proxy-Countries` header. The proxy core, HTTP/SOCKS parameter parsing, static and dynamic country handlers, Scrapyfy dynamic proxy-core configuration, proxy URL helpers, and the M6+ redirect rule no longer support the singular `country` / `Arachnea-Proxy-Country` contract.
 

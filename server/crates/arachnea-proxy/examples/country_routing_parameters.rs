@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use arachnea_proxy::connectors::ArachneaRquestLoopback;
-use arachnea_proxy::core::PROXY_HEADER_PARAMETER_COUNTRY;
+use arachnea_proxy::core::PROXY_HEADER_PARAMETER_COUNTRIES;
 use arachnea_proxy::core::{ArachneaProxyCore, CountryRoutingProxyHandler, ProxyConfig, ProxyNode};
 
 // Proxy HTTP -> Serveur HTTP
@@ -21,7 +21,7 @@ const DEFAULT_COUNTRY_PROXY_URL: &str = "socks5://158.178.198.31:1080";
 const DEFAULT_GEOLOCATION_URL: &str = "https://free.freeipapi.com/api/json/";
 // */
 // cargo run -p arachnea-proxy --features rquest --example country_routing_parameters -- http://ipwhois.app/json/31.12.75.226 FR
-/// Fetches an HTML page through the rquest loopback helper with a country parameter.
+/// Fetches an HTML page through the rquest loopback helper with countries routing.
 ///
 /// Set `ARACHNEA_COUNTRY_PROXY_URL` to override the default country HTTP proxy
 /// `http://31.12.75.226:80`. The parameter is sent to the loopback proxy
@@ -54,14 +54,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let core =
         ArachneaProxyCore::new(ProxyConfig::default())?.with_parameter_handler(country_handler);
     let loopback = ArachneaRquestLoopback::start(core).await?;
-    let client =
-        loopback.client_with_parameters([(PROXY_HEADER_PARAMETER_COUNTRY, country.as_str())])?;
+    let countries = serde_json::to_string(&[country.clone()])?;
+    let client = loopback
+        .client_with_parameters([(PROXY_HEADER_PARAMETER_COUNTRIES, countries.as_str())])?;
     let response = client.get(&url).send().await?;
     let status = response.status();
     let body = response.text().await?;
 
     println!("Loopback proxy: {}", loopback.proxy_url());
-    println!("GET {url} with {PROXY_HEADER_PARAMETER_COUNTRY}={country} -> {status}");
+    println!("GET {url} with {PROXY_HEADER_PARAMETER_COUNTRIES}={countries} -> {status}");
     println!("{body}");
     Ok(())
 }

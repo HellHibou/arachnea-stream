@@ -1,5 +1,5 @@
 use anyhow::{bail, Context, Result};
-use arachnea_proxy::http::proxy_service::proxied_url;
+use arachnea_proxy::http::proxy_service::proxied_url_with_countries;
 use async_trait::async_trait;
 use rand::{distr::Alphanumeric, Rng};
 use serde_json::{Map, Value};
@@ -141,10 +141,10 @@ async fn resolve_vod_stream(
         .map(|license| save_license(endpoints, &license));
 
     Ok(ResolvedPlayerStream {
-        stream_url: vec![proxied_url(
+        stream_url: vec![proxied_url_with_countries(
             &stream_url,
             endpoints.http_proxy_public_path.as_deref(),
-            None,
+            &[],
             &[],
             &[],
         )],

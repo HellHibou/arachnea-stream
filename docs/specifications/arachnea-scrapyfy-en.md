@@ -123,18 +123,17 @@ http:
   user_agent_profile: chrome    # chrome | chrome_stable | firefox | firefox_stable
   user_agent: "Custom UA"       # optional: complete User-Agent override
   proxy_countries: ["US", "CA"] # optional: ordered proxy country hints
-  proxy_country: "US"           # legacy single-country fallback
   proxy_affinity: "opaque-session-id" # optional: retain the same eligible proxy
   proxy_rejection_statuses: [403] # optional: rotate the dynamic proxy and retry once
   max_redirects: 16             # optional: max redirect count (global default: 16)
 ```
 `proxy_countries` is normalized as ordered, uppercase ISO alpha-2 codes with
-duplicates removed. It takes precedence over `proxy_country`, which remains a
-one-item compatibility fallback. `proxy_countries` is a static YAML list;
-each list item supports runtime template interpolation. A runtime JSON country
-list can be expanded with `http.proxy_countries: ["{proxy_countries}"]`;
-static entries can be combined with it. Use `http.proxy_country:
-"{proxy_country}"` when a query needs a runtime-supplied single country.
+duplicates removed. `proxy_countries` is a static YAML list; each list item
+supports runtime template interpolation. A runtime JSON country list can be
+expanded with `http.proxy_countries: ["{proxy_countries}"]`; static entries can
+be combined with it. A single country must also use a one-item list, for example
+`http.proxy_countries: ["US"]`. The singular `proxy_country` field is not
+accepted.
 
 `proxy_affinity` is an opaque process-local identifier. Requests sharing it
 reuse the same dynamic proxy while that proxy remains eligible for the country,

@@ -10,7 +10,7 @@ use arachnea_proxy::core::{
     ParameterHandlerConfig, ParameterHandlerKind, ProbeConfig, ProxyAvailabilityHint, ProxyChain,
     ProxyConfig, ProxyDataProvider, ProxyInventory, ProxyLoadRequest, ProxyProbe, ProxyProfile,
     ProxyProtocol, ProxyRecord, ProxyRuntimeStatus, Result, RoutePolicy,
-    PROXY_HEADER_PARAMETER_COUNTRY, PROXY_PARAMETER_COUNTRY, PROXY_PROTOCOL_PRIORITY,
+    PROXY_HEADER_PARAMETER_COUNTRIES, PROXY_PARAMETER_COUNTRIES, PROXY_PROTOCOL_PRIORITY,
 };
 use tracing::{info, trace};
 
@@ -386,8 +386,8 @@ pub fn default_scrapyfy_proxy_inventory(
 /// by scrapyfy proxy sources.
 ///
 /// The returned core uses [`DynamicCountryRoutingProxyHandler`] with
-/// `DynamicOnly` coexistence policy — any `country` request parameter triggers
-/// a `ProxyInventory` lookup that lazily loads proxy data through
+/// `DynamicOnly` coexistence policy — an ordered JSON `countries` request
+/// parameter triggers a `ProxyInventory` lookup that lazily loads proxy data through
 /// [`ScrapyfyProxyDataProvider`].
 ///
 /// # Arguments
@@ -416,8 +416,8 @@ pub fn default_scrapyfy_proxy_core(
         },
         parameter_handlers: vec![ParameterHandlerConfig {
             kind: ParameterHandlerKind::DynamicCountryRouting,
-            parameter_name: Some(PROXY_PARAMETER_COUNTRY.to_string()),
-            http_header: Some(PROXY_HEADER_PARAMETER_COUNTRY.to_string()),
+            parameter_name: Some(PROXY_PARAMETER_COUNTRIES.to_string()),
+            http_header: Some(PROXY_HEADER_PARAMETER_COUNTRIES.to_string()),
             forward_header: false,
             stop_on_match: true,
             routes: vec![],

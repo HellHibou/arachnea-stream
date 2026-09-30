@@ -425,7 +425,6 @@ fn register_routes(
                     input.resolver,
                     input.target,
                     input.source,
-                    input.proxy_country,
                     input.proxy_countries,
                     input.proxy_rewrite_manifest_urls,
                 )

@@ -236,8 +236,6 @@ pub(crate) struct GetStreamRequest {
     pub(crate) target: String,
     #[serde(default)]
     pub(crate) source: Option<String>,
-    #[serde(default, alias = "proxyCountry")]
-    pub(crate) proxy_country: Option<String>,
     #[serde(default, alias = "proxyCountries")]
     pub(crate) proxy_countries: Vec<String>,
     /// Optional request to rewrite absolute URLs inside proxied HLS manifests.
@@ -1261,10 +1259,10 @@ impl StreamScraper {
         resolver_id: String,
         target: String,
         source: Option<String>,
-        proxy_country: Option<String>,
         proxy_countries: Vec<String>,
         proxy_rewrite_manifest_urls: Option<bool>,
     ) -> Result<ScraperAggregationResult<ResolvedStream>> {
+        let proxy_countries = normalize_proxy_countries(proxy_countries);
         let resolved = if resolver_id.trim() == SCRAPER_QUERY_STREAM_RESOLVER_ID {
             ResolvedStream::Stream(
                 resolve_scraper_query_stream(
@@ -1272,7 +1270,7 @@ impl StreamScraper {
                     &self.player_resolver_endpoints,
                     source.as_deref().unwrap_or_default(),
                     &target,
-                    &normalize_proxy_countries(proxy_countries, proxy_country),
+                    &proxy_countries,
                     proxy_rewrite_manifest_urls.unwrap_or(false),
                 )
                 .await?,
@@ -1297,7 +1295,7 @@ impl StreamScraper {
                         &resolver_id,
                         &target,
                         service_parameters,
-                        &normalize_proxy_countries(proxy_countries, proxy_country),
+                        &proxy_countries,
                         &self.player_resolver_endpoints,
                     )
                     .await?,
@@ -1399,12 +1397,9 @@ impl StreamScraper {
     }
 }
 
-fn normalize_proxy_countries(
-    proxy_countries: Vec<String>,
-    proxy_country: Option<String>,
-) -> Vec<String> {
+fn normalize_proxy_countries(proxy_countries: Vec<String>) -> Vec<String> {
     let mut normalized = Vec::new();
-    for country in proxy_countries.into_iter().chain(proxy_country) {
+    for country in proxy_countries {
         let country = country.trim().to_ascii_uppercase();
         if country.len() == 2
             && country.bytes().all(|byte| byte.is_ascii_alphabetic())

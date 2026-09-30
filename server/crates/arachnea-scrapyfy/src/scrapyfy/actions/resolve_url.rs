@@ -7,7 +7,7 @@ use crate::scrapyfy::query_helpers;
 #[cfg(feature = "arachnea-proxy")]
 use arachnea_proxy::http::actions::ReplaceAll;
 #[cfg(feature = "arachnea-proxy")]
-use arachnea_proxy::http::proxy_service::proxied_url_with_options;
+use arachnea_proxy::http::proxy_service::proxied_url_with_countries_and_options;
 
 /// Applies the `resolve_url` scraper action by resolving every value as a URL
 /// relative to `request_url`.
@@ -192,10 +192,10 @@ fn resolved_url_string(
                     .iter()
                     .map(|(name, value)| (*name, value.as_str()))
                     .collect::<Vec<_>>();
-                return proxied_url_with_options(
+                return proxied_url_with_countries_and_options(
                     url.as_str(),
                     Some(proxy_path),
-                    None,
+                    &[],
                     &actions,
                     &headers,
                     proxy_follow_redirects.and_then(ProxyFollowRedirects::as_json_value),

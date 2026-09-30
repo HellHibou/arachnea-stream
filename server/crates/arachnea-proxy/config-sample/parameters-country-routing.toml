@@ -1,10 +1,10 @@
 # Country routing through the generic request-parameter mechanism.
 #
 # HTTP example:
-#   curl -x http://127.0.0.1:8080 -H "Arachnea-Proxy-Country: US" https://example.com
+#   curl -x http://127.0.0.1:8080 -H 'Arachnea-Proxy-Countries: ["US"]' https://example.com
 #
 # SOCKS5 example:
-#   curl --socks5 country=US:anything@127.0.0.1:1080 https://example.com
+#   curl --socks5 'countries=["US"]:anything@127.0.0.1:1080' https://example.com
 
 [server]
 listen_http = "127.0.0.1:8080"
@@ -22,8 +22,8 @@ allow_direct_fallback = true
 
 [[core.parameter_handlers]]
 kind = "country_routing"
-parameter_name = "country"
-http_header = "Arachnea-Proxy-Country"
+parameter_name = "countries"
+http_header = "Arachnea-Proxy-Countries"
 forward_header = false
 stop_on_match = true
 

@@ -57,6 +57,11 @@ Un pays unique doit être représenté par une liste à un élément, par exempl
 Cette phase peut être réalisée alors que les symboles historiques existent
 encore temporairement. Elle limite les ruptures de compilation intermédiaires.
 
+**État : terminée le 30 septembre 2026.** Les producteurs actifs identifiés
+dans cette phase émettent désormais uniquement la forme plurielle. Les formes
+singulières restantes appartiennent aux phases suivantes ou à la documentation
+historique à traiter en phase 7.
+
 ### 1.1 Frontend
 
 Fichiers principaux :
@@ -65,17 +70,17 @@ Fichiers principaux :
 - `front/public-app/src/types/entry.ts` ;
 - `front/public-app/src/types/home.ts`.
 
-Modifications :
+Modifications réalisées :
 
-- supprimer `proxyCountry` des interfaces TypeScript ;
-- ne lire que `resolver.proxy.countries` ;
-- supprimer les fallbacks suivants :
-  - `resolver.proxy.country` ;
-  - `resolverProxyCountry` ;
-  - `resolverProxy.country` ;
-- simplifier `normalizeProxyCountries` pour ne recevoir qu'une liste ;
-- envoyer uniquement le champ `proxy_countries` à `get_stream` ;
-- ne plus envoyer le premier pays comme `proxy_country` historique.
+- [x] supprimer `proxyCountry` des interfaces TypeScript ;
+- [x] ne lire que `resolver.proxy.countries` ;
+- [x] supprimer les fallbacks suivants :
+  - [x] `resolver.proxy.country` ;
+  - [x] `resolverProxyCountry` ;
+  - [x] `resolverProxy.country` ;
+- [x] simplifier `normalizeProxyCountries` pour ne recevoir qu'une liste ;
+- [x] envoyer uniquement le champ `proxy_countries` à `get_stream` ;
+- [x] ne plus envoyer le premier pays comme `proxy_country` historique.
 
 L'appel final doit avoir cette forme :
 
@@ -99,21 +104,21 @@ Fichiers principaux :
 - `server/crates/arachnea-stream/src/stream_scraper.rs` ;
 - `server/crates/arachnea-stream/src/reloadable_stream_scraper.rs`.
 
-Modifications :
+Modifications réalisées :
 
-- retirer `GetStreamRequest.proxy_country` et son alias `proxyCountry` ;
-- conserver uniquement le champ pluriel :
+- [x] retirer `GetStreamRequest.proxy_country` et son alias `proxyCountry` ;
+- [x] conserver uniquement le champ pluriel :
 
 ```rust
 #[serde(default, alias = "proxyCountries")]
 proxy_countries: Vec<String>,
 ```
 
-- retirer le paramètre `proxy_country: Option<String>` de `get_stream` ;
-- simplifier `normalize_proxy_countries` pour normaliser uniquement la liste
+- [x] retirer le paramètre `proxy_country: Option<String>` de `get_stream` ;
+- [x] simplifier `normalize_proxy_countries` pour normaliser uniquement la liste
   reçue ;
-- supprimer la fusion actuelle entre `proxy_countries` et `proxy_country` ;
-- adapter l'enregistrement de la fonction `get_stream` dans le scraper
+- [x] supprimer la fusion actuelle entre `proxy_countries` et `proxy_country` ;
+- [x] adapter l'enregistrement de la fonction `get_stream` dans le scraper
   rechargeable.
 
 ### 1.3 Configurations Scrapyfy et YAML
@@ -150,7 +155,30 @@ proxy_countries: ["{proxy_countries}"]
 Tous les paramètres alimentant ces templates doivent eux-mêmes fournir une
 liste JSON ordonnée.
 
+Modifications réalisées :
+
+- [x] convertir `antennereunion-fr.yaml` vers `proxy_countries` et
+  `resolver > proxy > countries` ;
+- [x] convertir `ln24-be.yaml` vers `proxy_countries`.
+
+### Validation de la phase 1
+
+- [x] `cargo check -p arachnea-stream` ;
+- [x] `npm run type-check` depuis `front/public-app` ;
+- [x] vérifier l'absence de `proxy_country`, `proxyCountry`,
+  `resolverProxyCountry` et `resolver > proxy > country` dans les périmètres
+  frontend, API stream et YAML portés.
+
+`cargo fmt -p arachnea-stream --check` reste non valide à l'échelle de la crate
+en raison de divergences de formatage préexistantes dans `admin_composition.rs`
+et `main.rs`, hors du périmètre de cette phase. Les fichiers Rust modifiés par
+cette phase sont vérifiés individuellement.
+
 ## Phase 2 — Simplifier `ScraperHttpConfig`
+
+**État : terminée le 30 septembre 2026.** `ScraperHttpConfig` et ses clients
+Scrapyfy n'utilisent plus que la liste ordonnée `proxy_countries`, y compris
+pour une valeur unique.
 
 Fichiers principaux :
 
@@ -158,18 +186,18 @@ Fichiers principaux :
 - `server/crates/arachnea-scrapyfy/src/scrapyfy/scraper_agregator.rs` ;
 - les résolveurs de stream utilisant la configuration HTTP.
 
-Modifications :
+Modifications réalisées :
 
-- supprimer le champ `proxy_country: Option<String>` ;
-- supprimer le builder `proxy_country(...)` ;
-- supprimer `proxy_country_hint()` ;
-- supprimer le fallback mono-pays de `proxy_countries_hint()` ;
-- conserver uniquement `proxy_countries: Vec<String>` ;
-- conserver uniquement le builder `proxy_countries(...)` ;
-- mettre à jour la fusion parent/enfant pour ne traiter que la liste ;
-- interpoler uniquement les éléments de `proxy_countries` ;
-- supprimer les tests de compatibilité singulière devenus obsolètes ;
-- remplacer les appelants mono-pays par une liste à un élément.
+- [x] supprimer le champ `proxy_country: Option<String>` ;
+- [x] supprimer le builder `proxy_country(...)` ;
+- [x] supprimer `proxy_country_hint()` ;
+- [x] supprimer le fallback mono-pays de `proxy_countries_hint()` ;
+- [x] conserver uniquement `proxy_countries: Vec<String>` ;
+- [x] conserver uniquement le builder `proxy_countries(...)` ;
+- [x] mettre à jour la fusion parent/enfant pour ne traiter que la liste ;
+- [x] interpoler uniquement les éléments de `proxy_countries` ;
+- [x] supprimer les tests de compatibilité singulière devenus obsolètes ;
+- [x] remplacer les appelants mono-pays par une liste à un élément.
 
 Par exemple :
 
@@ -190,7 +218,23 @@ basée uniquement sur la liste de pays et l'affinité :
 if !http_config.proxy_countries.is_empty() || http_config.proxy_affinity.is_some()
 ```
 
+La configuration HTTP transmet toujours la liste sous le paramètre interne
+`countries` comme un tableau JSON, y compris lorsqu'elle ne contient qu'un seul
+pays.
+
+### Validation de la phase 2
+
+- [x] exécuter les tests et checks Rust ciblés ;
+- [x] vérifier l'absence de `proxy_country` dans `ScraperHttpConfig`, ses
+  appelants et les spécifications Scrapyfy.
+
 ## Phase 3 — Rendre le proxy core exclusivement pluriel
+
+**État : terminée le 30 septembre 2026.** Le proxy core ne reconnaît plus que
+`countries` et l'en-tête `Arachnea-Proxy-Countries`, dont la valeur est un
+tableau JSON ordonné. Les surcharges de nom de paramètre ou d'en-tête des
+handlers de routage pays ont été neutralisées afin de ne pas permettre de
+réintroduire le contrat singulier par configuration.
 
 Fichiers principaux :
 
@@ -293,66 +337,45 @@ http_header: Some(PROXY_HEADER_PARAMETER_COUNTRIES.to_string()),
 La documentation associée doit préciser que la valeur est un tableau JSON
 ordonné.
 
+### Validation de la phase 3
+
+- [x] exécuter les tests ciblés du proxy core et des handlers HTTP/SOCKS ;
+- [x] vérifier la compilation de `arachnea-proxy` et `arachnea-scrapyfy` ;
+- [x] vérifier l'absence des constantes et du contrat singulier dans le
+  périmètre de la phase 3.
+
 ## Phase 4 — Unifier les helpers d'URL proxy
+
+**État : terminée le 30 septembre 2026.** Les façades et le constructeur
+interne mono-pays ont été retirés, leurs appelants ont basculé vers les helpers
+`countries`, et un unique constructeur interne pluriel centralise la
+normalisation, la sérialisation JSON des pays, l'affinité et les options de
+requête.
 
 Fichier principal :
 
 - `server/crates/arachnea-proxy/src/core/http/proxy_service.rs`.
 
-Le fichier expose encore plusieurs helpers prenant un pays unique :
-
-- `proxied_url` ;
-- `proxied_url_with_options` ;
-- `proxied_url_with_insecure_tls` ;
-- le constructeur interne recevant `country: Option<&str>`.
-
-Le portage doit :
-
-1. migrer leurs appelants vers une liste ;
-2. faire du constructeur pluriel le chemin canonique ;
-3. retirer les paramètres `country: Option<&str>` ;
-4. supprimer la génération de `Arachnea-Proxy-Country` ;
-5. générer exclusivement un tableau JSON sous
-   `Arachnea-Proxy-Countries` ;
-6. centraliser la normalisation, la déduplication, la sérialisation JSON,
-   l'ajout des actions, les options de redirection et les options TLS.
-
-Les appelants identifiés incluent notamment :
+Les appelants migrés incluent notamment :
 
 - `server/crates/arachnea-stream/src/services/antennereunion_resolver.rs` ;
 - `server/crates/arachnea-scrapyfy/src/scrapyfy/actions/resolve_url.rs`.
 
-Le résultat ne doit plus comporter deux chemins parallèles de construction des
-options selon qu'un ou plusieurs pays sont fournis.
+Le résultat ne comporte plus deux chemins parallèles de construction des
+options selon qu'un ou plusieurs pays sont fournis : tous les helpers publics
+pluriels délèguent au même constructeur interne.
 
 ## Phase 5 — Corriger spécifiquement M6+
+
+**État : terminée le 30 septembre 2026.** La règle de redirection HTTP 302 de
+M6+ supprime désormais `Arachnea-Proxy-Countries`, soit le même en-tête que
+celui porté par l'URL de manifeste.
 
 Fichier :
 
 - `server/crates/arachnea-stream/src/services/m6play_resolver.rs`.
 
-Remplacer l'import singulier :
-
-```rust
-use arachnea_proxy::PROXY_HEADER_PARAMETER_COUNTRY;
-```
-
-par :
-
-```rust
-use arachnea_proxy::PROXY_HEADER_PARAMETER_COUNTRIES;
-```
-
-Puis remplacer :
-
-```rust
-RemoveHeader::on_http302([
-    PROXY_HEADER_PARAMETER_COUNTRY,
-    REMOVE_HEADER_ACTION_HEADER,
-])
-```
-
-par :
+`stream_headers()` utilise :
 
 ```rust
 RemoveHeader::on_http302([
@@ -361,13 +384,8 @@ RemoveHeader::on_http302([
 ])
 ```
 
-Cette modification corrige l'incohérence actuelle : le manifeste est demandé
-avec `Arachnea-Proxy-Countries`, mais l'action de redirection tente de retirer
-un autre en-tête.
-
-Les tests de `proxy_service.rs` utilisant littéralement
-`Arachnea-Proxy-Country` doivent être convertis vers
-`Arachnea-Proxy-Countries` avec une valeur JSON, par exemple :
+Les tests de `proxy_service.rs` couvrent le retrait de cet en-tête avec une
+valeur JSON plurielle, par exemple :
 
 ```rust
 (
@@ -377,6 +395,11 @@ Les tests de `proxy_service.rs` utilisant littéralement
 ```
 
 ## Phase 6 — Porter les exemples et configurations proxy
+
+**État : terminée le 30 septembre 2026.** L'exemple Rust et les deux
+échantillons TOML utilisent exclusivement `countries` et
+`Arachnea-Proxy-Countries`. La règle déclarative compare la représentation de
+contexte normalisée, soit la chaîne JSON `"[\"US\"]"`.
 
 Fichiers :
 
@@ -397,11 +420,10 @@ parameter_name = "countries"
 http_header = "Arachnea-Proxy-Countries"
 ```
 
-Pour SOCKS, la valeur doit être transmise sous forme JSON encodée dans le nom
-d'utilisateur. L'encodage nécessaire doit être documenté correctement au lieu
-de conserver l'ancien exemple ambigu `country=US`.
+Pour SOCKS, la valeur est transmise sous forme JSON dans le nom d'utilisateur,
+par exemple `countries=["US"]:anything`.
 
-L'exemple Rust doit sérialiser la liste :
+L'exemple Rust sérialise la liste :
 
 ```rust
 let countries = serde_json::to_string(&vec![country])?;
@@ -410,6 +432,12 @@ let countries = serde_json::to_string(&vec![country])?;
 puis utiliser `PROXY_HEADER_PARAMETER_COUNTRIES`.
 
 ## Phase 7 — Documentation et annonce de rupture
+
+**État : terminée le 30 septembre 2026.** Les spécifications Scrapyfy et Stream,
+le README proxy, l'analyse de suivi et le changelog décrivent désormais le seul
+contrat pluriel. Les spécifications `arachnea-proxies` restent inchangées : leur
+paramètre `country` désigne le pays d'une requête interne de collecte de listes
+de proxys, et non le paramètre de routage du proxy exposé aux clients.
 
 Fichiers à mettre à jour :
 
@@ -476,6 +504,42 @@ de contrat. Les anciennes entrées de versions publiées ne doivent pas être
 réécrites si elles décrivent fidèlement le comportement historique.
 
 ## Phase 8 — Validation
+
+**État : terminée le 30 septembre 2026.** La vérification du diff indexé, les
+checks des trois crates, les tests `arachnea-proxy`, les vérifications ciblées
+Scrapyfy, le contrôle TypeScript et le build Vite sont réussis. La recherche de
+résidus ne trouve aucun ancien contrat dans le frontend, les YAML actifs ou les
+sources Rust modifiées. Les identifiants internes restants
+`normalize_proxy_country` et `should_bypass_requested_proxy_country` concernent
+la normalisation ou la comparaison d'un pays individuel dans le fournisseur de
+listes de proxys ; ils ne représentent pas une entrée de routage client
+singulière.
+
+Les commandes complètes `cargo test -p arachnea-scrapyfy` et
+`cargo test -p arachnea-stream` restent en échec pour des problèmes hors du
+contrat migré : les trois tests d'agrégation Scrapyfy configurent tardivement le
+répertoire global de données applicatives, et les tests Stream utilisent une
+fixture Anime-Sama dont `load_home` ne fournit plus de lien exploitable à
+`get_entry`. Les contrôles ciblés de configuration HTTP et de résolution d'URL
+Scrapyfy réussissent. La validation M6+ contre une URL CDN authentifiée et une
+instance locale avec logs debug reste manuelle, car ces prérequis ne sont pas
+disponibles dans cet environnement ; les tests du proxy couvrent toutefois
+l'encodage de `Arachnea-Proxy-Countries` et son retrait au HTTP 302.
+
+### Résultats exécutés
+
+- [x] `git diff --cached --check` ;
+- [x] `rustfmt --edition 2021 --check` sur tous les fichiers Rust modifiés ;
+- [x] `cargo check -p arachnea-proxy` ;
+- [x] `cargo check -p arachnea-scrapyfy` ;
+- [x] `cargo check -p arachnea-stream` ;
+- [x] `cargo test -p arachnea-proxy` (78 tests unitaires, 4 tests
+  d'intégration et 1 doc-test) ;
+- [x] tests Scrapyfy ciblés de `http_client` et `resolve_url` ;
+- [x] `npm run type-check` depuis `front/public-app` ;
+- [x] `npm run build` depuis `front/public-app` ;
+- [x] recherche des formes singulières dans les sources actives et revue de
+  leurs occurrences documentaires intentionnelles.
 
 ### 8.1 Vérifications Rust intermédiaires
 

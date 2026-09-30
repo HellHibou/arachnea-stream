@@ -1,4 +1,4 @@
-# Route requests carrying `Arachnea-Proxy-Country: US` to a named chain.
+# Route requests carrying `Arachnea-Proxy-Countries: ["US"]` to a named chain.
 
 [server]
 listen_http = "127.0.0.1:8080"
@@ -15,8 +15,8 @@ default_chain = "direct"
 allow_direct_fallback = true
 
 [[core.routing.rules]]
-match_client_parameter = "country"
-match_client_value = { type = "string", value = "US" }
+match_client_parameter = "countries"
+match_client_value = { type = "string", value = "[\"US\"]" }
 chain = "us-egress"
 
 [[core.chains]]

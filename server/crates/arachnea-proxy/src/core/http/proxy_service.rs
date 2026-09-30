@@ -26,7 +26,6 @@ use crate::core::http::{ProxiedHttpRequest, ProxiedResponseBody, SimpleHttpClien
 use crate::core::{
     normalize_parameter_value, ArachneaProxyCore, ClientContext, ClientParameter,
     ParameterDefinition, PROXY_HEADER_PARAMETER_AFFINITY, PROXY_HEADER_PARAMETER_COUNTRIES,
-    PROXY_HEADER_PARAMETER_COUNTRY,
 };
 use arachnea_core::controler::{
     ControlerService, ControlerServiceExt, ControlerStreamInput, ControlerStreamOutput,
@@ -1083,58 +1082,6 @@ pub fn register_service(
     });
 }
 
-/// Constructs a URL for proxied media access.
-///
-/// If the provided `media_locator` starts with `http://` or `https://` and a
-/// non-empty `http_proxy_public_path` is supplied, the function returns a
-/// combination of the trimmed proxy path and the media locator. When `country`
-/// is supplied, the generated proxy URL carries the proxy country header in an
-/// `opts` segment. When actions are supplied, they are included as proxy action
-/// headers in the `opts` segment. Otherwise it returns the `media_locator`
-/// unchanged.
-///
-/// # Arguments
-/// - `media_locator`: The location of the media resource. If it starts with
-///   `http://` or `https://`, it may be combined with a proxy path.
-/// - `http_proxy_public_path`: An optional path to be used as the public
-///   proxy base. If provided and non-empty, it is combined with
-///   `media_locator` when the latter is an HTTP URL.
-/// - `country`: Optional country or region hint passed to the proxy country
-///   routing parameter. When omitted or empty, no country routing is requested.
-/// - `actions`: Post-response actions to include in the proxy URL. When
-///   non-empty, the `opts` segment uses an array-of-pairs format for `headers`
-///   to preserve duplicate action headers.
-///
-/// # Returns
-/// A String representing either the combined proxied URL or the original
-/// `media_locator` if no combination is needed.
-///
-/// # Examples
-/// ```
-/// use arachnea_proxy::http::proxy_service::proxied_url;
-///
-/// let url = proxied_url("http://example.com/media", Some("/proxy"), None, &[], &[]);
-/// assert_eq!(url, "/proxy/http://example.com/media");
-/// ```
-pub fn proxied_url(
-    media_locator: &str,
-    http_proxy_public_path: Option<&str>,
-    country: Option<&str>,
-    actions: &[ProxyHttpActionConfig],
-    headers: &[(&str, &str)],
-) -> String {
-    proxied_url_with_internal_options(
-        media_locator,
-        http_proxy_public_path,
-        country,
-        actions,
-        headers,
-        false,
-        None,
-        &[],
-    )
-}
-
 /// Builds a proxied media URL carrying an ordered JSON country list.
 pub fn proxied_url_with_countries(
     media_locator: &str,
@@ -1143,13 +1090,16 @@ pub fn proxied_url_with_countries(
     actions: &[ProxyHttpActionConfig],
     headers: &[(&str, &str)],
 ) -> String {
-    proxied_url_with_countries_and_insecure_tls(
+    proxied_url_with_countries_and_internal_options(
         media_locator,
         http_proxy_public_path,
         countries,
+        None,
+        &[],
         actions,
         headers,
         false,
+        None,
     )
 }
 
@@ -1163,38 +1113,16 @@ pub fn proxied_url_with_countries_and_policy(
     actions: &[ProxyHttpActionConfig],
     headers: &[(&str, &str)],
 ) -> String {
-    let countries = countries
-        .iter()
-        .map(|country| country.trim().to_ascii_uppercase())
-        .filter(|country| {
-            country.len() == 2 && country.bytes().all(|byte| byte.is_ascii_alphabetic())
-        })
-        .fold(Vec::new(), |mut result, country| {
-            if !result.contains(&country) {
-                result.push(country);
-            }
-            result
-        });
-    let mut all_headers = headers.to_vec();
-    let encoded_countries = serde_json::to_string(&countries).expect("country list serializes");
-    if !countries.is_empty() {
-        all_headers.push((PROXY_HEADER_PARAMETER_COUNTRIES, encoded_countries.as_str()));
-    }
-    if let Some(affinity) = proxy_affinity
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        all_headers.push((PROXY_HEADER_PARAMETER_AFFINITY, affinity));
-    }
-    proxied_url_with_internal_options(
+    proxied_url_with_countries_and_internal_options(
         media_locator,
         http_proxy_public_path,
-        None,
+        countries,
+        proxy_affinity,
+        proxy_rejection_statuses,
         actions,
-        &all_headers,
+        headers,
         false,
         None,
-        proxy_rejection_statuses,
     )
 }
 
@@ -1208,7 +1136,78 @@ pub fn proxied_url_with_countries_and_insecure_tls(
     headers: &[(&str, &str)],
     insecure_tls: bool,
 ) -> String {
-    let countries = countries
+    proxied_url_with_countries_and_internal_options(
+        media_locator,
+        http_proxy_public_path,
+        countries,
+        None,
+        &[],
+        actions,
+        headers,
+        insecure_tls,
+        None,
+    )
+}
+
+/// Builds a proxied media URL carrying countries and redirect-following settings.
+pub fn proxied_url_with_countries_and_options(
+    media_locator: &str,
+    http_proxy_public_path: Option<&str>,
+    countries: &[String],
+    actions: &[ProxyHttpActionConfig],
+    headers: &[(&str, &str)],
+    follow_redirects: Option<serde_json::Value>,
+) -> String {
+    proxied_url_with_countries_and_internal_options(
+        media_locator,
+        http_proxy_public_path,
+        countries,
+        None,
+        &[],
+        actions,
+        headers,
+        false,
+        follow_redirects,
+    )
+}
+
+fn proxied_url_with_countries_and_internal_options(
+    media_locator: &str,
+    http_proxy_public_path: Option<&str>,
+    countries: &[String],
+    proxy_affinity: Option<&str>,
+    proxy_rejection_statuses: &[u16],
+    actions: &[ProxyHttpActionConfig],
+    headers: &[(&str, &str)],
+    insecure_tls: bool,
+    follow_redirects: Option<serde_json::Value>,
+) -> String {
+    let countries = normalize_countries(countries);
+    let mut all_headers = headers.to_vec();
+    let encoded_countries = (!countries.is_empty())
+        .then(|| serde_json::to_string(&countries).expect("country list serializes"));
+    if let Some(encoded_countries) = &encoded_countries {
+        all_headers.push((PROXY_HEADER_PARAMETER_COUNTRIES, encoded_countries.as_str()));
+    }
+    if let Some(affinity) = proxy_affinity
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        all_headers.push((PROXY_HEADER_PARAMETER_AFFINITY, affinity));
+    }
+    proxied_url_with_internal_options(
+        media_locator,
+        http_proxy_public_path,
+        actions,
+        &all_headers,
+        insecure_tls,
+        follow_redirects,
+        proxy_rejection_statuses,
+    )
+}
+
+fn normalize_countries(countries: &[String]) -> Vec<String> {
+    countries
         .iter()
         .map(|country| country.trim().to_ascii_uppercase())
         .filter(|country| {
@@ -1219,79 +1218,12 @@ pub fn proxied_url_with_countries_and_insecure_tls(
                 result.push(country);
             }
             result
-        });
-    if countries.is_empty() {
-        return proxied_url_with_insecure_tls(
-            media_locator,
-            http_proxy_public_path,
-            None,
-            actions,
-            headers,
-            insecure_tls,
-        );
-    }
-    let mut all_headers = headers.to_vec();
-    let encoded = serde_json::to_string(&countries).expect("country list serializes");
-    all_headers.push((PROXY_HEADER_PARAMETER_COUNTRIES, encoded.as_str()));
-    proxied_url_with_insecure_tls(
-        media_locator,
-        http_proxy_public_path,
-        None,
-        actions,
-        &all_headers,
-        insecure_tls,
-    )
-}
-
-/// Constructs a proxied media URL with optional redirect-following settings.
-pub fn proxied_url_with_options(
-    media_locator: &str,
-    http_proxy_public_path: Option<&str>,
-    country: Option<&str>,
-    actions: &[ProxyHttpActionConfig],
-    headers: &[(&str, &str)],
-    follow_redirects: Option<serde_json::Value>,
-) -> String {
-    proxied_url_with_internal_options(
-        media_locator,
-        http_proxy_public_path,
-        country,
-        actions,
-        headers,
-        false,
-        follow_redirects,
-        &[],
-    )
-}
-
-/// Constructs a proxied media URL with an explicit TLS-bypass request.
-///
-/// The request is still rejected by the proxy unless the target host appears in
-/// its trusted server-side exact-host allowlist.
-pub fn proxied_url_with_insecure_tls(
-    media_locator: &str,
-    http_proxy_public_path: Option<&str>,
-    country: Option<&str>,
-    actions: &[ProxyHttpActionConfig],
-    headers: &[(&str, &str)],
-    insecure_tls: bool,
-) -> String {
-    proxied_url_with_internal_options(
-        media_locator,
-        http_proxy_public_path,
-        country,
-        actions,
-        headers,
-        insecure_tls,
-        None,
-        &[],
-    )
+        })
 }
 
 fn proxied_url_with_internal_options(
     media_locator: &str,
     http_proxy_public_path: Option<&str>,
-    country: Option<&str>,
     actions: &[ProxyHttpActionConfig],
     headers: &[(&str, &str)],
     insecure_tls: bool,
@@ -1306,17 +1238,12 @@ fn proxied_url_with_internal_options(
             .map(str::trim)
             .filter(|value| !value.is_empty())
         {
-            let has_country = country
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .is_some();
             let has_actions = !actions.is_empty();
             let has_extra_headers = !headers.is_empty();
             let has_follow_redirects = follow_redirects.is_some();
             let has_proxy_rejection_statuses = !proxy_rejection_statuses.is_empty();
 
-            if has_country
-                || has_actions
+            if has_actions
                 || has_extra_headers
                 || insecure_tls
                 || has_follow_redirects
@@ -1324,14 +1251,6 @@ fn proxied_url_with_internal_options(
             {
                 // Build proxy headers
                 let mut proxy_headers: Vec<Vec<String>> = Vec::new();
-
-                // Country header
-                if let Some(country) = country.map(str::trim).filter(|value| !value.is_empty()) {
-                    proxy_headers.push(vec![
-                        PROXY_HEADER_PARAMETER_COUNTRY.to_string(),
-                        country.to_string(),
-                    ]);
-                }
 
                 // Action headers (preserving duplicates)
                 for action in actions {
@@ -1405,7 +1324,7 @@ mod tests {
     fn parses_remove_header_json_action() {
         let action = parse_proxy_action_header_value(
             REMOVE_HEADER_ACTION_HEADER,
-            r#"{"type":"onHttp302","headers":["Arachnea-Proxy-Country"]}"#,
+            r#"{"type":"onHttp302","headers":["Arachnea-Proxy-Countries"]}"#,
         )
         .unwrap();
 
@@ -1414,7 +1333,7 @@ mod tests {
                 ProxyHttpRedirectActionConfig::RemoveHeader(action),
             )) => {
                 assert_eq!(action.trigger, "onHttp302");
-                assert_eq!(action.headers, vec!["Arachnea-Proxy-Country".to_string()]);
+                assert_eq!(action.headers, vec!["Arachnea-Proxy-Countries".to_string()]);
             }
             _ => panic!("expected RemoveHeader action"),
         }
@@ -1422,12 +1341,12 @@ mod tests {
 
     #[test]
     fn proxied_url_encodes_remove_header_action() {
-        let url = proxied_url(
+        let url = proxied_url_with_countries(
             "https://example.test/manifest.mpd",
             Some("/proxy"),
-            Some("fr"),
+            &["fr".to_string()],
             &[RemoveHeader::on_http302([
-                PROXY_HEADER_PARAMETER_COUNTRY,
+                PROXY_HEADER_PARAMETER_COUNTRIES,
                 REMOVE_HEADER_ACTION_HEADER,
             ])],
             &[],
@@ -1445,8 +1364,8 @@ mod tests {
             .expect("opts should contain headers");
 
         assert_eq!(headers.len(), 2);
-        assert_eq!(headers[0][0], PROXY_HEADER_PARAMETER_COUNTRY);
-        assert_eq!(headers[0][1], "fr");
+        assert_eq!(headers[0][0], PROXY_HEADER_PARAMETER_COUNTRIES);
+        assert_eq!(headers[0][1], r#"["FR"]"#);
         assert_eq!(headers[1][0], REMOVE_HEADER_ACTION_HEADER);
 
         let action_value: serde_json::Value = serde_json::from_str(headers[1][1].as_str().unwrap())
@@ -1454,7 +1373,10 @@ mod tests {
         assert_eq!(action_value.get("type").unwrap(), "onHttp302");
         assert_eq!(
             action_value.get("headers").unwrap(),
-            &serde_json::json!([PROXY_HEADER_PARAMETER_COUNTRY, REMOVE_HEADER_ACTION_HEADER])
+            &serde_json::json!([
+                PROXY_HEADER_PARAMETER_COUNTRIES,
+                REMOVE_HEADER_ACTION_HEADER
+            ])
         );
     }
 
@@ -1462,10 +1384,13 @@ mod tests {
     fn remove_header_updates_redirect_opts_on_http_302() {
         let opts = ProxyHttpOpts {
             headers: vec![
-                ("Arachnea-Proxy-Country".to_string(), "fr".to_string()),
+                (
+                    "Arachnea-Proxy-Countries".to_string(),
+                    r#"["FR"]"#.to_string(),
+                ),
                 (
                     REMOVE_HEADER_ACTION_HEADER.to_string(),
-                    r#"{"type":"onHttp302","headers":["Arachnea-Proxy-Country","Arachnea-Proxy-RemoveHeader"]}"#.to_string(),
+                    r#"{"type":"onHttp302","headers":["Arachnea-Proxy-Countries","Arachnea-Proxy-RemoveHeader"]}"#.to_string(),
                 ),
                 ("X-Keep".to_string(), "1".to_string()),
             ],
@@ -1480,7 +1405,7 @@ mod tests {
             ProxyHttpRemoveHeaderConfig {
                 trigger: "onHttp302".to_string(),
                 headers: vec![
-                    "Arachnea-Proxy-Country".to_string(),
+                    "Arachnea-Proxy-Countries".to_string(),
                     REMOVE_HEADER_ACTION_HEADER.to_string(),
                 ],
             },
@@ -1532,7 +1457,10 @@ mod tests {
     #[test]
     fn remove_header_keeps_redirect_opts_for_non_302() {
         let opts = ProxyHttpOpts {
-            headers: vec![("Arachnea-Proxy-Country".to_string(), "fr".to_string())],
+            headers: vec![(
+                "Arachnea-Proxy-Countries".to_string(),
+                r#"["FR"]"#.to_string(),
+            )],
             cookies: HashMap::new(),
             proxy: serde_json::Value::Null,
             insecure_tls: false,
@@ -1543,7 +1471,7 @@ mod tests {
         let redirect_actions = vec![ProxyHttpRedirectActionConfig::RemoveHeader(
             ProxyHttpRemoveHeaderConfig {
                 trigger: "onHttp302".to_string(),
-                headers: vec!["Arachnea-Proxy-Country".to_string()],
+                headers: vec!["Arachnea-Proxy-Countries".to_string()],
             },
         )];
 

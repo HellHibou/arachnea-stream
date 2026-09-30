@@ -448,37 +448,42 @@ struct Header {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::PROXY_HEADER_PARAMETER_COUNTRY;
-    use crate::core::PROXY_PARAMETER_COUNTRY;
+    use crate::core::{PROXY_HEADER_PARAMETER_COUNTRIES, PROXY_PARAMETER_COUNTRIES};
 
     /// Verifies that registered headers are extracted into generic parameters.
     #[test]
     fn extracts_registered_parameter_headers() {
         let headers = vec![Header {
-            name: PROXY_HEADER_PARAMETER_COUNTRY.to_string(),
-            value: "be".to_string(),
+            name: PROXY_HEADER_PARAMETER_COUNTRIES.to_string(),
+            value: r#"["be", "BE"]"#.to_string(),
         }];
         let definitions = vec![ParameterDefinition::new(
-            PROXY_HEADER_PARAMETER_COUNTRY,
-            PROXY_PARAMETER_COUNTRY,
+            PROXY_HEADER_PARAMETER_COUNTRIES,
+            PROXY_PARAMETER_COUNTRIES,
             false,
         )];
 
         let context = context_from_headers(&headers, &definitions, ClientContext::new());
 
-        assert_eq!(context.get_string(PROXY_PARAMETER_COUNTRY), Some("BE"));
+        assert_eq!(
+            context.get_string(PROXY_PARAMETER_COUNTRIES),
+            Some(r#"["BE"]"#)
+        );
     }
 
     /// Verifies that non-forwarded parameter headers are stripped from HTTP relay requests.
     #[test]
     fn strips_non_forwarded_parameter_headers() {
         let definitions = vec![ParameterDefinition::new(
-            PROXY_HEADER_PARAMETER_COUNTRY,
-            PROXY_PARAMETER_COUNTRY,
+            PROXY_HEADER_PARAMETER_COUNTRIES,
+            PROXY_PARAMETER_COUNTRIES,
             false,
         )];
 
-        assert!(should_strip_header("arachnea-proxy-country", &definitions));
+        assert!(should_strip_header(
+            "arachnea-proxy-countries",
+            &definitions
+        ));
     }
 
     /// Verifies that forwarded parameter headers can be preserved.

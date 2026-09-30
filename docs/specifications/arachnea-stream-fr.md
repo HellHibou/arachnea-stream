@@ -766,17 +766,31 @@ Un lecteur peut demander un routage géographique ordonné pour une résolution
 liste de codes ISO alpha-2, par exemple `countries: ["FR", "BE"]`. Les valeurs
 vides, invalides et dupliquées sont écartées ; les valeurs valides sont mises
 en majuscules en préservant leur ordre. Le frontend transmet le résultat comme
-`proxy_countries` à `get_stream` et envoie également le premier pays comme
-`proxy_country` historique pendant la transition. La liste est prioritaire
-lorsque les deux formes sont présentes.
+`proxy_countries` à `get_stream`.
 
 La query `resolve_stream` de la source peut consommer la liste JSON structurée
-avec `http.proxy_countries: ["{proxy_countries}"]`; `http.proxy_country:
-"{proxy_country}"` reste réservé aux queries compatibles mono-pays. Les URLs
-proxy générées embarquent la liste JSON ordonnée dans leurs `opts` sous
+avec `http.proxy_countries: ["{proxy_countries}"]`. Les URLs proxy générées
+embarquent la liste JSON ordonnée dans leurs `opts` sous
 `Arachnea-Proxy-Countries`, afin que la récupération du manifeste tente les
-pools de proxy dynamiques de chaque pays dans l'ordre. `resolver > proxy >
-country` reste un fallback à un élément lorsque `countries` est absente ou vide.
+pools de proxy dynamiques de chaque pays dans l'ordre. Une liste absente ou vide
+ne demande aucun proxy géolocalisé et ne bascule pas vers un pays singulier.
+
+#### Migration du routage géographique pour les intégrations externes
+
+La liste plurielle est l'unique contrat de routage géographique accepté. Une
+requête pour un seul pays utilise elle aussi une liste JSON/YAML à un élément.
+
+| Ancien contrat (non accepté) | Contrat actuel |
+|---|---|
+| En-tête HTTP `Arachnea-Proxy-Country: FR` | `Arachnea-Proxy-Countries: ["FR"]` |
+| Paramètre proxy `country=FR` | `countries=["FR"]` |
+| YAML lecteur `resolver.proxy.country: FR` | `resolver.proxy.countries: ["FR"]` |
+| JSON `get_stream` `{ "proxy_country": "FR" }` | `{ "proxy_countries": ["FR"] }` |
+| Scrapyfy `http.proxy_country: "{proxy_country}"` | `http.proxy_countries: ["{proxy_countries}"]` |
+
+`Arachnea-Proxy-Country`, `country`, `resolver.proxy.country`,
+`proxy_country` et `proxyCountry` sont rejetés et ne doivent plus être émis par
+les intégrations.
 
 Le résolveur FranceTV conserve toute liste de pays non vide fournie par le
 lecteur et utilise `[FR]` uniquement lorsque cette liste est vide. Une résolution

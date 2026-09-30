@@ -273,11 +273,7 @@ pub struct ScraperHttpConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     /// Custom User-Agent string override.
     pub user_agent: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    /// Proxy country hint (ISO country code) for geo-targeted requests.
-    pub proxy_country: Option<String>,
-    /// Ordered proxy country hints for geo-targeted requests. This takes
-    /// precedence over the legacy `proxy_country` field.
+    /// Ordered proxy country hints for geo-targeted requests.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub proxy_countries: Vec<String>,
     /// Opaque affinity key used to keep related requests on the same eligible proxy.
@@ -314,7 +310,6 @@ impl ScraperHttpConfig {
         self.mode.is_none()
             && self.user_agent_profile.is_none()
             && self.user_agent.is_none()
-            && self.proxy_country.is_none()
             && self.proxy_countries.is_empty()
             && self.proxy_affinity.is_none()
             && self.proxy_rejection_statuses.is_empty()
@@ -336,11 +331,6 @@ impl ScraperHttpConfig {
                 .user_agent
                 .as_ref()
                 .or(self.user_agent.as_ref())
-                .cloned(),
-            proxy_country: child
-                .proxy_country
-                .as_ref()
-                .or(self.proxy_country.as_ref())
                 .cloned(),
             proxy_countries: if child.proxy_countries.is_empty() {
                 self.proxy_countries.clone()
@@ -379,15 +369,6 @@ impl ScraperHttpConfig {
         }
     }
 
-    /// Routes requests through a proxy country when a proxy core supports it.
-    ///
-    /// The country code is normalized with trim + uppercase before storage.
-    pub fn proxy_country(mut self, country: impl AsRef<str>) -> Self {
-        let country = normalize_proxy_country(country.as_ref());
-        self.proxy_country = (!country.is_empty()).then_some(country);
-        self
-    }
-
     /// Sets ordered proxy country hints after normalization and deduplication.
     pub fn proxy_countries(mut self, countries: impl IntoIterator<Item = String>) -> Self {
         self.proxy_countries = normalize_proxy_countries(countries);
@@ -420,19 +401,8 @@ impl ScraperHttpConfig {
             })
     }
 
-    /// Returns the normalized proxy country hint, if any.
-    fn proxy_country_hint(&self) -> Option<String> {
-        self.proxy_country
-            .as_ref()
-            .map(|value| normalize_proxy_country(value))
-            .filter(|value| !value.is_empty())
-    }
-
     fn proxy_countries_hint(&self) -> Vec<String> {
-        if !self.proxy_countries.is_empty() {
-            return normalize_proxy_countries(self.proxy_countries.clone());
-        }
-        self.proxy_country_hint().into_iter().collect()
+        normalize_proxy_countries(self.proxy_countries.clone())
     }
 
     /// Resolves collection parameters in template-capable HTTP options.
@@ -451,22 +421,12 @@ impl ScraperHttpConfig {
                 params,
             )?;
         }
-        if let Some(proxy_country) = self.proxy_country.as_mut() {
-            let (resolved, missing_keys) =
-                query_helpers::replace_template_placeholders(proxy_country, params);
-            let _ = (context, query_name);
-            *proxy_country = if missing_keys.is_empty() {
-                normalize_proxy_country(&resolved)
-            } else {
-                resolved
-            };
-        }
         self.proxy_countries = resolve_proxy_countries_templates(&self.proxy_countries, params);
         Ok(())
     }
 }
 
-fn normalize_proxy_country(country: &str) -> String {
+fn normalize_country_code(country: &str) -> String {
     country.trim().to_ascii_uppercase()
 }
 
@@ -474,7 +434,7 @@ fn normalize_proxy_countries(countries: impl IntoIterator<Item = String>) -> Vec
     countries
         .into_iter()
         .fold(Vec::new(), |mut normalized, country| {
-            let country = normalize_proxy_country(&country);
+            let country = normalize_country_code(&country);
             if country.len() == 2
                 && country.bytes().all(|byte| byte.is_ascii_alphabetic())
                 && !normalized.contains(&country)
@@ -544,9 +504,8 @@ mod tests {
     }
 
     #[test]
-    fn preserves_static_proxy_countries_and_legacy_fallback() {
+    fn normalizes_static_proxy_countries() {
         let mut config = ScraperHttpConfig {
-            proxy_country: Some("be".to_string()),
             proxy_countries: vec!["fr".to_string(), "BE".to_string(), "fr".to_string()],
             ..Default::default()
         };
@@ -557,9 +516,6 @@ mod tests {
 
         assert_eq!(config.proxy_countries, vec!["FR", "BE"]);
         assert_eq!(config.proxy_countries_hint(), vec!["FR", "BE"]);
-
-        let legacy = ScraperHttpConfig::default().proxy_country("be");
-        assert_eq!(legacy.proxy_countries_hint(), vec!["BE"]);
     }
 }
 
@@ -838,9 +794,7 @@ impl HttpClient {
             builder = builder.proxy(proxy);
         }
         let proxy_countries = self.http_config.proxy_countries_hint();
-        if proxy_countries.len() == 1 {
-            builder = builder.proxy_parameter("country", proxy_countries[0].clone());
-        } else if !proxy_countries.is_empty() {
+        if !proxy_countries.is_empty() {
             builder = builder.proxy_parameter(
                 "countries",
                 serde_json::to_string(&proxy_countries).expect("country list serializes"),

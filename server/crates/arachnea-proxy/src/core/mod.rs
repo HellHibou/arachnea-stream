@@ -63,9 +63,8 @@ pub use parameters::{
     CountryRoutingProxyHandler, DynamicCountryRoutingProxyHandler, ParameterDefinition,
     ParameterHandlerConfig, ParameterHandlerDecision, ParameterHandlerKind, ParameterProxyRoute,
     ParameterRegistry, ProxyParameterHandler, SmartDnsProxyHandler,
-    PROXY_HEADER_PARAMETER_AFFINITY, PROXY_HEADER_PARAMETER_COUNTRIES,
-    PROXY_HEADER_PARAMETER_COUNTRY, PROXY_PARAMETER_AFFINITY, PROXY_PARAMETER_COUNTRIES,
-    PROXY_PARAMETER_COUNTRY,
+    PROXY_HEADER_PARAMETER_AFFINITY, PROXY_HEADER_PARAMETER_COUNTRIES, PROXY_PARAMETER_AFFINITY,
+    PROXY_PARAMETER_COUNTRIES,
 };
 pub use policy::{
     EgressPool, EgressPoolStrategy, EgressSelector, NoopEgressSelector, PrivacyPolicy,

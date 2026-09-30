@@ -764,17 +764,31 @@ A player can request ordered geo routing for a `scraper-query` resolution by
 declaring `resolver > proxy > countries` in YAML as a list of ISO alpha-2
 codes, for example `countries: ["FR", "BE"]`. Empty, invalid and duplicate
 values are discarded; valid values are uppercased while preserving declaration
-order. The frontend forwards the result as `proxy_countries` to `get_stream`
-and also sends the first country as the legacy `proxy_country` during the
-transition. The list takes precedence whenever both forms are present.
+order. The frontend forwards the resulting list as `proxy_countries` to
+`get_stream`.
 
 The source's `resolve_stream` query can consume the structured JSON list with
-`http.proxy_countries: ["{proxy_countries}"]`; use the historical
-`http.proxy_country: "{proxy_country}"` only for single-country-compatible
-queries. Generated proxy URLs embed the ordered JSON list in their `opts`
-headers as `Arachnea-Proxy-Countries`, so the manifest fetch tries each
-country's dynamic proxy pool in order. `resolver > proxy > country` remains a
-one-item fallback when `countries` is absent or empty.
+`http.proxy_countries: ["{proxy_countries}"]`. Generated proxy URLs embed the
+ordered JSON list in their `opts` headers as `Arachnea-Proxy-Countries`, so the
+manifest fetch tries each country's dynamic proxy pool in order. A missing or
+empty list requests no geo proxy; it does not fall back to a singular country.
+
+#### Geo-routing migration for external integrations
+
+The plural list is the only accepted geo-routing contract. A one-country
+request still uses a JSON/YAML list with one item.
+
+| Previous contract (not accepted) | Current contract |
+|---|---|
+| HTTP header `Arachnea-Proxy-Country: FR` | `Arachnea-Proxy-Countries: ["FR"]` |
+| Proxy parameter `country=FR` | `countries=["FR"]` |
+| Player YAML `resolver.proxy.country: FR` | `resolver.proxy.countries: ["FR"]` |
+| `get_stream` JSON `{ "proxy_country": "FR" }` | `{ "proxy_countries": ["FR"] }` |
+| Scrapyfy `http.proxy_country: "{proxy_country}"` | `http.proxy_countries: ["{proxy_countries}"]` |
+
+`Arachnea-Proxy-Country`, `country`, `resolver.proxy.country`,
+`proxy_country`, and `proxyCountry` are rejected and must not be emitted by
+integrations.
 
 The FranceTV resolver preserves every non-empty country list supplied by the
 player and uses `[FR]` only when that list is empty. A resolution also creates

@@ -36,8 +36,6 @@ export interface HomeBannerPlayer {
   source?: string
   /** Ordered ISO country hints used to route the resolver request through geo proxies. */
   proxyCountries?: string[]
-  /** Legacy single-country fallback used only when `proxyCountries` is absent or empty. */
-  proxyCountry?: string
   /**
    * When enabled, absolute URLs inside proxied HLS manifests are rewritten to the
    * proxy path with the current proxy options, so child playlists and segments

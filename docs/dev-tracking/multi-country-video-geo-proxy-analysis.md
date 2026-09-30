@@ -17,7 +17,7 @@ actuel sans contrainte de géolocalisation doit être conservé.
 Le terme *lecteur* désigne ici la configuration de lecture retournée dans les
 champs techniques `players` et `resolver`.
 
-## État d'implémentation au 28 septembre 2026
+## État d'implémentation au 30 septembre 2026
 
 Le contrat multi-pays est implémenté de bout en bout. Il reste à configurer les
 listes réellement émises par chaque service à partir de métadonnées de droits
@@ -29,13 +29,11 @@ plateforme, de la langue du catalogue ou d'un paramètre technique de lecture.
 - Le proxy dynamique accepte une liste ordonnée de pays, tente les pools dans
   cet ordre et conserve le chargement à la demande, le cache négatif et les
   erreurs par pays.
-- `proxy_countries` est la forme canonique sur les contrats backend et
-  frontend. `proxy_country` reste accepté comme repli à un seul élément ; si
-  les deux sont présents, `proxy_countries` est prioritaire.
+- `proxy_countries` est l'unique forme des contrats backend et frontend. Un
+  seul pays reste représenté par une liste à un élément.
 - Le frontend normalise les codes ISO alpha-2 valides en majuscules, supprime
   les doublons sans modifier l'ordre et appelle `get_stream` avec
-  `proxy_countries` ainsi qu'avec le premier pays dans `proxy_country` pendant
-  la transition.
+  `proxy_countries`.
 - Les résolveurs spécifiques concernés propagent la liste vers leurs requêtes
   de négociation, leurs URLs média proxifiées et, lorsque nécessaire, leurs
   requêtes DRM différées.
@@ -63,8 +61,7 @@ plateforme, de la langue du catalogue ou d'un paramètre technique de lecture.
 ### Proxy dynamique
 
 Le modèle proxy était mono-pays sur toute la chaîne. Il transporte désormais
-une liste ordonnée normalisée, avec compatibilité de lecture de l'ancienne
-forme à un pays :
+une liste ordonnée normalisée :
 
 - `ProxyLoadRequest`, `ProxyInventory` et le routeur dynamique reçoivent et
   sélectionnent une liste priorisée de pays.
@@ -96,7 +93,8 @@ générique `scraper-query` acceptent désormais `proxy_countries`. Les YAML
 peuvent écrire `resolver > proxy > countries`, et les documents
 `docs/specifications/arachnea-scrapyfy-*.md` et
 `docs/specifications/arachnea-stream-*.md` ont été mis à jour. Les formes
-historiques `country` et `proxy_country` restent des replis compatibles.
+historiques de routage `country`, `proxy_country`, `proxyCountry`,
+`resolver.proxy.country` et `Arachnea-Proxy-Country` ne sont plus acceptées.
 
 ## Exigence fonctionnelle cible
 
@@ -165,24 +163,20 @@ cache négatif sans empêcher l'essai des autres pays.
 
 ### Proxy
 
-L'API interne doit accepter plusieurs pays, par exemple :
+L'API interne accepte plusieurs pays, notamment :
 
 - `ProxyLoadRequest { countries: Vec<String> }` ;
 - une méthode `ProxyInventory::select_any_for_destination(countries, ...)` ;
 - un marqueur de pool multi-pays ou une représentation de paramètres capable
   de conserver la liste jusqu'à la résolution asynchrone ;
-- un en-tête HTTP dédié, par exemple `Arachnea-Proxy-Countries`, encodé de
-  manière non ambiguë.
-
-Les méthodes mono-pays existantes doivent rester comme façades vers la nouvelle
-API avec une liste d'un élément afin de limiter les régressions dans les
-appels Rust existants.
+- l'en-tête HTTP `Arachnea-Proxy-Countries`, encodé comme tableau JSON non
+  ambigu.
 
 ### Scrapyfy et requêtes HTTP
 
-`ScraperHttpConfig` est complété par `proxy_countries`, avec repli de lecture
-depuis `proxy_country`. La liste est interpolable par les templates YAML sous
-forme JSON et n'est pas confondue avec une chaîne CSV brute.
+`ScraperHttpConfig` utilise `proxy_countries`. La liste est interpolable par
+les templates YAML sous forme JSON et n'est pas confondue avec une chaîne CSV
+brute. Le champ singulier `proxy_country` n'est pas accepté.
 
 Les requêtes de sources de proxys peuvent rester mono-pays. Le provider doit
 simplement les appeler pour chaque pays demandé et ne conserver que les
@@ -212,20 +206,16 @@ Les types frontend concernés comprennent notamment :
 URLs média générées par les résolveurs spécifiques transmettent la même liste
 que leurs requêtes de négociation lorsque celles-ci sont géolocalisées.
 
-## Compatibilité
+## Contrat final
 
-Le champ historique `resolver.proxy.country`, la propriété frontend
-`proxyCountry`, le paramètre `proxy_country` et l'en-tête
-`Arachnea-Proxy-Country` doivent être lus pendant la transition comme une liste
-à un élément.
+Les données YAML utilisent `resolver.proxy.countries`, la requête `get_stream`
+utilise `proxy_countries`, et le proxy reçoit `countries` sous la forme d'un
+tableau JSON ordonné. Même un pays unique est une liste à un élément.
 
-Les nouvelles données produites par les YAML doivent utiliser
-`resolver.proxy.countries`. Lorsque les formes simple et multiple sont toutes
-deux présentes, la forme multiple doit être prioritaire afin de conserver une
-sémantique déterministe.
-
-La documentation doit indiquer explicitement cette période de compatibilité et
-la règle de priorité.
+Les anciens champs `resolver.proxy.country`, `proxyCountry`, `proxy_country`,
+`country` et l'en-tête `Arachnea-Proxy-Country` sont rejetés. Le paramètre
+`country` des requêtes de collecte `list_proxies_for_country` reste distinct :
+il identifie le seul pays chargé par une source de listes de proxys.
 
 ## Sources à adapter
 
@@ -292,10 +282,10 @@ ne démontre pas que `FR` soit autorisé pour toutes les vidéos.
 
 La propagation multi-pays France TV est terminée, mais la décision par vidéo
 ne l'est pas. Les lecteurs peuvent laisser `resolver.proxy.countries` absent :
-le résolveur applique alors le fallback historique `[FR]` propre à FranceTV afin
+le résolveur applique alors la valeur par défaut FranceTV `[FR]` afin
 que les rejets HTTP `403` restent associés à une sélection dynamique et puissent
 déclencher la rotation centralisée. Toute liste explicite reste prioritaire et
-est transmise sans ajout de `FR`. Ce fallback opérationnel ne constitue pas une
+est transmise sans ajout de `FR`. Ce comportement opérationnel ne constitue pas une
 déduction des territoires autorisés pour chaque vidéo.
 
 Pour finaliser le mapping, capturer et versionner des fixtures anonymisées pour
@@ -464,7 +454,7 @@ Sans introduire une nouvelle infrastructure de test, adapter les tests existants
 touchés pour vérifier :
 
 1. normalisation, déduplication et rejet des codes pays invalides ;
-2. compatibilité avec un seul pays historique ;
+2. représentation d'un seul pays par une liste à un élément ;
 3. sélection ordonnée avec repli entre plusieurs pays ;
 4. chargements, caches négatifs et erreurs isolés par pays ;
 5. propagation inchangée de la liste depuis le YAML, via le frontend et

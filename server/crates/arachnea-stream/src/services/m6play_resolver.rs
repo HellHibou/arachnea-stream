@@ -3,7 +3,7 @@ use arachnea_proxy::http::actions::{
     ProxyHttpActionConfig, RemoveHeader, ReplaceAll, REMOVE_HEADER_ACTION_HEADER,
 };
 use arachnea_proxy::http::proxy_service::proxied_url_with_countries;
-use arachnea_proxy::PROXY_HEADER_PARAMETER_COUNTRY;
+use arachnea_proxy::PROXY_HEADER_PARAMETER_COUNTRIES;
 use async_trait::async_trait;
 use regex::Regex;
 use serde_json::Value;
@@ -305,7 +305,10 @@ fn m6play_http_config(proxy_countries: &[String]) -> ScraperHttpConfig {
 
 fn stream_headers() -> Vec<ProxyHttpActionConfig> {
     vec![
-        RemoveHeader::on_http302([PROXY_HEADER_PARAMETER_COUNTRY, REMOVE_HEADER_ACTION_HEADER]),
+        RemoveHeader::on_http302([
+            PROXY_HEADER_PARAMETER_COUNTRIES,
+            REMOVE_HEADER_ACTION_HEADER,
+        ]),
         ReplaceAll::new(
             r#"initialization="/m6web/"#,
             r#"initialization="{proxy}/{base_url}/m6web/"#,
