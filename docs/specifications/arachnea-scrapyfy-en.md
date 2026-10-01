@@ -122,13 +122,33 @@ http:
   mode: auto                    # auto | direct | cloudflare_smart | cloudflare_browser
   user_agent_profile: chrome    # chrome | chrome_stable | firefox | firefox_stable
   user_agent: "Custom UA"       # optional: complete User-Agent override
-  proxy_country: "US"           # optional: country hint for proxy
+  proxy_countries: ["US", "CA"] # optional: ordered proxy country hints
+  proxy_affinity: "opaque-session-id" # optional: retain the same eligible proxy
+  proxy_rejection_statuses: [403] # optional: rotate the dynamic proxy and retry once
   max_redirects: 16             # optional: max redirect count (global default: 16)
 ```
+`proxy_countries` is normalized as ordered, uppercase ISO alpha-2 codes with
+duplicates removed. `proxy_countries` is a static YAML list; each list item
+supports runtime template interpolation. A runtime JSON country list can be
+expanded with `http.proxy_countries: ["{proxy_countries}"]`; static entries can
+be combined with it. A single country must also use a one-item list, for example
+`http.proxy_countries: ["US"]`. The singular `proxy_country` field is not
+accepted.
 
-Template-capable HTTP fields, including `proxy_country`, are resolved for each
-query execution from its runtime parameters. This allows a player-owned query
-to opt into geo routing with `http.proxy_country: "{proxy_country}"`.
+`proxy_affinity` is an opaque process-local identifier. Requests sharing it
+reuse the same dynamic proxy while that proxy remains eligible for the country,
+protocol and destination. The identifier does not expose the proxy authority,
+and its binding expires after 15 minutes of inactivity.
+
+`proxy_rejection_statuses` lists origin response statuses that invalidate the
+currently selected dynamic proxy for that destination. A matching request is
+retried once with another cached eligible candidate. The list is empty by
+default and has no effect without an in-process dynamic proxy route. The
+rejection is persisted in the proxy inventory for 24 hours and is scoped to the
+exact scheme, host and port. After a non-rejected response, the selected proxy
+becomes the preferred candidate for that exact destination while remaining
+subject to all normal eligibility checks; different destinations keep separate
+preferences.
 
 ### HTTP modes (`mode`)
 
@@ -182,11 +202,27 @@ request_headers:                    # optional: HTTP headers
     pointer: "/auth/token"
     select: first
     actions: []
-http: {}                            # optional: HTTP configuration (override)
+http:                              # optional: HTTP configuration (override)
+  empty_on_statuses: []            # HTTP statuses treated as an empty response
 query_param_mappings: []            # optional: parameter mappings
 result_item_field: "entries"        # optional: group field to flatten into rows
 pre_process: []                     # optional: body transformations before parsing and fallback ETag hashing
 post_process: []                    # optional: post-processing
+```
+
+### `http.empty_on_statuses`
+
+`http.empty_on_statuses` lists HTTP status codes that represent a valid absence of
+results rather than a failed query. The returned body is ignored and replaced
+with an empty response matching the scraper type: `[]` for `json`, or an empty
+string for `html` and `text`. The list is empty by default, and unconfigured
+statuses keep the normal behavior, including parsing failures. This field
+is inherited like the other `http` options from collections to queries and
+sub-queries unless overridden locally.
+
+```yaml
+http:
+  empty_on_statuses: [404]
 ```
 
 ### `pre_process`

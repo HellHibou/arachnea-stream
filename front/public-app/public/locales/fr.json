@@ -137,6 +137,7 @@
     "autoskip": {
       "previously": "Saut automatique du récapitulatif",
       "intro": "Saut automatique de l'introduction",
+      "coming_next": "Saut automatique de l'aperçu du prochain épisode",
       "outro": "Saut automatique du générique",
       "ads": "Saut automatique des publicités"
     },
@@ -243,6 +244,8 @@
       "skipIntro": "Passer l’introduction",
       "previously": "Récapitulatif",
       "skipPreviously": "Passer le récapitulatif",
+      "coming_next": "Prochain épisode",
+      "skipComingNext": "Passer l’aperçu du prochain épisode",
       "outro": "Générique",
       "skipOutro": "Passer le générique",
       "ads": "Publicité",

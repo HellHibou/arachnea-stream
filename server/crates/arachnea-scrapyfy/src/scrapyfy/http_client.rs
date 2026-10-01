@@ -1,6 +1,8 @@
 use anyhow::{Context, Result};
 use arachnea_core::persistence::TypedEntityStore;
 use arachnea_http::chaser_session::{memory_session_store, CachedChaserSession};
+#[cfg(feature = "arachnea-proxy")]
+use arachnea_http::ArachneaHttpError;
 use arachnea_http::{
     global_cookie_cache, header_map_from_strings, ArachneaHttpClient, ArachneaHttpConfig,
     ArachneaResponse, BrowserProfile, BrowserSessionConfig, BrowserSessionManager, CookieEntry,
@@ -8,7 +10,10 @@ use arachnea_http::{
     SharedCookieCache,
 };
 #[cfg(feature = "arachnea-proxy")]
-use arachnea_proxy::core::{ArachneaProxyCore, UsageProfile};
+use arachnea_proxy::core::{
+    ApplicationProtocol, ArachneaProxyCore, Destination, ProxyDestinationFailureReason,
+    UsageProfile,
+};
 use http::{HeaderMap, Method};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -268,9 +273,18 @@ pub struct ScraperHttpConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     /// Custom User-Agent string override.
     pub user_agent: Option<String>,
+    /// Ordered proxy country hints for geo-targeted requests.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub proxy_countries: Vec<String>,
+    /// Opaque affinity key used to keep related requests on the same eligible proxy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    /// Proxy country hint (ISO country code) for geo-targeted requests.
-    pub proxy_country: Option<String>,
+    pub proxy_affinity: Option<String>,
+    /// HTTP statuses that should invalidate the selected dynamic proxy and retry once.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub proxy_rejection_statuses: Vec<u16>,
+    /// HTTP statuses that should produce an empty scraper response.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub empty_on_statuses: Vec<u16>,
     /// Maximum number of redirects to follow before returning an error.
     pub max_redirects: Option<usize>,
     /// Optional browser execution mode for a sub-query.
@@ -296,7 +310,10 @@ impl ScraperHttpConfig {
         self.mode.is_none()
             && self.user_agent_profile.is_none()
             && self.user_agent.is_none()
-            && self.proxy_country.is_none()
+            && self.proxy_countries.is_empty()
+            && self.proxy_affinity.is_none()
+            && self.proxy_rejection_statuses.is_empty()
+            && self.empty_on_statuses.is_empty()
             && self.max_redirects.is_none()
             && self.execution.is_none()
             && self.browser_context.is_none()
@@ -315,11 +332,26 @@ impl ScraperHttpConfig {
                 .as_ref()
                 .or(self.user_agent.as_ref())
                 .cloned(),
-            proxy_country: child
-                .proxy_country
+            proxy_countries: if child.proxy_countries.is_empty() {
+                self.proxy_countries.clone()
+            } else {
+                child.proxy_countries.clone()
+            },
+            proxy_affinity: child
+                .proxy_affinity
                 .as_ref()
-                .or(self.proxy_country.as_ref())
+                .or(self.proxy_affinity.as_ref())
                 .cloned(),
+            proxy_rejection_statuses: if child.proxy_rejection_statuses.is_empty() {
+                self.proxy_rejection_statuses.clone()
+            } else {
+                child.proxy_rejection_statuses.clone()
+            },
+            empty_on_statuses: if child.empty_on_statuses.is_empty() {
+                self.empty_on_statuses.clone()
+            } else {
+                child.empty_on_statuses.clone()
+            },
             max_redirects: child.max_redirects.or(self.max_redirects),
             execution: child.execution.or(self.execution),
             browser_context: child.browser_context.or(self.browser_context),
@@ -337,12 +369,17 @@ impl ScraperHttpConfig {
         }
     }
 
-    /// Routes requests through a proxy country when a proxy core supports it.
-    ///
-    /// The country code is normalized with trim + uppercase before storage.
-    pub fn proxy_country(mut self, country: impl AsRef<str>) -> Self {
-        let country = normalize_proxy_country(country.as_ref());
-        self.proxy_country = (!country.is_empty()).then_some(country);
+    /// Sets ordered proxy country hints after normalization and deduplication.
+    pub fn proxy_countries(mut self, countries: impl IntoIterator<Item = String>) -> Self {
+        self.proxy_countries = normalize_proxy_countries(countries);
+        self
+    }
+
+    /// Sets an opaque proxy affinity key after trimming it.
+    pub fn proxy_affinity(mut self, affinity: impl Into<String>) -> Self {
+        self.proxy_affinity = Some(affinity.into())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
         self
     }
 
@@ -364,12 +401,8 @@ impl ScraperHttpConfig {
             })
     }
 
-    /// Returns the normalized proxy country hint, if any.
-    fn proxy_country_hint(&self) -> Option<String> {
-        self.proxy_country
-            .as_ref()
-            .map(|value| normalize_proxy_country(value))
-            .filter(|value| !value.is_empty())
+    fn proxy_countries_hint(&self) -> Vec<String> {
+        normalize_proxy_countries(self.proxy_countries.clone())
     }
 
     /// Resolves collection parameters in template-capable HTTP options.
@@ -388,22 +421,102 @@ impl ScraperHttpConfig {
                 params,
             )?;
         }
-        if let Some(proxy_country) = self.proxy_country.as_mut() {
-            let (resolved, missing_keys) =
-                query_helpers::replace_template_placeholders(proxy_country, params);
-            let _ = (context, query_name);
-            *proxy_country = if missing_keys.is_empty() {
-                normalize_proxy_country(&resolved)
-            } else {
-                resolved
-            };
-        }
+        self.proxy_countries = resolve_proxy_countries_templates(&self.proxy_countries, params);
         Ok(())
     }
 }
 
-fn normalize_proxy_country(country: &str) -> String {
+fn normalize_country_code(country: &str) -> String {
     country.trim().to_ascii_uppercase()
+}
+
+fn normalize_proxy_countries(countries: impl IntoIterator<Item = String>) -> Vec<String> {
+    countries
+        .into_iter()
+        .fold(Vec::new(), |mut normalized, country| {
+            let country = normalize_country_code(&country);
+            if country.len() == 2
+                && country.bytes().all(|byte| byte.is_ascii_alphabetic())
+                && !normalized.contains(&country)
+            {
+                normalized.push(country);
+            }
+            normalized
+        })
+}
+
+/// Resolves each country-list template and expands JSON array parameters.
+///
+/// A runtime parameter such as `proxy_countries` is supplied as a JSON array,
+/// so YAML queries can declare `proxy_countries: ["{proxy_countries}"]` while
+/// static country entries remain supported in the same list.
+fn resolve_proxy_countries_templates(
+    countries: &[String],
+    params: &HashMap<String, String>,
+) -> Vec<String> {
+    countries.iter().fold(Vec::new(), |mut resolved, country| {
+        let (value, missing_keys) = query_helpers::replace_template_placeholders(country, params);
+
+        if !missing_keys.is_empty() {
+            if !value.trim().is_empty() && !resolved.contains(&value) {
+                resolved.push(value);
+            }
+            return resolved;
+        }
+
+        let values = serde_json::from_str::<Vec<String>>(&value).unwrap_or_else(|_| vec![value]);
+        for country in normalize_proxy_countries(values) {
+            if !resolved.contains(&country) {
+                resolved.push(country);
+            }
+        }
+        resolved
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolves_runtime_proxy_countries_json_template() {
+        let mut config = ScraperHttpConfig {
+            proxy_countries: vec!["{proxy_countries}".to_string()],
+            ..Default::default()
+        };
+
+        config
+            .resolve_collection_params("test", "resolve_stream", &HashMap::new())
+            .unwrap();
+
+        assert_eq!(config.proxy_countries, vec!["{proxy_countries}"]);
+
+        let params = HashMap::from([(
+            "proxy_countries".to_string(),
+            "[\"fr\", \"BE\", \"fr\", \"invalid\"]".to_string(),
+        )]);
+
+        config
+            .resolve_collection_params("test", "resolve_stream", &params)
+            .unwrap();
+
+        assert_eq!(config.proxy_countries, vec!["FR", "BE"]);
+    }
+
+    #[test]
+    fn normalizes_static_proxy_countries() {
+        let mut config = ScraperHttpConfig {
+            proxy_countries: vec!["fr".to_string(), "BE".to_string(), "fr".to_string()],
+            ..Default::default()
+        };
+
+        config
+            .resolve_collection_params("test", "resolve_stream", &HashMap::new())
+            .unwrap();
+
+        assert_eq!(config.proxy_countries, vec!["FR", "BE"]);
+        assert_eq!(config.proxy_countries_hint(), vec!["FR", "BE"]);
+    }
 }
 
 /// Installs a temporary HTTP router override used by integration/unit tests.
@@ -550,7 +663,9 @@ impl HttpClient {
         // routing remain unchanged so retained page sessions outlive sub-queries.
         if http_config.request_mode() == self.http_config.request_mode()
             && http_config.browser_profile() == self.http_config.browser_profile()
-            && http_config.proxy_country_hint() == self.http_config.proxy_country_hint()
+            && http_config.proxy_countries_hint() == self.http_config.proxy_countries_hint()
+            && http_config.proxy_affinity == self.http_config.proxy_affinity
+            && http_config.proxy_rejection_statuses == self.http_config.proxy_rejection_statuses
             && http_config.max_redirects == self.http_config.max_redirects
         {
             return Self {
@@ -678,8 +793,21 @@ impl HttpClient {
         if let Some(proxy) = proxy_state.proxy {
             builder = builder.proxy(proxy);
         }
-        if let Some(proxy_country) = self.http_config.proxy_country_hint() {
-            builder = builder.proxy_parameter("country", proxy_country);
+        let proxy_countries = self.http_config.proxy_countries_hint();
+        if !proxy_countries.is_empty() {
+            builder = builder.proxy_parameter(
+                "countries",
+                serde_json::to_string(&proxy_countries).expect("country list serializes"),
+            );
+        }
+        if let Some(proxy_affinity) = self
+            .http_config
+            .proxy_affinity
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            builder = builder.proxy_parameter("proxy_affinity", proxy_affinity.to_string());
         }
         let config = builder.build()?;
         let client = Arc::new(
@@ -699,6 +827,162 @@ impl HttpClient {
             client: client.clone(),
         });
         Ok(client)
+    }
+
+    /// Invalidates a dynamic proxy rejected by the origin and drops the cached
+    /// HTTP client so its connection pool cannot reuse the rejected tunnel.
+    #[cfg(feature = "arachnea-proxy")]
+    async fn rotate_rejected_proxy(&self, url: &str, status: u16) -> Result<bool> {
+        if !self.http_config.proxy_rejection_statuses.contains(&status) {
+            return Ok(false);
+        }
+
+        let proxy_state = self.proxy_handle.snapshot();
+        let Some(HttpProxyConfig::Arachnea(core)) = proxy_state.proxy else {
+            return Ok(false);
+        };
+        let destination = proxy_destination_from_url(url)?;
+        if !core
+            .mark_dynamic_proxy_blocked_by_origin(&destination)
+            .await
+        {
+            return Ok(false);
+        }
+
+        *self.client.write().await = None;
+        tracing::warn!(
+            status,
+            url,
+            "origin rejected dynamic proxy; retrying with another candidate"
+        );
+        Ok(true)
+    }
+
+    /// Invalidates a dynamic proxy after an HTTP engine transport failure.
+    ///
+    /// Only errors explicitly classified as proxy failures are eligible. The
+    /// cached HTTP client is dropped so its connection pool cannot reuse the
+    /// failed tunnel or endpoint.
+    #[cfg(feature = "arachnea-proxy")]
+    async fn invalidate_transport_failed_proxy(
+        &self,
+        url: &str,
+        error: &anyhow::Error,
+    ) -> Result<bool> {
+        if !error.chain().any(|cause| {
+            matches!(
+                cause.downcast_ref::<ArachneaHttpError>(),
+                Some(ArachneaHttpError::Proxy(_))
+            )
+        }) {
+            return Ok(false);
+        }
+
+        let proxy_state = self.proxy_handle.snapshot();
+        let Some(HttpProxyConfig::Arachnea(core)) = proxy_state.proxy else {
+            return Ok(false);
+        };
+        let destination = proxy_destination_from_url(url)?;
+        if !core
+            .mark_dynamic_proxy_transport_failed(&destination, ProxyDestinationFailureReason::Other)
+            .await
+        {
+            return Ok(false);
+        }
+
+        *self.client.write().await = None;
+        Ok(true)
+    }
+
+    /// Renews the selected dynamic proxy after any non-rejected HTTP response.
+    #[cfg(feature = "arachnea-proxy")]
+    async fn validate_accepted_proxy_response(&self, url: &str, status: u16) -> Result<()> {
+        if self.http_config.proxy_rejection_statuses.contains(&status) {
+            return Ok(());
+        }
+
+        let proxy_state = self.proxy_handle.snapshot();
+        let Some(HttpProxyConfig::Arachnea(core)) = proxy_state.proxy else {
+            return Ok(());
+        };
+        let destination = proxy_destination_from_url(url)?;
+        core.mark_dynamic_proxy_validated(&destination).await;
+        Ok(())
+    }
+
+    /// Records a rejected retry without attempting a third request.
+    #[cfg(feature = "arachnea-proxy")]
+    async fn record_final_proxy_response(&self, url: &str, status: u16) -> Result<()> {
+        if self.http_config.proxy_rejection_statuses.contains(&status) {
+            let proxy_state = self.proxy_handle.snapshot();
+            if let Some(HttpProxyConfig::Arachnea(core)) = proxy_state.proxy {
+                let destination = proxy_destination_from_url(url)?;
+                core.mark_dynamic_proxy_blocked_by_origin(&destination)
+                    .await;
+            }
+            return Ok(());
+        }
+        self.validate_accepted_proxy_response(url, status).await
+    }
+
+    /// Sends one textual request without applying status-based proxy rotation.
+    async fn send_text_once(
+        &self,
+        method: Method,
+        url: &str,
+        request_headers: &HashMap<String, String>,
+        request_body: Option<&str>,
+    ) -> Result<ArachneaResponse> {
+        let is_post = method == Method::POST;
+        let http_client = self.http_client().await?;
+        let mut request_builder =
+            http_client.request_with_mode(method, url, self.http_config.request_mode());
+
+        if !request_headers.is_empty() {
+            request_builder =
+                request_builder.headers(header_map_from_strings(request_headers.clone())?);
+        }
+
+        if is_post {
+            let body = request_body.map(str::to_string).unwrap_or_else(|| {
+                url.split_once('?')
+                    .map(|(_, value)| value.to_string())
+                    .unwrap_or_default()
+            });
+            request_builder = request_builder.body(body);
+        }
+
+        request_builder
+            .send()
+            .await
+            .with_context(|| format!("Fetch fail {}", url))
+    }
+
+    /// Sends one binary request without applying status-based proxy rotation.
+    async fn send_bytes_once(
+        &self,
+        method: Method,
+        url: &str,
+        request_headers: &HashMap<String, String>,
+        request_body: Option<Vec<u8>>,
+    ) -> Result<ArachneaResponse> {
+        let http_client = self.http_client().await?;
+        let mut request_builder =
+            http_client.request_with_mode(method, url, self.http_config.request_mode());
+
+        if !request_headers.is_empty() {
+            request_builder =
+                request_builder.headers(header_map_from_strings(request_headers.clone())?);
+        }
+
+        if let Some(body) = request_body {
+            request_builder = request_builder.body(body);
+        }
+
+        request_builder
+            .send()
+            .await
+            .with_context(|| format!("Fetch fail {}", url))
     }
 
     /// Fetches the raw response body for one request.
@@ -1128,29 +1412,88 @@ impl HttpClient {
             ));
         }
 
-        let is_post = method == Method::POST;
-        let http_client = self.http_client().await?;
-        let mut request_builder =
-            http_client.request_with_mode(method, url, self.http_config.request_mode());
-
-        if !request_headers.is_empty() {
-            request_builder =
-                request_builder.headers(header_map_from_strings(request_headers.clone())?);
-        }
-
-        if is_post {
-            let body = request_body.map(str::to_string).unwrap_or_else(|| {
-                url.split_once('?')
-                    .map(|(_, value)| value.to_string())
-                    .unwrap_or_default()
-            });
-            request_builder = request_builder.body(body);
-        }
-
-        request_builder
-            .send()
+        let response = match self
+            .send_text_once(method.clone(), url, request_headers, request_body)
             .await
-            .with_context(|| format!("Fetch fail {}", url))
+        {
+            Ok(response) => response,
+            Err(initial_error) => {
+                #[cfg(feature = "arachnea-proxy")]
+                if self
+                    .invalidate_transport_failed_proxy(url, &initial_error)
+                    .await?
+                {
+                    tracing::warn!(
+                        url,
+                        error = %format!("{initial_error:#}"),
+                        "dynamic proxy transport failed; retrying with another candidate"
+                    );
+                    match self
+                        .send_text_once(method, url, request_headers, request_body)
+                        .await
+                    {
+                        Ok(response) => {
+                            self.record_final_proxy_response(
+                                response.url(),
+                                response.status().as_u16(),
+                            )
+                            .await?;
+                            return Ok(response);
+                        }
+                        Err(retry_error) => {
+                            if let Err(invalidation_error) = self
+                                .invalidate_transport_failed_proxy(url, &retry_error)
+                                .await
+                            {
+                                tracing::warn!(
+                                    url,
+                                    error = %format!("{invalidation_error:#}"),
+                                    "failed to invalidate dynamic proxy after transport retry failure"
+                                );
+                            }
+                            return Err(retry_error.context(format!(
+                                "Dynamic proxy transport retry failed after initial error: {initial_error:#}"
+                            )));
+                        }
+                    }
+                }
+                return Err(initial_error);
+            }
+        };
+        #[cfg(feature = "arachnea-proxy")]
+        if self
+            .rotate_rejected_proxy(response.url(), response.status().as_u16())
+            .await?
+        {
+            let response = match self
+                .send_text_once(method, url, request_headers, request_body)
+                .await
+            {
+                Ok(response) => response,
+                Err(retry_error) => {
+                    if let Err(invalidation_error) = self
+                        .invalidate_transport_failed_proxy(url, &retry_error)
+                        .await
+                    {
+                        tracing::warn!(
+                            url,
+                            error = %format!("{invalidation_error:#}"),
+                            "failed to invalidate dynamic proxy after rejected-response retry failure"
+                        );
+                    }
+                    return Err(
+                        retry_error.context("Dynamic proxy retry after an origin rejection failed")
+                    );
+                }
+            };
+            self.record_final_proxy_response(response.url(), response.status().as_u16())
+                .await?;
+            return Ok(response);
+        }
+        #[cfg(feature = "arachnea-proxy")]
+        self.validate_accepted_proxy_response(response.url(), response.status().as_u16())
+            .await?;
+        Ok(response)
     }
 
     /// Sends an HTTP request with an optional binary body.
@@ -1190,22 +1533,104 @@ impl HttpClient {
             ));
         }
 
-        let http_client = self.http_client().await?;
-        let mut request_builder =
-            http_client.request_with_mode(method, url, self.http_config.request_mode());
-
-        if !request_headers.is_empty() {
-            request_builder =
-                request_builder.headers(header_map_from_strings(request_headers.clone())?);
-        }
-
-        if let Some(body) = request_body {
-            request_builder = request_builder.body(body);
-        }
-
-        request_builder
-            .send()
+        let response = match self
+            .send_bytes_once(method.clone(), url, request_headers, request_body.clone())
             .await
-            .with_context(|| format!("Fetch fail {}", url))
+        {
+            Ok(response) => response,
+            Err(initial_error) => {
+                #[cfg(feature = "arachnea-proxy")]
+                if self
+                    .invalidate_transport_failed_proxy(url, &initial_error)
+                    .await?
+                {
+                    tracing::warn!(
+                        url,
+                        error = %format!("{initial_error:#}"),
+                        "dynamic proxy transport failed; retrying with another candidate"
+                    );
+                    match self
+                        .send_bytes_once(method, url, request_headers, request_body)
+                        .await
+                    {
+                        Ok(response) => {
+                            self.record_final_proxy_response(
+                                response.url(),
+                                response.status().as_u16(),
+                            )
+                            .await?;
+                            return Ok(response);
+                        }
+                        Err(retry_error) => {
+                            if let Err(invalidation_error) = self
+                                .invalidate_transport_failed_proxy(url, &retry_error)
+                                .await
+                            {
+                                tracing::warn!(
+                                    url,
+                                    error = %format!("{invalidation_error:#}"),
+                                    "failed to invalidate dynamic proxy after transport retry failure"
+                                );
+                            }
+                            return Err(retry_error.context(format!(
+                                "Dynamic proxy transport retry failed after initial error: {initial_error:#}"
+                            )));
+                        }
+                    }
+                }
+                return Err(initial_error);
+            }
+        };
+        #[cfg(feature = "arachnea-proxy")]
+        if self
+            .rotate_rejected_proxy(response.url(), response.status().as_u16())
+            .await?
+        {
+            let response = match self
+                .send_bytes_once(method, url, request_headers, request_body)
+                .await
+            {
+                Ok(response) => response,
+                Err(retry_error) => {
+                    if let Err(invalidation_error) = self
+                        .invalidate_transport_failed_proxy(url, &retry_error)
+                        .await
+                    {
+                        tracing::warn!(
+                            url,
+                            error = %format!("{invalidation_error:#}"),
+                            "failed to invalidate dynamic proxy after rejected-response retry failure"
+                        );
+                    }
+                    return Err(
+                        retry_error.context("Dynamic proxy retry after an origin rejection failed")
+                    );
+                }
+            };
+            self.record_final_proxy_response(response.url(), response.status().as_u16())
+                .await?;
+            return Ok(response);
+        }
+        #[cfg(feature = "arachnea-proxy")]
+        self.validate_accepted_proxy_response(response.url(), response.status().as_u16())
+            .await?;
+        Ok(response)
     }
+}
+
+#[cfg(feature = "arachnea-proxy")]
+fn proxy_destination_from_url(url: &str) -> Result<Destination> {
+    let parsed = Url::parse(url).with_context(|| format!("Invalid proxy response URL `{url}`"))?;
+    let host = parsed
+        .host_str()
+        .with_context(|| format!("Missing host in proxy response URL `{url}`"))?;
+    let port = parsed
+        .port_or_known_default()
+        .with_context(|| format!("Missing port in proxy response URL `{url}`"))?;
+    let protocol = match parsed.scheme() {
+        "http" => ApplicationProtocol::Http,
+        "https" => ApplicationProtocol::Https,
+        scheme => ApplicationProtocol::Other(scheme.to_string()),
+    };
+    Ok(Destination::host_port(host, port).with_protocol(protocol))
 }

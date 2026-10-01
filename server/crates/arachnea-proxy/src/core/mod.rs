@@ -11,6 +11,7 @@ mod connect;
 mod core;
 mod destination;
 mod dns_integration;
+mod dns_resolver;
 mod error;
 mod extension;
 pub mod http;
@@ -62,24 +63,25 @@ pub use parameters::{
     build_parameter_handler, context_from_parameter_pairs, normalize_parameter_value,
     CountryRoutingProxyHandler, DynamicCountryRoutingProxyHandler, ParameterDefinition,
     ParameterHandlerConfig, ParameterHandlerDecision, ParameterHandlerKind, ParameterProxyRoute,
-    ParameterRegistry, ProxyParameterHandler, SmartDnsProxyHandler, PROXY_HEADER_PARAMETER_COUNTRY,
-    PROXY_PARAMETER_COUNTRY,
+    ParameterRegistry, ProxyParameterHandler, SmartDnsProxyHandler,
+    PROXY_HEADER_PARAMETER_AFFINITY, PROXY_HEADER_PARAMETER_COUNTRIES, PROXY_PARAMETER_AFFINITY,
+    PROXY_PARAMETER_COUNTRIES,
 };
 pub use policy::{
     EgressPool, EgressPoolStrategy, EgressSelector, NoopEgressSelector, PrivacyPolicy,
     ProxyPoolMemberState, ProxyPoolMemberStatus, SecurityPolicy,
 };
-pub use proxy_inventory::{CoexistencePolicy, InventoryConfig, ProxyInventory};
-pub use proxy_probe::{ProbeConfig, ProbeMode, ProxyProbe};
+pub use proxy_inventory::{
+    CoexistencePolicy, InventoryConfig, ProxyInventory, PROXY_DESTINATION_FAILURE_COOLDOWN,
+};
+pub use proxy_probe::{ProbeConfig, ProbeMode, ProbeTimeoutConfig, ProxyProbe};
 pub use proxy_record::{
-    ProxyAvailabilityHint, ProxyDataProvider, ProxyDestinationFailure,
-    ProxyDestinationFailureReason, ProxyKey, ProxyLoadRequest, ProxyProtocol, ProxyRecord,
-    ProxyRuntimeStatus,
+    ProxyAvailabilityHint, ProxyCapabilityStatus, ProxyDataProvider, ProxyDeclaration,
+    ProxyDestinationFailure, ProxyDestinationFailureReason, ProxyKey, ProxyLoadRequest,
+    ProxyProtocol, ProxyRecord, ProxyRuntimeStatus, PROXY_CACHE_TTL, PROXY_PROTOCOL_PRIORITY,
 };
 #[cfg(feature = "persistence")]
-pub use proxy_repository::{
-    ProxyRepository, TypedProxyRepository, PROXY_CACHE_TTL, PROXY_STORE_NAME,
-};
+pub use proxy_repository::{ProxyRepository, TypedProxyRepository, PROXY_STORE_NAME};
 pub use routing::{RouteDecision, RoutePolicy, RouteRule};
 pub use stats::{ProxyStats, ProxyStatsSnapshot};
 pub use transport::{socks::Socks5UdpAssociation, OutboundTransport, UdpAssociation};

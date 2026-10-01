@@ -4,7 +4,7 @@ use crate::core::{
     ParameterHandlerConfig, ParameterHandlerKind, ParameterProxyRoute, ProxyChain, ProxyConfig,
     ProxyError, ProxyNameResolutionMode, ProxyNode, ProxyParameterHandler, ProxyPoolMemberStatus,
     ProxyProfile, RoutePolicy, RouteRule, SecurityPolicy, SmartDnsRouteHint, TimeoutConfig,
-    TransportKind, UsageProfile, PROXY_PARAMETER_COUNTRY,
+    TransportKind, UsageProfile, PROXY_PARAMETER_COUNTRIES,
 };
 use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -388,7 +388,7 @@ fn configured_parameter_handlers_contribute_definitions() {
     let definitions = core.parameter_definitions();
     assert!(definitions
         .iter()
-        .any(|definition| definition.name == PROXY_PARAMETER_COUNTRY));
+        .any(|definition| definition.name == PROXY_PARAMETER_COUNTRIES));
     assert!(definitions
         .iter()
         .any(|definition| definition.name == "dns_hint"));
@@ -402,8 +402,8 @@ fn country_parameter_handler_selects_extra_proxy() {
         .unwrap();
     let mut context = ClientContext::new();
     context.insert(
-        PROXY_PARAMETER_COUNTRY,
-        ClientParameter::String("US".to_string()),
+        PROXY_PARAMETER_COUNTRIES,
+        ClientParameter::String(r#"["CA", "US", "US"]"#.to_string()),
     );
 
     let decision = handler.proxy_from_parameters(&context).unwrap();
@@ -451,8 +451,8 @@ async fn parameter_handler_appends_request_local_proxy() {
     .unwrap();
     let mut context = ClientContext::new();
     context.insert(
-        PROXY_PARAMETER_COUNTRY,
-        ClientParameter::String("US".to_string()),
+        PROXY_PARAMETER_COUNTRIES,
+        ClientParameter::String(r#"["CA", "US"]"#.to_string()),
     );
 
     let stream = core
@@ -509,8 +509,8 @@ fn routing_rule_uses_client_context() {
                 match_host_suffix: None,
                 match_port: None,
                 match_protocol: None,
-                match_client_parameter: Some(PROXY_PARAMETER_COUNTRY.to_string()),
-                match_client_value: Some(ClientParameter::String("US".to_string())),
+                match_client_parameter: Some(PROXY_PARAMETER_COUNTRIES.to_string()),
+                match_client_value: Some(ClientParameter::String(r#"["US"]"#.to_string())),
                 chain: "premium".to_string(),
             }],
         },
@@ -520,8 +520,8 @@ fn routing_rule_uses_client_context() {
     .unwrap();
     let mut context = ClientContext::new();
     context.insert(
-        PROXY_PARAMETER_COUNTRY,
-        ClientParameter::String("US".to_string()),
+        PROXY_PARAMETER_COUNTRIES,
+        ClientParameter::String(r#"["US"]"#.to_string()),
     );
     let request = ConnectRequest::new(Destination::host_port("example.com", 443))
         .with_client_context(context);

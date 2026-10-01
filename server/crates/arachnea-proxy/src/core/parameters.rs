@@ -6,11 +6,19 @@ use crate::core::{
     ClientContext, ClientParameter, CoexistencePolicy, ProxyError, ProxyNode, Result, TransportKind,
 };
 
-/// Proxy country parameter header name.
-pub const PROXY_HEADER_PARAMETER_COUNTRY: &str = "Arachnea-Proxy-Country";
+/// Proxy countries parameter header name. Its value is a JSON array of ISO
+/// alpha-2 country codes so comma-like values cannot be ambiguous.
+pub const PROXY_HEADER_PARAMETER_COUNTRIES: &str = "Arachnea-Proxy-Countries";
 
-/// Proxy country parameter name.
-pub const PROXY_PARAMETER_COUNTRY: &str = "country";
+/// Proxy affinity parameter header name. Its opaque value pins related
+/// requests to the same eligible dynamic proxy.
+pub const PROXY_HEADER_PARAMETER_AFFINITY: &str = "Arachnea-Proxy-Affinity";
+
+/// Proxy countries parameter name.
+pub const PROXY_PARAMETER_COUNTRIES: &str = "countries";
+
+/// Proxy affinity parameter name.
+pub const PROXY_PARAMETER_AFFINITY: &str = "proxy_affinity";
 
 /// One inbound parameter definition shared by servers and routing handlers.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -286,10 +294,10 @@ impl CountryRoutingProxyHandler {
     ///
     /// # Returns
     ///
-    /// Handler using `Arachnea-Proxy-Country` and `country`.
+    /// Handler using `Arachnea-Proxy-Countries` and `countries`.
     pub fn new() -> Self {
         Self {
-            definition: default_country_parameter_definition(),
+            definition: default_countries_parameter_definition(),
             routes: BTreeMap::new(),
             stop_on_match: true,
         }
@@ -310,12 +318,6 @@ impl CountryRoutingProxyHandler {
     /// Returns an error when one configured route uses a direct node.
     pub fn from_config(config: &ParameterHandlerConfig) -> Result<Self> {
         let mut handler = Self::new();
-        if let Some(parameter_name) = &config.parameter_name {
-            handler.definition.name = parameter_name.clone();
-        }
-        if let Some(http_header) = &config.http_header {
-            handler.definition.http_header = http_header.clone();
-        }
         handler.definition.forward_header = config.forward_header;
         handler.stop_on_match = config.stop_on_match;
         for route in &config.routes {
@@ -358,16 +360,16 @@ impl Default for CountryRoutingProxyHandler {
 }
 
 impl ProxyParameterHandler for CountryRoutingProxyHandler {
-    /// Returns the country parameter definition.
+    /// Returns the countries parameter definition.
     fn parameter_definitions(&self) -> Vec<ParameterDefinition> {
         vec![self.definition.clone()]
     }
 
-    /// Appends the proxy mapped to the requested country when present.
+    /// Appends the proxy mapped to the first requested country with a configured route.
     ///
     /// # Parameters
     ///
-    /// - `parameters`: Client context containing optional country data.
+    /// - `parameters`: Client context containing an optional ordered JSON country list.
     ///
     /// # Returns
     ///
@@ -380,13 +382,15 @@ impl ProxyParameterHandler for CountryRoutingProxyHandler {
         &self,
         parameters: &ClientContext,
     ) -> Result<ParameterHandlerDecision> {
-        let Some(country) = parameters.get_string(&self.definition.name) else {
+        let Some(countries) = parameters
+            .get_string(PROXY_PARAMETER_COUNTRIES)
+            .and_then(parse_countries_parameter)
+        else {
             return Ok(ParameterHandlerDecision::continue_without_proxy());
         };
-        Ok(self
-            .routes
-            .get(&normalize_country(country))
-            .cloned()
+        Ok(countries
+            .iter()
+            .find_map(|country| self.routes.get(country).cloned())
             .map_or_else(ParameterHandlerDecision::continue_without_proxy, |proxy| {
                 ParameterHandlerDecision::with_proxy(proxy, self.stop_on_match)
             }))
@@ -416,10 +420,10 @@ impl DynamicCountryRoutingProxyHandler {
     ///
     /// # Returns
     ///
-    /// Handler using `Arachnea-Proxy-Country` and `country`.
+    /// Handler using `Arachnea-Proxy-Countries` and `countries`.
     pub fn new(coexistence_policy: CoexistencePolicy) -> Self {
         Self {
-            definition: default_country_parameter_definition(),
+            definition: default_countries_parameter_definition(),
             stop_on_match: true,
             coexistence_policy,
         }
@@ -436,12 +440,6 @@ impl DynamicCountryRoutingProxyHandler {
     /// Configured dynamic country routing handler.
     pub fn from_config(config: &ParameterHandlerConfig) -> Self {
         let mut handler = Self::new(CoexistencePolicy::DynamicOnly);
-        if let Some(parameter_name) = &config.parameter_name {
-            handler.definition.name = parameter_name.clone();
-        }
-        if let Some(http_header) = &config.http_header {
-            handler.definition.http_header = http_header.clone();
-        }
         handler.definition.forward_header = config.forward_header;
         handler.stop_on_match = config.stop_on_match;
         handler
@@ -450,7 +448,14 @@ impl DynamicCountryRoutingProxyHandler {
 
 impl ProxyParameterHandler for DynamicCountryRoutingProxyHandler {
     fn parameter_definitions(&self) -> Vec<ParameterDefinition> {
-        vec![self.definition.clone()]
+        vec![
+            self.definition.clone(),
+            ParameterDefinition::new(
+                PROXY_HEADER_PARAMETER_AFFINITY,
+                PROXY_PARAMETER_AFFINITY,
+                false,
+            ),
+        ]
     }
 
     fn proxy_from_parameters(
@@ -460,11 +465,17 @@ impl ProxyParameterHandler for DynamicCountryRoutingProxyHandler {
         if self.coexistence_policy == CoexistencePolicy::StaticOnly {
             return Ok(ParameterHandlerDecision::continue_without_proxy());
         }
-        let Some(country) = parameters.get_string(&self.definition.name) else {
+        let countries = parameters
+            .get_string(PROXY_PARAMETER_COUNTRIES)
+            .and_then(parse_countries_parameter)
+            .filter(|countries| !countries.is_empty());
+        let Some(countries) = countries else {
             return Ok(ParameterHandlerDecision::continue_without_proxy());
         };
-        let country = normalize_country(country);
-        let pool_name = format!("dynamic-country:{country}");
+        let pool_name = format!(
+            "dynamic-countries:{}",
+            serde_json::to_string(&countries).expect("country list serializes")
+        );
         let proxy = ProxyNode {
             kind: TransportKind::ProxyPool,
             name: pool_name,
@@ -493,10 +504,10 @@ impl ParameterRegistry {
     ///
     /// # Returns
     ///
-    /// Registry containing the default country parameter.
+    /// Registry containing the default countries parameter.
     pub fn with_defaults() -> Self {
         let mut registry = Self::default();
-        registry.register(default_country_parameter_definition());
+        registry.register(default_countries_parameter_definition());
         registry
     }
 
@@ -619,15 +630,15 @@ pub fn context_from_parameter_pairs<'a>(
     context
 }
 
-/// Returns the default country parameter definition.
+/// Returns the default countries parameter definition.
 ///
 /// # Returns
 ///
-/// Parameter definition for `Arachnea-Proxy-Country`.
-pub fn default_country_parameter_definition() -> ParameterDefinition {
+/// Parameter definition for `Arachnea-Proxy-Countries`.
+pub fn default_countries_parameter_definition() -> ParameterDefinition {
     ParameterDefinition::new(
-        PROXY_HEADER_PARAMETER_COUNTRY,
-        PROXY_PARAMETER_COUNTRY,
+        PROXY_HEADER_PARAMETER_COUNTRIES,
+        PROXY_PARAMETER_COUNTRIES,
         false,
     )
 }
@@ -643,11 +654,36 @@ pub fn default_country_parameter_definition() -> ParameterDefinition {
 ///
 /// Normalized textual parameter value.
 pub fn normalize_parameter_value(name: &str, value: &str) -> String {
-    if name == PROXY_PARAMETER_COUNTRY {
-        normalize_country(value)
+    if name == PROXY_PARAMETER_COUNTRIES {
+        parse_countries_parameter(value)
+            .and_then(|countries| serde_json::to_string(&countries).ok())
+            .unwrap_or_default()
+    } else if name == PROXY_PARAMETER_AFFINITY {
+        value
+            .trim()
+            .chars()
+            .filter(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+            .take(128)
+            .collect()
     } else {
         value.trim().to_string()
     }
+}
+
+/// Parses, validates, uppercases and deduplicates an ordered JSON country list.
+fn parse_countries_parameter(value: &str) -> Option<Vec<String>> {
+    let countries = serde_json::from_str::<Vec<String>>(value).ok()?;
+    let mut normalized = Vec::new();
+    for country in countries {
+        let country = normalize_country(&country);
+        if country.len() == 2
+            && country.bytes().all(|byte| byte.is_ascii_alphabetic())
+            && !normalized.contains(&country)
+        {
+            normalized.push(country);
+        }
+    }
+    Some(normalized)
 }
 
 /// Validates that a proxy node can be appended by a handler.

@@ -363,7 +363,14 @@ impl ScraperAgregator {
         #[cfg(feature = "arachnea-proxy")]
         if let Some(proxy_core) = &self.proxy_core {
             let handle = SharedProxyConfigHandle::new();
-            handle.set_proxy(HttpProxyConfig::Arachnea(proxy_core.clone()));
+            let proxy_core = if !http_config.proxy_countries.is_empty()
+                || http_config.proxy_affinity.is_some()
+            {
+                proxy_core.with_dynamic_proxy_observation_scope()
+            } else {
+                proxy_core.clone()
+            };
+            handle.set_proxy(HttpProxyConfig::Arachnea(proxy_core));
             return HttpClient::with_http_config_proxy_handle_and_local_country_and_session_store(
                 http_config,
                 handle,

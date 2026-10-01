@@ -304,7 +304,7 @@ queries:
     base_url: "{base_url}"
     query_url: "{query_url}"
     http:
-      proxy_country: BE
+      proxy_countries: [BE]
     media_types: *media_types_ln24
     row_selector: "html"
     entries:

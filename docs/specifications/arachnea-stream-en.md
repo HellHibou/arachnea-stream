@@ -759,21 +759,68 @@ Returns a list of MediaItem objects with `key` and `media-type: video/live`:
 | `web-link` | Public live URL |
 | `release-date` | Current programme start time |
 | `expire` | Current programme end time |
-| `channel` | Channel name |
 
-A player can request geo routing for a `scraper-query` resolution by declaring
-`resolver > proxy > country` in YAML. The frontend forwards this value as
-`proxy_country` to `get_stream`; the source's `resolve_stream` query must opt
-into it explicitly with `http.proxy_country: "{proxy_country}"`. Generated
-proxy URLs also embed `Arachnea-Proxy-Country` in their `opts` headers so the
-manifest fetch is routed through the requested country's dynamic proxy pool.
+A player can request ordered geo routing for a `scraper-query` resolution by
+declaring `resolver > proxy > countries` in YAML as a list of ISO alpha-2
+codes, for example `countries: ["FR", "BE"]`. Empty, invalid and duplicate
+values are discarded; valid values are uppercased while preserving declaration
+order. The frontend forwards the resulting list as `proxy_countries` to
+`get_stream`.
+
+The source's `resolve_stream` query can consume the structured JSON list with
+`http.proxy_countries: ["{proxy_countries}"]`. Generated proxy URLs embed the
+ordered JSON list in their `opts` headers as `Arachnea-Proxy-Countries`, so the
+manifest fetch tries each country's dynamic proxy pool in order. A missing or
+empty list requests no geo proxy; it does not fall back to a singular country.
+
+#### Geo-routing migration for external integrations
+
+The plural list is the only accepted geo-routing contract. A one-country
+request still uses a JSON/YAML list with one item.
+
+| Previous contract (not accepted) | Current contract |
+|---|---|
+| HTTP header `Arachnea-Proxy-Country: FR` | `Arachnea-Proxy-Countries: ["FR"]` |
+| Proxy parameter `country=FR` | `countries=["FR"]` |
+| Player YAML `resolver.proxy.country: FR` | `resolver.proxy.countries: ["FR"]` |
+| `get_stream` JSON `{ "proxy_country": "FR" }` | `{ "proxy_countries": ["FR"] }` |
+| Scrapyfy `http.proxy_country: "{proxy_country}"` | `http.proxy_countries: ["{proxy_countries}"]` |
+
+`Arachnea-Proxy-Country`, `country`, `resolver.proxy.country`,
+`proxy_country`, and `proxyCountry` are rejected and must not be emitted by
+integrations.
+
+The FranceTV resolver preserves every non-empty country list supplied by the
+player and uses `[FR]` only when that list is empty. A resolution also creates
+one opaque proxy affinity shared by the K7 calls, manifest signing, DRM token,
+manifest loading through `/api/proxy`, and the deferred Widevine license
+request. The proxy URL also encodes HTTP `403` as a rejection status: the
+selected proxy is rejected for that destination, the affinity moves to another
+eligible candidate, and the request is retried once. Rewritten HLS key URLs use
+`{proxy_inherited}` so these options are preserved.
+
+The TF1+ resolver reads the allowed territory list from `media.geoList` in the
+`mediainfocombo` response. It normalizes and deduplicates these codes, then uses
+them as proxy countries to retry a geo-blocked negotiation before evaluating
+`delivery.code`. The same list is retained for the manifest, storyboard, and
+deferred Widevine license request, without a local retry or direct fallback.
+The manifest and storyboard `/api/proxy` URLs encode HTTP `403` as a rejection
+status, causing one retry with another eligible candidate.
+
+The TV5MONDE+ resolver uses the player-supplied list for anonymous
+authentication and the initial entitlement request. It then extracts country
+codes from the `materialProfile` string returned by the `/play` entitlement,
+normalizes and deduplicates them, and preserves their order. This list becomes
+the proxy context for the manifest, storyboard, and deferred Widevine license
+request. If the field is absent or contains no valid alpha-2 code, the initial
+player-supplied list is retained.
 
 A player can also request the rewrite of absolute URLs found in proxied HLS
 manifests by declaring `resolver > proxy > rewrite_manifest_urls: "true"`. The
 frontend forwards it as `proxy_rewrite_manifest_urls` to `get_stream`, and the
 backend then adds a proxy `ReplaceAll` post-response action (`{proxy_inherited}/$1`)
 restricted to HLS manifest content types. Child playlists and segments therefore
-reuse the proxy options of the current request (country, headers) instead of
+reuse the proxy options of the current request (countries, headers) instead of
 leaving the proxied session, which is required when the master manifest exposes
 absolute URLs, as for the ARTE live channel.
 

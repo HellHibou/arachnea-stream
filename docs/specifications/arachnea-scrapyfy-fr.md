@@ -122,14 +122,33 @@ http:
   mode: auto                    # auto | direct | cloudflare_smart | cloudflare_browser
   user_agent_profile: chrome    # chrome | chrome_stable | firefox | firefox_stable
   user_agent: "Custom UA"       # optionnel : surcharge complète du User-Agent
-  proxy_country: "US"           # optionnel : pays hint pour le proxy
+  proxy_countries: ["US", "CA"] # optionnel : pays proxy ordonnés
+  proxy_affinity: "opaque-session-id" # optionnel : conserve le même proxy admissible
+  proxy_rejection_statuses: [403] # optionnel : change de proxy et réessaie une fois
   max_redirects: 16             # optionnel : nombre max de redirections (défaut global: 16)
 ```
+`proxy_countries` est normalisé en codes ISO alpha-2 ordonnés et en majuscules,
+sans doublon. Chaque élément de `proxy_countries` accepte l'interpolation de
+template runtime. Une liste JSON runtime peut être développée avec
+`http.proxy_countries: ["{proxy_countries}"]` et combinée avec des entrées
+statiques. Un pays unique doit aussi employer une liste à un élément, par exemple
+`http.proxy_countries: ["US"]`. Le champ singulier `proxy_country` n'est pas
+accepté.
 
-Les champs HTTP compatibles avec les templates, dont `proxy_country`, sont
-résolus à chaque exécution de query depuis ses paramètres runtime. Une query
-pilotée par un lecteur peut ainsi activer le routage géographique avec
-`http.proxy_country: "{proxy_country}"`.
+`proxy_affinity` est un identifiant opaque limité au processus. Les requêtes qui
+partagent cet identifiant réutilisent le même proxy dynamique tant qu'il reste
+admissible pour le pays, le protocole et la destination. L'identifiant n'expose
+pas l'adresse du proxy et sa liaison expire après 15 minutes d'inactivité.
+
+`proxy_rejection_statuses` contient les statuts de réponse de l'origine qui
+invalident le proxy dynamique actuellement sélectionné pour cette destination.
+La requête correspondante est réessayée une fois avec un autre candidat éligible
+déjà en cache. La liste est vide par défaut et reste sans effet sans route proxy
+dynamique intégrée au processus. Le rejet est persisté dans l'inventaire des
+proxys pendant 24 heures et reste limité au triplet exact protocole, hôte et
+port. Après une réponse non rejetée, le proxy sélectionné devient le candidat
+prioritaire pour cette destination exacte tout en restant soumis à tous les
+contrôles d'éligibilité ; chaque destination conserve une préférence distincte.
 
 ### Modes HTTP (`mode`)
 
@@ -183,11 +202,27 @@ request_headers:                      # optionnel : en-têtes HTTP
     pointer: "/auth/token"
     select: first
     actions: []
-http: {}                              # optionnel : configuration HTTP (surcharge)
+http:                                # optionnel : configuration HTTP (surcharge)
+  empty_on_statuses: []              # statuts HTTP traités comme une réponse vide
 query_param_mappings: []              # optionnel : mappings de paramètres
 result_item_field: "entries"          # optionnel : champ groupe à aplatir en lignes
 pre_process: []                       # optionnel : transformations du corps avant parsing et hash ETag de fallback
 post_process: []                      # optionnel : post-traitements
+```
+
+### `http.empty_on_statuses`
+
+`http.empty_on_statuses` contient les codes HTTP qui représentent une absence de
+résultat valide plutôt qu'un échec de requête. Le corps retourné est alors
+ignoré et remplacé par une réponse vide adaptée au scraper : `[]` pour `json`,
+ou une chaîne vide pour `html` et `text`. Par défaut, la liste est vide et les
+statuts non configurés conservent le comportement normal, notamment les erreurs
+de parsing. Comme les autres options `http`, ce champ est hérité de la collection
+vers les requêtes et sous-requêtes, sauf surcharge locale.
+
+```yaml
+http:
+  empty_on_statuses: [404]
 ```
 
 ### `pre_process`

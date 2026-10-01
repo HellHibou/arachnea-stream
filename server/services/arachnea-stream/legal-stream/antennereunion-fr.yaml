@@ -1048,7 +1048,7 @@ queries:
     query_url: "{url}"
     http:
       # Live players request a Réunion egress through their resolver descriptor.
-      proxy_country: "{proxy_country}"
+      proxy_countries: ["{proxy_countries}"]
     request_body_pointer: /url
     request_body_select: first
     request_body_actions:
@@ -1171,4 +1171,4 @@ queries:
             resolver > kind: scraper-query
             resolver > target_id: "{base_url}/proxy/channelStream?idChannel={channel}"
             resolver > source: antennereunion-fr
-            resolver > proxy > country: FR
+            resolver > proxy > countries: [FR]

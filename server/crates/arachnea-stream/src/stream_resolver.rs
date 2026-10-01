@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use arachnea_core::{controler::RequestControlerContext, DEFAULT_MAX_REDIRECTS};
 use arachnea_proxy::http::actions::{ProxyHttpActionConfig, ReplaceAll};
-use arachnea_proxy::http::proxy_service::proxied_url_with_insecure_tls;
+use arachnea_proxy::http::proxy_service::proxied_url_with_countries_and_insecure_tls;
 use arachnea_scrapyfy::*;
 use url::Url;
 
@@ -282,7 +282,7 @@ impl<'a> StreamResolver<'a> {
             STREAM_RESOLVER_GROUP_NAME,
             service_name,
             self.endpoints,
-            None,
+            &[],
             false,
         );
 
@@ -558,7 +558,7 @@ pub(crate) async fn resolve_scraper_query_stream(
     endpoints: &PlayerResolverEndpoints,
     source: &str,
     target: &str,
-    proxy_country: Option<&str>,
+    proxy_countries: &[String],
     rewrite_manifest_urls: bool,
 ) -> Result<ResolvedPlayerStream> {
     let source = source.trim();
@@ -590,11 +590,14 @@ pub(crate) async fn resolve_scraper_query_stream(
         bail!("Scraper-query source `{source}` does not declare `{RESOLVE_STREAM_QUERY_NAME}`.");
     }
 
-    let proxy_country = normalize_scraper_query_proxy_country(proxy_country)?;
+    let proxy_countries = normalize_scraper_query_proxy_countries(proxy_countries)?;
     let mut params = HashMap::from([
         ("url".to_string(), target.to_string()),
         ("query_url".to_string(), target.to_string()),
-        ("proxy_country".to_string(), proxy_country.clone()),
+        (
+            "proxy_countries".to_string(),
+            serde_json::to_string(&proxy_countries).expect("normalized countries serialize"),
+        ),
     ]);
     if let Some(proxy_path) = endpoints
         .http_proxy_public_path
@@ -649,32 +652,40 @@ pub(crate) async fn resolve_scraper_query_stream(
         crate::stream_scraper::STREAM_SERVICE_GROUP_NAME,
         source,
         endpoints,
-        (!proxy_country.is_empty()).then_some(proxy_country.as_str()),
+        &proxy_countries,
         rewrite_manifest_urls,
     );
     Ok(stream)
 }
 
-/// Validates and normalizes an optional ISO country hint requested by a
+/// Validates, normalizes and deduplicates ordered country hints requested by a
 /// `scraper-query` player descriptor.
-fn normalize_scraper_query_proxy_country(proxy_country: Option<&str>) -> Result<String> {
-    let country = proxy_country.unwrap_or_default().trim();
-    if country.is_empty() {
-        return Ok(String::new());
+fn normalize_scraper_query_proxy_countries(proxy_countries: &[String]) -> Result<Vec<String>> {
+    let mut countries = Vec::new();
+    for raw_country in proxy_countries {
+        let country = raw_country.trim();
+        if country.is_empty() {
+            continue;
+        }
+        if country.len() != 2 || !country.bytes().all(|byte| byte.is_ascii_alphabetic()) {
+            bail!(
+                "Invalid scraper-query proxy country `{country}`; expected a two-letter ISO code."
+            );
+        }
+        let country = country.to_ascii_uppercase();
+        if !countries.contains(&country) {
+            countries.push(country);
+        }
     }
-    if country.len() != 2 || !country.bytes().all(|byte| byte.is_ascii_alphabetic()) {
-        bail!("Invalid scraper-query proxy country `{country}`; expected a two-letter ISO code.");
-    }
-    Ok(country.to_ascii_uppercase())
+    Ok(countries)
 }
 
 /// Proxies resolved stream URLs when the HTTP proxy endpoint is configured.
 ///
 /// # Arguments
 ///
-/// * `proxy_country` - Optional ISO country hint forwarded to the proxy as the
-///   `Arachnea-Proxy-Country` request parameter, enabling geo-routed manifest
-///   fetches through the dynamic country proxy pool.
+/// * `proxy_countries` - Ordered ISO country hints forwarded to the proxy,
+///   enabling geo-routed manifest fetches through the dynamic country pool.
 /// * `rewrite_manifest_urls` - When set, a `ReplaceAll` post-response action
 ///   rewrites every absolute HTTP(S) URL inside proxied HLS manifests to the
 ///   proxy path with the current `opts` (`{proxy_inherited}`), so child
@@ -685,7 +696,7 @@ fn proxy_resolved_stream(
     group_name: &str,
     service_name: &str,
     endpoints: &PlayerResolverEndpoints,
-    proxy_country: Option<&str>,
+    proxy_countries: &[String],
     rewrite_manifest_urls: bool,
 ) {
     let Some(proxy_path) = endpoints.http_proxy_public_path.as_deref() else {
@@ -712,10 +723,10 @@ fn proxy_resolved_stream(
         .stream_url
         .iter()
         .map(|url| {
-            proxied_url_with_insecure_tls(
+            proxied_url_with_countries_and_insecure_tls(
                 url,
                 Some(proxy_path),
-                proxy_country,
+                proxy_countries,
                 &actions,
                 &headers,
                 is_insecure_tls_host(url, insecure_tls_hosts),

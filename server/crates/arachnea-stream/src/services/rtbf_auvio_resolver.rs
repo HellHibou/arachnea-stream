@@ -58,6 +58,7 @@ impl PlayerStreamResolver for RtbfAuvioResolver {
         resolver: &str,
         target: &str,
         _service_parameters: &[ScraperQueryCollectionParameter],
+        _proxy_countries: &[String],
         endpoints: &PlayerResolverEndpoints,
     ) -> Result<ResolvedPlayerStream> {
         match resolver.trim() {

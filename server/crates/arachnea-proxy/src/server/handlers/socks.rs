@@ -852,8 +852,7 @@ struct UdpDatagram<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::PROXY_HEADER_PARAMETER_COUNTRY;
-    use crate::core::PROXY_PARAMETER_COUNTRY;
+    use crate::core::{PROXY_HEADER_PARAMETER_COUNTRIES, PROXY_PARAMETER_COUNTRIES};
 
     /// Verifies parsing of a SOCKS5 UDP datagram with an IPv4 destination.
     #[test]
@@ -882,13 +881,16 @@ mod tests {
     #[test]
     fn extracts_parameters_from_socks_username() {
         let definitions = vec![ParameterDefinition::new(
-            PROXY_HEADER_PARAMETER_COUNTRY,
-            PROXY_PARAMETER_COUNTRY,
+            PROXY_HEADER_PARAMETER_COUNTRIES,
+            PROXY_PARAMETER_COUNTRIES,
             false,
         )];
 
-        let context = context_from_socks_username("country=be", &definitions);
+        let context = context_from_socks_username(r#"countries=["be","BE"]"#, &definitions);
 
-        assert_eq!(context.get_string(PROXY_PARAMETER_COUNTRY), Some("BE"));
+        assert_eq!(
+            context.get_string(PROXY_PARAMETER_COUNTRIES),
+            Some(r#"["BE"]"#)
+        );
     }
 }

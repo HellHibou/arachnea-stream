@@ -1054,9 +1054,9 @@ function extractBannerPlayer(record: Record<string, unknown>): HomeBannerPlayer 
     const kind = isJsonRecord(resolver) ? firstNonEmptyString([(resolver as Record<string, unknown>).kind]) : null
     const targetId = isJsonRecord(resolver) ? firstNonEmptyString([(resolver as Record<string, unknown>).target_id]) : null
     const source = isJsonRecord(resolver) ? firstNonEmptyString([(resolver as Record<string, unknown>).source]) : null
-    const proxyCountry = isJsonRecord(resolver)
-      ? firstNonEmptyString([readPath(resolver, 'proxy', 'country')])
-      : null
+    const proxyCountries = isJsonRecord(resolver)
+      ? normalizeProxyCountries(readPath(resolver, 'proxy', 'countries'))
+      : []
     const rewriteManifestUrls = isJsonRecord(resolver)
       ? readBooleanFlag(readPath(resolver, 'proxy', 'rewrite_manifest_urls'))
       : false
@@ -1066,7 +1066,7 @@ function extractBannerPlayer(record: Record<string, unknown>): HomeBannerPlayer 
         kind,
         targetId,
         ...(source ? { source } : {}),
-        ...(proxyCountry ? { proxyCountry } : {}),
+        ...(proxyCountries.length > 0 ? { proxyCountries } : {}),
         ...(rewriteManifestUrls ? { proxyRewriteManifestUrls: true } : {}),
       }
     }
@@ -1622,7 +1622,7 @@ export async function getStream(
     resolver: player.resolver.kind,
     target: player.resolver.targetId,
     source: player.resolver.source,
-    proxy_country: player.resolver.proxyCountry,
+    proxy_countries: player.resolver.proxyCountries,
     proxy_rewrite_manifest_urls: player.resolver.proxyRewriteManifestUrls,
   })
 
@@ -1949,10 +1949,7 @@ function normalizeEntryPlayerResolver(entry: JsonRecord): EntryPlayerResolver | 
 
   if (flatKind && flatTarget) {
     const flatSource = firstNonEmptyString([entry.source, entry.resolverSource])
-    const flatProxyCountry = firstNonEmptyString([
-      readPath(entry, 'proxy', 'country'),
-      entry.resolverProxyCountry,
-    ])
+    const flatProxyCountries = normalizeProxyCountries(readPath(entry, 'proxy', 'countries'))
     const flatRewriteManifestUrls =
       readBooleanFlag(readPath(entry, 'proxy', 'rewrite_manifest_urls')) ||
       readBooleanFlag(readPath(entry, 'resolverProxy', 'rewrite_manifest_urls')) ||
@@ -1961,7 +1958,7 @@ function normalizeEntryPlayerResolver(entry: JsonRecord): EntryPlayerResolver | 
       kind: flatKind,
       targetId: flatTarget,
       ...(flatSource ? { source: flatSource } : {}),
-      ...(flatProxyCountry ? { proxyCountry: flatProxyCountry } : {}),
+      ...(flatProxyCountries.length > 0 ? { proxyCountries: flatProxyCountries } : {}),
       ...(flatRewriteManifestUrls ? { proxyRewriteManifestUrls: true } : {}),
     }
   }
@@ -1984,11 +1981,9 @@ function normalizeEntryPlayerResolver(entry: JsonRecord): EntryPlayerResolver | 
     readPath(resolver, 'source'),
     readPath(entry, 'resolverSource'),
   ])
-  const proxyCountry = firstNonEmptyString([
-    readPath(resolver, 'proxy', 'country'),
-    readPath(entry, 'resolverProxy', 'country'),
-    readPath(entry, 'resolverProxyCountry'),
-  ])
+  const proxyCountries = normalizeProxyCountries(
+    readPath(resolver, 'proxy', 'countries') ?? readPath(entry, 'resolverProxy', 'countries'),
+  )
   const rewriteManifestUrls =
     readBooleanFlag(readPath(resolver, 'proxy', 'rewrite_manifest_urls')) ||
     readBooleanFlag(readPath(entry, 'resolverProxy', 'rewrite_manifest_urls')) ||
@@ -2002,7 +1997,7 @@ function normalizeEntryPlayerResolver(entry: JsonRecord): EntryPlayerResolver | 
     kind,
     targetId,
     ...(source ? { source } : {}),
-    ...(proxyCountry ? { proxyCountry } : {}),
+    ...(proxyCountries.length > 0 ? { proxyCountries } : {}),
     ...(rewriteManifestUrls ? { proxyRewriteManifestUrls: true } : {}),
   }
 }
@@ -2686,6 +2681,35 @@ function firstNonEmptyString(values: unknown[]): string | null {
   }
 
   return null
+}
+
+/**
+ * Normalizes ordered ISO alpha-2 proxy countries.
+ *
+ * Accepts direct strings and Scrapyfy scalar nodes (`{ _: "FR" }`) inside the
+ * array because nested static object arrays preserve scalar items in node form.
+ *
+ * @param countries Raw country list returned by a resolver descriptor.
+ * @returns Uppercase, deduplicated country codes in declaration order.
+ */
+function normalizeProxyCountries(countries: unknown): string[] {
+  return Array.isArray(countries)
+    ? countries.reduce<string[]>((result, country) => {
+        const value = typeof country === 'string'
+          ? country
+          : firstNonEmptyString([isJsonRecord(country) ? country._ : null])
+
+        if (!value) {
+          return result
+        }
+
+        const normalizedCountry = value.trim().toUpperCase()
+        if (/^[A-Z]{2}$/.test(normalizedCountry) && !result.includes(normalizedCountry)) {
+          result.push(normalizedCountry)
+        }
+        return result
+      }, [])
+    : []
 }
 
 /**

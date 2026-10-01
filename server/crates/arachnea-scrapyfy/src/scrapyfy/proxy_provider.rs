@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -7,10 +7,11 @@ use arachnea_core::controler::RequestControlerContext;
 use arachnea_core::persistence::TypedEntityStore;
 use arachnea_proxy::core::{
     ArachneaProxyCore, InventoryConfig, IpCountryResolver, IpCountryResolverConfig,
-    ParameterHandlerConfig, ParameterHandlerKind, ProbeConfig, ProxyAvailabilityHint, ProxyChain,
-    ProxyConfig, ProxyDataProvider, ProxyInventory, ProxyLoadRequest, ProxyProbe, ProxyProfile,
-    ProxyProtocol, ProxyRecord, ProxyRuntimeStatus, Result, RoutePolicy,
-    PROXY_HEADER_PARAMETER_COUNTRY, PROXY_PARAMETER_COUNTRY,
+    ParameterHandlerConfig, ParameterHandlerKind, ProbeConfig, ProxyAvailabilityHint,
+    ProxyCapabilityStatus, ProxyChain, ProxyConfig, ProxyDataProvider, ProxyDeclaration,
+    ProxyInventory, ProxyLoadRequest, ProxyProbe, ProxyProfile, ProxyProtocol, ProxyRecord,
+    ProxyRuntimeStatus, Result, RoutePolicy, PROXY_HEADER_PARAMETER_COUNTRIES,
+    PROXY_PARAMETER_COUNTRIES, PROXY_PROTOCOL_PRIORITY,
 };
 use tracing::{info, trace};
 
@@ -94,13 +95,26 @@ impl ScrapyfyProxyDataProvider {
 #[async_trait]
 impl ProxyDataProvider for ScrapyfyProxyDataProvider {
     async fn load_proxies(&self, request: ProxyLoadRequest) -> Result<Vec<ProxyRecord>> {
-        let country = request
-            .country
-            .map(|country| normalize_proxy_country(&country));
-        let Some(ref country) = country else {
+        let countries = request
+            .countries
+            .iter()
+            .map(|country| normalize_proxy_country(country))
+            .filter(|country| !country.is_empty())
+            .collect::<Vec<_>>();
+        if countries.is_empty() {
             return Ok(Vec::new());
-        };
+        }
 
+        let mut records = Vec::new();
+        for country in countries {
+            records.extend(self.load_proxies_for_country(&country).await?);
+        }
+        Ok(records)
+    }
+}
+
+impl ScrapyfyProxyDataProvider {
+    async fn load_proxies_for_country(&self, country: &str) -> Result<Vec<ProxyRecord>> {
         info!("Loading proxies for country: {}...", country);
 
         // SAFETY: the raw pointer is valid for the lifetime of the provider
@@ -109,8 +123,8 @@ impl ProxyDataProvider for ScrapyfyProxyDataProvider {
         let agregator = unsafe { &*self.scraper_agregator };
 
         let mut params: HashMap<String, String> = HashMap::new();
-        params.insert("country".to_string(), country.clone());
-        let results = agregator
+        params.insert("country".to_string(), country.to_string());
+        let result = agregator
             .execute_query_async(
                 &RequestControlerContext::default(),
                 QueryParameters {
@@ -123,13 +137,28 @@ impl ProxyDataProvider for ScrapyfyProxyDataProvider {
                 None,
                 None,
                 None,
-                None,
+                Some("proxy_source"),
                 "load_proxies",
             )
-            .await
-            .data;
+            .await;
 
-        let mut records: Vec<ProxyRecord> = results
+        if !result.errors.is_empty() {
+            tracing::warn!(
+                country,
+                error_count = result.errors.len(),
+                errors = ?result.errors,
+                "dynamic proxy sources reported errors"
+            );
+        }
+        if result.data.is_empty() {
+            tracing::warn!(
+                country,
+                "dynamic proxy sources returned no rows; verify that at least one source is enabled"
+            );
+        }
+
+        let mut records: Vec<ProxyRecord> = result
+            .data
             .into_iter()
             .filter_map(|entry| entry_to_proxy_record(&entry))
             .collect();
@@ -191,17 +220,11 @@ impl ProxyDataProvider for ScrapyfyProxyDataProvider {
 
         let filtered: Vec<ProxyRecord> = records
             .into_iter()
-            .filter(|r| r.country.as_deref() == Some(country.as_str()))
+            .filter(|r| r.country.as_deref() == Some(country))
             .collect();
 
-        let mut seen = HashSet::new();
-        let deduped: Vec<ProxyRecord> = filtered
-            .into_iter()
-            .filter(|r| seen.insert(r.authority()))
-            .collect();
-
-        info!("Loaded proxies for country {}: {}", country, deduped.len());
-        Ok(deduped)
+        info!("Loaded proxies for country {}: {}", country, filtered.len());
+        Ok(filtered)
     }
 }
 
@@ -215,16 +238,20 @@ fn entry_to_proxy_record(entry: &HashMap<String, ScraperDataNode>) -> Option<Pro
     let protocol = entry
         .get("protocol")
         .and_then(|node| node.value_as_string())
-        .and_then(|s| match s.trim().to_ascii_lowercase().as_str() {
-            "http" => Some(ProxyProtocol::Http),
-            "https" => Some(ProxyProtocol::Https),
-            "socks4" => Some(ProxyProtocol::Socks4),
-            "socks4a" => Some(ProxyProtocol::Socks4a),
-            "socks5" => Some(ProxyProtocol::Socks5),
-            _ => None,
+        .and_then(parse_proxy_protocol)
+        .or_else(|| {
+            entry
+                .get("protocols")
+                .and_then(|node| preferred_proxy_protocol(&node.values))
         });
 
     let supports_https = entry.get("supports_https").and_then(|n| n.value_as_bool());
+    let source = entry
+        .get("proxy_source")
+        .and_then(|node| node.value_as_string())
+        .unwrap_or("unknown")
+        .trim()
+        .to_string();
     let availability = entry
         .get("availability")
         .and_then(|node| node.value_as_string())
@@ -237,7 +264,7 @@ fn entry_to_proxy_record(entry: &HashMap<String, ScraperDataNode>) -> Option<Pro
         .unwrap_or(ProxyAvailabilityHint::Unknown);
 
     let record = ProxyRecord {
-        protocol,
+        protocol: protocol.clone(),
         host: host.to_string(),
         port,
         country: entry
@@ -245,7 +272,16 @@ fn entry_to_proxy_record(entry: &HashMap<String, ScraperDataNode>) -> Option<Pro
             .and_then(|n| n.value_as_string())
             .map(normalize_proxy_country),
         supports_https,
+        declarations: vec![ProxyDeclaration {
+            source,
+            protocol: protocol.clone(),
+            supports_https,
+        }],
         status: ProxyRuntimeStatus::Unknown,
+        http_forwarding: ProxyCapabilityStatus::Unknown,
+        https_tunnel: ProxyCapabilityStatus::Unknown,
+        destination_tls: ProxyCapabilityStatus::Unknown,
+        proxy_tls_certificate: ProxyCapabilityStatus::Unknown,
         latency_ms: entry.get("latency_ms").and_then(|n| n.value_as_u64()),
         failure_count: entry
             .get("failure_count")
@@ -257,11 +293,35 @@ fn entry_to_proxy_record(entry: &HashMap<String, ScraperDataNode>) -> Option<Pro
         availability,
         destination_failures: Vec::new(),
         last_checked: None,
+        last_validated_at: None,
         cooldown_until: None,
     };
 
     trace!("Loaded proxy record: {:?}", record);
     Some(record)
+}
+
+fn parse_proxy_protocol(value: &str) -> Option<ProxyProtocol> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "http" => Some(ProxyProtocol::Http),
+        "https" => Some(ProxyProtocol::Https),
+        "socks4" => Some(ProxyProtocol::Socks4),
+        "socks4a" => Some(ProxyProtocol::Socks4a),
+        "socks5" => Some(ProxyProtocol::Socks5),
+        _ => None,
+    }
+}
+
+fn preferred_proxy_protocol(values: &[String]) -> Option<ProxyProtocol> {
+    PROXY_PROTOCOL_PRIORITY
+        .iter()
+        .find(|preferred| {
+            values
+                .iter()
+                .filter_map(|value| parse_proxy_protocol(value))
+                .any(|protocol| &protocol == *preferred)
+        })
+        .cloned()
 }
 
 fn normalize_proxy_country(country: &str) -> String {
@@ -322,7 +382,10 @@ pub fn default_scrapyfy_proxy_inventory(
     };
     let resolver = default_scrapyfy_ip_country_resolver(scraper_agregator);
     ProxyInventory::new(
-        InventoryConfig::default(),
+        InventoryConfig {
+            probe_batch_size: 32,
+            ..InventoryConfig::default()
+        },
         Some(Arc::new(ScrapyfyProxyDataProvider::new(scraper_agregator))),
         Some(Arc::new(ProxyProbe::new(probe_config))),
     )
@@ -336,8 +399,8 @@ pub fn default_scrapyfy_proxy_inventory(
 /// by scrapyfy proxy sources.
 ///
 /// The returned core uses [`DynamicCountryRoutingProxyHandler`] with
-/// `DynamicOnly` coexistence policy — any `country` request parameter triggers
-/// a `ProxyInventory` lookup that lazily loads proxy data through
+/// `DynamicOnly` coexistence policy — an ordered JSON `countries` request
+/// parameter triggers a `ProxyInventory` lookup that lazily loads proxy data through
 /// [`ScrapyfyProxyDataProvider`].
 ///
 /// # Arguments
@@ -366,8 +429,8 @@ pub fn default_scrapyfy_proxy_core(
         },
         parameter_handlers: vec![ParameterHandlerConfig {
             kind: ParameterHandlerKind::DynamicCountryRouting,
-            parameter_name: Some(PROXY_PARAMETER_COUNTRY.to_string()),
-            http_header: Some(PROXY_HEADER_PARAMETER_COUNTRY.to_string()),
+            parameter_name: Some(PROXY_PARAMETER_COUNTRIES.to_string()),
+            http_header: Some(PROXY_HEADER_PARAMETER_COUNTRIES.to_string()),
             forward_header: false,
             stop_on_match: true,
             routes: vec![],
@@ -375,4 +438,88 @@ pub fn default_scrapyfy_proxy_core(
         ..ProxyConfig::default()
     };
     ArachneaProxyCore::from_resolved_with_proxy_inventory(proxy_config.resolve()?, inventory)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_yaml::Value;
+
+    const PROXYCOMPASS_YAML: &str =
+        include_str!("../../../../services/arachnea-proxies/proxycompass.yaml");
+
+    fn proxy_entry(protocol: Option<&str>, protocols: &[&str]) -> HashMap<String, ScraperDataNode> {
+        let mut entry = HashMap::from([
+            (
+                "host".to_string(),
+                ScraperDataNode::from_values(vec!["192.0.2.10".to_string()]),
+            ),
+            (
+                "port".to_string(),
+                ScraperDataNode::from_values(vec!["8080".to_string()]),
+            ),
+        ]);
+
+        if let Some(protocol) = protocol {
+            entry.insert(
+                "protocol".to_string(),
+                ScraperDataNode::from_values(vec![protocol.to_string()]),
+            );
+        }
+        if !protocols.is_empty() {
+            entry.insert(
+                "protocols".to_string(),
+                ScraperDataNode::from_values(
+                    protocols.iter().map(|value| (*value).to_string()).collect(),
+                ),
+            );
+        }
+
+        entry
+    }
+
+    #[test]
+    fn entry_to_proxy_record_keeps_valid_singular_protocol() {
+        let entry = proxy_entry(Some("SOCKS5"), &["HTTP", "SOCKS4"]);
+
+        let record = entry_to_proxy_record(&entry).expect("proxy record");
+
+        assert_eq!(record.protocol, Some(ProxyProtocol::Socks5));
+    }
+
+    #[test]
+    fn entry_to_proxy_record_selects_plural_protocol_by_priority() {
+        let entry = proxy_entry(None, &["SOCKS4", "SOCKS5", "HTTP"]);
+
+        let record = entry_to_proxy_record(&entry).expect("proxy record");
+
+        assert_eq!(record.protocol, Some(ProxyProtocol::Socks5));
+    }
+
+    #[test]
+    fn entry_to_proxy_record_falls_back_to_plural_protocol() {
+        let entry = proxy_entry(Some("UNKNOWN"), &["SOCKS4", "SOCKS5"]);
+
+        let record = entry_to_proxy_record(&entry).expect("proxy record");
+
+        assert_eq!(record.protocol, Some(ProxyProtocol::Socks5));
+    }
+
+    #[test]
+    fn proxycompass_maps_countries_and_limits_the_first_page() {
+        let _: crate::scrapyfy::ScraperQueryCollection =
+            serde_yaml::from_str(PROXYCOMPASS_YAML).expect("ProxyCompass runtime collection");
+        let config: Value = serde_yaml::from_str(PROXYCOMPASS_YAML).expect("ProxyCompass YAML");
+        let query = &config["queries"][0];
+        let values = &query["query_param_mappings"][0]["values"];
+
+        assert_eq!(values["FR"].as_str(), Some("France"));
+        assert_eq!(values["US"].as_str(), Some("United%20States"));
+        assert_eq!(values["TR"].as_str(), Some("T%C3%BCrkiye"));
+        assert_eq!(
+            query["query_url"].as_str(),
+            Some("{base_url}/live?country={country_name}&page=1&page_size=1000")
+        );
+        assert!(query.get("pagination").is_none());
+    }
 }

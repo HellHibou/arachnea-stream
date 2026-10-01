@@ -1,3 +1,4 @@
+use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
@@ -9,19 +10,47 @@ use tokio::net::TcpStream;
 use tokio::time::{self, Instant};
 use tokio_rustls::TlsConnector;
 
+use crate::core::dns_resolver::ProxyDnsResolver;
 use crate::core::{
-    Destination, DestinationAddress, ProxyError, ProxyProtocol, ProxyRecord, ProxyRuntimeStatus,
-    Result,
+    Destination, DestinationAddress, ProxyCapabilityStatus, ProxyError, ProxyProtocol, ProxyRecord,
+    ProxyRuntimeStatus, Result, PROXY_PROTOCOL_PRIORITY,
 };
 
 /// Probe mode that controls how strictly capabilities are verified.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProbeMode {
-    /// Use configured probe URLs; reject records whose `supports_https` cannot
-    /// be verified when the configuration requires it.
+    /// Use only capabilities that were validated successfully at runtime.
     Strict,
-    /// Accept source-claimed values when probe URLs are absent.
+    /// Allow compatible source claims when runtime validation is absent or
+    /// inconclusive, without changing runtime capability statuses.
     Relaxed,
+}
+
+/// Timeout values used by one proxy probe attempt.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProbeTimeoutConfig {
+    /// Maximum time allowed to establish a TCP connection to the proxy.
+    pub proxy_connect: Duration,
+    /// Maximum time allowed for a proxy protocol exchange or probe request.
+    pub proxy_handshake: Duration,
+    /// Maximum time allowed for local target resolution or tunnel setup.
+    pub target_connect: Duration,
+    /// Maximum time allowed for a proxy or destination TLS handshake.
+    pub tls_handshake: Duration,
+    /// Overall limit for one capability probe or destination validation attempt.
+    pub attempt: Duration,
+}
+
+impl Default for ProbeTimeoutConfig {
+    fn default() -> Self {
+        Self {
+            proxy_connect: Duration::from_secs(3),
+            proxy_handshake: Duration::from_secs(5),
+            target_connect: Duration::from_secs(5),
+            tls_handshake: Duration::from_secs(5),
+            attempt: Duration::from_secs(10),
+        }
+    }
 }
 
 /// Configuration for proxy probing.
@@ -32,13 +61,14 @@ pub struct ProbeConfig {
     /// When absent, TCP connectivity is verified but HTTP forwarding capability
     /// is not tested.
     pub http_probe_url: Option<String>,
-    /// URL for HTTPS tunnel probe.
+    /// URL for the complete HTTPS probe.
     ///
-    /// When absent, the proxy is not tested for HTTPS support and
-    /// `supports_https` is not set to `true` by the probe.
+    /// The probe opens a tunnel, validates destination TLS, then sends a light
+    /// HTTP request. When absent, [`ProxyRecord::https_tunnel`] and
+    /// [`ProxyRecord::destination_tls`] remain unknown.
     pub https_probe_url: Option<String>,
-    /// Connection and handshake timeout.
-    pub timeout: Duration,
+    /// Time limits for the individual probe phases and complete attempts.
+    pub timeouts: ProbeTimeoutConfig,
     /// Probe mode.
     pub mode: ProbeMode,
     /// Protocol detection order for records without a known protocol.
@@ -50,14 +80,9 @@ impl Default for ProbeConfig {
         Self {
             http_probe_url: Some("http://example.com/".to_string()),
             https_probe_url: None,
-            timeout: Duration::from_secs(2),
+            timeouts: ProbeTimeoutConfig::default(),
             mode: ProbeMode::Relaxed,
-            protocol_detection_order: vec![
-                ProxyProtocol::Http,
-                ProxyProtocol::Socks5,
-                ProxyProtocol::Socks4a,
-                ProxyProtocol::Https,
-            ],
+            protocol_detection_order: PROXY_PROTOCOL_PRIORITY.to_vec(),
         }
     }
 }
@@ -70,12 +95,78 @@ impl Default for ProbeConfig {
 #[derive(Clone)]
 pub struct ProxyProbe {
     config: ProbeConfig,
+    dns_resolver: ProxyDnsResolver,
+}
+
+/// Aggregated failure categories observed while probing one batch.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct ProbeBatchReport {
+    /// Number of probes that returned an error.
+    pub(crate) failures: usize,
+    /// Number of timeout failures.
+    pub(crate) timeout: usize,
+    /// Number of refused TCP connections.
+    pub(crate) connection_refused: usize,
+    /// Number of other I/O failures.
+    pub(crate) io: usize,
+    /// Number of TLS setup or validation failures.
+    pub(crate) tls: usize,
+    /// Number of malformed or unexpected protocol responses.
+    pub(crate) protocol: usize,
+    /// Number of explicit upstream proxy rejections.
+    pub(crate) upstream_rejected: usize,
+    /// Number of configuration failures.
+    pub(crate) config: usize,
+    /// Number of route availability failures.
+    pub(crate) route_unavailable: usize,
+    /// Number of invalid destination failures.
+    pub(crate) invalid_destination: usize,
+    /// Number of access policy failures.
+    pub(crate) access_denied: usize,
+    /// Number of DNS failures.
+    pub(crate) dns: usize,
+    /// Number of unsupported-operation failures.
+    pub(crate) unsupported: usize,
+    /// Number of probe tasks that failed before returning their result.
+    pub(crate) task_join: usize,
+}
+
+impl ProbeBatchReport {
+    fn record_error(&mut self, error: &ProxyError) {
+        self.failures += 1;
+        match error {
+            ProxyError::Timeout(_) => self.timeout += 1,
+            ProxyError::Io(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => {
+                self.connection_refused += 1;
+            }
+            ProxyError::Io(_) => self.io += 1,
+            ProxyError::Tls(_) => self.tls += 1,
+            ProxyError::Protocol(_) => self.protocol += 1,
+            ProxyError::UpstreamRejected(_) => self.upstream_rejected += 1,
+            ProxyError::Config(_) => self.config += 1,
+            ProxyError::RouteUnavailable(_) => self.route_unavailable += 1,
+            ProxyError::InvalidDestination(_) => self.invalid_destination += 1,
+            ProxyError::AccessDenied(_) => self.access_denied += 1,
+            ProxyError::Dns(_) => self.dns += 1,
+            ProxyError::Unsupported(_) => self.unsupported += 1,
+        }
+    }
 }
 
 impl ProxyProbe {
     /// Creates a new proxy prober.
     pub fn new(config: ProbeConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            dns_resolver: ProxyDnsResolver::system(),
+        }
+    }
+
+    /// Configures local probe resolution with an Arachnea DNS core.
+    #[cfg(feature = "arachnea-dns")]
+    pub fn with_arachnea_dns(mut self, dns_core: Arc<arachnea_dns::core::ArachneaDnsCore>) -> Self {
+        self.dns_resolver = ProxyDnsResolver::with_arachnea_dns(dns_core);
+        self
     }
 
     /// Returns a reference to the probe configuration.
@@ -85,28 +176,34 @@ impl ProxyProbe {
 
     /// Probes a single proxy record, updating every measurable field in place.
     ///
-    /// Always sets `last_checked`. Updates `status`, `protocol`,
-    /// `supports_https`, `latency_ms`, `authentication_required` and
-    /// `failure_count`.
+    /// Always sets `last_checked`. Updates the global status, detected protocol,
+    /// runtime capabilities, latency, authentication state and failure count.
     ///
-    /// When `protocol` is `Some`, the probe tests the declared protocol. When
-    /// `None`, it iterates through `protocol_detection_order` and sets the
-    /// first protocol that succeeds.
+    /// Source-declared protocols are tested first in configured priority order.
+    /// Relaxed mode then tries undeclared protocols as a controlled correction
+    /// path. Records without declarations retain full protocol detection.
+    ///
+    /// # Errors
+    ///
+    /// Returns the concrete connection, handshake, protocol, TLS or
+    /// configuration error when no configured capability can be used. The
+    /// record is updated before the error is returned.
     pub async fn probe(&self, record: &mut ProxyRecord) -> Result<()> {
         record.last_checked = Some(SystemTime::now());
 
-        let result = if let Some(ref protocol) = record.protocol {
-            self.probe_protocol(&record.host, record.port, protocol)
-                .await
-        } else {
-            self.detect_protocol(&record.host, record.port).await
-        };
+        let protocols = self.protocol_candidates(record);
+        let result = self.detect_protocol(record, &protocols).await;
 
         match result {
-            Ok(probe_result) => self.apply_result(record, probe_result),
-            Err(_) => {
+            Ok(probe_result) => {
+                if let Some(error) = self.apply_result(record, probe_result) {
+                    return Err(error);
+                }
+            }
+            Err(error) => {
                 record.status = ProxyRuntimeStatus::Ko;
                 record.failure_count += 1;
+                return Err(error);
             }
         }
 
@@ -123,13 +220,28 @@ impl ProxyProbe {
     ///
     /// - `records`: Slice of proxy records to probe.
     /// - `batch_size`: Maximum number of concurrent probes.
-    pub async fn probe_batch(&self, records: &mut [ProxyRecord], batch_size: usize) {
+    ///
+    /// # Returns
+    ///
+    /// Aggregated error categories for the completed batch.
+    pub(crate) async fn probe_batch(
+        &self,
+        records: &mut [ProxyRecord],
+        batch_size: usize,
+    ) -> ProbeBatchReport {
         if records.is_empty() {
-            return;
+            return ProbeBatchReport::default();
         }
 
         let semaphore = Arc::new(tokio::sync::Semaphore::new(batch_size));
         let mut handles = Vec::with_capacity(records.len());
+        let mut report = ProbeBatchReport::default();
+
+        tracing::info!(
+            probe_count = records.len(),
+            concurrency = batch_size,
+            "starting dynamic proxy probe batch"
+        );
 
         for i in 0..records.len() {
             let permit = semaphore
@@ -148,16 +260,38 @@ impl ProxyProbe {
         }
 
         for handle in handles {
-            if let Ok((i, probed, _result)) = handle.await {
-                records[i].status = probed.status;
-                records[i].protocol = probed.protocol;
-                records[i].latency_ms = probed.latency_ms;
-                records[i].supports_https = probed.supports_https;
-                records[i].authentication_required = probed.authentication_required;
-                records[i].failure_count = probed.failure_count;
-                records[i].last_checked = probed.last_checked;
+            match handle.await {
+                Ok((i, probed, result)) => {
+                    records[i].status = probed.status;
+                    records[i].protocol = probed.protocol;
+                    records[i].latency_ms = probed.latency_ms;
+                    records[i].http_forwarding = probed.http_forwarding;
+                    records[i].https_tunnel = probed.https_tunnel;
+                    records[i].destination_tls = probed.destination_tls;
+                    records[i].proxy_tls_certificate = probed.proxy_tls_certificate;
+                    records[i].authentication_required = probed.authentication_required;
+                    records[i].failure_count = probed.failure_count;
+                    records[i].last_checked = probed.last_checked;
+                    records[i].last_validated_at = probed.last_validated_at;
+                    if let Err(error) = result {
+                        tracing::debug!(
+                            proxy = %records[i].authority(),
+                            protocol = ?records[i].protocol,
+                            %error,
+                            "dynamic proxy probe failed"
+                        );
+                        report.record_error(&error);
+                    }
+                }
+                Err(error) => {
+                    report.failures += 1;
+                    report.task_join += 1;
+                    tracing::warn!(%error, "dynamic proxy probe task failed");
+                }
             }
         }
+
+        report
     }
 
     /// Validates whether a proxy record can reach a specific destination.
@@ -176,6 +310,19 @@ impl ProxyProbe {
         record: &ProxyRecord,
         destination: &Destination,
     ) -> Result<()> {
+        time::timeout(
+            self.config.timeouts.attempt,
+            self.validate_destination_inner(record, destination),
+        )
+        .await
+        .map_err(|_| ProxyError::Timeout("destination validation attempt"))?
+    }
+
+    async fn validate_destination_inner(
+        &self,
+        record: &ProxyRecord,
+        destination: &Destination,
+    ) -> Result<()> {
         let protocol = record.protocol.as_ref().ok_or_else(|| {
             ProxyError::Config(
                 "cannot validate destination without a known protocol on the record".to_string(),
@@ -188,7 +335,7 @@ impl ProxyProbe {
 
         let _start = Instant::now();
         let stream = time::timeout(
-            self.config.timeout,
+            self.config.timeouts.proxy_connect,
             TcpStream::connect((&*endpoint.host_for_protocol(), endpoint.port)),
         )
         .await
@@ -205,7 +352,7 @@ impl ProxyProbe {
                 wrap_tls(
                     stream,
                     &endpoint.host_for_protocol(),
-                    self.config.timeout,
+                    self.config.timeouts.tls_handshake,
                     true,
                 )
                 .await?,
@@ -216,13 +363,40 @@ impl ProxyProbe {
 
         match protocol {
             ProxyProtocol::Http | ProxyProtocol::Https => {
-                send_http_connect(&mut *stream, destination, self.config.timeout, None).await?;
+                send_http_connect(
+                    &mut *stream,
+                    destination,
+                    self.config.timeouts.target_connect,
+                    None,
+                )
+                .await?;
             }
             ProxyProtocol::Socks5 => {
-                send_socks5_connect(&mut *stream, destination, self.config.timeout, None).await?;
+                connect_socks5_with_local_dns_fallback(
+                    &mut stream,
+                    &record.host,
+                    record.port,
+                    destination,
+                    &self.config.timeouts,
+                    &self.dns_resolver,
+                )
+                .await?;
             }
             ProxyProtocol::Socks4 | ProxyProtocol::Socks4a => {
-                send_socks4_connect(&mut *stream, destination, self.config.timeout, None).await?;
+                let target = prepare_socks4_destination(
+                    protocol,
+                    destination,
+                    self.config.timeouts.target_connect,
+                    &self.dns_resolver,
+                )
+                .await?;
+                send_socks4_connect(
+                    &mut *stream,
+                    &target,
+                    self.config.timeouts.target_connect,
+                    None,
+                )
+                .await?;
             }
         }
 
@@ -231,15 +405,30 @@ impl ProxyProbe {
 
     // ── internal helpers ──────────────────────────────────────────────
 
-    fn apply_result(&self, record: &mut ProxyRecord, result: ProtocolProbeResult) {
-        if result.success {
+    fn apply_result(
+        &self,
+        record: &mut ProxyRecord,
+        result: ProtocolProbeResult,
+    ) -> Option<ProxyError> {
+        if let Some(protocol) = &result.protocol {
+            record.protocol = Some(protocol.clone());
+        }
+        record.latency_ms = result.latency_ms;
+        record.http_forwarding = result.http_forwarding;
+        record.https_tunnel = result.https_tunnel;
+        record.destination_tls = result.destination_tls;
+        record.proxy_tls_certificate = result.proxy_tls_certificate;
+
+        let relaxed_fallback = matches!(self.config.mode, ProbeMode::Relaxed)
+            && result.endpoint_reachable
+            && self.relaxed_fallback_is_usable(record, &result);
+        if result.usable
+            || (result.endpoint_reachable && !result.capability_configured)
+            || relaxed_fallback
+        {
             record.status = ProxyRuntimeStatus::Ok;
-            if result.protocol.is_some() {
-                record.protocol = result.protocol;
-            }
-            record.latency_ms = Some(result.latency_ms);
-            if result.supports_https.is_some() {
-                record.supports_https = result.supports_https;
+            if result.usable || !result.capability_configured {
+                record.last_validated_at = Some(SystemTime::now());
             }
             record.authentication_required = Some(false);
             record.failure_count = 0;
@@ -249,8 +438,47 @@ impl ProxyProbe {
             record.failure_count += 1;
         } else {
             record.status = ProxyRuntimeStatus::Ko;
+            record.authentication_required = Some(false);
             record.failure_count += 1;
         }
+
+        if matches!(record.status, ProxyRuntimeStatus::Ko) {
+            result.error
+        } else {
+            None
+        }
+    }
+
+    fn relaxed_fallback_is_usable(
+        &self,
+        record: &ProxyRecord,
+        result: &ProtocolProbeResult,
+    ) -> bool {
+        let protocol = result.protocol.as_ref().or(record.protocol.as_ref());
+        let proxy_transport_usable = !matches!(
+            result.proxy_tls_certificate,
+            ProxyCapabilityStatus::Unavailable
+        );
+        let http_fallback = proxy_transport_usable
+            && matches!(result.http_forwarding, ProxyCapabilityStatus::Unknown)
+            && protocol.is_some();
+        let https_fallback = proxy_transport_usable
+            && !matches!(result.destination_tls, ProxyCapabilityStatus::Unavailable)
+            && match result.https_tunnel {
+                ProxyCapabilityStatus::Available => true,
+                ProxyCapabilityStatus::Unavailable => false,
+                ProxyCapabilityStatus::Unknown => match protocol {
+                    Some(
+                        ProxyProtocol::Socks4 | ProxyProtocol::Socks4a | ProxyProtocol::Socks5,
+                    ) => true,
+                    Some(ProxyProtocol::Http | ProxyProtocol::Https) => {
+                        record.supports_https == Some(true)
+                    }
+                    None => false,
+                },
+            };
+
+        http_fallback || https_fallback
     }
 
     async fn probe_protocol(
@@ -269,130 +497,133 @@ impl ProxyProbe {
         }
     }
 
-    async fn detect_protocol(&self, host: &str, port: u16) -> Result<ProtocolProbeResult> {
-        for protocol in &self.config.protocol_detection_order {
-            let result = self.probe_protocol(host, port, protocol).await?;
-            if result.success {
-                return Ok(ProtocolProbeResult {
-                    success: true,
-                    latency_ms: result.latency_ms,
-                    authentication_required: false,
-                    supports_https: result.supports_https,
-                    protocol: Some(protocol.clone()),
-                });
+    fn protocol_candidates(&self, record: &ProxyRecord) -> Vec<ProxyProtocol> {
+        let mut declared = Vec::new();
+        for protocol in record
+            .declarations
+            .iter()
+            .filter_map(|declaration| declaration.protocol.clone())
+        {
+            if !declared.contains(&protocol) {
+                declared.push(protocol);
             }
         }
-        Ok(ProtocolProbeResult {
-            success: false,
-            latency_ms: 0,
-            authentication_required: false,
-            supports_https: None,
-            protocol: None,
-        })
+        if declared.is_empty() {
+            if let Some(protocol) = &record.protocol {
+                declared.push(protocol.clone());
+            }
+        }
+        if declared.is_empty() {
+            return self.config.protocol_detection_order.clone();
+        }
+
+        let mut candidates = self
+            .config
+            .protocol_detection_order
+            .iter()
+            .filter(|protocol| declared.contains(protocol))
+            .cloned()
+            .collect::<Vec<_>>();
+        for protocol in declared {
+            if !candidates.contains(&protocol) {
+                candidates.push(protocol);
+            }
+        }
+        if matches!(self.config.mode, ProbeMode::Relaxed) {
+            for protocol in &self.config.protocol_detection_order {
+                if !candidates.contains(protocol) {
+                    candidates.push(protocol.clone());
+                }
+            }
+        }
+        candidates
+    }
+
+    async fn detect_protocol(
+        &self,
+        record: &ProxyRecord,
+        protocols: &[ProxyProtocol],
+    ) -> Result<ProtocolProbeResult> {
+        let mut last_error = None;
+        let mut last_result = None;
+        let mut authentication_result = None;
+        let mut relaxed_declared_result = None;
+        for protocol in protocols {
+            let declared = record
+                .declarations
+                .iter()
+                .any(|declaration| declaration.protocol.as_ref() == Some(protocol))
+                || (record.declarations.is_empty() && record.protocol.as_ref() == Some(protocol));
+            match self
+                .probe_protocol(&record.host, record.port, protocol)
+                .await
+            {
+                Ok(mut result) => {
+                    result.protocol = Some(protocol.clone());
+                    if result.endpoint_connection_failed {
+                        return Ok(result);
+                    }
+                    if result.usable || (result.endpoint_reachable && !result.capability_configured)
+                    {
+                        return Ok(result);
+                    }
+                    if declared
+                        && matches!(self.config.mode, ProbeMode::Relaxed)
+                        && result.endpoint_reachable
+                        && self.relaxed_fallback_is_usable(record, &result)
+                    {
+                        relaxed_declared_result.get_or_insert(result);
+                        continue;
+                    }
+                    if !declared
+                        && matches!(self.config.mode, ProbeMode::Relaxed)
+                        && result.endpoint_reachable
+                        && (result.http_forwarding == ProxyCapabilityStatus::Available
+                            || (result.https_tunnel == ProxyCapabilityStatus::Available
+                                && result.destination_tls == ProxyCapabilityStatus::Available))
+                    {
+                        return Ok(result);
+                    }
+                    if result.authentication_required {
+                        authentication_result = Some(result);
+                        continue;
+                    }
+                    result.protocol = Some(protocol.clone());
+                    if let Some(error) = result.error.take() {
+                        last_error = Some(error);
+                    }
+                    last_result = Some(result);
+                }
+                Err(error) => last_error = Some(error),
+            }
+        }
+        if let Some(result) = relaxed_declared_result {
+            return Ok(result);
+        }
+        if let Some(result) = authentication_result {
+            return Ok(result);
+        }
+        if let Some(mut result) = last_result {
+            result.error = result.error.or(last_error);
+            return Ok(result);
+        }
+        Err(last_error.unwrap_or_else(|| {
+            ProxyError::Protocol("protocol detection did not attempt any protocol".to_string())
+        }))
     }
 
     async fn probe_http(&self, host: &str, port: u16, tls: bool) -> Result<ProtocolProbeResult> {
-        let (tcp_latency, stream) = tcp_connect(host, port, self.config.timeout).await?;
-        let mut latency_ms = tcp_latency;
-
-        let mut stream: Box<dyn AsyncProbeStream> = if tls {
-            Box::new(wrap_tls(stream, host, self.config.timeout, true).await?)
-        } else {
-            Box::new(stream)
-        };
-
-        let http_probe = match &self.config.http_probe_url {
-            Some(url) => parse_http_probe_url(url, 80)?,
-            None => {
-                return Ok(ProtocolProbeResult {
-                    success: true,
-                    latency_ms,
-                    authentication_required: false,
-                    supports_https: None,
-                    protocol: None,
-                });
-            }
-        };
-
-        let connect_start = Instant::now();
-        let result = send_http_forward_probe(&mut *stream, &http_probe, self.config.timeout).await;
-
         let protocol = if tls {
             ProxyProtocol::Https
         } else {
             ProxyProtocol::Http
         };
-        let https_supported = self.check_https_support(host, port, &protocol).await;
-
-        match result {
-            Ok(()) => {
-                latency_ms += connect_start.elapsed().as_millis() as u64;
-                Ok(ProtocolProbeResult {
-                    success: true,
-                    latency_ms,
-                    authentication_required: false,
-                    supports_https: https_supported,
-                    protocol: None,
-                })
-            }
-            Err(ref error) if is_auth_required(error) => Ok(ProtocolProbeResult {
-                success: false,
-                latency_ms,
-                authentication_required: true,
-                supports_https: None,
-                protocol: None,
-            }),
-            Err(_) => Ok(ProtocolProbeResult {
-                success: false,
-                latency_ms,
-                authentication_required: false,
-                supports_https: None,
-                protocol: None,
-            }),
-        }
+        self.probe_capabilities(host, port, &protocol).await
     }
 
     async fn probe_socks5(&self, host: &str, port: u16) -> Result<ProtocolProbeResult> {
-        let (tcp_latency, mut stream) = tcp_connect(host, port, self.config.timeout).await?;
-
-        let probe = match &self.config.http_probe_url {
-            Some(url) => parse_probe_url(url, 80)?,
-            None => Destination::host_port("example.com", 80),
-        };
-
-        let connect_start = Instant::now();
-        let result = send_socks5_connect(&mut stream, &probe, self.config.timeout, None).await;
-
-        let latency_ms = tcp_latency + connect_start.elapsed().as_millis() as u64;
-
-        match result {
-            Ok(()) => {
-                let https_supported = self
-                    .check_https_support(host, port, &ProxyProtocol::Socks5)
-                    .await;
-                Ok(ProtocolProbeResult {
-                    success: true,
-                    latency_ms,
-                    authentication_required: false,
-                    supports_https: https_supported,
-                    protocol: None,
-                })
-            }
-            Err(ref error) if is_socks5_auth_required(error) => Ok(ProtocolProbeResult {
-                success: false,
-                latency_ms,
-                authentication_required: true,
-                supports_https: None,
-                protocol: None,
-            }),
-            Err(_) => Ok(ProtocolProbeResult {
-                success: false,
-                latency_ms,
-                authentication_required: false,
-                supports_https: None,
-                protocol: None,
-            }),
-        }
+        self.probe_capabilities(host, port, &ProxyProtocol::Socks5)
+            .await
     }
 
     async fn probe_socks4(
@@ -401,72 +632,360 @@ impl ProxyProbe {
         port: u16,
         protocol: &ProxyProtocol,
     ) -> Result<ProtocolProbeResult> {
-        let (tcp_latency, mut stream) = tcp_connect(host, port, self.config.timeout).await?;
-
-        let probe = match &self.config.http_probe_url {
-            Some(url) => parse_probe_url(url, 80)?,
-            None => Destination::host_port("example.com", 80),
-        };
-
-        let connect_start = Instant::now();
-        let result = send_socks4_connect(&mut stream, &probe, self.config.timeout, None).await;
-
-        let latency_ms = tcp_latency + connect_start.elapsed().as_millis() as u64;
-
-        match result {
-            Ok(()) => {
-                let https_supported = self.check_https_support(host, port, protocol).await;
-                Ok(ProtocolProbeResult {
-                    success: true,
-                    latency_ms,
-                    authentication_required: false,
-                    supports_https: https_supported,
-                    protocol: None,
-                })
-            }
-            Err(_) => Ok(ProtocolProbeResult {
-                success: false,
-                latency_ms,
-                authentication_required: false,
-                supports_https: None,
-                protocol: None,
-            }),
-        }
+        self.probe_capabilities(host, port, protocol).await
     }
 
-    async fn check_https_support(
+    async fn probe_capabilities(
         &self,
         host: &str,
         port: u16,
         protocol: &ProxyProtocol,
-    ) -> Option<bool> {
-        let https_url = self.config.https_probe_url.as_ref()?;
-        let probe = parse_probe_url(https_url, 443).ok()?;
+    ) -> Result<ProtocolProbeResult> {
+        let mut result = ProtocolProbeResult::default();
 
-        let Ok((_tcp_latency, stream)) = tcp_connect(host, port, self.config.timeout).await else {
-            return Some(false);
+        if let Some(url) = &self.config.http_probe_url {
+            result.capability_configured = true;
+            let attempt = match parse_http_probe_url(url, 80) {
+                Ok(destination) => {
+                    self.probe_capability(
+                        host,
+                        port,
+                        protocol,
+                        CapabilityProbeTarget::HttpForwarding(&destination),
+                    )
+                    .await
+                }
+                Err(error) => CapabilityProbeAttempt::failed(error),
+            };
+            result.record_attempt(
+                ProxyCapability::HttpForwarding,
+                attempt,
+                host,
+                port,
+                protocol,
+            );
+        }
+
+        if !result.endpoint_connection_failed {
+            if let Some(url) = &self.config.https_probe_url {
+                result.capability_configured = true;
+                let attempt = match parse_https_probe_url(url) {
+                    Ok(probe) => {
+                        self.probe_capability(
+                            host,
+                            port,
+                            protocol,
+                            CapabilityProbeTarget::Https(&probe),
+                        )
+                        .await
+                    }
+                    Err(error) => CapabilityProbeAttempt::failed(error),
+                };
+                result.record_attempt(ProxyCapability::HttpsTunnel, attempt, host, port, protocol);
+            }
+        }
+
+        if !result.capability_configured {
+            let attempt = self.probe_endpoint(host, port, protocol).await;
+            result.endpoint_reachable = attempt.endpoint_reachable;
+            result.latency_ms = attempt.latency_ms;
+            result.proxy_tls_certificate = attempt.proxy_tls_certificate;
+            result.error = attempt.error;
+        }
+
+        Ok(result)
+    }
+
+    async fn probe_endpoint(
+        &self,
+        host: &str,
+        port: u16,
+        protocol: &ProxyProtocol,
+    ) -> CapabilityProbeAttempt {
+        match time::timeout(
+            self.config.timeouts.attempt,
+            self.probe_endpoint_inner(host, port, protocol),
+        )
+        .await
+        {
+            Ok(attempt) => attempt,
+            Err(_) => CapabilityProbeAttempt::failed(ProxyError::Timeout("proxy probe attempt")),
+        }
+    }
+
+    async fn probe_endpoint_inner(
+        &self,
+        host: &str,
+        port: u16,
+        protocol: &ProxyProtocol,
+    ) -> CapabilityProbeAttempt {
+        let start = Instant::now();
+        let stream = match tcp_connect(host, port, self.config.timeouts.proxy_connect).await {
+            Ok((_, stream)) => stream,
+            Err(error) => return CapabilityProbeAttempt::endpoint_connection_failed(error),
         };
-        let mut stream: Box<dyn AsyncProbeStream> = match protocol {
-            ProxyProtocol::Https => match wrap_tls(stream, host, self.config.timeout, true).await {
-                Ok(stream) => Box::new(stream),
-                Err(_) => return Some(false),
+        if matches!(protocol, ProxyProtocol::Https) {
+            if let Err(error) =
+                wrap_tls(stream, host, self.config.timeouts.tls_handshake, true).await
+            {
+                return CapabilityProbeAttempt {
+                    endpoint_reachable: true,
+                    endpoint_connection_failed: false,
+                    latency_ms: Some(start.elapsed().as_millis() as u64),
+                    proxy_tls_certificate: ProxyCapabilityStatus::Unavailable,
+                    capability_status: ProxyCapabilityStatus::Unknown,
+                    destination_tls: ProxyCapabilityStatus::Unknown,
+                    usable: false,
+                    authentication_required: false,
+                    error: Some(error),
+                };
+            }
+        }
+        CapabilityProbeAttempt {
+            endpoint_reachable: true,
+            endpoint_connection_failed: false,
+            latency_ms: Some(start.elapsed().as_millis() as u64),
+            proxy_tls_certificate: if matches!(protocol, ProxyProtocol::Https) {
+                ProxyCapabilityStatus::Available
+            } else {
+                ProxyCapabilityStatus::Unknown
             },
-            _ => Box::new(stream),
+            capability_status: ProxyCapabilityStatus::Unknown,
+            destination_tls: ProxyCapabilityStatus::Unknown,
+            usable: false,
+            authentication_required: false,
+            error: None,
+        }
+    }
+
+    async fn probe_capability(
+        &self,
+        host: &str,
+        port: u16,
+        protocol: &ProxyProtocol,
+        target: CapabilityProbeTarget<'_>,
+    ) -> CapabilityProbeAttempt {
+        match time::timeout(
+            self.config.timeouts.attempt,
+            self.probe_capability_inner(host, port, protocol, target),
+        )
+        .await
+        {
+            Ok(attempt) => attempt,
+            Err(_) => CapabilityProbeAttempt::failed(ProxyError::Timeout("proxy probe attempt")),
+        }
+    }
+
+    async fn probe_capability_inner(
+        &self,
+        host: &str,
+        port: u16,
+        protocol: &ProxyProtocol,
+        target: CapabilityProbeTarget<'_>,
+    ) -> CapabilityProbeAttempt {
+        let start = Instant::now();
+        let stream = match tcp_connect(host, port, self.config.timeouts.proxy_connect).await {
+            Ok((_, stream)) => stream,
+            Err(error) => return CapabilityProbeAttempt::endpoint_connection_failed(error),
+        };
+        let mut proxy_tls_certificate = ProxyCapabilityStatus::Unknown;
+        let mut stream: Box<dyn AsyncProbeStream> = if matches!(protocol, ProxyProtocol::Https) {
+            match wrap_tls(stream, host, self.config.timeouts.tls_handshake, true).await {
+                Ok(stream) => {
+                    proxy_tls_certificate = ProxyCapabilityStatus::Available;
+                    Box::new(stream)
+                }
+                Err(error) => {
+                    return CapabilityProbeAttempt {
+                        endpoint_reachable: true,
+                        endpoint_connection_failed: false,
+                        latency_ms: Some(start.elapsed().as_millis() as u64),
+                        proxy_tls_certificate: ProxyCapabilityStatus::Unavailable,
+                        capability_status: ProxyCapabilityStatus::Unknown,
+                        destination_tls: ProxyCapabilityStatus::Unknown,
+                        usable: false,
+                        authentication_required: false,
+                        error: Some(error),
+                    };
+                }
+            }
+        } else {
+            Box::new(stream)
         };
 
-        let result = match protocol {
-            ProxyProtocol::Http | ProxyProtocol::Https => {
-                send_http_connect(&mut *stream, &probe, self.config.timeout, None).await
-            }
-            ProxyProtocol::Socks5 => {
-                send_socks5_connect(&mut *stream, &probe, self.config.timeout, None).await
-            }
-            ProxyProtocol::Socks4 | ProxyProtocol::Socks4a => {
-                send_socks4_connect(&mut *stream, &probe, self.config.timeout, None).await
-            }
-        };
+        let (capability_status, destination_tls, authentication_required, capability_result) =
+            match (protocol, target) {
+                (
+                    ProxyProtocol::Http | ProxyProtocol::Https,
+                    CapabilityProbeTarget::HttpForwarding(probe),
+                ) => {
+                    let result = send_http_forward_probe(
+                        &mut *stream,
+                        probe,
+                        self.config.timeouts.proxy_handshake,
+                    )
+                    .await;
+                    let authentication_required =
+                        result.as_ref().is_err_and(|error| is_auth_required(error));
+                    (
+                        capability_status(&result),
+                        ProxyCapabilityStatus::Unknown,
+                        authentication_required,
+                        result,
+                    )
+                }
+                (ProxyProtocol::Socks5, CapabilityProbeTarget::HttpForwarding(probe)) => {
+                    let result = connect_socks5_with_local_dns_fallback(
+                        &mut stream,
+                        host,
+                        port,
+                        &probe.destination,
+                        &self.config.timeouts,
+                        &self.dns_resolver,
+                    )
+                    .await;
+                    let authentication_required = result
+                        .as_ref()
+                        .is_err_and(|error| is_socks5_auth_required(error));
+                    (
+                        capability_status(&result),
+                        ProxyCapabilityStatus::Unknown,
+                        authentication_required,
+                        result,
+                    )
+                }
+                (
+                    ProxyProtocol::Socks4 | ProxyProtocol::Socks4a,
+                    CapabilityProbeTarget::HttpForwarding(probe),
+                ) => {
+                    let result = match prepare_socks4_destination(
+                        protocol,
+                        &probe.destination,
+                        self.config.timeouts.target_connect,
+                        &self.dns_resolver,
+                    )
+                    .await
+                    {
+                        Ok(destination) => {
+                            send_socks4_connect(
+                                &mut *stream,
+                                &destination,
+                                self.config.timeouts.proxy_handshake,
+                                None,
+                            )
+                            .await
+                        }
+                        Err(error) => Err(error),
+                    };
+                    (
+                        capability_status(&result),
+                        ProxyCapabilityStatus::Unknown,
+                        false,
+                        result,
+                    )
+                }
+                (protocol, CapabilityProbeTarget::Https(probe)) => {
+                    let tunnel_result = match protocol {
+                        ProxyProtocol::Http | ProxyProtocol::Https => {
+                            send_http_connect(
+                                &mut *stream,
+                                &probe.destination,
+                                self.config.timeouts.target_connect,
+                                None,
+                            )
+                            .await
+                        }
+                        ProxyProtocol::Socks5 => {
+                            connect_socks5_with_local_dns_fallback(
+                                &mut stream,
+                                host,
+                                port,
+                                &probe.destination,
+                                &self.config.timeouts,
+                                &self.dns_resolver,
+                            )
+                            .await
+                        }
+                        ProxyProtocol::Socks4 | ProxyProtocol::Socks4a => {
+                            match prepare_socks4_destination(
+                                protocol,
+                                &probe.destination,
+                                self.config.timeouts.target_connect,
+                                &self.dns_resolver,
+                            )
+                            .await
+                            {
+                                Ok(destination) => {
+                                    send_socks4_connect(
+                                        &mut *stream,
+                                        &destination,
+                                        self.config.timeouts.proxy_handshake,
+                                        None,
+                                    )
+                                    .await
+                                }
+                                Err(error) => Err(error),
+                            }
+                        }
+                    };
 
-        Some(result.is_ok())
+                    if let Err(error) = tunnel_result {
+                        let authentication_required =
+                            is_auth_required(&error) || is_socks5_auth_required(&error);
+                        (
+                            failed_capability_status(&error),
+                            ProxyCapabilityStatus::Unknown,
+                            authentication_required,
+                            Err(error),
+                        )
+                    } else {
+                        match wrap_tls(
+                            stream,
+                            &probe.server_name,
+                            self.config.timeouts.tls_handshake,
+                            true,
+                        )
+                        .await
+                        {
+                            Err(error) => {
+                                let destination_tls = failed_capability_status(&error);
+                                (
+                                    ProxyCapabilityStatus::Available,
+                                    destination_tls,
+                                    false,
+                                    Err(error),
+                                )
+                            }
+                            Ok(mut destination_stream) => {
+                                let result = send_https_probe_request(
+                                    &mut destination_stream,
+                                    probe,
+                                    self.config.timeouts.proxy_handshake,
+                                )
+                                .await;
+                                let destination_tls = capability_status(&result);
+                                (
+                                    ProxyCapabilityStatus::Available,
+                                    destination_tls,
+                                    false,
+                                    result,
+                                )
+                            }
+                        }
+                    }
+                }
+            };
+        CapabilityProbeAttempt {
+            endpoint_reachable: true,
+            endpoint_connection_failed: false,
+            latency_ms: Some(start.elapsed().as_millis() as u64),
+            proxy_tls_certificate,
+            capability_status,
+            destination_tls,
+            usable: capability_result.is_ok(),
+            authentication_required,
+            error: capability_result.err(),
+        }
     }
 }
 
@@ -481,6 +1000,109 @@ async fn tcp_connect(host: &str, port: u16, timeout: Duration) -> Result<(u64, T
         .map_err(|e| ProxyError::Io(e))?;
     let latency_ms = start.elapsed().as_millis() as u64;
     Ok((latency_ms, stream))
+}
+
+/// Connects through SOCKS5, retrying with local DNS only after a likely remote
+/// hostname-resolution failure.
+async fn connect_socks5_with_local_dns_fallback(
+    stream: &mut Box<dyn AsyncProbeStream>,
+    proxy_host: &str,
+    proxy_port: u16,
+    destination: &Destination,
+    timeouts: &ProbeTimeoutConfig,
+    dns_resolver: &ProxyDnsResolver,
+) -> Result<()> {
+    let first_result =
+        send_socks5_connect(&mut **stream, destination, timeouts.proxy_handshake, None).await;
+    let Err(error) = first_result else {
+        return Ok(());
+    };
+    if !is_socks5_remote_dns_failure(&error)
+        || !matches!(destination.address, DestinationAddress::Host(_))
+    {
+        return Err(error);
+    }
+
+    let local_destination =
+        resolve_destination_to_ip(destination, timeouts.target_connect, dns_resolver).await?;
+    let (_, fallback_stream) = tcp_connect(proxy_host, proxy_port, timeouts.proxy_connect).await?;
+    let mut fallback_stream: Box<dyn AsyncProbeStream> = Box::new(fallback_stream);
+    send_socks5_connect(
+        &mut *fallback_stream,
+        &local_destination,
+        timeouts.proxy_handshake,
+        None,
+    )
+    .await?;
+    *stream = fallback_stream;
+    Ok(())
+}
+
+/// Prepares the target according to the declared SOCKS4 protocol variant.
+async fn prepare_socks4_destination(
+    protocol: &ProxyProtocol,
+    destination: &Destination,
+    timeout: Duration,
+    dns_resolver: &ProxyDnsResolver,
+) -> Result<Destination> {
+    match protocol {
+        ProxyProtocol::Socks4 => {
+            resolve_destination_to_ipv4(destination, timeout, dns_resolver).await
+        }
+        ProxyProtocol::Socks4a => Ok(destination.clone()),
+        _ => Err(ProxyError::Config(
+            "SOCKS4 destination preparation requires SOCKS4 or SOCKS4a".to_string(),
+        )),
+    }
+}
+
+/// Resolves a hostname destination into the first available IP address.
+async fn resolve_destination_to_ip(
+    destination: &Destination,
+    timeout: Duration,
+    dns_resolver: &ProxyDnsResolver,
+) -> Result<Destination> {
+    let ip = match &destination.address {
+        DestinationAddress::Ip(ip) => *ip,
+        DestinationAddress::Host(host) => time::timeout(timeout, dns_resolver.resolve_ip(host))
+            .await
+            .map_err(|_| ProxyError::Timeout("local target dns resolution"))??,
+    };
+    Ok(Destination {
+        address: DestinationAddress::Ip(ip),
+        port: destination.port,
+        protocol: destination.protocol.clone(),
+    })
+}
+
+/// Resolves a hostname destination into the first available IPv4 address.
+async fn resolve_destination_to_ipv4(
+    destination: &Destination,
+    timeout: Duration,
+    dns_resolver: &ProxyDnsResolver,
+) -> Result<Destination> {
+    let ip = match &destination.address {
+        DestinationAddress::Ip(std::net::IpAddr::V4(ip)) => *ip,
+        DestinationAddress::Ip(std::net::IpAddr::V6(_)) => {
+            return Err(ProxyError::InvalidDestination(
+                "socks4 cannot encode ipv6 destinations".to_string(),
+            ));
+        }
+        DestinationAddress::Host(host) => {
+            match time::timeout(timeout, dns_resolver.resolve_ipv4(host))
+                .await
+                .map_err(|_| ProxyError::Timeout("local target ipv4 dns resolution"))??
+            {
+                std::net::IpAddr::V4(ip) => ip,
+                std::net::IpAddr::V6(_) => unreachable!("resolve_ipv4 returned an IPv6 address"),
+            }
+        }
+    };
+    Ok(Destination {
+        address: DestinationAddress::Ip(std::net::IpAddr::V4(ip)),
+        port: destination.port,
+        protocol: destination.protocol.clone(),
+    })
 }
 
 /// Sends an HTTP CONNECT handshake over an existing stream.
@@ -539,7 +1161,7 @@ where
             ));
         }
         pos += n;
-        if pos >= 4 && buffer[..pos].ends_with(b"\r\n\r\n") {
+        if buffer[..pos].windows(4).any(|window| window == b"\r\n\r\n") {
             break;
         }
     }
@@ -594,6 +1216,41 @@ where
     })
     .await
     .map_err(|_| ProxyError::Timeout("http forward probe"))?
+}
+
+/// Sends a lightweight HTTP request through an established TLS tunnel.
+///
+/// A syntactically valid response with status 200 through 499 proves that the
+/// proxy carried a complete HTTPS exchange. Redirects are accepted without
+/// being followed; server-side 5xx responses are rejected.
+async fn send_https_probe_request<S>(
+    stream: &mut S,
+    probe: &HttpsProbeTarget,
+    timeout: Duration,
+) -> Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin + ?Sized,
+{
+    let request = format!(
+        "HEAD {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
+        probe.request_target, probe.host_header
+    );
+
+    time::timeout(timeout, async {
+        stream.write_all(request.as_bytes()).await?;
+        stream.flush().await?;
+
+        let status = read_http_response_status(stream).await?;
+        if (200..500).contains(&status) {
+            Ok(())
+        } else {
+            Err(ProxyError::UpstreamRejected(format!(
+                "https probe returned status {status}"
+            )))
+        }
+    })
+    .await
+    .map_err(|_| ProxyError::Timeout("https request through proxy tunnel"))?
 }
 
 /// Performs a SOCKS5 CONNECT handshake over an existing stream.
@@ -665,7 +1322,7 @@ where
     .map_err(|_| ProxyError::Timeout("socks5 connect handshake"))?
 }
 
-/// Performs a SOCKS4/4a CONNECT handshake over an existing stream.
+/// Performs a SOCKS4 or SOCKS4a CONNECT handshake over an existing stream.
 async fn send_socks4_connect<S>(
     stream: &mut S,
     destination: &Destination,
@@ -676,41 +1333,41 @@ where
     S: AsyncRead + AsyncWrite + Unpin + ?Sized,
 {
     time::timeout(timeout, async {
-        let (ip_bytes, _has_hostname): ([u8; 4], bool) = match &destination.address {
-            DestinationAddress::Ip(ip) => match ip {
-                std::net::IpAddr::V4(v4) => (v4.octets(), false),
-                std::net::IpAddr::V6(_) => {
-                    return Err(ProxyError::Config(
-                        "SOCKS4 does not support IPv6; use SOCKS5".to_string(),
-                    ));
-                }
-            },
-            DestinationAddress::Host(h) => {
-                match h.parse::<std::net::Ipv4Addr>() {
-                    Ok(v4) => (v4.octets(), false),
-                    Err(_) => {
-                        return Err(ProxyError::Config(
-                            "SOCKS4a hostname forwarding not supported in probe; use SOCKS5 for hostname proxies".to_string(),
-                        ));
-                    }
-                }
-            }
-        };
-
-        let port = destination.port;
         let mut request = Vec::with_capacity(9);
         request.push(0x04);
         request.push(0x01);
-        request.extend_from_slice(&port.to_be_bytes());
-        request.extend_from_slice(&ip_bytes);
-        request.push(0x00); // empty user-id
+        request.extend_from_slice(&destination.port.to_be_bytes());
+        match &destination.address {
+            DestinationAddress::Ip(IpAddr::V4(ip)) => {
+                request.extend_from_slice(&ip.octets());
+                request.push(0x00);
+            }
+            DestinationAddress::Ip(IpAddr::V6(_)) => {
+                return Err(ProxyError::InvalidDestination(
+                    "socks4 cannot encode ipv6 destinations".to_string(),
+                ));
+            }
+            DestinationAddress::Host(host) => {
+                if host.is_empty() || host.as_bytes().contains(&0) {
+                    return Err(ProxyError::InvalidDestination(
+                        "socks4a hostnames must be non-empty and contain no nul bytes".to_string(),
+                    ));
+                }
+                request.extend_from_slice(&[0, 0, 0, 1]);
+                request.push(0x00);
+                request.extend_from_slice(host.as_bytes());
+                request.push(0x00);
+            }
+        }
 
         stream.write_all(&request).await?;
 
         let mut reply = [0u8; 8];
         stream.read_exact(&mut reply).await?;
         if reply[0] != 0x00 {
-            return Err(ProxyError::Protocol("socks4: invalid reply null byte".to_string()));
+            return Err(ProxyError::Protocol(
+                "socks4: invalid reply null byte".to_string(),
+            ));
         }
         if reply[1] != 0x5A {
             return Err(ProxyError::UpstreamRejected(format!(
@@ -761,12 +1418,15 @@ fn encode_socks5_request(destination: &Destination) -> Result<Vec<u8>> {
 // ── TLS wrapping ──────────────────────────────────────────────────────
 
 /// Wraps a TCP stream in TLS using WebPKI roots.
-async fn wrap_tls(
-    stream: TcpStream,
+async fn wrap_tls<S>(
+    stream: S,
     host: &str,
     handshake_timeout: Duration,
     verify: bool,
-) -> Result<tokio_rustls::client::TlsStream<TcpStream>> {
+) -> Result<tokio_rustls::client::TlsStream<S>>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     let config = if verify {
         let mut roots = RootCertStore::empty();
         roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
@@ -845,6 +1505,14 @@ impl ServerCertVerifier for NoCertificateVerification {
 // ── URL parsing helper ──────────────────────────────────────────────
 
 struct HttpProbeTarget {
+    destination: Destination,
+    request_target: String,
+    host_header: String,
+}
+
+struct HttpsProbeTarget {
+    destination: Destination,
+    server_name: String,
     request_target: String,
     host_header: String,
 }
@@ -866,19 +1534,43 @@ fn parse_http_probe_url(url: &str, default_port: u16) -> Result<HttpProbeTarget>
     };
 
     Ok(HttpProbeTarget {
+        destination: Destination::host_port(host.to_string(), port),
         request_target: parsed.as_str().to_string(),
         host_header,
     })
 }
 
-/// Parses a probe URL into a `Destination`.
-fn parse_probe_url(url: &str, default_port: u16) -> Result<Destination> {
-    let parsed = parse_probe_url_value(url, default_port)?;
+fn parse_https_probe_url(url: &str) -> Result<HttpsProbeTarget> {
+    let parsed = parse_probe_url_value(url, 443)?;
+    if parsed.scheme() != "https" {
+        return Err(ProxyError::Config(format!(
+            "HTTPS probe URL '{url}' must use the https scheme"
+        )));
+    }
     let host = parsed
         .host_str()
         .ok_or_else(|| ProxyError::Config(format!("probe URL '{url}' has no host")))?;
-    let port = parsed.port_or_known_default().unwrap_or(default_port);
-    Ok(Destination::host_port(host.to_string(), port))
+    let port = parsed.port_or_known_default().unwrap_or(443);
+    let host_header = if port == 443 {
+        host.to_string()
+    } else {
+        format!("{host}:{port}")
+    };
+    let mut request_target = parsed.path().to_string();
+    if request_target.is_empty() {
+        request_target.push('/');
+    }
+    if let Some(query) = parsed.query() {
+        request_target.push('?');
+        request_target.push_str(query);
+    }
+
+    Ok(HttpsProbeTarget {
+        destination: Destination::host_port(host.to_string(), port),
+        server_name: host.to_string(),
+        request_target,
+        host_header,
+    })
 }
 
 fn parse_probe_url_value(url: &str, default_port: u16) -> Result<url::Url> {
@@ -918,17 +1610,158 @@ fn is_socks5_auth_required(error: &ProxyError) -> bool {
     }
 }
 
+/// Returns true when a SOCKS5 rejection likely represents remote DNS failure.
+fn is_socks5_remote_dns_failure(error: &ProxyError) -> bool {
+    let ProxyError::UpstreamRejected(message) = error else {
+        return false;
+    };
+    message.contains("code 0x01") || message.contains("code 0x04")
+}
+
+fn capability_status<T>(result: &Result<T>) -> ProxyCapabilityStatus {
+    match result {
+        Ok(_) => ProxyCapabilityStatus::Available,
+        Err(error) => failed_capability_status(error),
+    }
+}
+
+fn failed_capability_status(error: &ProxyError) -> ProxyCapabilityStatus {
+    match error {
+        ProxyError::Timeout(_)
+        | ProxyError::Io(_)
+        | ProxyError::Config(_)
+        | ProxyError::RouteUnavailable(_)
+        | ProxyError::Dns(_)
+        | ProxyError::Unsupported(_) => ProxyCapabilityStatus::Unknown,
+        ProxyError::Tls(_)
+        | ProxyError::Protocol(_)
+        | ProxyError::UpstreamRejected(_)
+        | ProxyError::InvalidDestination(_)
+        | ProxyError::AccessDenied(_) => ProxyCapabilityStatus::Unavailable,
+    }
+}
+
 // ── Internal types ─────────────────────────────────────────────────
 
 /// Trait alias for a boxed async read/write stream used during probing.
 trait AsyncProbeStream: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> AsyncProbeStream for T {}
 
-/// Intermediate probe result that gets applied to a `ProxyRecord`.
-struct ProtocolProbeResult {
-    success: bool,
-    latency_ms: u64,
+#[derive(Clone, Copy)]
+enum ProxyCapability {
+    HttpForwarding,
+    HttpsTunnel,
+}
+
+enum CapabilityProbeTarget<'a> {
+    HttpForwarding(&'a HttpProbeTarget),
+    Https(&'a HttpsProbeTarget),
+}
+
+struct CapabilityProbeAttempt {
+    endpoint_reachable: bool,
+    endpoint_connection_failed: bool,
+    latency_ms: Option<u64>,
+    proxy_tls_certificate: ProxyCapabilityStatus,
+    capability_status: ProxyCapabilityStatus,
+    destination_tls: ProxyCapabilityStatus,
+    usable: bool,
     authentication_required: bool,
-    supports_https: Option<bool>,
+    error: Option<ProxyError>,
+}
+
+impl CapabilityProbeAttempt {
+    fn failed(error: ProxyError) -> Self {
+        let capability_status = failed_capability_status(&error);
+        Self {
+            endpoint_reachable: false,
+            endpoint_connection_failed: false,
+            latency_ms: None,
+            proxy_tls_certificate: ProxyCapabilityStatus::Unknown,
+            capability_status,
+            destination_tls: ProxyCapabilityStatus::Unknown,
+            usable: false,
+            authentication_required: false,
+            error: Some(error),
+        }
+    }
+
+    fn endpoint_connection_failed(error: ProxyError) -> Self {
+        let mut attempt = Self::failed(error);
+        attempt.endpoint_connection_failed = true;
+        attempt
+    }
+}
+
+/// Intermediate probe result that gets applied to a `ProxyRecord`.
+#[derive(Default)]
+struct ProtocolProbeResult {
+    endpoint_reachable: bool,
+    endpoint_connection_failed: bool,
+    capability_configured: bool,
+    usable: bool,
+    latency_ms: Option<u64>,
+    authentication_required: bool,
+    http_forwarding: ProxyCapabilityStatus,
+    https_tunnel: ProxyCapabilityStatus,
+    destination_tls: ProxyCapabilityStatus,
+    proxy_tls_certificate: ProxyCapabilityStatus,
     protocol: Option<ProxyProtocol>,
+    error: Option<ProxyError>,
+}
+
+impl ProtocolProbeResult {
+    fn record_attempt(
+        &mut self,
+        capability: ProxyCapability,
+        attempt: CapabilityProbeAttempt,
+        host: &str,
+        port: u16,
+        protocol: &ProxyProtocol,
+    ) {
+        self.endpoint_reachable |= attempt.endpoint_reachable;
+        self.endpoint_connection_failed |= attempt.endpoint_connection_failed;
+        self.authentication_required |= attempt.authentication_required;
+        self.usable |= attempt.usable;
+        if let Some(latency_ms) = attempt.latency_ms {
+            self.latency_ms = Some(
+                self.latency_ms
+                    .map_or(latency_ms, |current| current.min(latency_ms)),
+            );
+        }
+        if !matches!(
+            attempt.proxy_tls_certificate,
+            ProxyCapabilityStatus::Unknown
+        ) {
+            self.proxy_tls_certificate = attempt.proxy_tls_certificate;
+        }
+        if !matches!(attempt.destination_tls, ProxyCapabilityStatus::Unknown) {
+            self.destination_tls = attempt.destination_tls;
+        }
+
+        match capability {
+            ProxyCapability::HttpForwarding => self.http_forwarding = attempt.capability_status,
+            ProxyCapability::HttpsTunnel => self.https_tunnel = attempt.capability_status,
+        }
+
+        if let Some(error) = attempt.error {
+            tracing::debug!(
+                proxy = %if host.contains(':') {
+                    format!("[{host}]:{port}")
+                } else {
+                    format!("{host}:{port}")
+                },
+                ?protocol,
+                capability = match capability {
+                    ProxyCapability::HttpForwarding => "http_forwarding",
+                    ProxyCapability::HttpsTunnel => "https_tunnel",
+                },
+                %error,
+                "dynamic proxy capability probe failed"
+            );
+            if self.error.is_none() {
+                self.error = Some(error);
+            }
+        }
+    }
 }

@@ -760,15 +760,62 @@ Retourne une liste d'objets MediaItem avec `key` et `media-type: video/live` :
 | `web-link` | URL publique du direct |
 | `release-date` | Début du programme en cours |
 | `expire` | Fin du programme en cours |
-| `channel` | Nom de la chaîne |
 
-Un lecteur peut demander un routage géographique pour une résolution
-`scraper-query` en déclarant `resolver > proxy > country` dans le YAML. Le
-frontend transmet cette valeur comme `proxy_country` à `get_stream`; la query
-`resolve_stream` de la source doit ensuite l'utiliser explicitement avec
-`http.proxy_country: "{proxy_country}"`. Les URLs proxy générées embarquent
-aussi `Arachnea-Proxy-Country` dans leurs `opts` afin que la récupération du
-manifeste passe par le pool de proxy dynamique du pays demandé.
+Un lecteur peut demander un routage géographique ordonné pour une résolution
+`scraper-query` en déclarant `resolver > proxy > countries` dans le YAML comme
+liste de codes ISO alpha-2, par exemple `countries: ["FR", "BE"]`. Les valeurs
+vides, invalides et dupliquées sont écartées ; les valeurs valides sont mises
+en majuscules en préservant leur ordre. Le frontend transmet le résultat comme
+`proxy_countries` à `get_stream`.
+
+La query `resolve_stream` de la source peut consommer la liste JSON structurée
+avec `http.proxy_countries: ["{proxy_countries}"]`. Les URLs proxy générées
+embarquent la liste JSON ordonnée dans leurs `opts` sous
+`Arachnea-Proxy-Countries`, afin que la récupération du manifeste tente les
+pools de proxy dynamiques de chaque pays dans l'ordre. Une liste absente ou vide
+ne demande aucun proxy géolocalisé et ne bascule pas vers un pays singulier.
+
+#### Migration du routage géographique pour les intégrations externes
+
+La liste plurielle est l'unique contrat de routage géographique accepté. Une
+requête pour un seul pays utilise elle aussi une liste JSON/YAML à un élément.
+
+| Ancien contrat (non accepté) | Contrat actuel |
+|---|---|
+| En-tête HTTP `Arachnea-Proxy-Country: FR` | `Arachnea-Proxy-Countries: ["FR"]` |
+| Paramètre proxy `country=FR` | `countries=["FR"]` |
+| YAML lecteur `resolver.proxy.country: FR` | `resolver.proxy.countries: ["FR"]` |
+| JSON `get_stream` `{ "proxy_country": "FR" }` | `{ "proxy_countries": ["FR"] }` |
+| Scrapyfy `http.proxy_country: "{proxy_country}"` | `http.proxy_countries: ["{proxy_countries}"]` |
+
+`Arachnea-Proxy-Country`, `country`, `resolver.proxy.country`,
+`proxy_country` et `proxyCountry` sont rejetés et ne doivent plus être émis par
+les intégrations.
+
+Le résolveur FranceTV conserve toute liste de pays non vide fournie par le
+lecteur et utilise `[FR]` uniquement lorsque cette liste est vide. Une résolution
+crée en outre une affinité proxy opaque commune aux appels K7, à la signature du
+manifeste, au jeton DRM, au chargement du manifeste via `/api/proxy` et à la
+licence Widevine différée. L'URL proxy encode aussi le rejet du statut `403` : le
+proxy sélectionné est alors rejeté pour la destination, l'affinité est déplacée
+vers un autre candidat admissible et la requête est réessayée une fois. Les URLs
+de clés HLS réécrites utilisent `{proxy_inherited}` afin de conserver ces options.
+
+Le résolveur TF1+ lit la liste de territoires autorisés dans `media.geoList`
+de la réponse `mediainfocombo`. Il normalise et déduplique ces codes, puis les
+utilise comme pays proxy pour relancer une négociation géobloquée avant
+d'évaluer `delivery.code`. La même liste est conservée pour le manifeste, le
+storyboard et la licence Widevine différée, sans retry local ni fallback direct.
+Les URLs `/api/proxy` du manifeste et du storyboard encodent le rejet du statut
+HTTP `403`, qui provoque un seul nouvel essai avec un autre candidat.
+
+Le résolveur TV5MONDE+ utilise la liste fournie par le lecteur pour
+l'authentification anonyme et l'appel entitlement initial. Il extrait ensuite
+les codes pays de la chaîne `materialProfile` retournée par l'entitlement
+`/play`, les normalise, les déduplique et conserve leur ordre. Cette liste
+devient le contexte proxy du manifeste, du storyboard et de la licence
+Widevine différée. Si le champ est absent ou ne contient aucun code alpha-2
+valide, la liste initiale du lecteur est conservée.
 
 Un lecteur peut en outre demander la réécriture des URLs absolues rencontrées
 dans les manifestes HLS proxifiés en déclarant

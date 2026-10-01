@@ -1,9 +1,6 @@
 //! Typed repository for the dynamic proxy inventory.
 
-use std::{
-    sync::Arc,
-    time::{Duration, SystemTime},
-};
+use std::{sync::Arc, time::SystemTime};
 
 use anyhow::{Context, Result};
 use arachnea_core::persistence::{
@@ -14,19 +11,16 @@ use async_trait::async_trait;
 use rusqlite::types::{Value as SqlValue, ValueRef};
 
 use crate::core::{
-    ProxyAvailabilityHint, ProxyDestinationFailure, ProxyKey, ProxyProtocol, ProxyRecord,
-    ProxyRuntimeStatus,
+    ProxyAvailabilityHint, ProxyCapabilityStatus, ProxyDeclaration, ProxyDestinationFailure,
+    ProxyKey, ProxyProtocol, ProxyRecord, ProxyRuntimeStatus, PROXY_CACHE_TTL,
 };
 
 /// Stable store name for dynamic proxy records.
 pub const PROXY_STORE_NAME: &str = "proxy-inventory";
-/// Default TTL for cached proxy records without probe freshness.
-pub const PROXY_CACHE_TTL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
-
 /// Repository used by [`crate::core::ProxyInventory`].
 #[async_trait]
 pub trait ProxyRepository: Send + Sync {
-    /// Returns the non-expired proxies indexed for `country`.
+    /// Returns the proxies indexed for `country`.
     async fn find_by_country(&self, country: &str) -> Result<Vec<ProxyRecord>>;
     /// Persists a batch of records atomically.
     async fn save_many(&self, records: &[ProxyRecord]) -> Result<()>;
@@ -113,15 +107,24 @@ impl PersistentEntity for ProxyRecord {
             .field(Field::string("protocol").nullable())
             .field(Field::string("country").nullable().indexed())
             .field(Field::boolean("supports_https").nullable())
+            .field(Field::json("declarations").nullable())
             .field(Field::string("status"))
+            .field(Field::string("http_forwarding").nullable())
+            .field(Field::string("https_tunnel").nullable())
+            .field(Field::string("destination_tls").nullable())
+            .field(Field::string("proxy_tls_certificate").nullable())
             .field(Field::integer("latency_ms").nullable())
             .field(Field::integer("failure_count"))
             .field(Field::boolean("authentication_required").nullable())
             .field(Field::string("availability"))
             .field(Field::json("destination_failures"))
             .field(Field::date_time("last_checked").nullable())
+            .field(Field::date_time("last_validated_at").nullable())
             .field(Field::date_time("cooldown_until").nullable())
-            .field(Field::date_time("expires_at").expiration().indexed())
+            // Kept for compatibility with existing stores. This field is no
+            // longer declared as an expiration and is therefore never purged
+            // automatically by the typed persistence layer.
+            .field(Field::date_time("expires_at").indexed())
     }
     fn write_to(&self, writer: &mut EntityWriter) -> Result<()> {
         writer.string("host", &self.host)?;
@@ -135,7 +138,21 @@ impl PersistentEntity for ProxyRecord {
         if let Some(supports_https) = self.supports_https {
             writer.boolean("supports_https", supports_https)?;
         }
+        writer.json("declarations", serde_json::to_value(&self.declarations)?)?;
         writer.string("status", status_name(&self.status))?;
+        writer.string(
+            "http_forwarding",
+            capability_status_name(self.http_forwarding),
+        )?;
+        writer.string("https_tunnel", capability_status_name(self.https_tunnel))?;
+        writer.string(
+            "destination_tls",
+            capability_status_name(self.destination_tls),
+        )?;
+        writer.string(
+            "proxy_tls_certificate",
+            capability_status_name(self.proxy_tls_certificate),
+        )?;
         if let Some(latency_ms) = self.latency_ms {
             writer.integer(
                 "latency_ms",
@@ -155,13 +172,17 @@ impl PersistentEntity for ProxyRecord {
         if let Some(last_checked) = self.last_checked {
             writer.date_time("last_checked", last_checked)?;
         }
+        if let Some(last_validated_at) = self.last_validated_at {
+            writer.date_time("last_validated_at", last_validated_at)?;
+        }
         if let Some(cooldown_until) = self.cooldown_until {
             writer.date_time("cooldown_until", cooldown_until)?;
         }
-        writer.date_time(
-            "expires_at",
-            proxy_cache_expires_at(self, SystemTime::now()),
-        )?;
+        let validation_reference = self
+            .last_validated_at
+            .or(self.last_checked)
+            .unwrap_or_else(SystemTime::now);
+        writer.date_time("expires_at", validation_reference + PROXY_CACHE_TTL)?;
         Ok(())
     }
     fn read_from(reader: &EntityReader<'_>) -> Result<Self> {
@@ -184,7 +205,27 @@ impl PersistentEntity for ProxyRecord {
             port,
             country: reader.optional_string("country")?.map(str::to_string),
             supports_https: reader.optional_boolean("supports_https")?,
+            declarations: reader
+                .optional_json("declarations")?
+                .map(|value| {
+                    serde_json::from_value::<Vec<ProxyDeclaration>>(value.clone())
+                        .context("failed to deserialize proxy declarations")
+                })
+                .transpose()?
+                .unwrap_or_default(),
             status: parse_status(reader.string("status")?)?,
+            http_forwarding: parse_optional_capability_status(
+                reader.optional_string("http_forwarding")?,
+            )?,
+            https_tunnel: parse_optional_capability_status(
+                reader.optional_string("https_tunnel")?,
+            )?,
+            destination_tls: parse_optional_capability_status(
+                reader.optional_string("destination_tls")?,
+            )?,
+            proxy_tls_certificate: parse_optional_capability_status(
+                reader.optional_string("proxy_tls_certificate")?,
+            )?,
             latency_ms,
             failure_count,
             authentication_required: reader.optional_boolean("authentication_required")?,
@@ -194,6 +235,7 @@ impl PersistentEntity for ProxyRecord {
             )
             .context("failed to deserialize proxy destination failures")?,
             last_checked: reader.optional_date_time("last_checked")?,
+            last_validated_at: reader.optional_date_time("last_validated_at")?,
             cooldown_until: reader.optional_date_time("cooldown_until")?,
         })
     }
@@ -213,6 +255,21 @@ fn parse_status(value: &str) -> Result<ProxyRuntimeStatus> {
         "ko" => Ok(ProxyRuntimeStatus::Ko),
         "authentication_required" => Ok(ProxyRuntimeStatus::AuthenticationRequired),
         _ => anyhow::bail!("unknown persisted proxy status '{value}'"),
+    }
+}
+fn capability_status_name(status: ProxyCapabilityStatus) -> &'static str {
+    match status {
+        ProxyCapabilityStatus::Unknown => "unknown",
+        ProxyCapabilityStatus::Available => "available",
+        ProxyCapabilityStatus::Unavailable => "unavailable",
+    }
+}
+fn parse_optional_capability_status(value: Option<&str>) -> Result<ProxyCapabilityStatus> {
+    match value {
+        None | Some("unknown") => Ok(ProxyCapabilityStatus::Unknown),
+        Some("available") => Ok(ProxyCapabilityStatus::Available),
+        Some("unavailable") => Ok(ProxyCapabilityStatus::Unavailable),
+        Some(value) => anyhow::bail!("unknown persisted proxy capability status '{value}'"),
     }
 }
 fn availability_name(availability: &ProxyAvailabilityHint) -> &'static str {
@@ -248,17 +305,6 @@ impl ProxyRecord {
         Field::string("country").nullable().indexed()
     }
 }
-fn proxy_cache_expires_at(record: &ProxyRecord, now: SystemTime) -> SystemTime {
-    let ttl_expiry = record
-        .last_checked
-        .map(|checked| checked + PROXY_CACHE_TTL)
-        .unwrap_or(now + PROXY_CACHE_TTL);
-    record
-        .cooldown_until
-        .map(|cooldown| cooldown.min(ttl_expiry))
-        .unwrap_or(ttl_expiry)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -266,6 +312,7 @@ mod tests {
     use std::{
         path::PathBuf,
         sync::atomic::{AtomicU64, Ordering},
+        time::{Duration, SystemTime},
     };
 
     fn temp_dir(label: &str) -> PathBuf {
@@ -292,7 +339,16 @@ mod tests {
             port,
             country: country.map(str::to_string),
             supports_https: Some(true),
+            declarations: vec![ProxyDeclaration {
+                source: "test-provider".to_string(),
+                protocol: Some(ProxyProtocol::Socks5),
+                supports_https: Some(true),
+            }],
             status: ProxyRuntimeStatus::Ok,
+            http_forwarding: ProxyCapabilityStatus::Available,
+            https_tunnel: ProxyCapabilityStatus::Available,
+            destination_tls: ProxyCapabilityStatus::Unknown,
+            proxy_tls_certificate: ProxyCapabilityStatus::Unknown,
             latency_ms: Some(42),
             failure_count: 0,
             authentication_required: Some(false),
@@ -307,6 +363,7 @@ mod tests {
                 cooldown_until: None,
             }],
             last_checked: Some(SystemTime::now()),
+            last_validated_at: Some(SystemTime::now()),
             cooldown_until: None,
         }
     }
@@ -350,8 +407,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn composite_sqlite_batch_is_atomic_and_expiration_is_filtered() -> Result<()> {
-        let root = temp_dir("atomic-expiration");
+    async fn composite_sqlite_batch_is_atomic_and_stale_records_remain_available() -> Result<()> {
+        let root = temp_dir("atomic-stale");
         let store = SqliteEntityStore::<ProxyRecord>::new(config(), &root)?;
         let kept = record("kept.example", 8080, Some("BE"));
         store.put(&kept).await?;
@@ -364,10 +421,11 @@ mod tests {
             .is_err());
         assert_eq!(store.get(&kept.key()).await?, Some(kept));
 
-        let mut expired = record("expired.example", 8083, Some("BE"));
-        expired.last_checked = Some(SystemTime::now() - PROXY_CACHE_TTL - Duration::from_secs(1));
-        store.put(&expired).await?;
-        assert!(store.get(&expired.key()).await?.is_none());
+        let mut stale = record("stale.example", 8083, Some("BE"));
+        stale.last_validated_at =
+            Some(SystemTime::now() - PROXY_CACHE_TTL - Duration::from_secs(1));
+        store.put(&stale).await?;
+        assert_eq!(store.get(&stale.key()).await?, Some(stale));
 
         let _ = std::fs::remove_dir_all(&root);
         Ok(())
