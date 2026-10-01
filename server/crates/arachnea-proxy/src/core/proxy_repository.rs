@@ -11,8 +11,8 @@ use async_trait::async_trait;
 use rusqlite::types::{Value as SqlValue, ValueRef};
 
 use crate::core::{
-    ProxyAvailabilityHint, ProxyDestinationFailure, ProxyKey, ProxyProtocol, ProxyRecord,
-    ProxyRuntimeStatus, PROXY_CACHE_TTL,
+    ProxyAvailabilityHint, ProxyCapabilityStatus, ProxyDeclaration, ProxyDestinationFailure,
+    ProxyKey, ProxyProtocol, ProxyRecord, ProxyRuntimeStatus, PROXY_CACHE_TTL,
 };
 
 /// Stable store name for dynamic proxy records.
@@ -107,7 +107,12 @@ impl PersistentEntity for ProxyRecord {
             .field(Field::string("protocol").nullable())
             .field(Field::string("country").nullable().indexed())
             .field(Field::boolean("supports_https").nullable())
+            .field(Field::json("declarations").nullable())
             .field(Field::string("status"))
+            .field(Field::string("http_forwarding").nullable())
+            .field(Field::string("https_tunnel").nullable())
+            .field(Field::string("destination_tls").nullable())
+            .field(Field::string("proxy_tls_certificate").nullable())
             .field(Field::integer("latency_ms").nullable())
             .field(Field::integer("failure_count"))
             .field(Field::boolean("authentication_required").nullable())
@@ -133,7 +138,21 @@ impl PersistentEntity for ProxyRecord {
         if let Some(supports_https) = self.supports_https {
             writer.boolean("supports_https", supports_https)?;
         }
+        writer.json("declarations", serde_json::to_value(&self.declarations)?)?;
         writer.string("status", status_name(&self.status))?;
+        writer.string(
+            "http_forwarding",
+            capability_status_name(self.http_forwarding),
+        )?;
+        writer.string("https_tunnel", capability_status_name(self.https_tunnel))?;
+        writer.string(
+            "destination_tls",
+            capability_status_name(self.destination_tls),
+        )?;
+        writer.string(
+            "proxy_tls_certificate",
+            capability_status_name(self.proxy_tls_certificate),
+        )?;
         if let Some(latency_ms) = self.latency_ms {
             writer.integer(
                 "latency_ms",
@@ -186,7 +205,27 @@ impl PersistentEntity for ProxyRecord {
             port,
             country: reader.optional_string("country")?.map(str::to_string),
             supports_https: reader.optional_boolean("supports_https")?,
+            declarations: reader
+                .optional_json("declarations")?
+                .map(|value| {
+                    serde_json::from_value::<Vec<ProxyDeclaration>>(value.clone())
+                        .context("failed to deserialize proxy declarations")
+                })
+                .transpose()?
+                .unwrap_or_default(),
             status: parse_status(reader.string("status")?)?,
+            http_forwarding: parse_optional_capability_status(
+                reader.optional_string("http_forwarding")?,
+            )?,
+            https_tunnel: parse_optional_capability_status(
+                reader.optional_string("https_tunnel")?,
+            )?,
+            destination_tls: parse_optional_capability_status(
+                reader.optional_string("destination_tls")?,
+            )?,
+            proxy_tls_certificate: parse_optional_capability_status(
+                reader.optional_string("proxy_tls_certificate")?,
+            )?,
             latency_ms,
             failure_count,
             authentication_required: reader.optional_boolean("authentication_required")?,
@@ -216,6 +255,21 @@ fn parse_status(value: &str) -> Result<ProxyRuntimeStatus> {
         "ko" => Ok(ProxyRuntimeStatus::Ko),
         "authentication_required" => Ok(ProxyRuntimeStatus::AuthenticationRequired),
         _ => anyhow::bail!("unknown persisted proxy status '{value}'"),
+    }
+}
+fn capability_status_name(status: ProxyCapabilityStatus) -> &'static str {
+    match status {
+        ProxyCapabilityStatus::Unknown => "unknown",
+        ProxyCapabilityStatus::Available => "available",
+        ProxyCapabilityStatus::Unavailable => "unavailable",
+    }
+}
+fn parse_optional_capability_status(value: Option<&str>) -> Result<ProxyCapabilityStatus> {
+    match value {
+        None | Some("unknown") => Ok(ProxyCapabilityStatus::Unknown),
+        Some("available") => Ok(ProxyCapabilityStatus::Available),
+        Some("unavailable") => Ok(ProxyCapabilityStatus::Unavailable),
+        Some(value) => anyhow::bail!("unknown persisted proxy capability status '{value}'"),
     }
 }
 fn availability_name(availability: &ProxyAvailabilityHint) -> &'static str {
@@ -285,7 +339,16 @@ mod tests {
             port,
             country: country.map(str::to_string),
             supports_https: Some(true),
+            declarations: vec![ProxyDeclaration {
+                source: "test-provider".to_string(),
+                protocol: Some(ProxyProtocol::Socks5),
+                supports_https: Some(true),
+            }],
             status: ProxyRuntimeStatus::Ok,
+            http_forwarding: ProxyCapabilityStatus::Available,
+            https_tunnel: ProxyCapabilityStatus::Available,
+            destination_tls: ProxyCapabilityStatus::Unknown,
+            proxy_tls_certificate: ProxyCapabilityStatus::Unknown,
             latency_ms: Some(42),
             failure_count: 0,
             authentication_required: Some(false),

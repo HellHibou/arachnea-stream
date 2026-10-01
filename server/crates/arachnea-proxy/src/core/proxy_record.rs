@@ -3,7 +3,7 @@ use std::time::{Duration, SystemTime};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::core::{ProxyNode, Result, TransportKind};
+use crate::core::{ProxyNameResolutionMode, ProxyNode, Result, TransportKind};
 
 /// Maximum age of a proxy validation before a subsequent failure removes it.
 ///
@@ -12,7 +12,7 @@ use crate::core::{ProxyNode, Result, TransportKind};
 pub const PROXY_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// Proxy protocol variant advertised or detected for a record.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub enum ProxyProtocol {
     /// Cleartext HTTP forward proxy.
     Http,
@@ -38,6 +38,22 @@ pub const PROXY_PROTOCOL_PRIORITY: [ProxyProtocol; 5] = [
     ProxyProtocol::Http,
 ];
 
+/// One source-level declaration attached to a dynamic proxy endpoint.
+///
+/// Declarations preserve provider claims independently from the protocol and
+/// capabilities selected by runtime probing.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ProxyDeclaration {
+    /// Stable source identifier supplied by the data provider.
+    pub source: String,
+    /// Protocol advertised by this source, when present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<ProxyProtocol>,
+    /// HTTPS support hint advertised by this source, when present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supports_https: Option<bool>,
+}
+
 /// Runtime health status determined by the last probe.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -56,6 +72,19 @@ impl Default for ProxyRuntimeStatus {
     fn default() -> Self {
         Self::Unknown
     }
+}
+
+/// Runtime validation state of one proxy capability.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProxyCapabilityStatus {
+    /// The capability has not been tested or the result was inconclusive.
+    #[default]
+    Unknown,
+    /// The capability was validated successfully.
+    Available,
+    /// The capability was tested and failed.
+    Unavailable,
 }
 
 /// Optional availability hint advertised by the proxy source.
@@ -150,16 +179,32 @@ pub struct ProxyRecord {
     /// When present, this value is trusted and not re-verified.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub country: Option<String>,
-    /// Whether the proxy supports HTTPS tunnelling.
+    /// Whether the source advertises HTTPS support.
     ///
-    /// `Some(true)` means the source or a probe confirmed HTTPS support.
-    /// `Some(false)` means the proxy must not be selected for HTTPS
-    /// destinations. `None` means untested or unknown.
+    /// Runtime validation is stored separately in [`Self::https_tunnel`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supports_https: Option<bool>,
+    /// Source declarations merged for this endpoint.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub declarations: Vec<ProxyDeclaration>,
     /// Runtime health status determined by the last probe.
     #[serde(default)]
     pub status: ProxyRuntimeStatus,
+    /// Runtime ability to reach an HTTP destination through the proxy.
+    #[serde(default)]
+    pub http_forwarding: ProxyCapabilityStatus,
+    /// Runtime ability to open a tunnel to the configured HTTPS destination.
+    #[serde(default)]
+    pub https_tunnel: ProxyCapabilityStatus,
+    /// Runtime result of destination HTTPS validation through the tunnel.
+    ///
+    /// Availability requires a valid TLS handshake and certificate followed by
+    /// an accepted HTTP response from the configured probe URL.
+    #[serde(default)]
+    pub destination_tls: ProxyCapabilityStatus,
+    /// Runtime validity of the TLS certificate presented by an HTTPS proxy.
+    #[serde(default)]
+    pub proxy_tls_certificate: ProxyCapabilityStatus,
     /// Measured latency in milliseconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latency_ms: Option<u64>,
@@ -237,8 +282,22 @@ impl ProxyRecord {
     ///
     /// Proxy node when a protocol is available.
     pub fn try_to_node(&self) -> Option<ProxyNode> {
-        let kind = TransportKind::from_proxy_protocol(self.protocol.as_ref()?)?;
-        Some(self.to_node_with_kind(kind))
+        let protocol = self.protocol.as_ref()?;
+        let kind = TransportKind::from_proxy_protocol(protocol)?;
+        let mut node = self.to_node_with_kind(kind);
+        match protocol {
+            ProxyProtocol::Socks4 => {
+                node = node.with_dns_resolution(ProxyNameResolutionMode::Local);
+            }
+            ProxyProtocol::Socks4a => {
+                node = node.with_dns_resolution(ProxyNameResolutionMode::ProxyOnly);
+            }
+            ProxyProtocol::Socks5 => {
+                node = node.with_dns_resolution(ProxyNameResolutionMode::ProxyThenLocalFallback);
+            }
+            ProxyProtocol::Http | ProxyProtocol::Https => {}
+        }
+        Some(node)
     }
 
     /// Converts this record into a [`ProxyNode`] using an explicit transport

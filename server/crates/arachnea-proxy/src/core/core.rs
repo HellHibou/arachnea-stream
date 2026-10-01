@@ -1,11 +1,12 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::fmt;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, RwLock};
-use std::{fmt, io};
 
-use tokio::net::{lookup_host, TcpStream, UdpSocket};
+use tokio::net::{TcpStream, UdpSocket};
 use tokio::time;
 
+use crate::core::dns_resolver::ProxyDnsResolver;
 use crate::core::transport::{http, socks, tls};
 #[cfg(feature = "arachnea-dns")]
 use crate::core::ProxyProfile;
@@ -80,8 +81,7 @@ pub struct ArachneaProxyCore {
     proxy_pool_states: Arc<RwLock<BTreeMap<String, ProxyPoolRuntimeState>>>,
     proxy_inventory: Option<Arc<ProxyInventory>>,
     dynamic_proxy_selections: Option<Arc<RwLock<HashMap<Destination, ProxyPoolSelection>>>>,
-    #[cfg(feature = "arachnea-dns")]
-    dns_core: Option<Arc<arachnea_dns::core::ArachneaDnsCore>>,
+    dns_resolver: ProxyDnsResolver,
 }
 
 impl fmt::Debug for ArachneaProxyCore {
@@ -125,7 +125,10 @@ impl fmt::Debug for ArachneaProxyCore {
                 .unwrap_or_default(),
         );
         #[cfg(feature = "arachnea-dns")]
-        debug.field("arachnea_dns_enabled", &self.dns_core.is_some());
+        debug.field(
+            "arachnea_dns_enabled",
+            &self.dns_resolver.uses_arachnea_dns(),
+        );
         debug.finish()
     }
 }
@@ -212,6 +215,7 @@ impl ArachneaProxyCore {
                 proxy_pool_states: Arc::new(RwLock::new(BTreeMap::new())),
                 proxy_inventory: None,
                 dynamic_proxy_selections: None,
+                dns_resolver: ProxyDnsResolver::system(),
             })
         }
     }
@@ -255,6 +259,7 @@ impl ArachneaProxyCore {
                 proxy_pool_states: Arc::new(RwLock::new(BTreeMap::new())),
                 proxy_inventory: Some(Arc::new(inventory)),
                 dynamic_proxy_selections: None,
+                dns_resolver: ProxyDnsResolver::system(),
             })
         }
     }
@@ -308,6 +313,8 @@ impl ArachneaProxyCore {
         inventory: ProxyInventory,
     ) -> Result<Self> {
         let parameter_handlers = build_parameter_handlers(&config)?;
+        let dns_core = Arc::new(dns_core);
+        let inventory = inventory.with_arachnea_dns(Arc::clone(&dns_core));
         Ok(Self {
             config: Arc::new(config),
             stats: Arc::new(ProxyStats::default()),
@@ -317,7 +324,7 @@ impl ArachneaProxyCore {
             proxy_pool_states: Arc::new(RwLock::new(BTreeMap::new())),
             proxy_inventory: Some(Arc::new(inventory)),
             dynamic_proxy_selections: None,
-            dns_core: Some(Arc::new(dns_core)),
+            dns_resolver: ProxyDnsResolver::with_arachnea_dns(dns_core),
         })
     }
 
@@ -2282,7 +2289,7 @@ impl ArachneaProxyCore {
             DestinationAddress::Ip(ip) => Ok(SocketAddr::new(*ip, destination.port)),
             DestinationAddress::Host(host) => {
                 tracing::debug!(host = %host, port = %destination.port, "resolving destination address");
-                let ip = self.resolve_host_ip(host).await?;
+                let ip = self.dns_resolver.resolve_ip(host).await?;
                 Ok(SocketAddr::new(ip, destination.port))
             }
         }
@@ -2335,100 +2342,13 @@ impl ArachneaProxyCore {
                     "socks4 cannot encode ipv6 destinations".to_string(),
                 ));
             }
-            DestinationAddress::Host(host) => self.resolve_host_ipv4(host).await?,
+            DestinationAddress::Host(host) => self.dns_resolver.resolve_ipv4(host).await?,
         };
         Ok(Destination {
             address: DestinationAddress::Ip(ip),
             port: destination.port,
             protocol: destination.protocol.clone(),
         })
-    }
-
-    /// Resolves a hostname through the optional DNS core or the system resolver.
-    ///
-    /// # Parameters
-    ///
-    /// - `host`: Hostname or textual IP address to resolve.
-    ///
-    /// # Returns
-    ///
-    /// First resolved IP address.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when resolution fails or returns no addresses.
-    async fn resolve_host_ip(&self, host: &str) -> Result<IpAddr> {
-        if let Ok(ip) = host.parse::<IpAddr>() {
-            tracing::debug!(host = %host, ip = %ip, "destination is a literal ip address");
-            return Ok(ip);
-        }
-        tracing::debug!(host = %host, "resolving hostname via dns");
-
-        #[cfg(feature = "arachnea-dns")]
-        if let Some(dns_core) = &self.dns_core {
-            return dns_core
-                .resolve_ip(host)
-                .await
-                .map_err(|error| ProxyError::Dns(error.to_string()))?
-                .into_iter()
-                .next()
-                .ok_or_else(|| {
-                    ProxyError::Dns(format!("hostname '{host}' resolved to no address"))
-                });
-        }
-
-        lookup_host((host, 0))
-            .await
-            .map_err(dns_io_error)?
-            .next()
-            .map(|addr| addr.ip())
-            .ok_or_else(|| ProxyError::Dns(format!("hostname '{host}' resolved to no address")))
-    }
-
-    /// Resolves a hostname into an IPv4 address.
-    ///
-    /// # Parameters
-    ///
-    /// - `host`: Hostname or textual IP address to resolve.
-    ///
-    /// # Returns
-    ///
-    /// First resolved IPv4 address.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when resolution fails or returns no IPv4 address.
-    async fn resolve_host_ipv4(&self, host: &str) -> Result<IpAddr> {
-        if let Ok(ip) = host.parse::<IpAddr>() {
-            return match ip {
-                IpAddr::V4(_) => Ok(ip),
-                IpAddr::V6(_) => Err(ProxyError::Dns(format!(
-                    "hostname '{host}' resolved to no ipv4 address"
-                ))),
-            };
-        }
-
-        #[cfg(feature = "arachnea-dns")]
-        if let Some(dns_core) = &self.dns_core {
-            return dns_core
-                .resolve_ip(host)
-                .await
-                .map_err(|error| ProxyError::Dns(error.to_string()))?
-                .into_iter()
-                .find(|ip| ip.is_ipv4())
-                .ok_or_else(|| {
-                    ProxyError::Dns(format!("hostname '{host}' resolved to no ipv4 address"))
-                });
-        }
-
-        lookup_host((host, 0))
-            .await
-            .map_err(dns_io_error)?
-            .find(|addr| addr.ip().is_ipv4())
-            .map(|addr| addr.ip())
-            .ok_or_else(|| {
-                ProxyError::Dns(format!("hostname '{host}' resolved to no ipv4 address"))
-            })
     }
 
     /// Resolves a proxy handshake target when a node cannot receive hostnames.
@@ -2598,19 +2518,6 @@ fn is_dynamic_proxy_transport_failure(error: &ProxyError) -> bool {
         error,
         ProxyError::Timeout(_) | ProxyError::Io(_) | ProxyError::Tls(_)
     )
-}
-
-/// Maps system resolver failures into the proxy DNS error category.
-///
-/// # Parameters
-///
-/// - `error`: I/O error returned by the system resolver.
-///
-/// # Returns
-///
-/// Proxy DNS error with resolver context.
-fn dns_io_error(error: io::Error) -> ProxyError {
-    ProxyError::Dns(error.to_string())
 }
 
 /// Extracts the host portion from a `host:port` endpoint.

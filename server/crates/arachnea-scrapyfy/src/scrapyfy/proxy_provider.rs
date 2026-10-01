@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -7,10 +7,11 @@ use arachnea_core::controler::RequestControlerContext;
 use arachnea_core::persistence::TypedEntityStore;
 use arachnea_proxy::core::{
     ArachneaProxyCore, InventoryConfig, IpCountryResolver, IpCountryResolverConfig,
-    ParameterHandlerConfig, ParameterHandlerKind, ProbeConfig, ProxyAvailabilityHint, ProxyChain,
-    ProxyConfig, ProxyDataProvider, ProxyInventory, ProxyLoadRequest, ProxyProbe, ProxyProfile,
-    ProxyProtocol, ProxyRecord, ProxyRuntimeStatus, Result, RoutePolicy,
-    PROXY_HEADER_PARAMETER_COUNTRIES, PROXY_PARAMETER_COUNTRIES, PROXY_PROTOCOL_PRIORITY,
+    ParameterHandlerConfig, ParameterHandlerKind, ProbeConfig, ProxyAvailabilityHint,
+    ProxyCapabilityStatus, ProxyChain, ProxyConfig, ProxyDataProvider, ProxyDeclaration,
+    ProxyInventory, ProxyLoadRequest, ProxyProbe, ProxyProfile, ProxyProtocol, ProxyRecord,
+    ProxyRuntimeStatus, Result, RoutePolicy, PROXY_HEADER_PARAMETER_COUNTRIES,
+    PROXY_PARAMETER_COUNTRIES, PROXY_PROTOCOL_PRIORITY,
 };
 use tracing::{info, trace};
 
@@ -136,7 +137,7 @@ impl ScrapyfyProxyDataProvider {
                 None,
                 None,
                 None,
-                None,
+                Some("proxy_source"),
                 "load_proxies",
             )
             .await;
@@ -222,14 +223,8 @@ impl ScrapyfyProxyDataProvider {
             .filter(|r| r.country.as_deref() == Some(country))
             .collect();
 
-        let mut seen = HashSet::new();
-        let deduped: Vec<ProxyRecord> = filtered
-            .into_iter()
-            .filter(|r| seen.insert(r.authority()))
-            .collect();
-
-        info!("Loaded proxies for country {}: {}", country, deduped.len());
-        Ok(deduped)
+        info!("Loaded proxies for country {}: {}", country, filtered.len());
+        Ok(filtered)
     }
 }
 
@@ -251,6 +246,12 @@ fn entry_to_proxy_record(entry: &HashMap<String, ScraperDataNode>) -> Option<Pro
         });
 
     let supports_https = entry.get("supports_https").and_then(|n| n.value_as_bool());
+    let source = entry
+        .get("proxy_source")
+        .and_then(|node| node.value_as_string())
+        .unwrap_or("unknown")
+        .trim()
+        .to_string();
     let availability = entry
         .get("availability")
         .and_then(|node| node.value_as_string())
@@ -263,7 +264,7 @@ fn entry_to_proxy_record(entry: &HashMap<String, ScraperDataNode>) -> Option<Pro
         .unwrap_or(ProxyAvailabilityHint::Unknown);
 
     let record = ProxyRecord {
-        protocol,
+        protocol: protocol.clone(),
         host: host.to_string(),
         port,
         country: entry
@@ -271,7 +272,16 @@ fn entry_to_proxy_record(entry: &HashMap<String, ScraperDataNode>) -> Option<Pro
             .and_then(|n| n.value_as_string())
             .map(normalize_proxy_country),
         supports_https,
+        declarations: vec![ProxyDeclaration {
+            source,
+            protocol: protocol.clone(),
+            supports_https,
+        }],
         status: ProxyRuntimeStatus::Unknown,
+        http_forwarding: ProxyCapabilityStatus::Unknown,
+        https_tunnel: ProxyCapabilityStatus::Unknown,
+        destination_tls: ProxyCapabilityStatus::Unknown,
+        proxy_tls_certificate: ProxyCapabilityStatus::Unknown,
         latency_ms: entry.get("latency_ms").and_then(|n| n.value_as_u64()),
         failure_count: entry
             .get("failure_count")
@@ -372,7 +382,10 @@ pub fn default_scrapyfy_proxy_inventory(
     };
     let resolver = default_scrapyfy_ip_country_resolver(scraper_agregator);
     ProxyInventory::new(
-        InventoryConfig::default(),
+        InventoryConfig {
+            probe_batch_size: 32,
+            ..InventoryConfig::default()
+        },
         Some(Arc::new(ScrapyfyProxyDataProvider::new(scraper_agregator))),
         Some(Arc::new(ProxyProbe::new(probe_config))),
     )

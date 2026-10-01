@@ -53,6 +53,7 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 
 
 ## Server/Proxy
+- Surveiller les compteurs `protocol_conflict_count` et `undeclared_protocol_count` des refreshs dynamiques afin d'identifier les fournisseurs aux déclarations incohérentes et d'ajuster, si nécessaire, l'ordre de détection des protocoles.
 - Réduire encore la latence du chargement dynamique après la déduplication fournisseur/cache et le sondage limité aux entrées nouvelles ou expirées : sonder par lots progressifs avec arrêt du chemin bloquant au premier candidat compatible, puis décider si le reste se poursuit en arrière-plan.
 - Évaluer la priorité de `FR` sur `AD` pour les listes M6 et rendre la concurrence de sondage configurable depuis la configuration applicative. La passe cache-first multi-pays, le cooldown partagé des consultations fournisseur et la préférence par destination pour le dernier proxy validé sont maintenant implémentés dans l'inventaire.
 - Surveiller la croissance de la base SQLite `proxy-inventory` ; les proxys dont la dernière validation dépasse 24 heures ne sont supprimés qu'après un échec observé, donc un très grand nombre de proxys jamais réutilisés justifiera un suivi de volume et, au besoin, une politique de nettoyage ou un vacuum planifié.

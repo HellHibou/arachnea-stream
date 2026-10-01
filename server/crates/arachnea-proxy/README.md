@@ -122,6 +122,80 @@ curl -x http://127.0.0.1:8080 https://example.com
 curl --socks5-hostname 127.0.0.1:1080 https://example.com
 ```
 
+## Dynamic Proxy Capabilities
+
+Dynamic proxy records separate endpoint health from runtime capabilities. The
+global `ProxyRuntimeStatus::Ok` means that the endpoint and declared/detected
+proxy protocol are reachable and at least one configured application capability
+worked, or that no application capability was configured.
+
+`ProxyRecord` stores independent tri-state runtime results through
+`ProxyCapabilityStatus::{Unknown, Available, Unavailable}`:
+
+- `http_forwarding`: reaching the configured HTTP probe destination;
+- `https_tunnel`: opening a proxy tunnel to the configured HTTPS probe
+  destination;
+- `destination_tls`: completing destination HTTPS validation through that
+  tunnel, including the TLS handshake, certificate validation and accepted HTTP
+  response;
+- `proxy_tls_certificate`: validating the certificate presented by an HTTPS
+  proxy endpoint.
+
+The HTTPS probe continues through the established tunnel, sends a lightweight
+`HEAD` request to the configured URL, and accepts syntactically valid HTTP
+responses with status 200 through 499. Redirects prove end-to-end HTTPS
+transport without being followed; 5xx responses, invalid responses, TLS errors
+and timeouts do not validate the destination. Selection always rejects an
+explicitly unavailable tunnel or destination
+validation result. `ProbeMode::Strict` requires runtime `Available` results for
+HTTP forwarding and, for HTTPS destinations, both the tunnel and complete
+destination TLS validation. `ProbeMode::Relaxed` may use a declared protocol
+and the provider's positive `supports_https` hint when the corresponding
+runtime result is absent or inconclusive. SOCKS declarations are sufficient as
+the relaxed HTTPS hint because those protocols carry arbitrary TCP tunnels.
+
+`supports_https` remains provider metadata and is not overwritten by runtime
+probing. Selection uses the matching runtime capability when known and keeps the
+provider/protocol fallback only in relaxed mode and only for records whose
+capability is still `Unknown`, including records loaded from an older persistent
+store. Provider hints are never copied into runtime capability fields, so an
+inferred relaxed decision remains distinguishable from successful validation.
+
+Provider rows reach inventory preparation without endpoint-level deduplication,
+then merge into one runtime record per `host:port`. `ProxyRecord::declarations`
+preserves each distinct source identifier, advertised protocol and HTTPS hint so
+conflicting provider claims remain diagnosable. The persistent identity continues
+to use only the endpoint; provenance is stored as record metadata.
+
+When an endpoint has several declared protocols, probes try every distinct
+declaration in configured priority order until one is validated. Strict mode does
+not invent an undeclared transport. Relaxed mode may retain an inconclusive
+declared-protocol fallback, and only when no declared variant is usable may it
+probe undeclared protocols as a correction path. An undeclared protocol is
+selected only after a concrete runtime capability succeeds.
+
+Probe time limits are configured through `ProbeConfig::timeouts` and the public
+`ProbeTimeoutConfig`. Its intentionally low defaults are 3 seconds to connect to
+the proxy, 5 seconds for proxy protocol exchanges and probe requests, 5 seconds
+for local target resolution or tunnel setup, 5 seconds for TLS handshakes, and a
+10-second overall limit for each capability probe or destination validation
+attempt. Protocol detection applies that overall limit independently to each
+protocol candidate so a failed candidate does not consume the budget of the
+following candidates. A TCP connection failure for the endpoint itself stops the
+remaining capability and protocol variants because they all share the same
+`host:port`; protocol-specific failures on a reachable endpoint still allow the
+remaining declared variants to run.
+
+SOCKS probes preserve their DNS semantics. SOCKS4 resolves hostnames locally to
+IPv4, while SOCKS4a sends hostnames to the proxy without an implicit local-DNS
+fallback. SOCKS5 first sends the hostname to the proxy and retries through a new
+connection with a locally resolved address only when the proxy reply indicates a
+likely remote-DNS failure. Dynamic proxy nodes retain these same resolution
+modes at runtime. Runtime and probe local resolution share the same resolver:
+when the `arachnea-dns` feature is compiled and an `ArachneaDnsCore` is
+configured, both use that core; otherwise both fall back to
+`tokio::net::lookup_host` and the system resolver.
+
 ## Useful Paths
 
 - `src/core/`: routing, proxy chains, destinations, policies, transports, proxy pools, and errors.

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
@@ -8,8 +8,9 @@ use tokio::sync::{Mutex, RwLock};
 #[cfg(feature = "persistence")]
 use crate::core::ProxyRepository;
 use crate::core::{
-    Destination, IpCountryResolver, ProxyDataProvider, ProxyError, ProxyProbe, ProxyProtocol,
-    ProxyRecord, ProxyRuntimeStatus, Result, PROXY_CACHE_TTL,
+    Destination, IpCountryResolver, ProbeMode, ProxyCapabilityStatus, ProxyDataProvider,
+    ProxyDeclaration, ProxyError, ProxyProbe, ProxyProtocol, ProxyRecord, ProxyRuntimeStatus,
+    Result, PROXY_CACHE_TTL, PROXY_PROTOCOL_PRIORITY,
 };
 
 const PROXY_AFFINITY_TTL: Duration = Duration::from_secs(15 * 60);
@@ -102,6 +103,12 @@ pub struct ProxyInventory {
 }
 
 impl ProxyInventory {
+    fn probe_mode(&self) -> ProbeMode {
+        self.probe
+            .as_ref()
+            .map_or(ProbeMode::Relaxed, |probe| probe.config().mode)
+    }
+
     /// Creates a new proxy inventory.
     ///
     /// # Parameters
@@ -161,6 +168,23 @@ impl ProxyInventory {
     /// Self for chaining.
     pub fn with_ip_country_resolver(mut self, resolver: Arc<IpCountryResolver>) -> Self {
         self.ip_country_resolver = Some(resolver);
+        self
+    }
+
+    /// Shares an Arachnea DNS core with the configured proxy probe.
+    #[cfg(feature = "arachnea-dns")]
+    pub(crate) fn with_arachnea_dns(
+        mut self,
+        dns_core: Arc<arachnea_dns::core::ArachneaDnsCore>,
+    ) -> Self {
+        self.probe = self.probe.map(|probe| {
+            Arc::new(
+                probe
+                    .as_ref()
+                    .clone()
+                    .with_arachnea_dns(Arc::clone(&dns_core)),
+            )
+        });
         self
     }
 
@@ -279,6 +303,10 @@ impl ProxyInventory {
                 if should_preserve_runtime_exclusion(existing) || !has_fresh_runtime_update(&record)
                 {
                     merged.status = existing.status.clone();
+                    merged.http_forwarding = existing.http_forwarding;
+                    merged.https_tunnel = existing.https_tunnel;
+                    merged.destination_tls = existing.destination_tls;
+                    merged.proxy_tls_certificate = existing.proxy_tls_certificate;
                     merged.latency_ms = existing.latency_ms;
                     merged.failure_count = existing.failure_count;
                     merged.authentication_required = existing.authentication_required;
@@ -649,6 +677,7 @@ impl ProxyInventory {
                     require_https,
                     destination,
                     system_now,
+                    self.probe_mode(),
                 )
         });
         if let Some(record) = record {
@@ -766,6 +795,7 @@ impl ProxyInventory {
             destination,
             now,
             self.config.probe_ttl,
+            self.probe_mode(),
         );
         tracing::debug!(
             country = %country,
@@ -780,13 +810,31 @@ impl ProxyInventory {
             probe_expired = stats.probe_expired,
             destination_cooldown = stats.destination_cooldown,
             https_rejected = stats.https_rejected,
+            http_forward_available = stats.http_forward_available,
+            http_forward_unavailable = stats.http_forward_unavailable,
+            http_forward_unknown = stats.http_forward_unknown,
+            https_tunnel_available = stats.https_tunnel_available,
+            https_tunnel_unavailable = stats.https_tunnel_unavailable,
+            https_tunnel_unknown = stats.https_tunnel_unknown,
+            destination_tls_available = stats.destination_tls_available,
+            destination_tls_unavailable = stats.destination_tls_unavailable,
+            destination_tls_unknown = stats.destination_tls_unknown,
             eligible = stats.eligible,
             "proxy inventory selection candidates"
         );
 
         let mut candidates: Vec<&ProxyRecord> = records
             .into_iter()
-            .filter(|r| is_eligible(r, country, require_https, destination, now))
+            .filter(|r| {
+                is_eligible(
+                    r,
+                    country,
+                    require_https,
+                    destination,
+                    now,
+                    self.probe_mode(),
+                )
+            })
             .collect();
 
         if candidates.is_empty() {
@@ -818,7 +866,11 @@ impl ProxyInventory {
             require_https,
             selected = %selected.authority(),
             protocol = ?selected.protocol,
-            supports_https = ?selected.supports_https,
+            supports_https_hint = ?selected.supports_https,
+            http_forwarding = ?selected.http_forwarding,
+            https_tunnel = ?selected.https_tunnel,
+            destination_tls = ?selected.destination_tls,
+            proxy_tls_certificate = ?selected.proxy_tls_certificate,
             latency_ms = ?selected.latency_ms,
             destination_preferred = preferred_authority
                 .is_some_and(|authority| authority == &selected.authority()),
@@ -898,12 +950,13 @@ impl ProxyInventory {
                         self.config.probe_ttl,
                     );
                 let probe_count = probe_indices.len();
+                let mut probe_batch_report = Default::default();
                 if let Some(probe) = &self.probe {
                     let mut records_to_probe = probe_indices
                         .iter()
                         .map(|index| records[*index].clone())
                         .collect::<Vec<_>>();
-                    probe
+                    probe_batch_report = probe
                         .probe_batch(&mut records_to_probe, self.config.probe_batch_size)
                         .await;
                     for (index, probed) in probe_indices.into_iter().zip(records_to_probe) {
@@ -917,12 +970,23 @@ impl ProxyInventory {
                     None,
                     SystemTime::now(),
                     self.config.probe_ttl,
+                    self.probe_mode(),
                 );
+                let protocol_conflict_count = records
+                    .iter()
+                    .filter(|record| declared_protocol_count(record) > 1)
+                    .count();
+                let undeclared_protocol_count = records
+                    .iter()
+                    .filter(|record| runtime_protocol_is_undeclared(record))
+                    .count();
                 tracing::info!(
                     country = %country,
                     loaded_count,
                     deduplicated_count = records.len(),
                     duplicate_count,
+                    protocol_conflict_count,
+                    undeclared_protocol_count,
                     cached_count,
                     probe_count,
                     ok = probe_stats.ok,
@@ -930,6 +994,32 @@ impl ProxyInventory {
                     ko = probe_stats.ko,
                     auth_required = probe_stats.authentication_required,
                     auth_flag = probe_stats.authentication_required_flag,
+                    http_forward_available = probe_stats.http_forward_available,
+                    http_forward_unavailable = probe_stats.http_forward_unavailable,
+                    http_forward_unknown = probe_stats.http_forward_unknown,
+                    https_tunnel_available = probe_stats.https_tunnel_available,
+                    https_tunnel_unavailable = probe_stats.https_tunnel_unavailable,
+                    https_tunnel_unknown = probe_stats.https_tunnel_unknown,
+                    destination_tls_available = probe_stats.destination_tls_available,
+                    destination_tls_unavailable = probe_stats.destination_tls_unavailable,
+                    destination_tls_unknown = probe_stats.destination_tls_unknown,
+                    proxy_tls_valid = probe_stats.proxy_tls_valid,
+                    proxy_tls_invalid = probe_stats.proxy_tls_invalid,
+                    proxy_tls_unknown = probe_stats.proxy_tls_unknown,
+                    probe_failures = probe_batch_report.failures,
+                    probe_timeout = probe_batch_report.timeout,
+                    probe_connection_refused = probe_batch_report.connection_refused,
+                    probe_io = probe_batch_report.io,
+                    probe_tls = probe_batch_report.tls,
+                    probe_protocol = probe_batch_report.protocol,
+                    probe_upstream_rejected = probe_batch_report.upstream_rejected,
+                    probe_config = probe_batch_report.config,
+                    probe_route_unavailable = probe_batch_report.route_unavailable,
+                    probe_invalid_destination = probe_batch_report.invalid_destination,
+                    probe_access_denied = probe_batch_report.access_denied,
+                    probe_dns = probe_batch_report.dns,
+                    probe_unsupported = probe_batch_report.unsupported,
+                    probe_task_join = probe_batch_report.task_join,
                     "loaded dynamic proxies prepared and probed"
                 );
                 let records_to_persist = self.add_or_update(records).await;
@@ -948,6 +1038,15 @@ impl ProxyInventory {
                     ok = http_stats.ok,
                     eligible_http = http_stats.eligible,
                     eligible_https = https_stats.eligible,
+                    http_forward_available = http_stats.http_forward_available,
+                    http_forward_unavailable = http_stats.http_forward_unavailable,
+                    http_forward_unknown = http_stats.http_forward_unknown,
+                    https_tunnel_available = https_stats.https_tunnel_available,
+                    https_tunnel_unavailable = https_stats.https_tunnel_unavailable,
+                    https_tunnel_unknown = https_stats.https_tunnel_unknown,
+                    destination_tls_available = https_stats.destination_tls_available,
+                    destination_tls_unavailable = https_stats.destination_tls_unavailable,
+                    destination_tls_unknown = https_stats.destination_tls_unknown,
                     https_rejected = https_stats.https_rejected,
                     ko = http_stats.ko,
                     auth_required = http_stats.authentication_required,
@@ -1014,6 +1113,7 @@ impl ProxyInventory {
             None,
             now,
             self.config.probe_ttl,
+            self.probe_mode(),
         ))
     }
 
@@ -1370,7 +1470,16 @@ mod tests {
             port: 1080,
             country: Some("BE".to_string()),
             supports_https: Some(true),
+            declarations: vec![ProxyDeclaration {
+                source: "test-provider".to_string(),
+                protocol: Some(ProxyProtocol::Socks5),
+                supports_https: Some(true),
+            }],
             status,
+            http_forwarding: ProxyCapabilityStatus::Available,
+            https_tunnel: ProxyCapabilityStatus::Available,
+            destination_tls: ProxyCapabilityStatus::Unknown,
+            proxy_tls_certificate: ProxyCapabilityStatus::Unknown,
             latency_ms: Some(25),
             failure_count: 0,
             authentication_required: Some(false),
@@ -1428,10 +1537,17 @@ mod tests {
             (untested.authority(), untested),
             (expired.authority(), expired),
         ]);
+        let mut provider_fresh_http = provider_fresh.clone();
+        provider_fresh_http.protocol = Some(ProxyProtocol::Http);
+        provider_fresh_http.declarations = vec![ProxyDeclaration {
+            source: "secondary-provider".to_string(),
+            protocol: Some(ProxyProtocol::Http),
+            supports_https: None,
+        }];
         let (prepared, probe_indices, duplicate_count, cached_count) = prepare_provider_records(
             vec![
                 provider_fresh.clone(),
-                provider_fresh,
+                provider_fresh_http,
                 provider_untested,
                 provider_expired,
                 provider_new,
@@ -1442,7 +1558,14 @@ mod tests {
         );
 
         assert_eq!(prepared.len(), 4);
-        assert_eq!(prepared[0], fresh);
+        let mut expected_fresh = fresh;
+        expected_fresh.supports_https = None;
+        expected_fresh.declarations.push(ProxyDeclaration {
+            source: "secondary-provider".to_string(),
+            protocol: Some(ProxyProtocol::Http),
+            supports_https: None,
+        });
+        assert_eq!(prepared[0], expected_fresh);
         assert_eq!(probe_indices, vec![1, 2, 3]);
         assert_eq!(duplicate_count, 1);
         assert_eq!(cached_count, 1);
@@ -1545,6 +1668,7 @@ mod tests {
         let mut http_only = record(ProxyRuntimeStatus::Ok);
         http_only.protocol = Some(ProxyProtocol::Http);
         http_only.supports_https = Some(false);
+        http_only.https_tunnel = ProxyCapabilityStatus::Unavailable;
         let provider = Arc::new(CountingProvider {
             records: vec![http_only],
             calls: AtomicUsize::new(0),
@@ -1844,6 +1968,18 @@ struct SelectionStats {
     probe_expired: usize,
     destination_cooldown: usize,
     https_rejected: usize,
+    http_forward_available: usize,
+    http_forward_unavailable: usize,
+    http_forward_unknown: usize,
+    https_tunnel_available: usize,
+    https_tunnel_unavailable: usize,
+    https_tunnel_unknown: usize,
+    destination_tls_available: usize,
+    destination_tls_unavailable: usize,
+    destination_tls_unknown: usize,
+    proxy_tls_valid: usize,
+    proxy_tls_invalid: usize,
+    proxy_tls_unknown: usize,
     eligible: usize,
 }
 
@@ -1854,6 +1990,7 @@ fn selection_stats<'a>(
     destination: Option<&Destination>,
     now: SystemTime,
     probe_ttl: Duration,
+    probe_mode: ProbeMode,
 ) -> SelectionStats {
     let mut stats = SelectionStats::default();
 
@@ -1870,6 +2007,27 @@ fn selection_stats<'a>(
             stats.authentication_required_flag += 1;
         }
 
+        match record.http_forwarding {
+            ProxyCapabilityStatus::Available => stats.http_forward_available += 1,
+            ProxyCapabilityStatus::Unavailable => stats.http_forward_unavailable += 1,
+            ProxyCapabilityStatus::Unknown => stats.http_forward_unknown += 1,
+        }
+        match record.https_tunnel {
+            ProxyCapabilityStatus::Available => stats.https_tunnel_available += 1,
+            ProxyCapabilityStatus::Unavailable => stats.https_tunnel_unavailable += 1,
+            ProxyCapabilityStatus::Unknown => stats.https_tunnel_unknown += 1,
+        }
+        match record.destination_tls {
+            ProxyCapabilityStatus::Available => stats.destination_tls_available += 1,
+            ProxyCapabilityStatus::Unavailable => stats.destination_tls_unavailable += 1,
+            ProxyCapabilityStatus::Unknown => stats.destination_tls_unknown += 1,
+        }
+        match record.proxy_tls_certificate {
+            ProxyCapabilityStatus::Available => stats.proxy_tls_valid += 1,
+            ProxyCapabilityStatus::Unavailable => stats.proxy_tls_invalid += 1,
+            ProxyCapabilityStatus::Unknown => stats.proxy_tls_unknown += 1,
+        }
+
         if record.cooldown_until.is_some_and(|cooldown| cooldown > now) {
             stats.cooldown += 1;
         }
@@ -1884,11 +2042,11 @@ fn selection_stats<'a>(
             stats.destination_cooldown += 1;
         }
 
-        if require_https && !can_reach_https_destination(record) {
+        if require_https && !can_reach_https_destination(record, probe_mode) {
             stats.https_rejected += 1;
         }
 
-        if is_eligible(record, country, require_https, destination, now) {
+        if is_eligible(record, country, require_https, destination, now, probe_mode) {
             stats.eligible += 1;
         }
     }
@@ -1902,6 +2060,7 @@ fn is_eligible(
     require_https: bool,
     destination: Option<&Destination>,
     now: SystemTime,
+    probe_mode: ProbeMode,
 ) -> bool {
     if record.country.as_deref() != Some(country) {
         return false;
@@ -1927,7 +2086,11 @@ fn is_eligible(
         return false;
     }
 
-    if require_https && !can_reach_https_destination(record) {
+    if require_https {
+        if !can_reach_https_destination(record, probe_mode) {
+            return false;
+        }
+    } else if !can_reach_http_destination(record, probe_mode) {
         return false;
     }
 
@@ -1975,19 +2138,27 @@ fn prepare_provider_records(
     now: SystemTime,
     probe_ttl: Duration,
 ) -> (Vec<ProxyRecord>, Vec<usize>, usize, usize) {
-    let mut seen = HashSet::new();
-    let mut prepared = Vec::with_capacity(records.len());
-    let mut probe_indices = Vec::new();
-    let mut duplicate_count = 0;
-    let mut cached_count = 0;
-
+    let loaded_count = records.len();
+    let mut grouped = Vec::with_capacity(loaded_count);
+    let mut grouped_indices = HashMap::new();
     for mut record in records {
         let authority = record.authority();
-        if !seen.insert(authority.clone()) {
-            duplicate_count += 1;
-            continue;
+        if let Some(index) = grouped_indices.get(&authority).copied() {
+            merge_provider_declaration(&mut grouped[index], record);
+        } else {
+            record.declarations = declarations_from_record(&record);
+            grouped_indices.insert(authority, grouped.len());
+            grouped.push(record);
         }
+    }
 
+    let mut prepared = Vec::with_capacity(grouped.len());
+    let mut probe_indices = Vec::new();
+    let duplicate_count = loaded_count.saturating_sub(grouped.len());
+    let mut cached_count = 0;
+
+    for mut record in grouped {
+        let authority = record.authority();
         if let Some(cached) = existing.get(&authority) {
             if !probe_is_expired(cached, now, probe_ttl) {
                 retain_cached_runtime(&mut record, cached);
@@ -2006,8 +2177,11 @@ fn prepare_provider_records(
 
 fn retain_cached_runtime(record: &mut ProxyRecord, cached: &ProxyRecord) {
     record.protocol = cached.protocol.clone();
-    record.supports_https = cached.supports_https;
     record.status = cached.status.clone();
+    record.http_forwarding = cached.http_forwarding;
+    record.https_tunnel = cached.https_tunnel;
+    record.destination_tls = cached.destination_tls;
+    record.proxy_tls_certificate = cached.proxy_tls_certificate;
     record.latency_ms = cached.latency_ms;
     record.failure_count = cached.failure_count;
     record.authentication_required = cached.authentication_required;
@@ -2015,6 +2189,87 @@ fn retain_cached_runtime(record: &mut ProxyRecord, cached: &ProxyRecord) {
     record.last_checked = cached.last_checked;
     record.last_validated_at = cached.last_validated_at;
     record.cooldown_until = cached.cooldown_until;
+}
+
+fn merge_provider_declaration(target: &mut ProxyRecord, incoming: ProxyRecord) {
+    for declaration in declarations_from_record(&incoming) {
+        if !target.declarations.contains(&declaration) {
+            target.declarations.push(declaration);
+        }
+    }
+
+    target.supports_https = merge_https_hint(target.supports_https, incoming.supports_https);
+    target.availability = preferred_availability(&target.availability, &incoming.availability);
+    if target.country.is_none() {
+        target.country = incoming.country;
+    }
+    target.protocol = preferred_declared_protocol(&target.declarations)
+        .or(target.protocol.take())
+        .or(incoming.protocol);
+}
+
+fn declarations_from_record(record: &ProxyRecord) -> Vec<ProxyDeclaration> {
+    if record.declarations.is_empty() {
+        vec![ProxyDeclaration {
+            source: "legacy".to_string(),
+            protocol: record.protocol.clone(),
+            supports_https: record.supports_https,
+        }]
+    } else {
+        record.declarations.clone()
+    }
+}
+
+fn preferred_declared_protocol(declarations: &[ProxyDeclaration]) -> Option<ProxyProtocol> {
+    PROXY_PROTOCOL_PRIORITY.iter().find_map(|preferred| {
+        declarations
+            .iter()
+            .any(|declaration| declaration.protocol.as_ref() == Some(preferred))
+            .then(|| preferred.clone())
+    })
+}
+
+fn declared_protocol_count(record: &ProxyRecord) -> usize {
+    let mut protocols = record
+        .declarations
+        .iter()
+        .filter_map(|declaration| declaration.protocol.as_ref())
+        .collect::<Vec<_>>();
+    protocols.sort_by_key(|protocol| protocol.to_string());
+    protocols.dedup();
+    protocols.len()
+}
+
+fn runtime_protocol_is_undeclared(record: &ProxyRecord) -> bool {
+    let Some(protocol) = &record.protocol else {
+        return false;
+    };
+    !record.declarations.is_empty()
+        && !record
+            .declarations
+            .iter()
+            .any(|declaration| declaration.protocol.as_ref() == Some(protocol))
+}
+
+fn merge_https_hint(left: Option<bool>, right: Option<bool>) -> Option<bool> {
+    match (left, right) {
+        (Some(true), _) | (_, Some(true)) => Some(true),
+        (Some(false), _) | (_, Some(false)) => Some(false),
+        (None, None) => None,
+    }
+}
+
+fn preferred_availability(
+    left: &crate::core::ProxyAvailabilityHint,
+    right: &crate::core::ProxyAvailabilityHint,
+) -> crate::core::ProxyAvailabilityHint {
+    use crate::core::ProxyAvailabilityHint::{High, Low, Medium, Unknown};
+    match (left, right) {
+        (High, _) | (_, High) => High,
+        (Medium, _) | (_, Medium) => Medium,
+        (Low, _) | (_, Low) => Low,
+        (Unknown, Unknown) => Unknown,
+    }
 }
 
 fn proxy_validation_is_stale(record: &ProxyRecord, now: SystemTime) -> bool {
@@ -2044,15 +2299,41 @@ fn has_active_destination_cooldown(
     })
 }
 
-fn can_reach_https_destination(record: &ProxyRecord) -> bool {
-    if matches!(
-        record.protocol,
-        Some(ProxyProtocol::Socks4 | ProxyProtocol::Socks4a | ProxyProtocol::Socks5)
-    ) {
-        return true;
+fn can_reach_https_destination(record: &ProxyRecord, probe_mode: ProbeMode) -> bool {
+    if matches!(record.destination_tls, ProxyCapabilityStatus::Unavailable) {
+        return false;
     }
 
-    record.supports_https != Some(false)
+    match probe_mode {
+        ProbeMode::Strict => {
+            matches!(record.https_tunnel, ProxyCapabilityStatus::Available)
+                && matches!(record.destination_tls, ProxyCapabilityStatus::Available)
+        }
+        ProbeMode::Relaxed => match record.https_tunnel {
+            ProxyCapabilityStatus::Available => {
+                !matches!(record.destination_tls, ProxyCapabilityStatus::Unavailable)
+            }
+            ProxyCapabilityStatus::Unavailable => false,
+            ProxyCapabilityStatus::Unknown => match record.protocol {
+                Some(ProxyProtocol::Socks4 | ProxyProtocol::Socks4a | ProxyProtocol::Socks5) => {
+                    true
+                }
+                Some(ProxyProtocol::Http | ProxyProtocol::Https) => {
+                    record.supports_https == Some(true)
+                }
+                None => false,
+            },
+        },
+    }
+}
+
+fn can_reach_http_destination(record: &ProxyRecord, probe_mode: ProbeMode) -> bool {
+    match (probe_mode, record.http_forwarding) {
+        (_, ProxyCapabilityStatus::Available) => true,
+        (_, ProxyCapabilityStatus::Unavailable)
+        | (ProbeMode::Strict, ProxyCapabilityStatus::Unknown) => false,
+        (ProbeMode::Relaxed, ProxyCapabilityStatus::Unknown) => record.protocol.is_some(),
+    }
 }
 
 fn destination_scheme(destination: &Destination) -> String {
