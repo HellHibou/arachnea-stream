@@ -3,9 +3,6 @@
 Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes pour l'espace de travail serveur. Il doit être mis à jour lorsque des tâches sont ajoutées, terminées, déplacées vers un outil de suivi ou rendues obsolètes par des décisions de conception ultérieures.
 ## Streaming
 
-- Pour la géolocalisation:  
-    - Ajout support de plusieurs pays lors du chargement des proxy (inclure porxy)
-    - France,M6, TV5 plus, Arte (cas plus sensible), TF1 on un système de géolocalisation par vidéo (avec plusieurs codes pays). Elle doit être prise en compte pour le sélection de proxy.
 - Modifier load_home pour inclure la possibilité d'inclure une liste de sources a prendre en compte + modifier le front pour pouvoir afficher 1 source a la fois. Dans un 2e temp, ajouter la possibilité de créer des homes personalisées basé sur une source + section de load_home ou categorie.
 - Dans la description des services, ajouter des tags cle/valeur pour pouvoir distinguer le pays et la langue des vidéos.
 - Ajouter un système de vidéos associées.
