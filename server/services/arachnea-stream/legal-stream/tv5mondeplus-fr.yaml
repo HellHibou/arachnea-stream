@@ -248,34 +248,6 @@ queries:
                 pointer: /referenceUrl
                 actions:
                   - type: resolve_url
-                sub_queries:
-                  - scraper_type: json
-                    row_pointer: /
-                    entries:
-                      - name: link
-                        type: string
-                        select: first
-                        pointer: /contentUrl/url
-                        actions:
-                          - type: format_text
-                            argument: "{api_base_url}{}"
-              - name: request > query_url
-                type: string
-                select: first
-                pointer: /referenceUrl
-                actions:
-                  - type: resolve_url
-                sub_queries:
-                  - scraper_type: json
-                    row_pointer: /
-                    entries:
-                      - name: request > query_url
-                        type: string
-                        select: first
-                        pointer: /contentUrl/url
-                        actions:
-                          - type: format_text
-                            argument: "{api_base_url}{}"
           - name: banners > link
             type: string
             select: first
@@ -327,29 +299,30 @@ queries:
     query_url: "{query_url}"
     media_types: *media_types_tv5mondeplus
     row_pointer: /
-    entries:
-      - name: current_page
-        type: number
-        actions:
+    entries: []
+    sub_queries:
+      - scraper_type: json
+        request_pointer: /contentUrl/url
+        request_actions:
           - type: format_text
-            argument: "{page}"
-      - name: infer_have_more_from_full_page
-        type: boolean
-        actions:
-          - type: format_text
-            argument: "true"
-      - name: entries
-        type: object[]
-        pointer: /items/*
-        select: all
-        entries: *entries_catalog_api_asset
-    post_process:
-      - type: derive_pagination
-        page_size_field: page_size
-        infer_from_full_page_field: infer_have_more_from_full_page
-        remove_fields:
-          - page_size
-          - infer_have_more_from_full_page
+            argument: "{api_base_url}{}"
+        row_pointer: /
+        entries:
+          - name: current_page
+            type: number
+            actions:
+              - type: format_text
+                argument: "{page}"
+          - name: have_more
+            type: boolean
+            actions:
+              - type: format_text
+                argument: "false"
+          - name: entries
+            type: object[]
+            pointer: /items/*
+            select: all
+            entries: *entries_catalog_api_asset
 
   # ---------------------------------------------------------------------------
   # 4. Search
@@ -465,34 +438,6 @@ queries:
             pointer: /referenceUrl
             actions:
               - type: resolve_url
-            sub_queries:
-              - scraper_type: json
-                row_pointer: /
-                entries:
-                  - name: link
-                    type: string
-                    select: first
-                    pointer: /contentUrl/url
-                    actions:
-                      - type: format_text
-                        argument: "{api_base_url}{}"
-          - name: request > query_url
-            type: string
-            pointer: /referenceUrl
-            select: first
-            actions:
-              - type: resolve_url
-            sub_queries:
-              - scraper_type: json
-                row_pointer: /
-                entries:
-                  - name: request > query_url
-                    type: string
-                    pointer: /contentUrl/url
-                    select: first
-                    actions:
-                      - type: format_text
-                        argument: "{api_base_url}{}"
 
   # ---------------------------------------------------------------------------
   # 7. Live channels

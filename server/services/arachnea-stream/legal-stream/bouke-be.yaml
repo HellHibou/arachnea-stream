@@ -359,9 +359,11 @@ queries:
   # Home page — lazy categories, hero banners and the editorial rails
   # The landing page is a flat list of sibling paragraphs: promo banners,
   # section headers, content rails, a programme schedule and programme teasers.
-  # Categories come from the main navigation, banners from the promo
-  # paragraphs (their CTA link feeds the click-through entry), and rails from
-  # header rows plus their slide cards regrouped by `group_items_by_header`.
+  # Categories come from the main navigation, including one lazy Localities
+  # category whose directory is expanded into locality categories by
+  # `get_category`. Banners come from the promo paragraphs (their CTA link
+  # feeds the click-through entry), and rails come from header rows plus their
+  # slide cards regrouped by `group_items_by_header`.
   # --------------------------------------------------------------------------
   - name: load_home
     scraper_type: html
@@ -377,8 +379,9 @@ queries:
             argument: "{source}"
 
       # Main navigation entries are the browsable categories consumed by
-      # `get_category`; `/liste-localite` is a locality directory and is
-      # dropped below because it exposes no media card.
+      # `get_category`. The source labels `/liste-localite` as "Votre commune !";
+      # expose it as one stable Localities category instead of one category per
+      # locality.
       - name: categories
         type: object[]
         selector: "nav#block-main-nav-page ul[block='block-main-nav-page'] li a"
@@ -392,50 +395,25 @@ queries:
               - type: regex_replace_all
                 pattern: "^.*/([^/]+)/?$"
                 replacement: "$1"
+              - type: map
+                argument:
+                  liste-localite: localities
+                default: "{}"
           - name: label
             type: string
             actions:
               - type: get_text
+              - type: map
+                argument:
+                  "Votre commune !": "Localités"
+                default: "{}"
           - name: link
             type: string
             actions: *actions_get_href_resolve
           - name: request > query_url
             type: string
             actions: *actions_get_href_resolve
-
-#      - name: localities
-#        type: string
-#        actions:
-#          - type: format_text
-#            argument: "{base_url}/liste-localite"
-#        sub_queries:
-#          - scraper_type: html
-#            target: parent
-#            row_selector: "div#block-tv-theme-content div.locality-list a[href^='/commune/']"
-#            entries:
-#              - name: categories
-#                type: object[]
-#                entries:
-#                  - name: key
-#                    type: string
-#                    actions:
-#                      - type: get_attribut
-#                        argument: href
-#                      - type: regex_replace_all
-#                        pattern: "^.*/([^/]+)/?$"
-#                        replacement: "$1"
-#                  - name: label
-#                    type: string
-#                    actions:
-#                      - type: get_text                      
-#                  - name: link
-#                    type: string
-#                    actions: *actions_get_href_resolve
-#                  - name: request > query_url
-#                    type: string
-#                    actions: *actions_get_href_resolve     
-
-
+    
       # Promo paragraphs are the hero banners of the home page.
       - name: banners
         type: object[]
@@ -524,11 +502,6 @@ queries:
         pattern: "^https?://"
         keep_matching: true
       - type: filter_items
-        source: categories
-        field: link
-        pattern: "/liste-localite"
-        keep_matching: false
-      - type: filter_items
         source: banners
         field: link
         pattern: "^https?://"
@@ -546,12 +519,12 @@ queries:
 
   # --------------------------------------------------------------------------
   # Category — first page of a taxonomy listing (`/info`, `/sport`, `/culture`)
-  # or of the `/emissions` programme index. Drupal pagers are zero-based
-  # (`?page=N`) while `{page}` is the one-based page requested by the
-  # frontend, so `{page_index}` (= page - 1) is appended. Both card shapes are
-  # extracted: taxonomy pages list `article.teaser-item` rows and `/emissions`
-  # lists `div.view-mode-portrait` program cards. The shape that is absent
-  # yields no entries and is merged into the other section by the frontend.
+  # or of the `/emissions` programme index. `/liste-localite` instead exposes
+  # one category per `/commune/<slug>` link; selecting one runs this same query
+  # for the locality page. Drupal pagers are zero-based (`?page=N`) while
+  # `{page}` is the one-based page requested by the frontend, so `{page_index}`
+  # (= page - 1) is appended. Taxonomy pages list `article.teaser-item` rows
+  # and `/emissions` lists `div.view-mode-portrait` program cards.
   # --------------------------------------------------------------------------
   - name: get_category
     scraper_type: html
@@ -567,6 +540,7 @@ queries:
             argument: "{source}"
       - name: sections
         type: object[]
+        selector: "body:has(div#block-tv-theme-content article.teaser-item), body:has(div#block-tv-theme-content div.view-mode-portrait)"
         entries:
           - name: label
             type: string
@@ -603,6 +577,31 @@ queries:
             selector: "div#block-tv-theme-content div.view-mode-portrait"
             select: all
             entries: *entries_program_card
+      # The locality directory itself carries no media cards. Each locality is
+      # a navigable category whose request URL is its `/commune/<slug>` page.
+      - name: categories
+        type: object[]
+        selector: "div#block-tv-theme-content div.locality-list a[href^='/commune/']"
+        select: all
+        entries:
+          - name: key
+            type: string
+            actions:
+              - type: get_attribut
+                argument: href
+              - type: regex_replace_all
+                pattern: "^.*/([^/]+)/?$"
+                replacement: "$1"
+          - name: label
+            type: string
+            actions:
+              - type: get_text
+          - name: link
+            type: string
+            actions: *actions_get_href_resolve
+          - name: request > query_url
+            type: string
+            actions: *actions_get_href_resolve
     post_process:
       - type: derive_pagination
         source: sections

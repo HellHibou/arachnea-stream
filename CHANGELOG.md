@@ -88,6 +88,9 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Bouké now exposes the locality directory as one `Localités` category. Opening it returns navigable locality categories, each loading its own paginated `/commune/<slug>` video listing through `get_category` instead of publishing every locality as a separate home category or prefetching every commune page.
+- Canal Zoom now exposes its `/liste-localite` directory as a `Localités` home category without preloading individual communes.
+- TV5MONDE+ home and category discovery now return carousel component references directly and defer resolving each component's catalogue URL to `get_section`, removing the duplicated eager request per rail and reducing the initial home load to the root, home-component, and menu requests.
 - TV5MONDE+ playback now derives its ordered proxy-country list from the entitlement `/play` response's comma-separated `materialProfile`, normalizing and deduplicating alpha-2 codes before applying them to the manifest, storyboard, and deferred Widevine license request. The player-supplied list remains the fallback when the profile is absent or unusable.
 - M6 Play replay players now derive ordered geo-proxy countries from `/clips/0/areas/*/zone_id`: area `11` emits `AD, FR, GP, GF, MQ, YT, MC, NC, PF, RE, BL, MF, PM, TF, WF`, while area `34`, missing areas, and unknown values emit no geo-proxy constraint.
 - The `arachnea-stream-hoster` Vidzy resolver is unified for `vidzy.cc` and `vidzy.live` (including optional `www.`). Its HLS decoder derives the XOR key from the request hostname, and all stream and subtitle proxy requests use the resolved request origin. The decoder returns its string through `document.write`, which is the supported `exec_js` string channel.
