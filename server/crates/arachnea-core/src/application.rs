@@ -1,13 +1,15 @@
 //! Application path resolution helpers.
 //!
-//! Three process-wide roots are resolved once and cached:
+//! Process-wide roots are resolved once and cached:
 //! - the **application root** (legacy, executable-relative): superseded by the
-//!   resource and data roots below,
-//! - the **resource root** (read-only `services/` data): probed at first call
-//!   across the layouts the release artifacts produce (portable folder, macOS
-//!   bundle `Contents/Resources`, Linux system resource dir),
+//!   resource path and data root below,
 //! - the **data root** (writable `data/`, credentials): executable directory
 //!   for portable layouts, per-OS standard directory for packaged installs.
+//!
+//! Read-only resources are resolved per call by
+//! [`get_application_resource_path`], which probes the layouts the release
+//! artifacts produce (portable folder, macOS bundle `Contents/Resources`,
+//! Linux system resource dir) for the requested relative path.
 
 use std::collections::BTreeMap;
 use std::io::ErrorKind;
@@ -21,7 +23,6 @@ use crate::controler::options::SettingSource;
 use crate::persistence::{JsonPersistenceFileCodec, PersistenceFileCodec};
 
 static APP_ROOT: OnceLock<PathBuf> = OnceLock::new();
-static APP_RESOURCE_ROOT: OnceLock<PathBuf> = OnceLock::new();
 static APP_DATA_ROOT: OnceLock<PathBuf> = OnceLock::new();
 static APPLICATION_DATA_DIR_NAME: OnceLock<String> = OnceLock::new();
 
@@ -77,7 +78,7 @@ fn application_data_dir_name() -> &'static str {
 /// In debug builds, this is the server workspace directory. In release builds,
 /// this is the directory containing the current executable.
 ///
-/// Superseded by [`get_application_resource_root`] (read-only resources) and
+/// Superseded by [`get_application_resource_path`] (read-only resources) and
 /// [`get_application_data_root`] (writable data); kept for compatibility.
 ///
 /// # Returns
@@ -144,40 +145,32 @@ fn init_app_root() -> PathBuf {
     }
 }
 
-/// Returns the application resource root directory as a string slice.
+/// Builds an absolute path for a read-only resource relative path.
 ///
-/// Read-only resources (`services/` scraper manifests and YAML sources) live
-/// next to the executable in portable layouts, but inside the bundle on
-/// packaged installs. The root is probed once, at first call, and the first
-/// candidate containing a `services` directory wins:
+/// Read-only resources (scraper manifests and YAML sources) live next to the
+/// executable in portable layouts, but inside the bundle on packaged installs.
+/// The layouts the release artifacts produce are probed in order and the first
+/// candidate where the requested relative path exists (file or directory)
+/// wins:
+/// - AppImage: `$APPDIR/usr/lib/<product name>/` or `$APPDIR/usr/bin/../lib/`
+///   (the Tauri bundler layout; `APPDIR` is set by the AppImage runtime),
+/// - deb/rpm: `/usr/lib/<product name>/` next to the `/usr/bin` executable,
 /// - macOS bundles: `Contents/Resources/` (Tauri bundler layout),
-/// - Linux system packages (deb/rpm/AppImage): `../lib/<product name>/`,
 /// - fallback: the executable directory.
-///
-/// # Returns
-///
-/// A cached, process-wide application resource root path.
-///
-/// # Panics
-///
-/// Panics if the cached root cannot be represented as valid UTF-8.
-pub fn get_application_resource_root() -> &'static str {
-    APP_RESOURCE_ROOT
-        .get_or_init(init_app_resource_root)
-        .to_str()
-        .unwrap()
-}
-
-/// Builds an absolute path from the application resource root and a relative
-/// path (see [`get_application_resource_root`]).
+/// In debug builds, the server workspace directory is used directly.
 ///
 /// # Arguments
 ///
-/// * `path` - Path segment to append to the resource root.
+/// * `path` - Path segment to append to the resource location.
 ///
 /// # Returns
 ///
 /// The joined path as an owned string, using lossy UTF-8 conversion if needed.
+///
+/// # Panics
+///
+/// Panics in release builds if the current executable path cannot be read.
+/// Panics in debug builds if the server application root cannot be resolved.
 ///
 /// # Examples
 ///
@@ -186,30 +179,19 @@ pub fn get_application_resource_root() -> &'static str {
 /// println!("Manifest path: {}", manifest);
 /// ```
 pub fn get_application_resource_path(path: &str) -> String {
-    APP_RESOURCE_ROOT
-        .get_or_init(init_app_resource_root)
-        .join(path)
-        .to_string_lossy()
-        .into_owned()
-}
-
-/// Resolves the application resource root (see [`get_application_resource_root`]).
-///
-/// # Panics
-///
-/// Panics in release builds if the current executable path cannot be read.
-/// Panics in debug builds if the server application root cannot be resolved.
-fn init_app_resource_root() -> PathBuf {
     if cfg!(debug_assertions) {
-        return debug_workspace_root();
+        return debug_workspace_root()
+            .join(path)
+            .to_string_lossy()
+            .into_owned();
     }
 
     let exe_dir = release_executable_dir();
 
-    // Portable layout: services next to the executable (portable archives,
+    // Portable layout: resources next to the executable (portable archives,
     // NSIS installs, and pre-existing archives staged the legacy way).
-    if exe_dir.join("services").is_dir() {
-        return exe_dir;
+    if exe_dir.join(path).exists() {
+        return exe_dir.join(path).to_string_lossy().into_owned();
     }
 
     // macOS bundles: the Tauri bundler installs `bundle.resources` under
@@ -217,33 +199,54 @@ fn init_app_resource_root() -> PathBuf {
     #[cfg(target_os = "macos")]
     if let Some(contents_dir) = exe_dir.parent() {
         let resources_dir = contents_dir.join("Resources");
-        if resources_dir.join("services").is_dir() {
-            return resources_dir;
+        if resources_dir.join(path).exists() {
+            return resources_dir.join(path).to_string_lossy().into_owned();
         }
     }
 
     // Linux system packages (deb/rpm/AppImage): the Tauri bundler installs
     // `bundle.resources` under `/usr/lib/<product name>/` while the binary
-    // sits in `/usr/bin`. The product name is not embedded in the binary, so
-    // the first `lib/` entry shipping a `services` directory wins.
+    // sits in `/usr/bin`. The AppImage runtime mounts that tree at
+    // `$APPDIR/usr/...` with the executable in `$APPDIR/usr/bin`.
+    // The product name is not embedded in the binary, so the first `lib/`
+    // entry containing the requested path wins.
     #[cfg(target_os = "linux")]
-    if let Some(prefix_dir) = exe_dir.parent() {
-        if let Some(lib_dir) = prefix_dir.parent().map(|prefix| prefix.join("lib")) {
-            if let Ok(entries) = fs::read_dir(lib_dir) {
-                let mut candidates: Vec<PathBuf> = entries
-                    .flatten()
-                    .map(|entry| entry.path())
-                    .filter(|dir| dir.join("services").is_dir())
-                    .collect();
-                candidates.sort();
-                if let Some(candidate) = candidates.first() {
-                    return candidate.clone();
+    {
+        // Prefer the AppImage mount root when present: it stays valid even
+        // when the executable path is a symlink outside the mount.
+        if let Some(app_dir) = env::var_os("APPDIR").map(PathBuf::from) {
+            let mut app_candidates: Vec<PathBuf> = Vec::new();
+            if let Ok(entries) = fs::read_dir(app_dir.join("usr/lib")) {
+                app_candidates.extend(
+                    entries
+                        .flatten()
+                        .map(|entry| entry.path())
+                        .filter(|dir| dir.join(path).exists()),
+                );
+            }
+            app_candidates.sort();
+            if let Some(candidate) = app_candidates.into_iter().next() {
+                return candidate.join(path).to_string_lossy().into_owned();
+            }
+        }
+        if let Some(prefix_dir) = exe_dir.parent() {
+            if let Some(lib_dir) = prefix_dir.parent().map(|prefix| prefix.join("lib")) {
+                if let Ok(entries) = fs::read_dir(lib_dir) {
+                    let mut candidates: Vec<PathBuf> = entries
+                        .flatten()
+                        .map(|entry| entry.path())
+                        .filter(|dir| dir.join(path).exists())
+                        .collect();
+                    candidates.sort();
+                    if let Some(candidate) = candidates.first() {
+                        return candidate.join(path).to_string_lossy().into_owned();
+                    }
                 }
             }
         }
     }
 
-    exe_dir
+    exe_dir.join(path).to_string_lossy().into_owned()
 }
 
 /// Returns the application data root directory as a string slice.

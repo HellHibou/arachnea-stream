@@ -19,7 +19,19 @@ import { createInterface } from 'node:readline/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { usableBundlesFor, hostId, normalizeSelector, needsDockerBuild, productionMethod } from './capabilities.mjs';
+import {
+  APP_PACKAGE,
+  PORTABLE_PACKAGE,
+  dockerBundlesFor,
+  hostId,
+  hostPlatformSelector,
+  isMacTarget,
+  knownPackageNames,
+  needsDockerBuild,
+  normalizeSelector,
+  productionMethod,
+  usableBundlesFor,
+} from './capabilities.mjs';
 
 const RELEASE_DIR = path.dirname(fileURLToPath(import.meta.url));
 
@@ -110,15 +122,30 @@ function mergePortableList(common = [], local = []) {
  * @param {boolean} [options.forceUseDockerBuilder] - Route every Docker-capable
  *   platform through the cross-build image even when this host could produce
  *   it natively (targets not managed by the image stay native).
- * @returns {object[]} Platform entries with `usable`, `runner`, `needsTargets`
- *   and `buildable` fields added, in configuration order. Portable platforms
- *   get their `portable.include`/`portable.exclude` merged with the common
- *   `config.portable.include`/`.exclude` lists (platform values appended).
+ * @param {Set<string>|null} [options.packages] - Package selection from
+ *   `--package` (see `normalizePackages`); `null`/absent keeps every package
+ *   declared by the platform.
+ * @returns {object[]} Platform entries with `usable`, `runner`, `needsTargets`,
+ *   `buildable` and `packages` (`{ portable, app }`) fields added, in
+ *   configuration order. `bundles` and `usable` are narrowed to the package
+ *   selection, while the production method stays based on the declared bundles.
+ *   Portable platforms get their `portable.include`/`portable.exclude` merged
+ *   with the common `config.portable.include`/`.exclude` lists (platform values
+ *   appended).
  */
 export function resolvePlatforms(config, selectors = [], options = {}) {
+  const packages = options.packages ?? null;
+  const wantsPackage = (name) => !packages || packages.has(name);
   const platforms = config.platforms.map((platform) => {
+    // Host capability and production method stay derived from the *declared*
+    // bundles: narrowing them to the `--package` selection must not turn a
+    // natively packaged platform into a Docker (or unbuildable) one.
     const { usable, runner, needsTargets } = usableBundlesFor(platform, platform.bundles);
     const method = productionMethod(platform, usable, options.forceUseDockerBuilder === true);
+    const declaredBundles = platform.bundles ?? [];
+    const selectedBundles = packages
+      ? declaredBundles.filter((bundle) => packages.has(bundle))
+      : declaredBundles;
     let portable = platform.portable;
     if (portable) {
       const common = config.portable ?? {};
@@ -130,13 +157,18 @@ export function resolvePlatforms(config, selectors = [], options = {}) {
     }
     return {
       ...platform,
-      usable,
+      bundles: selectedBundles,
+      usable: usable.filter((bundle) => selectedBundles.includes(bundle)),
       runner,
       needsTargets,
       method,
       needsDockerBuild: needsDockerBuild(platform),
       buildable: method !== 'none',
       portable,
+      packages: {
+        portable: Boolean(portable) && wantsPackage(PORTABLE_PACKAGE),
+        app: Boolean(portable) && isMacTarget(platform) && wantsPackage(APP_PACKAGE),
+      },
     };
   });
 
@@ -157,9 +189,70 @@ export function resolvePlatforms(config, selectors = [], options = {}) {
   return platforms.filter((platform) => selected.has(platform));
 }
 
+/**
+ * Normalizes the `--package` selection into the set of packages to produce.
+ *
+ * Accepted names are the installer bundle types declared in
+ * `release-config.json` (`nsis`, `msi`, `dmg`, `deb`, `rpm`, `appimage`), plus
+ * `portable` (portable archive) and `app` (macOS `.app` archive); `all` and `*`
+ * select every declared package.
+ *
+ * @param {object} config - Release configuration.
+ * @param {string[]} [selectors] - Raw `--package` values (comma-separated lists
+ *   accepted).
+ * @returns {Set<string>|null} Selected package names, or `null` for "all".
+ * @throws {Error} When a name is not part of the configuration vocabulary.
+ */
+export function normalizePackages(config, selectors = []) {
+  const known = knownPackageNames(config);
+  const names = new Set();
+  for (const selector of selectors) {
+    for (const part of String(selector).split(',')) {
+      const name = part.trim().toLowerCase();
+      if (!name) continue;
+      if (name === 'all' || name === '*') return null;
+      if (!known.includes(name)) {
+        throw new Error(`Unknown package: ${name}. Known packages: ${known.join(', ')} (or "all").`);
+      }
+      names.add(name);
+    }
+  }
+  return names.size > 0 ? names : null;
+}
+
+/**
+ * Package kinds a resolved platform will actually produce: the installer bundle
+ * types usable on this host (native) or inside the cross image (Docker), plus
+ * the portable archive and the macOS `.app` archive when they are selected.
+ *
+ * @param {object} platform - A platform entry returned by `resolvePlatforms`.
+ * @returns {string[]} Produced package names (bundle types, `portable`, `app`).
+ */
+export function producedPackages(platform) {
+  if (!platform.buildable) return [];
+  const installers = platform.method === 'native' ? platform.usable : dockerBundlesFor(platform);
+  const produced = [...installers];
+  if (platform.packages?.portable) produced.push(PORTABLE_PACKAGE);
+  if (platform.packages?.app) produced.push(APP_PACKAGE);
+  return produced;
+}
+
 /** Current host label for logging. */
 export function hostLabel() {
   return hostId() ?? process.platform;
+}
+
+/**
+ * Selectors used when the command line carries none: the platform id matching
+ * the host OS and CPU (see `hostPlatformSelector`). Returns an empty list —
+ * which `resolvePlatforms` reads as "every platform" — when the host OS itself
+ * is not part of the mapping.
+ *
+ * @returns {string[]} Default platform selectors.
+ */
+export function defaultSelectors() {
+  const selector = hostPlatformSelector();
+  return selector ? [selector] : [];
 }
 
 /** Runs a command synchronously, inheriting stdio. */

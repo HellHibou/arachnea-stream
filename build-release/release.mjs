@@ -23,6 +23,9 @@ import {
   buildEnvWithLlvm,
   loadConfig,
   parseWorkspaceVersion,
+  producedPackages,
+  defaultSelectors,
+  normalizePackages,
   resolvePlatforms,
   resolveFromRelease,
   run,
@@ -39,7 +42,7 @@ import {
   fileDigestHex,
   ensureRustcVersion,
 } from './lib.mjs';
-import { archShort, outputFolderName, familyOf, dockerBundlesFor } from './capabilities.mjs';
+import { APP_PACKAGE, PORTABLE_PACKAGE, archShort, outputFolderName, familyOf, dockerBundlesFor, hostPlatformSelector, knownPackageNames } from './capabilities.mjs';
 import {
   assertCrossImageFor,
   assertDocker,
@@ -53,7 +56,8 @@ import {
 
 function parseArgs(argv) {
   const options = {
-    platforms: [],
+    targets: [],
+    packages: [],
     list: false,
     showVersion: false,
     noInstall: false,
@@ -66,12 +70,23 @@ function parseArgs(argv) {
   };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
+    // Removed flag: give the new syntax instead of a generic unknown-argument
+    // error, so existing callers (scripts, CI) get an actionable message.
     if (arg === '--platform' || arg === '-p') {
-      // Accept repeated flags and comma-separated selectors (`darwin-*` etc.).
-      for (const part of argv[++i].split(',')) {
-        const selector = part.trim();
-        if (selector) options.platforms.push(selector);
+      throw new Error(
+        `The \`${arg}\` flag was removed: pass platform selectors as plain arguments, ` +
+          'e.g. `node build-release/release.mjs windows-*`.',
+      );
+    }
+    if (arg === '--package') {
+      // Value-taking option: package names to produce, repeatable and
+      // comma-separated (`--package deb,portable`).
+      const value = argv[i + 1];
+      if (value === undefined || value.startsWith('-')) {
+        throw new Error('Missing value for `--package` (e.g. `--package deb,portable`).');
       }
+      options.packages.push(value);
+      i += 1;
     }
     else if (arg === '--list') options.list = true;
     else if (arg === '--version') options.showVersion = true;
@@ -82,23 +97,41 @@ function parseArgs(argv) {
     else if (arg === '--dry-run') options.dryRun = true;
     else if (arg === '--force-use-docker-builder') options.forceUseDockerBuilder = true;
     else if (arg === '--help' || arg === '-h') options.help = true;
-    else throw new Error(`Unknown argument: ${arg}`);
+    else if (arg.startsWith('-') && arg !== '-') throw new Error(`Unknown argument: ${arg}`);
+    else {
+      // Positional platform selectors. Several may be given, and a single
+      // argument may hold a comma-separated list (`darwin,windows`).
+      for (const part of arg.split(',')) {
+        const selector = part.trim();
+        if (selector) options.targets.push(selector);
+      }
+    }
   }
   return options;
 }
 
 function help(config, version) {
   const ids = config.platforms.map((p) => p.id).join(', ');
-  console.log(`Usage: node build-release/release.mjs [OPTIONS]
+  const hostSelector = hostPlatformSelector() ?? 'all platforms';
+  const packageNames = knownPackageNames(config).join(', ');
+  console.log(`Usage: node build-release/release.mjs [OPTIONS] [TARGET...]
 
 Cross-platform release builder (host: ${hostLabel()}).
 
-  --platform, -p <sel>  Build only matching platforms. Selectors are exact ids
-                        (darwin-arm64), family names (darwin, windows, linux,
-                        alias osx = darwin), or \`*\` patterns (darwin-*).
-                        Repeat the flag or separate values with commas.
+  TARGET...             Build only matching platforms. With no TARGET, only this
+                        host platform is built (${hostSelector}). Selectors are
+                        exact ids (darwin-arm64), family names (darwin, windows,
+                        linux), the alias osx (= darwin), \`*\` for every platform,
+                        or trailing-\`*\` patterns (darwin-*). Several targets may
+                        be listed, space- or comma-separated; quote \`*\` so the
+                        shell keeps it.
                         Available ids: ${ids}
-  --list                List platforms and whether they can be built on this host.
+  --package <name>      Only produce the named packages; repeat the flag or
+                        separate values with commas. Known names: ${packageNames}
+                        (\`all\`/\`*\` = every declared package). Default: every
+                        package declared by each selected platform.
+  --list                List platforms and whether they can be built on this host
+                        (every configured platform unless TARGETs are given).
   --version             Print the project version (from server/Cargo.toml).
   --no-install          Do not install/verify tools before building.
   --skip-build          Reuse existing Tauri build artifacts (target/…); only assemble.
@@ -136,6 +169,25 @@ function artifactName(bundleType, platform, version, productName) {
   if (bundleType === 'nsis') return `${productName}-${version}-${os}-${arch}-setup.exe`;
   const ext = bundleType === 'appimage' ? 'AppImage' : bundleType;
   return `${productName}-${version}-${os}-${arch}.${ext}`;
+}
+
+/**
+ * Debian-safe product name override for Linux installer bundles.
+ *
+ * The Tauri Debian bundler writes `settings.product_name()` verbatim into the
+ * control `Package:` field, which rejects the accented `Arachnéa` from
+ * `tauri.conf.json` (dpkg only allows `[a-z0-9+.-]`) and stages resources
+ * under `/usr/lib/Arachnéa/`. The RPM name has the same ASCII requirement.
+ * Overriding with the ASCII `release-config.json` productName (`arachnea`)
+ * for `*-unknown-linux-gnu` targets keeps the display name untouched on
+ * macOS/Windows while producing installable Linux packages.
+ *
+ * @param {object} platform - A platform entry from `release-config.json`.
+ * @param {object} config - Release configuration.
+ * @returns {string|null} Override product name, or `null` to keep `tauri.conf.json`.
+ */
+function linuxProductNameOverride(platform, config) {
+  return platform.target.includes('-unknown-linux') ? config.productName : null;
 }
 
 /**
@@ -235,9 +287,14 @@ function macAppArchiveName(platform, version, productName) {
   return `${productName}-${version}-${familyOf(platform.id)}-${archShort(platform.target)}-app.tar.gz`;
 }
 
-/** Returns `true` when a platform's portable archive embeds a macOS `.app`. */
-function isMacPortable(platform) {
-  return platform.target.endsWith('-apple-darwin');
+/**
+ * Human-readable label of a produced package name (`portable` -> `portable
+ * archive`, `app` -> `.app archive`); installer bundle types keep their name.
+ */
+function packageLabel(name) {
+  if (name === PORTABLE_PACKAGE) return 'portable archive';
+  if (name === APP_PACKAGE) return '.app archive';
+  return name;
 }
 
 /**
@@ -335,16 +392,19 @@ function stageMacApp(portableDir, exe, platform, config, version) {
 
 /**
  * Removes previous outputs for the platforms about to be built. When every
- * platform of a family is selected, the whole family folder is cleared;
- * otherwise only the files belonging to the selected platforms are removed
- * (artifacts plus their `.sha256`/`.sha3` checksums).
+ * platform of a family is selected and no package selection narrows the run,
+ * the whole family folder is cleared; otherwise only the files belonging to the
+ * selected platforms and packages are removed (artifacts plus their
+ * `.sha256`/`.sha3` checksums), leaving unselected packages in place.
  *
  * @param {object[]} selected - Enriched platform entries being rebuilt.
  * @param {object} config - Release configuration.
  * @param {string} version - Project version.
  * @param {string} releaseDir - Destination release version directory.
+ * @param {Set<string>|null} [packageSelection] - Normalized `--package`
+ *   selection; `null` (default) keeps the full-family cleanup behavior.
  */
-function cleanPreviousOutputs(selected, config, version, releaseDir) {
+function cleanPreviousOutputs(selected, config, version, releaseDir, packageSelection = null) {
   // All platform ids of the config, grouped by output family folder.
   const allByFolder = new Map();
   for (const platform of config.platforms) {
@@ -363,7 +423,8 @@ function cleanPreviousOutputs(selected, config, version, releaseDir) {
   for (const [folder, selectedIds] of selectedByFolder) {
     const folderPath = path.join(releaseDir, folder);
     const familyIds = allByFolder.get(folder) ?? new Set();
-    const fullFamilyRebuild = [...familyIds].every((id) => selectedIds.has(id));
+    const fullFamilyRebuild =
+      packageSelection === null && [...familyIds].every((id) => selectedIds.has(id));
 
     if (fullFamilyRebuild) {
       removeDir(folderPath);
@@ -384,11 +445,14 @@ function cleanPreviousOutputs(selected, config, version, releaseDir) {
           }
         }
       }
-      if (platform.portable) {
-        const portableName = portableArchiveName(platform, version, config.productName);
-        const archiveNames = isMacPortable(platform)
-          ? [portableName, macAppArchiveName(platform, version, config.productName)]
-          : [portableName];
+      if (platform.packages.portable || platform.packages.app) {
+        const archiveNames = [];
+        if (platform.packages.portable) {
+          archiveNames.push(portableArchiveName(platform, version, config.productName));
+        }
+        if (platform.packages.app) {
+          archiveNames.push(macAppArchiveName(platform, version, config.productName));
+        }
         for (const name of archiveNames) {
           for (const suffix of ARTIFACT_SUFFIXES) {
             const file = path.join(folderPath, `${name}${suffix}`);
@@ -520,15 +584,25 @@ async function buildPlatform(platform, config, version, releaseDir, tauriDir, sk
     return;
   }
 
+  // A platform whose every package was filtered out by `--package` produces
+  // nothing: skip it instead of paying for a full (possibly Docker) compilation.
+  const produced = producedPackages(platform);
+  if (produced.length === 0) {
+    console.warn(`${label} nothing to produce for the selected packages; skipping.`);
+    return;
+  }
+
   console.log(`\n===== Building ${label} (${platform.method}) =====`);
+  console.log(`Packages: ${produced.map(packageLabel).join(', ')}`);
   if (platform.method === 'native') {
-    console.log(`Bundles on this host: ${platform.usable.join(', ')}`);
+    console.log(`Bundles on this host: ${platform.usable.join(', ') || '(none)'}`);
   } else {
     const dockerBundles = dockerBundlesFor(platform);
     if (dockerBundles.length > 0) {
       console.log(
         `Installers from the cross image: ${dockerBundles.join(', ')}` +
-          `${platform.portable ? ', plus the portable archive' : ''}`,
+          `${platform.packages.portable ? ', plus the portable archive' : ''}` +
+          `${platform.packages.app ? ', plus the .app archive' : ''}`,
       );
     }
   }
@@ -536,6 +610,10 @@ async function buildPlatform(platform, config, version, releaseDir, tauriDir, sk
   // 1. Build step. Native platforms use the host toolchain via the Tauri CLI;
   //    Docker platforms cross-compile the raw release binary in the container.
   if (!skipBuild && platform.method === 'native') {
+    // Linux installer bundles (deb/rpm) need an ASCII product name: the Tauri
+    // Debian bundler copies productName verbatim into the control `Package:`
+    // field, which rejects the accented `Arachnéa` from tauri.conf.json.
+    const linuxProductName = linuxProductNameOverride(platform, config);
     const args = [
       'tauri',
       'build',
@@ -547,6 +625,7 @@ async function buildPlatform(platform, config, version, releaseDir, tauriDir, sk
       // accept `app`/`dmg`/`ios`, blocking cross NSIS builds).
       '--config',
       JSON.stringify({
+        ...(linuxProductName ? { productName: linuxProductName } : {}),
         build: { beforeBuildCommand: null },
         bundle: { targets: platform.usable },
       }),
@@ -582,14 +661,17 @@ async function buildPlatform(platform, config, version, releaseDir, tauriDir, sk
       console.log(`${label} cross-compiling release binary in the Docker image: ${await describeCrossBuild(platform, tauriDir)}`);
       run('docker', await crossBuildArgs(platform, tauriDir));
 
-      // Step 2: package each bundle type (the binary is already present)
+      // Step 2: package each bundle type (the binary is already present).
+      // Linux bundles use the ASCII productName override (see native build
+      // above); macOS targets have no Docker bundles and keep `Arachnéa`.
+      const linuxProductName = linuxProductNameOverride(platform, config);
       console.log(
-        `${label} cross-building installers (${dockerBundles.join(', ')}) in the Docker image:\n    ${await describeCrossBundling(platform, tauriDir)}`,
+        `${label} cross-building installers (${dockerBundles.join(', ')}) in the Docker image:\n    ${await describeCrossBundling(platform, tauriDir, linuxProductName)}`,
       );
       const failedBundles = [];
       for (const bundle of dockerBundles) {
         try {
-          run('docker', await crossBundleArgs(platform, tauriDir, false, [bundle]));
+          run('docker', await crossBundleArgs(platform, tauriDir, false, [bundle], linuxProductName));
         } catch (error) {
           failedBundles.push(bundle);
           console.warn(`${label} bundle \`${bundle}\` failed inside the Docker image:\n    ${error.message}`);
@@ -642,10 +724,10 @@ async function buildPlatform(platform, config, version, releaseDir, tauriDir, sk
     }
   }
 
-  // 3. Optional portable archive: the raw executable + optional runtime data.
-  //    macOS targets additionally get a separate `-app` archive embedding the
-  //    executable in a launchable `<productName>.app` bundle.
-  if (platform.portable) {
+  // 3. Optional archives: the portable archive (raw executable + optional
+  //    runtime data) and, for macOS targets, a separate `-app` archive
+  //    embedding the executable in a launchable `<productName>.app` bundle.
+  if (platform.packages.portable || platform.packages.app) {
     const exeName =
       platform.portable.exeName || (platform.target.includes('windows') ? 'arachnea.exe' : 'arachnea');
     // Docker-produced binaries live under `docker-build/<arch>/<triple>/release/`;
@@ -674,26 +756,28 @@ async function buildPlatform(platform, config, version, releaseDir, tauriDir, sk
         }
       };
 
-      const portableName = portableArchiveName(platform, version, config.productName);
-      const portableDir = path.join(releaseDir, `.tmp-${portableName}`);
-      removeDir(portableDir);
-      mkdirSync(portableDir, { recursive: true });
-      copyFileSync(exe, path.join(portableDir, path.basename(exe)));
-      copyRuntimeData(portableDir);
-      const archivePath = path.join(platformOutDir, portableName);
-      console.log(`${label} packaging portable archive ${path.basename(archivePath)}...`);
-      // The executable is the only entry that must stay runnable once extracted.
-      createArchive(portableDir, archivePath, [path.basename(exe)]);
-      copied.push(path.basename(archivePath));
-      // One checksum file per algorithm: archive hash first, then every inner
-      // file's hash (computed on the staged originals, never via extraction).
-      addPortableChecksums(portableDir, archivePath, copied);
-      removeDir(portableDir);
+      if (platform.packages.portable) {
+        const portableName = portableArchiveName(platform, version, config.productName);
+        const portableDir = path.join(releaseDir, `.tmp-${portableName}`);
+        removeDir(portableDir);
+        mkdirSync(portableDir, { recursive: true });
+        copyFileSync(exe, path.join(portableDir, path.basename(exe)));
+        copyRuntimeData(portableDir);
+        const archivePath = path.join(platformOutDir, portableName);
+        console.log(`${label} packaging portable archive ${path.basename(archivePath)}...`);
+        // The executable is the only entry that must stay runnable once extracted.
+        createArchive(portableDir, archivePath, [path.basename(exe)]);
+        copied.push(path.basename(archivePath));
+        // One checksum file per algorithm: archive hash first, then every inner
+        // file's hash (computed on the staged originals, never via extraction).
+        addPortableChecksums(portableDir, archivePath, copied);
+        removeDir(portableDir);
+      }
 
       // Separate macOS archive: a launchable `<productName>.app` bundle; the
       // runtime data is staged in `Contents/Resources/` (Tauri bundler
       // layout, probed by the runtime resource root resolution).
-      if (isMacPortable(platform)) {
+      if (platform.packages.app) {
         const appName = macAppArchiveName(platform, version, config.productName);
         const appDir = path.join(releaseDir, `.tmp-${appName}`);
         removeDir(appDir);
@@ -728,7 +812,11 @@ function printBuildSummary(results) {
     const color = result.success ? '\x1b[32m' : '\x1b[31m';
     const status = result.success ? '✓' : '✗';
     const detail = result.success ? 'success' : result.error;
-    console.log(`  ${color}${status}\x1b[0m ${result.platform.target.padEnd(30)} ${detail}`);
+    // Only successful builds produced artifacts; keep failed lines on the error.
+    const packages = result.success
+      ? ` packages=[${producedPackages(result.platform).join(', ')}]`
+      : '';
+    console.log(`  ${color}${status}\x1b[0m ${result.platform.target.padEnd(30)} ${detail}${packages}`);
   }
 }
 
@@ -746,9 +834,36 @@ async function main() {
     return;
   }
 
-  const platforms = resolvePlatforms(config, options.platforms, {
+  // With no target, only the platform matching this host OS+CPU is built;
+  // `--list` keeps showing every configured platform (and what this host can
+  // produce for each).
+  const selectors =
+    options.targets.length > 0 ? options.targets : options.list ? [] : defaultSelectors();
+  if (options.targets.length === 0 && !options.list) {
+    if (selectors.length === 0) {
+      console.warn(
+        `[release] Unsupported host ${process.platform}/${process.arch}: building every configured platform.`,
+      );
+    } else {
+      console.log(`[release] No target given: building this host platform (${selectors.join(', ')}).`);
+    }
+  }
+  // `--package` selection: validated once (throws on unknown names) and passed
+  // to the platform resolution as a set; `null` keeps every declared package.
+  const packages = normalizePackages(config, options.packages);
+  const platforms = resolvePlatforms(config, selectors, {
     forceUseDockerBuilder: options.forceUseDockerBuilder,
+    packages,
   });
+  if (packages) {
+    const produced = new Set(platforms.flatMap((p) => producedPackages(p)));
+    const unmatched = [...packages].filter((name) => !produced.has(name));
+    if (unmatched.length > 0) {
+      console.warn(
+        `[release] Packages not produced by the selected targets: ${unmatched.join(', ')}.`,
+      );
+    }
+  }
   const tauriDir = resolveFromRelease(config.tauriProject);
   const releaseDir = path.join(ROOT, 'releases', `release-${version}`);
 
@@ -756,49 +871,46 @@ async function main() {
     console.log(`Host: ${hostLabel()}`);
     console.log(`Version: ${version}\n`);
     for (const platform of platforms) {
-      let produces;
-      if (!platform.buildable) produces = 'nothing';
-      else if (platform.method === 'native') produces = platform.usable.join(', ') || 'nothing';
-      else {
-        const parts = dockerBundlesFor(platform);
-        if (platform.portable) {
-          parts.push('portable archive');
-          if (isMacPortable(platform)) parts.push('.app archive');
-        }
-        produces = parts.join(', ') || 'portable archive';
-      }
-      const detail = platform.buildable
-        ? `available (${platform.method}; produces: ${produces})`
-        : 'not buildable on this host';
+      const produced = producedPackages(platform).map(packageLabel);
+      const detail = !platform.buildable
+        ? 'not buildable on this host'
+        : produced.length > 0
+          ? `available (${platform.method}; produces: ${produced.join(', ')})`
+          : 'nothing to produce for the selected packages';
       console.log(
         `  ${platform.id.padEnd(20)} -> ${outputFolderName(platform.id).padEnd(10)} ` +
-          `${platform.target.padEnd(30)} bundles=[${platform.bundles.join(', ')}] : ${detail}`,
+          `${platform.target.padEnd(30)} : ${detail}`,
       );
     }
     return;
   }
 
-  const buildable = platforms.filter((p) => p.buildable);
+  const buildable = platforms.filter((p) => p.buildable && producedPackages(p).length > 0);
 
   if (options.dryRun) {
     console.log('DRY RUN — no artifact is produced. Planned production:\n');
     for (const platform of platforms) {
+      const produced = producedPackages(platform);
       const method = platform.buildable ? platform.method : 'none';
       let command = '';
       if (!platform.buildable) command = '';
+      else if (produced.length === 0) command = ' — nothing to produce for the selected packages';
       else if (platform.method === 'docker') {
-        const bundleCommand = await describeCrossBundling(platform, tauriDir);
+        const bundleCommand = await describeCrossBundling(platform, tauriDir, linuxProductNameOverride(platform, config));
         if (bundleCommand) command += `\n        ${bundleCommand}`;
-        if (platform.portable && !bundleCommand) command += `\n        ${await describeCrossBuild(platform, tauriDir)}`;
+        if ((platform.packages.portable || platform.packages.app) && !bundleCommand) command += `\n        ${await describeCrossBuild(platform, tauriDir)}`;
       }
-      console.log(`  ${platform.id.padEnd(20)} method=${method}${command}`);
+      console.log(`  ${platform.id.padEnd(20)} method=${method} packages=[${produced.join(', ')}]${command}`);
     }
     return;
   }
 
   if (buildable.length === 0) {
-    console.error(`No platform can be built on host ${hostLabel()} with these targets.`);
-    if (options.platforms.length === 0) {
+    const packageHint = packages
+      ? ` Selected packages: ${[...packages].join(', ')} — none of them can be produced by these targets.`
+      : '';
+    console.error(`No platform can be built on host ${hostLabel()} with these targets.${packageHint}`);
+    if (options.targets.length === 0) {
       console.error('Nothing to do. Run `node build-release/release.mjs --list` for details.');
     }
     process.exit(1);
@@ -838,7 +950,7 @@ async function main() {
 
   // Only clean what this run rebuilds (family folder or single-platform files).
   mkdirSync(releaseDir, { recursive: true });
-  cleanPreviousOutputs(buildable, config, version, releaseDir);
+  cleanPreviousOutputs(buildable, config, version, releaseDir, packages);
 
   // Remove existing root SHA256SUMS and SHA3SUMS before building.
   for (const sumFile of ['SHA256SUMS', 'SHA3SUMS']) {

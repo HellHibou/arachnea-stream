@@ -476,7 +476,11 @@ pub(crate) fn web_instance_etag() -> &'static str {
 /// the bare value used for `If-None-Match` comparison.
 ///
 /// [`replace_html_base`]: crate::controler::web_assets::replace_html_base
-pub(crate) fn asset_etag_for(mime_type: &str, generation: &str, instance: &str) -> (String, String) {
+pub(crate) fn asset_etag_for(
+    mime_type: &str,
+    generation: &str,
+    instance: &str,
+) -> (String, String) {
     if mime_type.starts_with("text/html") {
         (format!("W/\"{generation}\""), generation.to_string())
     } else {
@@ -492,7 +496,10 @@ pub(crate) fn asset_etag_for(mime_type: &str, generation: &str, instance: &str) 
 ///
 /// [`normalize_etag`]: crate::controler::normalize_etag
 pub(crate) fn etag_not_modified(if_none_match: Option<&str>, bare_etag: &str) -> bool {
-    let Some(header) = if_none_match.map(str::trim).filter(|value| !value.is_empty()) else {
+    let Some(header) = if_none_match
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
         return false;
     };
     header.split(',').any(|candidate| {

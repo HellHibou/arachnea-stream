@@ -1,10 +1,22 @@
 # Arachnea cross-build image.
 #
-# Derived from joseluisq/rust-linux-darwin-builder, which already ships:
+# Derived from joseluisq/rust-linux-darwin-builder 1.x (Debian 12 Bookworm),
+# which already ships:
 #   - a Rust toolchain (rustup + cargo) for the host architecture,
-#   - osxcross (Clang + Apple macOS SDK 11.3) to cross-compile macOS binaries
+#   - osxcross (Clang + Apple macOS SDK 13.3) to cross-compile macOS binaries
 #     (x86_64-apple-darwin and aarch64-apple-darwin) from a Linux container,
 #   - GCC/Clang toolchains for the native Linux targets.
+#
+# The 2.x line moved to Debian 13 Trixie: its newer libgcrypt requires
+# libgpg-error >= 1.49 (`gpgrt_add_post_log_func`), while linuxdeploy bundles
+# libgcrypt without the matching libgpg-error — the resulting AppImage fails
+# at launch on older distros such as Linux Mint with:
+#   `symbol lookup error: .../libgcrypt.so.20: undefined symbol:
+#   gpgrt_add_post_log_func, version GPG_ERROR_1.0`.
+# Aligning the build base with the oldest supported distro (Bookworm, same
+# family as Mint) is the only reliable fix: the 1.x tags also predate Tauri
+# CLI `bundle.linux.appimage` library-exclusion support (still an unmerged
+# upstream PR), so the bundled set cannot be tuned instead.
 #
 # This derivation adds the WebKitGTK/GUI development stack required to compile
 # the Tauri application for the *-unknown-linux-gnu targets (which the base
@@ -13,7 +25,7 @@
 # to produce the Linux installers (.deb/.rpm/.AppImage).
 # macOS targets need no extra system package: wry on macOS links against the
 # Apple frameworks provided by the osxcross SDK.
-FROM joseluisq/rust-linux-darwin-builder:2.0.0-beta.1
+FROM joseluisq/rust-linux-darwin-builder:1.89.0
 
 # Linux GUI build dependencies for Tauri (WebKitGTK 4.1 stack). Kept in the
 # image so crate builds can rely on pkg-config resolving the right flags.
@@ -25,11 +37,18 @@ FROM joseluisq/rust-linux-darwin-builder:2.0.0-beta.1
 # architecture, which is only guaranteed when the container architecture
 # matches the target. These apt packages are therefore always native to the
 # running container.
+#
+# `libayatana-appindicator3-dev` is required for Tauri's tray support
+# (`tauri` with `tray-icon`, via `libappindicator-sys`); `libsystemd-dev`
+# provides `libsystemd` linked by `libdbus-1` on Bookworm (the Trixie base
+# carried it transitively, so the 1.x base needs it explicitly).
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         libwebkit2gtk-4.1-dev \
         libgtk-3-dev \
+        libayatana-appindicator3-dev \
         librsvg2-dev \
+        libsystemd-dev \
         patchelf \
         xdg-utils \
         curl \
@@ -63,8 +82,8 @@ RUN set -e; \
     esac
 
 # Bring Rust up to the latest stable and re-install the cross targets on it.
-# The base image pins an older rustc (earlier 1.8x) that cannot compile the
-# project's dependency graph (foyer@0.22.4+ requires rustc >= 1.91.0).
+# Tag 1.x pins rustc 1.89.0, which cannot compile the project's dependency
+# graph (foyer@0.22.4+ requires rustc >= 1.91.0).
 # `rustup` keeps /root/.cargo/config.toml untouched, so the osxcross compiler
 # wrappers configured by the base image still drive macOS linking.
 RUN rustup update stable \

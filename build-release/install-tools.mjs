@@ -9,7 +9,7 @@
 //
 // Usage:
 //   node release/install-tools.mjs                 # all locally buildable platforms
-//   node release/install-tools.mjs --platform <id> # tools for one platform
+//   node release/install-tools.mjs windows-*       # tools for matching platforms only
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
@@ -19,19 +19,25 @@ import { canRun, commandPath, run, loadConfig, resolvePlatforms, hostLabel, CROS
 import { assertDocker, crossImagePresent, ensureCrossImage } from './docker.mjs';
 
 function parseArgs(argv) {
-  const options = { platforms: [] };
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
+  const options = { targets: [] };
+  for (const arg of argv) {
+    // Removed flag: give the new syntax instead of a generic unknown-argument
+    // error, so existing callers (scripts, CI) get an actionable message.
     if (arg === '--platform' || arg === '-p') {
-      // Accept repeated flags and comma-separated selectors (`darwin-*` etc.).
-      for (const part of argv[++i].split(',')) {
+      throw new Error(
+        `The \`${arg}\` flag was removed: pass platform selectors as plain arguments, ` +
+          'e.g. `node build-release/install-tools.mjs windows-*`.',
+      );
+    }
+    if (arg === '--help' || arg === '-h') options.help = true;
+    else if (arg.startsWith('-') && arg !== '-') throw new Error(`Unknown argument: ${arg}`);
+    else {
+      // Positional platform selectors. Several may be given, and a single
+      // argument may hold a comma-separated list (`darwin,windows`).
+      for (const part of arg.split(',')) {
         const selector = part.trim();
-        if (selector) options.platforms.push(selector);
+        if (selector) options.targets.push(selector);
       }
-    } else if (arg === '--help' || arg === '-h') {
-      options.help = true;
-    } else {
-      throw new Error(`Unknown argument: ${arg}`);
     }
   }
   return options;
@@ -39,16 +45,18 @@ function parseArgs(argv) {
 
 /** Prints the tool-install help text. */
 function help() {
-  console.log(`Usage: node build-release/install-tools.mjs [OPTIONS]
+  console.log(`Usage: node build-release/install-tools.mjs [OPTIONS] [TARGET...]
 
 Installs the tools required to build the Arachnea release bundles on the
 current host (${hostLabel()}):
 
-  --platform, -p <sel>  Install tools only for matching platforms. Selectors
+  TARGET...             Provision tools only for matching platforms. Selectors
                         are exact ids (darwin-arm64), family names (darwin,
-                        windows, linux, alias osx = darwin), or \`*\` patterns
-                        (darwin-*). Repeat the flag or separate values with
-                        commas. Default: all locally buildable platforms.
+                        windows, linux), the alias osx (= darwin), \`*\` for every
+                        platform, or trailing-\`*\` patterns (darwin-*). Several
+                        targets may be listed, space- or comma-separated; quote
+                        \`*\` so the shell keeps it.
+                        Default: every platform this host can build.
   --help, -h            Show this help.
 `);
 }
@@ -607,7 +615,7 @@ async function main() {
     return;
   }
   const config = loadConfig();
-  const platforms = resolvePlatforms(config, options.platforms);
+  const platforms = resolvePlatforms(config, options.targets);
   await installTools(platforms);
 }
 

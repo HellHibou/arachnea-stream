@@ -464,16 +464,22 @@ function buildCrossRunArgs(platform, tauriDir, command, extraEnv) {
  * @param {boolean} [dryRun] - When true, return the args without validating Docker.
  * @param {string[]} [bundles] - Bundle types to produce (default: the platform's
  *   Docker-producible bundles).
+ * @param {string|null} [productName] - ASCII product name override merged into
+ *   the Tauri config. Required for Linux installer bundles: the Debian bundler
+ *   copies productName verbatim into the control `Package:` field, which
+ *   rejects the accented `Arachnéa` from `tauri.conf.json` (dpkg only allows
+ *   `[a-z0-9+.-]`) and stages resources under `/usr/lib/Arachnéa/`.
  * @returns {string[]|null} Arguments to pass to the `docker` executable, or
  *   `null` when no bundles are requested.
  */
-export async function crossBundleArgs(platform, tauriDir, dryRun = false, bundles = null) {
+export async function crossBundleArgs(platform, tauriDir, dryRun = false, bundles = null, productName = null) {
   const requested = bundles ?? dockerBundlesFor(platform);
   if (requested.length === 0) return null;
   if (!dryRun) await assertDocker();
   const crateRel = path.relative(ROOT, path.resolve(tauriDir)).replace(/\\/g, '/');
   // JSON output never contains single quotes, so shell-quoting stays safe.
   const configJson = JSON.stringify({
+    ...(productName ? { productName } : {}),
     build: { beforeBuildCommand: null },
     bundle: { targets: requested },
   });
@@ -491,15 +497,19 @@ export async function crossBundleArgs(platform, tauriDir, dryRun = false, bundle
  * Prints a human-readable description of the installer cross-bundling runs, one
  * `docker run` line per bundle type.
  *
+ * @param {object} platform - A platform entry.
+ * @param {string} tauriDir - Absolute path of the Tauri crate on the host.
+ * @param {string|null} [productName] - ASCII product name override forwarded to
+ *   `crossBundleArgs` (see above).
  * @returns {string|null} Newline-separated descriptions, or `null` when the
  *   target has no Docker-producible bundles.
  */
-export async function describeCrossBundling(platform, tauriDir) {
+export async function describeCrossBundling(platform, tauriDir, productName = null) {
   const bundles = dockerBundlesFor(platform);
   if (bundles.length === 0) return null;
   const descriptions = [];
   for (const bundle of bundles) {
-    const args = await crossBundleArgs(platform, tauriDir, true, [bundle]);
+    const args = await crossBundleArgs(platform, tauriDir, true, [bundle], productName);
     descriptions.push(`docker ${args.join(' ')}`);
   }
   return descriptions.join('\n    ');

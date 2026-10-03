@@ -8,12 +8,12 @@ Local, zero-dependency Node tooling that builds the Arachnea Tauri application f
 |---|---|
 | `release-config.json` | Release configuration: project paths (including `frontendProject`), platform ids, Rust target triples, requested bundles, and portable archive config (`.zip` for Windows, `.tar.gz` for Linux/macOS). Single source of truth for what gets built. |
 | `build-config.json` | Build tool versions: minimum rustc (`minRustcVersion`), cross image tag (`crossImage`), in-image Tauri CLI (`tauriCliVersion`). Single source of truth for the `ensureRustcVersion()` guard (offers `rustup update` with confirmation when outdated) and the Docker image build. |
-| `capabilities.mjs` | Cross-compilation capability matrix per host (which bundles each OS can actually produce), family/output-folder naming, selector aliases, architecture short names. |
+| `capabilities.mjs` | Cross-compilation capability matrix per host (which bundles each OS can actually produce), family/output-folder naming, selector aliases, host OS+CPU to platform id mapping (`hostPlatformSelector`), architecture short names. |
 | `lib.mjs` | Shared helpers: config loading, workspace version parsing, platform resolution, artifact discovery, checksums, zip/tar.gz creation. |
 | `install-tools.mjs` | Installs everything required to build on this host (see below). |
 | `release.mjs` | The builder CLI: builds platforms, assembles `releases/release-<VERSION>/`, writes checksums. |
 | `docker.mjs` | Docker cross-build orchestration: locates/builds the Arachnea cross image and produces the `docker run` commands that compile raw Linux/macOS release binaries — and bundle the Linux installers through the in-image Tauri CLI — when the host cannot do it natively. |
-| `docker/Dockerfile` | The cross image (derived from `joseluisq/rust-linux-darwin-builder`): adds the WebKitGTK 4.1 stack required to compile the Tauri app for `*-unknown-linux-gnu` targets, plus the Tauri CLI for in-image installer bundling (prebuilt binary on amd64, compiled from crates.io on arm64). |
+| `docker/Dockerfile` | The cross image (derived from `joseluisq/rust-linux-darwin-builder:1.89.0`, Debian 12 Bookworm): adds the WebKitGTK 4.1 stack required to compile the Tauri app for `*-unknown-linux-gnu` targets, plus the Tauri CLI for in-image installer bundling (prebuilt binary on amd64, compiled from crates.io on arm64). The 1.x base keeps the bundled crypto stack (libgcrypt/libgpg-error) compatible with older distros such as Linux Mint; the 2.x line (Debian 13 Trixie) produces AppImages failing with `undefined symbol: gpgrt_add_post_log_func`. |
 | `package.json` | npm script aliases for the commands above. |
 
 ## Version source
@@ -23,14 +23,15 @@ The release version is read once from the `[workspace.package]` section of `serv
 ## Usage
 
 ```bash
-node build-release/install-tools.mjs                # provision tools for all locally buildable platforms
-node build-release/install-tools.mjs -p windows-*   # provision tools for matching platforms only
+node build-release/install-tools.mjs                # provision tools for every platform this host can build
+node build-release/install-tools.mjs "windows-*"    # provision tools for matching platforms only
 
-node build-release/release.mjs                      # build every platform available on this host
-node build-release/release.mjs -p windows           # one family
-node build-release/release.mjs -p "darwin-*"        # wildcard pattern
-node build-release/release.mjs -p darwin-arm64      # exact platform id
-node build-release/release.mjs -p osx -p linux-x86_64   # several selectors (repeat or comma)
+node build-release/release.mjs                      # build this host OS + CPU platform only
+node build-release/release.mjs windows              # one family
+node build-release/release.mjs "darwin-*"           # wildcard pattern
+node build-release/release.mjs darwin-arm64         # exact platform id
+node build-release/release.mjs osx linux-x86_64     # several targets (space- or comma-separated)
+node build-release/release.mjs "*"                  # every configured platform
 
 node build-release/release.mjs --list               # show platforms + what this host can produce
 node build-release/release.mjs --version            # print the project version
@@ -39,20 +40,59 @@ node build-release/release.mjs --no-frontend-build  # reuse the configured front
 node build-release/release.mjs --continue-on-error   # continue after a platform build failure
 node build-release/release.mjs --no-install         # skip tool provisioning/verification
 node build-release/release.mjs --dry-run            # print the planned production (incl. Docker cross builds) and exit
+node build-release/release.mjs windows-* --package portable # produce only these packages for a family
+node build-release/release.mjs --package "deb,portable"     # --package: repeatable and/or comma-separated
 ```
 
-Quote wildcard selectors (`-p "darwin-*"`): unquoted `*` is expanded by the shell.
+Quote wildcard selectors (`"darwin-*"`, `"*"`): unquoted `*` is expanded by the shell.
 
 When a required tool or Rust target is missing, `install-tools` asks for confirmation before installing it. This also applies when `release.mjs` invokes tool provisioning automatically; in a non-interactive terminal, the release stops rather than installing software without confirmation.
 
 ## Platform selectors
 
-Accepted by `-p/--platform` in both scripts:
+Platform selectors are plain positional arguments in both scripts (`-p` and
+`--platform` were removed); several targets may be listed, space- or
+comma-separated (`release.mjs "darwin-*" windows-x86_64`). Accepted forms:
 
 - exact platform id from `release-config.json`: `darwin-arm64`, `windows-x86_64`, ...
 - family name (part before the first dash): `darwin`, `windows`, `linux`
 - alias: `osx` (= `darwin`)
 - wildcard pattern: `darwin-*`, `windows-*`, ...
+- `*`: every configured platform
+
+The defaults differ on purpose:
+
+- `release.mjs` with no target builds the platform matching the **host OS and
+  CPU** only (`windows-x86_64` on a 64-bit Windows host, `darwin-arm64` on
+  Apple Silicon, `linux-arm64` on 64-bit ARM Linux, ...). Pass `"*"` to build
+  everything this host can produce, or list the other targets explicitly.
+- `install-tools.mjs` with no target provisions every platform this host can
+  build (its historical default), so `node build-release/install-tools.mjs`
+  still builds the Docker cross image.
+
+Unknown selectors abort the run with `No platform matches: ...`. `-p` and
+`--platform` now fail with an explicit message pointing at the new syntax.
+
+## Package selection
+
+By default, every package declared by each selected platform is produced
+(installer bundles from `bundles`, plus the portable archive and, on macOS
+targets, the `-app.tar.gz` archive). Pass `--package <name>` to narrow a run:
+
+- repeatable and/or comma-separated: `release.mjs windows-* --package portable`,
+  `release.mjs --package deb --package rpm`, `release.mjs --package "deb,portable"`;
+- known names come from `release-config.json` (`dmg`, `nsis`, `msi`, `deb`,
+  `rpm`, `appimage`) plus `portable` (portable archive) and `app` (macOS `.app`
+  archive); `all` and `*` select every declared package (the default);
+- an unknown name aborts with `Unknown package: ...` and the list of known
+  names; a package no selected target can produce is reported as a warning;
+- a platform left with nothing to produce is skipped without compiling;
+- the production method stays based on the declared bundles: selecting
+  `portable` alone does not turn a natively packaged platform into a Docker
+  (or unbuildable) one;
+- `--list` (`produces: ...`) and `--dry-run` (`packages=[...]`) reflect the
+  selection.
+
 
 ## Output layout
 
@@ -76,16 +116,17 @@ releases/release-0.1.0/
 
 Only what a run rebuilds is removed beforehand:
 
-- rebuilding a full family (`-p osx`) clears that whole family folder;
-- rebuilding a single platform (`-p darwin-x86_64`) removes only that build's artifacts and checksums, leaving other platforms' files untouched.
+- rebuilding a full family (`release.mjs osx`) clears that whole family folder;
+- rebuilding a single platform (`release.mjs darwin-x86_64`) removes only that build's artifacts and checksums, leaving other platforms' files untouched.
+- when `--package` narrows the run, a family folder is never cleared as a whole: only the selected packages' artifacts (and their checksums) are removed, so packages left out stay in place.
 
 ## Frontend builds
 
-The frontend project path comes from `frontendProject` in `release-config.json`. It is compiled **once** per run and shared by every target: each `cargo tauri build` gets a `--config` override disabling `beforeBuildCommand` (which stays active for manual `cargo tauri build` runs outside this tooling). Bundle types are also passed through the same `--config` merge because the CLI restricts its `--bundles` flag to a host-dependent value list.
+The frontend project path comes from `frontendProject` in `release-config.json`. It is compiled **once** per run and shared by every target: each `cargo tauri build` gets a `--config` override disabling `beforeBuildCommand` (which stays active for manual `cargo tauri build` runs outside this tooling). Bundle types are also passed through the same `--config` merge because the CLI restricts its `--bundles` flag to a host-dependent value list. Linux installer bundles (`*-unknown-linux-gnu` targets) additionally merge `productName` from `release-config.json` (`arachnea`) through the same `--config` override: the Tauri Debian bundler copies `productName` verbatim into the control `Package:` field, which rejects the accented `Arachnéa` from `tauri.conf.json` (`dpkg` only allows `[a-z0-9+.-]`) and stages resources under `/usr/lib/Arachnéa/`. macOS/Windows builds keep the `tauri.conf.json` display name untouched.
 
 ## Failure handling
 
-By default, a platform build failure stops the release build. Pass `--continue-on-error` to continue with the remaining platforms instead. The final summary lists attempted targets with `✓` for success and `✗` for failure. Any failed target returns a non-zero process exit code, including when subsequent targets completed successfully.
+By default, a platform build failure stops the release build. Pass `--continue-on-error` to continue with the remaining platforms instead. The final summary lists attempted targets with `✓` for success and `✗` for failure, and success lines append the packages that platform produced (`packages=[...]`, same names as `--dry-run`). Any failed target returns a non-zero process exit code, including when subsequent targets completed successfully.
 
 ## Cross-compilation matrix
 

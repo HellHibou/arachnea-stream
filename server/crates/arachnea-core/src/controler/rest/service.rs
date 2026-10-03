@@ -8,8 +8,8 @@ use warp::http::StatusCode;
 use warp::{reply, Filter, Rejection, Reply};
 
 use crate::controler::web_assets::{
-    asset_etag_for, etag_not_modified, new_web_generation, normalize_mount_path,
-    replace_html_base, scope_web_asset_source, web_instance_etag, WebAssetSource,
+    asset_etag_for, etag_not_modified, new_web_generation, normalize_mount_path, replace_html_base,
+    scope_web_asset_source, web_instance_etag, WebAssetSource,
 };
 use crate::controler::{
     install_global_main_thread_dispatcher, main_thread::MainThreadDispatchLoop,
@@ -347,32 +347,46 @@ impl RestControlerService {
             .and(warp::get())
             .and(warp::path::tail())
             .and(warp::header::optional::<String>("if-none-match"))
-            .and_then(move |tail: warp::path::Tail, if_none_match: Option<String>| {
-                let reserved_api = reserved_api.clone();
-                let web_base = web_base.clone();
-                let source = Arc::clone(&source);
-                let generation = generation.clone();
-                let instance = instance.clone();
-                async move {
-                    let request_path = tail.as_str();
-                    if let Some(api_entrypoint) = &reserved_api {
-                        let first_segment = request_path.split('/').next().unwrap_or_default();
-                        if first_segment == api_entrypoint {
-                            return Err(warp::reject::not_found());
+            .and_then(
+                move |tail: warp::path::Tail, if_none_match: Option<String>| {
+                    let reserved_api = reserved_api.clone();
+                    let web_base = web_base.clone();
+                    let source = Arc::clone(&source);
+                    let generation = generation.clone();
+                    let instance = instance.clone();
+                    async move {
+                        let request_path = tail.as_str();
+                        if let Some(api_entrypoint) = &reserved_api {
+                            let first_segment = request_path.split('/').next().unwrap_or_default();
+                            if first_segment == api_entrypoint {
+                                return Err(warp::reject::not_found());
+                            }
                         }
-                    }
 
-                    match source.load(request_path) {
-                        Ok(asset) => {
-                            if conditional {
-                                let (etag_header, bare_etag) =
-                                    asset_etag_for(asset.mime_type, &generation, &instance);
-                                if etag_not_modified(if_none_match.as_deref(), &bare_etag) {
-                                    let response = warp::http::Response::builder()
-                                        .status(StatusCode::NOT_MODIFIED)
-                                        .header("etag", etag_header)
-                                        .body(warp::hyper::Body::empty())
-                                        .expect("failed to build 304 web asset response");
+                        match source.load(request_path) {
+                            Ok(asset) => {
+                                if conditional {
+                                    let (etag_header, bare_etag) =
+                                        asset_etag_for(asset.mime_type, &generation, &instance);
+                                    if etag_not_modified(if_none_match.as_deref(), &bare_etag) {
+                                        let response = warp::http::Response::builder()
+                                            .status(StatusCode::NOT_MODIFIED)
+                                            .header("etag", etag_header)
+                                            .body(warp::hyper::Body::empty())
+                                            .expect("failed to build 304 web asset response");
+                                        return Ok::<RestReply, Rejection>((
+                                            Box::new(response) as Box<dyn Reply + Send>,
+                                        ));
+                                    }
+                                    let bytes = if asset.mime_type.starts_with("text/html") {
+                                        replace_html_base(asset.bytes, &web_base)
+                                    } else {
+                                        asset.bytes
+                                    };
+                                    let response =
+                                        reply::with_header(bytes, "content-type", asset.mime_type);
+                                    let response =
+                                        reply::with_header(response, "etag", etag_header);
                                     return Ok::<RestReply, Rejection>((
                                         Box::new(response) as Box<dyn Reply + Send>,
                                     ));
@@ -382,28 +396,17 @@ impl RestControlerService {
                                 } else {
                                     asset.bytes
                                 };
-                                let response = reply::with_header(bytes, "content-type", asset.mime_type);
                                 let response =
-                                    reply::with_header(response, "etag", etag_header);
-                                return Ok::<RestReply, Rejection>((
+                                    reply::with_header(bytes, "content-type", asset.mime_type);
+                                Ok::<RestReply, Rejection>((
                                     Box::new(response) as Box<dyn Reply + Send>,
-                                ));
+                                ))
                             }
-                            let bytes = if asset.mime_type.starts_with("text/html") {
-                                replace_html_base(asset.bytes, &web_base)
-                            } else {
-                                asset.bytes
-                            };
-                            let response =
-                                reply::with_header(bytes, "content-type", asset.mime_type);
-                            Ok::<RestReply, Rejection>((
-                                Box::new(response) as Box<dyn Reply + Send>,
-                            ))
+                            Err(_) => Err(warp::reject::not_found()),
                         }
-                        Err(_) => Err(warp::reject::not_found()),
                     }
-                }
-            })
+                },
+            )
             .boxed();
 
         self.add_route(new_filter);

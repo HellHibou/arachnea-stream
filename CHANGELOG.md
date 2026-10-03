@@ -7,13 +7,20 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- `release.mjs` gained a `--package <name>` option to select which packages a run produces: repeatable and/or comma-separated (`--package deb --package portable`, `--package "deb,portable"`), known names coming from the configuration (`dmg`, `nsis`, `msi`, `deb`, `rpm`, `appimage`) plus `portable` (portable archive) and `app` (macOS `.app` archive), and `all`/`*` keeping the default of every declared package. Unknown names abort with the list of known names; packages no selected target can produce are reported as a warning; platforms left with nothing to produce are skipped without compiling; `--list` (`produces:`) and `--dry-run` (`packages=[...]`) reflect the selection; the production method stays based on the declared bundles (selecting `portable` alone never switches a platform to Docker or unbuildable); and cleanup only removes the selected packages, so artifacts left out of the selection stay in place from previous runs.
+
 #### Changed
 
 - Release tooling versions are now centralized in `build-release/build-config.json` (minimum rustc, cross image tag, in-image Tauri CLI) instead of constants scattered across `lib.mjs`/`docker.mjs`/`Dockerfile`; the Docker image build forwards the Tauri CLI version as a build arg.
+- Platform selection is now host-aware and positional: `-p`/`--platform` were removed, and both `release.mjs` and `install-tools.mjs` take plain target arguments (exact ids, family names/`osx`, `*` for every configured platform, trailing-`*` patterns, several targets space- or comma-separated). With no target, `release.mjs` builds only the platform matching the host OS and CPU (`windows-x86_64` on a 64-bit Windows host, `darwin-arm64` on Apple Silicon, `darwin-x86_64` on Intel Macs, `linux-arm64`/`linux-x86_64` on Linux) instead of every configured platform, so building everything now requires `release.mjs "*"`. The host mapping lives in `capabilities.mjs` (`hostPlatformSelector`) and is applied through `lib.mjs`'s `defaultSelectors`; an unknown host CPU falls back to the host family and an unsupported host OS keeps the previous "all platforms" behavior with a warning. `--list` keeps listing every configured platform (filtered when targets are given), `install-tools.mjs` keeps provisioning every platform the host can build when called without target, and the `package.json` scripts pass their id positionally. Using a removed flag fails with an explicit message pointing at the new syntax.
+- The final build summary now appends, on every successful target, the packages that target produced (`packages=[...]`, same names as in `--dry-run`, e.g. `success packages=[nsis, msi, portable]`); failed targets keep showing only their error.
 
 #### Fixed
 
 - Release tooling now checks the active rustc version before building: when it is older than the `minRustcVersion` floor in `build-config.json` (1.91.0, required by the locked `foyer@0.22.4+` dependency), it offers to run `rustup update` with confirmation instead of failing late inside `cargo tauri build`.
+- Linux installer bundles (`.deb`/`.rpm`) now override `productName` with the ASCII `arachnea` from `release-config.json` through the Tauri `--config` merge: the Tauri Debian bundler copied the accented `Arachnéa` from `tauri.conf.json` verbatim into the control `Package:` field, which `dpkg` rejects (only `[a-z0-9+.-]` allowed), and staged resources under `/usr/lib/Arachnéa/`. Applies to native Linux builds and Docker cross-bundle passes (`crossBundleArgs`/`describeCrossBundling`); macOS/Windows builds keep the `Arachnéa` display name.
+- Cross image rebased from `joseluisq/rust-linux-darwin-builder:2.0.0-beta.1` (Debian 13 Trixie) to `1.89.0` (Debian 12 Bookworm): linuxdeploy bundled the newer `libgcrypt.so.20` without the matching `libgpg-error >= 1.49`, so the AppImage aborted at launch on older distros such as Linux Mint with `symbol lookup error: undefined symbol: gpgrt_add_post_log_func, version GPG_ERROR_1.0`. The Bookworm base aligns the bundled crypto stack with the oldest supported distro. Rebuild the image (`arachnea-cross-builder:1.0.1`); discard the stale `1.0.0` tag since the 2.x-based layers are incompatible.
+- Cross image Bookworm base now installs `libayatana-appindicator3-dev` (Tauri tray support) and `libsystemd-dev`: the Trixie base carried them transitively, while the Bookworm link failed with `rust-lld: error: unable to find library -lsystemd` (via `libdbus-1`). Image tag bumped to `arachnea-cross-builder:1.0.2`.
 - Portable `.tar.gz` archives built on Windows are now usable: `createArchive` / `createTarGz` normalize the POSIX modes recorded in the archive (`normalizeTarGzModes`), because Windows has no permission bits and its `bsdtar` stores every entry as `0666`/`0777` — the amd64 archive produced on a Windows host therefore held a **non-executable** `arachnea`. That broke `arachnea-docker`'s image build (`test -x /tmp/app/arachnea` aborted the `fetcher` stage with `exit code: 1` and no diagnostic, since the check only runs under `set -e`) and would also have handed Linux users an archive that does not run after extraction. Windows' `bsdtar` (3.8.8) rejects `--mode`, so the modes are rewritten in the archive itself — a pure-Node helper reading the gzipped tar with `node:zlib`, setting files to `0644`, directories to `0755` and the entries listed by the caller to `0755` (macOS and GNU tar values), which makes the archive independent of the build host, and recomputing each header checksum. `release.mjs` passes the release executable for the portable archive and `Arachnéa.app/Contents/MacOS/arachnea` for the macOS `.app` archive; a missing expected entry fails the build instead of shipping a silently broken archive.
 
 ### <u>arachnea-docker</u>
@@ -42,6 +49,18 @@ All notable changes to the server workspace are recorded here.
   to LF on every checkout (`*.cmd`/`*.bat` stay CRLF), and the `Dockerfile`
   strips a trailing CR from the entrypoint's first line at `COPY` time so
   working trees checked out before that pinning still build a working image.
+
+### <u>arachnea-core</u>
+
+#### Added
+
+#### Changed
+
+- `get_application_resource_path` now probes the release layouts (portable folder, macOS `Contents/Resources`, Linux system resource dir) for the requested relative path itself (file or directory) instead of resolving a cached resource root from a `services` directory check; `get_application_resource_root` was removed accordingly.
+
+#### Fixed
+
+- Linux resource probing now prefers the AppImage mount root (`$APPDIR/usr/lib/*/services`): the resolution previously derived `../lib` from the executable path alone, which resolved to `/tmp/.mount_.../usr/bin/services` (missing) instead of the Tauri bundler layout `$APPDIR/usr/lib/<product>/services`. deb/rpm probing via the executable path is unchanged.
 
 ### <u>arachnea-proxy</u>
 
@@ -176,4 +195,3 @@ All notable changes to the server workspace are recorded here.
 #### Changed
 
 - Proxy country routing now accepts only the ordered JSON `countries` parameter and `Arachnea-Proxy-Countries` header. The proxy core, HTTP/SOCKS parameter parsing, static and dynamic country handlers, Scrapyfy dynamic proxy-core configuration, proxy URL helpers, and the M6+ redirect rule no longer support the singular `country` / `Arachnea-Proxy-Country` contract.
-

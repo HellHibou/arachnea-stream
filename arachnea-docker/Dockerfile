@@ -127,7 +127,6 @@ LABEL org.opencontainers.image.title="Arachnea Stream" \
 EXPOSE 8080
 
 # Version of the `arachnea` binary baked into the image (informational only).
-ARG ARACHNEA_VERSION=0.1.0
 ENV ARACHNEA_VERSION=${ARACHNEA_VERSION} \
     # Port and network mode consumed by `docker-entrypoint.sh`.
     ARACHNEA_PORT=8080 \

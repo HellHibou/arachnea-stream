@@ -75,6 +75,18 @@ const SELECTOR_ALIASES = {
 };
 
 /**
+ * Package kind produced as a portable archive (`.zip` on Windows, `.tar.gz`
+ * elsewhere) instead of a Tauri installer bundle.
+ */
+export const PORTABLE_PACKAGE = 'portable';
+
+/**
+ * Package kind produced as a macOS `.app` archive (`-app.tar.gz`), a separate
+ * artifact from the portable archive.
+ */
+export const APP_PACKAGE = 'app';
+
+/**
  * Returns the release subfolder name for a platform id, using only the
  * family part before the first dash (`darwin-arm64` -> `darwin`,
  * `windows-x86_64` -> `windows`).
@@ -109,9 +121,76 @@ export function familyOf(idOrSelector) {
   return idOrSelector.split('-')[0];
 }
 
+/**
+ * Returns `true` when the platform target is a macOS one. Those targets get an
+ * extra `-app.tar.gz` archive embedding a launchable `<productName>.app`
+ * bundle (the Tauri CLI cannot bundle a `.app` from the cross image).
+ *
+ * @param {object} platform - A platform entry with a `target` triple.
+ * @returns {boolean} Whether the target is `*-apple-darwin`.
+ */
+export function isMacTarget(platform) {
+  return platform.target.endsWith('-apple-darwin');
+}
+
+/**
+ * Every package name accepted by `--package` for a configuration: the Tauri
+ * installer bundle types declared by the platforms, plus the portable archive
+ * and the macOS `.app` archive.
+ *
+ * @param {object} config - Release configuration.
+ * @returns {string[]} Accepted package names, in a stable order.
+ */
+export function knownPackageNames(config) {
+  const names = [];
+  for (const platform of config.platforms ?? []) {
+    for (const bundle of platform.bundles ?? []) {
+      if (!names.includes(bundle)) names.push(bundle);
+    }
+  }
+  names.push(APP_PACKAGE, PORTABLE_PACKAGE);
+  return names;
+}
+
 /** Current build host normalized to a supported capability key or `null`. */
 export function hostId() {
   return HOST_CAPABILITIES[process.platform] ? process.platform : null;
+}
+
+/**
+ * Host OS family token used in `release-config.json` platform ids, keyed by the
+ * Node `process.platform` value.
+ */
+const HOST_FAMILIES = {
+  darwin: 'darwin',
+  win32: 'windows',
+  linux: 'linux',
+};
+
+/**
+ * Host CPU token used in platform ids, keyed by the Node `process.arch` value.
+ */
+const HOST_ARCHES = {
+  x64: 'x86_64',
+  arm64: 'arm64',
+};
+
+/**
+ * Platform id matching the host OS and CPU, used as the default build target
+ * when the command line carries no selector (`windows-x86_64` on a 64-bit
+ * Windows host, `darwin-arm64` on Apple Silicon, ...).
+ *
+ * Falls back to the host family alone (`darwin`, `windows`, `linux`) when the
+ * CPU is not part of the mapping, and returns `null` when the host OS itself is
+ * not supported.
+ *
+ * @returns {string|null} Host platform selector, e.g. `linux-arm64`.
+ */
+export function hostPlatformSelector() {
+  const family = HOST_FAMILIES[process.platform];
+  if (!family) return null;
+  const arch = HOST_ARCHES[process.arch];
+  return arch ? `${family}-${arch}` : family;
 }
 
 /**

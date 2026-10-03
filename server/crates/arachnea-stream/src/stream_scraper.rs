@@ -40,7 +40,7 @@ pub const STREAM_SERVICE_GROUP_NAME: &str = "arachnea-stream";
 pub const STREAM_SERVICES_STORE_NAME: &str = "arachnea-services";
 /// Root directory, relative to the application data directory, of the SQLite
 /// persistence stores.
-pub const PERSISTENCE_DATA_ROOT: &str = "data/persistence";
+pub const PERSISTENCE_DATA_ROOT: &str = "data";
 /// Marker written after the namespaced service-record schema is initialized.
 const SERVICE_STORE_SCHEMA_V2_MARKER: &str = ".source-service-schema-v2";
 
