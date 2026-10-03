@@ -20,30 +20,33 @@ contributors. For a functional overview of the project, see the root
 
 ## Installation
 
-Install Rust with `rustup`, Node.js with npm, and the platform build tools required by Tauri and native Rust dependencies. The workspace requires rustc >= 1.91.0 (locked `foyer@0.22.4+` dependency); run `rustup update` if the release tooling reports your toolchain as too old. After installation, open a new terminal and verify `rustc -V`, `cargo -V`, `node -v`, `npm -v`, and `cmake --version`.
+Install Rust with `rustup`, Node.js with npm, and the platform build tools required by Tauri and native Rust dependencies. The workspace requires rustc >= 1.91.0 (locked `foyer@0.22.4+` dependency); run `rustup update` if the release tooling reports your toolchain as too old. BoringSSL-based dependencies additionally need Go, Perl and a C++ compiler: BoringSSL's CMake runs `find_package(Perl REQUIRED)` and generates `err_data.c` with `go run`, so both commands must be on PATH (a missing one fails `boring-sys2`'s configure step with `Os { code: 2, kind: NotFound }`), and NASM is additionally required on Windows for its x86 assembly. The `build-release` tooling installs these through Homebrew, apt or winget when a build needs them. After installation, open a new terminal and verify `rustc -V`, `cargo -V`, `node -v`, `npm -v`, and `cmake --version`.
 
 Windows PowerShell:
 
 ```powershell
 winget install --id Rustlang.Rustup -e
 winget install --id Kitware.CMake -e
+winget install --id GoLang.Go -e
+winget install --id StrawberryPerl.StrawberryPerl -e
+winget install --id NASM.NASM -e
 rustup default stable-msvc
 ```
 
-Also install Microsoft C++ Build Tools with the `Desktop development with C++` workload. WebView2 is normally present on Windows 10 1803 and later, but install the Evergreen runtime if Tauri reports it missing. If CMake was installed with the MSI or Chocolatey instead of Winget, make sure `C:\Program Files\CMake\bin` is on `PATH`; the Chocolatey package supports `choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System'`.
+Also install Microsoft C++ Build Tools with the `Desktop development with C++` workload. WebView2 is normally present on Windows 10 1803 and later, but install the Evergreen runtime if Tauri reports it missing. Keep Strawberry Perl's `C:\Strawberry\c\bin` (a GCC toolchain) off `PATH`: it makes CMake and the BoringSSL build misdetect the compiler. If CMake was installed with the MSI or Chocolatey instead of Winget, make sure `C:\Program Files\CMake\bin` is on `PATH`; the Chocolatey package supports `choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System'`.
 
 macOS:
 
 ```bash
 xcode-select --install
-brew install cmake
+brew install cmake go
 ```
 
 Linux Debian/Ubuntu:
 
 ```bash
 sudo apt update
-sudo apt install -y build-essential cmake pkg-config libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+sudo apt install -y build-essential cmake pkg-config libssl-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev golang-go perl git clang libclang-dev
 ```
 
 Use the official CMake download page if the distribution package is too old for a native dependency.
@@ -137,7 +140,7 @@ The Windows portable archive is the only generated zip; it ships the release exe
 
 The following commands are available for the frontend project in `front/`.
 
-- `npm install` - Install frontend dependencies.
+- `npm install` - Install frontend dependencies. Run it in `front/`, then in `front/public-app` and `front/admin-app` (the root `front/` project has no npm workspaces field, and each app build script spawns its own local binaries such as `run-p`). The release tooling does this automatically before building the frontend.
 - `npm run dev` - Start the Vite development server.
 - `npm run build` - Run type checks and build the production bundle.
 - `npm run preview` - Preview the production build locally.

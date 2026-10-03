@@ -23,30 +23,33 @@ This directory is the Rust backend Cargo workspace. It contains the stream appli
 
 ## Install Prerequisites
 
-Install Rust with `rustup`, Node.js with npm, Tauri's native platform requirements, and CMake. Reopen the shell after installing CMake and verify `cmake --version`.
+Install Rust with `rustup`, Node.js with npm, Tauri's native platform requirements, and CMake. BoringSSL-based dependencies additionally need Go, Perl and a C++ compiler: BoringSSL's CMake runs `find_package(Perl REQUIRED)` and generates `err_data.c` with `go run`, so a missing one fails the configure step with `Os { code: 2, kind: NotFound }` (NASM is also required on Windows). Reopen the shell after installing CMake and verify `cmake --version`.
 
 Windows PowerShell:
 
 ```powershell
 winget install --id Rustlang.Rustup -e
 winget install --id Kitware.CMake -e
+winget install --id GoLang.Go -e
+winget install --id StrawberryPerl.StrawberryPerl -e
+winget install --id NASM.NASM -e
 rustup default stable-msvc
 ```
 
-Install Microsoft C++ Build Tools with `Desktop development with C++`. If `cmake` is not found after using the MSI installer, add `C:\Program Files\CMake\bin` to `PATH`. With Chocolatey, use `choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System'`.
+Install Microsoft C++ Build Tools with `Desktop development with C++`, and keep Strawberry Perl's `C:\Strawberry\c\bin` (a GCC toolchain) off `PATH` so CMake keeps detecting MSVC. If `cmake` is not found after using the MSI installer, add `C:\Program Files\CMake\bin` to `PATH`. With Chocolatey, use `choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System'`.
 
 macOS:
 
 ```bash
 xcode-select --install
-brew install cmake
+brew install cmake go
 ```
 
 Linux Debian/Ubuntu:
 
 ```bash
 sudo apt update
-sudo apt install -y build-essential cmake pkg-config libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+sudo apt install -y build-essential cmake pkg-config libssl-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev golang-go perl git clang libclang-dev
 ```
 
 ## Design Principles

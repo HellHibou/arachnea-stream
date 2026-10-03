@@ -122,7 +122,7 @@ Only what a run rebuilds is removed beforehand:
 
 ## Frontend builds
 
-The frontend project path comes from `frontendProject` in `release-config.json`. It is compiled **once** per run and shared by every target: each `cargo tauri build` gets a `--config` override disabling `beforeBuildCommand` (which stays active for manual `cargo tauri build` runs outside this tooling). Bundle types are also passed through the same `--config` merge because the CLI restricts its `--bundles` flag to a host-dependent value list. Linux installer bundles (`*-unknown-linux-gnu` targets) additionally merge `productName` from `release-config.json` (`arachnea`) through the same `--config` override: the Tauri Debian bundler copies `productName` verbatim into the control `Package:` field, which rejects the accented `Arachnéa` from `tauri.conf.json` (`dpkg` only allows `[a-z0-9+.-]`) and stages resources under `/usr/lib/Arachnéa/`. macOS/Windows builds keep the `tauri.conf.json` display name untouched.
+The frontend project path comes from `frontendProject` in `release-config.json`. It is compiled **once** per run and shared by every target: each `cargo tauri build` gets a `--config` override disabling `beforeBuildCommand` (which stays active for manual `cargo tauri build` runs outside this tooling). Before that shared build, `install-tools` ensures each workspace (`front/`, `front/public-app`, `front/admin-app`) has its `node_modules`: the app build scripts spawn their local `run-p` (from `npm-run-all2`), so a checkout without dependencies stops with `'run-p' is not recognized as an internal or external command`. Skipped with `--no-install`, `--skip-build` or `--no-frontend-build`. Bundle types are also passed through the same `--config` merge because the CLI restricts its `--bundles` flag to a host-dependent value list. Linux installer bundles (`*-unknown-linux-gnu` targets) additionally merge `productName` from `release-config.json` (`arachnea`) through the same `--config` override: the Tauri Debian bundler copies `productName` verbatim into the control `Package:` field, which rejects the accented `Arachnéa` from `tauri.conf.json` (`dpkg` only allows `[a-z0-9+.-]`) and stages resources under `/usr/lib/Arachnéa/`. macOS/Windows builds keep the `tauri.conf.json` display name untouched.
 
 ## Failure handling
 
@@ -175,11 +175,24 @@ even when the host could build them natively. `--list` shows the chosen method
 (`native`/`docker`), and `--dry-run` prints the exact `docker run` commands
 without executing them. The workspace requires rustc >= 1.91.0 (locked
 `foyer@0.22.4+` dependency); both entry points fail fast with an actionable
-error when the toolchain is older — run `rustup update`, then rebuild.
+error when the toolchain is older — run `rustup update`, then rebuild. When
+`cargo` is missing entirely, both entry points instead offer to install Rust
+through the official rustup script (`curl ... https://sh.rustup.rs | sh -s --
+-y`, `wget` fallback) after a `[y/N]` confirmation, then continue in the same
+run (`~/.cargo/bin` is added to the process PATH); refusing, a non-interactive
+terminal, or a Windows host keep the plain "install Rust first" error, Rust on
+Windows being installed through `winget` as documented in `server/README.md`.
 
-The Docker path assumes Docker is available; run
-`node build-release/install-tools.mjs` to build the cross image (asks for
-confirmation, as it pulls the large Rust + osxcross base image). The image is
+The Docker path only covers platforms that resolve to `method: docker`; a run
+whose platforms all build natively (e.g. the default `linux-x86_64` build on a
+Linux host) never needs Docker. When a cross build does require it and the
+`docker` CLI is missing on Linux, the tooling offers to install Docker Engine
+itself after a `[y/N]` confirmation (official `get.docker.com` script through
+`sudo`), adds the user to the `docker` group and re-launches the run through
+`sg docker` so the new membership applies without logging out; Windows/macOS
+keep the explicit "install Docker" error (Docker Desktop). To build the cross
+image, run `node build-release/install-tools.mjs` (asks for confirmation, as it
+pulls the large Rust + osxcross base image). The image is
 built **for both architecture ports** (`linux/amd64` and `linux/arm64`)
 through `docker buildx build --platform linux/amd64,linux/arm64`, so any Linux
 target can run right away. Keeping both variants under the single
@@ -201,12 +214,28 @@ the Debian base image, so they target distributions of same-or-newer vintage.
 
 ## What `install-tools` provisions
 
+- The Rust toolchain itself when `cargo` is missing: offered with a `[y/N]`
+  confirmation through the official rustup installer on Linux/macOS (same
+  guard in `release.mjs`, before any build step).
+- Docker Engine on Linux when — and only when — a selected platform is
+  produced through the cross image (`method: docker`): installed with the
+  standard `[y/N]` confirmation via the official `get.docker.com` script,
+  including `docker` group membership. Runs whose platforms all resolve to the
+  native method never touch Docker.
 - rustup targets for every selected platform.
+- The host Tauri CLI (`cargo tauri`) at the `tauriCliVersion` from
+  `build-config.json` (same version as the cross image) whenever a selected
+  platform builds natively: offered with the standard `[y/N]` confirmation via
+  `cargo install --locked tauri-cli@<version>` when missing or outdated, since
+  `cargo tauri build` fails with `error: no such command: 'tauri'` without the
+  `cargo-tauri` binary (Docker-built platforms use the in-image CLI instead).
 - `cargo-xwin` when a Windows target is built from a non-Windows host.
 - LLVM tools (`clang`, `lld-link`, `llvm-rc`) through Homebrew on macOS or apt on Linux for cargo-xwin.
-- CMake, Ninja and NASM — required by BoringSSL-based dependencies (`cmake -G Ninja`, `ASM_NASM`).
+- CMake, Ninja, NASM, Go, Perl and a C++ compiler — required by BoringSSL-based dependencies: BoringSSL's CMake runs `find_package(Perl REQUIRED)` and generates `err_data.c` through `go run`, NASM supplies the x86 assembly on Windows, and `cmake -G Ninja` drives the build. Installed through Homebrew on macOS and apt on Linux; on Windows through winget (`Kitware.CMake`, `Ninja-build.Ninja`, `NASM.NASM`, `GoLang.Go`, `StrawberryPerl.StrawberryPerl`) after the standard `[y/N]` confirmation, elevated through a UAC prompt when the shell is not administrator, with the resulting directories added to this run's PATH (Strawberry Perl's `c\bin` is left out — the GCC it ships makes the build misdetect the compiler). A `ninja`/`cl.exe` shipped inside Visual Studio counts as present, since CMake and rustc locate those through the VS installation; any tool left missing is reported with the matching winget id. The known install directories (Go, Strawberry `perl\bin`, NASM, CMake, `ninja-build`, winget's `Links` shims) are prepended to the run's PATH **before** that check, because the installers only refresh the *machine* PATH: a terminal started before them (VS Code's integrated shell) would otherwise report the tools as missing on every run and ask to install them again, and the build itself would not find `perl`/`go` either.
 - `makensis`, plus a `makensis.exe` shim in `~/.arachnea-cross-tools/bin/` wrapping the native compiler: the Tauri NSIS bundler looks for the Windows-style executable name even on non-Windows hosts. Spawned builds automatically prepend that directory to PATH.
-- Linux system packages (`libwebkit2gtk-4.1-dev`, ...) when running on Linux.
+- The frontend workspace dependencies (`npm install` in `front/`, `front/public-app` and `front/admin-app`) whenever the run builds the frontend: the app build scripts spawn the local `run-p` binary from their `npm-run-all2` dependency, so a checkout without `node_modules` failed with `'run-p' is not recognized as an internal or external command`. A single `[y/N]` confirmation covers all pending workspaces, and workspaces whose `node_modules` is already up to date (lockfile marker newer than `package.json`) are skipped. Skipped entirely with `--skip-build`/`--no-frontend-build`.
+- Linux system packages (`libwebkit2gtk-4.1-dev`, `libssl-dev`, `git`, `clang`, ...) when running on Linux: `dpkg-query` is checked first, so a run where everything is already installed skips the `sudo`/`apt-get update` round-trip (password prompt) instead of reinstalling idempotently.
+- cargo's target directory: when `server/target/` sits on an unreliable mount (VirtualBox `vboxsf`, VMware `vmhgfs`, NFS/CIFS/SSHFS, exFAT/vFAT/NTFS — detected with `stat -f -c %T`), the run offers to redirect to `~/.cache/arachnea-target` via `CARGO_TARGET_DIR` (standard `[y/N]` confirmation). Build-script outputs written into such mounts silently vanish (`serde_core` `OUT_DIR/private.rs` missing even after `cargo clean`), so building there can never succeed; an explicit `CARGO_TARGET_DIR` is always respected.
 - The Arachnea Docker cross image (installs the WebKitGTK stack and the Tauri
   CLI on top of `joseluisq/rust-linux-darwin-builder`) whenever a Linux/macOS
   portable binary or a Linux installer bundle is selected on a host that cannot

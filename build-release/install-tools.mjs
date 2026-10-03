@@ -4,18 +4,21 @@
 // host is available:
 // - rustup targets (standard library for each target triple),
 // - `cargo-xwin` (Windows MSVC linker/runner for non-Windows hosts),
+// - host Tauri CLI (`cargo tauri`) for natively-built platforms,
+// - frontend dependencies (`npm install` in `front/` workspaces, so `run-p`
+//   and other local binaries exist before `release.mjs` runs `npm run build`),
 // - Linux system packages required by Tauri/WebKitGTK bundles,
 // - `zip` for the Windows portable archive.
 //
 // Usage:
 //   node release/install-tools.mjs                 # all locally buildable platforms
 //   node release/install-tools.mjs windows-*       # tools for matching platforms only
-import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { canRun, commandPath, run, loadConfig, resolvePlatforms, hostLabel, CROSS_TOOLS_BIN_DIR, findVsInstallation, msvcToolsetDir, vsWhereExe, windowsNativeMsvcArm64State, isElevated, runElevatedSync, ensureRustcVersion } from './lib.mjs';
+import { canRun, commandPath, run, loadConfig, resolvePlatforms, resolveFromRelease, hostLabel, CROSS_TOOLS_BIN_DIR, findVsInstallation, msvcToolsetDir, vsWhereExe, windowsNativeMsvcArm64State, isElevated, runElevatedSync, ensureRustcVersion, ensureRustToolchain, ensureTauriCli, ensureLocalTargetDir } from './lib.mjs';
 import { assertDocker, crossImagePresent, ensureCrossImage } from './docker.mjs';
 
 function parseArgs(argv) {
@@ -240,21 +243,148 @@ async function installCargoXwin(platforms) {
   run('cargo', ['install', 'cargo-xwin', '--locked']);
 }
 
+/**
+ * Ensures the host Tauri CLI (`cargo tauri`) when at least one buildable
+ * platform uses the native method (host-side `cargo tauri build` needs the
+ * `cargo-tauri` binary; Docker-built platforms use the in-image CLI instead).
+ *
+ * Must run after Rust provisioning (`ensureRustToolchain`/`ensureRustcVersion`):
+ * the version probe shells out to `cargo`, and installing `tauri-cli` pins the
+ * `tauriCliVersion` from `build-config.json` (same version as the cross image).
+ */
+async function ensureHostTauriCli(buildable) {
+  if (!buildable.some((p) => p.method === 'native')) return;
+  await ensureTauriCli();
+}
+
+/**
+ * Returns `true` when the given Debian package is installed (`dpkg-query`
+ * reports `install ok installed`). Returns `false` when `dpkg-query` itself
+ * is unavailable, so callers fall back to the previous install flow.
+ *
+ * @param {string} pkg - Debian package name.
+ * @returns {boolean} Whether the package is installed.
+ */
+function isDebPackageInstalled(pkg) {
+  if (!canRun('dpkg-query')) return false;
+  const result = spawnSync('dpkg-query', ['-W', '-f=${Status}', pkg], {
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  if (result.error || result.status !== 0) return false;
+  return String(result.stdout ?? '').includes('install ok installed');
+}
+
 /** Installs Linux system packages required by Tauri bundles. */
 async function installLinuxSystemDeps() {
   if (process.platform !== 'linux') return;
   const packages = [
     'libwebkit2gtk-4.1-dev',
-    'libappindicator3-dev',
+    // Ayatana fork (Tauri's documented prerequisite): the legacy
+    // `libappindicator3-dev` depends on `libappindicator3-1`, which apt reports
+    // as conflicting with the `libayatana-appindicator3-1` shipped by Linux
+    // Mint/Ubuntu, aborting the whole install.
+    'libayatana-appindicator3-dev',
     'librsvg2-dev',
     'patchelf',
     'xdg-utils',
     'zip',
+    // OpenSSL dev files (`openssl.pc` + headers): `openssl-sys` locates OpenSSL
+    // through pkg-config, so a runtime-only `libssl3` install is not enough.
+    'libssl-dev',
+    'pkg-config',
+    // `boring-sys2`'s build script applies BoringSSL patches through `git`
+    // (`ensure_patches_applied`, first step of `build/main.rs`): without it the
+    // script panics with `Os { code: 2, kind: NotFound }` at `main.rs:662`.
+    'git',
+    // `boring-sys2` generates its bindings through `bindgen`, which needs
+    // `libclang` (bindgen requirements: `libclang-dev` on Debian; the `clang`
+    // package as well to dump preprocessed inputs).
+    'clang',
+    'libclang-dev',
   ];
   console.log('\n[install-tools] Installing Linux system packages...');
-  await confirmInstallation(`Linux system packages: ${packages.join(', ')}`);
+  // Skip the sudo/apt round-trip (password prompt + `apt-get update`) when
+  // every package is already present: `apt-get install -y` is idempotent, but
+  // asking for it on each run is pure friction.
+  const missing = packages.filter((pkg) => !isDebPackageInstalled(pkg));
+  if (missing.length === 0) {
+    console.log('[install-tools] Linux system packages already installed.');
+    return;
+  }
+  await confirmInstallation(`Linux system packages: ${missing.join(', ')}`);
   run('sudo', ['apt-get', 'update']);
-  run('sudo', ['apt-get', 'install', '-y', ...packages]);
+  run('sudo', ['apt-get', 'install', '-y', ...missing]);
+}
+
+/**
+ * Workspace roots holding a `package.json` that must be installed before the
+ * frontend build: the root `front/` project plus each app workspace (`front/`
+ * has no npm workspaces field, so every directory installs its own deps).
+ */
+const FRONTEND_WORKSPACES = ['.', 'public-app', 'admin-app'];
+
+/**
+ * Returns `true` when a frontend workspace looks installed (its
+ * `node_modules/.package-lock.json` exists and is newer than its
+ * `package.json`), so repeat runs skip the `npm install` round-trip instead of
+ * reinstalling idempotently.
+ *
+ * @param {string} dir - Absolute path of the workspace directory.
+ * @returns {boolean} Whether dependencies look up to date.
+ */
+function frontendWorkspaceInstalled(dir) {
+  try {
+    const marker = path.join(dir, 'node_modules', '.package-lock.json');
+    if (!existsSync(marker)) return false;
+    const markerTime = statSync(marker).mtimeMs;
+    for (const file of ['package.json', 'package-lock.json']) {
+      const manifest = path.join(dir, file);
+      if (existsSync(manifest) && statSync(manifest).mtimeMs > markerTime) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Ensures the frontend workspaces have their dependencies installed before
+ * `release.mjs` runs `npm run build`: the app build scripts spawn `run-p` from
+ * the local `npm-run-all2` dependency, so a checkout without `node_modules`
+ * fails with `'run-p' is not recognized as an internal or external command`.
+ * Each workspace installs after a single confirmation, and already-installed
+ * ones are skipped (see `frontendWorkspaceInstalled`).
+ */
+async function ensureFrontendDeps() {
+  const { frontendProject } = loadConfig();
+  const root = resolveFromRelease(frontendProject);
+  const pending = FRONTEND_WORKSPACES.map((workspace) => ({
+    workspace,
+    dir: path.join(root, workspace),
+  })).filter(
+    ({ dir }) => existsSync(path.join(dir, 'package.json')) && !frontendWorkspaceInstalled(dir),
+  );
+  if (pending.length === 0) return;
+  if (!canRun('npm')) {
+    throw new Error(
+      '`npm` is not installed: install Node.js (with npm) before building the frontend ' +
+        `(missing dependencies in: ${pending.map(({ workspace }) => workspace).join(', ')}).`,
+    );
+  }
+  await confirmInstallation(
+    `frontend dependencies via \`npm install\` in: ${pending.map(({ workspace }) => workspace).join(', ')}`,
+  );
+  const isWindows = process.platform === 'win32';
+  for (const { workspace, dir } of pending) {
+    console.log(`\n[install-tools] Installing frontend dependencies in ${workspace}...`);
+    // Node >= 20 cannot `spawn` a Windows `.cmd` shim directly (EINVAL); pass
+    // `shell: true` so npm.cmd is resolved through cmd.exe on Windows only.
+    run(isWindows ? 'npm.cmd' : 'npm', ['install'], {
+      cwd: dir,
+      ...(isWindows ? { shell: true } : {}),
+    });
+  }
 }
 
 const LLVM_BIN_DIRS = [
@@ -308,7 +438,98 @@ async function ensureWindowsCrossLlvmTools(platforms) {
 }
 
 /** Native build tools required by crates with C/C++ build scripts (e.g. BoringSSL). */
-const NATIVE_BUILD_TOOLS = ['cmake', 'ninja', 'nasm'];
+const NATIVE_BUILD_TOOLS = ['cmake', 'ninja', 'nasm', 'go', 'perl', 'c++'];
+
+/**
+ * winget ids of the Windows native build tools this tooling can install, keyed
+ * by `NATIVE_BUILD_TOOLS` command name. `c++` has no entry: Windows' C++
+ * compiler is MSVC `cl.exe`, which comes with the Visual Studio C++ workload
+ * (see `windowsNativeMsvcArm64State`) rather than from a standalone package.
+ */
+const WINDOWS_WINGET_IDS = {
+  cmake: 'Kitware.CMake',
+  ninja: 'Ninja-build.Ninja',
+  nasm: 'NASM.NASM',
+  go: 'GoLang.Go',
+  perl: 'StrawberryPerl.StrawberryPerl',
+};
+
+/**
+ * Directories where the Windows native build tools are installed: the
+ * `WINDOWS_WINGET_IDS` packages plus the winget "Links" shim directory used by
+ * portable packages. Strawberry Perl's `c\bin` (a GCC toolchain) is deliberately
+ * left out: having it on PATH makes CMake and the BoringSSL build misdetect the
+ * compiler, and only `perl\bin` is needed for the `perl` command.
+ *
+ * @returns {string[]} Existing candidate directories.
+ */
+function windowsNativeToolDirs() {
+  const programFiles = process.env.ProgramFiles || 'C:\\Program Files';
+  const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
+  const localAppData = process.env.LOCALAPPDATA || '';
+  return [
+    path.join(programFiles, 'Go', 'bin'),
+    'C:\\Strawberry\\perl\\bin',
+    path.join(programFiles, 'NASM'),
+    path.join(programFilesX86, 'NASM'),
+    path.join(programFiles, 'CMake', 'bin'),
+    path.join(programFilesX86, 'CMake', 'bin'),
+    path.join(programFiles, 'ninja-build'),
+    path.join(programFilesX86, 'ninja-build'),
+    localAppData ? path.join(localAppData, 'Microsoft', 'WinGet', 'Links') : '',
+  ].filter((dir) => dir && existsSync(dir));
+}
+
+/**
+ * Prepends `windowsNativeToolDirs()` to the current `PATH` and returns the
+ * directories that were added.
+ *
+ * The Go and Perl installers (and `winget` in general) update the *machine*
+ * PATH, which only reaches shells started afterwards. A terminal opened before
+ * the install therefore keeps probing the old PATH: the availability check sees
+ * tools that are already installed as missing and offers to install them again
+ * on every run. Augmenting PATH here keeps both that check and the build itself
+ * accurate in such a shell (CMake runs `find_package(Perl REQUIRED)` and
+ * BoringSSL spawns `go run`), without requiring a restart.
+ *
+ * @returns {string[]} Directories that were prepended.
+ */
+function prependWindowsNativeToolDirs() {
+  if (process.platform !== 'win32') return [];
+  const normalize = (dir) => dir.replace(/[\\/]+$/, '').toLowerCase();
+  const current = (process.env.PATH || '').split(path.delimiter).map(normalize);
+  const added = windowsNativeToolDirs().filter((dir) => !current.includes(normalize(dir)));
+  if (added.length > 0) process.env.PATH = [...added, process.env.PATH].join(path.delimiter);
+  return added;
+}
+
+/**
+ * Returns `true` when a C++ compiler is available on Windows. There is no
+ * `c++` command there: BoringSSL is compiled by MSVC `cl.exe`, which CMake and
+ * rustc locate through the Visual Studio installation rather than PATH, so the
+ * toolset location of the detected Visual Studio is checked before giving up.
+ *
+ * @returns {boolean} Whether an MSVC/clang-cl C++ compiler was found.
+ */
+function windowsCxxCompilerAvailable() {
+  if (canRun('cl') || canRun('clang++')) return true;
+  const vs = findVsInstallation();
+  const toolset = vs?.installationPath ? msvcToolsetDir(vs.installationPath) : null;
+  return Boolean(toolset && existsSync(path.join(toolset, 'bin', 'Hostx64', 'x64', 'cl.exe')));
+}
+
+/**
+ * Returns `true` when a native build tool is available on this host.
+ *
+ * @param {string} tool - Command name from `NATIVE_BUILD_TOOLS`.
+ * @returns {boolean} Whether the tool can be used for a build.
+ */
+function nativeBuildToolAvailable(tool) {
+  // Windows has no `c++` command (see `windowsCxxCompilerAvailable`); `ninja`
+  // and `go`/`perl` keep the plain command probe on every platform.
+  if (tool === 'c++' && process.platform === 'win32') return windowsCxxCompilerAvailable();
+  return canRun(tool);
+}
 
 /**
  * Returns the VS-provided Ninja directory when `ninja.exe` exists inside the
@@ -327,12 +548,25 @@ function windowsVsNinjaDir() {
 
 /**
  * Installs the native build tools required by some crates' build scripts
- * (`cmake`, `ninja`) when missing, through Homebrew on macOS or apt on Linux.
- * On Windows, a `ninja` shipped inside Visual Studio CMake counts as present
- * because the build PATH already includes it.
+ * (`cmake`, `ninja`, `nasm`, plus the BoringSSL build prerequisites `go`,
+ * `perl` and a C++ compiler — BoringSSL's CMake runs `find_package(Perl
+ * REQUIRED)` and generates `err_data.c` with `go run`) when missing, through
+ * Homebrew on macOS, apt on Linux, and winget on Windows. On Windows, the
+ * VS-provided `ninja` and MSVC `cl.exe` count as present because CMake and
+ * rustc locate them through the Visual Studio installation; Go and Perl have no
+ * such fallback (their absence fails the BoringSSL configure step), so they are
+ * installed through winget, and a tool winget cannot provide is reported.
  */
 async function ensureNativeBuildTools() {
-  let missing = NATIVE_BUILD_TOOLS.filter((tool) => !canRun(tool));
+  // A tool installed by an earlier run stays invisible in a shell started
+  // before it (see `prependWindowsNativeToolDirs`): expose the known install
+  // locations first, otherwise every run offers to reinstall what is already
+  // there.
+  const augmented = prependWindowsNativeToolDirs();
+  if (augmented.length > 0) {
+    console.log(`[install-tools] PATH augmented with installed tools: ${augmented.join(', ')}`);
+  }
+  let missing = NATIVE_BUILD_TOOLS.filter((tool) => !nativeBuildToolAvailable(tool));
   if (process.platform === 'win32' && missing.includes('ninja') && windowsVsNinjaDir()) {
     console.log('[install-tools] ninja: found inside Visual Studio Build Tools (added to the build PATH).');
     missing = missing.filter((tool) => tool !== 'ninja');
@@ -349,13 +583,73 @@ async function ensureNativeBuildTools() {
     return;
   }
   if (process.platform === 'linux') {
-    const packages = missing.map((tool) => (tool === 'ninja' ? 'ninja-build' : tool));
+    const packages = missing.map((tool) => {
+      if (tool === 'ninja') return 'ninja-build';
+      // `c++` is probed as a command but installed as the `g++` package.
+      if (tool === 'c++') return 'g++';
+      // The `go` and `perl` commands come from the `golang-go` and `perl`
+      // packages (same names through Homebrew, hence no mapping needed there).
+      if (tool === 'go') return 'golang-go';
+      return tool;
+    });
     console.log(`\n[install-tools] Installing native build tools: ${packages.join(', ')}...`);
     await confirmInstallation(`Linux packages: ${packages.join(', ')}`);
     run('sudo', ['apt-get', 'install', '-y', ...packages]);
     return;
   }
-  console.warn(`[install-tools] Missing native build tools: ${missing.join(', ')}. Install them before building.`);
+  if (process.platform === 'win32' && canRun('winget') && missing.some((tool) => WINDOWS_WINGET_IDS[tool])) {
+    const installable = missing.filter((tool) => WINDOWS_WINGET_IDS[tool]);
+    const packages = installable.map((tool) => WINDOWS_WINGET_IDS[tool]);
+    console.log(`\n[install-tools] Installing native build tools through winget: ${packages.join(', ')}...`);
+    await confirmInstallation(`winget packages: ${packages.join(', ')}`);
+    const winget = commandPath('winget') || 'winget';
+    // Go and Strawberry Perl install machine-wide MSIs, so winget needs an
+    // elevated process: run it with inherited stdio when already elevated,
+    // otherwise through `Start-Process -Verb RunAs` with the usual UAC prompt
+    // (same handling as the Visual Studio installer).
+    const elevated = isElevated();
+    if (!elevated) {
+      console.log('[install-tools] These packages install machine-wide: a UAC prompt will appear — please accept it.');
+    }
+    for (const id of packages) {
+      const args = [
+        'install',
+        '--id', id,
+        '--exact',
+        '--accept-package-agreements',
+        '--accept-source-agreements',
+        // Silent install: the elevation prompt above is the interactive part.
+        '--disable-interactivity',
+      ];
+      // A failing `winget install` (package already present but off PATH,
+      // declined UAC, unavailable source, …) must not abort a build that may
+      // still work: report it and let the availability re-check below decide.
+      const result = elevated
+        ? spawnSync(winget, args, { stdio: 'inherit' })
+        : { status: runElevatedSync(winget, args) };
+      if (result.error || result.status !== 0) {
+        console.warn(
+          `[install-tools] \`winget install ${id}\` failed (exit ${result.status ?? 'n/a'}). Install it manually before building.`,
+        );
+      }
+    }
+    // winget refreshed the machine PATH: expose the new directories to this run
+    // too, then re-check instead of assuming the install succeeded.
+    prependWindowsNativeToolDirs();
+    missing = missing.filter((tool) => !nativeBuildToolAvailable(tool));
+    if (missing.length === 0) {
+      console.log(`\n[install-tools] Native build tools (${NATIVE_BUILD_TOOLS.join(', ')}) found.`);
+      return;
+    }
+  }
+  const windowsHint =
+    process.platform === 'win32'
+      ? ' Go: `winget install GoLang.Go`. Perl: `winget install StrawberryPerl.StrawberryPerl`.' +
+        ' The C++ compiler comes with the Visual Studio "Desktop development with C++" workload.'
+      : '';
+  console.warn(
+    `[install-tools] Missing native build tools: ${missing.join(', ')}. Install them before building.${windowsHint}`,
+  );
 }
 /**
  * Adds the missing Visual Studio components (MSVC ARM64 build tools and the
@@ -549,13 +843,19 @@ async function ensureMakensis(platforms) {
  * large base image (Rust + osxcross + Apple SDK), it requires confirmation
  * like every other host change.
  *
+ * Platforms are filtered on their *resolved* `method`, not the static
+ * `needsDockerBuild` eligibility: a `build: docker` platform the host builds
+ * natively (e.g. `linux-x86_64` on a Linux host, method `native`) must not
+ * pull Docker into the run.
+ *
  * @param {object[]} platforms - Resolved platform entries.
  */
 async function ensureDockerCrossBuild(platforms) {
-  const buildPlatforms = platforms.filter((p) => p.needsDockerBuild);
+  const buildPlatforms = platforms.filter((p) => p.method === 'docker');
   if (buildPlatforms.length === 0) return;
-  // Fail fast (with a clear message) when Docker is missing or not running,
-  // instead of prompting for an image build that cannot start.
+  // Fail fast when Docker is missing or not running (on Linux a missing CLI
+  // first offers the automatic Docker Engine install), instead of prompting
+  // for an image build that cannot start.
   await assertDocker();
   if (crossImagePresent()) {
     console.log(`\n[install-tools] Docker cross image already built for: ${buildPlatforms.map((p) => p.id).join(', ')}.`);
@@ -571,8 +871,11 @@ async function ensureDockerCrossBuild(platforms) {
 /** Installs every tool required to build the given platforms on this host.
  *
  * @param {object[]} platforms - Resolved platform entries (see `lib.mjs`).
+ * @param {{frontendDeps?: boolean}} [options] - Set `frontendDeps: false` when
+ *   the caller will not run the frontend build (`--skip-build`,
+ *   `--no-frontend-build`), so the workspaces are left untouched.
  */
-export async function installTools(platforms) {
+export async function installTools(platforms, options = {}) {
   const buildable = platforms.filter((p) => p.buildable);
   const skipped = platforms.filter((p) => !p.buildable);
   for (const platform of skipped) {
@@ -587,6 +890,15 @@ export async function installTools(platforms) {
   }
   const targets = [...new Set(buildable.flatMap((p) => p.needsTargets))];
   console.log(`[install-tools] Host: ${hostLabel()}`);
+  // Redirect cargo's target directory off VirtualBox shared folders / network
+  // mounts first: every `cargo` below (rustup probes, installs, builds)
+  // inherits `process.env`, so this must run before anything shells out to
+  // cargo. Offers `~/.cache/arachnea-target` with confirmation.
+  await ensureLocalTargetDir();
+  // Offer to install Rust itself first: the rustc floor check below and every
+  // `cargo`/`rustup` step need a toolchain on the PATH. On refusal (or in a
+  // non-interactive terminal) this throws the usual "install Rust first" error.
+  await ensureRustToolchain();
   // Fail fast before provisioning anything: an outdated rustc would reject the
   // locked dependency graph (e.g. foyer@0.22.4+ requires rustc >= 1.91.0).
   // Offers `rustup update` with confirmation when interactive.
@@ -595,6 +907,14 @@ export async function installTools(platforms) {
   // Docker-built targets compile inside the container via osxcross/its own
   // toolchains, so only install host rustup targets for natively-built ones.
   await installRustTargets(buildable.filter((p) => p.method !== 'docker'));
+  // Host `cargo tauri build` needs the `cargo-tauri` binary; `install-tools`
+  // never installed it (the CLI version was only forwarded to the Docker
+  // image), so native Linux runs failed with `no such command: 'tauri'`.
+  await ensureHostTauriCli(buildable);
+  // Frontend workspaces: the app build scripts spawn the local `run-p`, so a
+  // checkout without `node_modules` fails the shared frontend build below.
+  // Skipped only when this run never builds the frontend.
+  if (options.frontendDeps !== false) await ensureFrontendDeps();
   await installCargoXwin(buildable);
   await ensureWindowsCrossLlvmTools(buildable);
   await ensureNativeBuildTools();

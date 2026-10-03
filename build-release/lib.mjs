@@ -33,6 +33,103 @@ import {
   usableBundlesFor,
 } from './capabilities.mjs';
 
+/**
+ * Filesystem types known to lose cargo build-script outputs: `serde_core`'s
+ * build script writes `private.rs` into its `OUT_DIR`, but on VirtualBox
+ * shared folders (`vboxsf`) the freshly created `out/` directory stays empty,
+ * so the later `include!(concat!(env!("OUT_DIR"), "/private.rs"))` fails with
+ * `couldn't find file .../out/private.rs` even after `cargo clean`. Network
+ * and non-POSIX mounts (NFS/CIFS/exFAT/…) show the same class of failures.
+ */
+const UNRELIABLE_TARGET_FSTYPES = new Set([
+  'vboxsf',
+  'vboxfs',
+  'vmhgfs',
+  'vmhgfs-fuse',
+  'nfs',
+  'nfs4',
+  'cifs',
+  'smbfs',
+  'smb',
+  'fuse.sshfs',
+  'sshfs',
+  'exfat',
+  'vfat',
+  'ntfs',
+  'ntfs3',
+  'fuseblk',
+]);
+
+/**
+ * Returns the filesystem type backing `dir` on Linux (via `stat -f -c %T`),
+ * or `null` when it cannot be determined (non-Linux hosts, missing `stat`).
+ *
+ * @param {string} dir - Directory whose mount should be inspected.
+ * @returns {string|null} Filesystem type, e.g. `ext4`, `vboxsf`.
+ */
+export function targetFsType(dir) {
+  if (process.platform !== 'linux') return null;
+  const result = spawnSync('stat', ['-f', '-c', '%T', dir], { encoding: 'utf8', windowsHide: true });
+  if (result.error || result.status !== 0) return null;
+  const fstype = String(result.stdout ?? '').trim();
+  return fstype || null;
+}
+
+/**
+ * Returns `true` when cargo's target directory lives on a filesystem known to
+ * lose build-script outputs (see `UNRELIABLE_TARGET_FSTYPES`). Such mounts
+ * must be escaped through `CARGO_TARGET_DIR` (see `ensureLocalTargetDir`)
+ * instead of building in the workspace `target/`.
+ *
+ * @param {string} [targetDir] - Target directory to inspect (default: the
+ *   effective cargo target dir for the workspace).
+ * @returns {boolean} Whether the target dir sits on an unreliable mount.
+ */
+export function isUnreliableTargetFs(targetDir = path.join(ROOT, 'server', 'target')) {
+  const fstype = targetFsType(targetDir);
+  return !!fstype && UNRELIABLE_TARGET_FSTYPES.has(fstype);
+}
+
+/**
+ * Redirects cargo's target directory to a local filesystem when the workspace
+ * `target/` sits on an unreliable mount (VirtualBox shared folder, network or
+ * non-POSIX filesystem): build-script outputs written there (e.g.
+ * `serde_core`'s `OUT_DIR/private.rs`) silently vanish, failing the build with
+ * `couldn't find file .../out/private.rs` even after `cargo clean` — cleaning
+ * cannot help since every rebuild recreates the same empty `out/` directory.
+ * Sets `process.env.CARGO_TARGET_DIR` (inherited by every spawned `cargo`)
+ * after the standard `[y/N]` confirmation; an explicit user-provided
+ * `CARGO_TARGET_DIR` and non-interactive terminals keep the previous behavior
+ * (an error explaining the redirect instead of building into the broken mount).
+ */
+export async function ensureLocalTargetDir() {
+  if (process.env.CARGO_TARGET_DIR) return;
+  const workspaceTarget = path.join(ROOT, 'server', 'target');
+  const fstype = targetFsType(workspaceTarget);
+  if (!fstype || !UNRELIABLE_TARGET_FSTYPES.has(fstype)) return;
+  const local = path.join(os.homedir(), '.cache', 'arachnea-target');
+  const reason =
+    `the workspace target directory is on a \`${fstype}\` mount (${workspaceTarget}), ` +
+    'where cargo build-script outputs silently vanish ' +
+    "(`couldn't find file .../serde_core-*/out/private.rs` even after `cargo clean`)";
+  if (!process.stdin.isTTY) {
+    throw new Error(
+      `${reason}. Set CARGO_TARGET_DIR to a local directory (e.g. \`export CARGO_TARGET_DIR=\"${local}\"\`) and retry.`,
+    );
+  }
+  const ok = await confirmYesNo(
+    `[release] ${reason}. Redirect this run to a local target directory (${local}) with CARGO_TARGET_DIR?`,
+  );
+  if (!ok) {
+    throw new Error(
+      `${reason}. Set CARGO_TARGET_DIR to a local directory (e.g. \`export CARGO_TARGET_DIR=\"${local}\"\`) and retry.`,
+    );
+  }
+  mkdirSync(local, { recursive: true });
+  process.env.CARGO_TARGET_DIR = local;
+  console.log(`[release] Using local CARGO_TARGET_DIR=${local} (workspace target is on \`${fstype}\`).`);
+}
+
 const RELEASE_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 /**
@@ -381,6 +478,55 @@ export async function ensureRustcVersion() {
     `rustc ${current} is too old: this workspace requires rustc >= ${minimum}. ` +
       `Update with \`rustup update\`, then rebuild.`,
   );
+}
+
+/**
+ * Ensures `cargo` is available on the PATH, offering to install the Rust
+ * toolchain when it is missing: on non-Windows hosts the official rustup
+ * installer is run after explicit confirmation (the `-y` flag keeps a single
+ * prompt, the confirmation above already being the user's consent), then
+ * `~/.cargo/bin` is prepended to the process PATH so the rest of the run sees
+ * the fresh `cargo`/`rustc`/`rustup` without restarting the shell. On refusal,
+ * in a non-interactive terminal, or on Windows (Rust is installed there
+ * through `winget` as documented in `server/README.md`), the usual "install
+ * Rust first" error is thrown unchanged.
+ *
+ * @returns {Promise<void>} Resolves when `cargo` can be run.
+ */
+export async function ensureRustToolchain() {
+  const missingCargo = '`cargo` is not installed. Install Rust first: https://rustup.rs';
+  if (canRun('cargo')) return;
+  if (process.platform === 'win32') throw new Error(missingCargo);
+
+  const hasCurl = canRun('curl');
+  if (!hasCurl && !canRun('wget')) {
+    throw new Error(
+      '`cargo` is not installed, and neither `curl` nor `wget` is available to run the ' +
+        'rustup installer. Install Rust first: https://rustup.rs',
+    );
+  }
+  const accepted = await confirmYesNo(
+    '`cargo` is not installed. Install the Rust toolchain through rustup (https://rustup.rs) now?',
+  );
+  if (!accepted) throw new Error(missingCargo);
+
+  const fetch = hasCurl
+    ? "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs"
+    : 'wget -O - https://sh.rustup.rs';
+  run('sh', ['-c', `${fetch} | sh -s -- -y`]);
+
+  // rustup installs into `~/.cargo/bin`, which the running shell profile (not
+  // yet loaded by this process) is the only place the installer updates.
+  const cargoBin = path.join(os.homedir(), '.cargo', 'bin');
+  const entries = (process.env.PATH ?? '').split(path.delimiter).filter(Boolean);
+  if (!entries.includes(cargoBin)) {
+    process.env.PATH = [cargoBin, ...entries].join(path.delimiter);
+  }
+  if (!canRun('cargo')) {
+    throw new Error(
+      'Rust was installed but `cargo` is still not on PATH. Open a new shell and retry.',
+    );
+  }
 }
 
 /** Recursively copies a directory tree, skipping excluded top-level entries. */
@@ -879,6 +1025,63 @@ export function windowsNativeMsvcArm64State() {
   }
 
   return { ok: missing.length === 0, missing, vs, toolset, clangClPath, msvcArm64ClPath };
+}
+
+/**
+ * Runs `cargo tauri --version` and returns the parsed version, or `null` when
+ * the Tauri CLI subcommand is missing or its version cannot be parsed (a
+ * missing `cargo-tauri` binary makes cargo exit non-zero with
+ * `error: no such command: 'tauri'`).
+ *
+ * @returns {string|null} Installed Tauri CLI version, e.g. `2.11.4`.
+ */
+export function tauriCliVersionInstalled() {
+  const result = spawnSync('cargo', ['tauri', '--version'], { encoding: 'utf8', windowsHide: true });
+  if (result.error || result.status !== 0) return null;
+  const match = String(result.stdout ?? '').match(/(\d+\.\d+\.\d+)/);
+  return match ? match[1] : null;
+}
+
+/**
+ * Ensures the host Tauri CLI (`cargo tauri`) is installed at the version
+ * declared in `build-config.json`, before any native `cargo tauri build` runs.
+ * Native Linux builds need it on the host: the configured `tauriCliVersion`
+ * was previously only forwarded to the Docker cross image, so a Linux host
+ * without `cargo-tauri` failed late with `error: no such command: 'tauri'`.
+ * When missing or outdated, offers `cargo install --locked tauri-cli@<version>`
+ * with confirmation; a refusal or non-interactive terminal throws a
+ * contextualized error instead of installing silently.
+ */
+export async function ensureTauriCli() {
+  const { tauriCliVersion: expected } = loadBuildConfig();
+  const installed = tauriCliVersionInstalled();
+  if (installed && compareVersions(installed, expected) >= 0) {
+    console.log(`\n[release] Tauri CLI ${installed} found.`);
+    return;
+  }
+  const reason = installed
+    ? `installed Tauri CLI ${installed} is older than the required ${expected}`
+    : '`cargo-tauri` is not installed';
+  if (!process.stdin.isTTY) {
+    throw new Error(
+      `${reason} (Tauri CLI ${expected} is required for native builds; run \`cargo install --locked --version ${expected} tauri-cli\`).`,
+    );
+  }
+  const ok = await confirmYesNo(
+    `\n[release] ${reason}. Install Tauri CLI ${expected} with \`cargo install --locked --version ${expected} tauri-cli\`? [y/N] `,
+  );
+  if (!ok) {
+    throw new Error(
+      `${reason} (Tauri CLI ${expected} is required for native builds; run \`cargo install --locked --version ${expected} tauri-cli\`).`,
+    );
+  }
+  console.log(`[release] Installing Tauri CLI ${expected}...`);
+  run('cargo', ['install', '--locked', '--version', expected, 'tauri-cli']);
+  const after = tauriCliVersionInstalled();
+  if (!after) {
+    throw new Error('Tauri CLI installation finished but `cargo tauri --version` still fails.');
+  }
+  console.log(`[release] Tauri CLI ${after} installed.`);
 }
 
 /**

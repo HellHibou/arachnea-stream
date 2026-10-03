@@ -13,12 +13,16 @@
 //   host-side by release.mjs.
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
-import { ROOT, canRun, run, releaseDir, loadBuildConfig } from './lib.mjs';
+import { ROOT, canRun, confirmYesNo, run, releaseDir, loadBuildConfig } from './lib.mjs';
 import { dockerBundlesFor } from './capabilities.mjs';
 
 const RELEASE_DIR = releaseDir();
+
+// Also installs Docker Engine on Linux (with confirmation) when a cross build
+// is required but the `docker` CLI is missing — see `ensureDockerEngine`.
 
 /**
  * Tag of the locally-built Arachnea cross image (single source of truth:
@@ -79,6 +83,102 @@ async function confirmDockerRetry() {
 }
 
 /**
+ * Error raised when Docker is required but is not installed and could not (or
+ * was not allowed to) be installed automatically.
+ */
+const DOCKER_MISSING_ERROR =
+  'Docker is required to produce the portable Linux/macOS binaries but is not ' +
+  'available on the PATH. Install Docker (https://get.docker.com on Linux, Docker ' +
+  'Desktop on Windows/macOS) and retry.';
+
+/**
+ * Quotes one argument for a POSIX shell command string.
+ *
+ * @param {string} arg - Raw argument.
+ * @returns {string} Single-quoted form.
+ */
+function shellQuote(arg) {
+  return `'${String(arg).replace(/'/g, "'\\''")}'`;
+}
+
+/**
+ * Offers to install Docker Engine on a Linux host when the `docker` CLI is
+ * missing while a Docker build is actually required (confirmation first, per
+ * the `install-tools.mjs` installation pattern).
+ *
+ * Runs the official `get.docker.com` script through `sudo` (the script does
+ * not elevate itself; it starts the daemon itself under systemd), then makes
+ * sure the `docker` group exists and the current user belongs to it. A freshly
+ * granted group only applies to a new login session, so when the process still
+ * hits the socket's "permission denied", the whole run is re-launched once
+ * through `sg docker -c ...` (applies the group without logging out); the
+ * `ARACHNEA_DOCKER_GROUP_REEXEC` environment flag keeps that a one-shot and is
+ * inherited by the child process. When the daemon is simply not running, a
+ * best-effort service start is attempted and `assertDocker`'s retry loop takes
+ * over from there.
+ *
+ * Non-Linux hosts and refused/non-interactive prompts throw the plain
+ * "Docker is required" error instead (Docker Desktop installs stay manual).
+ *
+ * @returns {Promise<void>} Resolves once `docker` is installed and usable, or
+ *   once only the daemon state is left for `assertDocker`'s retry loop.
+ */
+async function ensureDockerEngine() {
+  if (process.platform !== 'linux') throw new Error(DOCKER_MISSING_ERROR);
+  const accepted = await confirmYesNo(
+    'Docker is required for the cross builds of this run, but the `docker` CLI is not ' +
+      'installed. Install Docker Engine now (official script: https://get.docker.com)?',
+  );
+  if (!accepted) throw new Error(DOCKER_MISSING_ERROR);
+
+  const hasCurl = canRun('curl');
+  if (!hasCurl && !canRun('wget')) {
+    throw new Error(
+      'Docker is required but is not installed, and neither `curl` nor `wget` is available ' +
+        'to fetch https://get.docker.com. Install Docker manually, then retry.',
+    );
+  }
+  const fetch = hasCurl ? 'curl -fsSL https://get.docker.com' : 'wget -qO- https://get.docker.com';
+  run('sh', ['-c', `${fetch} | sudo sh`]);
+  if (!dockerAvailable()) {
+    throw new Error('The Docker installer finished but `docker` is still not on PATH. Open a new shell and retry.');
+  }
+
+  const uid = typeof process.getuid === 'function' ? process.getuid() : 0;
+  if (uid === 0) return; // Root bypasses the socket's group check.
+  run('sudo', ['groupadd', '-f', 'docker']);
+  run('sudo', ['usermod', '-aG', 'docker', os.userInfo().username]);
+
+  const probe = dockerDaemonProbe();
+  if (probe.ok) return;
+  if (/permission denied/i.test(probe.stderr ?? '') && !process.env.ARACHNEA_DOCKER_GROUP_REEXEC) {
+    console.log('\n[install-tools] Re-launching with the docker group applied (no logout needed)...');
+    const command = [process.execPath, path.resolve(process.argv[1]), ...process.argv.slice(2)]
+      .map(shellQuote)
+      .join(' ');
+    process.env.ARACHNEA_DOCKER_GROUP_REEXEC = '1';
+    const result = spawnSync('sg', ['docker', '-c', command], { stdio: 'inherit' });
+    if (result.error) throw new Error(`Failed to re-launch with the docker group: ${result.error.message}`);
+    process.exit(result.status ?? 1);
+  }
+
+  // Daemon not running: the installer starts it under systemd; otherwise try
+  // the available init helper. Failures are left to `assertDocker`'s retry
+  // loop, which reports the original probe error.
+  const startAttempts = [];
+  if (canRun('systemctl')) startAttempts.push(['systemctl', ['enable', '--now', 'docker']]);
+  if (canRun('service')) startAttempts.push(['service', ['docker', 'start']]);
+  for (const [cmd, args] of startAttempts) {
+    try {
+      run('sudo', [cmd, ...args]);
+      return;
+    } catch {
+      // Try the next helper (or let the retry loop report the probe error).
+    }
+  }
+}
+
+/**
  * Ensures the Docker daemon is reachable, prompting to retry when it is not.
  *
  * The CLI can be on the PATH while the daemon is down (e.g. Docker Desktop not
@@ -91,10 +191,10 @@ async function confirmDockerRetry() {
  */
 export async function assertDocker() {
   if (!dockerAvailable()) {
-    throw new Error(
-      'Docker is required to produce the portable Linux/macOS binaries but is not ' +
-        'available on the PATH. Install Docker (e.g. Docker Desktop on Windows/macOS) and retry.',
-    );
+    await ensureDockerEngine();
+    // ensureDockerEngine throws unless Docker ended up installed (or the host
+    // is not Linux): keep a hard error for a partial install.
+    if (!dockerAvailable()) throw new Error(DOCKER_MISSING_ERROR);
   }
   while (true) {
     const probe = dockerDaemonProbe();

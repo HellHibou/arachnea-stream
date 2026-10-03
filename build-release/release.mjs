@@ -35,12 +35,14 @@ import {
   findArtifacts,
   findExecutable,
   bundleSearchDirs,
-  canRun,
   removeDir,
   createArchive,
   writeChecksum,
   fileDigestHex,
   ensureRustcVersion,
+  ensureRustToolchain,
+  ensureTauriCli,
+  ensureLocalTargetDir,
 } from './lib.mjs';
 import { APP_PACKAGE, PORTABLE_PACKAGE, archShort, outputFolderName, familyOf, dockerBundlesFor, hostPlatformSelector, knownPackageNames } from './capabilities.mjs';
 import {
@@ -916,19 +918,31 @@ async function main() {
     process.exit(1);
   }
 
-  if (!canRun('cargo')) {
-    throw new Error('`cargo` is not installed. Install Rust first: https://rustup.rs');
-  }
+  await ensureRustToolchain();
+
+  // Same redirect as `installTools()`: the workspace `target/` may sit on a
+  // VirtualBox shared folder where build-script outputs vanish, so point cargo
+  // at a local directory before any `cargo` runs (frontend-adjacent probes,
+  // rustc guard, builds). Runs before `installTools()` so provisioning itself
+  // already compiles outside the shared mount.
+  await ensureLocalTargetDir();
 
   if (!options.noInstall) {
     console.log('[release] Ensuring build tools...');
-    await installTools(platforms);
+    // The frontend workspaces are only provisioned when this run actually
+    // builds the frontend (`npm run build` below).
+    await installTools(platforms, {
+      frontendDeps: !options.skipBuild && !options.noFrontendBuild,
+    });
   } else if (!options.skipBuild) {
     // installTools() enforces the rustc floor when it runs; without it, check
     // here so a stale toolchain still fails fast before the frontend build.
     // --skip-build only reassembles prebuilt artifacts without invoking cargo.
     // Offers `rustup update` with confirmation when interactive.
     await ensureRustcVersion();
+    // installTools() also provisions `cargo tauri`; without it, native builds
+    // would fail late with `error: no such command: 'tauri'`.
+    if (buildable.some((p) => p.method === 'native')) await ensureTauriCli();
   }
 
   // Build the frontend once, shared by every target. Each platform build later
