@@ -53,4 +53,4 @@ else
 fi
 
 # === Launch node with all arguments passed to the script ===
-node release.mjs $@
+exec node release.mjs "$@"

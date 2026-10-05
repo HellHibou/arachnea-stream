@@ -45,6 +45,9 @@ node build-release/release.mjs --package "deb,portable"     # --package: repeata
 ```
 
 Quote wildcard selectors (`"darwin-*"`, `"*"`): unquoted `*` is expanded by the shell.
+The repository-root `./build.sh` wrapper also recognizes the complete filename
+list produced by an unquoted `*`, so both `./build.sh *` and `./build.sh "*"`
+select every configured platform.
 
 When a required tool or Rust target is missing, `install-tools` asks for confirmation before installing it. This also applies when `release.mjs` invokes tool provisioning automatically; in a non-interactive terminal, the release stops rather than installing software without confirmation.
 
@@ -273,8 +276,11 @@ Two portable formats, each getting `.sha256`/`.md5` checksums:
   the inner binary directly (`Arachnéa.app/Contents/MacOS/arachnea`).
 
 The POSIX modes of every `.tar.gz` are normalized after archiving
-(`normalizeTarGzModes` in `lib.mjs`). Windows has no permission bits, so the
-`bsdtar` shipped with it records every entry as `0666`/`0777` — which produced a
+(`normalizeTarGzModes` in `lib.mjs`). TAR paths are compared as NFC-normalized
+UTF-8 so the accented macOS app bundle name is recognized whether the host
+filesystem records it in composed or decomposed Unicode form. Windows has no
+permission bits, so the `bsdtar` shipped with it records every entry as
+`0666`/`0777` — which produced a
 **non-executable** `arachnea` in archives built on Windows: `arachnea-docker`'s
 `test -x` aborted the image build, and anyone extracting the archive on Linux
 got a binary that refused to run. Windows' `bsdtar` also rejects `--mode`, so

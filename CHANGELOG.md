@@ -22,6 +22,16 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- The repository-root macOS/Linux `build.sh` wrapper now accepts both quoted
+  and unquoted all-platform selectors (`./build.sh '*'` and `./build.sh *`). It
+  preserves arguments through `"$@"` and recognizes the complete filename list
+  produced when the invoking shell expands an unquoted `*`, replacing it with
+  the release builder's literal wildcard instead of reporting every repository
+  entry as an unknown platform.
+- macOS `.app.tar.gz` archives with the accented `Arachnéa.app` bundle name no
+  longer fail during POSIX mode normalization: TAR path fields are decoded as
+  UTF-8 and compared in NFC form, instead of decoding the UTF-8 name as Latin-1
+  and incorrectly reporting the inner executable as absent.
 - Release tooling now checks the active rustc version before building: when it is older than the `minRustcVersion` floor in `build-config.json` (1.91.0, required by the locked `foyer@0.22.4+` dependency), it offers to run `rustup update` with confirmation instead of failing late inside `cargo tauri build`.
 - The Linux system dependency install no longer requests the legacy `libappindicator3-dev`: on Linux Mint/Ubuntu (noble) apt aborted with `libayatana-appindicator3-1 : Est en conflit avec: libappindicator3-1`, breaking the whole `apt-get install`. It now installs `libayatana-appindicator3-dev` (Tauri's documented prerequisite, same package as the cross image and `docs/BUILDING.md`).
 - The Linux system dependency install now includes `libssl-dev` and `pkg-config`: native builds failed in `openssl-sys v0.9.117` with `Package openssl was not found in the pkg-config search path` — the crate locates OpenSSL through `openssl.pc`, so the runtime-only `libssl3` is not enough (same pair as `docs/BUILDING.md` / `server/README.md`).

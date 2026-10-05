@@ -16,6 +16,10 @@ The application ships in two execution modes:
 - **Server mode**: the web interface and API are reachable from a browser on
   the local network (for example `http://localhost:8080/`).
 
+You can download the binaries and installers at <a href="https://github.com/HellHibou/arachnea-stream/releases">https://github.com/HellHibou/arachnea-stream/releases</a>
+
+
+
 ## Features
 
 ### Centralizing streaming services

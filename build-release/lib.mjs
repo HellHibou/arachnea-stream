@@ -588,18 +588,20 @@ export function createZip(srcDir, zipPath) {
 
 /**
  * Reads a NUL-terminated (or space-padded) string field of a tar header.
- * Latin-1 keeps the bytes intact for names that are not valid UTF-8, which is
- * all the archive-relative paths compared here need.
+ * Tar paths are UTF-8 in archives created by the supported host tools. NFC
+ * normalization makes comparisons stable when macOS has decomposed a filename
+ * on disk before `tar` records it.
  *
  * @param {Uint8Array} header - The 512-byte header block.
  * @param {number} offset - Field offset inside the block.
  * @param {number} length - Field length in bytes.
- * @returns {string} The decoded field, without its terminator.
+ * @returns {string} The decoded and NFC-normalized field, without its
+ *   terminator.
  */
 function tarField(header, offset, length) {
   const field = Buffer.from(header.subarray(offset, offset + length));
   const end = field.indexOf(0);
-  return (end === -1 ? field : field.subarray(0, end)).toString('latin1');
+  return (end === -1 ? field : field.subarray(0, end)).toString('utf8').normalize('NFC');
 }
 
 /**
@@ -624,7 +626,7 @@ function tarField(header, offset, length) {
  */
 export function normalizeTarGzModes(tarPath, executables = []) {
   const wanted = new Set(
-    executables.map((entry) => entry.replace(/^\.\//, '').replace(/\/+$/, '')),
+    executables.map((entry) => entry.normalize('NFC').replace(/^\.\//, '').replace(/\/+$/, '')),
   );
   const found = new Set();
   const archive = gunzipSync(readFileSync(tarPath));
