@@ -8,6 +8,7 @@ import type {
   EntryPlayerChapter,
   EntryPlayerStoryboard,
   EntryPlayerResolver,
+  EntryRecommendations,
   EntryResolvedPlayerStream,
   ResolvedPlayerSubtitle,
   EntrySeason,
@@ -1605,6 +1606,24 @@ export async function getSeasonEpisodes(
 }
 
 /**
+ * Executes the backend recommendations endpoint and normalizes the response for the entry detail UI.
+ *
+ * @param source Backend source name that owns the entry.
+ * @param link Absolute recommendations URL emitted by `get_entry`.
+ * @param page 1-based page number requested from the backend.
+ * @returns Normalized paged recommendations payload for the requested entry.
+ */
+export async function getRecommendations(
+  source: string,
+  link: string,
+  page = 1,
+): Promise<EntryRecommendations> {
+  const response = await call_api<unknown>('get_recommendations', { source, link, page })
+
+  return normalizeRecommendationsPage(response, source, page)
+}
+
+/**
  * Resolves one backend player into a directly playable stream when the source needs a custom
  * playback handshake such as DRM token retrieval.
  *
@@ -1826,8 +1845,68 @@ function normalizeEntryDetails(entry: unknown, source: string, entryUrl: string)
     castingLabels: dedupeDisplayStrings(readStringList(record.casting)),
     directorLabels: dedupeDisplayStrings(readStringList(record.director)),
     seasons,
+    recommendations: normalizeEntryRecommendations(record.recommendations, source),
     score: firstNumber(record.rating),
     price: normalizePriceAccess(record.price),
+  }
+}
+
+/**
+ * Converts the optional backend recommendations section into the normalized model.
+ *
+ * Returns `null` when the source exposed no usable section, so the detail UI
+ * hides the rail without failing the entry load.
+ *
+ * @param value Raw backend `recommendations` payload.
+ * @param source Source name used to resolve card links and media.
+ * @returns Normalized recommendations section, or `null` when absent or unusable.
+ */
+function normalizeEntryRecommendations(value: unknown, source: string): EntryRecommendations | null {
+  if (!isJsonRecord(value)) {
+    return null
+  }
+
+  const link = resolveEntryUrl(firstNonEmptyString([value.link]), source)
+  const items = readRecordList(value.entries).map((entry, index) =>
+    normalizeMediaItem(entry, index, source),
+  )
+
+  if (!link && items.length === 0) {
+    return null
+  }
+
+  return {
+    items,
+    link,
+    currentPage: Math.max(1, Math.trunc(firstNumber(value.current_page) ?? 1)),
+    haveMore: readBoolean(value.have_more),
+  }
+}
+
+/**
+ * Converts one paged backend recommendations response into normalized data and pagination metadata.
+ *
+ * @param payload Raw backend payload returned by `get_recommendations`.
+ * @param source Source name used to resolve card media.
+ * @param fallbackPage Requested page number used when the backend omits page metadata.
+ * @returns Normalized paged recommendations response.
+ */
+function normalizeRecommendationsPage(
+  payload: unknown,
+  source: string,
+  fallbackPage: number,
+): EntryRecommendations {
+  if (!isJsonRecord(payload)) {
+    throw new Error(t('errors.unexpectedRecommendationsResponseFormat'))
+  }
+
+  return {
+    items: readRecordList(payload.entries).map((entry, index) =>
+      normalizeMediaItem(entry, index, source),
+    ),
+    link: null,
+    currentPage: Math.max(1, Math.trunc(firstNumber(payload.current_page) ?? fallbackPage)),
+    haveMore: readBoolean(payload.have_more),
   }
 }
 

@@ -116,6 +116,13 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- LN24 show entries now expose the "Dans la même catégorie" rail as immediate recommendation cards without players, separately from show episodes. Cards with blocked streams still link to their show pages; the BE proxy configuration is unchanged.
+- The `arachnea-stream` backend now exposes a generic `get_recommendations` command (`source`, `link`, `page` defaulting to 1) executing exclusively the YAML query of the same name and returning the `get_section` JSON shape (`entries`, `current_page`, `have_more`). YAML-declared `get_entry.recommendations` sections (immediate `entries` or deferred `link`) flow through without provider-specific Rust logic.
+- Bouké entries now expose video-only editorial recommendations from the page `Recommandations` block (`div.editor-suggestion--main-container` rows with a camera marker) as immediate `recommendations > entries` catalogue cards, rendered in the entry detail single-row rail without including text articles.
+- France TV programme entries now expose the `À découvrir aussi` discovery playlist as immediate recommendations, with navigable programme and collection cards separate from season episodes.
+- Canal Zoom and Tele MB entry pages now expose immediate recommendation cards from their detail-page editorial rails, including video-only landscape suggestions (filtered by their camera marker) and portrait programmes on show pages, without mixing in text articles or season episodes.
+- RTL Play detail entries now expose the provider's `nextBestOffer.teasers` as immediate recommendation cards, reusing the catalogue teaser mapping for navigable programme links and images without mixing in season episodes.
+- ARTE detail entries now expose the EMAC `program_recommendations` zone as immediate recommendation cards, separately from play-next episodes and collection seasons.
 - Player geo-proxy routing uses ordered `proxy_countries` lists end to end. Specialized M6 Play, TF1+, France TV and TV5MONDE+ resolvers carry the selected list through negotiation, proxied media URLs and deferred DRM requests; the singular request and YAML forms are no longer accepted.
 - FranceTV resolved streams now expose `previously`, `coming_next`, `intro`, and `outro` chapters from K7 playback markers. Marker durations define chapter ends, bounded by the full video duration, while closing credits fall back to that duration when FranceTV only provides their start time. When `coming_next` and `outro` share a start time, the outro now starts at the end of `coming_next` and is discarded if no valid interval remains.
 
@@ -139,6 +146,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- LN24 `get_category` now lists the category archive grid instead of the "Autres vidéos" featured side list: the section label comes from the dynamic category header (Séries, Émissions, LN24+), cards link to their show pages with a title derived from the link slug, portrait images and `video/show/other`, and no players.
+- RTL Play recommendation cards now map their 16:9 `imageUrl` to `img/landscape` instead of `img/poster`, so the public rail displays landscape thumbnails without changing portrait catalogue cards.
 - ARTE live stream resolution now preserves the canonical `{proxy_countries}` HTTP template during configuration loading, then expands its runtime JSON list when `resolve_stream` executes instead of silently dropping the unresolved placeholder and using a direct connection. Its player descriptor uses the live config's `DE_FR` geoblocking rights as the ordered `[FR, DE]` proxy list, allowing a German proxy when no usable French proxy is available; the public frontend also accepts Scrapyfy's nested scalar-node representation for this static country list.
 - TF1+ now derives proxy countries from `media.geoList` in `mediainfocombo`, retries a geo-blocked negotiation through those territories, and preserves the discovered list for the manifest, storyboard, and deferred Widevine license request. Resolver-level proxy retry loops and direct fallbacks have been removed; internal requests and the manifest/storyboard `/api/proxy` URLs delegate HTTP 403 rotation to the proxy layer.
 

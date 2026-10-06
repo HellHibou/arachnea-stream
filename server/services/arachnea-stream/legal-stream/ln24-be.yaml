@@ -193,9 +193,11 @@ queries:
 
 
   # --------------------------------------------------------------------------
-  # Category — list videos of a program
-  # Note: query_url is typically /categories/?cat=N
-  # Extracts videos from the featured side list (button.js-tv-video-card)
+  # Category — list the shows of a category
+  # Note: query_url is typically /categories/?cat=N (pretty /categories/<slug>/)
+  # The archive section is titled with the category name, which changes per
+  # category (Séries, Émissions, LN24+). The featured side list labelled
+  # "Autres vidéos" is deliberately ignored: it mixes videos of other shows.
   # --------------------------------------------------------------------------
   - name: get_category
     scraper_type: html
@@ -214,85 +216,56 @@ queries:
         entries:
           - name: label
             type: string
+            select: first
+            selector: ".tv-category-show-section__header h2, .tv-categories-hero h1"
             actions:
-              - type: format_text
-                argument: "Vidéos"
+              - type: get_text
           - name: entries
             type: object[]
-            selector: "button.tv-category-featured__side-item.js-tv-video-card"
+            selector: "div.tv-category-archive-item > a.tv-category-archive-card"
             select: all
             entries:
+              # Archive cards carry no visible text: derive the show title
+              # from the last URL segment of the link.
               - name: title
                 type: string
-                select: first
-                selector: "span.info span.title"
                 actions:
-                  - type: get_text
+                  - type: get_attribut
+                    argument: href
+                  - type: regex_find_all
+                    pattern: '/([^/]+)/?$'
+                    format: "{1}"
+                  - type: regex_replace_all
+                    pattern: '-'
+                    replacement: ' '
+                  - type: format_text
+                    argument: >-
+                      var s='{}';var w=s.split(' ');var small=['de','du','des','la','le','les','un','une','et','en','ou','a','aux','d','l','y','n','s','c','j'];var out=w.map(function(x,i){var l=x.toLowerCase();if(i>0&&small.indexOf(l)>=0)return l;return l.charAt(0).toUpperCase()+l.slice(1);}).join(' ');document.write(out);
+                  - type: exec_js
+                  - type: regex_find_all
+                    pattern: '^document_write=(.+)$'
+                    format: "{1}"
               - name: link
                 type: string
-                select: first
-                actions:
-                  - type: get_attribut
-                    argument: data-show-id
-                  - type: format_text
-                    argument: "{base_url}/emissions/?e={}"
+                actions: *actions_get_href_resolve
               - name: web-link
                 type: string
-                actions:
-                  - type: format_text
-                    argument: "{query_url}"
-              - name: description
+                actions: *actions_get_href_resolve
+              - name: img/poster > link
                 type: string
+                select: first
+                selector: ".tv-category-archive-card__image"
                 actions:
                   - type: get_attribut
-                    argument: data-description
-              - name: img/landscape > link
-                type: string
-                actions:
-                  - type: get_attribut
-                    argument: data-image
-              - name: release-date
-                type: string
-                actions:
-                  - type: get_attribut
-                    argument: data-date
+                    argument: style
+                  - type: regex_find_all
+                    pattern: 'url\([''"]?([^)''"]+)'
+                    format: "{1}"
               - name: media-type
                 type: string[]
                 actions:
                   - type: format_text
-                    argument: "video/news"
-              - name: players
-                type: object[]
-                entries:
-                  - name: name
-                    type: string
-                    actions:
-                      - type: format_text
-                        argument: "HD"
-                  - name: direct-link
-                    type: string
-                    actions:
-                      - type: get_attribut
-                        argument: data-player-url
-                      - type: regex_find_all
-                        pattern: 'media720=([^&]+)'
-                        format: "{1}"
-              - name: players
-                type: object[]
-                entries:
-                  - name: name
-                    type: string
-                    actions:
-                      - type: format_text
-                        argument: "SD"
-                  - name: direct-link
-                    type: string
-                    actions:
-                      - type: get_attribut
-                        argument: data-player-url
-                      - type: regex_find_all
-                        pattern: 'media480=([^&]+)'
-                        format: "{1}"
+                    argument: "video/show/other"
 
 
   # --------------------------------------------------------------------------
@@ -437,6 +410,59 @@ queries:
                       - type: regex_find_all
                         pattern: 'media480=([^&]+)'
                         format: "{1}"
+
+      # Related cards link to show pages even when their video stream is blocked.
+      # Keep the rail separate from the show's episode list.
+      - name: recommendations
+        type: object
+        select: first
+        selector: "section.emission-related"
+        entries:
+          - name: entries
+            type: object[]
+            selector: "article.emission-video-item.js-emission-card[data-video-id][data-show-id]"
+            select: all
+            entries:
+              - name: title
+                type: string
+                select: first
+                selector: "h4"
+                actions:
+                  - type: get_text
+              - name: link
+                type: string
+                actions:
+                  - type: get_attribut
+                    argument: data-show-id
+                  - type: format_text
+                    argument: "{base_url}/emissions/?e={}"
+              - name: web-link
+                type: string
+                actions:
+                  - type: get_attribut
+                    argument: data-show-id
+                  - type: format_text
+                    argument: "{base_url}/emissions/?e={}"
+              - name: description
+                type: string
+                actions:
+                  - type: get_attribut
+                    argument: data-description
+              - name: img/landscape > link
+                type: string
+                actions:
+                  - type: get_attribut
+                    argument: data-image
+              - name: release-date
+                type: string
+                actions:
+                  - type: get_attribut
+                    argument: data-date
+              - name: media-type
+                type: string[]
+                actions:
+                  - type: format_text
+                    argument: "video/news"
 
 
   # --------------------------------------------------------------------------

@@ -222,6 +222,8 @@
     "seasonPromptMessage": "Clique sur une saison pour charger ses episodes.",
     "video": "Vidéo",
     "trailer": "Bande annonce",
+    "recommendations": "Recommandations",
+    "loadingRecommendationsMessage": "Les recommandations arrivent depuis le backend.",
     "seasonCountSingular": "{count} saison",
     "seasonCountPlural": "{count} saisons"
   },
@@ -313,6 +315,7 @@
     "unexpectedLiveResponseFormat": "Format de réponse inattendu pour le flux en direct renvoyé par le backend.",
     "unexpectedHomeResponseFormat": "Format de réponse inattendu pour la page d'accueil renvoyé par le backend.",
     "unexpectedSeasonResponseFormat": "Format de réponse inattendu pour la saison renvoyé par le backend.",
+    "unexpectedRecommendationsResponseFormat": "Format de réponse inattendu pour les recommandations renvoyé par le backend.",
     "notifications": {
       "title": "Source indisponible",
       "messageWithSource": "L'opération {operation} n'a pas pu être effectuée pour {source}.",

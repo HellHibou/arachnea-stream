@@ -819,6 +819,24 @@ queries:
             type: string
             actions:
               - type: get_request_url
+      # Detail-page suggestions use landscape cards (only those with the
+      # camera marker are videos); programme pages use portrait programmes.
+      # Neither rail contains the season episodes.
+      - name: recommendations
+        type: object
+        select: first
+        selector: "div.editor-suggestion--main-container, div.composant-emission"
+        entries:
+          - name: entries
+            type: object[]
+            selector: "div.views-row div.view-mode-editor_suggestion:has(div.icon-camera-fill)"
+            select: all
+            entries: *entries_suggestion_card
+          - name: entries
+            type: object[]
+            selector: "div.view-mode-portrait"
+            select: all
+            entries: *entries_program_card
       - *entry_players_freecaster
 
 

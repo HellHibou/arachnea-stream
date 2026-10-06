@@ -59,6 +59,62 @@ shared:
       argument: src
     - type: resolve_url
 
+  # Detail-page editorial suggestions use the same landscape card shape as
+  # Bouké; programme-page recommendations use entries_program_card instead.
+  entries_recommendation_card: &entries_recommendation_card
+    - name: source
+      type: string
+      actions:
+        - type: format_text
+          argument: "{source}"
+    - name: title
+      type: string
+      select: first
+      selector: "h3 span"
+      actions:
+        - type: get_text
+    - name: title
+      type: string
+      select: first
+      selector: "h3"
+      actions:
+        - type: get_text
+    - name: link
+      type: string
+      select: first
+      selector: "a.overlink"
+      actions: *actions_get_href_resolve
+    - name: web-link
+      type: string
+      select: first
+      selector: "a.overlink"
+      actions: *actions_get_href_resolve
+    - name: description
+      type: string
+      select: first
+      selector: "div.field-type-text-with-summary div.field-item"
+      actions:
+        - type: get_text
+    - name: release-date
+      type: string
+      select: first
+      selector: "time[datetime]"
+      actions:
+        - type: get_attribut
+          argument: datetime
+        - type: get_date
+          format: yyyy_mm_dd
+    - name: img/landscape > link
+      type: string
+      select: first
+      selector: "img"
+      actions: *actions_get_src_resolve
+    - name: media-type
+      type: string[]
+      actions:
+        - type: format_text
+          argument: "video/show/other"
+
   # Entry pages have no category bullet: the taxonomy label only lives in the
   # `article:tag` meta tags, mixed with locality and programme labels (Mons,
   # "Les infos", ...), so the response body is scanned for the known categories.
@@ -907,6 +963,23 @@ queries:
             type: string
             actions:
               - type: get_request_url
+      # Only suggestions with a camera marker are videos; keep the editorial
+      # rails separate from the view-episode season rail.
+      - name: recommendations
+        type: object
+        select: first
+        selector: "div.editor-suggestion--main-container, div.composant-emission"
+        entries:
+          - name: entries
+            type: object[]
+            selector: "div.views-row div.view-mode-editor_suggestion:has(div.icon-camera-fill)"
+            select: all
+            entries: *entries_recommendation_card
+          - name: entries
+            type: object[]
+            selector: "div.view-mode-portrait"
+            select: all
+            entries: *entries_program_card
       - *entry_players_freecaster
 
 

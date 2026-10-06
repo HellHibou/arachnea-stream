@@ -17,9 +17,9 @@ use arachnea_scrapyfy::{ScraperAdminSettings, ScraperRuntimeOptions, SourceServi
 
 use crate::stream_scraper::{
     category_sources_from_request, GetBannersRequest, GetCategoryRequest, GetEntryRequest,
-    GetLiveRequest, GetPlayersRequest, GetSeasonRequest, GetSectionRequest, GetServiceRequest,
-    GetStreamRequest, ListLivesRequest, LoadHomeRequest, SearchRequest, StreamScraper,
-    StreamScraperBuildOptions, DRM_LICENSE_PROXY_COMMAND,
+    GetLiveRequest, GetPlayersRequest, GetRecommendationsRequest, GetSeasonRequest, GetSectionRequest,
+    GetServiceRequest, GetStreamRequest, ListLivesRequest, LoadHomeRequest, SearchRequest,
+    StreamScraper, StreamScraperBuildOptions, DRM_LICENSE_PROXY_COMMAND,
 };
 
 /// Endpoints captured when routes are first registered.
@@ -350,6 +350,23 @@ fn register_routes(
             reloadable
                 .current()
                 .get_section(
+                    context,
+                    input.source,
+                    input.link,
+                    input.page,
+                    source_params_from_entries(input.source_params),
+                )
+                .await
+        },
+    );
+
+    controler.register_result_function_with_state(
+        "get_recommendations",
+        Arc::clone(reloadable),
+        |reloadable, context, input: GetRecommendationsRequest| async move {
+            reloadable
+                .current()
+                .get_recommendations(
                     context,
                     input.source,
                     input.link,

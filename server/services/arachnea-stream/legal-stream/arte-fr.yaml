@@ -746,6 +746,16 @@ queries:
         type: string[]
         pointer: /zones/*[code/name=program_content]/data/0/images/portrait/resolutions/*/url
         select: all
+      - name: recommendations
+        type: object
+        select: first
+        pointer: /zones/*[code/name=program_recommendations]
+        entries:
+          - name: entries
+            type: object[]
+            pointer: /data/*
+            select: all
+            entries: *card_entries
       # Flat collections pre-load their episodes into seasons[0]; real seasons
       # are exposed as subcollections reached through get_season.
       - name: seasons

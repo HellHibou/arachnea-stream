@@ -1,14 +1,18 @@
 <script setup lang="ts">
-import { computed, shallowRef, toRef, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, shallowRef, toRef, useTemplateRef, watch } from 'vue'
+import { useRouter } from 'vue-router'
 
 import type { MediaItem, ThumbnailImageFit } from '@/types/media'
 import type { ResolvedPlayerMediaSource } from '@/services/players'
 import type { EntryEpisode } from '@/types/entry'
+import { encodeEntryRouteParam } from '@/router/routePayloads'
 
 import EntryDetails from './EntryDetails.vue'
 import EntryDetailsCatalogSection from './entry-details/EntryDetailsCatalogSection.vue'
+import MediaCardCollection from './MediaCardCollection.vue'
 import { useI18n } from '@/i18n'
 import { entryDetailsData } from '@/composables/entry-details/entryDetailsData'
+import { entryRecommendations } from '@/composables/entry-details/entryRecommendations'
 import { entryEpisodeSelection } from '@/composables/entry-details/entryEpisodeSelection'
 import { entryDetailsPresentation } from '@/composables/entry-details/entryDetailsPresentation'
 import { toEntryEpisodeMediaItem } from '@/composables/entry-details/entryDetailsMediaItems'
@@ -70,6 +74,8 @@ const props = withDefaults(defineProps<Props>(), {
 })
 /** Internationalization utilities. */
 const { t } = useI18n()
+/** Vue Router instance used to open a recommended entry. */
+const router = useRouter()
 
 /** Reactive reference to the source prop. */
 const source = toRef(props, 'source')
@@ -154,6 +160,84 @@ const {
   webUrl,
   preferredSeasonId,
 })
+
+/** Entry recommendations composable results. */
+const {
+  /** Recommendation cards for the current entry. */
+  recommendationItems,
+  /** Whether deferred recommendations are loading. */
+  isRecommendationsLoading,
+  /** Whether more recommendations are loading. */
+  isRecommendationsLoadingMore,
+  /** Error message from recommendations loading. */
+  recommendationsErrorMessage,
+  /** Whether more recommendations are available. */
+  hasMoreRecommendations,
+  /** Whether the recommendations rail should be displayed. */
+  showRecommendations,
+  /** Function to load deferred recommendations when the rail becomes visible. */
+  loadRecommendationsOnVisible,
+  /** Function to load the next recommendations page. */
+  handleLoadMoreRecommendations,
+} = entryRecommendations({
+  source,
+  details,
+})
+
+/** Template reference to the recommendations rail for deferred loading. */
+const recommendationsRailRef = useTemplateRef<{ $el: HTMLElement }>('recommendationsRailRef')
+/** Intersection observer triggering the deferred recommendations load. */
+let recommendationsObserver: IntersectionObserver | null = null
+
+onMounted(() => {
+  recommendationsObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        void loadRecommendationsOnVisible()
+      }
+    },
+    { rootMargin: '320px 0px' },
+  )
+})
+
+onBeforeUnmount(() => {
+  recommendationsObserver?.disconnect()
+  recommendationsObserver = null
+})
+
+watch(
+  [recommendationsRailRef, showRecommendations],
+  ([rail, visible]) => {
+    const element = (rail as unknown as { $el?: HTMLElement } | null)?.$el ?? null
+    if (!recommendationsObserver || !visible || !element) {
+      return
+    }
+    recommendationsObserver.observe(element)
+  },
+  { flush: 'post' },
+)
+
+/**
+ * Opens the entry details route for a selected recommendation card.
+ *
+ * @param item Recommendation card selected from the rail.
+ */
+function handleRecommendationSelect(item: MediaItem) {
+  if (!item.source || !item.entryUrl) {
+    return
+  }
+
+  void router.push({
+    name: 'entry-details',
+    params: {
+      encodedEntry: encodeEntryRouteParam({
+        source: item.source,
+        entryUrl: item.entryUrl,
+        title: item.title,
+      }),
+    },
+  })
+}
 
 /** Entry episode selection composable results. */
 const {
@@ -1038,5 +1122,24 @@ async function handleMediaPlaybackEnded() {
       @select-item="handlePlayerEpisodeSelect"
       @load-more="handleLoadMoreSeasonEpisodes"
     />
+
+    <template #below>
+      <MediaCardCollection
+        v-if="showRecommendations"
+        ref="recommendationsRailRef"
+        :items="recommendationItems"
+        :label="t('entry.recommendations')"
+        mode="single-row"
+        thumbnail-orientation="landscape"
+        :thumbnail-image-fit="'cover'"
+        :is-loading-more="isRecommendationsLoadingMore"
+        :have-more="hasMoreRecommendations"
+        :load-more-error-message="recommendationsErrorMessage"
+        :initial-loading-message="t('entry.loadingRecommendationsMessage')"
+        :on-load-more="handleLoadMoreRecommendations"
+        :show-service-logo="true"
+        @select="handleRecommendationSelect"
+      />
+    </template>
   </EntryDetails>
 </template>

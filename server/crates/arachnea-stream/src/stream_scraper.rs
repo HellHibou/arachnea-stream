@@ -274,6 +274,18 @@ pub(crate) struct GetSectionRequest {
 }
 
 #[derive(Serialize, Deserialize)]
+pub(crate) struct GetRecommendationsRequest {
+    #[serde(default)]
+    pub(crate) source: String,
+    #[serde(default)]
+    pub(crate) link: String,
+    #[serde(default = "default_page")]
+    pub(crate) page: usize,
+    #[serde(default, alias = "sourceParams")]
+    pub(crate) source_params: Vec<ScraperSourceParamsRequestEntry>,
+}
+
+#[derive(Serialize, Deserialize)]
 pub(crate) struct GetBannersRequest {
     #[serde(default)]
     pub(crate) source: String,
@@ -1094,6 +1106,94 @@ impl StreamScraper {
                 None,
                 Some("source"),
                 "get_section",
+            )
+            .await;
+        let global_etag = result.take_global_etag();
+
+        let mut root = ScraperDataNode::default();
+        for row in result.data {
+            root.merge_first(&ScraperDataNode {
+                children: row,
+                ..Default::default()
+            });
+        }
+        root.keep_first_values();
+
+        Ok((
+            ScraperAggregationResult::new(root.children, result.errors)
+                .with_validations(result.validations)
+                .with_global_etag(global_etag.clone()),
+            global_etag,
+        ))
+    }
+
+    /// Loads one deferred recommendations payload for the provided source and recommendations link.
+    ///
+    /// This is a generic facade over the `get_recommendations` YAML query: no
+    /// provider-specific logic lives in Rust. The response reuses the
+    /// `get_section` JSON shape (`entries`, `current_page`, `have_more`).
+    ///
+    /// # Arguments
+    ///
+    /// * `query_source` - Query source name.
+    /// * `query_url` - Source-specific recommendations URL or API endpoint.
+    /// * `page` - 1-based page number requested from the backend source.
+    /// * `source_params` - Optional per-source runtime parameters overriding global values.
+    /// * `context` - Context of the incoming controller request.
+    ///
+    /// # Returns
+    ///
+    /// The aggregation result alongside the up-to-date global ETag.
+    pub async fn get_recommendations(
+        &self,
+        context: RequestControlerContext,
+        query_source: String,
+        query_url: String,
+        page: usize,
+        mut source_params: ScraperSourceParams,
+    ) -> Result<(
+        ScraperAggregationResult<HashMap<String, ScraperDataNode>>,
+        Option<String>,
+    )> {
+        let mut params: HashMap<String, String> = HashMap::new();
+        params.insert("page".to_string(), page.max(1).to_string());
+        self.enrich_runtime_params(&mut params);
+
+        if !query_url.trim().is_empty() {
+            params.insert("query_url".to_string(), query_url.clone());
+            params.insert("link".to_string(), query_url);
+        }
+
+        for params_for_source in source_params.values_mut() {
+            if let Some(link) = params_for_source.get("link").cloned() {
+                params_for_source
+                    .entry("query_url".to_string())
+                    .or_insert(link);
+            }
+        }
+
+        let scrapper_list = if !query_source.trim().is_empty() {
+            Some(vec![query_source])
+        } else if !source_params.is_empty() {
+            Some(source_params.keys().cloned().collect())
+        } else {
+            None
+        };
+
+        let mut result = self
+            .scraper_agregator
+            .execute_query_async(
+                &context,
+                QueryParameters::from_cache_type(CacheType::FullCache),
+                STREAM_SERVICE_GROUP_NAME,
+                "get_recommendations",
+                &params,
+                Some(&source_params),
+                scrapper_list.as_ref(),
+                None,
+                None,
+                Some("source"),
+                "get_recommendations",
             )
             .await;
         let global_etag = result.take_global_etag();

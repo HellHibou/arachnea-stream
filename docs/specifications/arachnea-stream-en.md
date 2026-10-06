@@ -54,7 +54,7 @@ http:
 
 ## 3. Standard queries
 
-Each source may implement any subset of the following 10 queries:
+Each source may implement any subset of the following 11 queries:
 
 | Query name | Type | Description |
 |---|---|---|
@@ -65,6 +65,7 @@ Each source may implement any subset of the following 10 queries:
 | `get_banners` | `json` / `html` | Promotional banner payload loaded from a home banner link |
 | `search` | `json` / `html` | Search with filters |
 | `get_entry` | `json` / `html` | Entry detail (programme) |
+| `get_recommendations` | `json` / `html` | Deferred entry recommendations (see 5.7.2) |
 | `get_season` | `json` / `html` | Season episodes |
 | `list_lives` | `json` / `html` | List of live channels |
 | `get_live` | `json` / `html` | Live channel detail (player) |
@@ -484,6 +485,7 @@ Returns a single object with full programme metadata.
 | `rating` | `number` | Score |
 | `program-id` | `string` | Internal programme identifier |
 | `seasons` | `object[]` | Seasons (see 5.7.1) |
+| `recommendations` | `object` | Editorial recommendations (see 5.7.2, optional) |
 | `players` | `object[]` | Players (see 5.9) |
 | `img/poster > link` | `string` | Poster |
 | `img/portrait > link` | `string` | Portrait |
@@ -498,6 +500,38 @@ Returns a single object with full programme metadata.
 | `label` | `string` | Season name |
 | `link` | `string` | URL for `get_season` |
 | `episodes` | `object[]` | Pre-loaded episodes (optional) |
+
+#### 5.7.2 Recommendations
+
+`recommendations` is an optional section object: a source with no editorial
+relation omits it without failing `get_entry`. Its `label` is optional and is
+never required to render the recommendations.
+
+| YAML field | Type | Description |
+|---|---|---|
+| `entries` | `object[]` | Immediate `MediaItem` objects |
+| `link` | `string` | URL for `get_recommendations` (deferred or paginated data) |
+| `current_page` | `number` | Page already returned (normally `1` for an immediate response) |
+| `have_more` | `boolean` | Whether a next page is available through `get_recommendations` |
+| `label` | `string` | Optional section label |
+
+A source provides either the cards already present in the detail response
+(`recommendations > entries`) or a recommendations `link`. In the latter case,
+the frontend calls `get_recommendations` with the current `source`, that `link`
+and the requested one-based page (default `1`). The response reuses the
+`get_section` shape (`entries`, `current_page`, `have_more`), with no extra
+section envelope. Do not reuse `get_section`: its contract covers generic
+catalogue rails. Do not load external recommendations through a `get_entry`
+`sub_query` and do not derive recommendations from a search or a category: the
+relation must be explicitly provided by the source.
+
+Execution parameters available to `get_recommendations`:
+
+| Parameter | Description |
+|---|---|
+| `{query_url}` / `{link}` | Recommendations URL emitted by `get_entry` |
+| `{page}` | Requested one-based page number (default `1`) |
+| `{page_index}` | `page - 1` |
 
 ---
 

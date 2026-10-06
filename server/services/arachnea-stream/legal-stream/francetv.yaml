@@ -217,6 +217,42 @@ shared:
     - *common_image_landscape_thumbnail
     - *common_image_logo
 
+  # Discovery rails can contain collections alongside programmes. Keep their
+  # catalogue API links and expose the corresponding public collection page.
+  recommendation_collection_entries: &recommendation_collection_entries
+    - *source_entry
+    - name: title
+      type: string
+      select: first
+      pointer: /label
+    - name: description
+      type: string
+      select: first
+      pointer: /subtitle
+    - name: link
+      type: string
+      select: first
+      pointer: /collection_path
+      actions:
+        - type: format_text
+          argument: "{api_mobile}/apps/collections/{}?platform=apps&page=0"
+    - name: web-link
+      type: string
+      select: first
+      pointer: /collection_path
+      actions:
+        - type: regex_find_all
+          pattern: '^collection_(.+)$'
+          format: "{1}"
+        - type: format_text
+          argument: "{base_url}/collection/{}/"
+    - name: media-type
+      type: string[]
+      pointer: /category/url_complete
+      actions: *actions_francetv_category_media_type
+    - *common_image_poster_3x4
+    - *common_image_landscape_thumbnail
+
   category_card_entries: &category_card_entries
     - *source_entry
     - name: title
@@ -866,6 +902,22 @@ queries:
         type: string
         pointer: /item/images/*[type=logo]/urls/w:450
         select: first
+      # Editorial discovery is a separate playlist from the episode seasons.
+      - name: recommendations
+        type: object
+        pointer: /collections/*[type=playlist_to_discover]
+        select: first
+        entries:
+          - name: entries
+            type: object[]
+            pointer: /items/*[type=program]
+            select: all
+            entries: *program_card_entries
+          - name: entries
+            type: object[]
+            pointer: /items/*[type=collection]
+            select: all
+            entries: *recommendation_collection_entries
       - name: seasons
         type: object[]
         pointer: /collections/*[type=playlist_video]

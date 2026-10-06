@@ -64,3 +64,6 @@ queries:
       - content-advisor
       - video/trailer
       - subtitles
+      - recommendations > entries > title
+      - recommendations > entries > link
+      - recommendations > entries > img/landscape > link

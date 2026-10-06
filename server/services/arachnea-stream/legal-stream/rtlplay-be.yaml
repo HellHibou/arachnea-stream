@@ -1041,6 +1041,16 @@ queries:
         type: string
         select: first
         pointer: /title/imageUrl
+      - name: recommendations
+        type: object
+        select: first
+        pointer: /nextBestOffer
+        entries:
+          - name: entries
+            type: object[]
+            pointer: /teasers/*
+            select: all
+            entries: *teaser_entries_landscape
   #    - name: img/logo > link
   #      type: string
   #      select: first

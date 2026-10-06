@@ -222,6 +222,8 @@
     "seasonPromptMessage": "Select a season to load its episodes.",
     "video": "Video",
     "trailer": "Trailer",
+    "recommendations": "Recommendations",
+    "loadingRecommendationsMessage": "Recommendations are loading from the backend.",
     "seasonCountSingular": "{count} season",
     "seasonCountPlural": "{count} seasons"
   },
@@ -313,6 +315,7 @@
     "unexpectedLiveResponseFormat": "Unexpected live response format returned by the backend.",
     "unexpectedHomeResponseFormat": "Unexpected home response format returned by the backend.",
     "unexpectedSeasonResponseFormat": "Unexpected season response format returned by the backend.",
+    "unexpectedRecommendationsResponseFormat": "Unexpected recommendations response format returned by the backend.",
     "notifications": {
       "title": "Source unavailable",
       "messageWithSource": "{operation} could not be completed for {source}.",

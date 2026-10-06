@@ -407,6 +407,11 @@ const emit = defineEmits<{
            <slot />
          </div>
        </div>
+
+        <!-- Slot rendered full width below the poster/body grid (e.g. recommendations rail). -->
+        <div v-if="props.hasContent" class="entry-details__below">
+          <slot name="below" />
+        </div>
      </article>
 
      <ScrollToTopButton
@@ -485,6 +490,13 @@ const emit = defineEmits<{
    align-content: start;
  }
 
+ /* Full-width area below the poster/body grid (recommendations rail). */
+ .entry-details__below {
+   position: relative;
+   z-index: 1;
+   padding: 0 28px 28px;
+ }
+
 @media (max-width: 1120px) {
    .entry-details__content {
      grid-template-columns: 1fr;
@@ -495,6 +507,10 @@ const emit = defineEmits<{
    .entry-details__content,
    .entry-details__state {
      padding: 18px;
+   }
+
+   .entry-details__below {
+     padding: 0 18px 18px;
    }
  }
 

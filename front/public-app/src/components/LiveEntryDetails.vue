@@ -209,6 +209,7 @@ const details = computed<EntryDetailsModel | null>(() => {
     directorLabels: [],
     seasons: [],
     episodes: [],
+    recommendations: null,
     score: null,
     price: null,
   }

@@ -54,7 +54,7 @@ http:
 
 ## 3. Requêtes standard
 
-Chaque source peut implémenter tout ou partie des 10 requêtes suivantes :
+Chaque source peut implémenter tout ou partie des 11 requêtes suivantes :
 
 | Nom de requête | Type | Description |
 |---|---|---|
@@ -65,6 +65,7 @@ Chaque source peut implémenter tout ou partie des 10 requêtes suivantes :
 | `get_banners` | `json` / `html` | Données de bannières promotionnelles chargées depuis un lien de l'accueil |
 | `search` | `json` / `html` | Recherche avec filtres |
 | `get_entry` | `json` / `html` | Détail d'une entrée (programme) |
+| `get_recommendations` | `json` / `html` | Recommandations différées d'une entrée (voir 5.7.2) |
 | `get_season` | `json` / `html` | Épisodes d'une saison |
 | `list_lives` | `json` / `html` | Liste des chaînes en direct |
 | `get_live` | `json` / `html` | Détail d'un direct (joueur) |
@@ -491,6 +492,7 @@ Retourne un objet unique avec les métadonnées complètes d'un programme.
 | `rating` | `number` | Note |
 | `program-id` | `string` | Identifiant interne du programme |
 | `seasons` | `object[]` | Saisons (voir 5.7.1) |
+| `recommendations` | `object` | Recommandations éditoriales (voir 5.7.2, optionnel) |
 | `players` | `object[]` | Lecteurs (voir 5.9) |
 | `img/poster > link` | `string` | Poster |
 | `img/portrait > link` | `string` | Portrait |
@@ -505,6 +507,39 @@ Retourne un objet unique avec les métadonnées complètes d'un programme.
 | `label` | `string` | Nom de la saison |
 | `link` | `string` | URL pour `get_season` |
 | `episodes` | `object[]` | Épisodes pré-chargés (optionnel) |
+
+#### 5.7.2 Recommandations
+
+`recommendations` est un objet section optionnel : une source qui ne fournit
+aucune relation l'omet sans faire échouer `get_entry`. Son `label` est
+facultatif et n'est jamais requis pour afficher les recommandations.
+
+| Champ YAML | Type | Description |
+|---|---|---|
+| `entries` | `object[]` | Objets `MediaItem` immédiats |
+| `link` | `string` | URL pour `get_recommendations` (données différées ou paginées) |
+| `current_page` | `number` | Page déjà renvoyée (vaut normalement `1` pour une réponse immédiate) |
+| `have_more` | `boolean` | Indique la disponibilité d'une page suivante via `get_recommendations` |
+| `label` | `string` | Libellé de section facultatif |
+
+Une source fournit soit les cartes déjà présentes dans la réponse de détail
+(`recommendations > entries`), soit un `link` de recommandations. Dans ce
+second cas, le frontend appelle `get_recommendations` avec le `source` courant,
+ce `link` et la page un basée demandée (défaut `1`). La réponse reprend le
+format de `get_section` (`entries`, `current_page`, `have_more`), sans
+enveloppe de section additionnelle. `get_section` ne doit pas être réutilisé :
+son contrat représente les rails génériques du catalogue. Ne pas charger des
+recommandations externes au moyen d'une `sub_query` de `get_entry` et ne pas
+dériver les recommandations depuis une recherche ou une catégorie : la relation
+doit être explicitement fournie par la source.
+
+Paramètres d'exécution disponibles pour `get_recommendations` :
+
+| Paramètre | Description |
+|---|---|
+| `{query_url}` / `{link}` | URL de recommandations émise par `get_entry` |
+| `{page}` | Numéro de page un basée demandée (défaut `1`) |
+| `{page_index}` | `page - 1` |
 
 ---
 

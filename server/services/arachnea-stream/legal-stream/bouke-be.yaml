@@ -51,6 +51,67 @@ shared:
       argument: src
     - type: resolve_url
 
+  # Recommendation cards of an entry page
+  # (`div.editor-suggestion--main-container` `div.views-row` rows in
+  # `div.view-mode-editor_suggestion`): title in `h3`, card link on
+  # `a.overlink`, 16:9 picture in `img`, optional summary in
+  # `div.field-type-text-with-summary div.field-item`.
+  entries_recommendation_card: &entries_recommendation_card
+    - name: source
+      type: string
+      actions:
+        - type: format_text
+          argument: "{source}"
+    - name: title
+      type: string
+      select: first
+      selector: "h3 span"
+      actions:
+        - type: get_text
+    - name: title
+      type: string
+      select: first
+      selector: "h3"
+      actions:
+        - type: get_text
+    - name: link
+      type: string
+      select: first
+      selector: "a.overlink"
+      actions: *actions_get_href_resolve
+    - name: web-link
+      type: string
+      select: first
+      selector: "a.overlink"
+      actions: *actions_get_href_resolve
+    - name: description
+      type: string
+      select: first
+      selector: "div.field-type-text-with-summary div.field-item"
+      actions:
+        - type: get_text
+    - name: release-date
+      type: string
+      select: first
+      selector: "time"
+      actions:
+        - type: get_text
+        - type: regex_find_all
+          pattern: '(\d{2}/\d{2}/\d{4})'
+          format: "{1}"
+        - type: get_date
+          format: dd_mm_yyyy
+    - name: img/landscape > link
+      type: string
+      select: first
+      selector: "img"
+      actions: *actions_get_src_resolve
+    - name: media-type
+      type: string[]
+      actions:
+        - type: format_text
+          argument: "video/show/other"
+
   # A rail title lives in the `h2` of its section-header paragraph and is
   # followed by a `<cite>` link ("Tous les sujets"). `html_to_text` always
   # converts the selected element markup, so the cite suffix is stripped from
@@ -743,6 +804,29 @@ queries:
             type: string
             actions:
               - type: get_request_url
+      # Editorial recommendations of an entry page, already in the detail
+      # response. Two shapes exist: news pages carry
+      # `div.editor-suggestion--main-container` rows
+      # (`div.views-row div.view-mode-editor_suggestion` with a camera marker),
+      # while programme pages (`/emission/<slug>`) carry `div.composant-emission` portrait
+      # cards (`div.view-mode-portrait`, same shape as the programme index).
+      # No extra call is needed, so only `entries` is emitted (no `link`,
+      # no pagination).
+      - name: recommendations
+        type: object
+        select: first
+        selector: "div.editor-suggestion--main-container, div.composant-emission"
+        entries:
+          - name: entries
+            type: object[]
+            selector: "div.views-row div.view-mode-editor_suggestion:has(div.icon-camera-fill)"
+            select: all
+            entries: *entries_recommendation_card
+          - name: entries
+            type: object[]
+            selector: "div.view-mode-portrait"
+            select: all
+            entries: *entries_program_card
       - *entry_players_freecaster
 
 

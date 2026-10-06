@@ -1,4 +1,4 @@
-import type { Collection } from '@/types/media'
+import type { Collection, MediaItem } from '@/types/media'
 
 /**
  * Normalized playable item consumed by the featured media detail components.
@@ -210,6 +210,24 @@ export interface EntrySeason {
 }
 
 /**
+ * Normalized paged recommendations section consumed by the entry details component.
+ *
+ * A source provides either immediate cards (`items`) or a deferred `link`
+ * resolved through `get_recommendations`. `null` means the source exposed no
+ * usable recommendations section.
+ */
+export interface EntryRecommendations {
+  /** Recommendation cards already available. */
+  items: MediaItem[]
+  /** Deferred recommendations link resolved through `get_recommendations`. */
+  link: string | null
+  /** Current page number for deferred loading. */
+  currentPage: number
+  /** Whether a next page is available through `get_recommendations`. */
+  haveMore: boolean
+}
+
+/**
  * Normalized detailed media entry returned by the backend `get_entry` query.
  */
 export interface EntryDetails {
@@ -267,6 +285,8 @@ export interface EntryDetails {
   directorLabels: string[]
   /** The list of seasons for this entry. */
   seasons: EntrySeason[]
+  /** Optional editorial recommendations section, or null when the source exposes none. */
+  recommendations: EntryRecommendations | null
   /** The score or rating for this entry. */
   score: number | null
   /** Normalized paid-access indicator, or null when no paid offer applies. */
