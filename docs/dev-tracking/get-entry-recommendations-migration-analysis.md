@@ -1,7 +1,7 @@
 # Analyse : vidéos recommandées dans `get_entry`
 
 > Créée le 2026-10-05.  
-> Statut : étapes 1-5 (partielle) + bouke-be et rtlplay-be migrés le 2026-10-06 — contrat public documenté (FR/EN), façade backend générique, modèle et affichage frontend ; 2/15 sources candidates migrées ; trois sources sont confirmées sans recommandations.
+> Statut : étapes 1-5 (partielle) + 9 sources migrées (dont papadustream-v2 le 2026-10-06) — contrat public documenté (FR/EN), façade backend générique, modèle et affichage frontend ; 9/14 sources candidates migrées ; quatre sources sont confirmées sans recommandations.
 > Périmètre : sources de catalogue de `server/services/arachnea-stream/` qui déclarent `get_entry`.
 
 ## Objectif
@@ -91,13 +91,13 @@ Le frontend doit normaliser cet objet dans un modèle de section paginable, en r
 
 ## Inventaire
 
-`server/services/arachnea-stream/services.json` importe deux collections. Les 18 fichiers suivants déclarent `get_entry` : 5 sources DarkStream et 13 sources légales. Parmi elles, `anime-sama`, `animeultime`, `frenchanimes` et `antennereunion-fr` sont confirmées sans recommandations ; elles restent inventoriées car elles exposent `get_entry`, mais ne doivent pas recevoir le champ `recommendations`. Les 14 autres sources restent candidates à la migration. Les statuts d'activation restent à consulter dans les `services.json` de collection avant une validation réseau.
+`server/services/arachnea-stream/services.json` importe deux collections. Les 18 fichiers suivants déclarent `get_entry` : 5 sources DarkStream et 13 sources légales. Parmi elles, `anime-sama`, `animeultime`, `frenchanimes` et `antennereunion-fr` sont confirmées sans recommandations ; elles restent inventoriées car elles exposent `get_entry`, mais ne doivent pas recevoir le champ `recommendations`. Sur les 14 sources candidates, 9 sont migrées (dont `papadustream-v2`) et 5 restent à analyser. Les statuts d'activation restent à consulter dans les `services.json` de collection avant une validation réseau.
 
 | Groupe | Sources `get_entry` | Total | Sans recommandations confirmées | À analyser pour migration |
 |---|---|---:|---:|---:|
-| `dark-stream` | anime-sama, animeultime, coflix, frenchanimes, papadustream-v2 | 5 | 3 | 2 |
-| `legal-stream` | antennereunion-fr, arte-fr, bouke-be, canalzoom-be, francetv, ln24-be, m6play-fr, rtbf-auvio-be, rtlplay-be, telemb-be, tf1-fr, tv5mondeplus-fr, tvmonaco-fr | 13 | 1 | 12 |
-| **Total** | Sources de catalogue avec `get_entry` | **18** | **4** | **14** |
+| `dark-stream` | anime-sama, animeultime, coflix, frenchanimes, papadustream-v2 | 5 | 3 | 0 |
+| `legal-stream` | antennereunion-fr, arte-fr, bouke-be, canalzoom-be, francetv, ln24-be, m6play-fr, rtbf-auvio-be, rtlplay-be, telemb-be, tf1-fr, tv5mondeplus-fr, tvmonaco-fr | 13 | 1 | 5 |
+| **Total** | Sources de catalogue avec `get_entry` | **18** | **4** | **5** |
 
 ## Tableaux de migration par service
 
@@ -109,9 +109,9 @@ Le frontend doit normaliser cet objet dans un modèle de section paginable, en r
 |---|---|---|---|---|
 | `anime-sama` | `dark-stream/anime-sama.yaml` — HTML | Aucune recommandation fournie par le service. | Ne pas ajouter `recommendations` ni `get_recommendations` ; conserver l'absence du champ dans `get_entry`. | Non disponible |
 | `animeultime` | `dark-stream/animeultime.yaml` — HTML | Aucune recommandation fournie par le service. | Ne pas ajouter `recommendations` ni `get_recommendations` ; conserver l'absence du champ dans `get_entry`. | Non disponible |
-| `coflix` | `dark-stream/coflix.yaml` — HTML | Carrousels similaires, contenus apparentés, HTML/JSON de détail. | Limiter le sélecteur au détail ; contrôler films, séries et liens relatifs. | À analyser |
+| `coflix` | `dark-stream/coflix.yaml` — HTML | Bloc éditorial `section#related` (« Films liés ») dans la réponse de détail. | `recommendations > entries` immédiates via `entries_related_card` (`div.ani.items > div.item` : titre `a.name[data-jp]`, lien canonique `a.name` — le poster pointe vers une variante `/ep-<id>` de la même fiche —, poster `a.ani.poster > img`, `lang` VF/VOSTFR/French/TrueFrench) ; pas de `link`/`get_recommendations` (données déjà dans le détail, pas de pagination). Contrôle live du 2026-10-06 : `/film/spider-man-brand-new-day-vf` (7 cartes aux liens canoniques ouvrables, dont la variante VOSTFR du même film). Service désactivé dans `services.json` ; affichage frontend non vérifié. | Migré |
 | `frenchanimes` | `dark-stream/frenchanimes.yaml` — HTML | Aucune recommandation fournie par le service. | Ne pas ajouter `recommendations` ni `get_recommendations` ; conserver l'absence du champ dans `get_entry`. | Non disponible |
-| `papadustream-v2` | `dark-stream/papadustream-v2.yaml` — HTML avec pré-traitements. | Blocs similaires après suppression du bruit existant. | Préserver les pré-traitements ; exclure liens Cloudflare et publicité. | À analyser |
+| `papadustream-v2` | `dark-stream/papadustream-v2.yaml` — HTML avec pré-traitements. | Bloc éditorial « Voir Aussi: » (`div.full_content-inner--title` suivi d'`article.grid_short`) dans la réponse de détail. | `recommendations > entries` immédiates via `entries_related_card` (même forme que `catalog_card` sauf le titre en `div.short_title_related` : lien `a.short_img`, poster `data-src`, année, `lang` VF/VOSTFR) ; pas de `link`/`get_recommendations` (données déjà dans le détail, pas de pagination). Pré-traitements anti-Cloudflare préservés ; sélecteur limité au bloc « Voir Aussi: », sans mélange avec les onglets de saisons ni les épisodes. Contrôle live du 2026-10-06 : fiche Antigang (`/categorie-series/series-vf/22382-antigang.html`, 5 cartes aux liens ouvrables). Service désactivé dans `services.json` ; affichage frontend non vérifié. | Migré |
 
 ### LegalStream
 

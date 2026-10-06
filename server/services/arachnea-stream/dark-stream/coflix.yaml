@@ -36,6 +36,54 @@ shared:
       argument:
         "false": null
 
+  # Recommendation cards of an entry page (`section#related` "Films liés"):
+  # title in `a.name` (`data-jp`), canonical entry link on `a.name` (the
+  # `a.ani.poster` href points to an `/ep-<id>` variant of the same entry),
+  # poster in `a.ani.poster > img`, version label in `div.version`.
+  # The entry-level `source` is inherited by the frontend normalizer, so cards
+  # omit it like the catalogue `search` cards below.
+  entries_related_card: &entries_related_card
+    - name: title
+      type: string
+      select: first
+      selector: "a.name"
+      actions:
+        - type: get_attribut
+          argument: data-jp
+    - name: link
+      type: string
+      select: first
+      selector: "a.name"
+      actions:
+        - type: get_attribut
+          argument: href
+    - name: web-link
+      type: string
+      select: first
+      selector: "a.name"
+      actions:
+        - type: get_attribut
+          argument: href
+    - name: img/poster > link
+      type: string
+      select: first
+      selector: "a.ani.poster > img"
+      actions:
+        - type: get_attribut
+          argument: src
+    - name: lang
+      type: string[]
+      select: first
+      selector: "div.version"
+      actions:
+        - type: get_text
+        - type: map
+          argument:
+            VF: vf
+            VOSTFR: vostfr
+            French: vf
+            TrueFrench: vf
+
   # Player fields read from one `/ajax/episode/player` message row. The owning
   # post-process captures the serialized row as group 1, and every field applies
   # its own regex so the extraction does not depend on the JSON key order.
@@ -888,6 +936,19 @@ queries:
               - type: regex_find_all
                 pattern: 'episode_play\s*=\s*\{[\s\S]*?id\s*:\s*"(\d+)"'
                 format: "{base_url}/ajax/episode/player?episode_id={1}"
+      # Editorial "Films liés" rail, already in the detail response.
+      # No extra call is needed, so only `entries` is emitted (no `link`,
+      # no pagination).
+      - name: recommendations
+        type: object
+        select: first
+        selector: "section#related"
+        entries:
+          - name: entries
+            type: object[]
+            selector: "div.ani.items > div.item"
+            select: all
+            entries: *entries_related_card
     post_process:
       # Entry-level players, fetched from the player endpoint indexed by
       # `episode_play` (films and the currently watched episode of a series).

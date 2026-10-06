@@ -75,6 +75,64 @@ shared:
             VF: vf
             VOSTFR: vostfr
 
+  # Recommendation cards of an entry page ("Voir Aussi:" block,
+  # `div.full_content-inner--title` followed by `article.grid_short` cards):
+  # title in `div.short_title_related`, entry link on `a.short_img`,
+  # poster (`data-src`) in `a.short_img > img`, year in
+  # `.label_quel-hd`, VF/VOSTFR labels in `.label_sezon-seria`.
+  # Related cards reuse the catalogue card shape except for the title
+  # selector (no link inside the div, unlike `.short_title > a`).
+  entries_related_card: &entries_related_card
+    - name: source
+      type: string
+      actions:
+        - type: format_text
+          argument: "{source}"
+    - name: title
+      type: string
+      select: first
+      selector: ".short_title_related"
+      actions:
+        - type: get_text
+    - name: link
+      type: string
+      select: first
+      selector: ".short_img"
+      actions: *link_actions
+    - name: web-link
+      type: string
+      select: first
+      selector: ".short_img"
+      actions: *link_actions
+    - name: img/poster > link
+      type: string
+      select: first
+      selector: ".short_img > img"
+      actions: *poster_actions
+    - name: media-type
+      type: string[]
+      actions:
+        - type: format_text
+          argument: video/show/serie
+    - name: year
+      type: number
+      select: first
+      selector: ".short_img > .label_quel-hd"
+      actions:
+        - type: get_text
+    - name: lang
+      type: string[]
+      selector: ".short_img > .label_sezon-seria"
+      select: all
+      actions:
+        - type: get_text
+        - type: map
+          default: "{}"
+          argument:
+            VF: vf
+            VOSTFR: vostfr
+
+
 queries:
   - name: service_stream_metadata
     scraper_type: static
@@ -453,6 +511,20 @@ queries:
               - type: regex_find_all
                 pattern: '^(\d+)(https?://[^/]+(?:/[^/]+)*?)/(?:\d+-saison/\d+-episode\.html)$'
                 format: "{2}/{1}-saison.html"
+      # Editorial "Voir Aussi:" recommendations, already in the detail
+      # response. No extra call is needed, so only `entries` is emitted
+      # (no `link`, no pagination). The block sits after the seasons, so it
+      # never mixes with season tabs or episode links.
+      - name: recommendations
+        type: object
+        select: first
+        selector: "div.full_content-inner.full_inner:has(div.full_content-inner--title)"
+        entries:
+          - name: entries
+            type: object[]
+            selector: "article.grid_short"
+            select: all
+            entries: *entries_related_card
     post_process:
       - type: sort_items
         source: seasons
