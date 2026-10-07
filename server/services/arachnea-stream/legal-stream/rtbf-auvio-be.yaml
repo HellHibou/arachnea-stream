@@ -1032,6 +1032,10 @@ queries:
         type: string[]
         pointer: /data/content/casting/*/name
         select: all
+      - name: recommendations > link
+        type: string
+        select: first
+        pointer: /data/widgets/*[title=A découvrir aussi]/contentPath
 
     sub_queries:
       - scraper_type: json
@@ -1042,6 +1046,68 @@ queries:
         sub_queries:
           - *rtbf_program_episode_sub_query
       - *rtbf_program_episode_sub_query
+
+  # ---------------------------------------------------------------
+  # Recommendations
+  # ---------------------------------------------------------------
+  - name: get_recommendations
+    scraper_type: json
+    base_url: https://auvio.rtbf.be
+    query_url: "{query_url}{query_separator}_page={page}&_limit={page_size}&_embed=content"
+    media_types: *media_types_rtbf
+    row_pointer: /
+    entries:
+      - name: current_page
+        type: number
+        select: first
+        pointer: /meta/page/current
+      - name: have_more
+        type: boolean
+        select: first
+        pointer: /links/next
+        actions: *map_null_false_default_true
+      - name: entries
+        type: object[]
+        pointer: /data/content/*[resourceType=PROGRAM]
+        select: all
+        entries:
+          - name: source
+            type: string
+            actions:
+              - type: format_text
+                argument: "{source}"
+          - name: title
+            type: string
+            select: first
+            pointer: /title
+          - name: description
+            type: string
+            select: first
+            pointer: /description
+          - name: link
+            type: string
+            select: first
+            pointer: /path
+            actions: *actions_format_rtbf_pages
+          - name: web-link
+            type: string
+            select: first
+            pointer: /path
+            actions:
+              - type: format_text
+                argument: "https://auvio.rtbf.be{}"
+          - name: media-type
+            type: string[]
+            pointer: /type
+            actions: *actions_media_type
+          - name: img/poster > link
+            type: string
+            select: first
+            pointer: /illustration/m
+          - name: img/portrait > link
+            type: string
+            select: first
+            pointer: /illustration/m
 
   # ---------------------------------------------------------------
   # Get players

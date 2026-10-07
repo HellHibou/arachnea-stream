@@ -53,7 +53,11 @@ export function entryRecommendations(options: UseEntryRecommendationsOptions) {
 
   /** Whether the rail should be displayed for the current entry. */
   const showRecommendations = computed(
-    () => items.value.length > 0 || isLoading.value || errorMessage.value !== null,
+    () =>
+      items.value.length > 0 ||
+      isLoading.value ||
+      errorMessage.value !== null ||
+      (Boolean(recommendationsLink.value) && !hasLoadedLink.value),
   )
 
   /**
@@ -130,7 +134,7 @@ export function entryRecommendations(options: UseEntryRecommendationsOptions) {
       hasLoadedLink.value = true
       return
     }
-    await loadRecommendationsPage(Math.max(1, currentPage.value), true)
+    await loadRecommendationsPage(Math.max(1, currentPage.value), false)
   }
 
   /**

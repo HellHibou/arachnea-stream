@@ -541,6 +541,32 @@ Paramètres d'exécution disponibles pour `get_recommendations` :
 | `{page}` | Numéro de page un basée demandée (défaut `1`) |
 | `{page_index}` | `page - 1` |
 
+Pour TV5MONDE+, `get_entry.recommendations.link` désigne la fiche publique :
+`get_recommendations` extrait son rail HTML « Vous pourriez aimer », hors saisons,
+et renvoie des liens API asset ouvrables. Cette requête utilise un en-tête
+`User-Agent` spécifique (`curl/8.7.1`) : le profil Chrome hérité reçoit un refus
+Akamai sur certaines fiches. Le rail n'est pas paginé. L'API asset
+ne contient pas ces recommandations ; un refus Akamai sur la fiche HTML peut
+empêcher leur chargement, sans empêcher le chargement du détail API.
+
+Pour TF1+, seul le rail de programmes « Si vous aimez… » est retenu.
+Lorsque son libellé est présent dans les sections éditoriales du détail Smart TV,
+`get_entry.recommendations.link` désigne la fiche publique. `get_recommendations`
+extrait les cartes HTML de ce rail, leurs images portrait (champs `img/poster`
+et `img/portrait`, pour compatibilité avec les imagettes publiques) et leurs liens de détail
+Smart TV. Les rails « Ils jouent aussi dans… », les découvertes éditoriales,
+« Populaires cette semaine » et les épisodes sont exclus. Il n'y a pas de
+pagination (`current_page=1`, `have_more=false`) ; un rail absent ou vide ne
+produit aucune carte. Cette extraction reste dépendante de l'accès à la fiche HTML.
+
+Pour RTBF Auvio, `get_entry.recommendations.link` reprend le `contentPath`
+du widget « A découvrir aussi » présent sur la fiche. `get_recommendations`
+extrait uniquement ses cartes `PROGRAM`, avec liens de détail API, liens publics
+Auvio et images portrait dans `img/poster` et `img/portrait`. La pagination
+reprend `/meta/page/current` et `/links/next`. Les épisodes, les liens
+précédent/suivant et les recommandations générales de l'accueil sont exclus ;
+une fiche sans ce widget ne publie aucun lien de recommandations.
+
 ---
 
 ### 5.8 Saison et épisodes — `get_season`

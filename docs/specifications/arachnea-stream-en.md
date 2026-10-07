@@ -527,6 +527,31 @@ relation must be explicitly provided by the source.
 
 Execution parameters available to `get_recommendations`:
 
+TV5MONDE+ emits the public detail page as `recommendations.link`. The dedicated
+HTML query extracts its "Vous pourriez aimer" rail separately from seasons,
+with navigable asset API links and no pagination. This query overrides the
+inherited Chrome User-Agent with `curl/8.7.1`, since Chrome receives an Akamai
+denial on some detail pages. These recommendations are
+absent from the asset API; Akamai rejection of the HTML page can prevent their
+loading without preventing the API detail response.
+
+TF1+ includes only the "Si vous aimez…" program rail. When its label appears
+in the Smart TV detail editorial sections, `get_entry.recommendations.link`
+points to the public detail page. `get_recommendations` extracts the rail's HTML
+cards with portrait images in both `img/poster` and `img/portrait` for public
+thumbnail compatibility, and Smart TV detail links. Cast-related rails,
+editorial discovery, "Populaires cette semaine" and episodes are excluded.
+There is no pagination (`current_page=1`, `have_more=false`); a missing or empty
+rail yields no cards. Loading these recommendations depends on HTML page access.
+
+For RTBF Auvio, `get_entry.recommendations.link` uses the `contentPath` of the
+detail page's "A découvrir aussi" widget. `get_recommendations` extracts only
+its `PROGRAM` cards with API detail links, public Auvio links and portrait
+images in `img/poster` and `img/portrait`. Pagination follows
+`/meta/page/current` and `/links/next`. Episodes, next/previous navigation and
+general homepage recommendations are excluded; a page without this widget
+does not expose a recommendations link.
+
 | Parameter | Description |
 |---|---|
 | `{query_url}` / `{link}` | Recommendations URL emitted by `get_entry` |

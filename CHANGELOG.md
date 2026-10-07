@@ -116,6 +116,9 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- TF1+ entries now expose deferred recommendations exclusively from the public HTML "Si vous aimez…" program rail, with Smart TV detail links and portrait images. Cast-related rails, general popularity, editorial discovery rails and episodes are excluded; no pagination is advertised.
+- RTBF Auvio entries now expose deferred recommendations from their contextual "A découvrir aussi" widget, with API detail links, public Auvio links and portrait thumbnails in `img/poster` and `img/portrait`. Episodes, next/previous navigation and homepage recommendations are excluded; pagination follows the widget response.
+- TV5MONDE+ entries now expose deferred recommendations from their public HTML "Vous pourriez aimer" rail through `get_recommendations`, with API-backed navigation links and landscape images, separately from season episodes. Public entry URLs now use the catalogue category instead of always assuming series; HTML access remains subject to Akamai restrictions.
 - LN24 show entries now expose the "Dans la même catégorie" rail as immediate recommendation cards without players, separately from show episodes. Cards with blocked streams still link to their show pages; the BE proxy configuration is unchanged.
 - The `arachnea-stream` backend now exposes a generic `get_recommendations` command (`source`, `link`, `page` defaulting to 1) executing exclusively the YAML query of the same name and returning the `get_section` JSON shape (`entries`, `current_page`, `have_more`). YAML-declared `get_entry.recommendations` sections (immediate `entries` or deferred `link`) flow through without provider-specific Rust logic.
 - Bouké entries now expose video-only editorial recommendations from the page `Recommandations` block (`div.editor-suggestion--main-container` rows with a camera marker) as immediate `recommendations > entries` catalogue cards, rendered in the entry detail single-row rail without including text articles.
@@ -150,6 +153,8 @@ All notable changes to the server workspace are recorded here.
 
 - LN24 `get_category` now lists the category archive grid instead of the "Autres vidéos" featured side list: the section label comes from the dynamic category header (Séries, Émissions, LN24+), cards link to their show pages with a title derived from the link slug, portrait images and `video/show/other`, and no players.
 - RTL Play recommendation cards now map their 16:9 `imageUrl` to `img/landscape` instead of `img/poster`, so the public rail displays landscape thumbnails without changing portrait catalogue cards.
+- TF1+ recommendation cards now also expose their portrait thumbnail as `img/poster`, the field consumed by the public card image component, instead of providing only `img/portrait` and displaying an empty thumbnail.
+- TV5MONDE+ deferred recommendations override the inherited Chrome User-Agent only for the public HTML request, avoiding the Akamai denial observed on Mukbang that previously produced `entries: null`. Other catalogue and playback requests keep their existing HTTP profile.
 - ARTE live stream resolution now preserves the canonical `{proxy_countries}` HTTP template during configuration loading, then expands its runtime JSON list when `resolve_stream` executes instead of silently dropping the unresolved placeholder and using a direct connection. Its player descriptor uses the live config's `DE_FR` geoblocking rights as the ordered `[FR, DE]` proxy list, allowing a German proxy when no usable French proxy is available; the public frontend also accepts Scrapyfy's nested scalar-node representation for this static country list.
 - TF1+ now derives proxy countries from `media.geoList` in `mediainfocombo`, retries a geo-blocked negotiation through those territories, and preserves the discovered list for the manifest, storyboard, and deferred Widevine license request. Resolver-level proxy retry loops and direct fallbacks have been removed; internal requests and the manifest/storyboard `/api/proxy` URLs delegate HTTP 403 rotation to the proxy layer.
 
@@ -218,6 +223,7 @@ All notable changes to the server workspace are recorded here.
 #### Fixed
 
 - Media-card details now render the language fact with its own label and value, instead of incorrectly rendering the genre a second time or an empty genre value when only a language is available.
+- Link-only entry recommendations now mount their rail before visibility detection, allowing deferred `get_recommendations` calls to start. The rail observes both initially mounted and asynchronously rendered content, displays initial loading feedback, and hides after an empty successful response.
 - Pinned home rails now render the active subsection entries and retain the cyclic subsection controls, rather than rendering the empty parent item list.
 - The previous subsection control now appears before the rail title, while the next control remains in the header actions.
 

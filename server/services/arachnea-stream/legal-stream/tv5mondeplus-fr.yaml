@@ -130,8 +130,12 @@ shared:
       select: first
       pointer: /localized/*[locale=fr]/images/*[type=cover]/url
 
-  # MediaItem extraction shared by home sections and category grids.
-  entries_catalog_card: &entries_catalog_card
+  entries_recommendation_card: &entries_recommendation_card
+    - name: source
+      type: string
+      actions:
+        - type: format_text
+          argument: "{source}"
     - name: title
       type: string
       selector: "a.poster-card"
@@ -139,14 +143,21 @@ shared:
       actions:
         - type: get_attribut
           argument: aria-label
+        - type: regex_replace_all
+          pattern: " - [^-]+$"
+          replacement: ""
     - name: link
       type: string
-      selector: "a.poster-card"
+      selector: "a.poster-card img.poster-image"
       select: first
       actions:
         - type: get_attribut
-          argument: href
-        - type: resolve_url
+          argument: src
+        - type: regex_find_all
+          pattern: "/assets/([^/]+)/"
+          format: "{1}"
+        - type: format_text
+          argument: "{api_base_url}/v1/customer/TV5MONDE/businessunit/TV5MONDEplus/content/asset?assetIds={}&fieldSet=ALL&allowedCountry={allowed_country}"
     - name: web-link
       type: string
       selector: "a.poster-card"
@@ -176,7 +187,7 @@ shared:
       selector: ".hover-card-info"
       select: first
       actions: *actions_duration
-    - name: img/poster > link
+    - name: img/landscape > link
       type: string
       selector: "img.poster-image"
       select: first
@@ -808,12 +819,34 @@ queries:
             pattern: "^(.*)$"
             name: "@web_slug"
             value: "{1}"
+      - name: _web-section
+        type: string
+        select: first
+        pointer: /tags/*[type=category]/tagValues/*/tagId
+        actions: &actions_web_section
+          - type: regex_find_all
+            pattern: "^cat_(?:new_)?(.+)_74079A$"
+            format: "{1}"
+          - type: extract_variables
+            pattern: "^(.*)$"
+            name: "@web_section"
+            value: "{1}"
+            on_duplicate: replace
+      - name: _web-section
+        type: string
+        select: first
+        pointer: /tags/*[type=category_new]/tagValues/*/tagId
+        actions: *actions_web_section
       - name: web-link
         type: string
-        actions:
+        actions: &actions_entry_web_link
           - type: format_text
-            argument: "{base_url}/fr/series/{@web_category}/{@web_slug}"
+            argument: "{base_url}/fr/{@web_section}/{@web_category}/{@web_slug}"
           - type: replace_variables
+      # The editorial rail is only in the public HTML, not in the asset API.
+      - name: recommendations > link
+        type: string
+        actions: *actions_entry_web_link
       - name: img/logo > link
         type: string
         select: first
@@ -866,6 +899,40 @@ queries:
               - type: format_text
                 argument: "{api_base_url}/v1/customer/TV5MONDE/businessunit/TV5MONDEplus/content/asset/{@series_id}/season/{}/episode"
               - type: replace_variables
+
+  # ---------------------------------------------------------------------------
+  # Deferred editorial rail; the mosaic link is not the recommendation payload.
+  # Season rails use a different card shape and are explicitly excluded.
+  # ---------------------------------------------------------------------------
+  - name: get_recommendations
+    scraper_type: html
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    request_headers:
+      # The inherited Chrome user-agent receives an Akamai denial on public detail pages.
+      - name: User-Agent
+        select: first
+        actions:
+          - type: format_text
+            argument: "curl/8.7.1"
+    media_types: *media_types_tv5mondeplus
+    row_selector: "html"
+    entries:
+      - name: current_page
+        type: number
+        actions:
+          - type: format_text
+            argument: "1"
+      - name: have_more
+        type: boolean
+        actions:
+          - type: format_text
+            argument: "false"
+      - name: entries
+        type: object[]
+        selector: "div.slider-landscape:not(.st-tvshow-season-rail):has(> div.slider-landscape-text a[href^='/fr/mosaic/']) div.landscape-slide:has(a.poster-card[href] img.poster-image[src*='/assets/'])"
+        select: all
+        entries: *entries_recommendation_card
 
   # ---------------------------------------------------------------------------
   # 9. Season episodes from the public catalogue API

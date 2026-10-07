@@ -1120,6 +1120,17 @@ queries:
         type: string
         select: first
         pointer: /id
+      - name: recommendations > link
+        type: string
+        select: all
+        pointer: /editorialSections/*/sliders/*/decoration/label
+        actions:
+          - type: regex_find_all
+            pattern: '^Si vous aimez .+'
+            format: '{request_url}'
+          - type: regex_find_all
+            pattern: '[?&]programSlug=([^&]+).*?[?&]channel=([^&]+)'
+            format: '{base_url}/{2}/{1}'
       - name: seasons
         type: object[]
         pointer: /editorialSections/*/lists/*
@@ -1233,6 +1244,76 @@ queries:
                     type: string
                     select: first
                     pointer: /id
+
+
+  # ---------------------------------------------------------------
+  # Recommendations
+  # ---------------------------------------------------------------
+  - name: get_recommendations
+    scraper_type: html
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    media_types: *media_types_tf1
+    row_selector: "html"
+    entries:
+      - name: current_page
+        type: number
+        actions:
+          - type: format_text
+            argument: "1"
+      - name: have_more
+        type: boolean
+        actions:
+          - type: format_text
+            argument: "false"
+      - name: entries
+        type: object[]
+        selector: 'section[data-tracking-typename="SliderOfProgram"][data-tracking-poc-id^="si-vous-aimez-"] div[data-tracking-typename="Program"]:has(h3 a[href])'
+        select: all
+        entries:
+          - name: source
+            type: string
+            actions:
+              - type: format_text
+                argument: "{source}"
+          - name: title
+            type: string
+            selector: "h3 a"
+            select: first
+            actions:
+              - type: get_attribut
+                argument: title
+          - name: link
+            type: string
+            actions:
+              - type: get_html
+              - type: regex_find_all
+                pattern: 'data-tracking-poc-id="([^"]+)"[\s\S]*?href="/(?:fr-fr/|fr-be/|fr-lu/)?([^/"?]+)/([^/"?]+)"'
+                format: '{smarttv_api_root}?id=379fec96081ab1a2&variables=%7B%22programId%22%3A%22{1}%22%7D&programSlug={3}&channel={2}'
+          - name: web-link
+            type: string
+            selector: "h3 a"
+            select: first
+            actions:
+              - type: get_attribut
+                argument: href
+              - type: resolve_url
+          - name: img/poster > link
+            type: string
+            selector: "article picture img"
+            select: first
+            actions:
+              - type: get_attribut
+                argument: src
+              - type: resolve_url
+          - name: img/portrait > link
+            type: string
+            selector: "article picture img"
+            select: first
+            actions:
+              - type: get_attribut
+                argument: src
+              - type: resolve_url
 
 
   # ---------------------------------------------------------------

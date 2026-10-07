@@ -198,6 +198,10 @@ onMounted(() => {
     },
     { rootMargin: '320px 0px' },
   )
+  const element = recommendationsRailRef.value?.$el
+  if (showRecommendations.value && element) {
+    recommendationsObserver.observe(element)
+  }
 })
 
 onBeforeUnmount(() => {
@@ -208,6 +212,7 @@ onBeforeUnmount(() => {
 watch(
   [recommendationsRailRef, showRecommendations],
   ([rail, visible]) => {
+    recommendationsObserver?.disconnect()
     const element = (rail as unknown as { $el?: HTMLElement } | null)?.$el ?? null
     if (!recommendationsObserver || !visible || !element) {
       return
@@ -1132,7 +1137,7 @@ async function handleMediaPlaybackEnded() {
         mode="single-row"
         thumbnail-orientation="landscape"
         :thumbnail-image-fit="'cover'"
-        :is-loading-more="isRecommendationsLoadingMore"
+        :is-loading-more="isRecommendationsLoading || isRecommendationsLoadingMore"
         :have-more="hasMoreRecommendations"
         :load-more-error-message="recommendationsErrorMessage"
         :initial-loading-message="t('entry.loadingRecommendationsMessage')"

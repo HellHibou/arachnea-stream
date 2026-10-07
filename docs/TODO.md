@@ -5,7 +5,7 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 
 - Modifier load_home pour inclure la possibilité d'inclure une liste de sources a prendre en compte + modifier le front pour pouvoir afficher 1 source a la fois. Dans un 2e temp, ajouter la possibilité de créer des homes personalisées basé sur une source + section de load_home ou categorie.
 - Dans la description des services, ajouter des tags cle/valeur pour pouvoir distinguer le pays et la langue des vidéos.
-- Ajouter un système de vidéos associées.
+- Terminer la migration et la validation visuelle des vidéos associées : suivi dans `docs/dev-tracking/get-entry-recommendations-migration-analysis.md` ; TF1+ utilise uniquement le rail « Si vous aimez… » et RTBF Auvio le widget contextuel « A découvrir aussi » (validations backend effectuées, rendus frontend restants).
 - Tests `arachnea-scrapyfy` : les tests `resolve_url` (appel de `apply` sans le paramètre `ProxyFollowRedirects`) ne compilent plus suite au changement de signature du proxy ; préexistant et hors périmètre, à réaligner comme les tests `arachnea-proxy`.
 - Utiliser obscura pour contourner Cloudflare (navigateur rust avec résolution cloudflare interne). 
 
