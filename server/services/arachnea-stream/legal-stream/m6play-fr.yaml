@@ -37,6 +37,15 @@ parameters:
   - name: search_pagination
     value: true
     description: Whether search supports reliable page-based pagination.
+  - name: recommendation_signing_key
+    value: "Ocohp1AhK0leek6aew2aeSiedee3ies2Aipes5Aa"
+    description: Public anonymous signing key observed in the M6 web client; update when the client changes.
+  - name: recommendation_capacity
+    value: token-web-32
+    description: Public web layout capability token, distinct from the anonymous JWT.
+  - name: recommendation_client_release
+    value: "6.51.3"
+    description: Client release header for anonymous token acquisition.
 
 
 # ############################################################################
@@ -50,6 +59,147 @@ shared:
     - video/show/other
 
   generic_request_headers: &generic_request_headers []
+
+  # No account credentials are used for anonymous recommendation requests.
+  recommendation_signature: &recommendation_signature
+    - type: format_text
+      argument: 'var timestamp = Math.floor(Date.now() / 1000); document.write(sign("{recommendation_signing_key}", "/v2/platforms/m6group_web/getJwt" + Math.floor(timestamp / 60)) + "|" + timestamp);'
+    - type: exec_js
+      timeout_ms: 1000
+      scripts:
+        - |
+          function sha1(bytes) {
+            var length = bytes.length * 8, data = bytes.slice(), words = [];
+            data.push(128);
+            while (data.length % 64 !== 56) data.push(0);
+            for (var i = 7; i >= 0; i--) data.push(i >= 4 ? 0 : (length >>> (i * 8)) & 255);
+            var h = [1732584193, -271733879, -1732584194, 271733878, -1009589776];
+            function rotate(x, n) { return (x << n) | (x >>> (32 - n)); }
+            for (var offset = 0; offset < data.length; offset += 64) {
+              for (i = 0; i < 16; i++) {
+                var j = offset + i * 4;
+                words[i] = (data[j] << 24) | (data[j + 1] << 16) | (data[j + 2] << 8) | data[j + 3];
+              }
+              for (i = 16; i < 80; i++) words[i] = rotate(words[i - 3] ^ words[i - 8] ^ words[i - 14] ^ words[i - 16], 1);
+              var a = h[0], b = h[1], c = h[2], d = h[3], e = h[4];
+              for (i = 0; i < 80; i++) {
+                var f = i < 20 ? (b & c) | (~b & d) : i < 40 ? b ^ c ^ d : i < 60 ? (b & c) | (b & d) | (c & d) : b ^ c ^ d;
+                var k = i < 20 ? 1518500249 : i < 40 ? 1859775393 : i < 60 ? -1894007588 : -899497514;
+                var next = (rotate(a, 5) + f + e + k + words[i]) | 0;
+                e = d; d = c; c = rotate(b, 30); b = a; a = next;
+              }
+              h = [(h[0] + a) | 0, (h[1] + b) | 0, (h[2] + c) | 0, (h[3] + d) | 0, (h[4] + e) | 0];
+            }
+            var out = [];
+            for (i = 0; i < 20; i++) out.push((h[i >> 2] >>> (24 - (i % 4) * 8)) & 255);
+            return out;
+          }
+          function utf8(value) {
+            var encoded = encodeURIComponent(value), bytes = [];
+            for (var i = 0; i < encoded.length; i++) {
+              if (encoded.charAt(i) === '%') {
+                bytes.push(parseInt(encoded.slice(i + 1, i + 3), 16));
+                i += 2;
+              } else {
+                bytes.push(encoded.charCodeAt(i));
+              }
+            }
+            return bytes;
+          }
+          function sign(key, message) {
+            var bytes = utf8(key), inner = [], outer = [];
+            if (bytes.length > 64) bytes = sha1(bytes);
+            for (var i = 0; i < 64; i++) {
+              inner.push((bytes[i] || 0) ^ 54);
+              outer.push((bytes[i] || 0) ^ 92);
+            }
+            return sha1(outer.concat(sha1(inner.concat(utf8(message))))).map(function(x) {
+              return ('0' + x.toString(16)).slice(-2);
+            }).join('');
+          }
+    - type: regex_find_all
+      pattern: '^document_write=([a-f0-9]{40})\|[0-9]+$'
+      format: "{1}"
+
+  recommendation_headers: &recommendation_headers
+    - name: Authorization
+      actions:
+        - type: format_text
+          argument: "Bearer {_jwt}"
+
+  recommendation_cards: &recommendation_cards
+    - name: _next_card_page
+      type: number
+      select: first
+      pointer: /content/pagination/nextPage
+    - name: have_more
+      type: boolean
+      select: first
+      pointer: /content/pagination/nextPage
+      actions:
+        - type: map
+          argument: { null: false }
+          default: true
+    - name: entries
+      type: object[]
+      select: all
+      pointer: /content/items/*/itemContent
+      entries:
+        - name: source
+          type: string
+          actions:
+            - type: format_text
+              argument: "{source}"
+        - name: title
+          type: string
+          select: first
+          pointer: /title
+        - name: _target_type
+          type: string
+          select: first
+          pointer: /action/target/value_layout/type
+        - name: link
+          type: string
+          select: first
+          pointer: /action/target/value_layout/id
+        - name: web-link
+          type: string
+          select: first
+          actions:
+            - type: build_url
+              base: "https://www.m6.fr/{slug}-p_{id}"
+              fields:
+                slug: /action/target/value_layout/seo
+                id: /action/target/value_layout/id
+        - name: img/poster > link
+          type: string
+          select: first
+          pointer: /image/id
+          actions:
+            - type: format_text
+              argument: "{image_root}/{}/raw"
+        - name: img/portrait > link
+          type: string
+          select: first
+          pointer: /image/id
+          actions:
+            - type: format_text
+              argument: "{image_root}/{}/raw"
+
+  recommendation_block: &recommendation_block
+    name: _block
+    type: string
+    select: first
+    pointer: /blocks/*[analytics/tealium/from=feature.recommended_programs_by_program]/blockId
+    actions:
+      - type: format_text
+        argument: "https://layout.6cloud.fr/front/v1/m6web/m6group_web/main/{recommendation_capacity}/program/{query_url}/block/{}?page={page}&nbPages=1"
+    sub_queries:
+      - scraper_type: json
+        target: parent
+        request_headers: *recommendation_headers
+        row_pointer: /
+        entries: *recommendation_cards
 
   actions_default_media_type: &actions_default_media_type
     - type: map
@@ -541,6 +691,10 @@ queries:
     media_types: *media_types_6play
     row_pointer: /
     entries:
+      - name: recommendations > link
+        type: string
+        select: first
+        pointer: /id
       - name: title
         type: string
         select: first
@@ -638,6 +792,103 @@ queries:
              actions:
                - type: format_text
                  argument: "{query_url}/videos?subcat={}"
+
+  # ---------------------------------------------------------------
+  # Deferred recommendations: inspect at most eight layout pages.
+  # ---------------------------------------------------------------
+  - name: get_recommendations
+    scraper_type: json
+    base_url: https://www.m6.fr
+    query_url: https://front-auth.6cloud.fr/v2/platforms/m6group_web/getJwt
+    request_headers:
+      - name: X-Auth-Token
+        actions: *recommendation_signature
+      - name: X-Auth-Token-Timestamp
+        actions:
+          - type: format_text
+            argument: 'document.write(Math.floor(Date.now() / 1000));'
+          - type: exec_js
+            timeout_ms: 1000
+          - type: regex_find_all
+            pattern: '^document_write=([0-9]+)$'
+            format: "{1}"
+      - name: X-Customer-Name
+        actions:
+          - type: format_text
+            argument: m6web
+      - name: X-Client-Release
+        actions:
+          - type: format_text
+            argument: "{recommendation_client_release}"
+      - name: x-auth-device-id
+        actions:
+          - type: format_text
+            argument: 'document.write("xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function(c) { var r = Math.floor(Math.random() * 16); return (c === "x" ? r : (r & 3) | 8).toString(16); }));'
+          - type: exec_js
+            timeout_ms: 1000
+          - type: regex_find_all
+            pattern: '^document_write=([a-f0-9-]+)$'
+            format: "{1}"
+    media_types: *media_types_6play
+    row_pointer: /
+    entries:
+      - name: current_page
+        type: number
+        actions:
+          - type: format_text
+            argument: "{page}"
+      - name: _layout
+        type: string[]
+        select: all
+        pointer: /token
+        actions:
+          - type: format_text
+            argument: 'document.write(Array.from({length: 8}, function(_, i) { return "https://layout.6cloud.fr/front/v1/m6web/m6group_web/main/{recommendation_capacity}/program/{query_url}/layout?nbPages=1&blockPage=" + (i + 1) + "#jwt={}"; }).join("\n"));'
+          - type: exec_js
+            timeout_ms: 1000
+          - type: regex_find_all
+            pattern: '(https://layout\.6cloud\.fr/[^\s]+)'
+            format: "{1}"
+        sub_queries:
+          - scraper_type: json
+            target: parent
+            request_headers:
+              - name: Authorization
+                actions:
+                  - type: get_request_url
+                  - type: regex_find_all
+                    pattern: '#jwt=([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$'
+                    format: 'Bearer {1}'
+            row_pointer: /
+            entries:
+              - name: _jwt
+                type: string
+                actions:
+                  - type: get_request_url
+                  - type: regex_find_all
+                    pattern: '#jwt=([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$'
+                    format: "{1}"
+              - *recommendation_block
+    post_process:
+      - type: filter_items
+        source: entries
+        field: _target_type
+        pattern: '^program$'
+      - type: filter_fields
+        source: entries
+        field: _target_type
+        pattern: '^program$'
+        remove:
+          - _target_type
+      - type: derive_pagination
+        next_value_field: _next_card_page
+        remove_fields:
+          - _next_card_page
+      - type: remove_fields
+        fields:
+          - _layout
+          - _jwt
+          - _block
 
   # ---------------------------------------------------------------
   # Season

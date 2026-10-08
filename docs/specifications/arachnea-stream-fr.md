@@ -549,6 +549,16 @@ Akamai sur certaines fiches. Le rail n'est pas paginé. L'API asset
 ne contient pas ces recommandations ; un refus Akamai sur la fiche HTML peut
 empêcher leur chargement, sans empêcher le chargement du détail API.
 
+Pour M6+, le prototype YAML publie l'identifiant programme dans `recommendations.link`
+et demande un JWT anonyme dans `get_recommendations`, sans identifiants utilisateur.
+La signature est calculée avec `exec_js` et des paramètres publics configurables.
+Le parcours inspecte huit pages de layout au maximum et retient uniquement
+`feature.recommended_programs_by_program`. Les cartes programme disposent de
+`img/poster` et `img/portrait` ; leur pagination est distincte de celle du layout.
+Les champs internes contenant le JWT sont retirés du résultat public, mais les
+traces internes ne doivent pas être diffusées. Ce prototype reste à valider en
+réseau ; un rail absent dans la borne de huit pages n'est pas une absence confirmée.
+
 Pour TF1+, seul le rail de programmes « Si vous aimez… » est retenu.
 Lorsque son libellé est présent dans les sections éditoriales du détail Smart TV,
 `get_entry.recommendations.link` désigne la fiche publique. `get_recommendations`

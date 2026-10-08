@@ -77,7 +77,8 @@ interface Props {
      */
     onLoadMore?: () => void | Promise<void>
     /**
-     * Automatically invokes onLoadMore when the load-more button becomes visible.
+     * Enables automatic loading in grid/list modes when the load-more button becomes visible.
+     * Single-row mode always loads automatically when its inline button becomes visible.
      * @default false
      */
     autoLoadMore?: boolean
@@ -190,7 +191,7 @@ const cardOrientations = computed(() => {
   return map
 })
 
-/** Template reference to the load-more button (grid/list modes). */
+/** Template reference to the load-more button in the active layout. */
 const loadMoreButtonRef = useTemplateRef<HTMLButtonElement>('loadMoreButtonRef')
 /** Whether the load-more button is currently visible in the viewport. */
 const isLoadMoreButtonVisible = ref(false)
@@ -198,11 +199,26 @@ const isLoadMoreButtonVisible = ref(false)
 let loadMoreObserver: IntersectionObserver | null = null
 
 onMounted(() => {
-  loadMoreObserver = new IntersectionObserver(
-    (entries) => {
-      isLoadMoreButtonVisible.value = entries.some((entry) => entry.isIntersecting)
+  watch(
+    [loadMoreButtonRef, () => props.mode, itemsLength],
+    ([button, mode]) => {
+      loadMoreObserver?.disconnect()
+      loadMoreObserver = null
+      isLoadMoreButtonVisible.value = false
+
+      if (!button) {
+        return
+      }
+
+      loadMoreObserver = new IntersectionObserver(
+        (entries) => {
+          isLoadMoreButtonVisible.value = entries.some((entry) => entry.isIntersecting)
+        },
+        { rootMargin: mode === 'single-row' ? '0px' : '200px 0px' },
+      )
+      loadMoreObserver.observe(button)
     },
-    { rootMargin: '200px 0px' },
+    { flush: 'post', immediate: true },
   )
 })
 
@@ -212,25 +228,9 @@ onBeforeUnmount(() => {
 })
 
 watch(
-  loadMoreButtonRef,
-  (button) => {
-    if (!loadMoreObserver) {
-      return
-    }
-
-    if (button) {
-      loadMoreObserver.observe(button)
-    } else {
-      isLoadMoreButtonVisible.value = false
-    }
-  },
-  { flush: 'post', immediate: true },
-)
-
-watch(
   [
     isLoadMoreButtonVisible,
-    () => props.autoLoadMore,
+    () => props.mode === 'single-row' || props.autoLoadMore,
     () => props.isLoadingMore,
     () => props.haveMore,
     () => props.loadMoreErrorMessage,
@@ -240,6 +240,7 @@ watch(
       void props.onLoadMore?.()
     }
   },
+  { flush: 'post' },
 )
 </script>
 
@@ -345,6 +346,7 @@ watch(
 
          <!-- Load-more button inline for single-row mode (scrollable area) -->
          <button
+           ref="loadMoreButtonRef"
            v-if="(haveMore || isLoadingMore) && mode === 'single-row'"
            :class="[
              'media-card-collection__load-more',

@@ -535,6 +535,15 @@ denial on some detail pages. These recommendations are
 absent from the asset API; Akamai rejection of the HTML page can prevent their
 loading without preventing the API detail response.
 
+The M6+ YAML prototype emits the program ID in `recommendations.link` and obtains
+an anonymous JWT in `get_recommendations`, without user credentials. Signing uses
+`exec_js` and configurable public client parameters. It scans at most eight
+layout pages and selects only `feature.recommended_programs_by_program`.
+Program cards include `img/poster` and `img/portrait`; card pagination is separate
+from layout pagination. Internal JWT fields are removed from public output, but
+internal traces must not be shared. Network validation is pending; reaching the
+eight-page bound without a rail does not confirm its absence.
+
 TF1+ includes only the "Si vous aimez…" program rail. When its label appears
 in the Smart TV detail editorial sections, `get_entry.recommendations.link`
 points to the public detail page. `get_recommendations` extracts the rail's HTML

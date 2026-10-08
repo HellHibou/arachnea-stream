@@ -54,6 +54,12 @@ npm run lint:css:fix
 ```
 
 
+## Media collection pagination
+
+`MediaCardCollection` automatically invokes `onLoadMore` in `single-row` mode when the inline load-more button becomes visible in the horizontally scrollable rail and the page viewport. Visibility is checked again after items are appended or the layout changes. Automatic loading requires `haveMore`, pauses while `isLoadingMore` is true, and stops on `loadMoreErrorMessage` so failures can be retried manually using the button.
+
+Grid and list layouts keep automatic pagination opt-in through `autoLoadMore` (default: `false`), with a 200px vertical preload margin. The button remains available for manual loading in every layout.
+
 ## Desktop tabs
 
 In Tauri desktop mode, the native host creates a dedicated webview for `DesktopTabShell.vue` and an independent content webview for each tab. The injected `window.__DESKTOP_TAB_SHELL__` flag selects the shell at bootstrap; normal browser and content webviews continue to mount `App.vue` with Vue Router. The shell uses `useDesktopTabs` and the typed `desktopTabs` bridge to receive native state and request tab actions.
