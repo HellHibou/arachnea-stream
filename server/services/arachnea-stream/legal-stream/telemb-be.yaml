@@ -804,6 +804,35 @@ queries:
           - name: request > query_url
             type: string
             actions: *actions_get_href_resolve
+      # Editorial listings expose a `nav#block-categories` menu listing their
+      # sub-categories (e.g. `Economie`, `Football`, ...). Each one is a
+      # navigable listing reached through `get_category` with its own URL, so
+      # they are exposed as `categories`. The block is absent from
+      # `/liste-localite`, `/emissions` and listings without sub-categories, so
+      # it never collides with the locality or programme listings.
+      - name: categories
+        type: object[]
+        selector: "nav#block-categories ul[block='block-categories'] li a"
+        select: all
+        entries:
+          - name: key
+            type: string
+            actions:
+              - type: get_attribut
+                argument: href
+              - type: regex_replace_all
+                pattern: "^.*/([^/]+)/?$"
+                replacement: "$1"
+          - name: label
+            type: string
+            actions:
+              - type: get_text
+          - name: link
+            type: string
+            actions: *actions_get_href_resolve
+          - name: request > query_url
+            type: string
+            actions: *actions_get_href_resolve
     post_process:
       - type: derive_pagination
         source: sections
