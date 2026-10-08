@@ -26,27 +26,12 @@ const PROXIES_GROUP_NAME: &str = "arachnea-proxies";
 /// The group name used for the IP-country query collection.
 const IP_COUNTRY_GROUP_NAME: &str = "arachnea-ip-countries";
 
-/// `arachnea-scrapyfy` provider placeholder for dynamic proxy data.
+/// Dynamic proxy provider with an owned snapshot of the configured sources.
 ///
-/// Data loading is intentionally left unimplemented so source-specific loading
-/// can be added separately without coupling this module to one public list
-/// format.
-///
-/// # Safety
-///
-/// Stores a raw pointer to [`ScraperAgregator`]. The pointer must remain valid
-/// for the lifetime of this provider. This is guaranteed because the provider
-/// is always stored within the proxy core which is owned by the same
-/// [`ScraperAgregator`] instance.
+/// The snapshot remains valid even when the application replaces its aggregator.
 pub struct ScrapyfyProxyDataProvider {
-    scraper_agregator: *const ScraperAgregator,
+    scraper_agregator: Arc<ScraperAgregator>,
 }
-
-// SAFETY: the raw pointer points to the owning ScraperAgregator which lives
-// longer than this provider. The provider is used only within the proxy core
-// owned by the same aggregator, on the same executor as the aggregator.
-unsafe impl Send for ScrapyfyProxyDataProvider {}
-unsafe impl Sync for ScrapyfyProxyDataProvider {}
 
 impl ScrapyfyProxyDataProvider {
     /// Creates a proxy data provider backed by the given aggregator.
@@ -87,7 +72,8 @@ impl ScrapyfyProxyDataProvider {
         }
 
         ScrapyfyProxyDataProvider {
-            scraper_agregator: scraper_agregator as *const ScraperAgregator,
+            scraper_agregator: scraper_agregator
+                .provider_snapshot(&[PROXIES_GROUP_NAME, IP_COUNTRY_GROUP_NAME]),
         }
     }
 }
@@ -117,10 +103,7 @@ impl ScrapyfyProxyDataProvider {
     async fn load_proxies_for_country(&self, country: &str) -> Result<Vec<ProxyRecord>> {
         info!("Loading proxies for country: {}...", country);
 
-        // SAFETY: the raw pointer is valid for the lifetime of the provider
-        // because the ScraperAgregator owns the core which owns the inventory
-        // which owns this provider.
-        let agregator = unsafe { &*self.scraper_agregator };
+        let agregator = &self.scraper_agregator;
 
         let mut params: HashMap<String, String> = HashMap::new();
         params.insert("country".to_string(), country.to_string());

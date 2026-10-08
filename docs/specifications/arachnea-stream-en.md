@@ -1079,6 +1079,13 @@ handler under the same `<operation>` command names.
 | `set-admin-password` | POST | Sets or changes the permanent administrator password (Argon2id). |
 | `reload` | POST | Validates and reloads every administrable group; each applicable runtime is swapped atomically. Send the empty JSON object `{}` as its request body. The response retains `{applied, build_error}` for the first group and adds `groups: [{service_store_id, applied, build_error}]` for every group. |
 
+Reloading applies updated proxy (`arachnea-proxies`) and IP-country
+(`arachnea-ip-countries`) source activation, including when all proxy sources
+were disabled at startup. The stable `/proxy` route uses the current runtime;
+in-flight requests retain their original runtime. Proxy lists remain loaded on
+demand for country routing, not eagerly by the reload action. A rebuilt inventory
+resets its in-memory provider-refresh cooldown while retaining persistent records.
+
 ### 9.3 Error format
 
 Errors use a stable shape: `{"error":{"code":"<code>","message":"<message>"}}`

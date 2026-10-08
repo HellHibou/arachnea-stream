@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 
@@ -17,21 +18,15 @@ const IP_COUNTRY_GROUP_NAME: &str = "arachnea-ip-countries";
 /// IP geolocation provider backed by the scrapyfy scraper infrastructure.
 ///
 /// Uses a YAML-defined query to resolve IP addresses to country codes.
-/// The provider stores a raw pointer to [`ScraperAgregator`], which must
-/// outlive this provider.
+/// The provider owns its query runtime, independently of the caller's lifetime.
 pub struct ScrapyfyIpCountryDataProvider {
-    scraper_agregator: *const ScraperAgregator,
+    scraper_agregator: Arc<ScraperAgregator>,
 }
-
-// SAFETY: the raw pointer points to the owning ScraperAgregator which lives
-// longer than this provider.
-unsafe impl Send for ScrapyfyIpCountryDataProvider {}
-unsafe impl Sync for ScrapyfyIpCountryDataProvider {}
 
 impl ScrapyfyIpCountryDataProvider {
     /// Creates a new provider backed by the given aggregator.
     ///
-    /// The aggregator must be pinned and must outlive this provider.
+    /// The loaded sources are copied into an independently owned runtime.
     pub fn new(scraper_agregator: &mut ScraperAgregator) -> Self {
         let preferred_config_path = format!(
             "{}/{}/{}",
@@ -49,7 +44,7 @@ impl ScrapyfyIpCountryDataProvider {
         }
 
         ScrapyfyIpCountryDataProvider {
-            scraper_agregator: scraper_agregator as *const ScraperAgregator,
+            scraper_agregator: scraper_agregator.provider_snapshot(&[IP_COUNTRY_GROUP_NAME]),
         }
     }
 
@@ -70,7 +65,7 @@ impl ScrapyfyIpCountryDataProvider {
             return Ok(Vec::new());
         }
 
-        let agregator = unsafe { &*self.scraper_agregator };
+        let agregator = &self.scraper_agregator;
 
         let mut results = Vec::with_capacity(ips.len());
 
@@ -131,7 +126,7 @@ impl IpCountryDataProvider for ScrapyfyIpCountryDataProvider {
     /// resolution when a proxy record's country is missing and a strict country
     /// selection is in progress.
     async fn resolve_ip_country(&self, ip: &IpAddr) -> Result<Option<String>> {
-        let agregator = unsafe { &*self.scraper_agregator };
+        let agregator = &self.scraper_agregator;
 
         let ip_str = ip.to_string();
         let mut params = HashMap::new();
@@ -171,7 +166,7 @@ impl IpCountryDataProvider for ScrapyfyIpCountryDataProvider {
     /// Resolves the current public outbound country via the YAML-defined
     /// geolocation query.
     async fn resolve_current_country(&self) -> Result<Option<String>> {
-        let agregator = unsafe { &*self.scraper_agregator };
+        let agregator = &self.scraper_agregator;
 
         let rows = agregator
             .execute_query_async(
@@ -244,7 +239,6 @@ impl Default for IpCountryRefreshConfig {
 /// # Parameters
 ///
 /// - `aggregator`: Scraper aggregator with the IP-country query collection loaded.
-/// - `provider`: IP-country data provider used for resolution.
 /// - `ip_addresses`: List of IP addresses to resolve.
 /// - `config`: Refresh configuration (store path, etc.).
 ///
@@ -257,7 +251,7 @@ pub async fn refresh_ip_country_store(
     config: &IpCountryRefreshConfig,
 ) -> Result<()> {
     let provider = ScrapyfyIpCountryDataProvider {
-        scraper_agregator: aggregator as *const ScraperAgregator,
+        scraper_agregator: aggregator.provider_snapshot(&[IP_COUNTRY_GROUP_NAME]),
     };
 
     let records = provider.resolve_ips(ip_addresses).await?;

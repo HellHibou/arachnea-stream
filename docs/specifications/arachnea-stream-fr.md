@@ -1086,6 +1086,15 @@ mêmes noms de commande.
 | `set-admin-password` | POST | Définit ou change le mot de passe administrateur permanent (Argon2id). |
 | `reload` | POST | Valide puis recharge tous les groupes administrables ; chaque runtime applicable est échangé atomiquement. Le corps doit être l’objet JSON vide `{}`. La réponse conserve `{applied, build_error}` pour le premier groupe et ajoute `groups: [{service_store_id, applied, build_error}]` pour tous les groupes. |
 
+Le rechargement applique les changements d’activation des sources proxy
+(`arachnea-proxies`) et IP-country (`arachnea-ip-countries`), même si toutes les
+sources proxy étaient désactivées au démarrage. La route stable `/proxy` utilise
+le runtime courant ; les requêtes en cours conservent leur runtime initial.
+Les listes de proxys restent chargées à la demande pour le routage par pays,
+et non immédiatement lors du rechargement. L’inventaire reconstruit réinitialise
+son délai de nouvelle consultation fournisseur en mémoire, sans supprimer les
+enregistrements persistants.
+
 ### 9.3 Format d’erreur
 
 Les erreurs emploient une forme stable : `{"error":{"code":"<code>","message":"<message>"}}`

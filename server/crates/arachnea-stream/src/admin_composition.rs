@@ -71,7 +71,9 @@ impl AdminRuntimeAdapter for StreamAdminRuntimeAdapter {
         // Preserve application-specific persisted entries (current country,
         // cache sizing), merging so options owned by other crates stay intact.
         for (name, value) in &settings.additional_options {
-            config.additional_options.insert(name.clone(), value.clone());
+            config
+                .additional_options
+                .insert(name.clone(), value.clone());
         }
         config.save(&self.configuration_path)
     }
@@ -127,7 +129,12 @@ impl AdminRuntimeAdapter for StreamAdminRuntimeAdapter {
         &self,
         group: &ValidatedReloadGroup,
     ) -> Result<Option<RuntimeReloadReport>> {
-        if group.service_store_id != crate::stream_scraper::STREAM_SERVICE_GROUP_NAME {
+        if !matches!(
+            group.service_store_id.as_str(),
+            crate::stream_scraper::STREAM_SERVICE_GROUP_NAME
+                | "arachnea-proxies"
+                | "arachnea-ip-countries"
+        ) {
             return Ok(None);
         }
         Ok(Some(self.reloadable.rebuild_validated().await?))

@@ -10,31 +10,28 @@ use std::sync::{Arc, RwLock};
 
 use arachnea_core::controler::{ControlerService, ControlerServiceExt};
 use arachnea_core::persistence::{CredentialsStore, TypedEntityStore};
-use arachnea_proxy::core::ArachneaProxyCore;
 use arachnea_scrapyfy::admin::RuntimeReloadReport;
 use arachnea_scrapyfy::source_params_from_entries;
 use arachnea_scrapyfy::{ScraperAdminSettings, ScraperRuntimeOptions, SourceServiceRecord};
 
 use crate::stream_scraper::{
     category_sources_from_request, GetBannersRequest, GetCategoryRequest, GetEntryRequest,
-    GetLiveRequest, GetPlayersRequest, GetRecommendationsRequest, GetSeasonRequest, GetSectionRequest,
-    GetServiceRequest, GetStreamRequest, ListLivesRequest, LoadHomeRequest, SearchRequest,
-    StreamScraper, StreamScraperBuildOptions, DRM_LICENSE_PROXY_COMMAND,
+    GetLiveRequest, GetPlayersRequest, GetRecommendationsRequest, GetSeasonRequest,
+    GetSectionRequest, GetServiceRequest, GetStreamRequest, ListLivesRequest, LoadHomeRequest,
+    SearchRequest, StreamScraper, StreamScraperBuildOptions, DRM_LICENSE_PROXY_COMMAND,
 };
 
 /// Endpoints captured when routes are first registered.
 ///
 /// Reloaded instances reuse them so public proxy and DRM license paths stay
-/// stable across swaps, including the shared proxy core backing the generic
-/// `proxy` stream command.
+/// stable across swaps. The generic `proxy` command resolves the current core
+/// at request time instead of keeping the registration-time source runtime.
 #[derive(Clone)]
 pub(crate) struct RegistrationEndpoints {
     /// Public path for DRM license proxy requests.
     pub(crate) drm_license_public_path: String,
     /// Public path for the generic HTTP proxy stream command.
     pub(crate) http_proxy_public_path: Option<String>,
-    /// Proxy core shared with the registered `proxy` stream command.
-    pub(crate) proxy_core: Option<ArachneaProxyCore>,
 }
 
 /// Stable facade holding the active [`StreamScraper`] instance.
@@ -200,7 +197,6 @@ impl ReloadableStreamScraper {
                     .player_resolver_endpoints
                     .http_proxy_public_path
                     .clone(),
-                proxy_core: scraper.proxy_http_core.clone(),
             };
             *self
                 .registration
@@ -285,6 +281,20 @@ fn register_routes(
     reloadable: &Arc<ReloadableStreamScraper>,
     controler: &mut dyn ControlerService,
 ) {
+    if reloadable.current().proxy_http_core.is_some() {
+        controler.register_stream_function_with_state(
+            "proxy",
+            Arc::clone(reloadable),
+            |reloadable, input| async move {
+                let scraper = reloadable.current();
+                let core = scraper
+                    .proxy_http_core
+                    .as_ref()
+                    .ok_or_else(|| "HTTP proxy core is unavailable".to_string())?;
+                arachnea_proxy::core::http::handle_proxy_http(Arc::new(core.clone()), input).await
+            },
+        );
+    }
     controler.register_result_function_with_state(
         "search",
         Arc::clone(reloadable),

@@ -29,6 +29,20 @@ The crate build script runs Tauri build helpers from this crate root so these fi
 - `cd server/crates/arachnea-stream && cargo tauri build` - Build the Tauri desktop application and release bundles.
 - `cd server/crates/arachnea-stream && cargo tauri build --target <target-triple>` - Build a platform-specific Tauri bundle once the target and native platform toolchain are installed. See the root and server README files for cross-platform setup notes.
 
+## Configuration Reload
+
+The administration reload action rebuilds the runtime for Stream, proxy sources
+(`arachnea-proxies`), and IP-country sources (`arachnea-ip-countries`). Sources
+enabled after startup are included even when every proxy source was initially
+disabled. The public `/proxy` route resolves the current runtime for each request;
+in-flight requests retain their original runtime safely.
+
+Proxy and IP-country providers own independent source snapshots rather than
+borrowing the application's aggregator. A successful rebuild replaces the
+in-memory inventory and its provider-refresh cooldown, while preserving the
+typed persistent proxy cache. Proxy lists remain loaded on demand when a request
+requires country-based routing; reloading does not eagerly collect all lists.
+
 ## Resolved Stream Chapters
 
 Player resolvers can expose an optional ordered `chapters` list on

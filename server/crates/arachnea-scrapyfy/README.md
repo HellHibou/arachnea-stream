@@ -2,6 +2,16 @@
 
 `arachnea-scrapyfy` contains the generic scraping engine used by Arachnea.
 
+## Proxy Provider Lifetime
+
+Proxy and IP-country data providers own independent snapshots of their source
+manifests and effective activation settings. They do not borrow the application
+aggregator, so replacing it cannot invalidate an in-flight provider request.
+Provider runtimes share persistence and local-country state, but use a separate
+system-proxy handle to avoid an ownership cycle with the dynamic proxy core.
+Applications must publish a newly built core on reload to apply changed sources;
+proxy lists are still loaded lazily for country-based requests.
+
 ## Responsibilities
 
 - Define scraper query models for HTML and JSON sources.

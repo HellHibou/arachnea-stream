@@ -1431,7 +1431,7 @@ impl StreamScraper {
         })
     }
 
-    /// Prepares browser-facing endpoints and registers the shared proxy command.
+    /// Prepares browser-facing endpoints and the core for the proxy command.
     ///
     /// Must be called once before route registration. Reloaded instances reuse
     /// the endpoints captured at registration time through
@@ -1464,7 +1464,6 @@ impl StreamScraper {
             );
             let proxy_public_path = controler.stream_public_path(HTTP_PROXY_COMMAND);
             self.player_resolver_endpoints.http_proxy_public_path = Some(proxy_public_path);
-            arachnea_proxy::core::http::register_service(controler, proxy_core, HTTP_PROXY_COMMAND);
         } else {
             tracing::warn!("proxy_http handler not registered: no proxy core available");
         }
@@ -1486,14 +1485,7 @@ impl StreamScraper {
         self.player_resolver_endpoints.http_proxy_public_path =
             endpoints.http_proxy_public_path.clone();
 
-        if let Some(proxy_core) = &endpoints.proxy_core {
-            self.scraper_agregator.set_proxy_core(proxy_core.clone());
-            proxy_core.set_insecure_tls_hosts(
-                self.scraper_agregator
-                    .group_proxy_insecure_tls_hosts(STREAM_RESOLVER_GROUP_NAME),
-            );
-            self.proxy_http_core = Some(proxy_core.clone());
-        }
+        self.configure_proxy_insecure_tls_hosts();
     }
 }
 

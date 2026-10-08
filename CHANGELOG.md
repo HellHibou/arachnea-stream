@@ -154,6 +154,7 @@ All notable changes to the server workspace are recorded here.
 #### Fixed
 
 - M6+ deferred recommendations now use a sandbox-compatible UTF-8 encoder, retain all generated layout URLs and extract only JWT-shaped values for authorization headers, preventing empty recommendation responses. Live extraction and REST output were checked on La grande semaine, including portrait thumbnails and a second card page.
+- Configuration reload now rebuilds proxy and IP-country source runtimes, including sources enabled after an initially fully disabled startup. The stable `/proxy` route uses the current core instead of retaining its startup provider, and replacement inventories reset in-memory provider-refresh cooldowns while preserving the persistent cache.
 - M6+ deferred recommendations also select `feature.programs_by_tags` blocks, including the "Toujours plus de héros !" rail on Les Marsupilamis, independently of editorial titles. Both block families share card extraction and requests, retain program-only filtering, and use the first non-empty card pagination cursor.
 - M6+ recommendation block selections now use distinct internal field names, preventing both sub-queries from fetching the same merged URL list and returning duplicate cards on each page.
 
@@ -197,6 +198,7 @@ All notable changes to the server workspace are recorded here.
 
 - Text and binary scraper requests now rotate a dynamically selected proxy once when `arachnea-http` reports a proxy transport failure before an HTTP response, including failures occurring after an HTTP CONNECT tunnel was accepted. If the replacement also fails, both error contexts are retained and no third request is sent.
 - Proxifly country lookups now treat a missing country file (`404`) as an empty proxy list, avoiding the misleading `Invalid JSON payload` error for unsupported countries such as Andorra (`AD`).
+- Proxy and IP-country providers now own independent query runtimes instead of raw pointers into application aggregators, preserving source lifetime across runtime replacements without a core/provider ownership cycle.
 
 ### <u>arachnea-http</u>
 

@@ -182,17 +182,13 @@ impl ScraperAgregator {
         }
     }
 
-    /// Ensures the proxy core is initialized with a correct self-pointer.
-    ///
-    /// Must be called once after the aggregator is in its final memory location
-    /// (after any move), before proxy routing is used.
+    /// Initializes the proxy core with independently owned source snapshots.
     #[cfg(feature = "arachnea-proxy")]
     pub fn ensure_proxy_core(&mut self) {
-        let ptr: *mut ScraperAgregator = self;
         // The shared persistence store serves both the HTTP clients (cookies,
         // Cloudflare sessions) and the proxy inventory cache; namespaces keep
         // the data families isolated.
-        match default_scrapyfy_proxy_core(unsafe { &mut *ptr }, self.proxy_store.clone()) {
+        match default_scrapyfy_proxy_core(self, self.proxy_store.clone()) {
             Ok(core) => {
                 tracing::info!(
                     "Dynamic proxy core created with scrapyfy provider for country routing"
@@ -208,6 +204,39 @@ impl ScraperAgregator {
                 );
             }
         }
+    }
+
+    /// Builds an owned query runtime for providers that can outlive this aggregator.
+    ///
+    /// The snapshot shares country and persistence state and activation policy,
+    /// but uses a separate system-proxy handle to avoid a core/provider ownership
+    /// cycle. Source manifests are parsed independently.
+    ///
+    /// # Arguments
+    /// * `groups` - Loaded groups to copy into the provider runtime.
+    #[cfg(feature = "arachnea-proxy")]
+    pub(crate) fn provider_snapshot(&self, groups: &[&str]) -> Arc<Self> {
+        let proxy_handle = SharedProxyConfigHandle::new();
+        if let Err(error) = proxy_handle.enable_system_proxy() {
+            tracing::warn!(error = %error, "failed to configure provider system proxy");
+        }
+        let mut snapshot = Self::new_with_proxy_handle_and_typed_stores(
+            proxy_handle,
+            self.proxy_store.clone(),
+            self.session_store.clone(),
+        );
+        snapshot.local_country = self.local_country.clone();
+        snapshot.source_enabled = self.source_enabled.clone();
+        for group in groups {
+            if let Some(service) = self.queries_collection.get(*group) {
+                if let Err(error) =
+                    snapshot.add_query_collection_from_config_json(group, &service.json_path)
+                {
+                    tracing::warn!(group, error = %error, "failed to build provider source snapshot");
+                }
+            }
+        }
+        Arc::new(snapshot)
     }
 
     /// Creates an empty aggregator bound to one shared proxy handle.
