@@ -36,6 +36,8 @@ queries:
       - banners > video
 
   - name: get_section
+    fields_optional:
+      - entries > price
     fields_result:
       - current_page
       - have_more
@@ -55,6 +57,8 @@ queries:
       - source
 
   - name: get_entry
+    fields_optional:
+      - price
     fields_result:
       - content-advisor
       - description

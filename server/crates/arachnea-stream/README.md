@@ -29,6 +29,24 @@ The crate build script runs Tauri build helpers from this crate root so these fi
 - `cd server/crates/arachnea-stream && cargo tauri build` - Build the Tauri desktop application and release bundles.
 - `cd server/crates/arachnea-stream && cargo tauri build --target <target-triple>` - Build a platform-specific Tauri bundle once the target and native platform toolchain are installed. See the root and server README files for cross-platform setup notes.
 
+## M6 Play Premium Metadata
+
+The M6 Play YAML source emits `price: premium` only when `freemium_products`
+include a product of type `content`. `contains_freemium` is not an access
+restriction indicator: it can be true even for programmes with free episodes.
+Programme details also inspect the first 100 published full videos with one
+additional middleware request, since programme-level products can be empty
+even for paid replays. A premium programme flag means that an explicit paid
+content product exists on the programme or one of those videos, not that every
+episode requires a subscription. Season episodes are evaluated individually.
+Optional playback benefits and absent content-access products do not mark
+content as premium. Catalogue cards use only their own explicit products;
+paid videos beyond the detail lookup's first 100 items are not inferred.
+
+Algolia search and layout recommendation cards currently omit this field
+because their programme payloads do not provide the same explicit access
+indicators. No additional per-card requests are made to infer access.
+
 ## Configuration Reload
 
 The administration reload action rebuilds the runtime for Stream, proxy sources

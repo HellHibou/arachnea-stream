@@ -230,6 +230,16 @@ shared:
     - type: get_date
       format: yyyy_mm_dd_hh_mm_ss
 
+  premium_program_price: &premium_program_price
+    name: price
+    type: string
+    select: first
+    pointer: /freemium_products/*[type=content]/type
+    actions:
+      - type: map
+        argument: { "content": "premium" }
+        default: null
+
   actions_proxy_countries_from_area: &actions_proxy_countries_from_area
     - type: map
       argument:
@@ -533,6 +543,7 @@ queries:
             type: string
             select: first
             pointer: /description
+          - *premium_program_price
           - name: duration
             type: string
             select: first
@@ -711,6 +722,27 @@ queries:
         type: string
         select: first
         pointer: /description
+      - *premium_program_price
+      - name: _premium_videos
+        type: string
+        select: first
+        pointer: /id
+        actions:
+          - type: format_text
+            argument: "{api_root}/6play/programs/{}/videos?csa=6&with=freemiumpacks&type=vi&limit=100&offset=0"
+        sub_queries:
+          - scraper_type: json
+            target: parent
+            request_headers: *generic_request_headers
+            row_pointer: /
+            entries:
+              - name: price
+                type: string
+                select: first
+                pointer: /*/freemium_products/*[type=content]/type
+                actions:
+                  - type: map
+                    argument: { "content": "premium" }
       - name: media-type
         type: string[]
         pointer: /program_type_wording/code
@@ -800,6 +832,10 @@ queries:
              actions:
                - type: format_text
                  argument: "{query_url}/videos?subcat={}"
+    post_process:
+      - type: remove_fields
+        fields:
+          - _premium_videos
 
   # ---------------------------------------------------------------
   # Deferred recommendations: inspect at most eight layout pages.
@@ -939,6 +975,14 @@ queries:
             type: string
             select: first
             pointer: /description
+          - name: price
+            type: string
+            select: first
+            pointer: /freemium_products/*[type=content]/type
+            actions:
+              - type: map
+                argument: { "content": "premium" }
+                default: null
           - name: duration
             type: string
             select: first
