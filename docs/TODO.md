@@ -5,15 +5,12 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 
 - Modifier load_home pour inclure la possibilité d'inclure une liste de sources a prendre en compte + modifier le front pour pouvoir afficher 1 source a la fois. Dans un 2e temp, ajouter la possibilité de créer des homes personalisées basé sur une source + section de load_home ou categorie.
 - Dans la description des services, ajouter des tags cle/valeur pour pouvoir distinguer le pays et la langue des vidéos.
-- Terminer la migration et la validation visuelle des vidéos associées : suivi dans `docs/dev-tracking/get-entry-recommendations-migration-analysis.md` ; TF1+ utilise uniquement le rail « Si vous aimez… » et RTBF Auvio le widget contextuel « A découvrir aussi » (validations backend effectuées, rendus frontend restants).
-- Finaliser la validation du prototype YAML des recommandations `m6play-fr` : rendu des imagettes dans le navigateur, signature à la frontière de minute et découverte bornée à huit pages de layout. Acquisition du JWT, propagation entre sous-requêtes et format des cartes corrigés et vérifiés live sur La grande semaine (`25643`) : REST page 1 (six cartes), Rust pages 1 et 2. Ne pas assimiler une limite de parcours à une absence de rail ; ne pas diffuser les traces internes contenant le JWT. Audit et limites dans `docs/dev-tracking/get-entry-recommendations-migration-analysis.md`, section « Audit M6+ ».
 - Tests `arachnea-scrapyfy` : les tests `resolve_url` (appel de `apply` sans le paramètre `ProxyFollowRedirects`) ne compilent plus suite au changement de signature du proxy ; préexistant et hors périmètre, à réaligner comme les tests `arachnea-proxy`.
 - Utiliser obscura pour contourner Cloudflare (navigateur rust avec résolution cloudflare interne). 
 
 ## Front
 
 - Si on affiche le dernier épisode chargé de la liste et que 'Charger plus' est dispo, il faut charger plus de données. Si le signet est actif, il faut charger plus si l'épisode courant n'a pas été chargé dans la liste.
-
 - Ajouter le support de diffusion ChromeCast et AirPlay.
 - Facultatif (frontend) : cesser d'envoyer `arachneaEtag` / `enableEtag` dans `front/src/services/rustify.ts` — l'en-tête `If-None-Match` suffit depuis la migration du contexte contrôleur (`docs/dev-tracking/request-context-query-parameters-analysis.md`).
 
@@ -75,5 +72,5 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 
 
 
- 
+
 ## Divers
