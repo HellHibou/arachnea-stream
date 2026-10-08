@@ -13,6 +13,8 @@ pub(crate) struct RquestEngine {
     client: rquest::Client,
     /// Whether this client routes through a configured proxy transport.
     uses_proxy: bool,
+    /// Total request timeout, including response body collection.
+    request_timeout: std::time::Duration,
 }
 
 impl RquestEngine {
@@ -38,6 +40,7 @@ impl RquestEngine {
             return Ok(Self {
                 client,
                 uses_proxy: true,
+                request_timeout: config.request_timeout,
             });
         }
 
@@ -57,7 +60,11 @@ impl RquestEngine {
         let client = builder
             .build()
             .map_err(|err| ArachneaHttpError::Network(err.to_string()))?;
-        Ok(Self { client, uses_proxy })
+        Ok(Self {
+            client,
+            uses_proxy,
+            request_timeout: config.request_timeout,
+        })
     }
 }
 
@@ -87,7 +94,10 @@ impl HttpEngine for RquestEngine {
     /// Returns `Proxy` for failures through a configured proxy transport and
     /// `Network` for direct request execution or body collection failures.
     async fn send(&self, request: EngineRequest) -> Result<EngineResponse, ArachneaHttpError> {
-        let mut builder = self.client.request(request.method, &request.url);
+        let mut builder = self
+            .client
+            .request(request.method, &request.url)
+            .timeout(self.request_timeout);
         for (name, value) in &request.headers {
             builder = builder.header(name, value);
         }

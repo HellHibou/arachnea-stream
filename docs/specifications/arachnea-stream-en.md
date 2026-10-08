@@ -873,6 +873,11 @@ selected proxy is rejected for that destination, the affinity moves to another
 eligible candidate, and the request is retried once. Rewritten HLS key URLs use
 `{proxy_inherited}` so these options are preserved.
 
+TF1+ YAML detail and season players also fetch public `mediainfocombo` metadata
+per video and expose `media.geoList` as `resolver.proxy.countries`, including
+when playback is denied. The temporary fetch URL is removed from the result;
+no hardcoded territory list is substituted.
+
 The TF1+ resolver reads the allowed territory list from `media.geoList` in the
 `mediainfocombo` response. It normalizes and deduplicates these codes, then uses
 them as proxy countries to retry a geo-blocked negotiation before evaluating

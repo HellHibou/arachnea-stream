@@ -161,6 +161,15 @@ capability is still `Unknown`, including records loaded from an older persistent
 store. Provider hints are never copied into runtime capability fields, so an
 inferred relaxed decision remains distinguishable from successful validation.
 
+For HTTPS selection, an eligible proxy previously accepted by the exact
+destination remains preferred. Other candidates are ranked by runtime validation
+before latency: an available tunnel with validated destination TLS comes first,
+then an available tunnel with unknown TLS, then relaxed protocol/provider hints
+with an unknown tunnel. HTTP selection keeps its latency ordering, and existing
+eligible affinity bindings are preserved. Probe validation concerns the configured
+probe destination and does not guarantee acceptance by every origin. Explicitly
+unavailable capabilities remain ineligible; certificate verification is unchanged.
+
 Provider rows reach inventory preparation without endpoint-level deduplication,
 then merge into one runtime record per `host:port`. `ProxyRecord::declarations`
 preserves each distinct source identifier, advertised protocol and HTTPS hint so

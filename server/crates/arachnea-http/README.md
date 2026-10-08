@@ -83,6 +83,12 @@ let config = ArachneaHttpConfig::builder()
 
 Current upstream client APIs still expose proxy URLs rather than a stable public transport replacement hook, so the built-in `rquest` and Ghostwire engines both use the managed loopback compatibility helper when `proxy_core(...)` is selected. Chaser-CF receives a separate parameter-bound loopback listener so Chrome CONNECT requests use the same Arachnea proxy routing context as `rquest`.
 
+The built-in `rquest` engine applies `request_timeout` to every request,
+including clients supplied by the loopback proxy helper. The deadline covers
+connection setup and response body collection; an established proxy tunnel
+does not allow a stalled upstream to wait indefinitely. Proxy-path timeouts
+remain classified as proxy errors for the caller's retry handling.
+
 Use `.mode(...)` on a request builder to override the configured default for one call:
 
 ```rust

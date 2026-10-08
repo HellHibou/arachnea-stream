@@ -129,6 +129,24 @@ shared:
     type: format_text
     argument: "{source}"
 
+  tf1_video_proxy_countries: &tf1_video_proxy_countries
+    name: resolver > _geo_url
+    type: string
+    select: first
+    pointer: /id
+    actions: &actions_tf1_video_mediainfo
+      - type: format_text
+        argument: "https://mediainfo.tf1.fr/mediainfocombo/{}?context=MYTF1&platform=web&device=desktop"
+    sub_queries: &sub_queries_tf1_video_proxy_countries
+      - scraper_type: json
+        target: parent
+        row_pointer: /media
+        entries:
+          - name: resolver > proxy > countries
+            type: string[]
+            select: all
+            pointer: /geoList/*
+
   load_home_categories: &load_home_categories
     - &load_home_category_tf1
       name: categories
@@ -1184,37 +1202,36 @@ queries:
                       channel: /program/mainChannel/slug
                       program_slug: /program/slug
                       slug: /slug
-              - name: resolver
-                type: object
+              - name: resolver > kind
+                type: string
+                actions:
+                  - type: format_text
+                    argument: tf1-video
+              - name: resolver > target_id
+                type: string
                 select: first
-                entries:
-                  - name: kind
-                    type: string
-                    actions:
-                      - type: format_text
-                        argument: tf1-video
-                  - name: target_id
-                    type: string
-                    select: first
-                    pointer: /id
-      # Some program pages expose a playable video without an editorial list.
+                pointer: /id
+              - *tf1_video_proxy_countries
+      # The program watch action also exposes videos without an editorial list.
       - scraper_type: json
         request_actions:
           - type: format_text
             argument: "{request_url}"
           - type: regex_find_all
             pattern: '^https?://smart-tv\.tf1\.fr/catalog/([^/]+)/smarttv\?.*[?&]programSlug=([^&]+)'
-            format: 'https://www.tf1.fr/graphql/{1}/web?id=eb07383bb0a758366983a970b6b9c633a5639e1f&variables=%7B%22query%22%3A%22{2}%22%2C%22programsLimit%22%3A0%2C%22videosLimit%22%3A1%7D'
+            format: 'https://www.tf1.fr/graphql/{1}/web?id=sha256%3Aacac8de560388819084dbc48dbbbc4dbd537a7b776369a35baa9e8eda3587589&variables=%7B%22programSlug%22%3A%22{2}%22%7D'
         request_headers: *generic_request_headers
-        row_pointer: /data/sliderOfSearchVideos/items/0/video
+        row_pointer: /data/callToActionByProgramSlug/items/*[__typename=WatchButtonAction]/video
+        row_filters:
+          /type: [REPLAY]
         entries:
           - name: price
             type: string
             select: first
-            pointer: /offers/*[isPremium=true]/isPremium
+            pointer: /decoration/showPayBadge
             actions:
               - type: map
-                argument: { "true": "premium" }
+                argument: { "true": "premium", "false": "" }
           - name: video/trailer
             type: string
             select: first
@@ -1228,22 +1245,26 @@ queries:
                   - type: build_url
                     base: "{base_url}/{channel}/{program_slug}/videos/{slug}.html"
                     fields:
-                      channel: /program/mainChannel/slug
+                      channel: /program/initialChannel/slug
                       program_slug: /program/slug
                       slug: /slug
-              - name: resolver
-                type: object
+              - name: resolver > kind
+                type: string
+                actions:
+                  - type: format_text
+                    argument: tf1-video
+              - name: resolver > target_id
+                type: string
                 select: first
-                entries:
-                  - name: kind
-                    type: string
-                    actions:
-                      - type: format_text
-                        argument: tf1-video
-                  - name: target_id
-                    type: string
-                    select: first
-                    pointer: /id
+                pointer: /id
+              - *tf1_video_proxy_countries
+
+    post_process:
+      - type: filter_fields
+        source: players
+        field: resolver > _geo_url
+        pattern: '^https://'
+        remove: [resolver > _geo_url]
 
 
   # ---------------------------------------------------------------
@@ -1415,19 +1436,28 @@ queries:
                       channel: /video/program/mainChannel/slug
                       program_slug: /video/program/slug
                       slug: /video/slug
-              - name: resolver
-                type: object
+              - name: resolver > kind
+                type: string
+                actions:
+                  - type: format_text
+                    argument: tf1-video
+              - name: resolver > target_id
+                type: string
                 select: first
-                entries:
-                  - name: kind
-                    type: string
-                    actions:
-                      - type: format_text
-                        argument: tf1-video
-                  - name: target_id
-                    type: string
-                    select: first
-                    pointer: /video/id
+                pointer: /video/id
+              - name: resolver > _geo_url
+                type: string
+                select: first
+                pointer: /video/id
+                actions: *actions_tf1_video_mediainfo
+                sub_queries: *sub_queries_tf1_video_proxy_countries
+
+    post_process:
+      - type: filter_fields
+        source: episodes
+        field: title
+        pattern: '.*'
+        remove: [players > resolver > _geo_url]
 
 
   # ---------------------------------------------------------------

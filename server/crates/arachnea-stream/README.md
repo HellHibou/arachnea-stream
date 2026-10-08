@@ -47,6 +47,32 @@ Algolia search and layout recommendation cards currently omit this field
 because their programme payloads do not provide the same explicit access
 indicators. No additional per-card requests are made to infer access.
 
+## TF1+ Programme Players
+
+TF1+ detail extraction keeps the editorial-list lookup and also requests the
+public programme cover watch action by exact programme slug. Only
+`WatchButtonAction` items with a `REPLAY` video supply resolver targets; offer
+and navigation actions are excluded. This covers films without editorial lists
+without relying on search ranking or accidentally selecting another programme.
+Watch-action video links use `program.initialChannel.slug`, and `price: premium`
+is emitted only when the video's `decoration.showPayBadge` is true.
+
+The persisted `ProgramCover_CallToAction` query ID in the source YAML must track
+TF1+ client changes. Player discovery does not bypass authentication, geographic
+availability, subscription requirements, or DRM enforced during resolution.
+
+Detail and season players also load their allowed territories from the public
+`mediainfocombo` response's `media.geoList`, even when playback is denied. The
+ordered list is exposed as `resolver.proxy.countries` and forwarded through the
+existing frontend geo-routing contract. This adds one metadata request per
+extracted video player; no local territory list is substituted.
+
+Gigya bootstrap transport failures produce a warning with the fixed endpoint,
+elapsed milliseconds, and the underlying error chain. The public error remains
+`Failed to bootstrap the TF1 Gigya web session.` No credentials, cookies,
+tokens, or response bodies are added to this diagnostic. Routing, timeouts,
+and retry behavior are unchanged.
+
 ## Configuration Reload
 
 The administration reload action rebuilds the runtime for Stream, proxy sources

@@ -103,6 +103,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- HTTPS dynamic proxy selection now ranks runtime-validated tunnel and destination TLS capabilities before latency, preventing fast unvalidated SOCKS candidates from outranking validated candidates. Exact-destination preferences, affinity bindings, relaxed fallback eligibility, and HTTP ordering are preserved.
 - Dynamic proxy refresh no longer repeats the same failed TCP connection for every HTTP/HTTPS capability and every relaxed-mode protocol candidate. An endpoint-level connection failure now stops the remaining variants for that `host:port`, while reachable endpoints still receive complete multi-protocol probing; the Scrapyfy inventory also probes up to 32 endpoints concurrently so large public lists do not block routing for several minutes.
 - Dynamic proxy probes now recognize HTTP header termination even when response-body bytes arrive in the same read, preserve `last_validated_at` after parallel batches, return concrete probe errors instead of silently collapsing them, and include aggregated timeout, connection, TLS, protocol, upstream-rejection, configuration and task-failure counts in provider-refresh logs.
 - Dynamic proxy failures reported by an HTTP engine after route establishment are now correlated back to the selected endpoint, persisted as destination-scoped failures, and allowed to release the provider-refresh cooldown. The stale HTTP connection pool and affinity are cleared before one replacement attempt, and a failed replacement is recorded without sending a third request.
@@ -154,6 +155,10 @@ All notable changes to the server workspace are recorded here.
 #### Fixed
 
 - M6+ deferred recommendations now use a sandbox-compatible UTF-8 encoder, retain all generated layout URLs and extract only JWT-shaped values for authorization headers, preventing empty recommendation responses. Live extraction and REST output were checked on La grande semaine, including portrait thumbnails and a second card page.
+- TF1+ programme details now use the programme's exact watch action instead of a one-result slug search to discover playable videos without editorial lists, fixing missing players for Fast & Furious X and Arthur & Merlin: Knights of Camelot. Watch-action links use the initial channel and premium metadata uses the explicit pay badge.
+- TF1+ detail and season players now expose allowed territories from the remote `mediainfocombo` payload's `media.geoList` as `resolver.proxy.countries`, including when playback is denied. Geographic metadata no longer disappears behind the playback error, and no country list is hardcoded.
+- TF1+ player resolver fields now share a single path-based object so remote territory enrichment survives JSON serialization instead of being hidden beside grouped resolver items. Fast & Furious X was verified through the local `get_entry` API with all 15 remote territory codes.
+- TF1+ Gigya bootstrap transport failures now log elapsed time and the underlying error chain while preserving the public error message, routing, timeouts, and retry behavior. The diagnostic does not add credentials, cookies, tokens, or response bodies.
 - M6 Play programme details and middleware catalogue cards now expose `price: premium` from `contains_freemium`, and season episodes expose it for content-access freemium products. Paid replays such as Charlie's angels on Téva were previously returned without premium metadata. Search and recommendation cards remain unchanged where explicit access indicators are unavailable.
 - Corrected M6 Play premium false positives such as Zig et Sharko: `contains_freemium` is no longer used to infer paid access. Explicit content-access products drive the flag instead, and programme details additionally inspect up to 100 published full videos to identify paid replays whose programme products are empty. Episodes retain individual access metadata and catalogue cards do not trigger additional requests.
 - Configuration reload now rebuilds proxy and IP-country source runtimes, including sources enabled after an initially fully disabled startup. The stable `/proxy` route uses the current core instead of retaining its startup provider, and replacement inventories reset in-memory provider-refresh cooldowns while preserving the persistent cache.
@@ -210,6 +215,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- The `rquest` engine now applies the configured total request timeout to loopback-proxy clients as well as ordinary clients, including response body collection. Previously supplied proxy clients skipped the timeout configuration and could hang after a successful tunnel connection.
 - The `chaser-cf` engine builds its default Chromium flags with `ChaserConfig::add_extra_arg` instead of `with_extra_args`. The latter *replaces* the whole flag set, so the defaults appended after `ChaserConfig::from_env()` silently discarded the flags that function had just parsed from `CHASER_EXTRA_ARGS`, making the documented override a no-op — a container passing `--no-sandbox` still started Chromium without it and hit `No usable sandbox!`.
 
 ### <u>front-public</u>

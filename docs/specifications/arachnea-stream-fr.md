@@ -879,6 +879,12 @@ proxy sélectionné est alors rejeté pour la destination, l'affinité est dépl
 vers un autre candidat admissible et la requête est réessayée une fois. Les URLs
 de clés HLS réécrites utilisent `{proxy_inherited}` afin de conserver ces options.
 
+Les lecteurs des fiches et saisons TF1+ chargent aussi, via le YAML, les
+métadonnées publiques `mediainfocombo` de chaque vidéo et exposent `media.geoList`
+dans `resolver.proxy.countries`, même lorsque la lecture est refusée. L'URL
+temporaire de chargement est retirée du résultat ; aucune liste de territoires
+codée en dur ne lui est substituée.
+
 Le résolveur TF1+ lit la liste de territoires autorisés dans `media.geoList`
 de la réponse `mediainfocombo`. Il normalise et déduplique ces codes, puis les
 utilise comme pays proxy pour relancer une négociation géobloquée avant

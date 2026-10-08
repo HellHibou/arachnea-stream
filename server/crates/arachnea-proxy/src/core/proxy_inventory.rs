@@ -852,9 +852,26 @@ impl ProxyInventory {
             let b_preferred =
                 preferred_authority.is_some_and(|authority| authority == &b.authority());
             b_preferred.cmp(&a_preferred).then_with(|| {
-                a.latency_ms
-                    .unwrap_or(u64::MAX)
-                    .cmp(&b.latency_ms.unwrap_or(u64::MAX))
+                let https_validation_rank = |record: &ProxyRecord| {
+                    if !require_https {
+                        0
+                    } else if record.https_tunnel == ProxyCapabilityStatus::Available
+                        && record.destination_tls == ProxyCapabilityStatus::Available
+                    {
+                        2
+                    } else if record.https_tunnel == ProxyCapabilityStatus::Available {
+                        1
+                    } else {
+                        0
+                    }
+                };
+                https_validation_rank(b)
+                    .cmp(&https_validation_rank(a))
+                    .then_with(|| {
+                        a.latency_ms
+                            .unwrap_or(u64::MAX)
+                            .cmp(&b.latency_ms.unwrap_or(u64::MAX))
+                    })
                     .then(a.failure_count.cmp(&b.failure_count))
                     .then_with(|| a.authority().cmp(&b.authority()))
             })
@@ -1752,6 +1769,31 @@ mod tests {
         assert_eq!(
             inventory.select("BE", true).await.unwrap().authority(),
             fastest.authority()
+        );
+
+        validated.destination_tls = ProxyCapabilityStatus::Available;
+        inventory.add_or_update(vec![validated.clone()]).await;
+        assert_eq!(
+            inventory
+                .select_for_destination("BE", true, Some(&other_destination))
+                .await
+                .unwrap()
+                .authority(),
+            validated.authority()
+        );
+        assert_eq!(
+            inventory.select("BE", false).await.unwrap().authority(),
+            fastest.authority()
+        );
+
+        let mut unknown = record(ProxyRuntimeStatus::Ok);
+        unknown.host = "unknown.example".to_string();
+        unknown.latency_ms = Some(1);
+        unknown.https_tunnel = ProxyCapabilityStatus::Unknown;
+        inventory.add_or_update(vec![unknown]).await;
+        assert_eq!(
+            inventory.select("BE", true).await.unwrap().authority(),
+            validated.authority()
         );
     }
 

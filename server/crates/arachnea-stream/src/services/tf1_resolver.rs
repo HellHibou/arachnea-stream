@@ -624,9 +624,19 @@ async fn bootstrap_gigya_session(http_client: &HttpClient) -> Result<()> {
         ),
     ]);
 
+    let started = Instant::now();
     http_client
         .query_http_for_request(http::Method::GET, &bootstrap_url, &bootstrap_headers, None)
         .await
+        .map_err(|error| {
+            tracing::warn!(
+                endpoint = TF1_BOOTSTRAP_URL,
+                elapsed_ms = started.elapsed().as_millis(),
+                error = %format!("{error:#}"),
+                "TF1 Gigya bootstrap request failed"
+            );
+            error
+        })
         .context("Failed to bootstrap the TF1 Gigya web session.")?;
 
     Ok(())
