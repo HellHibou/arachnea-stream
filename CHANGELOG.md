@@ -154,6 +154,8 @@ All notable changes to the server workspace are recorded here.
 #### Fixed
 
 - M6+ deferred recommendations now use a sandbox-compatible UTF-8 encoder, retain all generated layout URLs and extract only JWT-shaped values for authorization headers, preventing empty recommendation responses. Live extraction and REST output were checked on La grande semaine, including portrait thumbnails and a second card page.
+- M6+ deferred recommendations also select `feature.programs_by_tags` blocks, including the "Toujours plus de héros !" rail on Les Marsupilamis, independently of editorial titles. Both block families share card extraction and requests, retain program-only filtering, and use the first non-empty card pagination cursor.
+- M6+ recommendation block selections now use distinct internal field names, preventing both sub-queries from fetching the same merged URL list and returning duplicate cards on each page.
 
 - LN24 `get_category` now lists the category archive grid instead of the "Autres vidéos" featured side list: the section label comes from the dynamic category header (Séries, Émissions, LN24+), cards link to their show pages with a title derived from the link slug, portrait images and `video/show/other`, and no players.
 - RTL Play recommendation cards now map their 16:9 `imageUrl` to `img/landscape` instead of `img/poster`, so the public rail displays landscape thumbnails without changing portrait catalogue cards.

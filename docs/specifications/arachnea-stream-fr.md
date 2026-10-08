@@ -552,8 +552,15 @@ empêcher leur chargement, sans empêcher le chargement du détail API.
 Pour M6+, le prototype YAML publie l'identifiant programme dans `recommendations.link`
 et demande un JWT anonyme dans `get_recommendations`, sans identifiants utilisateur.
 La signature est calculée avec `exec_js` et des paramètres publics configurables.
-Le parcours inspecte huit pages de layout au maximum et retient uniquement
-`feature.recommended_programs_by_program`. Les cartes programme disposent de
+Le parcours inspecte huit pages de layout au maximum et sélectionne séparément
+`feature.recommended_programs_by_program` et `feature.programs_by_tags`, sans
+condition sur le titre éditorial (par exemple « Toujours plus de héros ! »).
+Le premier bloc de chaque famille sur chaque page est retenu ; leurs cartes sont
+fusionnées et seules les cibles de type `program` sont conservées. La pagination
+utilise la première valeur `nextPage` non vide des blocs récupérés.
+Les sélections utilisent des noms de champs internes distincts pour éviter que
+chaque sous-requête ne recharge les URL de l'autre famille et ne duplique les cartes.
+Les cartes programme disposent de
 `img/poster` et `img/portrait` ; leur pagination est distincte de celle du layout.
 Les champs internes contenant le JWT sont retirés du résultat public, mais les
 traces internes ne doivent pas être diffusées. Ce prototype reste à valider en

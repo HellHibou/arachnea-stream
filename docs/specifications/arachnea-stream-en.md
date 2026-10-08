@@ -538,7 +538,13 @@ loading without preventing the API detail response.
 The M6+ YAML prototype emits the program ID in `recommendations.link` and obtains
 an anonymous JWT in `get_recommendations`, without user credentials. Signing uses
 `exec_js` and configurable public client parameters. It scans at most eight
-layout pages and selects only `feature.recommended_programs_by_program`.
+layout pages and separately selects `feature.recommended_programs_by_program`
+and `feature.programs_by_tags`, regardless of the editorial title (for example,
+"Toujours plus de héros !"). The first block of each family on each page is
+selected; their cards are merged and only `program` targets are retained.
+Pagination uses the first non-empty `nextPage` value from the fetched blocks.
+The selections use distinct internal field names so that each sub-query fetches
+only its own family's URLs instead of duplicating cards from both families.
 Program cards include `img/poster` and `img/portrait`; card pagination is separate
 from layout pagination. Internal JWT fields are removed from public output, but
 internal traces must not be shared. Network validation is pending; reaching the

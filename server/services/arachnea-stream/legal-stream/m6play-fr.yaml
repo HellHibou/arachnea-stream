@@ -191,15 +191,23 @@ shared:
     type: string
     select: first
     pointer: /blocks/*[analytics/tealium/from=feature.recommended_programs_by_program]/blockId
-    actions:
+    actions: &recommendation_block_actions
       - type: format_text
         argument: "https://layout.6cloud.fr/front/v1/m6web/m6group_web/main/{recommendation_capacity}/program/{query_url}/block/{}?page={page}&nbPages=1"
-    sub_queries:
+    sub_queries: &recommendation_block_queries
       - scraper_type: json
         target: parent
         request_headers: *recommendation_headers
         row_pointer: /
         entries: *recommendation_cards
+
+  recommendation_tag_block: &recommendation_tag_block
+    name: _tag_block
+    type: string
+    select: first
+    pointer: /blocks/*[analytics/tealium/from=feature.programs_by_tags]/blockId
+    actions: *recommendation_block_actions
+    sub_queries: *recommendation_block_queries
 
   actions_default_media_type: &actions_default_media_type
     - type: map
@@ -869,6 +877,7 @@ queries:
                     pattern: '#jwt=([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$'
                     format: "{1}"
               - *recommendation_block
+              - *recommendation_tag_block
     post_process:
       - type: filter_items
         source: entries
@@ -889,6 +898,7 @@ queries:
           - _layout
           - _jwt
           - _block
+          - _tag_block
 
   # ---------------------------------------------------------------
   # Season
