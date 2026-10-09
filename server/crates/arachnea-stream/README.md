@@ -89,6 +89,13 @@ ordered list is exposed as `resolver.proxy.countries` and forwarded through the
 existing frontend geo-routing contract. This adds one metadata request per
 extracted video player; no local territory list is substituted.
 
+TF1 replay and live negotiation emit INFO diagnostics with the requested and
+configured proxy countries, mediainfo HTTP status, delivery code, remote territory
+list, and the existing country-change retry decision. Scrapyfy also logs whether
+a proxy transport is configured when it forwards non-empty country hints. These
+diagnostics do not include credentials, bearer tokens, headers, or response bodies
+and do not change routing or retry behavior.
+
 Gigya bootstrap transport failures produce a warning with the fixed endpoint,
 elapsed milliseconds, and the underlying error chain. The public error remains
 `Failed to bootstrap the TF1 Gigya web session.` No credentials, cookies,

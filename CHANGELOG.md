@@ -88,9 +88,15 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- INFO country-routing diagnostics expose requested territories, local-country bypass decisions, selected candidate authority/country and route transport; unavailable geo-proxy warnings include the destination. Routing, fallback, and retry behavior are unchanged, and credentials and affinity values are not logged.
+- TLS handshake failure warnings expose the TLS server name and certificate-verification flag to distinguish HTTPS upstream-proxy failures from destination failures without disabling validation or logging signed media URLs.
+- HTTP CONNECT diagnostics distinguish tunnel establishment, client acknowledgement failures and subsequent relay failures, with elapsed time and directional byte totals on normal completion, without logging tunnel payloads or changing relay behavior.
+
 - Dynamic proxy records now preserve source declarations as persisted provenance metadata, including each provider identifier, advertised protocol and HTTPS hint. Refresh logs report endpoints with conflicting protocol declarations and runtime protocols recovered outside provider claims.
 
 #### Changed
+
+- Routine dynamic country route evaluation, local-country mismatch, route selection, and validated-origin proxy reuse logs now use DEBUG instead of INFO; routing behavior and warning levels are unchanged.
 
 - Dynamic proxy loading now keeps distinct `host:port + protocol + source` candidates until inventory preparation, then merges them into one canonical endpoint record. Probes try every declared protocol in configured priority order; strict mode remains limited to declared transports, while relaxed mode may probe undeclared transports only after declared variants fail and selects them only on concrete runtime validation.
 - Dynamic proxy `ProbeMode` now controls capability acceptance. Strict mode requires validated HTTP forwarding or a fully validated HTTPS tunnel and destination TLS exchange; relaxed mode may fall back to compatible protocol declarations and a positive provider HTTPS hint only while runtime results remain unknown. Timeouts and temporary I/O, DNS or routing errors remain inconclusive instead of being recorded as explicit capability rejection, while protocol, upstream and factual TLS failures remain unavailable; provider fallback never overwrites runtime validation fields.
@@ -103,6 +109,12 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Dynamic proxy selection now probes unknown or expired required capabilities on demand, including persisted and affinity candidates. Provider loading retains untested records instead of probing the full list; sequential selection stops at the first usable candidate, persists probe results, and throttles inconclusive attempts without disabling TLS validation.
+- HTTP CONNECT establishment stops after 20 seconds or client disconnect instead of continuing abandoned route searches. Complete automatic endpoint probes are bounded to 8 seconds and run inline for cancellation; per-endpoint locks replace the global probe lock without disabling TLS validation.
+- HTTP CONNECT establishment now allows two minutes through the shared public `PROXY_CONNECT_ESTABLISHMENT_TIMEOUT` constant; per-candidate probe budgets and client-disconnect cancellation remain unchanged.
+- Automatic proxy selection prechecks TCP endpoints in bounded parallel windows before sequential, request-capability-specific validation. TCP success never marks HTTP/HTTPS available, unrelated capability results are retained, and selection stops at the first usable candidate without detached batch tasks.
+- Proxy selection reuses an eligible proxy validated for the exact origin before affinity lookup or endpoint precheck windows. General probe expiry no longer restarts discovery for that origin; existing failure and rejection invalidation remains active.
+- Proxy records now persist TCP precheck results and separate TCP/HTTP/HTTPS attempt timestamps. Selection skips recently attempted inconclusive candidates before prechecking, reuses fresh TCP results, and saves capability attempts before validation so retry delays survive cancellation, timeout and restart; provider merges retain the newest metadata and older records remain readable.
 - HTTPS dynamic proxy selection now ranks runtime-validated tunnel and destination TLS capabilities before latency, preventing fast unvalidated SOCKS candidates from outranking validated candidates. Exact-destination preferences, affinity bindings, relaxed fallback eligibility, and HTTP ordering are preserved.
 - Dynamic proxy refresh no longer repeats the same failed TCP connection for every HTTP/HTTPS capability and every relaxed-mode protocol candidate. An endpoint-level connection failure now stops the remaining variants for that `host:port`, while reachable endpoints still receive complete multi-protocol probing; the Scrapyfy inventory also probes up to 32 endpoints concurrently so large public lists do not block routing for several minutes.
 - Dynamic proxy probes now recognize HTTP header termination even when response-body bytes arrive in the same read, preserve `last_validated_at` after parallel batches, return concrete probe errors instead of silently collapsing them, and include aggregated timeout, connection, TLS, protocol, upstream-rejection, configuration and task-failure counts in provider-refresh logs.
@@ -116,6 +128,8 @@ All notable changes to the server workspace are recorded here.
 ### <u>arachnea-stream</u>
 
 #### Added
+
+- TF1 replay/live INFO diagnostics expose incoming/configured countries, mediainfo HTTP status, delivery code, remote territories, and the existing retry decision without logging credentials, tokens, headers, or response bodies. Scrapyfy reports whether a proxy transport is configured when forwarding country hints; negotiation behavior is unchanged.
 
 - M6+ has an experimental YAML-only deferred recommendations query for the "Vous aimerez aussi..." program rail, using anonymous token acquisition, local JavaScript signing, a bounded eight-page layout scan and portrait thumbnails. Public signing configuration must track client changes; browser rendering validation remains pending.
 
@@ -177,6 +191,7 @@ All notable changes to the server workspace are recorded here.
 - TV5MONDE+ deferred recommendations override the inherited Chrome User-Agent only for the public HTML request, avoiding the Akamai denial observed on Mukbang that previously produced `entries: null`. Other catalogue and playback requests keep their existing HTTP profile.
 - ARTE live stream resolution now preserves the canonical `{proxy_countries}` HTTP template during configuration loading, then expands its runtime JSON list when `resolve_stream` executes instead of silently dropping the unresolved placeholder and using a direct connection. Its player descriptor uses the live config's `DE_FR` geoblocking rights as the ordered `[FR, DE]` proxy list, allowing a German proxy when no usable French proxy is available; the public frontend also accepts Scrapyfy's nested scalar-node representation for this static country list.
 - TF1+ now derives proxy countries from `media.geoList` in `mediainfocombo`, retries a geo-blocked negotiation through those territories, and preserves the discovered list for the manifest, storyboard, and deferred Widevine license request. Resolver-level proxy retry loops and direct fallbacks have been removed; internal requests and the manifest/storyboard `/api/proxy` URLs delegate HTTP 403 rotation to the proxy layer.
+- TF1+ `get_stream` now returns manifest proxy URLs without geo-proxy countries or rejection statuses for both replays and live streams. Negotiation and final URL resolution retain geographic routing; storyboard and deferred Widevine license routing remain unchanged.
 
 - FranceTV playback now preserves every supplied non-empty proxy-country list and falls back to `FR` only when the player supplies no country, ensuring that HTTP 403 responses remain associated with a dynamic geo-proxy. It keeps one opaque proxy affinity across K7, manifest signing, DRM authorization, proxied manifest/subresource loading, and deferred Widevine licensing. Both internal HTTP calls and returned `/api/proxy` URLs classify HTTP 403 as a destination-specific rejection, clear the rejected affinity binding, rotate to another eligible proxy, and retry once; rewritten HLS key URLs preserve the inherited proxy options.
 - Dynamic proxy selection now delegates exhausted-cache refresh decisions to the shared inventory, so independently created M6+ clients reuse the same per-country refresh cooldown instead of downloading and probing the same list again.
@@ -199,6 +214,8 @@ All notable changes to the server workspace are recorded here.
 - Proxy sources can expose a `protocols` array; the proxy provider selects one supported protocol deterministically while preserving a valid singular `protocol`. The disabled-by-default ProxyCompass source uses this support, maps ISO country codes to API country names, and requests at most 1,000 proxy candidates.
 
 #### Changed
+
+- HTTP requests using the Arachnea geo-proxy transport now derive their timeout from the shared CONNECT budget plus 25 seconds (145 seconds currently), instead of abandoning proxy discovery after 25 seconds. Requests without Arachnea country routing retain the 25-second timeout.
 
 - `ScraperHttpConfig` now accepts only ordered `proxy_countries`; Scrapyfy no
   longer accepts or emits the singular `proxy_country` / `country` contract.

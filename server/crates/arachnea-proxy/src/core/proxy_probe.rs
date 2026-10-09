@@ -98,61 +98,6 @@ pub struct ProxyProbe {
     dns_resolver: ProxyDnsResolver,
 }
 
-/// Aggregated failure categories observed while probing one batch.
-#[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct ProbeBatchReport {
-    /// Number of probes that returned an error.
-    pub(crate) failures: usize,
-    /// Number of timeout failures.
-    pub(crate) timeout: usize,
-    /// Number of refused TCP connections.
-    pub(crate) connection_refused: usize,
-    /// Number of other I/O failures.
-    pub(crate) io: usize,
-    /// Number of TLS setup or validation failures.
-    pub(crate) tls: usize,
-    /// Number of malformed or unexpected protocol responses.
-    pub(crate) protocol: usize,
-    /// Number of explicit upstream proxy rejections.
-    pub(crate) upstream_rejected: usize,
-    /// Number of configuration failures.
-    pub(crate) config: usize,
-    /// Number of route availability failures.
-    pub(crate) route_unavailable: usize,
-    /// Number of invalid destination failures.
-    pub(crate) invalid_destination: usize,
-    /// Number of access policy failures.
-    pub(crate) access_denied: usize,
-    /// Number of DNS failures.
-    pub(crate) dns: usize,
-    /// Number of unsupported-operation failures.
-    pub(crate) unsupported: usize,
-    /// Number of probe tasks that failed before returning their result.
-    pub(crate) task_join: usize,
-}
-
-impl ProbeBatchReport {
-    fn record_error(&mut self, error: &ProxyError) {
-        self.failures += 1;
-        match error {
-            ProxyError::Timeout(_) => self.timeout += 1,
-            ProxyError::Io(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => {
-                self.connection_refused += 1;
-            }
-            ProxyError::Io(_) => self.io += 1,
-            ProxyError::Tls(_) => self.tls += 1,
-            ProxyError::Protocol(_) => self.protocol += 1,
-            ProxyError::UpstreamRejected(_) => self.upstream_rejected += 1,
-            ProxyError::Config(_) => self.config += 1,
-            ProxyError::RouteUnavailable(_) => self.route_unavailable += 1,
-            ProxyError::InvalidDestination(_) => self.invalid_destination += 1,
-            ProxyError::AccessDenied(_) => self.access_denied += 1,
-            ProxyError::Dns(_) => self.dns += 1,
-            ProxyError::Unsupported(_) => self.unsupported += 1,
-        }
-    }
-}
-
 impl ProxyProbe {
     /// Creates a new proxy prober.
     pub fn new(config: ProbeConfig) -> Self {
@@ -172,6 +117,58 @@ impl ProxyProbe {
     /// Returns a reference to the probe configuration.
     pub fn config(&self) -> &ProbeConfig {
         &self.config
+    }
+
+    /// Checks endpoint TCP reachability without asking the proxy to connect to
+    /// a destination. Success does not establish protocol or application support.
+    pub(crate) async fn precheck_endpoint(&self, record: &ProxyRecord) -> Result<()> {
+        tcp_connect(
+            &record.host,
+            record.port,
+            self.config.timeouts.proxy_connect,
+        )
+        .await
+        .map(|_| ())
+    }
+
+    /// Measures only the capability required by automatic selection, retaining
+    /// the unrelated capability and the configured DNS resolver.
+    pub(crate) async fn probe_required(
+        &self,
+        record: &mut ProxyRecord,
+        require_https: bool,
+    ) -> Result<()> {
+        let mut targeted = self.clone();
+        let previous_protocol = record.protocol.clone();
+        let http_forwarding = record.http_forwarding;
+        let https_tunnel = record.https_tunnel;
+        let destination_tls = record.destination_tls;
+        if require_https {
+            targeted.config.http_probe_url = None;
+        } else {
+            targeted.config.https_probe_url = None;
+        }
+        let result = targeted.probe(record).await;
+        let same_protocol = previous_protocol == record.protocol;
+        if require_https {
+            record.http_forwarding = if same_protocol {
+                http_forwarding
+            } else {
+                ProxyCapabilityStatus::Unknown
+            };
+        } else {
+            record.https_tunnel = if same_protocol {
+                https_tunnel
+            } else {
+                ProxyCapabilityStatus::Unknown
+            };
+            record.destination_tls = if same_protocol {
+                destination_tls
+            } else {
+                ProxyCapabilityStatus::Unknown
+            };
+        }
+        result
     }
 
     /// Probes a single proxy record, updating every measurable field in place.
@@ -208,90 +205,6 @@ impl ProxyProbe {
         }
 
         Ok(())
-    }
-
-    /// Probes a batch of proxy records in parallel, with concurrency limited
-    /// by `batch_size`.
-    ///
-    /// Each record is probed in a separate `tokio::spawn` task. The original
-    /// records are updated in place with the probe results.
-    ///
-    /// # Parameters
-    ///
-    /// - `records`: Slice of proxy records to probe.
-    /// - `batch_size`: Maximum number of concurrent probes.
-    ///
-    /// # Returns
-    ///
-    /// Aggregated error categories for the completed batch.
-    pub(crate) async fn probe_batch(
-        &self,
-        records: &mut [ProxyRecord],
-        batch_size: usize,
-    ) -> ProbeBatchReport {
-        if records.is_empty() {
-            return ProbeBatchReport::default();
-        }
-
-        let semaphore = Arc::new(tokio::sync::Semaphore::new(batch_size));
-        let mut handles = Vec::with_capacity(records.len());
-        let mut report = ProbeBatchReport::default();
-
-        tracing::info!(
-            probe_count = records.len(),
-            concurrency = batch_size,
-            "starting dynamic proxy probe batch"
-        );
-
-        for i in 0..records.len() {
-            let permit = semaphore
-                .clone()
-                .acquire_owned()
-                .await
-                .expect("semaphore closed");
-            let this = self.clone();
-            let mut record = records[i].clone();
-
-            handles.push(tokio::spawn(async move {
-                let _permit = permit;
-                let result = this.probe(&mut record).await;
-                (i, record, result)
-            }));
-        }
-
-        for handle in handles {
-            match handle.await {
-                Ok((i, probed, result)) => {
-                    records[i].status = probed.status;
-                    records[i].protocol = probed.protocol;
-                    records[i].latency_ms = probed.latency_ms;
-                    records[i].http_forwarding = probed.http_forwarding;
-                    records[i].https_tunnel = probed.https_tunnel;
-                    records[i].destination_tls = probed.destination_tls;
-                    records[i].proxy_tls_certificate = probed.proxy_tls_certificate;
-                    records[i].authentication_required = probed.authentication_required;
-                    records[i].failure_count = probed.failure_count;
-                    records[i].last_checked = probed.last_checked;
-                    records[i].last_validated_at = probed.last_validated_at;
-                    if let Err(error) = result {
-                        tracing::debug!(
-                            proxy = %records[i].authority(),
-                            protocol = ?records[i].protocol,
-                            %error,
-                            "dynamic proxy probe failed"
-                        );
-                        report.record_error(&error);
-                    }
-                }
-                Err(error) => {
-                    report.failures += 1;
-                    report.task_join += 1;
-                    tracing::warn!(%error, "dynamic proxy probe task failed");
-                }
-            }
-        }
-
-        report
     }
 
     /// Validates whether a proxy record can reach a specific destination.

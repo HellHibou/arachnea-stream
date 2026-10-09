@@ -881,10 +881,13 @@ no hardcoded territory list is substituted.
 The TF1+ resolver reads the allowed territory list from `media.geoList` in the
 `mediainfocombo` response. It normalizes and deduplicates these codes, then uses
 them as proxy countries to retry a geo-blocked negotiation before evaluating
-`delivery.code`. The same list is retained for the manifest, storyboard, and
-deferred Widevine license request, without a local retry or direct fallback.
-The manifest and storyboard `/api/proxy` URLs encode HTTP `403` as a rejection
-status, causing one retry with another eligible candidate.
+`delivery.code`. This routing also applies when resolving the final manifest URL.
+The `stream_url` returned by `get_stream` keeps the local HTTP proxy wrapper but
+does not carry proxy countries or geo-proxy rejection statuses, so playback no
+longer uses a geolocated proxy. The territory list is retained for the storyboard
+and deferred Widevine license request, without a local retry or direct fallback.
+The storyboard `/api/proxy` URL encodes HTTP `403` as a rejection status, causing
+one retry with another eligible candidate.
 
 The TV5MONDE+ resolver uses the player-supplied list for anonymous
 authentication and the initial entitlement request. It then extracts country

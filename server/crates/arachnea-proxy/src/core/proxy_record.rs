@@ -164,6 +164,13 @@ pub struct ProxyDestinationFailure {
 /// addresses are automatically bracketed during conversion to [`ProxyNode`].
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ProxyRecord {
+    /// Persisted attempt times in epoch milliseconds, keyed by tcp/http/https.
+    /// Missing entries mean that phase has never been attempted.
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub probe_attempts: std::collections::HashMap<String, u64>,
+    /// Last TCP precheck result, independent of proxy protocol support.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tcp_reachable: Option<bool>,
     /// Proxy protocol when known.
     ///
     /// When `None`, the probe may attempt protocol detection and fill this

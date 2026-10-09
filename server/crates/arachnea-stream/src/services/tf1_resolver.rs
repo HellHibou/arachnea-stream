@@ -155,11 +155,28 @@ async fn resolve_replay_stream_with_config(
     proxy_countries: &[String],
     endpoints: &PlayerResolverEndpoints,
 ) -> Result<ResolvedPlayerStream> {
+    tracing::info!(
+        video_id = normalized_video_id,
+        requested_proxy_countries = ?proxy_countries,
+        configured_proxy_countries = ?http_config.proxy_countries,
+        "starting TF1 replay negotiation"
+    );
     let http_client = scraper_agregator.create_http_client(http_config);
     let session = get_or_login_session(&http_client, credentials_store).await?;
     let media_info = fetch_media_info(&http_client, &session, normalized_video_id, false).await?;
 
     let media_proxy_countries = extract_media_proxy_countries(&media_info);
+    tracing::info!(
+        video_id = normalized_video_id,
+        requested_proxy_countries = ?proxy_countries,
+        media_proxy_countries = ?media_proxy_countries,
+        delivery_rejected = delivery_rejected(&media_info),
+        countries_changed = media_proxy_countries != proxy_countries,
+        retry_mediainfo = !media_proxy_countries.is_empty()
+            && media_proxy_countries != proxy_countries
+            && delivery_rejected(&media_info),
+        "evaluated TF1 replay geo-routing decision"
+    );
     if !media_proxy_countries.is_empty() && media_proxy_countries != proxy_countries {
         let media_http_client =
             scraper_agregator.create_http_client(tf1_http_config(&media_proxy_countries));
@@ -225,12 +242,29 @@ async fn resolve_live_stream_with_config(
     proxy_countries: &[String],
     endpoints: &PlayerResolverEndpoints,
 ) -> Result<ResolvedPlayerStream> {
+    tracing::info!(
+        channel_id = normalized_channel_id,
+        requested_proxy_countries = ?proxy_countries,
+        configured_proxy_countries = ?http_config.proxy_countries,
+        "starting TF1 live negotiation"
+    );
     let http_client = scraper_agregator.create_http_client(http_config);
     let session = get_or_login_session(&http_client, credentials_store).await?;
     let live_video_id = format!("L_{}", normalized_channel_id.to_uppercase());
     let media_info = fetch_media_info(&http_client, &session, &live_video_id, true).await?;
 
     let media_proxy_countries = extract_media_proxy_countries(&media_info);
+    tracing::info!(
+        video_id = %live_video_id,
+        requested_proxy_countries = ?proxy_countries,
+        media_proxy_countries = ?media_proxy_countries,
+        delivery_rejected = delivery_rejected(&media_info),
+        countries_changed = media_proxy_countries != proxy_countries,
+        retry_mediainfo = !media_proxy_countries.is_empty()
+            && media_proxy_countries != proxy_countries
+            && delivery_rejected(&media_info),
+        "evaluated TF1 live geo-routing decision"
+    );
     if !media_proxy_countries.is_empty() && media_proxy_countries != proxy_countries {
         let media_http_client =
             scraper_agregator.create_http_client(tf1_http_config(&media_proxy_countries));
@@ -408,9 +442,9 @@ async fn build_resolved_player_stream(
         stream_url: vec![proxied_url_with_countries_and_policy(
             &manifest_url,
             endpoints.http_proxy_public_path.as_deref(),
-            proxy_countries,
+            &[], // proxy_countries, // No proxies fro now but keep proxy_countries commented and use it if we want to proxy the manifest in the future
             None,
-            &[TF1_PROXY_REJECTION_STATUS],
+            &[],
             &[],
             &[],
         )],
@@ -702,6 +736,12 @@ async fn fetch_media_info(
         .await
         .with_context(|| format!("Failed to fetch TF1 mediainfo for `{}`.", video_id))?;
     let status = response.status();
+    tracing::info!(
+        video_id,
+        is_live,
+        http_status = status.as_u16(),
+        "received TF1 mediainfo HTTP response"
+    );
     let body = response
         .text()
         .await
@@ -716,14 +756,23 @@ async fn fetch_media_info(
         );
     }
 
-    serde_json::from_str(&body).with_context(|| {
+    let media_info: Value = serde_json::from_str(&body).with_context(|| {
         format!(
             "Invalid TF1 mediainfo JSON for `{}` (HTTP {}): {}",
             video_id,
             status,
             preview_error_body(&body)
         )
-    })
+    })?;
+    tracing::info!(
+        video_id,
+        is_live,
+        http_status = status.as_u16(),
+        delivery_code = ?media_info.pointer("/delivery/code").and_then(|value| value.as_i64()),
+        media_proxy_countries = ?extract_media_proxy_countries(&media_info),
+        "parsed TF1 mediainfo geo-routing metadata"
+    );
+    Ok(media_info)
 }
 
 fn bail_on_gigya_error(payload: &Value, default_message: &str) -> Result<()> {

@@ -785,16 +785,34 @@ impl HttpClient {
             }
         }
 
+        let proxy_countries = self.http_config.proxy_countries_hint();
+        let request_timeout = Self::REQUEST_TIMEOUT;
+        #[cfg(feature = "arachnea-proxy")]
+        let request_timeout = if !proxy_countries.is_empty()
+            && matches!(
+                proxy_state.proxy.as_ref(),
+                Some(HttpProxyConfig::Arachnea(_))
+            ) {
+            arachnea_proxy::core::PROXY_CONNECT_ESTABLISHMENT_TIMEOUT + Self::REQUEST_TIMEOUT
+        } else {
+            request_timeout
+        };
         let mut builder = ArachneaHttpConfig::builder()
             .default_request_mode(self.http_config.request_mode())
             .user_agent_profile(self.http_config.browser_profile())
-            .request_timeout(Self::REQUEST_TIMEOUT)
+            .request_timeout(request_timeout)
             .max_redirects(self.http_config.max_redirects);
+        let proxy_transport_configured = proxy_state.proxy.is_some();
         if let Some(proxy) = proxy_state.proxy {
             builder = builder.proxy(proxy);
         }
-        let proxy_countries = self.http_config.proxy_countries_hint();
         if !proxy_countries.is_empty() {
+            tracing::info!(
+                requested_proxy_countries = ?proxy_countries,
+                proxy_transport_configured,
+                request_timeout_seconds = request_timeout.as_secs(),
+                "forwarding country hints to HTTP proxy transport"
+            );
             builder = builder.proxy_parameter(
                 "countries",
                 serde_json::to_string(&proxy_countries).expect("country list serializes"),

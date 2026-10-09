@@ -4,6 +4,12 @@
 //! outbound transports and the in-process API. Server listeners and HTTP client
 //! adapters live behind sibling crate features.
 
+/// Overall HTTP CONNECT establishment budget, including route selection,
+/// provider loading, capability probes, and upstream connection attempts.
+/// Established tunnel relays are not subject to this budget.
+pub const PROXY_CONNECT_ESTABLISHMENT_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_secs(2 * 60);
+
 mod chain;
 mod client_context;
 mod config;

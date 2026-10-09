@@ -1177,7 +1177,17 @@ impl ArachneaProxyCore {
         for (index, node) in chain.nodes.iter().enumerate() {
             if node.kind == TransportKind::ProxyPool {
                 if let Some(countries) = dynamic_pool_countries(&node.name)? {
+                    tracing::debug!(
+                        destination = %request.destination,
+                        requested_proxy_countries = ?countries,
+                        "evaluating dynamic country proxy route"
+                    );
                     if self.should_bypass_dynamic_country_pools(&countries).await {
+                        tracing::info!(
+                            destination = %request.destination,
+                            requested_proxy_countries = ?countries,
+                            "continuing route without geo proxy because local country is allowed"
+                        );
                         continue;
                     }
                     let require_https =
@@ -1198,6 +1208,7 @@ impl ArachneaProxyCore {
                         Ok(selected) => selected,
                         Err(error) if is_dynamic_country_proxy_unavailable(&error) => {
                             tracing::warn!(
+                                destination = %request.destination,
                                 requested_proxy_countries = ?countries,
                                 %error,
                                 "dynamic country proxy unavailable; continuing without geo proxy"
@@ -1206,6 +1217,13 @@ impl ArachneaProxyCore {
                         }
                         Err(error) => return Err(error),
                     };
+                    tracing::debug!(
+                        destination = %request.destination,
+                        requested_proxy_countries = ?countries,
+                        proxy_transport = ?selected.kind,
+                        require_https,
+                        "selected dynamic country proxy for route"
+                    );
                     let endpoint = selected.endpoint.clone();
                     pool_selections.push(ProxyPoolSelection {
                         pool_name: node.name.clone(),
@@ -1310,7 +1328,7 @@ impl ArachneaProxyCore {
         let current_country = resolver.resolve_current_country().await.ok().flatten();
         match current_country.as_deref() {
             Some(local_country) if countries.iter().any(|country| country == local_country) => {
-                tracing::debug!(
+                tracing::info!(
                     requested_proxy_countries = ?countries,
                     local_country = %local_country,
                     bypass = true,
@@ -1328,7 +1346,7 @@ impl ArachneaProxyCore {
                 false
             }
             None => {
-                tracing::debug!(
+                tracing::info!(
                     requested_proxy_countries = ?countries,
                     bypass = false,
                     "dynamic country proxy retained because current country is unknown"

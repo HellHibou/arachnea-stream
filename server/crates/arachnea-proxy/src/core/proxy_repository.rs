@@ -108,6 +108,8 @@ impl PersistentEntity for ProxyRecord {
             .field(Field::string("country").nullable().indexed())
             .field(Field::boolean("supports_https").nullable())
             .field(Field::json("declarations").nullable())
+            .field(Field::json("probe_attempts").nullable())
+            .field(Field::boolean("tcp_reachable").nullable())
             .field(Field::string("status"))
             .field(Field::string("http_forwarding").nullable())
             .field(Field::string("https_tunnel").nullable())
@@ -139,6 +141,13 @@ impl PersistentEntity for ProxyRecord {
             writer.boolean("supports_https", supports_https)?;
         }
         writer.json("declarations", serde_json::to_value(&self.declarations)?)?;
+        writer.json(
+            "probe_attempts",
+            serde_json::to_value(&self.probe_attempts)?,
+        )?;
+        if let Some(reachable) = self.tcp_reachable {
+            writer.boolean("tcp_reachable", reachable)?;
+        }
         writer.string("status", status_name(&self.status))?;
         writer.string(
             "http_forwarding",
@@ -197,6 +206,12 @@ impl PersistentEntity for ProxyRecord {
         let failure_count = u32::try_from(reader.integer("failure_count")?)
             .context("persisted proxy failure count is outside the u32 range")?;
         Ok(ProxyRecord {
+            probe_attempts: reader
+                .optional_json("probe_attempts")?
+                .map(|value| serde_json::from_value(value.clone()))
+                .transpose()?
+                .unwrap_or_default(),
+            tcp_reachable: reader.optional_boolean("tcp_reachable")?,
             protocol: reader
                 .optional_string("protocol")?
                 .map(parse_protocol)
@@ -334,6 +349,8 @@ mod tests {
             })
             .expect("system time after UNIX_EPOCH");
         ProxyRecord {
+            probe_attempts: std::collections::HashMap::from([("https".to_string(), 1791540000000)]),
+            tcp_reachable: Some(true),
             protocol: Some(ProxyProtocol::Socks5),
             host: host.to_string(),
             port,

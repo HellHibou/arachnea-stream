@@ -71,12 +71,21 @@ where
             .with_no_client_auth()
     };
     let connector = TlsConnector::from(Arc::new(config));
-    let server_name = ServerName::try_from(server_name.to_string())
+    let tls_server_name = ServerName::try_from(server_name.to_string())
         .map_err(|_| ProxyError::Tls("invalid upstream tls server name".to_string()))?;
-    time::timeout(timeout, connector.connect(server_name, stream))
+    time::timeout(timeout, connector.connect(tls_server_name, stream))
         .await
         .map_err(|_| ProxyError::Timeout("https proxy tls handshake"))?
-        .map_err(|error| ProxyError::Tls(error.to_string()))
+        .map_err(|error| {
+            tracing::warn!(
+                server_name,
+                verify_tls,
+                trust_store = "public WebPKI roots",
+                %error,
+                "TLS client handshake failed"
+            );
+            ProxyError::Tls(error.to_string())
+        })
 }
 
 /// Certificate verifier used only when a node explicitly disables TLS checks.

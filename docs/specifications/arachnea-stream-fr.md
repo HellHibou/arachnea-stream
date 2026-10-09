@@ -888,10 +888,13 @@ codée en dur ne lui est substituée.
 Le résolveur TF1+ lit la liste de territoires autorisés dans `media.geoList`
 de la réponse `mediainfocombo`. Il normalise et déduplique ces codes, puis les
 utilise comme pays proxy pour relancer une négociation géobloquée avant
-d'évaluer `delivery.code`. La même liste est conservée pour le manifeste, le
-storyboard et la licence Widevine différée, sans retry local ni fallback direct.
-Les URLs `/api/proxy` du manifeste et du storyboard encodent le rejet du statut
-HTTP `403`, qui provoque un seul nouvel essai avec un autre candidat.
+d'évaluer `delivery.code`. Ce routage s'applique aussi à la résolution de l'URL
+finale du manifeste. Le champ `stream_url` retourné par `get_stream` conserve le
+proxy HTTP local, mais ne transmet ni pays proxy ni statuts de rejet géoproxy :
+la lecture ne passe donc plus par un proxy géolocalisé. La liste de territoires
+reste conservée pour le storyboard et la licence Widevine différée, sans retry
+local ni fallback direct. L'URL `/api/proxy` du storyboard encode le rejet du
+statut HTTP `403`, qui provoque un seul nouvel essai avec un autre candidat.
 
 Le résolveur TV5MONDE+ utilise la liste fournie par le lecteur pour
 l'authentification anonyme et l'appel entitlement initial. Il extrait ensuite

@@ -31,7 +31,7 @@ This README is the design and usage home for the proxy crate. Remaining work is 
 - Public-bind safety checks, ACLs, optional HTTP/SOCKS authentication, connection limits, and typed errors.
 - Optional integration with `arachnea-dns` when local resolution or Smart DNS decisions are required.
 - Optional persistent cache for dynamic proxies (feature `persistence`): the inventory consults a shared `PersistenceStore` per country before falling back to the provider and writes mutations back through namespace-bound transactions. Records are keyed by authority in the `proxy-inventory` namespace and filtered by country through field queries. Their fixed 24-hour validation age is not a hard expiration: stale records remain selectable and are deleted only when a later proxy connection or configured origin-rejection check fails.
-- Dynamic provider refresh policy belongs to the shared inventory rather than HTTP clients. Refreshes are single-flight per country and normally suppressed for 120 seconds after every provider attempt, including failures and empty lists. An observed connection or tunnel failure clears that cooldown without loading immediately, allowing the next exhausted-cache selection to discover new endpoints while preserving the failed endpoint's cached exclusion. HTTP engine proxy failures observed after route establishment are recorded against the exact destination, clear the cached client and affinity, and retry once with another candidate; a failed replacement is recorded but is not retried a third time. Configured origin-response rejections do not clear the provider cooldown. Multi-country selection searches every requested country's memory and persistent cache before consulting providers, then refreshes eligible countries in caller order. Refreshed provider lists are deduplicated by endpoint and compared with the inventory before network probes: cached protocol, HTTPS capability, health and failure metadata are reused while `last_checked` remains within `probe_ttl`; only new, untested or expired endpoints are probed. Accepted origin responses renew the selected proxy's 24-hour validation age and make it the preferred candidate for that exact country, scheme, host and port while it remains eligible; independent destinations therefore keep independent preferred proxies. Optional affinity bindings are retained for 15 minutes and are reused only while the bound proxy still passes country, protocol, freshness, global cooldown, and destination-cooldown checks. Statuses listed in `proxy_rejection_statuses` persist a 24-hour destination rejection, clear the rejected destination preference and affinity binding, and rotate without bypassing those checks.
+- Dynamic provider refresh policy belongs to the shared inventory rather than HTTP clients. Refreshes are single-flight per country and normally suppressed for 120 seconds after every provider attempt, including failures and empty lists. An observed connection or tunnel failure clears that cooldown without loading immediately, allowing the next exhausted-cache selection to discover new endpoints while preserving the failed endpoint's cached exclusion. HTTP engine proxy failures observed after route establishment are recorded against the exact destination, clear the cached client and affinity, and retry once with another candidate; a failed replacement is recorded but is not retried a third time. Configured origin-response rejections do not clear the provider cooldown. Multi-country selection searches every requested country's memory and persistent cache before consulting providers, then refreshes eligible countries in caller order. Refreshed provider lists are deduplicated by endpoint and compared with the inventory before network probes: cached protocol, HTTPS capability, health and failure metadata are reused while `last_checked` remains within `probe_ttl`; provider records are stored without eager batch probing, and automatic selection tests unknown or expired required capabilities sequentially until the first usable candidate is found. Accepted origin responses renew the selected proxy's 24-hour validation age and make it the preferred candidate for that exact country, scheme, host and port while it remains eligible; independent destinations therefore keep independent preferred proxies. Optional affinity bindings are retained for 15 minutes and are reused only while the bound proxy still passes country, protocol, freshness, global cooldown, and destination-cooldown checks. Statuses listed in `proxy_rejection_statuses` persist a 24-hour destination rejection, clear the rejected destination preference and affinity binding, and rotate without bypassing those checks.
 
 ## Profiles
 
@@ -80,6 +80,38 @@ The retired design notes also reserved `censorship_resistance`; it remains track
 ## Country Routing Parameters
 
 Country routing accepts only the ordered JSON `countries` parameter. HTTP proxy clients must send it in the `Arachnea-Proxy-Countries` header, for example `Arachnea-Proxy-Countries: ["FR", "DE"]`; SOCKS5 clients can provide `countries=["FR","DE"]` through the parameterized username format. Country codes are normalized to uppercase, duplicates are removed while preserving order, and static or dynamic routing selects the first available country. The legacy singular `country` parameter and `Arachnea-Proxy-Country` header are not supported.
+
+Dynamic country routing emits INFO diagnostics for local-country bypass decisions
+and selected candidate authority and country. Routine route evaluation,
+local-country mismatch, selected route transport, and reuse of the proxy validated
+for an origin are logged at DEBUG. Route selection logs include the destination
+authority; unavailable geo-proxy warnings also include it.
+A local country matching any requested country
+skips the dynamic geo-proxy, and an unavailable dynamic pool continues along the
+remaining route without that geo-proxy. These logs do not include proxy credentials
+or affinity values and do not change those routing decisions.
+
+TLS handshake failures emit a WARN diagnostic with the TLS server name,
+certificate-verification flag, and underlying error. The shared helper uses
+public WebPKI roots when verification is enabled, both for HTTPS upstream proxies
+and for HTTPS destinations fetched by the built-in HTTP client. The server name
+helps distinguish upstream-proxy certificate failures from destination failures;
+the diagnostic does not disable certificate validation or log signed media URLs.
+
+HTTP CONNECT diagnostics distinguish upstream tunnel establishment, client
+acknowledgement failures, and relay failures after establishment. Normal relay
+completion includes directional byte totals and elapsed time; relay failures
+include the destination authority, elapsed time, and I/O error kind, but cannot
+identify which peer caused the failure from the bidirectional copy error alone.
+No tunnel payload or authentication headers are logged.
+
+HTTP CONNECT establishment has a 120-second overall budget, defined by the public
+`PROXY_CONNECT_ESTABLISHMENT_TIMEOUT` constant, covering route
+selection, provider loading, probes, and upstream connection attempts. Client EOF
+or read failure cancels establishment. Up to 16 KiB of early client data is
+preserved and forwarded after acknowledgement. Established relays are not subject
+to this timeout. The establishment budget does not apply to direct core calls or
+the built-in `/api/proxy` HTTP client.
 
 ## Known Gaps
 
@@ -155,14 +187,43 @@ runtime result is absent or inconclusive. SOCKS declarations are sufficient as
 the relaxed HTTPS hint because those protocols carry arbitrary TCP tunnels.
 
 `supports_https` remains provider metadata and is not overwritten by runtime
-probing. Selection uses the matching runtime capability when known and keeps the
-provider/protocol fallback only in relaxed mode and only for records whose
-capability is still `Unknown`, including records loaded from an older persistent
-store. Provider hints are never copied into runtime capability fields, so an
-inferred relaxed decision remains distinguishable from successful validation.
+probing. With a configured probe, selection tests unknown or expired required
+capabilities sequentially, including records from memory, persistent cache, and
+affinity bindings. It persists results and stops at the first usable candidate.
+Provider loading stores the list without probing every endpoint; remaining
+records are tested only when needed. Unknown results after probing are skipped,
+with inconclusive attempts throttled for `probe_ttl` (10 minutes by default).
+TCP precheck results and per-phase attempt timestamps (`tcp`, `http`, `https`)
+are persisted as `tcp_reachable` and `probe_attempts`. Recent failed TCP checks
+and recent inconclusive capability attempts are skipped before prechecking.
+Successful TCP checks are reused while fresh but never establish application
+support. Capability attempts are saved before network validation, so the retry
+delay survives a timeout, caller cancellation, or application restart. Timeouts
+remain inconclusive rather than changing a capability to `Unavailable`. Provider
+refreshes and cache imports preserve the newest attempt timestamps. Older records
+without these optional fields remain readable and are checked once when needed.
+Without a configured probe, existing strict/relaxed eligibility remains in effect.
+Per-endpoint probe locks avoid duplicate automatic capability probes without
+blocking unrelated endpoints. Automatic selection prechecks TCP reachability in
+bounded parallel windows (`probe_batch_size`, at least one); it then validates
+the requested HTTP or HTTPS capability sequentially and stops at the first usable
+candidate. TCP prechecks do not validate proxy protocols or application support.
+Each window completes before destination validation, preserving candidate order.
+Unrelated capability results are retained. Complete capability probes are bounded
+to 8 seconds and run inline so dropping their caller cancels them. No background
+batch is started. The current lightweight precheck is TCP-only; TLS to an HTTPS
+proxy and SOCKS authentication remain part of targeted capability validation.
+Provider hints are never copied into runtime capability fields.
 
 For HTTPS selection, an eligible proxy previously accepted by the exact
-destination remains preferred. Other candidates are ranked by runtime validation
+destination is returned before affinity selection or endpoint precheck windows.
+Its general probe age alone does not trigger discovery or revalidation. Origin
+preferences are shared by the runtime inventory and keyed by country, scheme,
+host and port; they are not restored as bindings after an application restart.
+Health, authentication, capability failures, country restrictions and destination
+cooldowns still apply. Observed failures invalidate the preference through the
+existing failure tracking; configured origin rejections also remain invalidating.
+Other candidates are ranked by runtime validation
 before latency: an available tunnel with validated destination TLS comes first,
 then an available tunnel with unknown TLS, then relaxed protocol/provider hints
 with an unknown tunnel. HTTP selection keeps its latency ordering, and existing

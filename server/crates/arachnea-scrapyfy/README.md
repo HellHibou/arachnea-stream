@@ -1,5 +1,14 @@
 # Arachnea Scrapyfy
 
+## Geo-proxy request timeout
+
+HTTP clients using the Arachnea proxy transport with non-empty country hints
+allow `PROXY_CONNECT_ESTABLISHMENT_TIMEOUT` plus 25 seconds for each HTTP request
+(145 seconds with the current two-minute CONNECT budget). This leaves time for
+the origin request after proxy selection and connection. Other requests retain
+the 25-second timeout. The timeout is per attempt, not a deadline for a complete
+resolver sequence or its retries; per-candidate probe limits remain unchanged.
+
 `arachnea-scrapyfy` contains the generic scraping engine used by Arachnea.
 
 ## Proxy Provider Lifetime

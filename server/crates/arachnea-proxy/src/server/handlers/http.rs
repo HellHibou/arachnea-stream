@@ -112,10 +112,46 @@ where
         context_parameter_names = ?context_parameter_names,
         "http proxy CONNECT route context resolved"
     );
-    let mut upstream = match core
-        .connect_request(ConnectRequest::new(destination).with_client_context(context))
-        .await
-    {
+    let connect_started = std::time::Instant::now();
+    let mut pending_client_bytes = Vec::new();
+    let connect_result = {
+        let connect = tokio::time::timeout(
+            crate::core::PROXY_CONNECT_ESTABLISHMENT_TIMEOUT,
+            core.connect_request(ConnectRequest::new(destination).with_client_context(context)),
+        );
+        tokio::pin!(connect);
+        loop {
+            let mut buffer = [0u8; 1024];
+            tokio::select! {
+                result = &mut connect => break result.unwrap_or_else(|_| {
+                    Err(ProxyError::Timeout("HTTP CONNECT establishment budget"))
+                }),
+                read = client.read(&mut buffer) => {
+                    match read {
+                        Ok(0) => {
+                            tracing::info!(
+                                target = %request.target,
+                                elapsed_ms = connect_started.elapsed().as_millis(),
+                                "cancelled HTTP CONNECT establishment because client disconnected"
+                            );
+                            return Ok(());
+                        }
+                        Ok(count) => {
+                            if pending_client_bytes.len() + count > 16 * 1024 {
+                                return Err(ProxyError::Protocol("too much client data before CONNECT acknowledgement".to_string()));
+                            }
+                            pending_client_bytes.extend_from_slice(&buffer[..count]);
+                        }
+                        Err(error) => {
+                            tracing::warn!(target = %request.target, %error, "cancelled HTTP CONNECT establishment after client read failure");
+                            return Err(error.into());
+                        }
+                    }
+                }
+            }
+        }
+    };
+    let mut upstream = match connect_result {
         Ok(stream) => stream,
         Err(error) => {
             tracing::warn!(
@@ -128,10 +164,43 @@ where
             return Err(error);
         }
     };
+    tracing::info!(
+        target = %request.target,
+        "HTTP CONNECT upstream tunnel established"
+    );
     client
         .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
-        .await?;
-    io::copy_bidirectional(&mut client, &mut upstream).await?;
+        .await
+        .map_err(|error| {
+            tracing::warn!(
+                target = %request.target,
+                %error,
+                "failed to acknowledge HTTP CONNECT tunnel to client"
+            );
+            error
+        })?;
+    let relay_started = std::time::Instant::now();
+    upstream.write_all(&pending_client_bytes).await?;
+    let (client_to_upstream_bytes, upstream_to_client_bytes) =
+        io::copy_bidirectional(&mut client, &mut upstream)
+            .await
+            .map_err(|error| {
+                tracing::warn!(
+                    target = %request.target,
+                    elapsed_ms = relay_started.elapsed().as_millis(),
+                    error_kind = ?error.kind(),
+                    %error,
+                    "HTTP CONNECT tunnel relay failed after establishment"
+                );
+                error
+            })?;
+    tracing::info!(
+        target = %request.target,
+        elapsed_ms = relay_started.elapsed().as_millis(),
+        client_to_upstream_bytes,
+        upstream_to_client_bytes,
+        "HTTP CONNECT tunnel relay completed"
+    );
     Ok(())
 }
 
