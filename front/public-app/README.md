@@ -56,6 +56,12 @@ npm run lint:css:fix
 
 ## Media collection pagination
 
+Media thumbnails use the same yellow crown for subscriptions and purchase/rental
+prices, without displaying the monetary amount on the image. Card detail popups
+retain the localized access label and amount, preceded by the crown. The thumbnail
+crown exposes that label through its tooltip and accessible name. Free, missing,
+and unrecognized price values do not display a crown.
+
 `MediaCardCollection` automatically invokes `onLoadMore` in `single-row` mode when the inline load-more button becomes visible in the horizontally scrollable rail and the page viewport. Visibility is checked again after items are appended or the layout changes. Automatic loading requires `haveMore`, pauses while `isLoadingMore` is true, and stops on `loadMoreErrorMessage` so failures can be retried manually using the button.
 
 Grid and list layouts keep automatic pagination opt-in through `autoLoadMore` (default: `false`), with a 200px vertical preload margin. The button remains available for manual loading in every layout.

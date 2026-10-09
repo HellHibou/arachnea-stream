@@ -51,11 +51,33 @@ indicators. No additional per-card requests are made to infer access.
 
 TF1+ detail extraction keeps the editorial-list lookup and also requests the
 public programme cover watch action by exact programme slug. Only
-`WatchButtonAction` items with a `REPLAY` video supply resolver targets; offer
-and navigation actions are excluded. This covers films without editorial lists
-without relying on search ranking or accidentally selecting another programme.
+`WatchButtonAction` items with a `REPLAY` video supply resolver targets; order
+and navigation actions are excluded from player discovery. This covers films
+without editorial lists without relying on search ranking or accidentally
+selecting another programme.
 Watch-action video links use `program.initialChannel.slug`, and `price: premium`
 is emitted only when the video's `decoration.showPayBadge` is true.
+
+TVOD `OrderAction` items supply the rental amount from `buttonDecoration.ctaLabel`
+as a canonical monetary `price` (for example, `3.99 EUR`), not a subscription
+marker or a playable resolver target. The euro amount is extracted dynamically;
+missing or unrecognized monetary labels do not produce a price.
+
+Search video cards extract monetary amounts only from `TVOD` offer prices.
+They emit `premium` only when `video.rights` is exactly `["MAX"]`; optional
+SVOD and ad-free offers also occur on free replays and trailers and are not
+evidence of paid-only access. Search programme cards with `PURCHASE_REQUIRED`
+fetch their exact programme call-to-action to obtain a TVOD amount, adding one
+request per such card. No rental amount or subscription marker is inferred
+from `isAVOD: false` or a missing free offer.
+
+Detail `count-season` requires an explicit season label such as `5 saisons`.
+A leading four-digit year in the programme sublabel is exposed as `year`, not
+as a season count (for example, `2013 · 2h07`).
+
+Recommendations remain limited to the contextual "Si vous aimez…" rail. An
+"Aucune recommandation disponible" slider does not expose recommendations,
+and "Populaires cette semaine" is not used as a substitute.
 
 The persisted `ProgramCover_CallToAction` query ID in the source YAML must track
 TF1+ client changes. Player discovery does not bypass authentication, geographic

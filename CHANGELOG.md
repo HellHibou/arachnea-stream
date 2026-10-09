@@ -156,6 +156,10 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- TF1+ detail pages now extract TVOD rental amounts from the programme's `OrderAction` label as canonical monetary prices (for example, `3.99 EUR` for Star Trek Into Darkness), without treating rental offers as subscriptions or playable watch actions.
+
+- TF1+ detail metadata now separates the release year from explicit season counts. Search cards expose TVOD amounts from video offers or purchase-required programme actions, and video subscription markers require MAX-only rights rather than optional premium offers, preventing false paid-access labels on free replays and trailers.
+
 - M6+ deferred recommendations now use a sandbox-compatible UTF-8 encoder, retain all generated layout URLs and extract only JWT-shaped values for authorization headers, preventing empty recommendation responses. Live extraction and REST output were checked on La grande semaine, including portrait thumbnails and a second card page.
 - TF1+ programme details now use the programme's exact watch action instead of a one-result slug search to discover playable videos without editorial lists, fixing missing players for Fast & Furious X and Arthur & Merlin: Knights of Camelot. Watch-action links use the initial channel and premium metadata uses the explicit pay badge.
 - TF1+ detail and season players now expose allowed territories from the remote `mediainfocombo` payload's `media.geoList` as `resolver.proxy.countries`, including when playback is denied. Geographic metadata no longer disappears behind the playback error, and no country list is hardcoded.
@@ -233,6 +237,8 @@ All notable changes to the server workspace are recorded here.
 - The player settings add one `videoPlayer.autoskip.*` parameter per skippable chapter type (`previously`, `intro`, `coming_next`, `outro`, `ads`; all `false` by default). Advertising remains configured in the Lecteur / Player section, while the other types are configured from the autoplay menu. When a type's parameter is enabled, chapters of that type are skipped automatically as soon as playback enters them: `ads` unconditionally, other types only while episode autoplay is enabled. Contiguous same-type chapters are merged (`mergeContiguousChapters`) so a whole ad pod is jumped over with a single seek (`installAutoSkipChapters`, wired for both static and DASH period chapters).
 
 #### Changed
+
+- Media thumbnails now show the existing yellow crown for purchase/rental prices as well as subscriptions instead of a monetary text badge. Card detail popups retain the localized amount and show the crown before the purchase/rental label; free and absent prices remain unmarked.
 
 - Single-row media collections now automatically load the next page when their inline load-more button becomes visible. Manual loading remains available, grid/list opt-in behavior is unchanged, and automatic loading pauses during requests or after a pagination error.
 

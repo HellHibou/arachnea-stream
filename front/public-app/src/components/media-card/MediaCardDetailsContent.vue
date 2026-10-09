@@ -48,11 +48,6 @@ const priceLabel = computed(() =>
   formatPriceAccess(props.item.price, resolvedLanguage.value, t),
 )
 
-/** Indicates whether the paid-access fact uses the premium crown treatment. */
-const showPremiumCrown = computed(() =>
-  props.item.price === 'premium' && Boolean(priceLabel.value),
-)
-
 /**
  * CSS class for score color based on rating value (matches other components).
  */
@@ -175,7 +170,6 @@ const hasDetails = computed(() =>
 
       <p v-if="priceLabel" class="media-card-details__fact">
         <span
-          v-if="showPremiumCrown"
           class="media-card-details__premium-crown"
           aria-hidden="true"
         >
@@ -263,7 +257,7 @@ const hasDetails = computed(() =>
   font-weight: 700;
 }
 
-/* Premium crown shown before the paid-access fact, matching the card badge. */
+/* Paid-access crown shown before the label, matching the card badge. */
 .media-card-details__premium-crown {
   display: inline-flex;
   align-items: center;

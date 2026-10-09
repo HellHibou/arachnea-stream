@@ -102,6 +102,27 @@ shared:
     - type: format_text
       argument: "https://photos.tf1.fr{}"
 
+  actions_euro_price: &actions_euro_price
+    - type: regex_find_all
+      pattern: '([0-9]+(?:[,.][0-9]+)?)\s*€'
+      format: '{1} EUR'
+    - type: replace_text
+      search: ','
+      replace: '.'
+
+  rental_action_price:
+    scraper_type: json
+    request_headers: *generic_request_headers
+    row_pointer: /data/callToActionByProgramSlug/items/*[__typename=OrderAction]
+    row_filters:
+      /offer/type: [TVOD]
+    entries: &rental_action_price_entries
+      - name: price
+        type: string
+        select: first
+        pointer: /buttonDecoration/ctaLabel
+        actions: *actions_euro_price
+
   actions_typology_media_type: &actions_typology_media_type
     - type: map
       default: "video/show/other/{}"
@@ -927,13 +948,23 @@ queries:
             type: string
             select: first
             pointer: /program/decoration/description
-          - name: price
+          - name: _rental_price_url
             type: string
             select: first
-            pointer: /program/offers/*[isPremium=true]/isPremium
+            pointer: /purchaseBadges/*[type=PURCHASE_REQUIRED]/type
             actions:
-              - type: map
-                argument: { "true": "premium" }
+              - type: build_url
+                base: '{graphql_url}?id=sha256%3Aacac8de560388819084dbc48dbbbc4dbd537a7b776369a35baa9e8eda3587589&variables=%7B%22programSlug%22%3A%22{slug}%22%7D'
+                fields:
+                  slug: /program/slug
+            sub_queries:
+              - scraper_type: json
+                target: parent
+                request_headers: *generic_request_headers
+                row_pointer: /data/callToActionByProgramSlug/items/*[__typename=OrderAction]
+                row_filters:
+                  /offer/type: [TVOD]
+                entries: *rental_action_price_entries
           - name: theme
             type: string[]
             pointer: /program/topics/*
@@ -985,13 +1016,24 @@ queries:
             type: string
             select: first
             pointer: /video/decoration/label
+          # Optional SVOD offers also occur on free videos and trailers.
           - name: price
             type: string
             select: first
-            pointer: /video/offers/*[isPremium=true]/isPremium
+            pointer: /video/rights
             actions:
-              - type: map
-                argument: { "true": "premium" }
+              - type: build_url
+                base: '{rights}'
+                fields:
+                  rights: /video/rights
+              - type: regex_find_all
+                pattern: '^\["MAX"\]$'
+                format: premium
+          - name: price
+            type: string
+            select: first
+            pointer: /video/offers/*[type=TVOD]/prices/*/formattedAmount
+            actions: *actions_euro_price
           - name: description
             type: string
             select: first
@@ -1025,6 +1067,13 @@ queries:
             type: string
             select: first
             pointer: /video/decoration/image/sourcesWithScales/0/url
+
+    post_process:
+      - type: filter_fields
+        source: entries
+        field: title
+        pattern: '.*'
+        remove: [_rental_price_url]
 
 
   # ---------------------------------------------------------------
@@ -1112,7 +1161,15 @@ queries:
         pointer: decoration/subLabel
         actions:
           - type: regex_find_all
-            pattern: '([0-9]+)'
+            pattern: '(?i)\b([0-9]+)\s+saisons?\b'
+            format: '{1}'
+      - name: year
+        type: number
+        select: first
+        pointer: decoration/subLabel
+        actions:
+          - type: regex_find_all
+            pattern: '^\s*((?:19|20)[0-9]{2})\b'
             format: '{1}'
       - name: theme
         type: string[]
@@ -1212,14 +1269,21 @@ queries:
                 select: first
                 pointer: /id
               - *tf1_video_proxy_countries
-      # The program watch action also exposes videos without an editorial list.
       - scraper_type: json
-        request_actions:
+        request_actions: &actions_program_call_to_action
           - type: format_text
             argument: "{request_url}"
           - type: regex_find_all
             pattern: '^https?://smart-tv\.tf1\.fr/catalog/([^/]+)/smarttv\?.*[?&]programSlug=([^&]+)'
             format: 'https://www.tf1.fr/graphql/{1}/web?id=sha256%3Aacac8de560388819084dbc48dbbbc4dbd537a7b776369a35baa9e8eda3587589&variables=%7B%22programSlug%22%3A%22{2}%22%7D'
+        request_headers: *generic_request_headers
+        row_pointer: /data/callToActionByProgramSlug/items/*[__typename=OrderAction]
+        row_filters:
+          /offer/type: [TVOD]
+        entries: *rental_action_price_entries
+      # Order actions supply prices, not playable resolver targets.
+      - scraper_type: json
+        request_actions: *actions_program_call_to_action
         request_headers: *generic_request_headers
         row_pointer: /data/callToActionByProgramSlug/items/*[__typename=WatchButtonAction]/video
         row_filters:

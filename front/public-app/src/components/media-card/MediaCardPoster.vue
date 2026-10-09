@@ -106,9 +106,6 @@ const priceLabel = computed(() =>
   formatPriceAccess(props.price, resolvedLanguage.value, t),
 )
 
-/** Whether the paid-access badge should use the compact premium crown treatment. */
-const showPremiumCrown = computed(() => props.price === 'premium' && Boolean(priceLabel.value))
-
 defineEmits<{
   /** Emitted when the poster image fails to load. */
   imageError: []
@@ -174,16 +171,12 @@ defineEmits<{
     <template v-if="showBadges">
       <div v-if="priceLabel || mediaTypeLabel" class="media-card__top-left-badges">
         <span
-          v-if="showPremiumCrown"
+          v-if="priceLabel"
           class="media-card__premium-crown"
           :title="priceLabel ?? undefined"
           :aria-label="priceLabel ?? undefined"
         >
           <v-icon icon="mdi-crown" size="18" aria-hidden="true" />
-        </span>
-
-        <span v-else-if="priceLabel" class="media-card__price">
-          {{ priceLabel }}
         </span>
 
         <span v-if="mediaTypeLabel" class="media-card__media-type">
@@ -315,8 +308,7 @@ defineEmits<{
 .media-card__media-type,
 .media-card__audio,
 .media-card__duration,
-.media-card__rating,
-.media-card__price {
+.media-card__rating {
   position: absolute;
   z-index: 3;
   display: inline-flex;
@@ -336,14 +328,6 @@ defineEmits<{
   position: static;
   border-radius: 0 0 14px 0;
   background: var(--bg-surface);
-}
-
-.media-card__price {
-  position: static;
-  max-width: 100%;
-  border-radius: 0 0 14px;
-  background: var(--color-primary);
-  text-align: left;
 }
 
 .media-card__premium-crown {
