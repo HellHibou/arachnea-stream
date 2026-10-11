@@ -1,0 +1,1528 @@
+id: rmcbfmplay-fr
+title: RMC BFM Play
+logo: "https://www.rmcplus.fr/logo.png"
+description:
+  fr: "RMC BFM Play est la plateforme de streaming du groupe audiovisuel français Altice Media, regroupant les chaînes BFMTV, BFM Business, BFM Paris Île-de-France, RMC Story, RMC Découverte, RMC Life, Tech & Co et Brut. Elle propose gratuitement le direct, le replay et un large catalogue de documentaires, magazines, fictions et sport."
+  en: "RMC BFM Play is the streaming platform of the French media group Altice Media, gathering the BFMTV, BFM Business, BFM Paris Île-de-France, RMC Story, RMC Découverte, RMC Life, Tech & Co and Brut channels. It offers free live TV, catch-up and a wide catalogue of documentaries, magazines, fiction and sport."
+credentials:
+  required: true
+  signup_url: https://connect.rmcbfm.com/?redirect_uri=https%3A%2F%2Fwww.rmcplus.fr%2Fapi%2Fauth%2Foauth2%2Fcallback%2Frmcbfm
+http:
+  mode: direct
+  user_agent_profile: firefox
+
+# ############################################################################
+# Parameters
+# ############################################################################
+parameters:
+  - name: base_url
+    value: https://www.rmcplus.fr
+    description: Public website base URL used for web links.
+  - name: bff_base_url
+    value: https://bff.rmcplus.fr/v1
+    description: Anonymous Backend-for-Frontend catalogue API (no authentication required).
+  - name: cdn_base_url
+    value: https://io-fsly.cdn.rmcplus.fr
+    description: CDN base URL serving catalogue images.
+
+# ############################################################################
+# Shared structs
+# ############################################################################
+shared:
+  media_types_rmcbfmplay: &media_types_rmcbfmplay
+    - video/movie
+    - video/show/serie
+    - video/show/documentary
+    - video/show/sport
+    - video/show/kids
+    - video/show/other
+    - video/news
+    - video/live
+    - video/other
+
+  # Every item and category carries the owning source id so the frontend can
+  # route follow-up `get_category` / `get_entry` requests back to this source.
+  source_entry: &source_entry
+    name: source
+    type: string
+    actions:
+      - type: format_text
+        argument: "{source}"
+
+  # `Thématiques` tiles point at `mosaique` pages; keep the real page type so
+  # `get_category` can render both `default` and `mosaique` payloads.
+  # (`regex_find_all/format` resolves both `{1}` captures and `{bff_base_url}`
+  # params, so the full URL is built in one action.)
+  actions_lien_link: &actions_lien_link
+    - type: regex_find_all
+      pattern: 'page_type=([^&]+).*?page_id=([^&]+)'
+      format: "{bff_base_url}/page?model=web&page_type={1}&page_id={2}"
+
+  # `regarder` and `lien` web URLs are site-relative paths.
+  actions_web_link: &actions_web_link
+    - type: format_text
+      argument: "{base_url}{}"
+
+  # A `regarder` call-to-action endpoint becomes the playable player-page URL.
+  actions_regarder_link: &actions_regarder_link
+    - type: regex_find_all
+      pattern: 'page_id=([^&]+)'
+      format: "{1}"
+    - type: format_text
+      argument: "{bff_base_url}/page?model=web&page_type=player&page_id={}"
+
+  actions_regarder_target: &actions_regarder_target
+    - type: regex_find_all
+      pattern: 'page_id=([^&]+)'
+      format: "{1}"
+
+  # Detail anchor of a `fip` / `fip-edito` page: the `herobannerFIP` single
+  # `item`. The `player` page has no such `item`; `get_entry` only consumes
+  # card `lien` links pointing at the detail pages.
+  entry_item_entries: &entry_item_entries
+    - name: title
+      type: string
+      select: first
+      pointer: /sections/*[type=herobannerFIP]/item/titre
+    - name: title/alt
+      type: string
+      select: first
+      pointer: /sections/*[type=herobannerFIP]/item/background_image/alt
+    - name: description
+      type: string
+      select: first
+      pointer: /sections/*[type=herobannerFIP]/item/description
+    - name: media-type
+      type: string[]
+      select: first
+      pointer: /sections/*[type=herobannerFIP]/item/etiquette/nature
+      actions:
+        - type: map
+          argument:
+            Documentaires: video/show/documentary
+            Divertissement: video/show/other
+            Séries: video/show/serie
+            Séries et fictions: video/show/serie
+            Fiction: video/movie
+            Cinéma: video/movie
+            Info: video/news
+            Sport: video/show/sport
+            Jeunesse: video/show/kids
+          default: video/show/other
+    - name: program-id
+      type: string
+      select: first
+      pointer: /sections/*[type=herobannerFIP]/item/id
+    - name: link
+      type: string
+      select: first
+      actions:
+        - type: format_text
+          argument: "{query_url}"
+    - name: web-link
+      type: string
+      select: first
+      pointer: /url
+      actions: *actions_web_link
+    - name: duration
+      type: string
+      select: first
+      pointer: /sections/*[type=herobannerFIP]/item/etiquette/duree
+      actions:
+        - type: normalize_duration
+    - name: release-date
+      type: string
+      select: first
+      pointer: /sections/*[type=herobannerFIP]/item/info_diffusion/date
+      actions:
+        - type: get_date
+          format: yyyy_mm_dd
+    - name: expire
+      type: string
+      select: first
+      pointer: /sections/*[type=herobannerFIP]/item/info_publication/date
+      actions:
+        - type: get_date
+          format: yyyy_mm_dd
+    - name: year
+      type: number
+      select: first
+      pointer: /sections/*[type=herobannerFIP]/item/etiquette/annee_production
+      actions:
+        - type: regex_find_all
+          pattern: '^(\d{4})'
+          format: "{1}"
+    - name: content-advisor
+      type: string
+      select: first
+      pointer: /sections/*[type=herobannerFIP]/item/etiquette/arcom
+    - name: language
+      type: string[]
+      pointer: /sections/*[type=herobannerFIP]/item/etiquette/langages/*
+      select: all
+    - name: theme
+      type: string[]
+      select: first
+      pointer: /sections/*[type=herobannerFIP]/item/etiquette/genre
+    - name: genre
+      type: string[]
+      select: first
+      pointer: /sections/*[type=herobannerFIP]/item/etiquette/nature
+    - name: director
+      type: string[]
+      pointer: /sections/*[type=herobannerFIP]/item/metadata/*[titre=Réalisateur]/valeur
+      select: all
+    # Same last-matching-pointer-wins rule as `get_entry` visuals: fallback
+    # sources first, preferred programme visuals last.
+    - name: img/poster > link
+      type: string
+      select: first
+      pointer: /sections/*[type=herobannerFIP]/item/logo/url
+    - name: img/poster > link
+      type: string
+      select: first
+      pointer: /sections/*[type=herobannerFIP]/item/background_image/url/square
+    - name: img/landscape > link
+      type: string
+      select: first
+      pointer: /sections/*[type=herobannerFIP]/item/background_image/url/landscape
+    - name: img/logo > link
+      type: string
+      select: first
+      pointer: /sections/*[type=herobannerFIP]/item/logo/url
+
+    # A BFF rail card. Titles live either at `infos_survol/titre` or in the
+  # `background_image/alt`; the image is a plain string or an object with
+  # `square` / `landscape` sub-URLs.
+  # A playable episode card inside a detail rail. `saison_episode` carries the
+  # `S<season> E<episode>` marker; the detail (`lien`) URL stays the entry link
+  # when present, falling back to the player (`regarder`) page.
+  episode_entries: &episode_entries
+    - *source_entry
+    # Episode cards carry the `S<season> E<episode>` marker at
+    # `etiquette/saison_episode` (sibling of `etiquette/duree`). It is stored
+    # in a dynamic variable so the `title` fields below can render
+    # `"<marker> - <title>"`; `replace_variables` then expands the placeholder.
+    # Dynamic variables are shared across the whole query execution, so the
+    # prefix is reset to empty on every card first (through `/id`, present on
+    # every card): cards lacking `saison_episode` (Bonus / trailer cards) then
+    # render the bare title instead of reusing the previous card marker. The
+    # trailing `" - "` is baked into the variable value, hence no space in the
+    # title formats below; `extract_variables` trims stored values, so a final
+    # `regex_replace_all` restores the space after `-` when text follows it
+    # directly. The variable name uses only `[A-Za-z0-9_]` because
+    # the placeholder regex (`{@name}`) rejects hyphens.
+    - name: _episode
+      type: string
+      select: first
+      pointer: /id
+      actions:
+        - type: extract_variables
+          pattern: '^.*$'
+          name: "@episode"
+          value: ""
+          on_duplicate: replace
+    - name: _episode
+      type: string
+      select: first
+      pointer: /etiquette/saison_episode
+      actions:
+        - type: extract_variables
+          pattern: '^(.*)$'
+          name: "@episode"
+          value: "{1} - "
+          on_duplicate: replace
+    - name: title
+      type: string
+      select: first
+      pointer: /titre
+      actions:
+        - type: format_text
+          argument: "{@episode}{}"
+        - type: replace_variables
+        # `extract_variables` trims stored values, so the baked-in `" - "`
+        # separator loses its trailing space (`S2 E21 -La ...`). Restore it
+        # only when `-` is directly followed by text; bare titles are
+        # untouched (` -` with a leading space never occurs inside them from
+        # this pipeline, and hyphenated words like `Jean-Paul` don't match).
+        - type: regex_replace_all
+          pattern: ' -(\S)'
+          replacement: ' - $1'
+    - name: title
+      type: string
+      select: first
+      pointer: /background_image/alt
+      actions:
+        - type: format_text
+          argument: "{@episode}{}"
+        - type: replace_variables
+        - type: regex_replace_all
+          pattern: ' -(\S)'
+          replacement: ' - $1'
+    - name: title/alt
+      type: string
+      select: first
+      pointer: /background_image/alt
+    - name: description
+      type: string
+      select: first
+      pointer: /description
+    - name: duration
+      type: string
+      select: first
+      pointer: /etiquette/duree
+      actions:
+        - type: normalize_duration
+    - name: release-date
+      type: string
+      select: first
+      pointer: /info_publication/date
+      actions:
+        - type: get_date
+          format: yyyy_mm_dd
+    - name: episode-number
+      type: string
+      select: first
+      pointer: /etiquette/saison_episode
+      actions:
+        - type: regex_find_all
+          pattern: 'E(\d+)'
+          format: "{1}"
+    - name: season
+      type: string
+      select: first
+      pointer: /etiquette/saison_episode
+      actions:
+        - type: regex_find_all
+          pattern: 'S(\d+)'
+          format: "{1}"
+    - name: link
+      type: string
+      select: first
+      pointer: /call_to_actions/*[type=lien]/endpoint
+      actions: *actions_lien_link
+    - name: link
+      type: string
+      select: first
+      pointer: /call_to_actions/*[type=regarder]/endpoint
+      actions: *actions_regarder_link
+    - name: web-link
+      type: string
+      select: first
+      pointer: /call_to_actions/*[type=lien]/url
+      actions: *actions_web_link
+    - name: web-link
+      type: string
+      select: first
+      pointer: /call_to_actions/*[type=regarder]/url
+      actions: *actions_web_link
+    - name: img/preview > link
+      type: string
+      select: first
+      pointer: /background_image/url
+    - name: img/poster > link
+      type: string
+      select: first
+      pointer: /background_image/url/square
+    - name: img/poster > link
+      type: string
+      select: first
+      pointer: /background_image/url
+
+  card_entries: &card_entries
+    - *source_entry
+    - name: key
+      type: string
+      select: first
+      pointer: /id
+    - name: title
+      type: string
+      select: first
+      pointer: /infos_survol/titre
+    - name: title
+      type: string
+      select: first
+      pointer: /titre
+    - name: title
+      type: string
+      select: first
+      pointer: /background_image/alt
+    - name: description
+      type: string
+      select: first
+      pointer: /description
+    - name: theme
+      type: string
+      select: first
+      pointer: /etiquette/genre
+    - name: theme
+      type: string
+      select: first
+      pointer: /infos_survol/etiquette/genre
+    - name: duration
+      type: string
+      select: first
+      pointer: /etiquette/duree
+      actions:
+        - type: normalize_duration
+    - name: duration
+      type: string
+      select: first
+      pointer: /infos_survol/etiquette/duree
+      actions:
+        - type: normalize_duration
+    - name: year
+      type: number
+      select: first
+      pointer: /etiquette/annee_production
+    # The browsable link (`lien`) and the playable link (`regarder`) both
+    # expose a page id. `link` targets the detail page so the frontend can
+    # load it through `get_entry`; `web-link` keeps the public site URL.
+    - name: link
+      type: string
+      select: first
+      pointer: /call_to_actions/*[type=lien]/endpoint
+      actions: *actions_lien_link
+    - name: link
+      type: string
+      select: first
+      pointer: /call_to_actions/*[type=regarder]/endpoint
+      actions: *actions_regarder_link
+    - name: web-link
+      type: string
+      select: first
+      pointer: /call_to_actions/*[type=lien]/url
+      actions: *actions_web_link
+    # RMC+ content cards expose a single portrait poster (a 3:4 asset) in
+    # `background_image.url`. Exposing it only as `img/poster` keeps the card in
+    # portrait orientation: the frontend falls back to the landscape default
+    # whenever both oriented images are present, which would crop the poster.
+    - name: img/poster > link
+      type: string
+      select: first
+      pointer: /background_image/url
+
+  # Landscape variant of a BFF rail card, used for editorial rails whose
+  # section `format` is `landscape` (for example "Les docs de Nota Bene" or
+  # "La sélection Liik"). The same `background_image.url` asset is exposed as
+  # `img/landscape` only, so the frontend renders a wide tile. The variant is
+  # selected on the section `format` data, never on the rail title.
+  card_entries_landscape: &card_entries_landscape
+    - *source_entry
+    - name: key
+      type: string
+      select: first
+      pointer: /id
+    - name: title
+      type: string
+      select: first
+      pointer: /infos_survol/titre
+    - name: title
+      type: string
+      select: first
+      pointer: /titre
+    - name: title
+      type: string
+      select: first
+      pointer: /background_image/alt
+    - name: description
+      type: string
+      select: first
+      pointer: /description
+    - name: theme
+      type: string
+      select: first
+      pointer: /etiquette/genre
+    - name: theme
+      type: string
+      select: first
+      pointer: /infos_survol/etiquette/genre
+    - name: duration
+      type: string
+      select: first
+      pointer: /etiquette/duree
+      actions:
+        - type: normalize_duration
+    - name: duration
+      type: string
+      select: first
+      pointer: /infos_survol/etiquette/duree
+      actions:
+        - type: normalize_duration
+    - name: year
+      type: number
+      select: first
+      pointer: /etiquette/annee_production
+    # Same link contract as `card_entries`: the detail page stays the entry
+    # link so the frontend can load it through `get_entry`.
+    - name: link
+      type: string
+      select: first
+      pointer: /call_to_actions/*[type=lien]/endpoint
+      actions: *actions_lien_link
+    - name: link
+      type: string
+      select: first
+      pointer: /call_to_actions/*[type=regarder]/endpoint
+      actions: *actions_regarder_link
+    - name: web-link
+      type: string
+      select: first
+      pointer: /call_to_actions/*[type=lien]/url
+      actions: *actions_web_link
+    - name: img/landscape > link
+      type: string
+      select: first
+      pointer: /background_image/url
+
+  # An episode rail of a `fip` / `fip-edito` page, either a top-level rail
+  # (flat layout) or a rail nested inside an `onglet` tab. The `titre` carries
+  # the season name ("Saison 1") and may be empty on single-block replay
+  # rails. Nested pointers are relative to the selected node.
+  season_rail_entries: &season_rail_entries
+    - name: label
+      type: string
+      select: first
+      pointer: /titre
+    - name: episodes
+      type: object[]
+      pointer: /items/*
+      select: all
+      entries: *episode_entries
+
+  # A replay-style tab ("Replay" / "Bonus") of a programme page: the tab
+  # title is the season label and its episodes hoist from the inner rails.
+  replay_tab_entries: &replay_tab_entries
+    - name: label
+      type: string
+      select: first
+      pointer: /titre
+    - name: episodes
+      type: object[]
+      pointer: /sections/*/items/*
+      select: all
+      entries: *episode_entries
+
+  # Single `recommendations` section object (spec section 5.7.2): flat card
+  # entries merged from every editorial zone on the page. The `entries`
+  # extractors push into the same `recommendations > entries` array, like
+  # the francetv `playlist_to_discover` block. The group has no pointer so
+  # it yields exactly one item (the whole row); `select: first` keeps the
+  # single-object contract even when several zones match. Card orientation
+  # follows the rail `format` data (same split as `load_home`): `landscape`
+  # rails (for example "À voir aussi") render landscape cards, `portrait`
+  # rails (for example "Titres similaires") portrait cards. Only `rail`
+  # sections carry `format`, so a single equality filter per pointer is
+  # enough; chained filters such as `[type=rail][format=...]` are not
+  # supported by the pointer parser (first `[` to last `]` becomes one
+  # filter) and match nothing. Rails without `format` (none observed on
+  # player pages so far) are not covered on purpose to avoid
+  # double-extracting landscape items as portraits. Top-level rails
+  # are taken as-is on purpose: season rails observed so far live inside
+  # `onglet` tabs, and a seasonal top-level rail could not be excluded once
+  # flattened.
+  recommendations_section: &recommendations_section
+    name: recommendations
+    type: object
+    select: first
+    entries:
+      - name: entries
+        type: object[]
+        pointer: /sections/*[format=landscape]/items/*
+        select: all
+        entries: *card_entries_landscape
+      - name: entries
+        type: object[]
+        pointer: /sections/*[format=portrait]/items/*
+        select: all
+        entries: *card_entries
+      - name: entries
+        type: object[]
+        pointer: /sections/*[type=onglet]/items/*[titre=Titres similaires]/sections/*[format=landscape]/items/*
+        select: all
+        entries: *card_entries_landscape
+      - name: entries
+        type: object[]
+        pointer: /sections/*[type=onglet]/items/*[titre=Titres similaires]/sections/*[format=portrait]/items/*
+        select: all
+        entries: *card_entries
+
+  # Group entries shared by the page itself and the parent-programme
+  # sub-query of player pages.
+  season_rail_group: &season_rail_group
+    name: seasons
+    type: object[]
+    pointer: /sections/*[type=rail]
+    select: all
+    entries: *season_rail_entries
+
+  season_tab_group: &season_tab_group
+    name: seasons
+    type: object[]
+    pointer: /sections/*[type=onglet]/items/*/sections/*[type=rail]
+    select: all
+    entries: *season_rail_entries
+
+  replay_tab_group: &replay_tab_group
+    name: seasons
+    type: object[]
+    pointer: /sections/*[type=onglet]/items/*[titre=Replay]
+    select: all
+    entries: *replay_tab_entries
+
+  bonus_tab_group: &bonus_tab_group
+    name: seasons
+    type: object[]
+    pointer: /sections/*[type=onglet]/items/*[titre=Bonus]
+    select: all
+    entries: *replay_tab_entries
+
+  # An "Épisodes" tab of a `fip` page (for example "7 à la maison"): the tab
+  # title is the season label and its episodes hoist from the inner
+  # `mosaique` grid, reusing the replay-tab entries like "Replay" / "Bonus".
+  episode_tab_group: &episode_tab_group
+    name: seasons
+    type: object[]
+    pointer: /sections/*[type=onglet]/items/*[titre=Épisodes]
+    select: all
+    entries: *replay_tab_entries
+
+  # The single recommendations section (one object, flat `entries`) is
+  # self-sufficient on every layout, so the parent-programme sub-query only
+  # extracts seasons.
+
+  # Series identity extracted from the parent programme page fetched by the
+  # player-page entry sub-query: the `player` payload only carries the
+  # episode title and synopsis, while the parent herobanner holds the series
+  # title, description and visuals. `target: parent` merges by appending
+  # scalar values, which would double the page `title`/`description`/visuals,
+  # so the series identity is written to separate `_series-*` temporary
+  # fields and copied over the page values by the `get_entry` post-process.
+  # They stay absent when the sub-query is skipped (movies, fip pages), so
+  # those pages keep their own values.
+  parent_programme_entries: &parent_programme_entries
+    - name: _series-title
+      type: string
+      select: first
+      pointer: /sections/*[type=herobannerFIP]/item/titre
+    - name: _series-description
+      type: string
+      select: first
+      pointer: /sections/*[type=herobannerFIP]/item/description
+    - name: _series-img/poster > link
+      type: string
+      select: first
+      pointer: /sections/*[type=herobannerFIP]/item/background_image/url/square
+    - name: _series-img/landscape > link
+      type: string
+      select: first
+      pointer: /sections/*[type=herobannerFIP]/item/background_image/url/landscape
+    - name: _series-img/logo > link
+      type: string
+      select: first
+      pointer: /sections/*[type=herobannerFIP]/item/logo/url
+    - *season_rail_group
+    - *season_tab_group
+    - *replay_tab_group
+    - *bonus_tab_group
+    - *episode_tab_group
+
+  # A live channel card from the "Chaînes en direct" rail. Its `lien`
+  # call-to-action carries the live channel id used by `get_live`.
+  live_entries: &live_entries
+    - *source_entry
+    - name: key
+      type: string
+      select: first
+      pointer: /id
+    - name: title
+      type: string
+      select: first
+      pointer: /titre
+    - name: title/alt
+      type: string
+      select: first
+      pointer: /background_image/alt
+    - name: description
+      type: string
+      select: first
+      pointer: /description
+    - name: media-type
+      type: string[]
+      actions:
+        - type: format_text
+          argument: "video/live"
+    - name: channel
+      type: string
+      select: first
+      pointer: /id
+    - name: link
+      type: string
+      select: first
+      pointer: /id
+      actions:
+        - type: format_text
+          argument: "{bff_base_url}/page?model=web&page_type=direct&page_id={}"
+    - name: web-link
+      type: string
+      select: first
+      pointer: /call_to_actions/*[type=lien]/url
+      actions: *actions_web_link
+    - name: img/landscape > link
+      type: string
+      select: first
+      pointer: /background_image/url
+
+  # A thematic category card. Its `lien` call-to-action carries the target
+  # `page_id` consumed by `get_category`.
+  category_entries: &category_entries
+    - *source_entry
+    - name: key
+      type: string
+      select: first
+      pointer: /call_to_actions/*[type=lien]/endpoint
+      actions:
+        - type: regex_find_all
+          pattern: 'page_id=([^&]+)'
+          format: "{1}"
+    - name: label
+      type: string
+      select: first
+      pointer: /background_image/alt
+    - name: img/poster > link
+      type: string
+      select: first
+      pointer: /background_image/url
+    - name: img/landscape > link
+      type: string
+      select: first
+      pointer: /background_image/url
+    - name: request > name
+      type: string
+      actions:
+        - type: format_text
+          argument: "{source}"
+    - name: request > source
+      type: string
+      actions:
+        - type: format_text
+          argument: "{source}"
+    - name: request > query_url
+      type: string
+      select: first
+      pointer: /call_to_actions/*[type=lien]/endpoint
+      actions:
+        - type: regex_find_all
+          pattern: 'page_id=([^&]+)'
+          format: "{1}"
+        - type: format_text
+          argument: "{bff_base_url}/page?model=web&page_type=default&page_id={}"
+
+  # A content rail. The `label` is the rail title; `entries` are its cards.
+  # `_section_format` keeps the BFF `format` (`portrait` / `landscape`) so
+  # `load_home` can drop the poster duplicate of landscape rails; it is
+  # removed from the response by the query post-process.
+  section_entries: &section_entries
+    - name: _section_id
+      type: string
+      select: first
+      pointer: /id
+    - name: _section_format
+      type: string
+      select: first
+      pointer: /format
+    - name: label
+      type: string
+      select: first
+      pointer: /titre
+    - name: entries
+      type: object[]
+      pointer: /items/*
+      select: all
+      entries: *card_entries
+
+  # Landscape variant of a content rail: same shape, but cards expose the
+  # `background_image.url` asset as `img/landscape`. It carries no
+  # `_section_format` marker, so the poster-duplicate filter of `load_home`
+  # keeps it while dropping the poster twin extracted from the same rail.
+  section_entries_landscape: &section_entries_landscape
+    - name: _section_id
+      type: string
+      select: first
+      pointer: /id
+    - name: label
+      type: string
+      select: first
+      pointer: /titre
+    - name: entries
+      type: object[]
+      pointer: /items/*
+      select: all
+      entries: *card_entries_landscape
+
+  # A "Thématiques" tile as a deferred section: the tile itself is not a
+  # programme but a whole listing page, so each tile becomes its own section
+  # carrying the tile page URL as `link`. Entries are intentionally left
+  # empty so the frontend loads them through `get_section` when the section
+  # comes into view.
+  section_thematiques_entries: &section_thematiques_entries
+    - name: label
+      type: string
+      select: first
+      pointer: /background_image/alt
+    - name: link
+      type: string
+      select: first
+      pointer: /call_to_actions/*[type=lien]/endpoint
+      actions: *actions_lien_link
+    - name: current_page
+      type: number
+      actions:
+        - type: format_text
+          argument: "1"
+    - name: have_more
+      type: boolean
+      actions:
+        - type: format_text
+          argument: "false"
+
+  # A fullscreen `herobanner` tile. The banner frame is full-bleed, so the
+  # image is exposed through `image` (a plain URL or the object's `landscape`).
+  banner_entries: &banner_entries
+    - *source_entry
+    - name: key
+      type: string
+      select: first
+      pointer: /id
+    - name: title
+      type: string
+      select: first
+      pointer: /background_image/alt
+    - name: subtitle
+      type: string
+      select: first
+      pointer: /sous_titre
+    - name: description
+      type: string
+      select: first
+      pointer: /description
+    # `background_image/url` is either a plain string or a
+    # `{landscape, square}` object. The plain pointer comes first and the
+    # `landscape` sub-path last (last-matching-pointer-wins): on an object
+    # the first entry would emit the raw object, overwritten next by the
+    # landscape URL; on a plain string only the first entry matches.
+    - name: image
+      type: string
+      select: first
+      pointer: /background_image/url
+    - name: image
+      type: string
+      select: first
+      pointer: /background_image/url/landscape
+    - name: logo
+      type: string
+      select: first
+      pointer: /logo/url
+    - name: link
+      type: string
+      select: first
+      pointer: /call_to_actions/*[type=regarder]/endpoint
+      actions: *actions_regarder_link
+    - name: link
+      type: string
+      select: first
+      pointer: /call_to_actions/*[type=lien]/endpoint
+      actions: *actions_lien_link
+    - name: web-link
+      type: string
+      select: first
+      pointer: /call_to_actions/*[type=regarder]/url
+      actions: *actions_web_link
+    - name: web-link
+      type: string
+      select: first
+      pointer: /call_to_actions/*[type=lien]/url
+      actions: *actions_web_link
+
+
+# ############################################################################
+# Queries
+# ############################################################################
+queries:
+
+  # --------------------------------------------------------------------------
+  # Service stream metadata
+  # --------------------------------------------------------------------------
+  - name: service_stream_metadata
+    scraper_type: static
+    entries:
+      - name: id
+        type: string
+        value: "{service_id}"
+      - name: title
+        type: string
+        value: "{service_title}"
+      - name: logo
+        type: string
+        value: "{service_logo}"
+      - name: description
+        type: object
+        value: "{service_description}"
+      - name: search_themes
+        type: string[]
+        value:
+          - "Info"
+          - "Sport"
+          - "Documentaires"
+          - "Divertissement"
+          - "Fiction"
+          - "Histoire"
+          - "Sciences"
+          - "Crimes"
+          - "Aventure"
+
+  # --------------------------------------------------------------------------
+  # Home page
+  # The anonymous BFF page payload groups its content into thematic sections.
+  # The "Toutes les catégories" rail carries the browsable thematics, while
+  # every `rail` section becomes a content rail. Rails whose BFF `format` is
+  # `landscape` (for example "Les docs de Nota Bene", "La sélection Liik")
+  # are extracted a second time with landscape cards; the poster twin is
+  # dropped in post-process so the orientation follows the section data.
+  # --------------------------------------------------------------------------
+  - name: load_home
+    scraper_type: json
+    base_url: "{bff_base_url}"
+    query_url: "{bff_base_url}/page?model=web&page_type=default&page_id=accueil"
+    media_types: *media_types_rmcbfmplay
+    row_pointer: /
+    entries:
+      - *source_entry
+      # Browsable thematic categories from the "Toutes les catégories" rail.
+      - name: categories
+        type: object[]
+        pointer: /sections/*[id=_LGb5WZ_SAAaWgK4VF3giy6a5SinqFkX]/items/*
+        select: all
+        entries: *category_entries
+      # Only the dedicated fullscreen component is a home banner. Untitled
+      # rails also contain programmes, categories, and live channels.
+      - name: banners > entries
+        type: object[]
+        pointer: /sections/*[type=herobanner]/items/*
+        select: all
+        entries: *banner_entries
+      # Content rails. RMC+ leaves `format` absent on several editorial rails.
+      - name: sections
+        type: object[]
+        pointer: /sections/*[type=rail]
+        select: all
+        entries: *section_entries
+      # Landscape rails selected on the section `format` data (not on the
+      # rail title), rendered with landscape cards.
+      - name: sections
+        type: object[]
+        pointer: /sections/*[format=landscape]
+        select: all
+        entries: *section_entries_landscape
+      # "Thématiques" tiles are not programmes but whole listing pages: each
+      # tile becomes its own deferred section (label + tile page link, entries
+      # loaded through `get_section`).
+      - name: sections
+        type: object[]
+        pointer: /sections/*[titre=Thématiques]/items/*
+        select: all
+        entries: *section_thematiques_entries
+    post_process:
+      # Keep only titled content rails, dropping untitled herocarousels now
+      # excluded from the sections result.
+      - type: filter_items
+        source: sections
+        field: label
+        pattern: ".+"
+        keep_matching: true
+      # "Toutes les catégories" is exposed as categories, not as a content rail.
+      - type: filter_items
+        source: sections
+        field: label
+        pattern: "^Toutes les catégories$"
+        keep_matching: false
+      # "Nos programmes par chaine" duplicates the channel navigation, so it
+      # is not exposed as a content rail.
+      - type: filter_items
+        source: sections
+        field: label
+        pattern: "^Nos programmes par chaine$"
+        keep_matching: false
+      # The "Thématiques" rail itself is replaced by its expanded per-tile
+      # sections, so it is not exposed as a card grid.
+      - type: filter_items
+        source: sections
+        field: label
+        pattern: "^Thématiques$"
+        keep_matching: false
+      - type: filter_items
+        source: sections
+        field: _section_id
+        pattern: "^rail-direct-scheduled$"
+        keep_matching: false
+      # Landscape rails were extracted twice (poster and landscape cards):
+      # drop the poster twin, keeping the landscape variant which carries no
+      # `_section_format` marker.
+      - type: filter_items
+        source: sections
+        field: _section_format
+        pattern: "^landscape$"
+        keep_matching: false
+      - type: remove_fields
+        fields:
+          - sections > _section_id
+          - sections > _section_format
+
+  # --------------------------------------------------------------------------
+  # Category page (`page_type=default` or `page_type=mosaique`)
+  # Consumes the `request > query_url` emitted by category tiles. Mirrors
+  # `load_home`: `default` pages expose their `Catégories` rail and their
+  # content `rail` sections with the same portrait/landscape split, plus one
+  # deferred section per "Thématiques" tile (entries loaded through
+  # `get_section`); `mosaique` pages expose their single mosaic grid under
+  # the page title.
+  # --------------------------------------------------------------------------
+  - name: get_category
+    scraper_type: json
+    base_url: "{bff_base_url}"
+    query_url: "{query_url}"
+    media_types: *media_types_rmcbfmplay
+    row_pointer: /
+    entries:
+      - *source_entry
+      # Sibling thematics of a `default` category page.
+      - name: categories
+        type: object[]
+        pointer: /sections/*[titre=Catégories]/items/*
+        select: all
+        entries: *category_entries
+      # Banner spotlights of a `default` category page.
+      - name: banners > entries
+        type: object[]
+        pointer: /sections/*[type=herobanner]/items/*
+        select: all
+        entries: *banner_entries
+      # RMC+ leaves `format` absent on several editorial rails.
+      - name: sections
+        type: object[]
+        pointer: /sections/*[type=rail]
+        select: all
+        entries: *section_entries
+      # Landscape rails selected on the section `format` data (not on the
+      # rail title), rendered with landscape cards.
+      - name: sections
+        type: object[]
+        pointer: /sections/*[format=landscape]
+        select: all
+        entries: *section_entries_landscape
+      # "Thématiques" tiles are not programmes but whole listing pages: each
+      # tile becomes its own deferred section (label + tile page link, entries
+      # loaded through `get_section`).
+      - name: sections
+        type: object[]
+        pointer: /sections/*[titre=Thématiques]/items/*
+        select: all
+        entries: *section_thematiques_entries
+      # Single grid of a `mosaique` page, titled with the page title.
+      - name: sections
+        type: object[]
+        pointer: /sections/*[type=mosaique]
+        select: all
+        entries:
+          - name: label
+            type: string
+            select: first
+            pointer: /../titre
+          - name: link
+            type: string
+            actions:
+              - type: format_text
+                argument: "{query_url}"
+          - name: entries
+            type: object[]
+            pointer: /items/*
+            select: all
+            entries: *card_entries
+    post_process:
+      # Keep only titled content rails, dropping untitled herocarousels now
+      # excluded from the sections result.
+      - type: filter_items
+        source: sections
+        field: label
+        pattern: ".+"
+        keep_matching: true
+      # The categories rail is exposed as categories, not as a content rail.
+      - type: filter_items
+        source: sections
+        field: label
+        pattern: "Catégories"
+        keep_matching: false
+      # The "Thématiques" rail itself is replaced by its expanded per-tile
+      # sections, so it is not exposed as a card grid.
+      - type: filter_items
+        source: sections
+        field: label
+        pattern: "^Thématiques$"
+        keep_matching: false
+      # Landscape rails were extracted twice (poster and landscape cards):
+      # drop the poster twin, keeping the landscape variant which carries no
+      # `_section_format` marker (same split as `load_home`).
+      - type: filter_items
+        source: sections
+        field: _section_format
+        pattern: "^landscape$"
+        keep_matching: false
+      - type: remove_fields
+        fields:
+          - sections > _section_id
+          - sections > _section_format
+
+  # --------------------------------------------------------------------------
+  # Section -- deferred loading of a "Thématiques" tile section, consumed
+  # through the section `link` (the tile listing page URL). Tile pages expose
+  # their programmes as a single `mosaique` grid, whatever the tile
+  # `page_type` is; mosaic grids are portrait, hence poster cards. No
+  # pagination is advertised. (A tile pointing at a programme page instead
+  # of a listing, such as Micro-dramas, has no mosaic grid and loads empty.)
+  # --------------------------------------------------------------------------
+  - name: get_section
+    scraper_type: json
+    base_url: "{bff_base_url}"
+    query_url: "{query_url}"
+    media_types: *media_types_rmcbfmplay
+    row_pointer: /
+    entries:
+      - *source_entry
+      - name: current_page
+        type: number
+        actions:
+          - type: format_text
+            argument: "1"
+      - name: have_more
+        type: boolean
+        actions:
+          - type: format_text
+            argument: "false"
+      - name: entries
+        type: object[]
+        pointer: /sections/*[type=mosaique]/items/*
+        select: all
+        entries: *card_entries
+
+  # --------------------------------------------------------------------------
+  # Entry detail (`page_type=fip` / `page_type=fip-edito` / `page_type=player`)
+  # Consumes the card `lien` / `regarder` links. The `herobannerFIP` single
+  # `item` (or the `player` section) carries the metadata; season rails and
+  # replay tabs pre-load their episodes — player pages fetch the parent
+  # programme page for them —; the remaining rails and the "Titres
+  # similaires" tab become editorial recommendations.
+  # --------------------------------------------------------------------------
+  - name: get_entry
+    scraper_type: json
+    base_url: "{bff_base_url}"
+    query_url: "{query_url}"
+    media_types: *media_types_rmcbfmplay
+    row_pointer: /
+    entries:
+      - *source_entry
+      # Detail anchor of a `fip` / `fip-edito` page: the `herobannerFIP` single
+      # `item`. (Fields are inlined: a sequence alias cannot be spliced with
+      # `- *alias`.) These page-level fields are overwritten by the series
+      # identity from the parent-programme sub-query (`_series-*`) in the
+      # post-process below whenever that sub-query runs.
+      - name: title
+        type: string
+        select: first
+        pointer: /sections/*[type=herobannerFIP]/item/titre
+      - name: title
+        type: string
+        select: first
+        pointer: /sections/*[type=player]/sous_titre
+      - name: title/alt
+        type: string
+        select: first
+        pointer: /sections/*[type=herobannerFIP]/item/background_image/alt
+      - name: title/alt
+        type: string
+        select: first
+        pointer: /sections/*[type=player]/background_image/alt
+      - name: description
+        type: string
+        select: first
+        pointer: /sections/*[type=herobannerFIP]/item/description
+      - name: description
+        type: string
+        select: first
+        pointer: /sections/*[type=player]/description
+      - name: media-type
+        type: string[]
+        select: first
+        pointer: /sections/*[type=herobannerFIP]/item/etiquette/nature
+        actions:
+          - type: map
+            argument:
+              Documentaires: video/show/documentary
+              Divertissement: video/show/other
+              Séries: video/show/serie
+              Séries et fictions: video/show/serie
+              Fiction: video/movie
+              Cinéma: video/movie
+              Info: video/news
+              Sport: video/show/sport
+              Jeunesse: video/show/kids
+            default: video/show/other
+      - name: media-type
+        type: string[]
+        select: first
+        pointer: /sections/*[type=player]/etiquette/nature
+        actions:
+          - type: map
+            argument:
+              Documentaires: video/show/documentary
+              Divertissement: video/show/other
+              Séries: video/show/serie
+              Séries et fictions: video/show/serie
+              Fiction: video/movie
+              Cinéma: video/movie
+              Info: video/news
+              Sport: video/show/sport
+              Jeunesse: video/show/kids
+            default: video/show/other
+      - name: program-id
+        type: string
+        select: first
+        pointer: /sections/*[type=herobannerFIP]/item/id
+      - name: program-id
+        type: string
+        select: first
+        pointer: /sections/*[type=player]/id
+      - name: link
+        type: string
+        select: first
+        actions:
+          - type: format_text
+            argument: "{query_url}"
+      - name: web-link
+        type: string
+        select: first
+        pointer: /url
+        actions: *actions_web_link
+      - name: duration
+        type: string
+        select: first
+        pointer: /sections/*[type=herobannerFIP]/item/etiquette/duree
+        actions:
+        - type: normalize_duration
+      - name: duration
+        type: string
+        select: first
+        pointer: /sections/*[type=player]/etiquette/duree
+        actions:
+        - type: normalize_duration
+      - name: release-date
+        type: string
+        select: first
+        pointer: /sections/*[type=herobannerFIP]/item/info_diffusion/date
+        actions:
+          - type: get_date
+            format: yyyy_mm_dd
+      - name: release-date
+        type: string
+        select: first
+        pointer: /sections/*[type=player]/info_diffusion/date
+        actions:
+          - type: get_date
+            format: yyyy_mm_dd
+      - name: expire
+        type: string
+        select: first
+        pointer: /sections/*[type=herobannerFIP]/item/info_publication/date
+        actions:
+          - type: get_date
+            format: yyyy_mm_dd
+      - name: expire
+        type: string
+        select: first
+        pointer: /sections/*[type=player]/info_publication/date
+        actions:
+          - type: get_date
+            format: yyyy_mm_dd
+      - name: year
+        type: number
+        select: first
+        pointer: /sections/*[type=herobannerFIP]/item/etiquette/annee_production
+        actions:
+          - type: regex_find_all
+            pattern: '^(\d{4})'
+            format: "{1}"
+      - name: year
+        type: number
+        select: first
+        pointer: /sections/*[type=player]/etiquette/annee_production
+        actions:
+          - type: regex_find_all
+            pattern: '^(\d{4})'
+            format: "{1}"
+      - name: content-advisor
+        type: string
+        select: first
+        pointer: /sections/*[type=herobannerFIP]/item/etiquette/arcom
+      - name: content-advisor
+        type: string
+        select: first
+        pointer: /sections/*[type=player]/etiquette/arcom
+      - name: language
+        type: string[]
+        pointer: /sections/*[type=herobannerFIP]/item/etiquette/langages/*
+        select: all
+      - name: language
+        type: string[]
+        pointer: /sections/*[type=player]/etiquette/langages/*
+        select: all
+      - name: theme
+        type: string[]
+        select: first
+        pointer: /sections/*[type=herobannerFIP]/item/etiquette/genre
+      - name: theme
+        type: string[]
+        select: first
+        pointer: /sections/*[type=player]/etiquette/genre
+      - name: genre
+        type: string[]
+        select: first
+        pointer: /sections/*[type=herobannerFIP]/item/etiquette/nature
+      - name: genre
+        type: string[]
+        select: first
+        pointer: /sections/*[type=player]/etiquette/nature
+      - name: director
+        type: string[]
+        pointer: /sections/*[type=herobannerFIP]/item/metadata/*[titre=Réalisateur]/valeur
+        select: all
+      - name: director
+        type: string[]
+        pointer: /sections/*[type=player]/metadata/*[titre=Réalisateur]/valeur
+        select: all
+      # Several `select: first` fields share one output name, and the last
+      # matching pointer replaces the previous value: fallback sources come
+      # first and the preferred visuals come last. On `player` pages the
+      # series visuals are copied over these episode values by the
+      # parent-programme sub-query post-process (`_series-img/* > link`).
+      - name: img/poster > link
+        type: string
+        select: first
+        pointer: /sections/*[type=player]/background_image/url
+      - name: img/poster > link
+        type: string
+        select: first
+        pointer: /sections/*[type=herobannerFIP]/item/logo/url
+      - name: img/poster > link
+        type: string
+        select: first
+        pointer: /sections/*[type=herobannerFIP]/item/background_image/url/square
+      - name: img/landscape > link
+        type: string
+        select: first
+        pointer: /sections/*[type=player]/background_image/url
+      - name: img/landscape > link
+        type: string
+        select: first
+        pointer: /sections/*[type=herobannerFIP]/item/background_image/url/landscape
+
+      - name: img/logo > link
+        type: string
+        select: first
+        pointer: /sections/*[type=herobannerFIP]/item/logo/url
+      # Playable `regarder` target of the detail item.
+      - name: players
+        type: object[]
+        pointer: /sections/*[type=herobannerFIP]/item/call_to_actions/*[type=regarder]/endpoint
+        select: all
+        entries:
+          - name: name
+            type: string
+            actions:
+              - type: format_text
+                argument: "RMC BFM Play"
+          - name: resolver
+            type: object
+            select: first
+            entries:
+              - name: kind
+                type: string
+                actions:
+                  - type: format_text
+                    argument: "rmcbfmplay-video"
+              - name: target_id
+                type: string
+                actions: *actions_regarder_target
+      # An episode `player` page is itself an entry and carries its playback
+      # content id directly in the component id.
+      - name: players
+        type: object[]
+        pointer: /sections/*[type=player]
+        select: all
+        entries:
+          - name: name
+            type: string
+            actions:
+              - type: format_text
+                argument: "RMC BFM Play"
+          - name: resolver
+            type: object
+            select: first
+            entries:
+              - name: kind
+                type: string
+                actions:
+                  - type: format_text
+                    argument: "rmcbfmplay-video"
+              - name: target_id
+                type: string
+                select: first
+                pointer: /id
+      # A series episode `player` page links its parent programme page
+      # (`page_parent`, `fip` and `fip-edito` layouts alike). Fetch it once to
+      # expose the programme title, description, visuals and the full episode
+      # list the player payload lacks. `target: parent` merges the extracted
+      # fields next to this field as separate `_series-*` temporaries (the
+      # parent scalars are not written onto the page fields directly), which
+      # the post-process below copies over the page values. Movies carry no
+      # `page_parent`, so the field stays empty and the sub-query is skipped.
+      - name: _parent-programme-url
+        type: string
+        select: first
+        pointer: /sections/*[type=player]/page_parent/endpoint
+        actions: *actions_lien_link
+        sub_queries:
+          - scraper_type: json
+            target: parent
+            row_pointer: /
+            entries: *parent_programme_entries
+      # Season rails pre-load their episodes like arte-fr flat collections.
+      # Rails live on the page itself (flat layout) or nested inside `onglet`
+      # tabs of programme pages; replay-style tabs ("Replay" / "Bonus" /
+      # "Épisodes") carry the label on the tab itself. Nested entry pointers
+      # are relative to the node selected by the group pointer.
+      - *season_rail_group
+      - *season_tab_group
+      - *replay_tab_group
+      - *bonus_tab_group
+      - *episode_tab_group
+      # Editorial rails and the "Titres similaires" tab merge into the single
+      # `recommendations` section object (flat `entries`, spec 5.7.2).
+      - *recommendations_section
+    post_process:
+      # Keep only season rails and replay-style tabs ("Saison …", "Replay",
+      # "Bonus", "Derniers replays", "Épisodes") as seasons. The single
+      # `recommendations` section object carries flat `entries`, so no label
+      # filter applies to it.
+      - type: filter_items
+        source: seasons
+        field: label
+        pattern: "^(Saison|Replay|Bonus|Derniers replays|Épisodes)"
+        keep_matching: true
+      # Overwrite the page (episode) title, description and visuals with the
+      # series identity extracted by the parent-programme sub-query. Each
+      # `_series-*` source is absent when the sub-query is skipped (movies,
+      # `fip` pages), so the copy is a no-op and the page value is kept.
+      - type: apply_actions_to_field
+        source: _series-title
+        target: title
+        output_type: string
+        actions:
+          - type: format_text
+            argument: "{}"
+      - type: apply_actions_to_field
+        source: _series-description
+        target: description
+        output_type: string
+        actions:
+          - type: format_text
+            argument: "{}"
+      - type: apply_actions_to_field
+        source: _series-img/poster > link
+        target: img/poster > link
+        output_type: string
+        actions:
+          - type: format_text
+            argument: "{}"
+      - type: apply_actions_to_field
+        source: _series-img/landscape > link
+        target: img/landscape > link
+        output_type: string
+        actions:
+          - type: format_text
+            argument: "{}"
+      - type: apply_actions_to_field
+        source: _series-img/logo > link
+        target: img/logo > link
+        output_type: string
+        actions:
+          - type: format_text
+            argument: "{}?width=1920&dpr=1&fit=cover"
+      # Drop the sub-query seed field and the temporary series fields. Each
+      # `_series-img/*` is a literal key (`/` is not a path separator here) with
+      # a nested `link`, so the whole container is removed to avoid emitting an
+      # empty object serialized as `null`.
+      - type: remove_fields
+        fields:
+          - _parent-programme-url
+          - _series-title
+          - _series-description
+          - _series-img/poster
+          - _series-img/landscape
+          - _series-img/logo
+
+  # --------------------------------------------------------------------------
+  # Live channels
+  # --------------------------------------------------------------------------
+  - name: list_lives
+    scraper_type: json
+    base_url: "{bff_base_url}"
+    query_url: "{bff_base_url}/page?model=web&page_type=default&page_id=accueil"
+    media_types:
+      - video/live
+    row_pointer: /
+    result_item_field: entries
+    entries:
+      - name: entries
+        type: object[]
+        pointer: /sections/*[id=rail-direct-scheduled]/items/*
+        select: all
+        entries: *live_entries
+
+  - name: get_live
+    scraper_type: static
+    media_types:
+      - video/live
+    entries:
+      - name: players
+        type: object[]
+        items:
+          - name: "RMC BFM Play"
+            resolver > kind: rmcbfmplay-live
+            resolver > target_id: "{channel}"
+
+  # --------------------------------------------------------------------------
+  # Deferred episode players
+  # Season episode cards carry no embedded player: the frontend lazily loads
+  # them through `get_players` with the episode BFF page URL as `link`. The
+  # Rust resolver extracts the `page_id` from that URL, like for live.
+  # --------------------------------------------------------------------------
+  - name: get_players
+    scraper_type: static
+    media_types: *media_types_rmcbfmplay
+    entries:
+      - name: players
+        type: object[]
+        items:
+          - name: "RMC BFM Play"
+            resolver > kind: rmcbfmplay-video
+            resolver > target_id: "{link}"
+

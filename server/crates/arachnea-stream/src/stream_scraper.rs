@@ -24,6 +24,7 @@ use crate::services::{
     francetv_resolver::FrancetvResolver,
     m6play_resolver::M6PlayResolver,
     player_resolver::{PlayerResolverEndpoints, PlayerStreamResolver},
+    rmcbfmplay_resolver::RmcBfmPlayResolver,
     rtbf_auvio_resolver::RtbfAuvioResolver,
     rtlplay_resolver::RtlPlayResolver,
     tf1_resolver::Tf1Resolver,
@@ -160,6 +161,7 @@ pub(crate) const DRM_LICENSE_PROXY_COMMAND: &str = "get_drm_license";
 
 static ANTENNE_REUNION_RESOLVER: AntenneReunionResolver = AntenneReunionResolver;
 static M6PLAY_RESOLVER: M6PlayResolver = M6PlayResolver;
+static RMCBFMPLAY_RESOLVER: RmcBfmPlayResolver = RmcBfmPlayResolver;
 static RTBF_AUVIO_RESOLVER: RtbfAuvioResolver = RtbfAuvioResolver;
 static RTLPLAY_RESOLVER: RtlPlayResolver = RtlPlayResolver;
 static TF1_RESOLVER: Tf1Resolver = Tf1Resolver;
@@ -1523,6 +1525,7 @@ fn player_resolver_for_source(source: &str) -> Option<&'static dyn PlayerStreamR
     match source.trim() {
         source if source == ANTENNE_REUNION_RESOLVER.source_id() => Some(&ANTENNE_REUNION_RESOLVER),
         source if source == M6PLAY_RESOLVER.source_id() => Some(&M6PLAY_RESOLVER),
+        source if source == RMCBFMPLAY_RESOLVER.source_id() => Some(&RMCBFMPLAY_RESOLVER),
         source if source == RTBF_AUVIO_RESOLVER.source_id() => Some(&RTBF_AUVIO_RESOLVER),
         source if source == RTLPLAY_RESOLVER.source_id() => Some(&RTLPLAY_RESOLVER),
         source if source == TF1_RESOLVER.source_id() => Some(&TF1_RESOLVER),
@@ -1537,6 +1540,7 @@ fn player_resolver_for_id(resolver_id: &str) -> Option<&'static dyn PlayerStream
     [
         &ANTENNE_REUNION_RESOLVER as &dyn PlayerStreamResolver,
         &M6PLAY_RESOLVER as &dyn PlayerStreamResolver,
+        &RMCBFMPLAY_RESOLVER,
         &RTBF_AUVIO_RESOLVER,
         &RTLPLAY_RESOLVER,
         &TF1_RESOLVER,

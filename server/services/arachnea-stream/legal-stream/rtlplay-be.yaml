@@ -238,7 +238,6 @@ shared:
       type: string
       select: first
       pointer: /heroImageUrl
-
     - name: img/poster > link
       type: string
       select: first
