@@ -107,7 +107,7 @@ defineEmits<{
       :display-title="displayTitle"
       :formatted-rating="formattedRating"
       :rating-class="ratingClass"
-      :service-title="serviceTitle"
+      :service-title="showServiceLogo ? serviceTitle : null"
       :service-logo="serviceLogo"
     />
 

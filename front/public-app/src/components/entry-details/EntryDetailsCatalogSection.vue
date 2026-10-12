@@ -320,10 +320,6 @@ watch(
   font-size: clamp(1.2rem, 1.1rem + 0.45vw, 1.5rem);
 }
 
-.entry-details__episodes :deep(.media-card-details__source) {
-  display: none;
-}
-
 .entry-details__season-state {
   display: grid;
   gap: 10px;

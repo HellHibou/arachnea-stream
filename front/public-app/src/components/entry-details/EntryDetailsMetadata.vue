@@ -113,7 +113,7 @@ const priceLabel = computed(() =>
       </div>
 
       <div v-if="displayDurationLabel" class="entry-details__fact">
-        <dt>{{ t('duration') }}</dt>
+        <dt>{{ t('media.duration') }}</dt>
         <dd>{{ displayDurationLabel }}</dd>
       </div>
 

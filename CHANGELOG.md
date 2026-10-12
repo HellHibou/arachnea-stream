@@ -275,6 +275,7 @@ All notable changes to the server workspace are recorded here.
 #### Fixed
 
 - Media-card details now render the language fact with its own label and value, instead of incorrectly rendering the genre a second time or an empty genre value when only a language is available.
+- Episode lists no longer render a trailing dot after the last metadata tag: list cards now omit the hidden source fact instead of hiding it with CSS, so the fact separator only appears between visible tags.
 - Link-only entry recommendations now mount their rail before visibility detection, allowing deferred `get_recommendations` calls to start. The rail observes both initially mounted and asynchronously rendered content, displays initial loading feedback, and hides after an empty successful response.
 - Pinned home rails now render the active subsection entries and retain the cyclic subsection controls, rather than rendering the empty parent item list.
 - The previous subsection control now appears before the rail title, while the next control remains in the header actions.
