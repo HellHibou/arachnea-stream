@@ -200,6 +200,8 @@ shared:
       type: string
       pointer: /labels/*[accessibilityLabel=Durée]/label
       select: all
+      actions:
+        - type: normalize_duration
     - name: release-date
       type: string
       pointer: /labels/*[accessibilityLabel=Date de diffusion]/label
@@ -295,6 +297,8 @@ shared:
       type: string
       pointer: /labels/*[accessibilityLabel=Durée]/label
       select: all
+      actions:
+        - type: normalize_duration
     - name: release-date
       type: string
       pointer: /labels/*[accessibilityLabel=Date de diffusion]/label

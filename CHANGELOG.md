@@ -129,6 +129,9 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- RMC BFM Play now exposes a `search` query against the anonymous `recherche` BFF endpoint, returning the `mosaique` grid nested in the `onglet` tabs as landscape cards with player-page links consumable by `get_entry`; no pagination is advertised.
+- RMC BFM Play `get_entry` on episode `player` pages now keeps parent-programme episode rails titled "Episodes" without accent (for example "Episodes 1 à 39"), which the seasons label filter previously dropped, leaving those entries with no seasons.
+- RMC BFM Play `get_entry` recommendations no longer include the "À voir aussi" rail: on `player` pages it duplicates the season episodes (119 episode cards on "Un amour sauvage"). Top-level recommendation rails are now selected by title ("Titres similaires", portrait cards) since the pointer syntax cannot express the exclusion and season rails share the same `landscape` format.
 - RMC BFM Play now resolves authenticated replay and live playback through a source-specific Rust resolver. It exchanges stored RMC+ credentials for a CAS token and account profile, negotiates replay entitlements or live services, returns DASH Widevine manifests, and proxies license challenges with the short-lived `customdata` entitlement headers. The YAML now exposes `list_lives`, `get_live`, and direct player descriptors for programme and episode pages.
 
 
@@ -186,6 +189,7 @@ All notable changes to the server workspace are recorded here.
 - M6+ recommendation block selections now use distinct internal field names, preventing both sub-queries from fetching the same merged URL list and returning duplicate cards on each page.
 
 - LN24 `get_category` now lists the category archive grid instead of the "Autres vidéos" featured side list: the section label comes from the dynamic category header (Séries, Émissions, LN24+), cards link to their show pages with a title derived from the link slug, portrait images and `video/show/other`, and no players.
+- RTL Play home and category sections now expose label durations such as `93 min` as seconds through `normalize_duration`, matching the numeric duration contract used elsewhere.
 - RTL Play recommendation cards now map their 16:9 `imageUrl` to `img/landscape` instead of `img/poster`, so the public rail displays landscape thumbnails without changing portrait catalogue cards.
 - TF1+ recommendation cards now also expose their portrait thumbnail as `img/poster`, the field consumed by the public card image component, instead of providing only `img/portrait` and displaying an empty thumbnail.
 - TV5MONDE+ deferred recommendations override the inherited Chrome User-Agent only for the public HTML request, avoiding the Akamai denial observed on Mukbang that previously produced `entries: null`. Other catalogue and playback requests keep their existing HTTP profile.

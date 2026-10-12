@@ -475,6 +475,83 @@ shared:
       select: first
       pointer: /background_image/url
 
+  # A search result card from the `recherche` endpoint `mosaique` grid. Same
+  # shape as `card_entries_landscape` (the search mosaic `format` is
+  # `landscape`), plus a `regarder` web-URL fallback: search results expose
+  # no `lien` call-to-action, only the playable `regarder` one.
+  search_card_entries: &search_card_entries
+    - *source_entry
+    - name: key
+      type: string
+      select: first
+      pointer: /id
+    - name: title
+      type: string
+      select: first
+      pointer: /infos_survol/titre
+    - name: title
+      type: string
+      select: first
+      pointer: /titre
+    - name: title
+      type: string
+      select: first
+      pointer: /background_image/alt
+    - name: description
+      type: string
+      select: first
+      pointer: /description
+    - name: theme
+      type: string
+      select: first
+      pointer: /etiquette/genre
+    - name: theme
+      type: string
+      select: first
+      pointer: /infos_survol/etiquette/genre
+    - name: duration
+      type: string
+      select: first
+      pointer: /etiquette/duree
+      actions:
+        - type: normalize_duration
+    - name: duration
+      type: string
+      select: first
+      pointer: /infos_survol/etiquette/duree
+      actions:
+        - type: normalize_duration
+    - name: year
+      type: number
+      select: first
+      pointer: /etiquette/annee_production
+    # Same link contract as `card_entries`: the detail page stays the entry
+    # link so the frontend can load it through `get_entry`.
+    - name: link
+      type: string
+      select: first
+      pointer: /call_to_actions/*[type=lien]/endpoint
+      actions: *actions_lien_link
+    - name: link
+      type: string
+      select: first
+      pointer: /call_to_actions/*[type=regarder]/endpoint
+      actions: *actions_regarder_link
+    - name: web-link
+      type: string
+      select: first
+      pointer: /call_to_actions/*[type=lien]/url
+      actions: *actions_web_link
+    - name: web-link
+      type: string
+      select: first
+      pointer: /call_to_actions/*[type=regarder]/url
+      actions: *actions_web_link
+    - name: img/landscape > link
+      type: string
+      select: first
+      pointer: /background_image/url
+
   # An episode rail of a `fip` / `fip-edito` page, either a top-level rail
   # (flat layout) or a rail nested inside an `onglet` tab. The `titre` carries
   # the season name ("Saison 1") and may be empty on single-block replay
@@ -510,17 +587,24 @@ shared:
   # it yields exactly one item (the whole row); `select: first` keeps the
   # single-object contract even when several zones match. Card orientation
   # follows the rail `format` data (same split as `load_home`): `landscape`
-  # rails (for example "À voir aussi") render landscape cards, `portrait`
-  # rails (for example "Titres similaires") portrait cards. Only `rail`
-  # sections carry `format`, so a single equality filter per pointer is
-  # enough; chained filters such as `[type=rail][format=...]` are not
+  # rails render landscape cards, `portrait` rails portrait cards. Only
+  # `rail` sections carry `format`, so a single equality filter per pointer
+  # is enough; chained filters such as `[type=rail][format=...]` are not
   # supported by the pointer parser (first `[` to last `]` becomes one
   # filter) and match nothing. Rails without `format` (none observed on
   # player pages so far) are not covered on purpose to avoid
-  # double-extracting landscape items as portraits. Top-level rails
-  # are taken as-is on purpose: season rails observed so far live inside
-  # `onglet` tabs, and a seasonal top-level rail could not be excluded once
-  # flattened.
+  # double-extracting landscape items as portraits. Top-level rails cannot
+  # be selected by `format` on purpose: the "À voir aussi" rail is
+  # `landscape` and would flow through a generic landscape selector, while
+  # season rails ("Episodes …", "Saison …") are `landscape` too and would
+  # duplicate the seasons into the recommendations. An explicit exclusion
+  # is impossible (the pointer parser only supports a single `field=value`
+  # equality filter, no negation), so top-level rails are listed by title
+  # instead: "Titres similaires" is the only editorial rail kept so far
+  # (portrait cards, like `load_home`), and the "Titres similaires" tab
+  # keeps its landscape / portrait split. A generic portrait fallback would
+  # double-extract that same rail, so there is none: add new editorial
+  # rail titles here when RMC+ introduces other recommendation rails.
   recommendations_section: &recommendations_section
     name: recommendations
     type: object
@@ -528,12 +612,7 @@ shared:
     entries:
       - name: entries
         type: object[]
-        pointer: /sections/*[format=landscape]/items/*
-        select: all
-        entries: *card_entries_landscape
-      - name: entries
-        type: object[]
-        pointer: /sections/*[format=portrait]/items/*
+        pointer: /sections/*[titre=Titres similaires]/items/*
         select: all
         entries: *card_entries
       - name: entries
@@ -577,13 +656,22 @@ shared:
     select: all
     entries: *replay_tab_entries
 
-  # An "Épisodes" tab of a `fip` page (for example "7 à la maison"): the tab
-  # title is the season label and its episodes hoist from the inner
-  # `mosaique` grid, reusing the replay-tab entries like "Replay" / "Bonus".
+  # An "Épisodes"/"Episodes" tab of a `fip` page (for example
+  # "7 à la maison"): the tab title is the season label and its episodes hoist
+  # from the inner `mosaique` grid, reusing the replay-tab entries like
+  # "Replay" / "Bonus". Both spellings are accepted, like the `get_entry`
+  # seasons label filter.
   episode_tab_group: &episode_tab_group
     name: seasons
     type: object[]
     pointer: /sections/*[type=onglet]/items/*[titre=Épisodes]
+    select: all
+    entries: *replay_tab_entries
+
+  episode_tab_group_unaccented: &episode_tab_group_unaccented
+    name: seasons
+    type: object[]
+    pointer: /sections/*[type=onglet]/items/*[titre=Episodes]
     select: all
     entries: *replay_tab_entries
 
@@ -626,6 +714,7 @@ shared:
     - *replay_tab_group
     - *bonus_tab_group
     - *episode_tab_group
+    - *episode_tab_group_unaccented
 
   # A live channel card from the "Chaînes en direct" rail. Its `lien`
   # call-to-action carries the live channel id used by `get_live`.
@@ -1115,6 +1204,36 @@ queries:
         entries: *card_entries
 
   # --------------------------------------------------------------------------
+  # Search -- anonymous `recherche` endpoint. Results live in the `mosaique`
+  # grid nested inside the `onglet` tabs (currently a single "Vidéos" tab);
+  # the grid `format` is `landscape`, hence landscape cards. No pagination is
+  # advertised, so a single page is returned.
+  # --------------------------------------------------------------------------
+  - name: search
+    scraper_type: json
+    base_url: "{bff_base_url}"
+    query_url: "{bff_base_url}/recherche?model=web&query={search_terms}"
+    media_types: *media_types_rmcbfmplay
+    row_pointer: /
+    entries:
+      - *source_entry
+      - name: current_page
+        type: number
+        actions:
+          - type: format_text
+            argument: "1"
+      - name: have_more
+        type: boolean
+        actions:
+          - type: format_text
+            argument: "false"
+      - name: entries
+        type: object[]
+        pointer: /sections/*[type=onglet]/items/*/sections/*[type=mosaique]/items/*
+        select: all
+        entries: *search_card_entries
+
+  # --------------------------------------------------------------------------
   # Entry detail (`page_type=fip` / `page_type=fip-edito` / `page_type=player`)
   # Consumes the card `lien` / `regarder` links. The `herobannerFIP` single
   # `item` (or the `player` section) carries the metadata; season rails and
@@ -1407,25 +1526,28 @@ queries:
       # Season rails pre-load their episodes like arte-fr flat collections.
       # Rails live on the page itself (flat layout) or nested inside `onglet`
       # tabs of programme pages; replay-style tabs ("Replay" / "Bonus" /
-      # "Épisodes") carry the label on the tab itself. Nested entry pointers
-      # are relative to the node selected by the group pointer.
+      # "Épisodes" / "Episodes") carry the label on the tab itself. Nested
+      # entry pointers are relative to the node selected by the group pointer.
       - *season_rail_group
       - *season_tab_group
       - *replay_tab_group
       - *bonus_tab_group
       - *episode_tab_group
+      - *episode_tab_group_unaccented
       # Editorial rails and the "Titres similaires" tab merge into the single
       # `recommendations` section object (flat `entries`, spec 5.7.2).
       - *recommendations_section
     post_process:
       # Keep only season rails and replay-style tabs ("Saison …", "Replay",
-      # "Bonus", "Derniers replays", "Épisodes") as seasons. The single
-      # `recommendations` section object carries flat `entries`, so no label
-      # filter applies to it.
+      # "Bonus", "Derniers replays", "Épisodes"/"Episodes") as seasons. The
+      # single `recommendations` section object carries flat `entries`, so no
+      # label filter applies to it. Both spellings are accepted: some
+      # `fip-edito` programme pages title their episode rails "Episodes"
+      # without accent (for example "Episodes 1 à 39").
       - type: filter_items
         source: seasons
         field: label
-        pattern: "^(Saison|Replay|Bonus|Derniers replays|Épisodes)"
+        pattern: "^(Saison|Replay|Bonus|Derniers replays|Épisodes|Episodes)"
         keep_matching: true
       # Overwrite the page (episode) title, description and visuals with the
       # series identity extracted by the parent-programme sub-query. Each
