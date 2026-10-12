@@ -5,6 +5,7 @@ import type { HomeSection } from '@/types/home'
 import type { MediaCardCollectionMode, ThumbnailImageFit, ThumbnailOrientation } from '@/types/media'
 import { useI18n } from '@/i18n'
 import ParameterSegmented from '@/components/parameters/ParameterSegmented.vue'
+import HomePinButton from '@/components/home/HomePinButton.vue'
 
 /**
  * Props accepted by the home section action toolbar.
@@ -21,11 +22,11 @@ interface Props {
   /**
    * Whether the pinned section can move upward.
    */
-  canMoveUp: boolean
+  canMoveUp?: boolean
   /**
    * Whether the pinned section can move downward.
    */
-  canMoveDown: boolean
+  canMoveDown?: boolean
   /**
    * Current thumbnail orientation for the section.
    */
@@ -43,14 +44,27 @@ interface Props {
    * @default false
    */
   hidePinButton?: boolean
+  /** Hide movement for sources, bookmarks and sections without custom owners. @default false */
+  hideMoveButtons?: boolean
+  /** Edition-only custom home add action, separate from legacy pinning. @default false */
+  showAddButton?: boolean
+  /** Custom owning block removal is confirmed before persistence. @default false */
+  showRemoveButton?: boolean
 }
 
 /** Component props with applied defaults. */
 const props = withDefaults(defineProps<Props>(), {
   hidePinButton: false,
+  hideMoveButtons: false,
+  canMoveUp: false,
+  canMoveDown: false,
+  showAddButton: false,
+  showRemoveButton: false,
 })
 
 const emit = defineEmits<{
+  'add-section': [section: HomeSection]
+  'remove-section': [section: HomeSection]
   /** Emitted when a section pinned state should be toggled. */
   'toggle-pinned': [section: HomeSection]
   /** Emitted when a pinned section should be moved. */
@@ -85,6 +99,10 @@ const thumbnailImageFitOptions = computed<Array<{ value: ThumbnailImageFit; labe
 
 <template>
   <div class="home-section-actions">
+    <HomePinButton v-if="props.showAddButton" :label="t('customHome.addSectionToHome')"
+      @click="emit('add-section', props.section)" />
+    <HomePinButton v-if="props.showRemoveButton" active :label="t('customHome.removeSection')"
+      @click="emit('remove-section', props.section)" />
     <button
       v-if="!props.hidePinButton"
       class="home-section-actions__button"
@@ -102,8 +120,8 @@ const thumbnailImageFitOptions = computed<Array<{ value: ThumbnailImageFit; labe
     </button>
 
     <button
-      v-if="props.isPinned"
-      class="home-section-actions__button"
+      v-if="props.isPinned && !props.hideMoveButtons"
+      class="home-section-actions__button home-section-actions__move"
       :aria-label="t('catalog.moveUp')"
       :title="t('catalog.moveUp')"
       type="button"
@@ -114,8 +132,8 @@ const thumbnailImageFitOptions = computed<Array<{ value: ThumbnailImageFit; labe
     </button>
 
     <button
-      v-if="props.isPinned"
-      class="home-section-actions__button"
+      v-if="props.isPinned && !props.hideMoveButtons"
+      class="home-section-actions__button home-section-actions__move"
       :aria-label="t('catalog.moveDown')"
       :title="t('catalog.moveDown')"
       type="button"
@@ -192,6 +210,9 @@ const thumbnailImageFitOptions = computed<Array<{ value: ThumbnailImageFit; labe
 </template>
 
 <style scoped>
+.home-section-actions__move {
+  order: 1;
+}
 .home-section-actions {
   display: inline-flex;
   align-items: center;

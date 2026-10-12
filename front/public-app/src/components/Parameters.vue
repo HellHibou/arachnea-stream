@@ -18,6 +18,7 @@ import ParameterSwitch from './parameters/ParameterSwitch.vue'
 import ParameterThemeSelector from './parameters/ParameterThemeSelector.vue'
 import ParametersPanel from './parameters/ParametersPanel.vue'
 import ParametersSection from './parameters/ParametersSection.vue'
+import DefaultHomeSetting from './parameters/DefaultHomeSetting.vue'
 
 /** Application parameters from persistent storage. */
 const parameters: StorageParameters = useStorage().getParameters()
@@ -313,6 +314,7 @@ function handleOpenAdministration(): void {
     </ParametersSection>
 
     <ParametersSection :title="t('settings.home')">
+      <DefaultHomeSetting />
       <div class="parameters__grid">
         <ParametersPanel :title="t('settings.editingButtons')">
           <ParameterSwitch

@@ -10,6 +10,9 @@ const services = shallowRef<ServiceMetadata[]>([])
 const isLoading = shallowRef(false)
 /** Error message from service metadata loading, or null if successful. */
 const errorMessage = shallowRef<string | null>(null)
+/** Shared request prevents duplicate metadata discovery across consumers. */
+let loadPromise: Promise<ServiceMetadata[]> | null = null
+let hasLoaded = false
 
 /** Map of service metadata indexed by service id for quick lookup. */
 const servicesById = computed(() => {
@@ -31,17 +34,22 @@ export function useServiceMetadata() {
    *
    * @returns Loaded metadata rows.
    */
-  async function load(): Promise<ServiceMetadata[]> {
-    if (services.value.length > 0) {
-      return services.value
-    }
+  function load(): Promise<ServiceMetadata[]> {
+    if (loadPromise) return loadPromise
+    if (hasLoaded) return Promise.resolve(services.value)
+    loadPromise = fetchMetadata().finally(() => { loadPromise = null })
+    return loadPromise
+  }
 
+  /** Fetches display metadata without loading provider homes. */
+  async function fetchMetadata(): Promise<ServiceMetadata[]> {
     isLoading.value = true
     errorMessage.value = null
 
     try {
       const loadedServices = await loadServiceMetadata()
       services.value = loadedServices
+      hasLoaded = true
       return loadedServices
     } catch (error) {
       errorMessage.value =
@@ -52,6 +60,12 @@ export function useServiceMetadata() {
     } finally {
       isLoading.value = false
     }
+  }
+
+  /** Refreshes capabilities and availability using the shared metadata request. */
+  function refresh(): Promise<ServiceMetadata[]> {
+    hasLoaded = false
+    return load()
   }
 
   /**
@@ -71,6 +85,7 @@ export function useServiceMetadata() {
     isLoading: readonly(isLoading),
     errorMessage: readonly(errorMessage),
     load,
+    refresh,
     getService,
   }
 }

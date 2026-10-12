@@ -22,4 +22,6 @@ export interface ServiceMetadata {
   description: Record<string, string>
   /** The list of themes associated with this service. */
   themes: ServiceThemeMetadata[]
+  /** Query names advertised by the loaded backend registry. */
+  supportedQueries: string[]
 }

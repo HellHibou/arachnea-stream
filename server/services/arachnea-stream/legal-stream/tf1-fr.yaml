@@ -677,6 +677,14 @@ queries:
         pointer: /data/homeSliders/*[__typename=SliderOfTopProgram]
         select: all
         entries:
+          - &home_rail_key
+            name: key
+            type: string
+            select: first
+            pointer: /id
+            actions:
+              - type: format_text
+                argument: "rail:{}"
           - name: label
             type: string
             select: first
@@ -701,6 +709,7 @@ queries:
         pointer: /data/homeSliders/*[__typename=SliderOfProgram]
         select: all
         entries:
+          - *home_rail_key
           - name: label
             type: string
             select: first
@@ -725,6 +734,7 @@ queries:
         pointer: /data/homeSliders/*[__typename=SliderOfVideo]
         select: all
         entries:
+          - *home_rail_key
           - name: label
             type: string
             select: first

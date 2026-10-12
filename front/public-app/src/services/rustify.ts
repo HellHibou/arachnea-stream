@@ -28,6 +28,8 @@ import { t, tm } from '@/i18n'
 import { resolveAppPath } from '@/services/baseUrl'
 import { normalizePriceAccess } from '@/services/priceAccess'
 import type { ServiceMetadata, ServiceThemeMetadata } from '@/types/serviceMetadata'
+import type { HomeSourceDiscovery } from '@/types/customHome'
+import { buildHomeContentIdentity, markAmbiguousHomeIdentities } from '@/services/homeContentIdentity'
 import { enqueueErrorNotification } from '@/composables/useErrorNotifications'
 import type {
   ScraperAggregationResult,
@@ -604,12 +606,44 @@ function dedupeSearchSourceParams(paramsList: Record<string, string>[]): Record<
 /**
  * Loads the aggregated home payload exposed by the backend and normalizes it for the UI.
  *
+ * @param options Optional exact source selection; omitted means all, empty means none.
  * @returns Featured banners, clickable categories, and grouped catalog rails.
  */
-export async function loadHomeCatalog(): Promise<HomeCatalogData> {
-  const response = await call_api<unknown>('load_home', {})
+export async function loadHomeCatalog(options: { sources?: string[] } = {}): Promise<HomeCatalogData> {
+  const sources = options.sources === undefined ? undefined : [...new Set(options.sources)].sort()
+  const response = await call_api<unknown>('load_home', { sources })
 
   return normalizeHomeCatalog(response)
+}
+
+/**
+ * Discovers only selected sources, without merging or loading deferred content.
+ * @param sources Exact backend source ids; empty selects nothing without a network call.
+ * @returns Independent source catalogs retaining inline sections and identity diagnostics.
+ */
+export async function loadHomeSourceDiscovery(sources: string[]): Promise<HomeSourceDiscovery[]> {
+  if (sources.some((source) => !source.trim() || source !== source.trim())) {
+    throw new Error('Source discovery requires non-blank, exact source ids')
+  }
+  const selected = [...new Set(sources)].sort()
+  if (selected.length === 0) return []
+  const response = await call_api<unknown>('load_home', { sources: selected })
+  if (!Array.isArray(response) && !isJsonRecord(response)) {
+    throw new Error(t('errors.unexpectedHomeResponseFormat'))
+  }
+  const rows = readRecordList(response)
+  return selected.map((sourceId) => {
+    const sourceRows = rows.filter((row) =>
+      firstNonEmptyString([row.source, readPath(row, 'source', 'name')]) === sourceId,
+    )
+    const catalog = normalizeHomeCatalog(sourceRows, false)
+    markAmbiguousHomeIdentities(catalog.categories)
+    markAmbiguousHomeIdentities(catalog.sections)
+    for (const section of catalog.sections) {
+      markAmbiguousHomeIdentities(section.subsections ?? [])
+    }
+    return { sourceId, available: sourceRows.length > 0, catalog }
+  })
 }
 
 /**
@@ -634,9 +668,10 @@ export async function loadServiceMetadata(): Promise<ServiceMetadata[]> {
  *
  * @param category Category descriptor previously returned by `loadHomeCatalog`.
  * @param page 1-based category page requested by the frontend.
+ * @param merge Whether to apply legacy semantic merging (default true).
  * @returns Normalized banners, categories, and grouped catalog rails for the selected category.
  */
-export async function getCategoryCatalog(category: HomeCategory, page = 1): Promise<HomeCatalogData> {
+export async function getCategoryCatalog(category: HomeCategory, page = 1, merge = true): Promise<HomeCatalogData> {
   if (category.sources.length === 0) {
     throw new Error(t('errors.categoryMissingBackendSourceDescriptors'))
   }
@@ -650,7 +685,9 @@ export async function getCategoryCatalog(category: HomeCategory, page = 1): Prom
     })),
   })
 
-  return normalizeHomeCatalog(response)
+  const catalog = normalizeHomeCatalog(response, merge)
+  const rows = readRecordList(response)
+  return { ...catalog, currentPage: page, haveMore: rows.some((row) => readBoolean(row.have_more)) }
 }
 
 /**
@@ -658,11 +695,13 @@ export async function getCategoryCatalog(category: HomeCategory, page = 1): Prom
  *
  * @param section Section descriptor previously returned by `loadHomeCatalog`.
  * @param sources Source descriptors to load for the section.
+ * @param strict Reject source failures instead of silently retaining their cursors (default false).
  * @returns Normalized section payload assembled from every fulfilled source response.
  */
 export async function loadHomeSectionPage(
   section: HomeSection,
   sources: HomeSectionSource[],
+  strict = false,
 ): Promise<HomeSection> {
   if (sources.length === 0) {
     return section
@@ -697,6 +736,10 @@ export async function loadHomeSectionPage(
 
     return { source, normalizedSection }
   }))
+  if (strict) {
+    const failure = settledSources.find((result) => result.status === 'rejected')
+    if (failure?.status === 'rejected') throw failure.reason
+  }
   const loadedSources = settledSources
     .filter((result): result is PromiseFulfilledResult<{
       source: HomeSectionSource
@@ -822,9 +865,10 @@ export async function getLivePlayers(source: string, channel: string): Promise<E
  * Converts one raw backend home/category payload into the frontend home catalog model.
  *
  * @param payload Raw backend home/category payload.
+ * @param merge Whether to preserve legacy semantic aggregation (default true).
  * @returns Normalized home catalog data ready for rendering.
  */
-function normalizeHomeCatalog(payload: unknown): HomeCatalogData {
+function normalizeHomeCatalog(payload: unknown, merge = true): HomeCatalogData {
   if (!Array.isArray(payload) && !isJsonRecord(payload)) {
     throw new Error(t('errors.unexpectedHomeResponseFormat'))
   }
@@ -879,6 +923,7 @@ function normalizeHomeCatalog(payload: unknown): HomeCatalogData {
       if (
         normalizedSection.items.length > 0 ||
         normalizedSection.sources.length > 0 ||
+        (!merge && normalizedSection.haveMore) ||
         (normalizedSection.subsections?.length ?? 0) > 0
       ) {
         sections.push(normalizedSection)
@@ -886,14 +931,15 @@ function normalizeHomeCatalog(payload: unknown): HomeCatalogData {
     })
   })
 
-  return mergeNormalizedCatalogs([
-    {
-      banners,
-      deferredBanners,
-      categories,
-      sections,
-    },
-  ])
+  const catalog = { banners, deferredBanners, categories, sections }
+  if (!merge) return catalog
+  const aggregated = mergeNormalizedCatalogs([catalog])
+  for (const category of aggregated.categories) delete category.identity
+  for (const section of aggregated.sections) {
+    delete section.identity
+    for (const subsection of section.subsections ?? []) delete subsection.identity
+  }
+  return aggregated
 }
 
 /**
@@ -916,6 +962,9 @@ function normalizeServiceMetadata(payload: unknown): ServiceMetadata | null {
     logo: firstNonEmptyString([record.logo]),
     description: normalizeServiceDescription(record.description),
     themes: normalizeServiceThemes(record.themes ?? record.search_themes),
+    supportedQueries: Array.isArray(record.supported_queries)
+      ? record.supported_queries.filter((query): query is string => typeof query === 'string')
+      : [],
   }
 }
 
@@ -1139,6 +1188,12 @@ function normalizeHomeCategory(
   const mergeKey = buildHomeCategoryMergeKey(firstNonEmptyString([record.key]), label, index)
 
   return {
+    identity: buildHomeContentIdentity(
+      source?.name ?? inheritedSource,
+      firstNonEmptyString([record.key, record.id]),
+      source ?? {},
+      firstNonEmptyString([record.label]),
+    ),
     id:
       buildScopedId(
         firstNonEmptyString([record.id, record.key]) ?? mergeKey,
@@ -1265,6 +1320,12 @@ function normalizeHomeSection(
   return {
     id,
     label,
+    identity: buildHomeContentIdentity(
+      inheritedSource,
+      firstNonEmptyString([record.key, record.id]),
+      { ...readStringParamMap(record.request), ...readStringParamMap({ link: record.link }) },
+      label,
+    ),
     preferenceKey: buildHomeSectionPreferenceKey(label, id),
     items: rawItems.map((item, itemIndex) => normalizeMediaItem(item, itemIndex, inheritedSource)),
     sourceOrder: [inheritedSource ?? id],
@@ -1303,6 +1364,12 @@ function normalizeHomeSectionSubsection(
   return {
     key,
     label,
+    identity: buildHomeContentIdentity(
+      inheritedSource,
+      firstNonEmptyString([record.key, record.id]),
+      { ...readStringParamMap(record.request), ...readStringParamMap({ link: record.link }) },
+      label,
+    ),
     items: rawItems.map((item, itemIndex) => normalizeMediaItem(item, itemIndex, inheritedSource)),
     sourceOrder: [inheritedSource ?? key],
     sources: normalizeHomeSectionSources(record, inheritedSource, currentPage, haveMore, rawItems.length > 0),
@@ -1467,7 +1534,7 @@ function mergeHomeSectionSubsections(subsections: HomeSectionSubsection[]): Home
  * @param lists Ordered value lists, one for each source.
  * @returns Values interleaved by their position in each source list.
  */
-function interleaveLists<T>(lists: T[][]): T[] {
+export function interleaveLists<T>(lists: T[][]): T[] {
   const longestListLength = Math.max(0, ...lists.map((items) => items.length))
   const interleavedItems: T[] = []
 
@@ -3142,7 +3209,7 @@ function serializeHomeCategorySource(source: HomeCategorySource): string {
  * @param items Media items collected inside one merged section rail.
  * @returns Deduplicated media items.
  */
-function dedupeMediaItems(items: MediaItem[]): MediaItem[] {
+export function dedupeMediaItems(items: MediaItem[]): MediaItem[] {
   const seen = new Set<string>()
   const dedupedItems: MediaItem[] = []
 

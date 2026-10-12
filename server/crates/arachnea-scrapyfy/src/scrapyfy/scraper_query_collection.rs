@@ -634,6 +634,13 @@ impl ScraperQueryCollection {
         self.queries.contains_key(query_name)
     }
 
+    /// Returns the sorted query names supported by this loaded source.
+    pub fn query_names(&self) -> Vec<String> {
+        let mut names = self.queries.keys().cloned().collect::<Vec<_>>();
+        names.sort();
+        names
+    }
+
     /// Records the base62 hash of the raw source YAML document.
     pub(crate) fn set_yaml_hash(&mut self, yaml_hash: String) -> &mut Self {
         self.yaml_hash = yaml_hash;

@@ -1,4 +1,5 @@
 import type { Collection, MediaItem } from '@/types/media'
+import type { HomeContentIdentity } from '@/types/customHome'
 
 /**
  * YAML-defined source descriptor used to resolve one category payload.
@@ -9,6 +10,10 @@ export type HomeCategorySource = Record<string, string>
  * Clickable category displayed in the home catalog.
  */
 export interface HomeCategory {
+  /** Runtime position in the custom definition, including unavailable preceding shortcuts. */
+  customShortcutIndex?: number
+  /** Source-owned identity before aggregation; not an aggregate selection reference. */
+  identity?: HomeContentIdentity
   /** The unique identifier for the category. */
   id: string
   /** The display label for the category. */
@@ -94,6 +99,8 @@ export interface HomeSectionSource {
  * One selectable subsection within a grouped home media rail.
  */
 export interface HomeSectionSubsection {
+  /** Source-owned identity, scoped under the parent section. */
+  identity?: HomeContentIdentity
   /** Stable identifier used to merge the same subsection across sources. */
   key: string
   /** The display label for the subsection. */
@@ -114,6 +121,18 @@ export interface HomeSectionSubsection {
  * One grouped media rail rendered below the featured content.
  */
 export interface HomeSection {
+  /** Saved custom-block display defaults, overridden by explicit rendered-group preferences. */
+  customDisplayOptions?: import('@/types/customHome').CustomHomeDisplayOptions
+  /** Runtime owners for editing a contribution rather than an entire merged render group. */
+  customBlockIds?: string[]
+  /** Runtime-only custom composition members; each retains its own cursor and errors. */
+  customContributionIds?: string[]
+  /** Whether selected custom contributions still require a first section page. */
+  customNeedsInitial?: boolean
+  /** Active variant chosen by the renderer, never persisted. */
+  customSubsectionKey?: string
+  /** Source-owned identity before aggregation, also available for inline-only sections. */
+  identity?: HomeContentIdentity
   /** The unique identifier for the section. */
   id: string
   /** The display label for the section. */
@@ -140,6 +159,9 @@ export interface HomeSection {
  * Full normalized payload rendered by the home and category screens.
  */
 export interface HomeCatalogData {
+  /** Category-level pagination remains separate from section descriptors. */
+  currentPage?: number
+  haveMore?: boolean
   /** The featured banners collection, eagerly loaded or deferred by source. */
   banners: Collection<HomeBanner>
   /** Deferred banner collections, each retaining its backend source and link. */

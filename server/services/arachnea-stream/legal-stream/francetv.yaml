@@ -478,6 +478,13 @@ shared:
       select: first
 
   section_entries: &section_entries
+    - name: key
+      type: string
+      select: first
+      pointer: /id
+      actions:
+        - type: format_text
+          argument: "rail:{}"
     - name: label
       type: string
       select: first

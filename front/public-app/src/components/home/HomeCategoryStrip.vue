@@ -3,6 +3,8 @@ import { useRouter } from 'vue-router'
 
 import { encodeCategoryRouteParam } from '@/router/routePayloads'
 import type { HomeCategory } from '@/types/home'
+import { useI18n } from '@/i18n'
+import HomePinButton from '@/components/home/HomePinButton.vue'
 
 /**
  * Props accepted by the clickable category strip.
@@ -12,14 +14,21 @@ interface Props {
     * Categories exposed by the backend catalog payload.
     */
    categories: HomeCategory[]
+   /** Edition-only add action, also available for custom shortcuts. @default false */
+   showAddButton?: boolean
+   /** Custom shortcuts use their pin to request removal, not copying. @default false */
+   removeMode?: boolean
 }
 
-/** Component props without defaults. */
-defineProps<Props>()
+/** Component props with edition controls hidden by default. */
+withDefaults(defineProps<Props>(), { showAddButton: false, removeMode: false })
+const { t } = useI18n()
 
 const emit = defineEmits<{
   /** Emitted when a category is selected. */
    'select-category': [category: HomeCategory]
+   'add-category': [category: HomeCategory]
+   'remove-category': [category: HomeCategory]
 }>()
 
 /** Vue Router instance used to resolve category links. */
@@ -57,11 +66,14 @@ function handleCategorySelect(category: HomeCategory) {
      </header>
 
      <div class="home-category-strip__list" role="list">
-       <a
+        <div
          v-for="category in categories"
          :key="category.id"
-         class="home-category-strip__card"
+         class="home-category-strip__item"
          role="listitem"
+        >
+        <a
+          class="home-category-strip__card"
          :href="categoryHref(category)"
          @click.prevent="handleCategorySelect(category)"
        >
@@ -90,12 +102,28 @@ function handleCategorySelect(category: HomeCategory) {
            <span class="home-category-strip__label">{{ category.label }}</span>
          </span>
        </a>
+        <HomePinButton v-if="showAddButton" class="home-category-strip__pin" :active="removeMode"
+          :label="t(removeMode ? 'customHome.removeCategory' : 'customHome.addCategory')"
+          @click="removeMode ? emit('remove-category', category) : emit('add-category', category)" />
+        </div>
      </div>
 
    </section>
  </template>
 
 <style scoped>
+.home-category-strip__item {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.home-category-strip__pin {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+}
+
 .home-category-strip {
    display: grid;
    gap: 14px;

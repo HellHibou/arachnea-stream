@@ -316,8 +316,8 @@ fn register_routes(
     controler.register_result_function_with_state(
         "load_home",
         Arc::clone(reloadable),
-        |reloadable, context, _input: LoadHomeRequest| async move {
-            reloadable.current().load_home(context).await
+        |reloadable, context, input: LoadHomeRequest| async move {
+            reloadable.current().load_home(context, input.sources).await
         },
     );
 

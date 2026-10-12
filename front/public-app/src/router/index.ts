@@ -1,9 +1,22 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 
 import { getAppBasePath } from '@/services/baseUrl'
+import { resolveDefaultHomeRoute } from '@/services/defaultHome'
 
 /** Application route definitions. */
 const routes: RouteRecordRaw[] = [
+  {
+    path: '/homes/:homeId',
+    name: 'custom-home',
+    component: () => import('@/views/CustomHomeView.vue'),
+    props: (route) => ({ homeId: readRouteParam(route.params.homeId) }),
+  },
+  {
+    path: '/sources/:sourceId',
+    name: 'source-home',
+    component: () => import('@/views/HomeView.vue'),
+    props: (route) => ({ sourceId: readRouteParam(route.params.sourceId) }),
+  },
   {
     path: '/',
     name: 'home',
@@ -57,6 +70,13 @@ const router = createRouter({
   scrollBehavior(_to, _from, savedPosition) {
     return savedPosition ?? { top: 0, left: 0 }
   },
+})
+
+router.beforeEach(async (to, from) => {
+  if (from.matched.length === 0 && to.name === 'home' && !Object.keys(to.query).length && !to.hash) {
+    const target = await resolveDefaultHomeRoute()
+    if (typeof target === 'object' && 'name' in target && target.name !== 'home') return target
+  }
 })
 
 /**

@@ -4,14 +4,16 @@ import { computed, shallowRef, toRef } from 'vue'
 import HomeCategoryStrip from '@/components/home/HomeCategoryStrip.vue'
 import HomeHeroBanner from '@/components/home/HomeHeroBanner.vue'
 import HomeSectionActions from '@/components/home/HomeSectionActions.vue'
+import CustomHomeManager from '@/components/home/CustomHomeManager.vue'
+import CustomHomeContentActions, { type CustomHomeContentRequest } from '@/components/home/CustomHomeContentActions.vue'
 import MediaCardCollection from '@/components/MediaCardCollection.vue'
 import ScrollToTopButton from '@/components/ScrollToTopButton.vue'
 import { useHomeCatalog } from '@/composables/home/useHomeCatalog'
 import { useScrollToTop } from '@/composables/useScrollToTop'
 import { useI18n } from '@/i18n'
-import { BOOKMARKS_SECTION_PREFERENCE_KEY } from '@/services/entryBookmarks'
 import { useStorage } from '@/services/storage'
 import type { HomeCategory, HomeSection, HomeSectionSubsection } from '@/types/home'
+import type { CustomHomeDefinition, CustomHomeAddIntent } from '@/types/customHome'
 import type {
   MediaCardCollectionMode,
   MediaItem,
@@ -21,8 +23,6 @@ import type {
   ThumbnailOrientation,
 } from '@/types/media'
 
-/** Collection mode for home page media card displays. */
-const homeCollectionMode: MediaCardCollectionMode = 'single-row'
 /** Collection mode for category page media card displays. */
 const categoryCollectionMode: MediaCardCollectionMode = 'grid'
 /** Storage service instance. */
@@ -40,11 +40,17 @@ function updateSectionCollectionMode(sectionPreferenceKey: string, mode: MediaCa
  * Props accepted by the home and category catalog screen.
  */
 interface Props {
+  /** Exact backend source id; null keeps the aggregated home. @default null */
+  sourceId?: string | null
   /**
    * Active catalog mode.
    * @default 'home'
    */
-  mode?: 'home' | 'category'
+  mode?: 'home' | 'category' | 'custom'
+  /** Validated persisted definition or preview draft in custom mode. @default null */
+  customDefinition?: CustomHomeDefinition | null
+  /** Read-only draft preview disables edition controls and custom additions. @default false */
+  previewOnly?: boolean
   /**
    * Selected category shown when the catalog runs in category mode.
    * @default null
@@ -70,7 +76,10 @@ interface Props {
 /** Component props with applied defaults. */
 const props = withDefaults(defineProps<Props>(), {
   mode: 'home',
+  customDefinition: null,
+  previewOnly: false,
   category: null,
+  sourceId: null,
   thumbnailOrientation: 'portrait',
   thumbnailImageFit: 'cover',
   thumbnailSizeMultiplier: 1,
@@ -87,6 +96,8 @@ const emit = defineEmits<{
 
 /** Home catalog composable results. */
 const {
+  customIssues,
+  retryCustomIssue,
   /** The catalog data. */
   catalog,
   /** Whether the catalog is currently loading. */
@@ -97,6 +108,8 @@ const {
   errorMessage,
   /** Function to load deferred banners after the hero has mounted. */
   loadDeferredBanners,
+  loadCatalog,
+  bookmarkPreferenceKey,
   /** The current catalog being displayed. */
   currentCatalog,
   /** Whether there is content to display. */
@@ -123,14 +136,6 @@ const {
   getSectionLoadError,
   /** Function to handle loading more section items. */
   handleLoadMoreSection,
-  /** Function to check if a section is pinned. */
-  isSectionPinned,
-  /** Function to check if a pinned section can be moved. */
-  canMovePinnedSection,
-  /** Function to toggle section pinned state. */
-  toggleSectionPinned,
-  /** Function to move a pinned section. */
-  movePinnedSection,
   /** Function to update section thumbnail orientation. */
   updateSectionThumbnailOrientation,
   /** Function to update section thumbnail image fit. */
@@ -138,6 +143,8 @@ const {
 } = useHomeCatalog({
   mode: toRef(props, 'mode'),
   category: toRef(props, 'category'),
+  sourceId: toRef(props, 'sourceId'),
+  customDefinition: toRef(props, 'customDefinition'),
   onBackgroundMediaItemsChange: (mediaItems) => {
     emit('update:background-media-items', mediaItems)
   },
@@ -147,6 +154,18 @@ const {
 const { showScrollToTop, scrollToTop } = useScrollToTop()
 /** Internationalization utilities. */
 const { t } = useI18n()
+const addIntent = shallowRef<CustomHomeAddIntent | null>(null)
+const contentRequest = shallowRef<CustomHomeContentRequest | null>(null)
+/** @param section Runtime group. @param direction Movement. @returns Whether at least one owner can move. */
+function canMoveCustomSection(section: HomeSection, direction: 'up' | 'down'): boolean {
+  const blocks = props.customDefinition?.blocks ?? []
+  return blocks.some((block, index) => section.customBlockIds?.includes(block.id) &&
+    (direction === 'up' ? index > 0 : index < blocks.length - 1))
+}
+const addDialogOpen = shallowRef(false)
+/** @param intent Explicit add action; never selects an implicit destination or writes storage. */
+function requestAdd(intent: CustomHomeAddIntent): void { addIntent.value = intent; addDialogOpen.value = true }
+const editingEnabled = computed(() => showSectionEditingButtons.value && !props.previewOnly)
 /** Active subsection index tracked independently for every parent section. */
 const activeSubsectionIndexes = shallowRef<Record<string, number>>({})
 
@@ -183,11 +202,16 @@ function getActiveSubsection(section: HomeSection): HomeSectionSubsection | null
 function toRenderedHomeSection(section: HomeSection): RenderedHomeSection {
   const subsection = getActiveSubsection(section)
   return {
-    section,
+    section: props.mode === 'custom' && subsection ? {
+      ...section, customSubsectionKey: subsection.key,
+      haveMore: subsection.haveMore || subsection.sources.some((source) => !source.hasInitialItems || source.haveMore),
+    } : section,
     subsection,
     items: subsection?.items ?? section.items,
     label: subsection ? [section.label, subsection.label].filter(Boolean).join(' — ') : section.label,
-    haveMore: subsection?.haveMore ?? section.haveMore,
+    haveMore: props.mode === 'custom' && subsection
+      ? subsection.haveMore || subsection.sources.some((source) => !source.hasInitialItems || source.haveMore)
+      : subsection?.haveMore ?? section.haveMore,
   }
 }
 
@@ -248,11 +272,17 @@ function handleSelectCollectionItem(item: MediaItem) {
 <template>
   <main class="home-catalog">
     <section class="home-catalog__shell">
+      <v-alert v-for="issue in customIssues" :key="issue.id" type="warning" variant="tonal" role="status">
+        {{ issue.message }}
+        <span v-if="issue.repairRequired">{{ t('customHome.repairRequired') }}</span>
+        <v-btn @click="retryCustomIssue(issue.id)">{{ t('sourceHome.retry') }}</v-btn>
+      </v-alert>
       <article v-if="errorMessage" class="home-catalog__empty">
         <h2 class="home-catalog__empty-title">{{ t('catalog.loadingErrorTitle') }}</h2>
         <p class="home-catalog__empty-copy">
           {{ errorMessage }}
         </p>
+        <v-btn @click="loadCatalog">{{ t('sourceHome.retry') }}</v-btn>
       </article>
 
       <article v-else-if="isLoading && (!catalog || props.mode === 'category')" class="home-catalog__empty">
@@ -267,6 +297,7 @@ function handleSelectCollectionItem(item: MediaItem) {
         <p class="home-catalog__empty-copy">
           {{ t('catalog.empty') }}
         </p>
+        <v-btn v-if="props.sourceId !== null" @click="loadCatalog">{{ t('sourceHome.retry') }}</v-btn>
       </article>
 
       <template v-else>
@@ -274,6 +305,10 @@ function handleSelectCollectionItem(item: MediaItem) {
           <HomeHeroBanner
             v-if="currentCatalog.banners.entries.length > 0 || currentCatalog.deferredBanners.length > 0"
             :banners="currentCatalog.banners.entries"
+            :show-add-button="editingEnabled && props.mode !== 'custom'"
+            :show-remove-button="editingEnabled && props.mode === 'custom'"
+            @remove-banners="contentRequest = { kind: 'banners', action: 'remove' }"
+            @add-banners="(sourceId) => requestAdd({ kind: 'banners', sourceId })"
             :should-load-deferred-banners="currentCatalog.deferredBanners.some((collection) => Boolean(collection.link))"
             @select-item="handleSelectItem"
             @load-banners="loadDeferredBanners"
@@ -297,12 +332,12 @@ function handleSelectCollectionItem(item: MediaItem) {
               <MediaCardCollection
                 :items="renderedSection.items"
                 :label="renderedSection.label ?? undefined"
-                :label-icon="renderedSection.section.preferenceKey === BOOKMARKS_SECTION_PREFERENCE_KEY ? 'mdi-bookmark' : undefined"
+                :label-icon="renderedSection.section.preferenceKey === bookmarkPreferenceKey ? 'mdi-bookmark' : undefined"
                 :mode="getSectionCollectionMode(renderedSection.section)"
                 :thumbnail-orientation="getSectionThumbnailOrientation(renderedSection.section) ?? props.thumbnailOrientation"
                 :thumbnail-image-fit="getSectionThumbnailImageFit(renderedSection.section) ?? props.thumbnailImageFit"
                 :thumbnail-size-multiplier="props.thumbnailSizeMultiplier"
-                :show-header-actions="showSectionEditingButtons || Boolean(renderedSection.subsection)"
+                :show-header-actions="editingEnabled || Boolean(renderedSection.subsection)"
                 :is-loading-more="isSectionLoading(renderedSection.section)"
                 :have-more="renderedSection.haveMore"
                 :load-more-error-message="getSectionLoadError(renderedSection.section)"
@@ -335,17 +370,21 @@ function handleSelectCollectionItem(item: MediaItem) {
                     </button>
                   </div>
                   <HomeSectionActions
-                    v-if="showSectionEditingButtons"
+                    v-if="editingEnabled"
+                    :show-add-button="props.mode !== 'custom'"
+                    @add-section="(section) => requestAdd({ kind: 'section', section })"
                     :section="renderedSection.section"
-                    :is-pinned="isSectionPinned(renderedSection.section)"
-                    :hide-pin-button="renderedSection.section.preferenceKey === BOOKMARKS_SECTION_PREFERENCE_KEY"
-                    :can-move-up="canMovePinnedSection(renderedSection.section, 'up')"
-                    :can-move-down="canMovePinnedSection(renderedSection.section, 'down')"
+                    :is-pinned="props.mode === 'custom'"
+                    hide-pin-button
+                    :hide-move-buttons="!renderedSection.section.customBlockIds?.length"
+                    :show-remove-button="Boolean(renderedSection.section.customBlockIds?.length)"
+                    :can-move-up="canMoveCustomSection(renderedSection.section, 'up')"
+                    :can-move-down="canMoveCustomSection(renderedSection.section, 'down')"
+                    @remove-section="(section) => { contentRequest = { kind: 'section', section, action: 'remove' } }"
+                    @move-pinned="(section, direction) => { contentRequest = { kind: 'section', section, action: direction } }"
                     :thumbnail-orientation="getSectionThumbnailOrientation(renderedSection.section) ?? props.thumbnailOrientation"
                     :thumbnail-image-fit="getSectionThumbnailImageFit(renderedSection.section) ?? props.thumbnailImageFit"
                     :collection-mode="getSectionCollectionMode(renderedSection.section)"
-                    @toggle-pinned="toggleSectionPinned"
-                    @move-pinned="movePinnedSection"
                     @update-thumbnail-orientation="updateSectionThumbnailOrientation"
                     @update-thumbnail-image-fit="updateSectionThumbnailImageFit"
                     @update-collection-mode="updateSectionCollectionMode"
@@ -356,6 +395,10 @@ function handleSelectCollectionItem(item: MediaItem) {
           </section>
 
           <HomeCategoryStrip
+            :show-add-button="editingEnabled"
+            :remove-mode="props.mode === 'custom'"
+            @remove-category="(category) => { contentRequest = { kind: 'category', category, action: 'remove' } }"
+            @add-category="(category) => requestAdd({ kind: 'category', category })"
             v-if="currentCatalog.categories.length > 0"
             class="home-catalog__category-strip"
             :categories="currentCatalog.categories"
@@ -374,11 +417,11 @@ function handleSelectCollectionItem(item: MediaItem) {
               <MediaCardCollection
                 :items="renderedSection.items"
                 :label="renderedSection.label ?? undefined"
-                :mode="homeCollectionMode"
+                :mode="getSectionCollectionMode(renderedSection.section)"
                 :thumbnail-orientation="getSectionThumbnailOrientation(renderedSection.section) ?? props.thumbnailOrientation"
                 :thumbnail-image-fit="getSectionThumbnailImageFit(renderedSection.section) ?? props.thumbnailImageFit"
                 :thumbnail-size-multiplier="props.thumbnailSizeMultiplier"
-                :show-header-actions="showSectionEditingButtons || Boolean(renderedSection.subsection)"
+                :show-header-actions="editingEnabled || Boolean(renderedSection.subsection)"
                 :is-loading-more="isSectionLoading(renderedSection.section)"
                 :have-more="renderedSection.haveMore"
                 :load-more-error-message="getSectionLoadError(renderedSection.section)"
@@ -411,16 +454,21 @@ function handleSelectCollectionItem(item: MediaItem) {
                     </button>
                   </div>
                   <HomeSectionActions
-                    v-if="showSectionEditingButtons"
+                    v-if="editingEnabled"
+                    :show-add-button="props.mode !== 'custom'"
+                    @add-section="(section) => requestAdd({ kind: 'section', section })"
                     :section="renderedSection.section"
-                    :is-pinned="isSectionPinned(renderedSection.section)"
-                    :can-move-up="canMovePinnedSection(renderedSection.section, 'up')"
-                    :can-move-down="canMovePinnedSection(renderedSection.section, 'down')"
+                    :is-pinned="props.mode === 'custom'"
+                    hide-pin-button
+                    :hide-move-buttons="!renderedSection.section.customBlockIds?.length"
+                    :show-remove-button="Boolean(renderedSection.section.customBlockIds?.length)"
+                    :can-move-up="canMoveCustomSection(renderedSection.section, 'up')"
+                    :can-move-down="canMoveCustomSection(renderedSection.section, 'down')"
+                    @remove-section="(section) => { contentRequest = { kind: 'section', section, action: 'remove' } }"
+                    @move-pinned="(section, direction) => { contentRequest = { kind: 'section', section, action: direction } }"
                     :thumbnail-orientation="getSectionThumbnailOrientation(renderedSection.section) ?? props.thumbnailOrientation"
                     :thumbnail-image-fit="getSectionThumbnailImageFit(renderedSection.section) ?? props.thumbnailImageFit"
                     :collection-mode="getSectionCollectionMode(renderedSection.section)"
-                    @toggle-pinned="toggleSectionPinned"
-                    @move-pinned="movePinnedSection"
                     @update-thumbnail-orientation="updateSectionThumbnailOrientation"
                     @update-thumbnail-image-fit="updateSectionThumbnailImageFit"
                     @update-collection-mode="updateSectionCollectionMode"
@@ -484,6 +532,9 @@ function handleSelectCollectionItem(item: MediaItem) {
       </template>
     </section>
 
+    <CustomHomeManager v-if="!props.previewOnly" v-model:open="addDialogOpen" :intent="addIntent" :show-trigger="false" />
+    <CustomHomeContentActions v-if="!props.previewOnly && props.mode === 'custom' && props.customDefinition"
+      :definition="props.customDefinition" :request="contentRequest" @close="contentRequest = null" />
     <ScrollToTopButton
       v-if="showScrollToTop"
       @click="scrollToTop"

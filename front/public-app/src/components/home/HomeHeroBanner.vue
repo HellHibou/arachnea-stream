@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import HomePinButton from '@/components/home/HomePinButton.vue'
 import { computed, onBeforeUnmount, onMounted, shallowRef, useTemplateRef, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
@@ -33,11 +34,17 @@ interface Props {
    * @default false
    */
   shouldLoadDeferredBanners?: boolean
+  /** Whether source-collection additions are available in edition mode. @default false */
+  showAddButton?: boolean
+  /** Edition-only removal of custom-home banner sources. @default false */
+  showRemoveButton?: boolean
 }
 
 /** Component props with applied defaults. */
 const props = withDefaults(defineProps<Props>(), {
   shouldLoadDeferredBanners: false,
+  showAddButton: false,
+  showRemoveButton: false,
 })
 
 const emit = defineEmits<{
@@ -45,6 +52,8 @@ const emit = defineEmits<{
   'select-item': [target: MediaSelectionTarget]
   /** Emitted after mount to request deferred banner collections. */
   'load-banners': []
+  'add-banners': [sourceId: string]
+  'remove-banners': []
 }>()
 
 /** Delay in milliseconds between automatic banner rotations. */
@@ -594,11 +603,17 @@ onBeforeUnmount(() => {
     <div class="home-hero-banner__panel">
       <div class="home-hero-banner__content">
         <div class="home-hero-banner__text">
+          <div class="home-hero-banner__service">
           <img v-if="serviceMetadata?.logo"
             class="source-logo-image"
             :src="serviceMetadata?.logo"
             :alt="serviceMetadata?.title ? `${serviceMetadata?.title} logo` : ''"
-          /><br  v-if="serviceMetadata?.logo" />
+          />
+            <HomePinButton v-if="props.showRemoveButton" active :label="t('customHome.removeBannerSources')"
+              @click="emit('remove-banners')" />
+            <HomePinButton v-else-if="props.showAddButton && activeBanner.source"
+              :label="t('customHome.addBanners')" @click="emit('add-banners', activeBanner.source)" />
+          </div>
           <img
             v-if="activeBanner.logoUrl"
             class="home-hero-banner__logo"
@@ -666,6 +681,11 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.home-hero-banner__service {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .home-hero-banner {
   --home-hero-banner-height: clamp(380px, 40vw, 520px);
   --home-hero-banner-text-outline: rgba(0, 0, 0, 0.5);
@@ -1004,8 +1024,10 @@ onBeforeUnmount(() => {
 
 .source-logo-image {
   height: 32px;
+  width: auto;
+  object-fit: contain;
   vertical-align: top;
-  margin-bottom: 8px;
+  margin-bottom: 0;
 }
 
 .home-hero-banner__arrow,

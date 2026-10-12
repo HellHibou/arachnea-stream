@@ -9,8 +9,7 @@ const stores = new Map<string, { keyPath: string; indexFields: string[] }>()
  * database, then returns the database connection.
  *
  * The function is idempotent: it can be called multiple times to create multiple
- * stores. Each call increments the database version, which triggers
- * `onupgradeneeded` and allows the creation of missing stores.
+ * stores. The database version increases only when stores are missing.
  *
  * @param storeName - Name of the object store to create (e.g. 'home_preferences').
  * @param keyPath - Name of the field used as the primary key (e.g. 'name').
@@ -31,20 +30,24 @@ export function initDB(
     // Close the previous connection before opening a new one, so any
     // sequential upgrade performed in this tab is not blocked.
     if (previousPromise) {
-      const previousDb = await previousPromise
-      previousDb.close()
+      try {
+        const previousDb = await previousPromise
+        previousDb.close()
+      } catch {
+        // A blocked upgrade must not prevent a later retry after the other tab closes.
+      }
     }
 
     // Start from the database's existing version (if any), so a page reload
     // does not try to open a lower version than stored. A fresh browser has
     // no database yet: open version 1 (IndexedDB rejects version 0).
-    let currentVersion: number
+    let currentVersion: number | undefined
     if (typeof indexedDB.databases === 'function') {
       const existingDatabases = await indexedDB.databases()
       const existing = existingDatabases.find((db) => db.name === DB_NAME)
       currentVersion = existing?.version ?? 1
     } else {
-      currentVersion = 1
+      currentVersion = undefined
     }
 
     const currentDb = await openDB(currentVersion)
@@ -57,8 +60,9 @@ export function initDB(
     }
 
     // Some stores are missing: close and reopen at the next version to create them.
+    const nextVersion = currentDb.version + 1
     currentDb.close()
-    return openDB(currentVersion + 1)
+    return openDB(nextVersion)
   })()
 
   return dbPromise
@@ -68,15 +72,20 @@ export function initDB(
  * Opens the IndexedDB database at the given version, creating any missing
  * stores declared in the `stores` map during the upgrade.
  *
- * @param version - Database version to open.
+ * @param version - Database version to open; omitted opens the current version.
  * @returns A promise resolved with the opened connection.
  * @throws {Error} If the database upgrade is blocked by another tab.
  */
-function openDB(version: number): Promise<IDBDatabase> {
+function openDB(version?: number): Promise<IDBDatabase> {
   return new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, version)
+    let blocked = false
 
     request.onupgradeneeded = () => {
+      if (blocked) {
+        request.transaction?.abort()
+        return
+      }
       const db = request.result
       for (const [name, def] of stores) {
         if (db.objectStoreNames.contains(name)) continue
@@ -87,10 +96,17 @@ function openDB(version: number): Promise<IDBDatabase> {
       }
     }
 
-    request.onsuccess = () => resolve(request.result)
+    request.onsuccess = () => {
+      const db = request.result
+      db.onversionchange = () => db.close()
+      if (blocked) db.close()
+      else resolve(db)
+    }
     request.onerror = () => reject(request.error)
-    request.onblocked = () =>
+    request.onblocked = () => {
+      blocked = true
       reject(new Error('Database upgrade blocked by another tab'))
+    }
   })
 }
 
@@ -101,7 +117,7 @@ function openDB(version: number): Promise<IDBDatabase> {
  * @returns The cached {@link IDBDatabase} connection.
  * @throws {Error} If {@link initDB} has not been called yet.
  */
-async function getDB(): Promise<IDBDatabase> {
+export async function getDB(): Promise<IDBDatabase> {
   if (!dbPromise) {
     throw new Error("initDB() must be called before any other operation")
   }

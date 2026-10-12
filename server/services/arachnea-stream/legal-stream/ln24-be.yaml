@@ -214,6 +214,11 @@ queries:
       - name: sections
         type: object[]
         entries:
+          - name: key
+            type: string
+            actions:
+              - type: format_text
+                argument: "rail:category-content"
           - name: label
             type: string
             select: first

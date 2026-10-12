@@ -124,6 +124,46 @@ fn service_stream_metadata(yaml_file: &str) -> Result<()> {
                     "service_stream_metadata should complete without errors, got {:?}",
                     result.errors,
                 );
+                let source = result.data[0]["id"].value_as_string().unwrap();
+                let advertised = &result.data[0]["supported_queries"].values;
+                assert_eq!(
+                    advertised.contains(&"load_home".to_string()),
+                    scraper.scraper_agregator.source_has_query(
+                        STREAM_SERVICE_GROUP_NAME,
+                        source,
+                        "load_home"
+                    ),
+                );
+                let (empty, etag) = scraper
+                    .load_home(RequestControlerContext::default(), Some(Vec::new()))
+                    .await?;
+                assert!(empty.data.is_empty() && empty.errors.is_empty() && etag.is_none());
+                let (unknown, etag) = scraper
+                    .load_home(
+                        RequestControlerContext::default(),
+                        Some(vec!["unknown-source-for-filter-validation".to_string()]),
+                    )
+                    .await?;
+                assert!(unknown.data.is_empty() && unknown.errors.len() == 1 && etag.is_none());
+                assert_eq!(
+                    unknown.errors[0].source.as_deref(),
+                    Some("unknown-source-for-filter-validation")
+                );
+                for invalid in [
+                    r#"{"sources":null}"#,
+                    r#"{"sources":"arte-fr"}"#,
+                    r#"{"sources":[""]}"#,
+                    r#"{"sources":[" "]}"#,
+                ] {
+                    assert!(serde_json::from_str::<super::LoadHomeRequest>(invalid).is_err());
+                }
+                assert!(serde_json::from_str::<super::LoadHomeRequest>("{}")?
+                    .sources
+                    .is_none());
+                assert_eq!(
+                    serde_json::from_str::<super::LoadHomeRequest>(r#"{"sources":[]}"#)?.sources,
+                    Some(Vec::new())
+                );
                 Ok(result.data)
             })
         },
@@ -145,7 +185,7 @@ fn load_home(yaml_file: &str) -> Result<()> {
         move |scraper| {
             Box::pin(async move {
                 let (result, _) = scraper
-                    .load_home(RequestControlerContext::default())
+                    .load_home(RequestControlerContext::default(), None)
                     .await?;
                 assert!(
                     result.is_ok(),
@@ -299,7 +339,7 @@ async fn load_entry_url_from_home(
     query_source: &str,
 ) -> Result<String> {
     let (home_result, _) = scraper
-        .load_home(RequestControlerContext::default())
+        .load_home(RequestControlerContext::default(), None)
         .await?;
     let home_result = home_result.data;
 

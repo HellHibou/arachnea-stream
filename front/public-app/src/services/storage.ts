@@ -172,6 +172,8 @@ const DEFAULT_TEXT_TRACK_PREFERENCE: VideoJsTextTrackPreference = {
  * Props accepted by the search display parameters component.
  */
 export interface Parameters {
+  /** Stable custom home id; null keeps the aggregated landing page. */
+  defaultHomeId: Ref<string | null>
   /**
    * Thumbnail orientation applied to search results.
    */
@@ -276,6 +278,7 @@ export interface HomePreferences {
 
 /** Default parameter definitions with their keys and default values. */
 const PARAMETERS_DEF: ParameterEntry[] = [
+  { key: 'defaultHomeId', defaultValue: null },
   { key: 'thumbnailOrientation',          defaultValue: 'landscape'},
   { key: 'thumbnailImageFit',             defaultValue: 'contain'  },
   { key: 'thumbnailSizeMultiplier',       defaultValue: 1          },
@@ -300,7 +303,7 @@ export const useStorage = defineStore('storage', () => {
     const parameters: Parameters = {} as Parameters;
     PARAMETERS_DEF.forEach((param) => {
         const rawValue = getStoreItem(PARAM_PREFIX + param.key, param.defaultValue)
-        const value = param.key === 'language'
+        const value = param.key === 'language' || param.key === 'defaultHomeId'
           ? sanitizeNullableString(rawValue)
           : rawValue
         ;(parameters as any) [param.key] = ref(value);
@@ -613,11 +616,14 @@ export const useStorage = defineStore('storage', () => {
      *
      * @param sectionKey - Preference key of the section to move.
      * @param direction - Direction to move the section.
+     * @param visibleKeys - Optional catalog-scoped order; other catalogs are never swapped.
      */
-    async function movePinnedSection(sectionKey: string, direction: 'up' | 'down'): Promise<void> {
+    async function movePinnedSection(sectionKey: string, direction: 'up' | 'down', visibleKeys?: string[]): Promise<void> {
       await ensureSectionRecord(sectionKey)
 
-      const ordered = [...sectionRecords.value].sort((a, b) => a.order - b.order)
+      const ordered = visibleKeys
+        ? visibleKeys.flatMap((key) => sectionRecords.value.filter((record) => record.name === key))
+        : [...sectionRecords.value].sort((a, b) => a.order - b.order)
       const currentIndex = ordered.findIndex((r) => r.name === sectionKey)
 
       if (currentIndex < 0) {

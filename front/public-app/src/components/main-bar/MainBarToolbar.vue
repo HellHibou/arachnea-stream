@@ -1,5 +1,9 @@
 <script setup lang="ts">
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { computed } from 'vue'
+import { useServiceMetadata } from '@/composables/useServiceMetadata'
+import { useCustomHomeDefinition } from '@/composables/home/useCustomHomeDefinition'
+import { useStorage } from '@/services/storage'
 
 import type { SearchFilterOption } from '@/services/rustify'
 import { useI18n } from '@/i18n'
@@ -12,6 +16,10 @@ import { APP_TITLE } from '../../constants'
  * Props accepted by the main toolbar row rendered above the current screen.
  */
 interface Props {
+  /** Mobile navigation trigger availability and controlled expansion. @default false */
+  showNavigationButton?: boolean
+  /** Whether the mobile navigation drawer is expanded. @default false */
+  isNavigationOpen?: boolean
   /**
    * Controlled search query value.
    */
@@ -60,6 +68,8 @@ interface Props {
 /** Component props with applied defaults. */
 withDefaults(defineProps<Props>(), {
   showBackButton: false,
+  showNavigationButton: false,
+  isNavigationOpen: false,
   isParametersVisible: false,
   isSearchVisible: false,
 })
@@ -77,8 +87,8 @@ const emit = defineEmits<{
   back: []
   /** Emitted when the home button is clicked. */
   home: []
-  /** Emitted when the lives button is clicked. */
-  lives: []
+  /** Emitted when the mobile drawer toggle is clicked. */
+  'toggle-navigation': []
   /** Emitted when the parameters toggle is clicked. */
   'toggle-parameters': []
   /** Emitted when the search toggle is clicked. */
@@ -88,18 +98,26 @@ const emit = defineEmits<{
 /** Internationalization utilities. */
 const { t } = useI18n()
 
-/** Vue Router instance used to resolve home and lives links. */
+/** Vue Router instance used to resolve the main home link. */
 const router = useRouter()
+const route = useRoute()
+const metadata = useServiceMetadata()
+const activeService = computed(() => route.name === 'source-home' ? metadata.getService(String(route.params.sourceId)) : undefined)
+const customHome = useCustomHomeDefinition(() => route.name === 'custom-home' ? String(route.params.homeId) : '')
 
 /** Browser href for the home route. */
-const homeHref = router.resolve({ name: 'home' }).href
-/** Browser href for the lives route. */
-const livesHref = router.resolve({ name: 'lives' }).href
+const homeHref = computed(() => {
+  const id = useStorage().getParameters().defaultHomeId.value
+  return router.resolve(id ? { name: 'custom-home', params: { homeId: id } } : { name: 'home' }).href
+})
 </script>
 
 <template>
   <div class="main-bar__row">
     <div class="main-bar__leading">
+      <button v-if="showNavigationButton" id="app-navigation-toggle" class="main-bar__home-button" type="button"
+        aria-controls="app-navigation" :aria-expanded="isNavigationOpen" :aria-label="t('navigation.open')"
+        @click="emit('toggle-navigation')"><v-icon icon="mdi-menu" aria-hidden="true" /></button>
       <button
         class="main-bar__back-button"
         :class="{ 'main-bar__back-button--hidden': !showBackButton }"
@@ -112,20 +130,22 @@ const livesHref = router.resolve({ name: 'lives' }).href
         <v-icon icon="$NavigateBefore" size="22" aria-hidden="true" />
       </button>
 
-      <a
-        class="main-bar__home-button"
-        :href="homeHref"
-        :aria-label="t('toolbar.home')"
-        @click.prevent="emit('home')"
-      >
-        <v-icon icon="mdi-home-outline" size="20" aria-hidden="true" />
-      </a>
-      <div>
+      <a :href="homeHref" :aria-label="t('toolbar.home')" class="main-bar__brand-link" @click.prevent="emit('home')">
         <img src="/logo.png" alt="" class="logo" />
         <span class="main-bar__brand">
           {{APP_TITLE}}
         </span>
-      </div>
+      </a>
+      <span v-if="activeService" class="main-bar__service">
+        <span class="main-bar__brand" aria-hidden="true">-</span>
+        <img v-if="activeService.logo" :src="activeService.logo" alt="" class="main-bar__service-logo" />
+        <span class="main-bar__brand">{{ activeService.title }}</span>
+      </span>
+      <span v-else-if="customHome.definition.value" class="main-bar__service">
+        <span class="main-bar__brand" aria-hidden="true">-</span>
+        <v-icon icon="mdi-home-outline" size="32" aria-hidden="true" />
+        <span class="main-bar__brand">{{ customHome.definition.value.name }}</span>
+      </span>
     </div>
 
     <div class="main-bar__search-group">
@@ -147,15 +167,6 @@ const livesHref = router.resolve({ name: 'lives' }).href
     </div>
 
     <div class="main-bar__actions">
-      <a
-        class="main-bar__lives-button"
-        :href="livesHref"
-        :aria-label="t('toolbar.lives')"
-        @click.prevent="emit('lives')"
-      >
-        <v-icon icon="mdi-television-play" size="22" aria-hidden="true" />
-      </a>
-
       <button
         class="main-bar__search-toggle-button"
         type="button"
@@ -182,6 +193,19 @@ const livesHref = router.resolve({ name: 'lives' }).href
 </template>
 
 <style scoped>
+.main-bar__service {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.main-bar__service-logo {
+  height: 32px;
+  width: auto;
+  object-fit: contain;
+  flex-shrink: 0;
+}
 .logo  {
   width: 32px;
   height: 32px;
@@ -198,11 +222,21 @@ const livesHref = router.resolve({ name: 'lives' }).href
 }
 
 .main-bar__leading {
-  display: grid;
-  grid-template-columns: 52px 52px minmax(0, auto);
+  display: flex;
   align-items: center;
   gap: 12px;
   min-width: 0;
+}
+
+.main-bar__brand-link {
+  min-width: 0;
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+.main-bar__brand-link:focus-visible {
+  outline: var(--common-focus-ring);
+  outline-offset: 2px;
 }
 
 .main-bar__search-group {
