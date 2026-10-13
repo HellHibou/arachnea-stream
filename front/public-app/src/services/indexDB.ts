@@ -2,14 +2,33 @@
 const DB_NAME = 'arachnea-db'
 
 let dbPromise: Promise<IDBDatabase> | null = null
+let initChain: Promise<void> = Promise.resolve()
 const stores = new Map<string, { keyPath: string; indexFields: string[] }>()
+
+/** @param db Open connection. Watches close/version changes so stale connections are never reused. */
+function watchConnection(db: IDBDatabase): void {
+  const invalidate = () => {
+    if (dbPromise) {
+      void dbPromise.catch(() => undefined).then((current) => {
+        if (current === db) dbPromise = null
+      })
+    }
+  }
+  db.onclose = invalidate
+  db.onversionchange = () => {
+    db.close()
+    invalidate()
+  }
+}
 
 /**
  * Initializes (or updates) an object store and its indexes in the IndexedDB
  * database, then returns the database connection.
  *
  * The function is idempotent: it can be called multiple times to create multiple
- * stores. The database version increases only when stores are missing.
+ * stores. Concurrent calls are serialized so a second initialization never closes
+ * the connection used by the first one. The database version increases only when
+ * stores are missing.
  *
  * @param storeName - Name of the object store to create (e.g. 'home_preferences').
  * @param keyPath - Name of the field used as the primary key (e.g. 'name').
@@ -25,15 +44,20 @@ export function initDB(
 ): Promise<IDBDatabase> {
   stores.set(storeName, { keyPath, indexFields })
 
-  const previousPromise = dbPromise
-  dbPromise = (async () => {
-    // Close the previous connection before opening a new one, so any
-    // sequential upgrade performed in this tab is not blocked.
-    if (previousPromise) {
+  const run = initChain.then(async () => {
+    if (dbPromise) {
       try {
-        const previousDb = await previousPromise
-        previousDb.close()
+        const currentDb = await dbPromise
+        const missingStores = [...stores.keys()].filter(
+          (name) => !currentDb.objectStoreNames.contains(name),
+        )
+        if (missingStores.length === 0) return currentDb
+        // An upgrade is required: this connection must be closed first so the
+        // version change is not blocked by this tab.
+        currentDb.close()
+        dbPromise = null
       } catch {
+        dbPromise = null
         // A blocked upgrade must not prevent a later retry after the other tab closes.
       }
     }
@@ -56,16 +80,23 @@ export function initDB(
     )
 
     if (missingStores.length === 0) {
+      dbPromise = Promise.resolve(currentDb)
       return currentDb
     }
 
     // Some stores are missing: close and reopen at the next version to create them.
     const nextVersion = currentDb.version + 1
     currentDb.close()
-    return openDB(nextVersion)
-  })()
+    const upgradedDb = await openDB(nextVersion)
+    dbPromise = Promise.resolve(upgradedDb)
+    return upgradedDb
+  })
+  initChain = run.then(
+    () => undefined,
+    () => undefined,
+  )
 
-  return dbPromise
+  return run
 }
 
 /**
@@ -98,7 +129,7 @@ function openDB(version?: number): Promise<IDBDatabase> {
 
     request.onsuccess = () => {
       const db = request.result
-      db.onversionchange = () => db.close()
+      watchConnection(db)
       if (blocked) db.close()
       else resolve(db)
     }
@@ -113,15 +144,56 @@ function openDB(version?: number): Promise<IDBDatabase> {
 /**
  * Returns the connection to the previously opened IndexedDB database.
  *
+ * When the cached connection was invalidated by a close or version change,
+ * known stores are reopened automatically so callers never transact on a
+ * closed database.
+ *
  * @internal
  * @returns The cached {@link IDBDatabase} connection.
  * @throws {Error} If {@link initDB} has not been called yet.
  */
 export async function getDB(): Promise<IDBDatabase> {
-  if (!dbPromise) {
+  if (dbPromise) {
+    try {
+      return await dbPromise
+    } catch {
+      dbPromise = null
+    }
+  }
+  if (stores.size === 0) {
     throw new Error("initDB() must be called before any other operation")
   }
-  return dbPromise
+  let reopened: IDBDatabase | undefined
+  for (const [name, config] of stores) {
+    reopened = await initDB(name, config.keyPath, config.indexFields)
+  }
+  if (!reopened) throw new Error("initDB() must be called before any other operation")
+  return reopened
+}
+
+/** @param error Transaction failure. @returns Whether the connection was closed and a reopen may help. */
+function isClosedDatabaseError(error: unknown): boolean {
+  if (error instanceof DOMException) {
+    return error.name === 'InvalidStateError' || /closed/i.test(error.message)
+  }
+  return error instanceof Error && /closed database/i.test(error.message)
+}
+
+/**
+ * Runs an IndexedDB operation, reopening known stores once when the cached
+ * connection was closed (multi-tab upgrade, concurrent initialization).
+ * @typeParam T Operation result.
+ * @param operation Task using a live connection.
+ * @returns Operation result.
+ */
+export async function withDatabaseRetry<T>(operation: (db: IDBDatabase) => Promise<T>): Promise<T> {
+  try {
+    return await operation(await getDB())
+  } catch (error) {
+    if (!isClosedDatabaseError(error)) throw error
+    dbPromise = null
+    return operation(await getDB())
+  }
 }
 
 /**
@@ -142,9 +214,11 @@ export async function getAllRecordsDB<T extends Record<string, any>>(
   storeName: string,
   sortField?: string,
 ): Promise<T[]> {
-  const db = await getDB()
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, 'readonly')
+  return withDatabaseRetry((db) => new Promise<T[]>((resolve, reject) => {
+    let tx: IDBTransaction
+    try {
+      tx = db.transaction(storeName, 'readonly')
+    } catch (error) { reject(error); return }
     const store = tx.objectStore(storeName)
 
     const useIndex = !!sortField && store.indexNames.contains(sortField)
@@ -163,7 +237,7 @@ export async function getAllRecordsDB<T extends Record<string, any>>(
       }
     }
     request.onerror = () => reject(request.error)
-  })
+  }))
 }
 
 /**
@@ -179,13 +253,15 @@ export async function loadRecordDB<T extends Record<string, any>>(
   storeName: string,
   key: IDBValidKey,
 ): Promise<T | undefined> {
-  const db = await getDB()
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, 'readonly')
+  return withDatabaseRetry((db) => new Promise<T | undefined>((resolve, reject) => {
+    let tx: IDBTransaction
+    try {
+      tx = db.transaction(storeName, 'readonly')
+    } catch (error) { reject(error); return }
     const request = tx.objectStore(storeName).get(key)
     request.onsuccess = () => resolve(request.result as T | undefined)
     request.onerror = () => reject(request.error)
-  })
+  }))
 }
 
 /**
@@ -204,13 +280,15 @@ export async function saveRecordDB<T extends Record<string, any>>(
   storeName: string,
   record: T,
 ): Promise<void> {
-  const db = await getDB()
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, 'readwrite')
+  return withDatabaseRetry((db) => new Promise<void>((resolve, reject) => {
+    let tx: IDBTransaction
+    try {
+      tx = db.transaction(storeName, 'readwrite')
+    } catch (error) { reject(error); return }
     tx.objectStore(storeName).put(record)
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error)
-  })
+  }))
 }
 
 /**
@@ -225,11 +303,13 @@ export async function deleteRecordDB(
   storeName: string,
   key: IDBValidKey,
 ): Promise<void> {
-  const db = await getDB()
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, 'readwrite')
+  return withDatabaseRetry((db) => new Promise<void>((resolve, reject) => {
+    let tx: IDBTransaction
+    try {
+      tx = db.transaction(storeName, 'readwrite')
+    } catch (error) { reject(error); return }
     tx.objectStore(storeName).delete(key)
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error)
-  })
+  }))
 }

@@ -255,6 +255,11 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Custom-home ids now use a shared `createUuid()` helper with `getRandomValues()`/`Math.random()` fallbacks, so creation works on plain HTTP LAN hosts where `crypto.randomUUID()` is unavailable.
+- IndexedDB initialization is serialized, closed connections are invalidated on close/version changes, and transactions reopen known stores once after a closed-database failure.
+- Toolbar brand titles use a taller line height so descenders (y, g, p) are no longer clipped, without moving the text position.
+- Navigation state (Services Vidéo group expansion and desktop sidebar visibility) is read once at page load and stays local to the page; toggling in one tab or window no longer toggles the other.
+
 - Navigate to the configured default home when clicking the sidebar Home group heading; keep its custom-home children permanently visible.
 - Raise the toolbar brand logo by 3px without shifting the brand text or service icon.
 - Render only the visible hero indicator window with absolute banner indices, avoiding clipped-track offsets after deferred source additions, and retain the active banner by source/id across list reordering.

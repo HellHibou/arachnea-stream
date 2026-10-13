@@ -211,8 +211,9 @@ The sidebar orders custom homes, Lives, then capability-filtered sources in a
 collapsible group. Home ids and source ids remain the routing identities. Source
 navigation uses metadata only, never provider-home preloading. The source group
 expansion is stored in `arachnea.navigation.sourcesExpanded` in localStorage;
-storage failures are reported without disabling navigation. Cross-tab storage
-events and focus refresh synchronize this preference; home lists refresh on focus,
+storage failures are reported without disabling navigation. The stored value is
+read once at page load; runtime toggles stay local to the page and are never
+synchronized across tabs or windows. Home lists refresh on focus,
 visibility and committed local mutations, without replacing editor drafts.
 
 Above 1000px the sidebar is toggled by the leftmost toolbar menu button; its visibility is persisted locally. When visible, it and reserves content width (260px, or

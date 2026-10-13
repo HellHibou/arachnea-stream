@@ -31,12 +31,10 @@ export function useAppNavigation(options: { toolbarElement: () => HTMLElement | 
       try { localStorage.setItem('arachnea.navigation.visible', JSON.stringify(desktopVisible.value)) } catch { /* Navigation remains usable without storage. */ }
     }
   }
-  /** Restores desktop visibility without persisting temporary mobile drawer closures. */
+  /** Reads the persisted visibility once at page load; runtime toggles stay local to this page. */
   function readVisibility(): void {
     try { desktopVisible.value = localStorage.getItem('arachnea.navigation.visible') !== 'false' } catch { desktopVisible.value = true }
   }
-  /** @param event Shared preference update from another browser view. */
-  function onStorage(event: StorageEvent): void { if (event.key === 'arachnea.navigation.visible' || event.key === null) readVisibility() }
   /** Synchronizes native/webkit fullscreen and prevents a drawer surviving fullscreen entry. */
   function updateFullscreen(): void {
     const doc = document as FullscreenDocument
@@ -47,8 +45,6 @@ export function useAppNavigation(options: { toolbarElement: () => HTMLElement | 
   function updateViewport(): void { isMobile.value = mediaQuery?.matches ?? false; close(false) }
   onMounted(() => {
     readVisibility()
-    window.addEventListener("storage", onStorage)
-    window.addEventListener("focus", readVisibility)
     mediaQuery = window.matchMedia('(max-width: 1000px)')
     updateViewport()
     mediaQuery.addEventListener('change', updateViewport)
@@ -65,8 +61,6 @@ export function useAppNavigation(options: { toolbarElement: () => HTMLElement | 
   })
   watch(isOpen, (open) => { if (isFullscreen.value && open) close(false) })
   onScopeDispose(() => {
-    window.removeEventListener("storage", onStorage)
-    window.removeEventListener("focus", readVisibility)
     mediaQuery?.removeEventListener('change', updateViewport)
     observer?.disconnect()
     for (const event of ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'MSFullscreenChange']) {

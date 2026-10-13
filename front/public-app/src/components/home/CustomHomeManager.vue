@@ -10,6 +10,7 @@ import { useI18n } from '@/i18n'
 import { useStorage } from '@/services/storage'
 import type { CustomHomeAddIntent, CustomHomeDefinition } from '@/types/customHome'
 import { applyQuickAddSelections, resolveQuickAddSelections } from '@/services/customHomeQuickAdd'
+import { createUuid } from '@/utils'
 import DefaultHomeSetting from './DefaultHomeSetting.vue'
 
 const CustomHomeEditor = defineAsyncComponent(() => import('@/components/home/CustomHomeEditor.vue'))
@@ -132,7 +133,7 @@ async function fromSource(): Promise<void> {
     let draft = applyCustomHomeSelection(manager.draft.value, { kind: 'banners', sourceId: props.sourceId })
     for (const category of row.catalog.categories) draft = applyCustomHomeSelection(draft, { kind: 'shortcut', reference: createCategoryReference(category) })
     for (const section of row.catalog.sections) draft = applyCustomHomeSelection(draft, { kind: 'block', block: {
-      id: crypto.randomUUID(), kind: 'home-section', reference: createSectionReference(section), titleOverride: null,
+      id: createUuid(), kind: 'home-section', reference: createSectionReference(section), titleOverride: null,
     } })
     manager.draft.value = draft
     session.value++

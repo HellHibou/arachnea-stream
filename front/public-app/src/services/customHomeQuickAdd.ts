@@ -1,4 +1,5 @@
 import { loadHomeSourceDiscovery } from '@/services/rustify'
+import { createUuid } from '@/utils'
 import { createCategoryReference, createSectionReference } from '@/services/customHomeReferences'
 import { applyCustomHomeSelection } from '@/services/customHomeDraft'
 import type { CustomHomeAddIntent, CustomHomeDefinition, CustomHomeSelection } from '@/types/customHome'
@@ -30,11 +31,11 @@ export async function resolveQuickAddSelections(
   if (intent.kind === 'category' && intent.category.identity && intent.category.sources.length === 1) {
     const reference = createCategoryReference(intent.category)
     return [categoryMode === 'shortcut' ? { kind: 'shortcut', reference } : {
-      kind: 'block', block: { id: crypto.randomUUID(), kind: 'category-content', reference, titleOverride: null },
+      kind: 'block', block: { id: createUuid(), kind: 'category-content', reference, titleOverride: null },
     }]
   }
   if (intent.kind === 'section' && intent.section.identity && intent.section.sourceOrder.length === 1) {
-    return [{ kind: 'block', block: { id: crypto.randomUUID(), kind: 'home-section',
+    return [{ kind: 'block', block: { id: createUuid(), kind: 'home-section',
       reference: createSectionReference(intent.section), titleOverride: null } }]
   }
   const sourceIds = intent.kind === 'category'
@@ -53,7 +54,7 @@ export async function resolveQuickAddSelections(
         if (matches.length !== 1) throw new Error(`Selected category is missing or ambiguous: ${sourceId}`)
         const reference = createCategoryReference(matches[0]!)
         return categoryMode === 'shortcut' ? { kind: 'shortcut', reference } : {
-          kind: 'block', block: { id: crypto.randomUUID(), kind: 'category-content', reference, titleOverride: null },
+          kind: 'block', block: { id: createUuid(), kind: 'category-content', reference, titleOverride: null },
         }
       })
     }
@@ -63,7 +64,7 @@ export async function resolveQuickAddSelections(
     const matches = row.catalog.sections.filter((section) => section.preferenceKey === preferenceKey)
     if (matches.length === 0) throw new Error(`Selected section is missing or ambiguous: ${sourceId}`)
     return matches.map((section) => ({ kind: 'block', block: {
-      id: crypto.randomUUID(), kind: 'home-section', reference: createSectionReference(section), titleOverride: null,
+      id: createUuid(), kind: 'home-section', reference: createSectionReference(section), titleOverride: null,
     } }))
   })
 }

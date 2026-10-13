@@ -241,7 +241,7 @@ const homeHref = computed(() => {
   font-size: 1.5rem;
   font-weight: 800;
   letter-spacing: 0.02em;
-  line-height: 1.1;
+  line-height: 1.25;
   text-align: center;
   text-shadow: var(--text-shadow-primary);
   white-space: nowrap;

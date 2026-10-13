@@ -71,25 +71,13 @@ onMounted(() => {
   void metadata.load()
   void syncDialog()
 })
-/** @param event Cross-tab preference updates; native independent views reread on focus. */
-function onStorage(event: StorageEvent): void {
-  if (event.key === expansionKey || event.key === null) readExpansion()
-}
-/** Reads the current persistent preference without resetting it when storage is unavailable. */
+/** Reads the initial persisted preference once at page load; runtime toggles stay local to this page. */
 function readExpansion(): void {
   try { sourcesExpanded.value = localStorage.getItem(expansionKey) !== 'false'; preferenceError.value = null }
   catch { preferenceError.value = t('navigation.storageError') }
 }
-/** Refreshes expansion after a suspended native view or browser tab becomes visible. */
-function onVisibility(): void { if (document.visibilityState === 'visible') readExpansion() }
-window.addEventListener('storage', onStorage)
-window.addEventListener('focus', readExpansion)
-document.addEventListener('visibilitychange', onVisibility)
 onScopeDispose(() => {
   widthObserver?.disconnect()
-  window.removeEventListener('storage', onStorage)
-  window.removeEventListener('focus', readExpansion)
-  document.removeEventListener('visibilitychange', onVisibility)
   const dialog = surface.value
   if (dialog instanceof HTMLDialogElement && dialog.open) dialog.close()
 })

@@ -4,6 +4,7 @@ import ParametersSection from '@/components/parameters/ParametersSection.vue'
 import { useServiceMetadata } from '@/composables/useServiceMetadata'
 import { useCustomHomePicker } from '@/composables/home/useCustomHomePicker'
 import { createCategoryReference, createSectionReference } from '@/services/customHomeReferences'
+import { createUuid } from '@/utils'
 import { useI18n } from '@/i18n'
 import type { CustomHomeSelection } from '@/types/customHome'
 import type { HomeCategory, HomeSection } from '@/types/home'
@@ -34,14 +35,14 @@ function selectCategory(category: HomeCategory, kind: 'shortcut' | 'block'): voi
   try {
     const reference = createCategoryReference(category)
     emit('select', kind === 'shortcut' ? { kind, reference } : {
-      kind, block: { id: crypto.randomUUID(), kind: 'category-content', reference, titleOverride: null },
+      kind, block: { id: createUuid(), kind: 'category-content', reference, titleOverride: null },
     })
   } catch (error) { selectionError.value = error instanceof Error ? error.message : String(error) }
 }
 /** @param section Unmerged section. @param subsectionKey Optional source-owned variant identity. */
 function selectSection(section: HomeSection, subsectionKey?: string): void {
   try {
-    emit('select', { kind: 'block', block: { id: crypto.randomUUID(), kind: 'home-section',
+    emit('select', { kind: 'block', block: { id: createUuid(), kind: 'home-section',
       reference: createSectionReference(section, subsectionKey), titleOverride: null } })
   } catch (error) { selectionError.value = error instanceof Error ? error.message : String(error) }
 }

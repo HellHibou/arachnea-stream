@@ -1,4 +1,5 @@
-import { getAllRecordsDB, getDB, initDB, loadRecordDB } from '@/services/indexDB'
+import { getAllRecordsDB, initDB, loadRecordDB, withDatabaseRetry } from '@/services/indexDB'
+import { createUuid } from '@/utils'
 import { validateCustomHomeDefinition } from '@/services/customHomeValidation'
 import type { CustomHomeDefinition, CustomHomeListResult } from '@/types/customHome'
 import { customHomeSlug } from '@/services/customHomeRoute'
@@ -56,7 +57,7 @@ export async function loadCustomHome(id: string): Promise<CustomHomeDefinition |
 export function createCustomHomeDraft(name: string, navigationOrder = 0): CustomHomeDefinition {
   const now = Date.now()
   return validateCustomHomeDefinition({
-    schemaVersion: 1, id: crypto.randomUUID(), name, navigationOrder,
+    schemaVersion: 1, id: createUuid(), name, navigationOrder,
     bannerSources: [], categoryShortcuts: [], blocks: [], sectionMergeMode: 'none',
     showBookmarks: false, createdAt: now, updatedAt: now,
   })
@@ -100,9 +101,11 @@ export async function reorderCustomHomes(homes: CustomHomeDefinition[]): Promise
     throw new Error('Custom home order contains duplicate ids')
   }
   await initCustomHomesDB()
-  const db = await getDB()
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readwrite')
+  return withDatabaseRetry((db) => new Promise<void>((resolve, reject) => {
+    let tx: IDBTransaction
+    try {
+      tx = db.transaction(STORE_NAME, 'readwrite')
+    } catch (error) { reject(error); return }
     const store = tx.objectStore(STORE_NAME)
     const request = store.getAll()
     let failure: unknown
@@ -122,7 +125,7 @@ export async function reorderCustomHomes(homes: CustomHomeDefinition[]): Promise
     tx.oncomplete = () => resolve()
     tx.onabort = () => reject(failure ?? tx.error ?? new Error('Custom home order transaction aborted'))
     tx.onerror = () => reject(failure ?? tx.error ?? new Error('Custom home order transaction failed'))
-  })
+  }))
 }
 
 /**
@@ -142,9 +145,11 @@ async function mutateCustomHome(
     throw new Error('Custom home mutation requires a valid id and expected revision')
   }
   await initCustomHomesDB()
-  const db = await getDB()
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readwrite')
+  return withDatabaseRetry((db) => new Promise<CustomHomeDefinition | undefined>((resolve, reject) => {
+    let tx: IDBTransaction
+    try {
+      tx = db.transaction(STORE_NAME, 'readwrite')
+    } catch (error) { reject(error); return }
     const store = tx.objectStore(STORE_NAME)
     const request = store.getAll()
     let committed: CustomHomeDefinition | undefined
@@ -179,5 +184,5 @@ async function mutateCustomHome(
     tx.oncomplete = () => resolve(committed)
     tx.onabort = () => reject(failure ?? tx.error ?? new Error(`Custom home ${id} transaction aborted`))
     tx.onerror = () => reject(failure ?? tx.error ?? new Error(`Custom home ${id} transaction failed`))
-  })
+  }))
 }
