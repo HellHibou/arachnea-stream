@@ -56,7 +56,13 @@ npm run lint:css:fix
 
 ## Source homes
 
-`/` keeps the aggregated catalog. `/sources/:sourceId` loads only the exact
+Hero banner navigation displays at most ten indicators in an automatically
+scrolling window that follows the selected banner, including carousel wraparound.
+The active indicator is a 23px pill (two 8px dots plus their 7px gap). Indicators
+outside the window are hidden from keyboard navigation and assistive technology;
+scrolling respects reduced-motion preferences. Indicators remain hidden on mobile.
+
+`/` keeps the aggregated catalog. `/source/:sourceId` loads only the exact
 backend source selected by the route. The navigation source group uses service
 metadata and registry-derived `supported_queries`, without loading every
 provider home. Direct links, reloads and browser history preserve the selection.
@@ -72,16 +78,40 @@ Custom homes and source destinations are available through the permanent sidebar
 
 ## Custom home rendering (lot 2B)
 
-The Home settings include a persisted default landing page (aggregate or an existing
-custom home). Initial navigation to `/` and brand clicks resolve that definition;
-explicit service/custom/search routes remain untouched. Deleted or unreadable
-definitions fall back to the aggregate without selecting another service. Creation
+Public accueil URLs use `/home/<title_slug>` (lowercase, accents removed, words
+separated by underscores). Internal UUIDs remain unchanged for preferences and
+default-home selection. Save/rename checks URL uniqueness inside the same IndexedDB
+transaction, including concurrent views. Renaming updates the active route; legacy
+`/homes/<UUID>` links redirect to the current title URL. Existing collisions are
+reported for manual renaming, never automatically renamed or deleted.
+
+The home management dialog includes one persisted default landing page selector
+(removed from the general settings): All, an existing
+custom home, or a known service supporting `load_home`. Every navigation to `/`
+and brand clicks resolve that destination; query/hash values are preserved and
+explicit service/custom/search routes remain untouched. The home manager also
+shows saved homes in a table with a first-column default checkbox and tooltip-labeled
+icon actions for editing, reordering and confirmed deletion. The table has no visible
+column headings, names are plain text, and creation appears at the left of its final row.
+Editing or creating from this list opens a separate dialog; Save and Cancel return
+to management without changing the route. Direct editing retains its existing flow.
+Direct menu editing never exposes the management list while loading, saving or closing;
+the editor snapshot is retained during the closing transition.
+Checking a home replaces
+the unique default; unchecking it selects All. Close uses the Save button styling.
+Existing custom-home selections remain
+compatible; service selections use the `service:` prefix in `defaultHomeId`.
+Deleted, unavailable or unreadable destinations fall back to All without selecting
+another service. Creation
 is available through the Home heading edit control and content-add dialogs, not a
-separate sidebar entry. Management uses a compact 680px dialog, expanded to 1000px
+separate sidebar entry. Management uses a compact 680px dialog, expanded to 1280px
 for editing tables, shared parameter switches/theme colors, service titles and no technical
 reference keys. Stored reference identities remain unchanged.
 The dialog title and Save/Cancel footer remain visible while only the body scrolls.
 The discovery table has four columns (type, label, two action columns), including
+centered action buttons without visible action headings; single actions occupy
+the rightmost column. The section draft display menu is enabled independently
+of the hidden pin/movement controls.
 source-banner collection additions and individual subsection rows. Section rows
 reuse the display-options menu; block defaults are held in the detached draft and
 saved atomically with the home. Existing rendered-group style overrides retain
@@ -113,7 +143,8 @@ Custom-home screens also omit the duplicate title above the hero. Hero pins foll
 the service logo; toolbar context icons are vertically centered independently of
 the shared brand-text offset. Current navigation entries and Lives are bold.
 Navigation groups are Home/Accueil and Video Services/Services Vidéo, with indented single-line children
-and accessible collapse controls retaining their home/projector icons.
+and their home/projector icons. Clicking Home/Accueil navigates to the configured
+default home and its children remain visible; only Video Services is collapsible.
 Missing references are reported without same-title substitution; remove and re-add
 the content to repair it. Partial failures leave successful blocks usable, with targeted hydration
 retry. Category-level pagination uses `get_category`; linked rails use `get_section`.
@@ -132,6 +163,15 @@ Banners, category shortcuts and blocks use tables with horizontal scrolling on n
 screens. Block title overrides share their row with service, content and arrow/trash
 actions. Save/Cancel use the accent styling of the hero details action.
 Editor groups are Home/Accueil, Banners, Categories, Sections and Add content from a service.
+With title merging enabled, the Sections table groups blocks by their effective
+custom title or saved original label using the renderer's NFC/case/whitespace rules.
+Header arrows move whole groups; row arrows reorder contributions within a group.
+While editing a title, group membership stays visually stable until the field loses
+focus, preserving typing and cursor position; the draft still updates immediately.
+Display changes propagate only the changed options to every member of that group.
+Category blocks use their saved block title without fetching category columns.
+Untitled blocks remain separate; changes stay local until Save. With merging off,
+movement and display changes remain individual.
 They reuse `ParametersSection` for the preferences typography, colored marker and
 themed surface. Service discovery has a group heading and a separate service field label.
 Action columns are compact
@@ -145,8 +185,9 @@ explicitly. Source discovery starts only after service selection. Missing refere
 stay visible; missing content can be removed and re-added. Save errors/conflicts keep the draft;
 cancel and reopen to reload a conflicting revision. Storage success requires commit.
 Source-home copying is explicit and refuses ambiguous identities. No arbitrary URLs
-are accepted. Edition-only pin-outline actions add service banner collections (never
-custom banners), categories including custom shortcuts, and source sections. Add
+are accepted. Edition-only pins add service banners and source sections. A single
+pin beside “Explore by category” opens destination selection and category checkboxes.
+Only checked categories are resolved, preserving their source contributions. Add
 requests use a single dialog: choose an existing home or name a new one, choose
 Shortcut/Section for categories, then Cancel/Add. Add resolves all clicked source
 contributions and commits one revision-checked definition without opening the editor
@@ -157,16 +198,12 @@ with the same preference key, all unambiguous source-owned references are added.
 References are copied, not linked to the originating custom home. Advanced options
 remain in the home editor. Only custom homes support configurable content order;
 source and aggregated catalogs ignore legacy pin order without deleting preferences.
-Compact translucent pin actions share one style, with category actions visually
-inside the card but separate from its link. The sidebar heading has an edit icon
+Compact translucent pin actions share one style. Category cards remain navigation
+links without individual pins. The sidebar heading has an edit icon
 instead of a separate management row. The Home icon is shown only at the group heading,
-not beside individual custom homes. In edition mode, custom rails expose up/down
-actions and an active removal pin; custom category pins remove shortcuts rather than
-copying them. Removals require confirmation. Merged rails require choosing one owning
-block; moving it never implicitly moves the whole merged group. Removing a category
-content block removes all its rails, with an explicit warning. Mutations commit the
-displayed definition revision without optimistic changes; storage/conflict errors
-leave the dialog open. Bookmarks and read-only previews have no block removal controls.
+not beside individual custom homes. Custom-home catalogs have no inline edition
+controls for banners, categories or sections. Ordering, removal and display options
+are configured exclusively in the home manager, with revision-checked saves.
 
 ### Responsive shell navigation (lot 2D)
 
@@ -178,14 +215,14 @@ storage failures are reported without disabling navigation. Cross-tab storage
 events and focus refresh synchronize this preference; home lists refresh on focus,
 visibility and committed local mutations, without replacing editor drafts.
 
-Above 1000px the sidebar remains visible and reserves content width (260px, or
+Above 1000px the sidebar is toggled by the leftmost toolbar menu button; its visibility is persisted locally. When visible, it and reserves content width (260px, or
 220px up to 1280px). On narrower screens the toolbar opens a native modal dialog
 with keyboard focus containment, Escape/backdrop/close dismissal and trigger focus
 restoration; navigation closes it. Sidebar editing closes the drawer before opening
 the editor. Desktop navigation starts below the measured toolbar and does not
 overlap settings or notifications. Fullscreen changes hide navigation and clear
 temporary drawer state, including prefixed fullscreen APIs. The brand links to `/`;
-Lives is no longer duplicated in the toolbar. Search, settings and history-back
+Lives is no longer duplicated in the toolbar. Search and history-back
 remain there. Route changes clear stale catalog background candidates; source and
 custom routes retain their existing titles and Vue Router scroll restoration.
 Interactive Safari/Tauri fullscreen, modal focus and independent native-view storage
@@ -249,3 +286,7 @@ Grid and list layouts keep automatic pagination opt-in through `autoLoadMore` (d
 In Tauri desktop mode, the native host creates a dedicated webview for `DesktopTabShell.vue` and an independent content webview for each tab. The injected `window.__DESKTOP_TAB_SHELL__` flag selects the shell at bootstrap; normal browser and content webviews continue to mount `App.vue` with Vue Router. The shell uses `useDesktopTabs` and the typed `desktopTabs` bridge to receive native state and request tab actions.
 
 The tab strip supports creation, activation, closing and arrow/Home/End keyboard navigation. Closing the final tab opens a fresh home page. Hidden tabs keep their page state and can continue media playback; closing a tab destroys that page. Administration remains in its dedicated window. The strip is hidden with only one tab, and while a managed page owns browser fullscreen, giving the page the full content height. From two tabs onward outside fullscreen, native host bounds reserve 44 logical pixels for the strip, matching its CSS height. The native controller can alternatively select independent window mode through `TauriControlerConfiguration::browsing_mode`; that mode mounts the regular application root.
+
+Settings are opened from the bold Settings entry below Video Services, in a scrollable
+modal dialog rather than a right toolbar popover. The toolbar settings button is removed.
+The Video Services expansion state remains persisted independently of sidebar visibility.

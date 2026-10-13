@@ -1,5 +1,6 @@
 {
   "navigation": {
+    "settings": "Paramètres",
     "label": "Navigation principale",
     "homes": "Accueil",
     "sources": "Services Vidéo",
@@ -8,6 +9,9 @@
     "storageError": "La préférence du groupe de sources n’a pas pu être enregistrée ou lue. La navigation reste disponible."
   },
   "customHome": {
+    "setDefault": "Définir par défaut",
+    "isDefault": "Accueil par défaut",
+    "exploreCategories": "Explorer par catégorie",
     "homeGroup": "Accueil",
     "typeColumn": "Type",
     "categoryType": "Catégorie",
@@ -32,12 +36,16 @@
     "moveDown": "Descendre",
     "conflict": "Cet accueil a été modifié ou supprimé dans une autre vue. Votre brouillon est conservé ; annulez puis rouvrez l’accueil avant de l’enregistrer.",
     "shortcutRepairHint": "Choisissez un raccourci de catégorie pour remplacer la référence enregistrée.",
-    "addBanners": "Ajouter les bannières de ce service à un accueil",
+    "addBanners": "Ajouter",
+    "addBannersTooltip": "Ajouter les bannières de ce service à l’accueil",
+    "addShortcutTooltip": "Ajouter un raccourci vers cette catégorie",
+    "addCategorySectionsTooltip": "Ajouter toutes les sections de cette catégorie ; les nouvelles sections seront incluses au prochain chargement",
+    "addSectionTooltip": "Ajouter cette section à l’accueil",
     "addCategory": "Ajouter cette catégorie à un accueil",
     "addSectionToHome": "Ajouter cette section à un accueil",
-    "shortcut": "Raccourci de catégorie",
-    "categoryContent": "Contenu de catégorie intégré",
-    "addSection": "Ajouter la section",
+    "shortcut": "Ajouter raccourci",
+    "categoryContent": "Ajouter sections",
+    "addSection": "Ajouter",
     "section": "Section",
     "untitled": "Sans titre",
     "titleOverride": "Titre personnalisé (facultatif)",
@@ -174,7 +182,7 @@
   },
   "settings": {
     "defaultHome": "Accueil par défaut",
-    "aggregatedHome": "Accueil agrégé",
+    "aggregatedHome": "Tout",
     "missingDefaultHome": "Accueil indisponible — retour à l’accueil agrégé",
     "ariaLabel": "Parametres",
     "administration": "Administration",

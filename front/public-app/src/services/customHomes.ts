@@ -1,6 +1,7 @@
 import { getAllRecordsDB, getDB, initDB, loadRecordDB } from '@/services/indexDB'
 import { validateCustomHomeDefinition } from '@/services/customHomeValidation'
 import type { CustomHomeDefinition, CustomHomeListResult } from '@/types/customHome'
+import { customHomeSlug } from '@/services/customHomeRoute'
 
 const STORE_NAME = 'custom_homes'
 
@@ -30,6 +31,12 @@ export async function listCustomHomes(): Promise<CustomHomeListResult> {
     }
   }
   result.homes.sort((left, right) => left.navigationOrder - right.navigationOrder || left.id.localeCompare(right.id))
+  for (const home of result.homes) {
+    const slug = customHomeSlug(home.name)
+    if (!slug || result.homes.some((other) => other.id !== home.id && customHomeSlug(other.name) === slug)) {
+      result.issues.push({ id: home.id, message: `Accueil URL is empty or duplicated; rename this accueil: ${home.name}` })
+    }
+  }
   return result
 }
 
@@ -66,6 +73,7 @@ export async function saveCustomHome(
   expectedUpdatedAt: number | null,
 ): Promise<CustomHomeDefinition> {
   const draft = validateCustomHomeDefinition(definition)
+  if (!customHomeSlug(draft.name)) throw new Error('Custom home name must contain letters or numbers')
   const committed = await mutateCustomHome(draft.id, expectedUpdatedAt, draft)
   if (!committed) throw new Error(`Custom home ${draft.id} was not saved`)
   return committed
@@ -138,17 +146,22 @@ async function mutateCustomHome(
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite')
     const store = tx.objectStore(STORE_NAME)
-    const request = store.get(id)
+    const request = store.getAll()
     let committed: CustomHomeDefinition | undefined
     let failure: unknown
     request.onsuccess = () => {
       try {
-        const current = request.result === undefined
-          ? undefined : validateCustomHomeDefinition(request.result)
+        const records = request.result as Array<Record<string, unknown>>
+        const value = records.find((record) => record.id === id)
+        const current = value === undefined ? undefined : validateCustomHomeDefinition(value)
         if ((current?.updatedAt ?? null) !== expectedUpdatedAt) {
           throw new Error(`Custom home ${id} changed in another view; reload before saving or deleting`)
         }
         if (draft) {
+          if (records.some((record) => record.id !== id && typeof record.name === 'string' &&
+            customHomeSlug(record.name) === customHomeSlug(draft.name))) {
+            throw new Error(`An accueil with the same name or URL already exists: ${draft.name}`)
+          }
           committed = validateCustomHomeDefinition({
             ...draft,
             createdAt: current?.createdAt ?? draft.createdAt,

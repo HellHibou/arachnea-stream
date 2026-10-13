@@ -9,6 +9,7 @@ import CustomHomeBlockList from '@/components/home/CustomHomeBlockList.vue'
 import CustomHomeDraftActions from '@/components/home/CustomHomeDraftActions.vue'
 import { validateCustomHomeDefinition } from '@/services/customHomeValidation'
 import { applyCustomHomeSelection, moveCustomHomeItem } from '@/services/customHomeDraft'
+import { moveCustomHomeBlock, updateCustomHomeGroupDisplay } from '@/services/customHomeBlockGroups'
 import { useI18n } from '@/i18n'
 import type { CustomHomeDefinition, CustomHomeSelection } from '@/types/customHome'
 
@@ -49,7 +50,11 @@ function updateTitle(id: string, title: string): void {
 }
 /** @param id Stable block id. @param options Detached display defaults saved only with the definition. */
 function updateDisplay(id: string, options: import('@/types/customHome').CustomHomeDisplayOptions): void {
-  update({ blocks: draft.value.blocks.map((block) => block.id === id ? { ...block, displayOptions: options } : block) })
+  update({ blocks: updateCustomHomeGroupDisplay(draft.value.blocks, draft.value.sectionMergeMode === 'title', id, options) })
+}
+/** @param id Member identity. @param direction Movement. @param group Move the complete title group. */
+function moveBlock(id: string, direction: -1 | 1, group = false): void {
+  update({ blocks: moveCustomHomeBlock(draft.value.blocks, draft.value.sectionMergeMode === 'title', id, direction, group) })
 }
 defineExpose({ save, canSave })
 </script>
@@ -102,9 +107,10 @@ defineExpose({ save, canSave })
         </td></tr></tbody>
       </table></div>
       </ParametersSection>
-      <CustomHomeBlockList :blocks="draft.blocks" @title="updateTitle"
+      <CustomHomeBlockList :blocks="draft.blocks" :merge-titles="draft.sectionMergeMode === 'title'" @title="updateTitle"
         @display="updateDisplay"
-        @move="(index, direction) => update({ blocks: moveCustomHomeItem(draft.blocks, index, direction) })"
+        @move="moveBlock"
+        @move-group="(id, direction) => moveBlock(id, direction, true)"
         @remove="(id) => update({ blocks: draft.blocks.filter((block) => block.id !== id) })" />
       <CustomHomeContentPicker @select="select" />
     </fieldset>
@@ -160,14 +166,19 @@ defineExpose({ save, canSave })
 
 
 .custom-home-editor__label {
-  display: grid;
-  gap: 6px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: 10px;
+  padding: 1px 0;
+  white-space: nowrap;
   font-size: 0.92rem;
   font-weight: 700;
 }
 
 .custom-home-editor__input {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   padding: 8px 14px;
   border: 1px solid var(--border-color-primary);
   border-radius: var(--radius);

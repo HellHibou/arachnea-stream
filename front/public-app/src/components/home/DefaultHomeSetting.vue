@@ -3,13 +3,15 @@ import { onMounted, useId } from 'vue'
 import { useCustomHomeManager } from '@/composables/home/useCustomHomeManager'
 import { useStorage } from '@/services/storage'
 import { useI18n } from '@/i18n'
-import ParametersPanel from './ParametersPanel.vue'
+import ParametersPanel from '@/components/parameters/ParametersPanel.vue'
+import { useServiceMetadata } from '@/composables/useServiceMetadata'
 
 const manager = useCustomHomeManager()
+const metadata = useServiceMetadata()
 const parameters = useStorage().getParameters()
 const { t } = useI18n()
 const inputId = useId()
-onMounted(() => { void manager.refresh() })
+onMounted(() => { void manager.refresh(); void metadata.load() })
 /** @param event Native selection; empty means aggregated home. */
 function update(event: Event): void {
   parameters.defaultHomeId.value = (event.target as HTMLSelectElement).value || null
@@ -22,7 +24,10 @@ function update(event: Event): void {
       :value="parameters.defaultHomeId.value ?? ''" @change="update">
       <option value="">{{ t('settings.aggregatedHome') }}</option>
       <option v-for="home in manager.homes.value" :key="home.id" :value="home.id">{{ home.name }}</option>
-      <option v-if="parameters.defaultHomeId.value && !manager.homes.value.some((home) => home.id === parameters.defaultHomeId.value)"
+      <option v-for="service in metadata.services.value.filter((service) => service.supportedQueries.includes('load_home'))"
+        :key="`service:${service.id}`" :value="`service:${service.id}`">{{ service.title }}</option>
+      <option v-if="parameters.defaultHomeId.value && !manager.homes.value.some((home) => home.id === parameters.defaultHomeId.value)
+        && !metadata.services.value.some((service) => `service:${service.id}` === parameters.defaultHomeId.value && service.supportedQueries.includes('load_home'))"
         :value="parameters.defaultHomeId.value" disabled>{{ t('settings.missingDefaultHome') }}</option>
     </select>
   </ParametersPanel>

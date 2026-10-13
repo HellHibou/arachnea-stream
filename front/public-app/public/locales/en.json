@@ -1,5 +1,6 @@
 {
   "navigation": {
+    "settings": "Settings",
     "label": "Main navigation",
     "homes": "Home",
     "sources": "Video Services",
@@ -8,6 +9,13 @@
     "storageError": "The source group preference could not be saved or read. Navigation remains available."
   },
   "customHome": {
+    "setDefault": "Set as default",
+    "isDefault": "Default home",
+    "exploreCategories": "Explore by category",
+    "addBannersTooltip": "Add this service’s banners to the home",
+    "addShortcutTooltip": "Add a shortcut to this category",
+    "addCategorySectionsTooltip": "Add all sections from this category; new sections are included on the next load",
+    "addSectionTooltip": "Add this section to the home",
     "homeGroup": "Home",
     "typeColumn": "Type",
     "categoryType": "Category",
@@ -174,7 +182,7 @@
   },
   "settings": {
     "defaultHome": "Default home",
-    "aggregatedHome": "Aggregated home",
+    "aggregatedHome": "All",
     "missingDefaultHome": "Unavailable home — falls back to the aggregated home",
     "ariaLabel": "Settings",
     "administration": "Administration",

@@ -21,6 +21,7 @@ import MainBar from './components/MainBar.vue'
 import ErrorNotificationStack from './components/errors/ErrorNotificationStack.vue'
 import { useSearchFilterOptions } from '@/composables/useSearchFilterOptions'
 import { useErrorNotifications } from '@/composables/useErrorNotifications'
+import ParametersDialog from '@/components/parameters/ParametersDialog.vue'
 import AppNavigation from '@/components/navigation/AppNavigation.vue'
 import { useAppNavigation } from '@/composables/useAppNavigation'
 import { resolveDefaultHomeRoute } from '@/services/defaultHome'
@@ -49,7 +50,7 @@ const selectedMediaTypes = shallowRef<string[]>([])
 /** Themes currently selected in the search filter. */
 const selectedThemes = shallowRef<string[]>([])
 
-/** Whether the parameters popover is currently visible. */
+/** Whether the settings dialog is currently visible. */
 const isParametersVisible = shallowRef(false)
 
 /** Whether the search bar is currently visible. */
@@ -95,14 +96,14 @@ watch(
 )
 
 /**
- * Toggles the visibility of the parameters popover.
+ * Toggles the visibility of the settings dialog.
  */
 function toggleParameters() {
   isParametersVisible.value = !isParametersVisible.value
 }
 
 /**
- * Closes the parameters popover.
+ * Closes the settings dialog.
  */
 function closeParameters() {
   isParametersVisible.value = false
@@ -246,7 +247,7 @@ function handleBackNavigation() {
 </script>
 
 <template>
-  <div class="app-shell" :class="{ 'app-shell--sidebar': !navigation.isMobile.value && !navigation.isFullscreen.value }"
+  <div class="app-shell" :class="{ 'app-shell--sidebar': !navigation.isMobile.value && navigation.isVisible.value }"
     :style="{ '--app-toolbar-height': `${navigation.toolbarHeight.value}px`, '--app-sidebar-width': `${sidebarWidth}px` }">
     <Background
       v-if="shouldShowAppBackground"
@@ -263,9 +264,8 @@ function handleBackNavigation() {
       :theme-options="themeFilterOptions"
       :selected-themes="selectedThemes"
       :show-back-button="showBackButton"
-      :show-navigation-button="navigation.isMobile.value && !navigation.isFullscreen.value"
-      :is-navigation-open="navigation.isOpen.value"
-      :is-parameters-visible="isParametersVisible"
+      :show-navigation-button="!navigation.isFullscreen.value"
+      :is-navigation-open="navigation.isVisible.value"
       :is-search-visible="isSearchVisible"
       @submit="handleSearchSubmit"
       @update:selected-media-types="selectedMediaTypes = $event"
@@ -273,14 +273,13 @@ function handleBackNavigation() {
       @back="handleBackNavigation"
       @home="handleGoHome"
       @toggle-navigation="closeParameters(); isSearchVisible = false; navigation.toggle()"
-      @toggle-parameters="toggleParameters"
-      @close-parameters="closeParameters"
       @toggle-search="toggleSearch"
     />
 
-    <AppNavigation :mobile="navigation.isMobile.value" :open="navigation.isOpen.value" :hidden="navigation.isFullscreen.value"
+    <AppNavigation :mobile="navigation.isMobile.value" :open="navigation.isOpen.value" :hidden="navigation.isFullscreen.value || (!navigation.isMobile.value && !navigation.isVisible.value)"
       @update:width="sidebarWidth = $event"
-      @close="navigation.close()" />
+      @close="navigation.close()" @settings="toggleParameters" />
+    <ParametersDialog v-model:open="isParametersVisible" />
     <main class="app-content">
       <RouterView v-slot="{ Component }">
         <component

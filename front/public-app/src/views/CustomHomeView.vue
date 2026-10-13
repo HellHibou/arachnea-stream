@@ -8,8 +8,8 @@ import { useI18n } from '@/i18n'
 import type { HomeCategory } from '@/types/home'
 import type { BackgroundMediaCandidate, MediaSelectionTarget } from '@/types/media'
 
-/** Stable persisted home id from the route; no title-based routing. */
-const props = defineProps<{ homeId: string }>()
+/** Stable internal id resolved by the title-based route guard. */
+const props = withDefaults(defineProps<{ homeId: string; routeError?: string | null }>(), { routeError: null })
 const emit = defineEmits<{
   'select-item': [target: MediaSelectionTarget]
   'select-category': [category: HomeCategory]
@@ -25,8 +25,8 @@ onUnmounted(() => { document.title = APP_TITLE })
 </script>
 
 <template>
-  <v-alert v-if="errorMessage" type="warning" role="status">
-    {{ errorMessage }}
+  <v-alert v-if="errorMessage || props.routeError" type="warning" role="status">
+    {{ props.routeError ?? errorMessage }}
     <v-btn @click="refresh">{{ t('sourceHome.retry') }}</v-btn>
   </v-alert>
   <p v-else-if="isLoading && !definition" role="status">{{ t('entry.loadingMessage') }}</p>

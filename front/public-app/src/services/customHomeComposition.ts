@@ -1,6 +1,8 @@
 import { dedupeMediaItems, interleaveLists } from '@/services/rustify'
 import type { CustomHomeDefinition } from '@/types/customHome'
 import type { HomeSection } from '@/types/home'
+import { customHomeTitleKey } from '@/services/customHomeBlockGroups'
+export { customHomeTitleKey } from '@/services/customHomeBlockGroups'
 
 /** Runtime-only member with independently owned section or category pagination. */
 export interface CustomHomeContribution {
@@ -8,11 +10,6 @@ export interface CustomHomeContribution {
   blockId: string
   section: HomeSection
   categoryPage: boolean
-}
-
-/** @param title Effective display title. @returns NFC comparison preserving accents and punctuation. */
-export function customHomeTitleKey(title: string | null): string {
-  return (title ?? '').normalize('NFC').trim().replace(/\s+/gu, ' ').toLowerCase()
 }
 
 /**

@@ -125,7 +125,7 @@ L'enveloppe de réponse et les champs d'accueil par source restent inchangés. L
 
 ### 4.3 Navigation par source et propagation frontend
 
-- Ajouter une route source-home nommée, proposée `/sources/:sourceId`, avant la route par défaut.
+- Ajouter une route source-home nommée, proposée `/source/:sourceId`, avant la route par défaut.
 Réutilisez `HomeView` avec un paramètre source optionnel, ou ajoutez une vue source allégée si cela simplifie la compréhension des routes. Utilisez la route comme source active plutôt que de la dupliquer.
 - Propager la sélection de la source via `HomeCatalog` -> `useHomeCatalog` -> `homeCatalogData` -> `loadHomeCatalog({ sources })`.
 - Étendre la clé de requête de catalogue avec la sélection de source normalisée ; distinguer la requête « toutes sources » héritée d’une liste vide explicite.
@@ -251,7 +251,7 @@ Les nouvelles boutiques s'ajoutent aux autres. Ne réinitialisez pas IndexedDB e
 - Distinguer identité du groupe de rendu (fondée sur les identifiants des contributions), clé de regroupement par titre et préférences. Les préférences restent à portée de home et de groupe, pas globales au titre.
 - Conserver des descripteurs, curseurs, erreurs et états de chargement propres à chaque contribution. Une pagination/nouvelle tentative doit cibler les contributions concernées. Ne pas reprendre telle quelle la fusion historique de `rustify.ts`, qui expose notamment un `currentPage` global calculé par maximum.
 - Préserver les identités des sous-sections et leurs périodes ; ne pas fusionner des variantes temporelles distinctes au seul motif que leurs parents portent le même titre.
-- Garder les blocs d'origine dans l'éditeur pour supprimer/réparer une contribution sans perdre les autres. Réorganiser les contributions depuis l'éditeur ; ne pas déplacer implicitement tout le groupe fusionné lorsqu'un bloc d'origine est déplacé.
+- Garder les blocs d'origine dans l'éditeur pour supprimer une contribution sans perdre les autres. Lorsque la fusion est active, présenter les blocs regroupés par titre effectif (remplacement personnalisé, sinon étiquette enregistrée), dans l'ordre de première apparition. Les flèches d'en-tête déplacent tout le groupe ; les flèches des entrées déplacent uniquement une contribution à l'intérieur du groupe. Une modification d'option d'affichage se propage à tous ses blocs en conservant leurs autres options. Pour un bloc de catégorie, utiliser le titre du bloc sans charger ses colonnes. Les changements restent dans le brouillon jusqu'à l'enregistrement ; fusion désactivée, les opérations restent individuelles.
 
 ## 6. Navigation latérale et expérience de l'éditeur
 
@@ -347,7 +347,7 @@ Acceptation : seul l’ensemble de sources explicitement sélectionné sera ex�
 
 ### ✅ Lot 1B : interface utilisateur à source unique — implémenté
 
-Livré : route `/sources/:sourceId`, sélecteur léger `HomeSourceSelector`, propagation jusqu'à `loadHomeCatalog`, titre/logo, rafraîchissement des métadonnées et actions de nouvelle tentative. Les préférences utilisent `source:<identifiant-encodé>:<clé-héritée>` avec repli de lecture des styles globaux ; les signets sont filtrés sans modifier leur stockage. Les mouvements de sections sont limités au sous-ensemble visible. Les gardes de requête protègent aussi la pagination et le démontage ; le catalogue est remonté au changement de source. `/` conserve son agrégation.
+Livré : route `/source/:sourceId`, sélecteur léger `HomeSourceSelector`, propagation jusqu'à `loadHomeCatalog`, titre/logo, rafraîchissement des métadonnées et actions de nouvelle tentative. Les préférences utilisent `source:<identifiant-encodé>:<clé-héritée>` avec repli de lecture des styles globaux ; les signets sont filtrés sans modifier leur stockage. Les mouvements de sections sont limités au sous-ensemble visible. Les gardes de requête protègent aussi la pagination et le démontage ; le catalogue est remonté au changement de source. `/` conserve son agrégation.
 
 Validation : `cargo check -p arachnea-stream`, compilation des tests (`--no-run`), test existant des métadonnées enrichi de contrôles de contrat hors réseau, `npm run type-check`, `npm run build-only` et `npm run lint:css`. Vite avertit de bundles volumineux. Le formatage Rust ciblé passe ; `cargo fmt --all -- --check` signale des écarts dans des fichiers non modifiés. La suite ciblée des résolveurs présente 3 succès et 6 échecs d'initialisation (`application data directory identifier is not configured`), hors du chemin modifié. La matrice manuelle navigateur/Tauri, l'entrelacement réseau de sources réelles et les scénarios REST/304 restent à vérifier en exécution interactive ; aucune nouvelle infrastructure de test n'a été ajoutée.
 

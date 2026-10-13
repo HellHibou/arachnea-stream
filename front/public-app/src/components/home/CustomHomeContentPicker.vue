@@ -62,33 +62,33 @@ function selectSection(section: HomeSection, subsectionKey?: string): void {
       <div class="custom-home-picker__table-wrap">
       <table class="custom-home-picker__table">
         <thead><tr><th scope="col">{{ t('customHome.typeColumn') }}</th><th scope="col">{{ t('customHome.contentColumn') }}</th>
-          <th scope="col">{{ t('customHome.actionsColumn') }}</th><th scope="col">{{ t('customHome.actionsColumn') }}</th></tr></thead>
+          <th scope="col" :aria-label="t('customHome.actionsColumn')" /><th scope="col" :aria-label="t('customHome.actionsColumn')" /></tr></thead>
         <tbody>
       <tr v-if="!props.blockOnly && !props.categoryLabel && !props.sectionLabel">
-        <td>{{ t('customHome.banners') }}</td><td>{{ metadata.getService(selectedSource)?.title ?? selectedSource }}</td><td>
-      <v-btn
+        <td>{{ t('customHome.banners') }}</td><td>{{ metadata.getService(selectedSource)?.title ?? selectedSource }}</td><td /><td>
+      <v-btn :title="t('customHome.addBannersTooltip')"
         @click="emit('select', { kind: 'banners', sourceId: selectedSource })">{{ t('customHome.addBanners') }}</v-btn>
-        </td><td /></tr>
+        </td></tr>
       <tr v-for="category in categories" :key="category.id">
         <td>{{ t('customHome.categoryType') }}</td><td>{{ category.label }}</td><td>
-        <v-btn v-if="!props.blockOnly" :disabled="category.identity?.ambiguous || !category.identity"
+        <v-btn v-if="!props.blockOnly" :title="t('customHome.addShortcutTooltip')" :disabled="category.identity?.ambiguous || !category.identity"
           @click="selectCategory(category, 'shortcut')">{{ t('customHome.shortcut') }}</v-btn>
         </td><td>
-        <v-btn :disabled="category.identity?.ambiguous || !category.identity"
+        <v-btn :title="t('customHome.addCategorySectionsTooltip')" :disabled="category.identity?.ambiguous || !category.identity"
           @click="selectCategory(category, 'block')">{{ t('customHome.categoryContent') }}</v-btn>
         </td></tr>
       <template v-for="section in sections" :key="section.id">
       <tr>
-        <td>{{ t('customHome.section') }}</td><td>{{ section.label ?? t('customHome.untitled') }}</td><td>
-        <v-btn :disabled="section.identity?.ambiguous || !section.identity"
+        <td>{{ t('customHome.section') }}</td><td>{{ section.label ?? t('customHome.untitled') }}</td><td /><td>
+        <v-btn :title="t('customHome.addSectionTooltip')" :disabled="section.identity?.ambiguous || !section.identity"
           @click="selectSection(section)">{{ t('customHome.addSection') }}</v-btn>
-        </td><td /></tr>
+        </td></tr>
       <tr v-for="variant in section.subsections ?? []" :key="variant.key">
-        <td>{{ t('customHome.section') }}</td><td>{{ section.label }} — {{ variant.label ?? t('customHome.untitled') }}</td><td>
-        <v-btn
+        <td>{{ t('customHome.section') }}</td><td>{{ section.label }} — {{ variant.label ?? t('customHome.untitled') }}</td><td /><td>
+        <v-btn :title="t('customHome.addSectionTooltip')"
           :disabled="variant.identity?.ambiguous || !variant.identity"
           @click="selectSection(section, variant.identity?.key)">{{ variant.label ?? variant.key }}</v-btn>
-        </td><td /></tr>
+        </td></tr>
       </template>
         </tbody>
       </table>
@@ -123,7 +123,7 @@ function selectSection(section: HomeSection, subsectionKey?: string): void {
 .custom-home-picker__table th:nth-child(n + 3),
 .custom-home-picker__table td:nth-child(n + 3) {
   width: 1%;
-  text-align: right;
+  text-align: center;
   white-space: nowrap;
 }
 </style>

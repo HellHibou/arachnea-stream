@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { shallowRef, useId } from 'vue'
+import { customHomeRoute } from '@/services/customHomeRoute'
+import { useId } from 'vue'
 import SidebarSourceGroup from '@/components/navigation/SidebarSourceGroup.vue'
 import { useI18n } from '@/i18n'
 import type { CustomHomeDefinition } from '@/types/customHome'
@@ -8,11 +9,9 @@ import type { ServiceMetadata } from '@/types/serviceMetadata'
 /** Presentation-only destinations; editing and navigation close requests are emitted upward. */
 defineProps<{ homes: CustomHomeDefinition[]; sources: readonly Pick<ServiceMetadata, 'id' | 'title' | 'logo'>[]; sourcesExpanded: boolean;
   activeHomeId: string | null; activeSourceId: string | null; livesActive: boolean; editingEnabled: boolean }>()
-const emit = defineEmits<{ navigate: []; create: []; manage: []; edit: [id: string];
+const emit = defineEmits<{ settings: []; navigate: []; create: []; manage: []; edit: [id: string];
   'update:sourcesExpanded': [expanded: boolean] }>()
 const sourceGroupId = useId()
-const homeGroupId = useId()
-const homesExpanded = shallowRef(true)
 const { t } = useI18n()
 </script>
 
@@ -20,18 +19,17 @@ const { t } = useI18n()
   <nav :aria-label="t('navigation.label')" class="app-sidebar">
     <section :aria-label="t('navigation.homes')">
       <div class="app-sidebar__heading-row">
-        <button class="sidebar-link" type="button" :aria-expanded="homesExpanded" :aria-controls="homeGroupId"
-          @click="homesExpanded = !homesExpanded">
+        <RouterLink class="sidebar-link" :to="{ name: 'home' }" @click="emit('navigate')">
           <v-icon icon="mdi-home-outline" size="20" aria-hidden="true" /><strong>{{ t('navigation.homes') }}</strong>
-        </button>
+        </RouterLink>
         <button v-if="editingEnabled" class="app-sidebar__edit" type="button" :aria-label="t('customHome.manage')" :title="t('customHome.manage')"
           @click="emit('manage')"><v-icon icon="mdi-pencil-outline" size="18" aria-hidden="true" /></button>
       </div>
-      <ul v-show="homesExpanded" :id="homeGroupId" class="sidebar-list sidebar-services">
+      <ul class="sidebar-list sidebar-services">
         <li v-for="home in homes" :key="home.id" class="app-sidebar__home">
           <RouterLink class="sidebar-link app-sidebar__home-link" :title="home.name"
             :aria-current="activeHomeId === home.id ? 'page' : undefined"
-            :to="{ name: 'custom-home', params: { homeId: home.id } }" @click="emit('navigate')">
+            :to="customHomeRoute(home)" @click="emit('navigate')">
             <span class="sidebar-label">{{ home.name }}</span>
           </RouterLink>
           <button v-if="editingEnabled" class="app-sidebar__edit" type="button" :aria-label="`${t('customHome.edit')}: ${home.name}`"
@@ -46,6 +44,9 @@ const { t } = useI18n()
     </RouterLink>
     <SidebarSourceGroup :sources="sources" :expanded="sourcesExpanded" :active-source-id="activeSourceId"
       :group-id="sourceGroupId" @update:expanded="emit('update:sourcesExpanded', $event)" @navigate="emit('navigate')" />
+    <button class="sidebar-link" type="button" @click="emit('settings')">
+      <v-icon icon="mdi-cog" aria-hidden="true" /><strong>{{ t('navigation.settings') }}</strong>
+    </button>
   </nav>
 </template>
 

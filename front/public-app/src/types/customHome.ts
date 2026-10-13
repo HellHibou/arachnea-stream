@@ -74,6 +74,7 @@ export interface CustomHomeListResult {
 
 /** UI-only add intent; the destination and references are explicitly chosen before saving. */
 export type CustomHomeAddIntent =
+  | { kind: 'categories'; categories: import('@/types/home').HomeCategory[] }
   | { kind: 'banners'; sourceId: string }
   | { kind: 'category'; category: import('@/types/home').HomeCategory }
   | { kind: 'section'; section: import('@/types/home').HomeSection }

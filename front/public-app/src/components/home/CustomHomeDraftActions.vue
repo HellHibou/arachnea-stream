@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from '@/i18n'
 /** Position and list length determine movement limits; actions only modify the owning draft. */
-defineProps<{ index: number; count: number }>()
+withDefaults(defineProps<{ index: number; count: number; hideRemove?: boolean }>(), { hideRemove: false })
 const emit = defineEmits<{ move: [direction: -1 | 1]; remove: [] }>()
 const { t } = useI18n()
 </script>
@@ -16,7 +16,7 @@ const { t } = useI18n()
       :aria-label="t('customHome.moveDown')" :title="t('customHome.moveDown')" @click="emit('move', 1)">
       <v-icon icon="mdi-arrow-down" size="18" aria-hidden="true" />
     </button>
-    <button class="draft-actions__button" type="button" :aria-label="t('customHome.remove')"
+    <button v-if="!hideRemove" class="draft-actions__button" type="button" :aria-label="t('customHome.remove')"
       :title="t('customHome.remove')" @click="emit('remove')">
       <v-icon icon="mdi-trash-can-outline" size="18" aria-hidden="true" />
     </button>

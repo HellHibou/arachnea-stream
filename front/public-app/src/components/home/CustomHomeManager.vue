@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { customHomeRoute } from '@/services/customHomeRoute'
 import { computed, defineAsyncComponent, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useCustomHomeManager } from '@/composables/home/useCustomHomeManager'
@@ -9,6 +10,7 @@ import { useI18n } from '@/i18n'
 import { useStorage } from '@/services/storage'
 import type { CustomHomeAddIntent, CustomHomeDefinition } from '@/types/customHome'
 import { applyQuickAddSelections, resolveQuickAddSelections } from '@/services/customHomeQuickAdd'
+import DefaultHomeSetting from './DefaultHomeSetting.vue'
 
 const CustomHomeEditor = defineAsyncComponent(() => import('@/components/home/CustomHomeEditor.vue'))
 const editor = shallowRef<{ save: () => void; canSave: boolean } | null>(null)
@@ -21,6 +23,7 @@ const props = withDefaults(defineProps<{ intent?: CustomHomeAddIntent | null; so
 const emit = defineEmits<{ 'update:open': [open: boolean]; saved: [definition: CustomHomeDefinition] }>()
 const { t } = useI18n()
 const editingEnabled = useStorage().getHomePreferences().showSectionEditingButtons
+const defaultHomeId = useStorage().getParameters().defaultHomeId
 const router = useRouter()
 const route = useRoute()
 const manager = useCustomHomeManager()
@@ -28,12 +31,17 @@ const visible = shallowRef(false)
 const destination = shallowRef('')
 const newHomeName = shallowRef('')
 const categoryMode = shallowRef<'shortcut' | 'section'>('shortcut')
+const selectedCategoryIds = shallowRef<string[]>([])
 const deletion = shallowRef<CustomHomeDefinition | null>(null)
 const seeding = shallowRef(false)
 const session = shallowRef(0)
+const editingFromList = shallowRef(false)
+const directEditor = shallowRef(false)
+const editorSnapshot = shallowRef<CustomHomeDefinition | null>(null)
+const editorDefinition = computed(() => manager.draft.value ?? editorSnapshot.value)
 const choices = computed(() => [{ title: t('customHome.create'), value: '' },
   ...manager.homes.value.filter((home) => props.intent?.kind !== 'category' ||
-    route.name !== 'custom-home' || home.id !== route.params.homeId).map((home) => ({ title: home.name, value: home.id }))])
+    route.name !== 'custom-home' || home.id !== route.meta.homeId).map((home) => ({ title: home.name, value: home.id }))])
 watch(() => props.open, (value) => {
   if (value) {
     show()
@@ -44,26 +52,38 @@ watch(() => route.fullPath, () => { if (!manager.busy.value && !seeding.value) c
 
 /** Opens management without fetching provider homes. */
 function show(): void {
+  directEditor.value = Boolean(props.editHomeId || props.createOnOpen)
+  editorSnapshot.value = null
   visible.value = true; destination.value = ''; newHomeName.value = ''; categoryMode.value = 'shortcut'
+  selectedCategoryIds.value = []
   manager.cancel(); void manager.refresh()
 }
 /** Discards a draft; never persists implicit destination choices. */
 function close(): void {
   if (manager.busy.value || seeding.value) return
-  manager.cancel(); deletion.value = null; visible.value = false; emit('update:open', false)
+  manager.cancel(); editingFromList.value = false; deletion.value = null; visible.value = false; emit('update:open', false)
 }
-/** @param id Explicit target, or empty for creation. */
-async function begin(id = ''): Promise<void> {
+/** @param id Explicit target, or empty for creation. @param fromList Whether completion returns to management. */
+async function begin(id = '', fromList = false): Promise<void> {
   if (!id) await manager.refresh()
   const draft = await manager.begin(id || undefined)
   if (!draft) return
+  editorSnapshot.value = draft
+  editingFromList.value = fromList
   if (!id) manager.draft.value = { ...draft, name: t('customHome.newName') }
   session.value++
+}
+/** Discards only the list-opened editor, keeping its management dialog and route intact. */
+function cancelListEditor(): void {
+  if (manager.busy.value || seeding.value) return
+  manager.cancel()
+  editingFromList.value = false
 }
 /** Commits the clicked content once; no picker/editor step, navigation or write on cancel. */
 async function add(): Promise<void> {
   if (!props.intent || seeding.value || manager.busy.value || (!destination.value && !newHomeName.value.trim())) return
-  const intent = props.intent
+  const intent = props.intent.kind === 'categories' ? { ...props.intent,
+    categories: props.intent.categories.filter((category) => selectedCategoryIds.value.includes(category.id)) } : props.intent
   seeding.value = true
   try {
     const selections = await resolveQuickAddSelections(intent, categoryMode.value)
@@ -82,18 +102,21 @@ async function add(): Promise<void> {
 }
 /** @param draft Editor snapshot; closes only after transaction success. */
 async function save(draft: CustomHomeDefinition): Promise<void> {
+  const returnToList = editingFromList.value
   const saved = await manager.save(draft)
   if (!saved) return
   emit('saved', saved)
+  if (route.name === 'custom-home' && route.meta.homeId === saved.id) await router.replace(customHomeRoute(saved))
+  if (returnToList) { editingFromList.value = false; return }
   close()
-  await router.push({ name: 'custom-home', params: { homeId: saved.id } })
+  await router.push(customHomeRoute(saved))
 }
 /** Deletes only the explicitly confirmed revision and returns the active deleted route to `/`. */
 async function confirmDelete(): Promise<void> {
   const home = deletion.value
   if (!home || !await manager.remove(home)) return
   deletion.value = null
-  if (route.name === 'custom-home' && route.params.homeId === home.id) {
+  if (route.name === 'custom-home' && route.meta.homeId === home.id) {
     close(); await router.push({ name: 'home' })
   }
 }
@@ -120,7 +143,7 @@ async function fromSource(): Promise<void> {
 
 <template>
   <v-btn v-if="props.showTrigger && editingEnabled" @click="show">{{ t('customHome.manage') }}</v-btn>
-  <v-dialog class="custom-home-manager-overlay" :model-value="visible" :max-width="!props.intent && manager.draft.value ? 1000 : 680" :persistent="manager.busy.value || seeding" @update:model-value="(value) => { if (!value) close() }">
+  <v-dialog class="custom-home-manager-overlay" :model-value="visible" :max-width="!props.intent && (manager.draft.value || directEditor) && !editingFromList ? 1280 : 680" :persistent="manager.busy.value || seeding || editingFromList" @update:model-value="(value) => { if (!value) close() }">
     <v-card class="custom-home-manager__dialog" :title="t(props.intent ? 'customHome.addToHome' : 'customHome.manage')">
       <v-card-text class="custom-home-manager__body">
         <v-alert v-if="manager.errorMessage.value && (props.intent || !manager.draft.value)" type="error" role="alert">
@@ -129,36 +152,90 @@ async function fromSource(): Promise<void> {
         <template v-if="props.intent">
           <v-select v-model="destination" :items="choices" :label="t('customHome.destination')" :disabled="manager.busy.value || seeding" />
           <v-text-field v-if="!destination" v-model="newHomeName" :label="t('customHome.name')" :disabled="manager.busy.value || seeding" />
-          <v-radio-group v-if="props.intent.kind === 'category'" v-model="categoryMode" :label="t('customHome.categoryMode')"
+          <div v-if="props.intent.kind === 'categories'" class="custom-home-manager__category-choices">
+            <v-checkbox v-for="category in props.intent.categories" :key="category.id" v-model="selectedCategoryIds"
+              :value="category.id" :label="category.label" :disabled="manager.busy.value || seeding" density="compact" hide-details />
+          </div>
+          <v-radio-group v-if="props.intent.kind === 'category' || props.intent.kind === 'categories'" v-model="categoryMode" :label="t('customHome.categoryMode')"
             :disabled="manager.busy.value || seeding" inline>
             <v-radio :label="t('customHome.shortcut')" value="shortcut" />
             <v-radio :label="t('customHome.categorySection')" value="section" />
           </v-radio-group>
         </template>
-        <template v-else-if="!manager.draft.value">
-            <v-btn :disabled="manager.busy.value" @click="begin()">{{ t('customHome.create') }}</v-btn>
-            <v-btn v-if="props.sourceId" :disabled="manager.busy.value || seeding" @click="fromSource">{{ t('customHome.fromSource') }}</v-btn>
-            <div v-for="(home, index) in manager.homes.value" :key="home.id" class="custom-home-manager__row">
-              <RouterLink :to="{ name: 'custom-home', params: { homeId: home.id } }">{{ home.name }}</RouterLink>
-              <v-btn :disabled="manager.busy.value" @click="begin(home.id)">{{ t('customHome.edit') }}</v-btn>
-              <v-btn :disabled="manager.busy.value || index === 0" @click="manager.move(index, -1)">{{ t('customHome.moveUp') }}</v-btn>
-              <v-btn :disabled="manager.busy.value || index === manager.homes.value.length - 1" @click="manager.move(index, 1)">{{ t('customHome.moveDown') }}</v-btn>
-              <v-btn :disabled="manager.busy.value" @click="deletion = home">{{ t('customHome.delete') }}</v-btn>
+        <template v-else-if="(!manager.draft.value && !directEditor) || editingFromList">
+            <DefaultHomeSetting />
+            <div class="custom-home-manager__table-scroll">
+              <table class="custom-home-manager__table" :aria-label="t('customHome.manage')">
+                <tbody><tr v-for="(home, index) in manager.homes.value" :key="home.id">
+                  <td><input class="custom-home-manager__checkbox" type="checkbox" :checked="defaultHomeId === home.id"
+                    :disabled="manager.busy.value || seeding" :aria-label="`${t('customHome.isDefault')}: ${home.name}`"
+                    :title="t('customHome.setDefault')"
+                    @change="defaultHomeId = ($event.target as HTMLInputElement).checked ? home.id : null"></td>
+                  <td>{{ home.name }}</td>
+                  <td><div class="custom-home-manager__tools">
+                    <button class="custom-home-manager__icon" type="button" :disabled="manager.busy.value"
+                      :aria-label="t('customHome.edit')" :title="t('customHome.edit')" @click="begin(home.id, true)">
+                      <v-icon icon="mdi-pencil-outline" size="18" aria-hidden="true" />
+                    </button>
+                    <button class="custom-home-manager__icon" type="button" :disabled="manager.busy.value || index === 0"
+                      :aria-label="t('customHome.moveUp')" :title="t('customHome.moveUp')" @click="manager.move(index, -1)">
+                      <v-icon icon="mdi-arrow-up" size="18" aria-hidden="true" />
+                    </button>
+                    <button class="custom-home-manager__icon" type="button" :disabled="manager.busy.value || index === manager.homes.value.length - 1"
+                      :aria-label="t('customHome.moveDown')" :title="t('customHome.moveDown')" @click="manager.move(index, 1)">
+                      <v-icon icon="mdi-arrow-down" size="18" aria-hidden="true" />
+                    </button>
+                    <button class="custom-home-manager__icon" type="button" :disabled="manager.busy.value"
+                      :aria-label="t('customHome.delete')" :title="t('customHome.delete')" @click="deletion = home">
+                      <v-icon icon="mdi-trash-can-outline" size="18" aria-hidden="true" />
+                    </button>
+                  </div></td>
+                </tr>
+                <tr><td colspan="3" class="custom-home-manager__creation"><div class="custom-home-manager__tools">
+                  <button class="custom-home-manager__icon" type="button" :disabled="manager.busy.value"
+                    :aria-label="t('customHome.create')" :title="t('customHome.create')" @click="begin('', true)">
+                    <v-icon icon="mdi-plus" size="18" aria-hidden="true" />
+                  </button>
+                  <button v-if="props.sourceId" class="custom-home-manager__icon" type="button" :disabled="manager.busy.value || seeding"
+                    :aria-label="t('customHome.fromSource')" :title="t('customHome.fromSource')" @click="fromSource">
+                    <v-icon icon="mdi-content-copy" size="18" aria-hidden="true" />
+                  </button>
+                </div></td></tr></tbody>
+              </table>
             </div>
         </template>
-        <template v-else-if="manager.draft.value">
-          <CustomHomeEditor ref="editor" :key="session" :definition="manager.draft.value" :busy="manager.busy.value || seeding"
+        <template v-else-if="editorDefinition">
+          <CustomHomeEditor ref="editor" :key="session" :definition="editorDefinition" :busy="manager.busy.value || seeding"
             :error-message="manager.errorMessage.value" @save="save" @cancel="close" />
         </template>
       </v-card-text>
-      <v-card-actions v-if="!props.intent && manager.draft.value" class="custom-home-manager__footer">
+      <v-card-actions v-if="!props.intent && (manager.draft.value || directEditor) && !editingFromList" class="custom-home-manager__footer">
         <button class="custom-home-manager__action" type="button" :disabled="!editor?.canSave || manager.busy.value || seeding" @click="editor?.save()">{{ t('customHome.save') }}</button>
         <button class="custom-home-manager__action" type="button" :disabled="manager.busy.value || seeding" @click="close">{{ t('customHome.cancel') }}</button>
       </v-card-actions>
       <v-card-actions v-else>
-        <v-btn :disabled="manager.busy.value || seeding" @click="close">{{ t(props.intent ? 'customHome.cancel' : 'customHome.close') }}</v-btn>
-        <v-btn v-if="props.intent" :loading="manager.busy.value || seeding"
-          :disabled="manager.busy.value || seeding || (!destination && !newHomeName.trim())" @click="add">{{ t('customHome.add') }}</v-btn>
+        <button class="custom-home-manager__action" type="button" :disabled="manager.busy.value || seeding" @click="close">{{ t(props.intent ? 'customHome.cancel' : 'customHome.close') }}</button>
+        <button v-if="props.intent" class="custom-home-manager__action" type="button" :aria-busy="manager.busy.value || seeding"
+          :disabled="manager.busy.value || seeding || (!destination && !newHomeName.trim()) || (props.intent.kind === 'categories' && !selectedCategoryIds.length)" @click="add">
+          <v-progress-circular v-if="manager.busy.value || seeding" indeterminate size="18" width="2" aria-hidden="true" />
+          {{ t('customHome.add') }}
+        </button>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+  <v-dialog class="custom-home-manager-overlay" :model-value="editingFromList" max-width="1280"
+    :persistent="manager.busy.value || seeding" @update:model-value="(value) => { if (!value) cancelListEditor() }">
+    <v-card class="custom-home-manager__dialog" :title="t('customHome.manage')">
+      <v-card-text class="custom-home-manager__body">
+        <CustomHomeEditor v-if="editingFromList && manager.draft.value" ref="editor" :key="session"
+          :definition="manager.draft.value" :busy="manager.busy.value || seeding"
+          :error-message="manager.errorMessage.value" @save="save" @cancel="cancelListEditor" />
+      </v-card-text>
+      <v-card-actions class="custom-home-manager__footer">
+        <button class="custom-home-manager__action" type="button" :disabled="!editor?.canSave || manager.busy.value || seeding"
+          @click="editor?.save()">{{ t('customHome.save') }}</button>
+        <button class="custom-home-manager__action" type="button" :disabled="manager.busy.value || seeding"
+          @click="cancelListEditor">{{ t('customHome.cancel') }}</button>
       </v-card-actions>
     </v-card>
   </v-dialog>
@@ -205,14 +282,37 @@ async function fromSource(): Promise<void> {
 }
 
 .custom-home-manager__action {
-  min-height: var(--control-height);
-  padding: 0 20px;
-  border-radius: var(--radius);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
   background: var(--bg-accent-primary);
+  box-shadow: 0 10px 18px var(--shadow-color);
   color: var(--text-primary);
   font: inherit;
+  font-size: 0.96rem;
   font-weight: 700;
   cursor: pointer;
+  transition:
+    transform var(--duration-fast) ease,
+    filter var(--duration-fast) ease;
+}
+
+.custom-home-manager__category-choices :deep(.v-selection-control) {
+  min-height: 32px;
+}
+
+.custom-home-manager__category-choices :deep(.v-input) {
+  margin: 0;
+}
+
+.custom-home-manager__action:hover:not(:disabled) {
+  transform: translateY(-1px);
+  filter: brightness(1.08);
 }
 
 .custom-home-manager__action:disabled {
@@ -243,11 +343,80 @@ async function fromSource(): Promise<void> {
   color: var(--text-primary);
   font: inherit;
 }
-.custom-home-manager__row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.custom-home-manager__tools {
+  display: inline-flex;
+  gap: 6px;
   align-items: center;
-  margin-block: 12px;
+}
+
+.custom-home-manager__table-scroll {
+  overflow-x: auto;
+  margin-top: 12px;
+}
+
+.custom-home-manager__table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.custom-home-manager__table th,
+.custom-home-manager__table td {
+  padding: 8px;
+  border-bottom: 1px solid var(--border-color-primary);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.custom-home-manager__table th:first-child,
+.custom-home-manager__table td:first-child {
+  width: 1%;
+  text-align: center;
+}
+
+.custom-home-manager__table th:last-child,
+.custom-home-manager__table td:last-child {
+  width: 1%;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.custom-home-manager__table td.custom-home-manager__creation {
+  text-align: left;
+}
+
+.custom-home-manager__checkbox {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+.custom-home-manager__icon {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border-color-primary);
+  border-radius: 999px;
+  background: var(--bg-transparent);
+  color: var(--text-secondary);
+  box-shadow: var(--inset-light);
+  cursor: pointer;
+}
+
+.custom-home-manager__icon:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  color: var(--text-primary);
+}
+
+.custom-home-manager__icon:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.custom-home-manager__icon:focus-visible,
+.custom-home-manager__checkbox:focus-visible {
+  outline: var(--common-focus-ring);
+  outline-offset: 2px;
 }
 </style>

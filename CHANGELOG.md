@@ -255,7 +255,31 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Navigate to the configured default home when clicking the sidebar Home group heading; keep its custom-home children permanently visible.
+- Raise the toolbar brand logo by 3px without shifting the brand text or service icon.
+- Render only the visible hero indicator window with absolute banner indices, avoiding clipped-track offsets after deferred source additions, and retain the active banner by source/id across list reordering.
+- Preserve custom-title input focus and raw whitespace during editing by deferring visual title regrouping until blur; draft updates remain immediate.
+- Group custom-home editor blocks by effective title when merging is enabled, with separate group/member movement and shared display-option changes. Preserve individual operations when merging is disabled and keep all mutations in the draft until Save.
+- Show the source-banner add pin alongside the service logo instead of only when the logo is absent.
+- Match quick-add Add/Cancel button styling while retaining busy feedback, and compact category checkbox spacing within the add dialog.
+- Align the inline custom-home name row with the label inset and vertical padding of the other settings in its group.
+
+- Move the default-home dropdown from general settings into custom-home management, keeping the shared default selection and table checkboxes synchronized.
+
+- Align the management creation action to the left and prevent the management list from flashing during save/cancel of directly opened menu editors.
+
+- Remove management table headings and home-name links, move creation to the last row, and return list-opened editors to management on Save/Cancel without navigating.
+
+- Home management now lists homes in a table with a first-column exclusive default checkbox, compact tooltip-labeled icon actions and a Close button styled like Save. Unchecking the default restores All.
+
+- Default home selection now supports All, known home-capable services and custom homes, applies to every base-URL navigation, and exposes Set as default in home management. Missing destinations safely fall back to All; existing custom-home settings remain compatible.
+
+- Add explicit spacing between the toolbar brand logo and text, and remove the upward text offset from brand/context titles so service icons retain their position while the separator and title align vertically.
+
+- Replace individual category pins with one heading action for multi-category selection and atomic destination-home addition. Remove inline custom-home editing controls and obsolete content-mutation dialogs; editing remains in the home manager.
+
 - Align contextual toolbar icons separately from brand text, remove the duplicate custom-home heading, and position hero pins after the service logo. Navigation highlights the current page and Lives in bold, aligns the add-home plus with edit actions, and uses accueil terminology throughout French translations.
+- Match custom-home Save/Cancel actions to the Watch button: borderless pill shape, shared accent, typography and hover treatment, without inset 3D borders.
 - Remove duplicate source headings above the hero and share brand typography with active service/custom-home toolbar titles. Custom homes appear under the collapsible Home/Accueil group, preserving its home icon; Video Services/Services Vidéo uses a projector icon with nested entries.
 - Edition visibility now includes custom-home management controls. Group display actions sit immediately after removal, banner pins align with service logos, and custom banners allow confirmed removal of multiple source collections with revision-checked saves. Compact single-line navigation adapts its width to content, indents the bold Services group, and uses Lives/Directes labels. Source-home toolbar titles include service logos without distortion.
 - Catalog section rendering now honors the saved group layout instead of forcing a single row, including custom-home groups. Rename the shared display option to “Disposition” / “Layout”.
@@ -263,12 +287,21 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Add a persistent desktop sidebar toggle at the left of the toolbar, retaining independent Video Services expansion persistence. Move Settings to a bold sidebar entry opening a scrollable modal and remove the toolbar settings popover.
+
+- Rename the service home route to `/source/:sourceId` (singular); named source-home navigation uses the updated URL.
+
+- Custom accueil URLs use `/home/<title_slug>` while retaining internal UUIDs. Creation and renaming enforce normalized title/URL uniqueness atomically across views; active renamed routes and legacy UUID links resolve to the new URL. Existing collisions are reported without destructive migration.
+
 - Simplify custom-home additions to one destination/create dialog with Cancel/Add and Shortcut/Section for categories; resolve all clicked contributions and save atomically without an editor step or navigation. Restrict content reordering to custom-home definitions, ignoring but preserving legacy source/aggregate pin order. Use shared compact translucent pin actions with category pins inside the card, and replace the sidebar management row with a heading edit icon.
+- Replace the active hero banner dot with a pill spanning two dots and their gap, and limit navigation to ten visible indicators with automatic scrolling that follows selection and carousel wraparound. Hidden indicators are excluded from keyboard navigation and assistive technology, and animations respect reduced-motion preferences.
 - Apply the shared strong backdrop blur to custom-home management, suppress redundant Close while editing, and replace draft movement/removal text buttons with inline arrow/trash actions. Remove the reference replacement control; missing selections can be removed and re-added before saving.
 - Remove draft preview, render custom-home banners/shortcuts/blocks as tables with inline title overrides, widen editing to 1000px while keeping add/list dialogs compact, and style Save/Cancel like the hero details action.
 - Simplify editor headings to Banners/Categories/Sections, label service discovery as content addition, and right-align compact action columns consistently across all editor tables.
 - Unify custom-home editor groups with the preferences section component, including typography, colored markers and themed surfaces. Use Home/Accueil for draft settings and a separate Add content from a service group above discovery.
 - Keep the custom-home management title and Save/Cancel footer visible around a scrollable body. Present discovered banners/categories/sections in a four-column table and add the shared display menu to section draft rows, saving optional validated block defaults atomically without writes on cancellation.
+- Widen custom-home editing to 1280px and simplify French discovery actions with explanatory tooltips, including category content that rediscover its sections on each load.
+- Hide discovery action headings, center action buttons and put single actions in the rightmost column. Enable the display-options menu in the custom-home section draft table while hiding pin and movement controls.
 - Add a persisted default custom-home setting for initial root navigation and brand clicks, preserving direct routes and falling back to the aggregate for unavailable definitions. Remove the sidebar create row; compact the management dialog, reuse parameter switch styling, display service titles and hide reference keys without changing stored identities.
 - Restore edition-only custom rail up/down controls and confirmed removal pins for rails/category shortcuts. Merged rails select one owning block; category-content removal warns that all its rails are removed. Save against the displayed revision without optimistic mutation. Show the Home icon only at the custom-home navigation group heading.
 

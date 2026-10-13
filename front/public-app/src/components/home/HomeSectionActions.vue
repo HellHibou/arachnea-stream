@@ -48,8 +48,6 @@ interface Props {
   hideMoveButtons?: boolean
   /** Edition-only custom home add action, separate from legacy pinning. @default false */
   showAddButton?: boolean
-  /** Custom owning block removal is confirmed before persistence. @default false */
-  showRemoveButton?: boolean
 }
 
 /** Component props with applied defaults. */
@@ -59,12 +57,10 @@ const props = withDefaults(defineProps<Props>(), {
   canMoveUp: false,
   canMoveDown: false,
   showAddButton: false,
-  showRemoveButton: false,
 })
 
 const emit = defineEmits<{
   'add-section': [section: HomeSection]
-  'remove-section': [section: HomeSection]
   /** Emitted when a section pinned state should be toggled. */
   'toggle-pinned': [section: HomeSection]
   /** Emitted when a pinned section should be moved. */
@@ -101,8 +97,6 @@ const thumbnailImageFitOptions = computed<Array<{ value: ThumbnailImageFit; labe
   <div class="home-section-actions">
     <HomePinButton v-if="props.showAddButton" :label="t('customHome.addSectionToHome')"
       @click="emit('add-section', props.section)" />
-    <HomePinButton v-if="props.showRemoveButton" active :label="t('customHome.removeSection')"
-      @click="emit('remove-section', props.section)" />
     <button
       v-if="!props.hidePinButton"
       class="home-section-actions__button"

@@ -16,19 +16,16 @@ interface Props {
    categories: HomeCategory[]
    /** Edition-only add action, also available for custom shortcuts. @default false */
    showAddButton?: boolean
-   /** Custom shortcuts use their pin to request removal, not copying. @default false */
-   removeMode?: boolean
 }
 
 /** Component props with edition controls hidden by default. */
-withDefaults(defineProps<Props>(), { showAddButton: false, removeMode: false })
+withDefaults(defineProps<Props>(), { showAddButton: false })
 const { t } = useI18n()
 
 const emit = defineEmits<{
   /** Emitted when a category is selected. */
    'select-category': [category: HomeCategory]
-   'add-category': [category: HomeCategory]
-   'remove-category': [category: HomeCategory]
+   'add-categories': [categories: HomeCategory[]]
 }>()
 
 /** Vue Router instance used to resolve category links. */
@@ -61,8 +58,10 @@ function handleCategorySelect(category: HomeCategory) {
    <section class="home-category-strip" aria-labelledby="home-category-strip-title">
      <header class="home-category-strip__header">
        <h2 id="home-category-strip-title" class="home-category-strip__title">
-         Explorer par categorie
+         {{ t('customHome.exploreCategories') }}
        </h2>
+       <HomePinButton v-if="showAddButton" :label="t('customHome.addCategory')"
+         @click="emit('add-categories', categories)" />
      </header>
 
      <div class="home-category-strip__list" role="list">
@@ -102,9 +101,6 @@ function handleCategorySelect(category: HomeCategory) {
            <span class="home-category-strip__label">{{ category.label }}</span>
          </span>
        </a>
-        <HomePinButton v-if="showAddButton" class="home-category-strip__pin" :active="removeMode"
-          :label="t(removeMode ? 'customHome.removeCategory' : 'customHome.addCategory')"
-          @click="removeMode ? emit('remove-category', category) : emit('add-category', category)" />
         </div>
      </div>
 
@@ -115,12 +111,6 @@ function handleCategorySelect(category: HomeCategory) {
 .home-category-strip__item {
   position: relative;
   flex: 0 0 auto;
-}
-
-.home-category-strip__pin {
-  position: absolute;
-  top: 8px;
-  right: 8px;
   z-index: 2;
 }
 
@@ -132,7 +122,6 @@ function handleCategorySelect(category: HomeCategory) {
 .home-category-strip__header {
    display: flex;
    align-items: center;
-   justify-content: space-between;
    gap: 12px;
  }
 

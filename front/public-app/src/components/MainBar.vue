@@ -1,17 +1,15 @@
 <script setup lang="ts">
-import { useId } from 'vue'
 
 import type { SearchFilterOption } from '@/services/rustify'
-import MainBarParametersPopover from './main-bar/MainBarParametersPopover.vue'
 import MainBarToolbar from './main-bar/MainBarToolbar.vue'
 
 /**
  * Props accepted by the main toolbar displayed above the current screen.
  */
 interface Props {
-  /** Mobile navigation trigger availability and controlled expansion. @default false */
+  /** Navigation trigger availability and controlled expansion. @default false */
   showNavigationButton?: boolean
-  /** Whether the mobile navigation drawer is expanded. @default false */
+  /** Whether the navigation sidebar or drawer is expanded. @default false */
   isNavigationOpen?: boolean
   /**
    * Controlled search query value.
@@ -22,11 +20,6 @@ interface Props {
    * @default false
    */
   showBackButton?: boolean
-  /**
-   * Indicates whether the parameters panel should be visible.
-   * @default false
-   */
-  isParametersVisible?: boolean
   /**
    * Indicates whether the search bar should be visible.
    * @default false
@@ -59,7 +52,6 @@ withDefaults(defineProps<Props>(), {
   showBackButton: false,
   showNavigationButton: false,
   isNavigationOpen: false,
-  isParametersVisible: false,
   isSearchVisible: false,
   mediaTypeOptions: () => [],
   selectedMediaTypes: () => [],
@@ -79,20 +71,12 @@ const emit = defineEmits<{
   back: []
   /** Emitted when the home button is clicked. */
   home: []
-  /** Emitted when the mobile navigation toggle is clicked. */
+  /** Emitted when the navigation toggle is clicked. */
   'toggle-navigation': []
-  /** Emitted when the parameters toggle is clicked. */
-  'toggle-parameters': []
-  /** Emitted when the parameters panel is closed. */
-  'close-parameters': []
   /** Emitted when the search toggle is clicked. */
   'toggle-search': []
 }>()
 
-/** Unique ID for the parameters panel. */
-const parametersPanelId = useId()
-/** Unique ID for the parameters toggle button. */
-const parametersButtonId = useId()
 
 /**
  * Focuses the search input inside the search bar.
@@ -118,10 +102,7 @@ defineExpose({ focusSearchInput, focusNavigationButton })
       :show-back-button="showBackButton"
       :show-navigation-button="showNavigationButton"
       :is-navigation-open="isNavigationOpen"
-      :is-parameters-visible="isParametersVisible"
       :is-search-visible="isSearchVisible"
-      :parameters-button-id="parametersButtonId"
-      :parameters-panel-id="parametersPanelId"
       :media-type-options="mediaTypeOptions"
       :selected-media-types="selectedMediaTypes"
       :theme-options="themeOptions"
@@ -133,16 +114,10 @@ defineExpose({ focusSearchInput, focusNavigationButton })
       @back="emit('back')"
       @home="emit('home')"
       @toggle-navigation="emit('toggle-navigation')"
-      @toggle-parameters="emit('toggle-parameters')"
       @toggle-search="emit('toggle-search')"
     />
 
-    <MainBarParametersPopover
-      :panel-id="parametersPanelId"
-      :is-parameters-visible="isParametersVisible"
-      :toggle-button-id="parametersButtonId"
-      @close-parameters="emit('close-parameters')"
-    />
+
   </header>
 </template>
 

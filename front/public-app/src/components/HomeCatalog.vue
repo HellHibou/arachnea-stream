@@ -5,7 +5,6 @@ import HomeCategoryStrip from '@/components/home/HomeCategoryStrip.vue'
 import HomeHeroBanner from '@/components/home/HomeHeroBanner.vue'
 import HomeSectionActions from '@/components/home/HomeSectionActions.vue'
 import CustomHomeManager from '@/components/home/CustomHomeManager.vue'
-import CustomHomeContentActions, { type CustomHomeContentRequest } from '@/components/home/CustomHomeContentActions.vue'
 import MediaCardCollection from '@/components/MediaCardCollection.vue'
 import ScrollToTopButton from '@/components/ScrollToTopButton.vue'
 import { useHomeCatalog } from '@/composables/home/useHomeCatalog'
@@ -155,17 +154,10 @@ const { showScrollToTop, scrollToTop } = useScrollToTop()
 /** Internationalization utilities. */
 const { t } = useI18n()
 const addIntent = shallowRef<CustomHomeAddIntent | null>(null)
-const contentRequest = shallowRef<CustomHomeContentRequest | null>(null)
-/** @param section Runtime group. @param direction Movement. @returns Whether at least one owner can move. */
-function canMoveCustomSection(section: HomeSection, direction: 'up' | 'down'): boolean {
-  const blocks = props.customDefinition?.blocks ?? []
-  return blocks.some((block, index) => section.customBlockIds?.includes(block.id) &&
-    (direction === 'up' ? index > 0 : index < blocks.length - 1))
-}
 const addDialogOpen = shallowRef(false)
 /** @param intent Explicit add action; never selects an implicit destination or writes storage. */
 function requestAdd(intent: CustomHomeAddIntent): void { addIntent.value = intent; addDialogOpen.value = true }
-const editingEnabled = computed(() => showSectionEditingButtons.value && !props.previewOnly)
+const editingEnabled = computed(() => showSectionEditingButtons.value && !props.previewOnly && props.mode !== 'custom')
 /** Active subsection index tracked independently for every parent section. */
 const activeSubsectionIndexes = shallowRef<Record<string, number>>({})
 
@@ -306,8 +298,6 @@ function handleSelectCollectionItem(item: MediaItem) {
             v-if="currentCatalog.banners.entries.length > 0 || currentCatalog.deferredBanners.length > 0"
             :banners="currentCatalog.banners.entries"
             :show-add-button="editingEnabled && props.mode !== 'custom'"
-            :show-remove-button="editingEnabled && props.mode === 'custom'"
-            @remove-banners="contentRequest = { kind: 'banners', action: 'remove' }"
             @add-banners="(sourceId) => requestAdd({ kind: 'banners', sourceId })"
             :should-load-deferred-banners="currentCatalog.deferredBanners.some((collection) => Boolean(collection.link))"
             @select-item="handleSelectItem"
@@ -376,12 +366,7 @@ function handleSelectCollectionItem(item: MediaItem) {
                     :section="renderedSection.section"
                     :is-pinned="props.mode === 'custom'"
                     hide-pin-button
-                    :hide-move-buttons="!renderedSection.section.customBlockIds?.length"
-                    :show-remove-button="Boolean(renderedSection.section.customBlockIds?.length)"
-                    :can-move-up="canMoveCustomSection(renderedSection.section, 'up')"
-                    :can-move-down="canMoveCustomSection(renderedSection.section, 'down')"
-                    @remove-section="(section) => { contentRequest = { kind: 'section', section, action: 'remove' } }"
-                    @move-pinned="(section, direction) => { contentRequest = { kind: 'section', section, action: direction } }"
+                    hide-move-buttons
                     :thumbnail-orientation="getSectionThumbnailOrientation(renderedSection.section) ?? props.thumbnailOrientation"
                     :thumbnail-image-fit="getSectionThumbnailImageFit(renderedSection.section) ?? props.thumbnailImageFit"
                     :collection-mode="getSectionCollectionMode(renderedSection.section)"
@@ -396,9 +381,7 @@ function handleSelectCollectionItem(item: MediaItem) {
 
           <HomeCategoryStrip
             :show-add-button="editingEnabled"
-            :remove-mode="props.mode === 'custom'"
-            @remove-category="(category) => { contentRequest = { kind: 'category', category, action: 'remove' } }"
-            @add-category="(category) => requestAdd({ kind: 'category', category })"
+            @add-categories="(categories) => requestAdd({ kind: 'categories', categories })"
             v-if="currentCatalog.categories.length > 0"
             class="home-catalog__category-strip"
             :categories="currentCatalog.categories"
@@ -460,12 +443,7 @@ function handleSelectCollectionItem(item: MediaItem) {
                     :section="renderedSection.section"
                     :is-pinned="props.mode === 'custom'"
                     hide-pin-button
-                    :hide-move-buttons="!renderedSection.section.customBlockIds?.length"
-                    :show-remove-button="Boolean(renderedSection.section.customBlockIds?.length)"
-                    :can-move-up="canMoveCustomSection(renderedSection.section, 'up')"
-                    :can-move-down="canMoveCustomSection(renderedSection.section, 'down')"
-                    @remove-section="(section) => { contentRequest = { kind: 'section', section, action: 'remove' } }"
-                    @move-pinned="(section, direction) => { contentRequest = { kind: 'section', section, action: direction } }"
+                    hide-move-buttons
                     :thumbnail-orientation="getSectionThumbnailOrientation(renderedSection.section) ?? props.thumbnailOrientation"
                     :thumbnail-image-fit="getSectionThumbnailImageFit(renderedSection.section) ?? props.thumbnailImageFit"
                     :collection-mode="getSectionCollectionMode(renderedSection.section)"
@@ -533,8 +511,6 @@ function handleSelectCollectionItem(item: MediaItem) {
     </section>
 
     <CustomHomeManager v-if="!props.previewOnly" v-model:open="addDialogOpen" :intent="addIntent" :show-trigger="false" />
-    <CustomHomeContentActions v-if="!props.previewOnly && props.mode === 'custom' && props.customDefinition"
-      :definition="props.customDefinition" :request="contentRequest" @close="contentRequest = null" />
     <ScrollToTopButton
       v-if="showScrollToTop"
       @click="scrollToTop"

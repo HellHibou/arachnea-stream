@@ -18,6 +18,14 @@ export async function resolveQuickAddSelections(
   intent: CustomHomeAddIntent,
   categoryMode: 'shortcut' | 'section',
 ): Promise<CustomHomeSelection[]> {
+  if (intent.kind === 'categories') {
+    if (!intent.categories.length) throw new Error('Select at least one category')
+    const selections: CustomHomeSelection[] = []
+    for (const category of intent.categories) {
+      selections.push(...await resolveQuickAddSelections({ kind: 'category', category }, categoryMode))
+    }
+    return selections
+  }
   if (intent.kind === 'banners') return [{ kind: 'banners', sourceId: intent.sourceId }]
   if (intent.kind === 'category' && intent.category.identity && intent.category.sources.length === 1) {
     const reference = createCategoryReference(intent.category)

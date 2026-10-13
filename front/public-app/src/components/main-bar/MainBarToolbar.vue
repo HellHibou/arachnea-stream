@@ -16,9 +16,9 @@ import { APP_TITLE } from '../../constants'
  * Props accepted by the main toolbar row rendered above the current screen.
  */
 interface Props {
-  /** Mobile navigation trigger availability and controlled expansion. @default false */
+  /** Navigation trigger availability and controlled expansion. @default false */
   showNavigationButton?: boolean
-  /** Whether the mobile navigation drawer is expanded. @default false */
+  /** Whether the navigation sidebar or drawer is expanded. @default false */
   isNavigationOpen?: boolean
   /**
    * Controlled search query value.
@@ -30,23 +30,10 @@ interface Props {
    */
   showBackButton?: boolean
   /**
-   * Indicates whether the parameters panel should be visible.
-   * @default false
-   */
-  isParametersVisible?: boolean
-  /**
    * Indicates whether the search bar should be visible.
    * @default false
    */
   isSearchVisible?: boolean
-  /**
-   * Identifier applied to the parameters toggle button.
-   */
-  parametersButtonId: string
-  /**
-   * Identifier of the associated parameters popover panel.
-   */
-  parametersPanelId: string
   /**
    * Available media type filter labels.
    */
@@ -70,7 +57,6 @@ withDefaults(defineProps<Props>(), {
   showBackButton: false,
   showNavigationButton: false,
   isNavigationOpen: false,
-  isParametersVisible: false,
   isSearchVisible: false,
 })
 
@@ -89,8 +75,6 @@ const emit = defineEmits<{
   home: []
   /** Emitted when the mobile drawer toggle is clicked. */
   'toggle-navigation': []
-  /** Emitted when the parameters toggle is clicked. */
-  'toggle-parameters': []
   /** Emitted when the search toggle is clicked. */
   'toggle-search': []
 }>()
@@ -103,12 +87,11 @@ const router = useRouter()
 const route = useRoute()
 const metadata = useServiceMetadata()
 const activeService = computed(() => route.name === 'source-home' ? metadata.getService(String(route.params.sourceId)) : undefined)
-const customHome = useCustomHomeDefinition(() => route.name === 'custom-home' ? String(route.params.homeId) : '')
+const customHome = useCustomHomeDefinition(() => route.name === 'custom-home' ? String(route.meta.homeId) : '')
 
 /** Browser href for the home route. */
 const homeHref = computed(() => {
-  const id = useStorage().getParameters().defaultHomeId.value
-  return router.resolve(id ? { name: 'custom-home', params: { homeId: id } } : { name: 'home' }).href
+  return router.resolve({ name: 'home' }).href
 })
 </script>
 
@@ -177,17 +160,7 @@ const homeHref = computed(() => {
         <v-icon icon="$Search" size="22" aria-hidden="true" />
       </button>
 
-      <button
-        class="main-bar__parameters-button"
-        type="button"
-        :id="parametersButtonId"
-        :aria-controls="parametersPanelId"
-        :aria-expanded="isParametersVisible"
-        :aria-label="isParametersVisible ? t('toolbar.hideSettings') : t('toolbar.showSettings')"
-        @click="emit('toggle-parameters')"
-      >
-        <v-icon icon="mdi-cog" size="22" aria-hidden="true" />
-      </button>
+
     </div>
   </div>
 </template>
@@ -210,7 +183,7 @@ const homeHref = computed(() => {
   width: 32px;
   height: 32px;
   position: relative;
-  top: 5px;
+  top: 2px;
 }
 .main-bar__row {
   position: relative;
@@ -229,6 +202,9 @@ const homeHref = computed(() => {
 }
 
 .main-bar__brand-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
   min-width: 0;
   color: var(--text-primary);
   text-decoration: none;
@@ -259,8 +235,6 @@ const homeHref = computed(() => {
 }
 
 .main-bar__brand {
-  position:relative;
-  top: -3px;
   min-width: 0;
   justify-self: center;
   color: var(--text-primary);
