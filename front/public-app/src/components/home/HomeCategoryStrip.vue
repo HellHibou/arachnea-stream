@@ -3,6 +3,8 @@ import { useRouter } from 'vue-router'
 
 import { encodeCategoryRouteParam } from '@/router/routePayloads'
 import type { HomeCategory } from '@/types/home'
+import { useI18n } from '@/i18n'
+import HomePinButton from '@/components/home/HomePinButton.vue'
 
 /**
  * Props accepted by the clickable category strip.
@@ -12,14 +14,18 @@ interface Props {
     * Categories exposed by the backend catalog payload.
     */
    categories: HomeCategory[]
+   /** Edition-only add action, also available for custom shortcuts. @default false */
+   showAddButton?: boolean
 }
 
-/** Component props without defaults. */
-defineProps<Props>()
+/** Component props with edition controls hidden by default. */
+withDefaults(defineProps<Props>(), { showAddButton: false })
+const { t } = useI18n()
 
 const emit = defineEmits<{
   /** Emitted when a category is selected. */
    'select-category': [category: HomeCategory]
+   'add-categories': [categories: HomeCategory[]]
 }>()
 
 /** Vue Router instance used to resolve category links. */
@@ -52,16 +58,21 @@ function handleCategorySelect(category: HomeCategory) {
    <section class="home-category-strip" aria-labelledby="home-category-strip-title">
      <header class="home-category-strip__header">
        <h2 id="home-category-strip-title" class="home-category-strip__title">
-         Explorer par categorie
+         {{ t('customHome.exploreCategories') }}
        </h2>
+       <HomePinButton v-if="showAddButton" :label="t('customHome.addCategory')"
+         @click="emit('add-categories', categories)" />
      </header>
 
      <div class="home-category-strip__list" role="list">
-       <a
+        <div
          v-for="category in categories"
          :key="category.id"
-         class="home-category-strip__card"
+         class="home-category-strip__item"
          role="listitem"
+        >
+        <a
+          class="home-category-strip__card"
          :href="categoryHref(category)"
          @click.prevent="handleCategorySelect(category)"
        >
@@ -90,12 +101,19 @@ function handleCategorySelect(category: HomeCategory) {
            <span class="home-category-strip__label">{{ category.label }}</span>
          </span>
        </a>
+        </div>
      </div>
 
    </section>
  </template>
 
 <style scoped>
+.home-category-strip__item {
+  position: relative;
+  flex: 0 0 auto;
+  z-index: 2;
+}
+
 .home-category-strip {
    display: grid;
    gap: 14px;
@@ -104,7 +122,6 @@ function handleCategorySelect(category: HomeCategory) {
 .home-category-strip__header {
    display: flex;
    align-items: center;
-   justify-content: space-between;
    gap: 12px;
  }
 

@@ -23,6 +23,23 @@ The crate build script runs Tauri build helpers from this crate root so these fi
 
 ## Commands
 
+The `load_home` REST/Tauri command accepts optional exact `sources` identifiers.
+Omission selects all loaded sources; `[]` returns an empty success without
+provider calls or ETag. Null, invalid types and blank identifiers are rejected.
+Unknown/unavailable/unsupported sources return per-source errors alongside any
+valid results, never a fallback to all sources. Filtered error responses omit
+the ETag; unfiltered requests preserve their existing cache behavior.
+`get_service` advertises sorted `supported_queries` from the loaded registry,
+joined by metadata id; filters never reactivate disabled sources. See the stream
+FR/EN specifications for transport examples.
+
+New YAML rail identity mappings use the `key` field with `rail:<provider-id>`
+values (Arte, TF1, France TV, RMC BFM Play), independently from display titles.
+LN24's single category rail uses `rail:category-content`. Existing keys are not
+renamed. Local HTML rails without persistent container ids retain documented
+descriptor/fragile-label fallbacks; random slider UIDs and array positions are
+not stable identities. See the Section contract in the stream specifications.
+
 - `cd server && cargo run -p arachnea-stream --bin arachnea` - Run the backend executable. Add `--server-public` to bind the server to `0.0.0.0` so the web interface and API are reachable through any local network hostname or IP (for example `http://localhost:8080/`).
 - `cd server && cargo check -p arachnea-stream` - Type-check this crate.
 - `cd server && cargo test -p arachnea-stream` - Run this crate's tests.

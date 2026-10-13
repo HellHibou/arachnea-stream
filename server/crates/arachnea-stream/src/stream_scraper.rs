@@ -1,7 +1,12 @@
 use anyhow::{bail, Result};
 use const_format::concatcp;
-use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
+use serde::{Deserialize, Deserializer, Serialize};
+use std::{
+    collections::HashMap,
+    fs,
+    path::PathBuf,
+    sync::{Arc, LazyLock},
+};
 use urlencoding::encode;
 
 use arachnea_core::{
@@ -16,7 +21,13 @@ use arachnea_core::{
 };
 use arachnea_http::chaser_session::{CachedChaserSession, CLOUDFLARE_SESSION_STORE_NAME};
 use arachnea_proxy::core::{ArachneaProxyCore, ProxyConfig, ProxyRecord};
-use arachnea_scrapyfy::{scraper_result::ScraperAggregationResult, *};
+use arachnea_scrapyfy::{
+    scraper_result::{ScraperAggregationResult, ScraperErrorOrigin, ScraperExecutionError},
+    *,
+};
+
+static HOME_ERROR_CODES: LazyLock<arachnea_core::error_code::ErrorCodeGenerator> =
+    LazyLock::new(arachnea_core::error_code::ErrorCodeGenerator::new);
 
 use crate::reloadable_stream_scraper::ReloadableStreamScraper;
 use crate::services::{
@@ -246,7 +257,31 @@ pub(crate) struct GetStreamRequest {
 }
 
 #[derive(Default, Serialize, Deserialize)]
-pub(crate) struct LoadHomeRequest {}
+pub(crate) struct LoadHomeRequest {
+    /// Exact source identifiers; omitted means all, an empty list means none.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_home_sources",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub(crate) sources: Option<Vec<String>>,
+}
+
+/// Rejects explicit null, invalid types and blank identifiers without treating them as all sources.
+fn deserialize_home_sources<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<Vec<String>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let sources = Vec::<String>::deserialize(deserializer)?;
+    if sources.iter().any(|source| source.trim().is_empty()) {
+        return Err(serde::de::Error::custom(
+            "load_home sources must contain non-blank identifiers",
+        ));
+    }
+    Ok(Some(sources))
+}
 
 #[derive(Default, Serialize, Deserialize)]
 pub(crate) struct GetServiceRequest {}
@@ -890,11 +925,13 @@ impl StreamScraper {
         ))
     }
 
-    /// Loads the aggregated home catalog across every configured source.
+    /// Loads the home catalog for all loaded sources or an explicit selection.
     ///
     /// # Arguments
     ///
     /// * `context` - Context of the incoming controller request.
+    /// * `sources` - Exact source identifiers. `None` keeps the legacy selection;
+    ///   an empty list returns an empty success without provider calls or ETag.
     ///
     /// # Returns
     ///
@@ -902,10 +939,45 @@ impl StreamScraper {
     pub async fn load_home(
         &self,
         context: RequestControlerContext,
+        sources: Option<Vec<String>>,
     ) -> Result<(
         ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>>,
         Option<String>,
     )> {
+        let mut errors = Vec::new();
+        let selection = if let Some(mut sources) = sources {
+            sources.sort();
+            sources.dedup();
+            let mut valid = Vec::new();
+            for source in sources {
+                if self.scraper_agregator.source_has_query(
+                    STREAM_SERVICE_GROUP_NAME,
+                    &source,
+                    "load_home",
+                ) {
+                    valid.push(source);
+                } else {
+                    let code = HOME_ERROR_CODES.next_code();
+                    let message = format!(
+                        "source `{source}` is unknown, unavailable or does not support load_home"
+                    );
+                    tracing::error!(error_code = %code, operation = "load_home", source = %source, error = %message);
+                    errors.push(ScraperExecutionError {
+                        code,
+                        operation: "load_home".to_string(),
+                        source: Some(source),
+                        origin: ScraperErrorOrigin::Backend,
+                        message,
+                    });
+                }
+            }
+            if valid.is_empty() {
+                return Ok((ScraperAggregationResult::new(Vec::new(), errors), None));
+            }
+            Some(valid)
+        } else {
+            None
+        };
         let mut params: HashMap<String, String> = HashMap::new();
         self.enrich_runtime_params(&mut params);
         let mut result = self
@@ -917,14 +989,20 @@ impl StreamScraper {
                 "load_home",
                 &params,
                 None,
-                None,
+                selection.as_ref(),
                 None,
                 None,
                 Some("source"),
                 "load_home",
             )
             .await;
-        let global_etag = result.take_global_etag();
+        result.errors.extend(errors);
+        let global_etag = if selection.is_none() || result.errors.is_empty() {
+            result.take_global_etag()
+        } else {
+            result.global_etag = None;
+            None
+        };
         Ok((result, global_etag))
     }
 
@@ -963,6 +1041,26 @@ impl StreamScraper {
                 "service_stream_metadata",
             )
             .await;
+        for row in &mut result.data {
+            let supported_queries = row
+                .get("id")
+                .and_then(ScraperDataNode::value_as_string)
+                .and_then(|id| {
+                    self.scraper_agregator
+                        .query_services()
+                        .find(|group| group.name == STREAM_SERVICE_GROUP_NAME)
+                        .and_then(|group| group.services.iter().find(|source| source.name() == id))
+                })
+                .map(|source| source.query_names())
+                .unwrap_or_default();
+            row.insert(
+                "supported_queries".to_string(),
+                ScraperDataNode::from_values_typed(
+                    supported_queries,
+                    ScraperOutputType::StringArray,
+                ),
+            );
+        }
         let global_etag = result.take_global_etag();
         Ok((result, global_etag))
     }

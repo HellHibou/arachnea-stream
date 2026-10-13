@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { useId } from 'vue'
 
 import type { SearchFilterOption } from '@/services/rustify'
-import MainBarParametersPopover from './main-bar/MainBarParametersPopover.vue'
 import MainBarToolbar from './main-bar/MainBarToolbar.vue'
 
 /**
  * Props accepted by the main toolbar displayed above the current screen.
  */
 interface Props {
+  /** Navigation trigger availability and controlled expansion. @default false */
+  showNavigationButton?: boolean
+  /** Whether the navigation sidebar or drawer is expanded. @default false */
+  isNavigationOpen?: boolean
   /**
    * Controlled search query value.
    */
@@ -18,11 +20,6 @@ interface Props {
    * @default false
    */
   showBackButton?: boolean
-  /**
-   * Indicates whether the parameters panel should be visible.
-   * @default false
-   */
-  isParametersVisible?: boolean
   /**
    * Indicates whether the search bar should be visible.
    * @default false
@@ -53,7 +50,8 @@ interface Props {
 /** Component props with applied defaults. */
 withDefaults(defineProps<Props>(), {
   showBackButton: false,
-  isParametersVisible: false,
+  showNavigationButton: false,
+  isNavigationOpen: false,
   isSearchVisible: false,
   mediaTypeOptions: () => [],
   selectedMediaTypes: () => [],
@@ -73,20 +71,12 @@ const emit = defineEmits<{
   back: []
   /** Emitted when the home button is clicked. */
   home: []
-  /** Emitted when the lives button is clicked. */
-  lives: []
-  /** Emitted when the parameters toggle is clicked. */
-  'toggle-parameters': []
-  /** Emitted when the parameters panel is closed. */
-  'close-parameters': []
+  /** Emitted when the navigation toggle is clicked. */
+  'toggle-navigation': []
   /** Emitted when the search toggle is clicked. */
   'toggle-search': []
 }>()
 
-/** Unique ID for the parameters panel. */
-const parametersPanelId = useId()
-/** Unique ID for the parameters toggle button. */
-const parametersButtonId = useId()
 
 /**
  * Focuses the search input inside the search bar.
@@ -98,7 +88,11 @@ function focusSearchInput() {
   searchInput?.focus()
 }
 
-defineExpose({ focusSearchInput })
+/** Restores focus to the mobile drawer trigger after dismissal. */
+function focusNavigationButton(): void {
+  document.getElementById('app-navigation-toggle')?.focus()
+}
+defineExpose({ focusSearchInput, focusNavigationButton })
 </script>
 
 <template>
@@ -106,10 +100,9 @@ defineExpose({ focusSearchInput })
     <MainBarToolbar
       :model-value="modelValue"
       :show-back-button="showBackButton"
-      :is-parameters-visible="isParametersVisible"
+      :show-navigation-button="showNavigationButton"
+      :is-navigation-open="isNavigationOpen"
       :is-search-visible="isSearchVisible"
-      :parameters-button-id="parametersButtonId"
-      :parameters-panel-id="parametersPanelId"
       :media-type-options="mediaTypeOptions"
       :selected-media-types="selectedMediaTypes"
       :theme-options="themeOptions"
@@ -120,17 +113,11 @@ defineExpose({ focusSearchInput })
       @submit="emit('submit')"
       @back="emit('back')"
       @home="emit('home')"
-      @lives="emit('lives')"
-      @toggle-parameters="emit('toggle-parameters')"
+      @toggle-navigation="emit('toggle-navigation')"
       @toggle-search="emit('toggle-search')"
     />
 
-    <MainBarParametersPopover
-      :panel-id="parametersPanelId"
-      :is-parameters-visible="isParametersVisible"
-      :toggle-button-id="parametersButtonId"
-      @close-parameters="emit('close-parameters')"
-    />
+
   </header>
 </template>
 

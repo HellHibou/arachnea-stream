@@ -28,6 +28,7 @@ queries:
       - categories > key
       - categories > label
       - categories > request > query_url
+      - sections > key
       - sections > label
       - sections > entries > title
       - sections > entries > link

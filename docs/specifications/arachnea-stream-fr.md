@@ -150,9 +150,44 @@ Requête statique. Chaque source retourne exactement une ligne.
 | `search_themes` | `string[]` | non | Liste des thèmes disponibles pour filtrer la recherche |
 | `themes` | `string[]` | non | Variante de `search_themes` |
 
+La commande publique `get_service` ajoute `supported_queries: string[]` à chaque
+ligne, trié depuis le registre chargé et joint par l'identifiant exact
+`id`/nom de collection. Ce champ n'est pas maintenu manuellement en YAML. Un
+identifiant de métadonnées sans correspondance reçoit une liste vide ; le
+sélecteur des homes sources liste uniquement les services annonçant `load_home`.
+Ni la découverte ni le filtre ne réactivent une source désactivée/non chargée.
+
 ---
 
 ### 5.2 Page d'accueil — `load_home`
+
+La commande publique REST/Tauri accepte `sources: string[]` optionnel : des
+identifiants exacts de collections backend, pas des titres ou des descripteurs
+de catégories.
+
+- `{}` conserve le comportement toutes sources chargées.
+- `{"sources":[]}` retourne `{"data":[],"errors":[]}` sans fournisseur ni ETag.
+- `{"sources":["arte-fr","rtlplay-be"]}` exécute uniquement ces sources ; la
+  sélection est triée et les doublons sont supprimés.
+- `null`, les types JSON incorrects et les identifiants vides/blancs sont rejetés
+  à la désérialisation. Aucun identifiant n'est corrigé ou tronqué implicitement.
+- Les sources inconnues, désactivées/non chargées ou sans `load_home` produisent
+  des erreurs contextuelles dans `errors`, sans repli toutes sources. Une
+  sélection mixte conserve les résultats valides. Aucun ETag n'est publié sur
+  une réponse explicitement filtrée contenant des erreurs ; les requêtes sans
+  filtre conservent leur comportement de cache existant.
+
+REST : `GET /api/load_home?sources=%5B%22arte-fr%22%5D` (tableau encodé en JSON).
+Tauri : `invoke('load_home', { sources: ['arte-fr'] })`. L'omission et le tableau
+vide sont distincts. L'enveloppe et la provenance restent inchangées ; les
+`sources` de `get_category` conservent leur signification de descripteurs.
+
+Le frontend conserve `/` agrégé et expose `/sources/:sourceId` pour les homes
+isolées. Le sélecteur découvre les métadonnées sans précharger chaque home.
+Les signets sont filtrés par source ; les préférences de sections sont écrites
+sous `source:<identifiant-source-encodé>:<clé-héritée>` dans le magasin IndexedDB
+existant, avec les styles hérités comme repli de lecture uniquement. Aucun
+signet ni préférence globale n'est migré ou réinitialisé.
 
 `load_home` est la requête légère de découverte de la page. Quand l'API amont
 propose des endpoints séparés pour les bannières, le contenu d'une catégorie ou
@@ -248,6 +283,7 @@ de catégorie consommé par `get_category`. `request > name` (ou
 | Champ | Type | Description |
 |---|---|---|
 | `label` | `string` | Titre du rail (ex: « Derniers ajouts », « Tendances ») |
+| `key` | `string` | Identité persistante du rail, à portée source et indépendante du titre |
 | `entries` | `object[]` | Objets `MediaItem` (voir section suivante) |
 | `link` | `string` | URL pour `get_section` (pagination) |
 | `subsections` | `object[]` | Rails optionnels sélectionnables sous la section parente |
@@ -256,6 +292,24 @@ Pour une section chargée paresseusement, émettre `link` même si `entries` est
 initialement absent ou vide. `get_section` reçoit ce lien et le numéro de page
 un basé demandé. Ne pas précharger les entrées de chaque section dans
 `load_home` au moyen d'une `sub_query`.
+
+Les nouveaux mappings d'identité utilisent `key: rail:<provider-id>` en JSON
+comme en HTML. Utiliser l'identifiant du rail/conteneur fournisseur, jamais
+celui d'un média, le titre, l'index ou un identifiant de slider aléatoire.
+Un unique rail fixe de catégorie peut utiliser `rail:category-content`, dans
+la portée de son bloc de catégorie. Les clés déjà publiées restent inchangées
+pour préserver les références. La portée source vient de la ligne parente.
+Arte, TF1, France TV et RMC BFM Play exposent désormais leurs identifiants de
+rail sous ce format ; titres, fusion par titre et déduplication interne RMC
+par `_section_id` restent inchangés.
+
+Les rails featured TeleMB et les recommandations Canal Zoom/Télésambre
+n'exposent pas d'identifiant de conteneur persistant dans le HTML inspecté.
+Conserver le secours par descripteur lorsqu'il existe, sinon une référence de
+titre explicitement fragile plutôt qu'une fausse identité stable. Les UIDs de
+slider Télésambre changent entre requêtes et ne doivent pas être utilisés.
+Un identifiant fournisseur peut changer si le rail est remplacé : une référence
+manquante doit être réparée, jamais rapprochée d'un titre similaire.
 
 Une sous-section contient un `key` stable, un `label`, des `entries` et peut
 porter les mêmes champs de pagination que la section (`link`, `current_page`,

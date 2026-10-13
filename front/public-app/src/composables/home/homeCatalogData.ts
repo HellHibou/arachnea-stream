@@ -1,4 +1,4 @@
-import { computed, shallowRef, toRef, watch, type MaybeRefOrGetter } from 'vue'
+import { computed, shallowRef, toRef, toValue, watch, type MaybeRefOrGetter } from 'vue'
 
 import {
   getCategoryCatalog,
@@ -20,6 +20,8 @@ interface UseHomeCatalogDataOptions {
    * Selected aggregated category when the catalog runs in category mode.
    */
   category: MaybeRefOrGetter<HomeCategory | null>
+  /** Optional source selection for home discovery. */
+  sources?: MaybeRefOrGetter<string[] | undefined>
 }
 
 /**
@@ -33,6 +35,7 @@ export function homeCatalogData(options: UseHomeCatalogDataOptions) {
   const mode = toRef(options.mode)
   /** Reactive reference to the selected category. */
   const category = toRef(options.category)
+  const sources = toRef(() => toValue(options.sources))
   /** Reactive reference to the loaded catalog data. */
   const catalog = shallowRef<HomeCatalogData | null>(null)
   /** Whether the catalog is currently being loaded. */
@@ -54,7 +57,7 @@ export function homeCatalogData(options: UseHomeCatalogDataOptions) {
    */
   const requestKey = computed(() => {
     if (mode.value !== 'category') {
-      return 'home'
+      return JSON.stringify({ mode: 'home', sources: sources.value === undefined ? null : [...new Set(sources.value)].sort() })
     }
 
     return JSON.stringify({
@@ -76,12 +79,13 @@ export function homeCatalogData(options: UseHomeCatalogDataOptions) {
     errorMessage.value = null
     catalog.value = null
     isLoading.value = true
+    hasLoaded.value = false
 
     try {
       const loadedCatalog =
         mode.value === 'category' && category.value
           ? await getCategoryCatalog(category.value)
-          : await loadHomeCatalog()
+          : await loadHomeCatalog({ sources: sources.value })
 
       if (requestId !== latestRequestId.value) {
         return
@@ -150,5 +154,7 @@ export function homeCatalogData(options: UseHomeCatalogDataOptions) {
     hasLoaded,
     errorMessage,
     loadDeferredBanners,
+    loadCatalog,
+    latestRequestId,
   }
 }

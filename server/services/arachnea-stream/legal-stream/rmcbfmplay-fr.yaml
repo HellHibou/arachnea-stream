@@ -812,6 +812,13 @@ shared:
   # `load_home` can drop the poster duplicate of landscape rails; it is
   # removed from the response by the query post-process.
   section_entries: &section_entries
+    - name: key
+      type: string
+      select: first
+      pointer: /id
+      actions:
+        - type: format_text
+          argument: "rail:{}"
     - name: _section_id
       type: string
       select: first
@@ -835,6 +842,13 @@ shared:
   # `_section_format` marker, so the poster-duplicate filter of `load_home`
   # keeps it while dropping the poster twin extracted from the same rail.
   section_entries_landscape: &section_entries_landscape
+    - name: key
+      type: string
+      select: first
+      pointer: /id
+      actions:
+        - type: format_text
+          argument: "rail:{}"
     - name: _section_id
       type: string
       select: first

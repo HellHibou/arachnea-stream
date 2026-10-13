@@ -1,5 +1,8 @@
 <script setup lang="ts">
+import { computed, onUnmounted, watch } from 'vue'
 import HomeCatalog from '@/components/HomeCatalog.vue'
+import { useServiceMetadata } from '@/composables/useServiceMetadata'
+import { APP_TITLE } from '@/constants'
 import { useStorage } from '@/services/storage'
 import type { HomeCategory } from '@/types/home'
 import type {
@@ -9,6 +12,13 @@ import type {
 
 /** Application parameters loaded from persistent storage. */
 const parameters = useStorage().getParameters()
+
+/** Source route input; null preserves the aggregated home. @default null */
+const props = withDefaults(defineProps<{ sourceId?: string | null }>(), { sourceId: null })
+const metadata = useServiceMetadata()
+const pageTitle = computed(() => props.sourceId === null ? APP_TITLE : `${metadata.getService(props.sourceId)?.title ?? props.sourceId} - ${APP_TITLE}`)
+watch(pageTitle, (title) => { document.title = title }, { immediate: true })
+onUnmounted(() => { document.title = APP_TITLE })
 
 const emit = defineEmits<{
   /** Emitted when a media item is selected. */
@@ -22,7 +32,9 @@ const emit = defineEmits<{
 
 <template>
   <HomeCatalog
+    :key="JSON.stringify(props.sourceId)"
     mode="home"
+    :source-id="props.sourceId"
     :thumbnail-orientation="parameters.thumbnailOrientation.value"
     :thumbnail-image-fit="parameters.thumbnailImageFit.value"
     :thumbnail-size-multiplier="parameters.thumbnailSizeMultiplier.value"

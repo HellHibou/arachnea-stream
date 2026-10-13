@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import HomePinButton from '@/components/home/HomePinButton.vue'
 import { computed, onBeforeUnmount, onMounted, shallowRef, useTemplateRef, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
@@ -33,11 +34,14 @@ interface Props {
    * @default false
    */
   shouldLoadDeferredBanners?: boolean
+  /** Whether source-collection additions are available in edition mode. @default false */
+  showAddButton?: boolean
 }
 
 /** Component props with applied defaults. */
 const props = withDefaults(defineProps<Props>(), {
   shouldLoadDeferredBanners: false,
+  showAddButton: false,
 })
 
 const emit = defineEmits<{
@@ -45,10 +49,13 @@ const emit = defineEmits<{
   'select-item': [target: MediaSelectionTarget]
   /** Emitted after mount to request deferred banner collections. */
   'load-banners': []
+  'add-banners': [sourceId: string]
 }>()
 
 /** Delay in milliseconds between automatic banner rotations. */
 const AUTO_ROTATION_DELAY_MS = 20000
+/** Maximum number of banner indicators visible at once. */
+const MAX_VISIBLE_INDICATORS = 10
 /** Default aspect ratio for banner videos. */
 const DEFAULT_BANNER_VIDEO_ASPECT_RATIO = 16 / 9
 
@@ -57,6 +64,17 @@ let bannerStreamRequestId = 0
 
 /** Index of the currently active banner. */
 const activeIndex = shallowRef(0)
+/** Number of indicators in the scrolling navigation window. */
+const visibleIndicatorCount = computed(() => Math.min(props.banners.length, MAX_VISIBLE_INDICATORS))
+/** First visible indicator, keeping the active banner near the center when possible. */
+const indicatorWindowStart = computed(() => Math.max(0, Math.min(
+  activeIndex.value - Math.floor((MAX_VISIBLE_INDICATORS - 1) / 2),
+  props.banners.length - MAX_VISIBLE_INDICATORS,
+)))
+/** Visible indicators retain their absolute indices when asynchronous sources extend the list. */
+const visibleIndicators = computed(() => props.banners
+  .slice(indicatorWindowStart.value, indicatorWindowStart.value + visibleIndicatorCount.value)
+  .map((banner, offset) => ({ banner, index: indicatorWindowStart.value + offset })))
 /** Timer ID for the automatic rotation. */
 const autoRotationTimer = shallowRef<ReturnType<typeof window.setTimeout> | null>(null)
 /** Template reference to the banner element. */
@@ -338,14 +356,18 @@ const bannerActionHref = computed(() => {
 })
 
 watch(
-  () => props.banners.length,
-  (length) => {
+  () => props.banners,
+  (banners, previous) => {
+    const length = banners.length
     if (length === 0) {
       activeIndex.value = 0
       return
     }
 
-    activeIndex.value = Math.min(activeIndex.value, length - 1)
+    const previousBanner = previous?.[activeIndex.value]
+    const retainedIndex = previousBanner ? banners.findIndex((banner) =>
+      banner.id === previousBanner.id && banner.source === previousBanner.source) : -1
+    activeIndex.value = retainedIndex >= 0 ? retainedIndex : Math.min(activeIndex.value, length - 1)
   },
   { immediate: true },
 )
@@ -594,11 +616,15 @@ onBeforeUnmount(() => {
     <div class="home-hero-banner__panel">
       <div class="home-hero-banner__content">
         <div class="home-hero-banner__text">
+          <div class="home-hero-banner__service">
           <img v-if="serviceMetadata?.logo"
             class="source-logo-image"
             :src="serviceMetadata?.logo"
             :alt="serviceMetadata?.title ? `${serviceMetadata?.title} logo` : ''"
-          /><br  v-if="serviceMetadata?.logo" />
+          />
+            <HomePinButton v-if="props.showAddButton && activeBanner.source"
+              :label="t('customHome.addBanners')" @click="emit('add-banners', activeBanner.source)" />
+          </div>
           <img
             v-if="activeBanner.logoUrl"
             class="home-hero-banner__logo"
@@ -640,17 +666,27 @@ onBeforeUnmount(() => {
          <v-icon icon="$NavigateBefore" size="24" aria-hidden="true" />
        </button>
 
-       <div class="home-hero-banner__dots" :aria-label="t('catalog.bannerNavigation')">
-         <button
-           v-for="(banner, index) in props.banners"
-           :key="banner.id"
-           class="home-hero-banner__dot"
-           :class="{ 'home-hero-banner__dot--active': index === activeIndex }"
-           type="button"
-           :aria-label="t('catalog.showBanner', { index: index + 1 })"
-           :aria-pressed="index === activeIndex"
-           @click="showBanner(index)"
-         />
+       <div
+         class="home-hero-banner__dots"
+         :aria-label="t('catalog.bannerNavigation')"
+         :style="{ '--indicator-count': visibleIndicatorCount }"
+       >
+         <div class="home-hero-banner__dots-viewport">
+           <div class="home-hero-banner__dots-track">
+             <button
+               v-for="{ banner, index } in visibleIndicators"
+               :key="JSON.stringify([banner.source, banner.id, index])"
+               class="home-hero-banner__dot"
+               :class="{
+                 'home-hero-banner__dot--active': index === activeIndex,
+               }"
+               type="button"
+               :aria-label="t('catalog.showBanner', { index: index + 1 })"
+               :aria-pressed="index === activeIndex"
+               @click="showBanner(index)"
+             />
+           </div>
+         </div>
        </div>
 
        <button
@@ -666,6 +702,11 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.home-hero-banner__service {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .home-hero-banner {
   --home-hero-banner-height: clamp(380px, 40vw, 520px);
   --home-hero-banner-text-outline: rgba(0, 0, 0, 0.5);
@@ -957,10 +998,12 @@ onBeforeUnmount(() => {
 }
 
 .home-hero-banner__dots {
+  --indicator-size: 8px;
+  --indicator-gap: 7px;
+  --indicator-step: calc(var(--indicator-size) + var(--indicator-gap));
+
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 7px;
   flex: 0 0 auto;
   padding: 5px 10px;
   background: var(--bg-surface);
@@ -968,22 +1011,42 @@ onBeforeUnmount(() => {
   border-radius: 100px;
 }
 
+.home-hero-banner__dots-viewport {
+  width: calc((var(--indicator-count) + 1) * var(--indicator-step) - var(--indicator-gap));
+  padding: 5px;
+  box-sizing: content-box;
+  overflow: hidden;
+}
+
+.home-hero-banner__dots-track {
+  display: flex;
+  align-items: center;
+  gap: var(--indicator-gap);
+}
+
 .home-hero-banner__dot {
-  width: 8px;
-  height: 8px;
+  flex: 0 0 auto;
+  width: var(--indicator-size);
+  height: var(--indicator-size);
   padding: 0;
   border: 0;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.28);
   cursor: pointer;
   transition:
-    transform var(--duration-fast) ease,
+    width var(--duration-fast) ease,
     background-color var(--duration-fast) ease;
 }
 
 .home-hero-banner__dot--active {
-  transform: scale(1.14);
+  width: calc(2 * var(--indicator-size) + var(--indicator-gap));
   background: var(--bg-accent-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-hero-banner__dot {
+    transition: none;
+  }
 }
 
 .home-hero-banner__controls {
@@ -1004,8 +1067,10 @@ onBeforeUnmount(() => {
 
 .source-logo-image {
   height: 32px;
+  width: auto;
+  object-fit: contain;
   vertical-align: top;
-  margin-bottom: 8px;
+  margin-bottom: 0;
 }
 
 .home-hero-banner__arrow,

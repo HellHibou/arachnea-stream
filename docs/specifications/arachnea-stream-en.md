@@ -149,9 +149,42 @@ Static query. Each source returns exactly one row.
 | `search_themes` | `string[]` | no | List of available search filter themes |
 | `themes` | `string[]` | no | Alias for `search_themes` |
 
+The public `get_service` command adds `supported_queries: string[]` to each
+metadata row, sorted from the loaded query registry and joined by the exact
+`id`/collection name. This is not a manually maintained YAML field. An unmatched
+metadata id receives an empty list; the source-home selector only lists rows
+advertising `load_home`. Administratively disabled/unloaded sources are not
+reactivated by discovery or request filters.
+
 ---
 
 ### 5.2 Home page — `load_home`
+
+The public REST/Tauri command accepts an optional `sources: string[]` of exact
+backend collection identifiers (not display names or category descriptors):
+
+- `{}` keeps the existing all-loaded-sources behavior.
+- `{"sources":[]}` returns `{"data":[],"errors":[]}` without provider calls or ETag.
+- `{"sources":["arte-fr","rtlplay-be"]}` executes only those sources; duplicates
+  are removed and the selection is sorted.
+- Explicit `null`, wrong JSON types and blank identifiers are rejected during
+  deserialization. Identifiers are not trimmed or corrected.
+- Unknown, disabled/unloaded or unsupported sources produce contextual entries
+  in `errors`, with no fallback to all sources. Mixed selections preserve valid
+  results. Explicitly filtered responses containing errors do not publish an
+  ETag; unfiltered requests preserve the existing cache behavior.
+
+REST uses `GET /api/load_home?sources=%5B%22arte-fr%22%5D` (JSON-encoded array).
+Tauri uses `invoke('load_home', { sources: ['arte-fr'] })`. Omitting the field
+differs from passing an empty array. The response shape and source provenance
+remain unchanged; `get_category.sources` retains its descriptor-based meaning.
+
+The public frontend keeps `/` aggregated and exposes `/sources/:sourceId` for
+isolated source homes. The selector discovers metadata, not every provider home.
+Source-home bookmarks are filtered by source; section preference writes use
+`source:<encoded-source-id>:<legacy-key>` in the existing additive IndexedDB
+store, with legacy styles as read-only fallback. Existing global preferences
+and bookmarks are not migrated or reset.
 
 `load_home` is the lightweight page-discovery query. When the upstream API
 provides separate endpoints for banner payloads, category content, or section
@@ -246,6 +279,7 @@ source that owns that endpoint.
 | Field | Type | Description |
 |---|---|---|
 | `label` | `string` | Rail title (e.g. `Latest additions`, `Trending`) |
+| `key` | `string` | Source-owned persistent rail identity, independent of its title |
 | `entries` | `object[]` | `MediaItem` objects (see next section) |
 | `link` | `string` | URL for `get_section` (pagination) |
 | `subsections` | `object[]` | Optional selectable rails below the parent section |
@@ -253,6 +287,22 @@ source that owns that endpoint.
 For a lazy section, emit `link` even if `entries` is initially absent or empty.
 `get_section` receives this link and the requested one-based page number. Do
 not prefetch every section's entries in `load_home` with a `sub_query`.
+
+New rail identity mappings use `key: rail:<provider-id>` for JSON and HTML.
+Use the provider's rail/container id, never a media item id, title, array index,
+or randomly generated slider id. One fixed category-content rail may use
+`rail:category-content`, scoped to its category block. Existing published keys
+remain unchanged to avoid invalidating references. Source scope comes from the
+parent scraper row. Arte, TF1, France TV and RMC BFM Play now expose rail ids
+with this format; labels, title-based aggregation and RMC's internal
+`_section_id` deduplication are unchanged.
+
+TeleMB featured rails and Canal Zoom/Télésambre recommendations do not expose
+persistent container ids in the inspected HTML. Keep descriptor fallbacks when
+available, otherwise treat label references as fragile rather than inventing
+stable ids. Télésambre slider UIDs change between requests and must not be used.
+Provider ids can change when a rail is replaced; missing references require
+repair, not matching to a similar title.
 
 A subsection contains a stable `key`, a `label`, `entries`, and may carry the
 same pagination fields as a section (`link`, `current_page`, `have_more`).

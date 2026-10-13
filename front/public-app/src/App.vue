@@ -13,12 +13,18 @@ import {
   encodeLiveRoutePayload,
 } from '@/router/routePayloads'
 import type { BackgroundMediaCandidate, MediaSelectionTarget } from '@/types/media'
+/** Measured desktop navigation width used to reserve the content gutter. */
+const sidebarWidth = shallowRef(260)
 import type { HomeCategory } from '@/types/home'
 import Background from './components/Background.vue'
 import MainBar from './components/MainBar.vue'
 import ErrorNotificationStack from './components/errors/ErrorNotificationStack.vue'
 import { useSearchFilterOptions } from '@/composables/useSearchFilterOptions'
 import { useErrorNotifications } from '@/composables/useErrorNotifications'
+import ParametersDialog from '@/components/parameters/ParametersDialog.vue'
+import AppNavigation from '@/components/navigation/AppNavigation.vue'
+import { useAppNavigation } from '@/composables/useAppNavigation'
+import { resolveDefaultHomeRoute } from '@/services/defaultHome'
 
 // Router instances
 const route = useRoute()
@@ -26,7 +32,11 @@ const router = useRouter()
 
 /** Template reference to the MainBar component for search input focus control. */
 const mainBarRef =
-  useTemplateRef<ComponentPublicInstance<{ focusSearchInput: () => void }>>('mainBar')
+  useTemplateRef<ComponentPublicInstance<{ focusSearchInput: () => void; focusNavigationButton: () => void }>>('mainBar')
+const navigation = useAppNavigation({
+  toolbarElement: () => mainBarRef.value?.$el as HTMLElement | null,
+  restoreFocus: () => mainBarRef.value?.focusNavigationButton(),
+})
 
 /** Reactive search state extracted from the current route query parameters. */
 const routeSearchState = computed(() => readSearchRouteQuery(route.query))
@@ -40,7 +50,7 @@ const selectedMediaTypes = shallowRef<string[]>([])
 /** Themes currently selected in the search filter. */
 const selectedThemes = shallowRef<string[]>([])
 
-/** Whether the parameters popover is currently visible. */
+/** Whether the settings dialog is currently visible. */
 const isParametersVisible = shallowRef(false)
 
 /** Whether the search bar is currently visible. */
@@ -57,6 +67,7 @@ const { notifications, dismiss: dismissErrorNotification } = useErrorNotificatio
 
 /** Background media items collected from catalog screens for the background layer. */
 const catalogBackgroundMediaItems = shallowRef<BackgroundMediaCandidate[]>([])
+watch(() => route.fullPath, () => { catalogBackgroundMediaItems.value = [] }, { flush: 'sync' })
 
 /**
  * Indicates whether the generic back button should be visible for the current route.
@@ -85,14 +96,14 @@ watch(
 )
 
 /**
- * Toggles the visibility of the parameters popover.
+ * Toggles the visibility of the settings dialog.
  */
 function toggleParameters() {
   isParametersVisible.value = !isParametersVisible.value
 }
 
 /**
- * Closes the parameters popover.
+ * Closes the settings dialog.
  */
 function closeParameters() {
   isParametersVisible.value = false
@@ -118,7 +129,7 @@ function toggleSearch() {
  * composables, so the routed payload is forwarded as-is.
  */
 const catalogScreenBackgroundMediaItems = computed(() => {
-  if (route.name !== 'home' && route.name !== 'category' && route.name !== 'search') {
+  if (route.name !== 'home' && route.name !== 'source-home' && route.name !== 'custom-home' && route.name !== 'category' && route.name !== 'search') {
     return []
   }
 
@@ -218,15 +229,8 @@ function handleSelectedLive(item: MediaSelectionTarget) {
 /**
  * Navigates to the home route.
  */
-function handleGoHome() {
-  navigateTo({ name: 'home' })
-}
-
-/**
- * Navigates to the live list route.
- */
-function handleGoLives() {
-  navigateTo({ name: 'lives' })
+async function handleGoHome() {
+  navigateTo(await resolveDefaultHomeRoute())
 }
 
 /**
@@ -243,7 +247,8 @@ function handleBackNavigation() {
 </script>
 
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :class="{ 'app-shell--sidebar': !navigation.isMobile.value && navigation.isVisible.value }"
+    :style="{ '--app-toolbar-height': `${navigation.toolbarHeight.value}px`, '--app-sidebar-width': `${sidebarWidth}px` }">
     <Background
       v-if="shouldShowAppBackground"
       :is-animated="parameters.isBackgroundAnimated.value"
@@ -259,19 +264,22 @@ function handleBackNavigation() {
       :theme-options="themeFilterOptions"
       :selected-themes="selectedThemes"
       :show-back-button="showBackButton"
-      :is-parameters-visible="isParametersVisible"
+      :show-navigation-button="!navigation.isFullscreen.value"
+      :is-navigation-open="navigation.isVisible.value"
       :is-search-visible="isSearchVisible"
       @submit="handleSearchSubmit"
       @update:selected-media-types="selectedMediaTypes = $event"
       @update:selected-themes="selectedThemes = $event"
       @back="handleBackNavigation"
       @home="handleGoHome"
-      @lives="handleGoLives"
-      @toggle-parameters="toggleParameters"
-      @close-parameters="closeParameters"
+      @toggle-navigation="closeParameters(); isSearchVisible = false; navigation.toggle()"
       @toggle-search="toggleSearch"
     />
 
+    <AppNavigation :mobile="navigation.isMobile.value" :open="navigation.isOpen.value" :hidden="navigation.isFullscreen.value || (!navigation.isMobile.value && !navigation.isVisible.value)"
+      @update:width="sidebarWidth = $event"
+      @close="navigation.close()" @settings="toggleParameters" />
+    <ParametersDialog v-model:open="isParametersVisible" />
     <main class="app-content">
       <RouterView v-slot="{ Component }">
         <component
@@ -293,10 +301,15 @@ function handleBackNavigation() {
 
 <style scoped>
 .app-shell {
+  --app-sidebar-width: 260px;
   min-height: 100vh;
   min-height: 100dvh;
   padding: 0 16px 32px;
   background: var(--bg-transparent);
+}
+
+.app-shell--sidebar .app-content {
+  margin-left: var(--app-sidebar-width);
 }
 
 .app-content {
@@ -320,6 +333,12 @@ function handleBackNavigation() {
   .app-content :deep(.media-search) {
     min-height: calc(100vh - 110px);
     min-height: calc(100dvh - 110px);
+  }
+}
+
+@media (min-width: 1001px) and (max-width: 1280px) {
+  .app-shell {
+    --app-sidebar-width: 220px;
   }
 }
 </style>
