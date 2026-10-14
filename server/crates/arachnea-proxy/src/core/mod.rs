@@ -30,6 +30,11 @@ pub mod policy;
 pub mod proxy_inventory;
 /// Contextual proxy observations and positive health evidence.
 pub mod proxy_observation;
+/// Bounded accepted histories for exact destinations.
+pub mod proxy_preference;
+/// Typed persistence repository for accepted histories.
+#[cfg(feature = "persistence")]
+pub mod proxy_preference_repository;
 /// Proxy liveness probing engine.
 pub mod proxy_probe;
 /// Proxy record types used by inventory and stores.
@@ -87,6 +92,13 @@ pub use proxy_inventory::{
 pub use proxy_observation::{
     ProxyFailureScope, ProxyHealthEvidence, ProxyObservation, ProxyObservationOutcome,
     ProxyObservationPhase, ProxyProbeContext, ProxyRequestDelivery,
+};
+pub use proxy_preference::{
+    ProxyAcceptedEndpoint, ProxyDestinationPreference, PROXY_PREFERENCE_HISTORY_LIMIT,
+};
+#[cfg(feature = "persistence")]
+pub use proxy_preference_repository::{
+    ProxyPreferenceRepository, TypedProxyPreferenceRepository, PROXY_PREFERENCE_STORE_NAME,
 };
 pub use proxy_probe::{ProbeConfig, ProbeMode, ProbeTimeoutConfig, ProxyProbe};
 pub use proxy_record::{

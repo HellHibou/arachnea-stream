@@ -2084,7 +2084,9 @@ impl ArachneaProxyCore {
                     .as_ref()
                     .and_then(|route| route.2.as_ref())
                 {
-                    if first.endpoint.as_deref() == Some(token.endpoint()) {
+                    if first.endpoint.as_deref() == Some(token.endpoint())
+                        && is_dynamic_proxy_transport_failure(&error)
+                    {
                         if let Some(inventory) = &self.proxy_inventory {
                             inventory.record_global_failure(token.endpoint()).await;
                         }

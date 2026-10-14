@@ -261,7 +261,7 @@ pub struct ProxyRecord {
 }
 
 /// Native persisted identity of a proxy endpoint.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct ProxyKey {
     /// Proxy host, preserved exactly as recorded.
     pub host: String,

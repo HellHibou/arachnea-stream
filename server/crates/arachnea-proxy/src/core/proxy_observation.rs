@@ -88,6 +88,9 @@ pub struct ProxyObservation {
 /// Health dates independent of attempt dates and provider claims.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ProxyHealthEvidence {
+    /// Eviction tombstone: retained for bounded rediscovery protection, never selectable.
+    #[serde(default, with = "super::proxy_record::option_system_time_serde")]
+    pub evicted_at: Option<SystemTime>,
     /// Initial inventory discovery, used only for retention of unvalidated records.
     #[serde(default, with = "super::proxy_record::option_system_time_serde")]
     pub first_discovered_at: Option<SystemTime>,

@@ -89,6 +89,12 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Extended localized-proxy validation with a verified-TLS Rquest keep-alive fixture returning 200 then 503, delayed-response eviction and aggregator replacement scenarios, scoped persistence-error log assertions, and four SQLite eviction commit-boundary simulations. Actual process/disk crashes and the HTTPS-specific `ProxyProbe` path remain outside this coverage.
+
+- Added eleven localized-proxy lifecycle tests covering synchronized HTTP responses and pinned reconnects, redirect attribution, injected preference write failures, probe context changes, HTTP 503 observations, retention/cooldown boundaries, partial SQLite eviction recovery and concurrent file-history commits. Fixtures use local endpoints and existing test infrastructure; Rquest keep-alive, HTTPS 503 and actual process-crash coverage remain pending.
+
+- Localized proxy lot 2 adds typed durable histories of three accepted endpoints per exact destination, lazy restoration before discovery, country-independent newest-eligible preference selection, awaited serialized commits and an observable persistence-failure counter. Separate bounded failure records preserve eviction cooldowns on rediscovery; endpoint eviction uses positive evidence or initial discovery instead of attempt dates. Technical successes no longer erase destination exclusions. Application and Scrapyfy integration inject and share the new stores without background maintenance.
+
 - Documented the feasibility of replacing the Rquest loopback with an internal pre-TLS stream connector: the locked `newwreq 5.1.7` middleware hook cannot construct its private connection types. The analysis distinguishes an upstream/dependency extension from an explicit internal HTTP engine and browser-specific compatibility; no runtime transport change is included.
 - Revised the no-loopback target to cover all traffic governed by proxy-enabled configuration, including solver/browser subrequests, while preserving explicit proxy-disabled direct access. Browser loopback and autonomous remote-proxy configuration are not final solutions; unsupported engines, bootstrap routing and existing core fallbacks require explicit handling. This revision changes documentation only.
 

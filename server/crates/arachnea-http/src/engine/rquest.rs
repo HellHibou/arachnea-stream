@@ -1,5 +1,9 @@
 use async_trait::async_trait;
 
+#[cfg(all(test, feature = "arachnea-proxy"))]
+#[path = "rquest_proxy_tests.rs"]
+mod proxy_tests;
+
 use crate::{
     config::ArachneaHttpConfig,
     engine::{EngineRequest, EngineResponse, HttpEngine},

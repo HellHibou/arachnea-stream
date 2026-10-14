@@ -368,6 +368,12 @@ pub fn default_scrapyfy_proxy_inventory(
         ..ProbeConfig::default()
     };
     let resolver = default_scrapyfy_ip_country_resolver(scraper_agregator);
+    let repository = if Arc::ptr_eq(&proxy_store, &scraper_agregator.proxy_store) {
+        scraper_agregator.proxy_repository.clone()
+    } else {
+        Arc::new(arachnea_proxy::TypedProxyRepository::new(proxy_store))
+    };
+    let preferences = scraper_agregator.proxy_preferences.clone();
     ProxyInventory::new(
         InventoryConfig {
             probe_batch_size: 32,
@@ -377,9 +383,8 @@ pub fn default_scrapyfy_proxy_inventory(
         Some(Arc::new(ProxyProbe::new(probe_config))),
     )
     .with_ip_country_resolver(Arc::new(resolver))
-    .with_proxy_repository(Arc::new(arachnea_proxy::TypedProxyRepository::new(
-        proxy_store,
-    )))
+    .with_proxy_repository(repository)
+    .with_preference_repository(preferences)
 }
 
 /// Builds a default [`ArachneaProxyCore`] with dynamic country routing backed

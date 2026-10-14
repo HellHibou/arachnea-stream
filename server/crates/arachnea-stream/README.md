@@ -1,5 +1,17 @@
 # Arachnea Stream
 
+## Localized proxy persistence
+
+Application stores include `proxy-inventory`, `proxy-preferences` and
+`proxy-failures`, each in its own SQLite database under the application data
+directory's `data/<store-name>/records.sqlite3`. Preferences retain up to three
+accepted endpoints per exact destination without age expiration. Failure records
+retain bounded rediscovery protection (1,024 endpoints, 48 hours from eviction,
+cleaned on demand). These stores are shared across aggregator rebuilds; no worker
+is started. Compatibility application constructors use memory-only stores.
+New stores are created additively; legacy attempt dates do not become positive
+health evidence, and historical non-persisted preferences cannot be recovered.
+
 `arachnea-stream` is the executable Rust backend crate. It wires the stream service facade, player resolvers, configured scraper sources, credentials storage, and the selected controller backend.
 
 ## Responsibilities

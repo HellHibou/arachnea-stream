@@ -1,5 +1,18 @@
 # Arachnea Scrapyfy
 
+## Durable localized proxy histories
+
+The application can inject inventory/failure and preference repositories through
+`ScraperAgregator::set_proxy_repositories()` before `ensure_proxy_core()`.
+Provider snapshots share those repositories, including their commit coordination.
+Compatibility constructors use memory-only repositories. Accepted histories are
+restored before provider discovery and retain three endpoints per scheme/host/port;
+the current country set filters eligibility without deleting other associations.
+Destination exclusions survive technical successes and provider refreshes.
+Storage failures do not replay a successful business request. The remaining
+non-preferred country ordering is unchanged until localized proxy lot 4; the YAML
+schema and response classification policy are not changed by lot 2.
+
 ## Geo-proxy request timeout
 
 HTTP clients using the Arachnea proxy transport with non-empty country hints

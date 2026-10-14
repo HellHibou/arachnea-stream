@@ -1,5 +1,23 @@
 # Spécification du format YAML arachnea-proxies
 
+### Persistance runtime — lot 2
+
+Sans changement du YAML fournisseur, l’application injecte les stores typés
+`proxy-inventory`, `proxy-preferences` et `proxy-failures`. L’historique durable
+conserve jusqu’à trois endpoints acceptés par schéma/hôte/port, sans pays dans la
+clé ni expiration par âge. Il est restauré avant découverte ; le succès éligible
+le plus récent gagne dans les pays autorisés, sans priorité liée à leur ordre.
+Les exclusions par destination restent persistées et ne sont pas effacées par
+une réussite technique ou une actualisation fournisseur.
+
+L’éviction globale exige un échec de connexion à l’endpoint après 24 heures depuis
+la dernière preuve positive, ou la découverte initiale sans preuve positive.
+`last_checked` n’est pas une preuve. Avant ce seuil, le cooldown global vaut
+15 minutes par défaut, configurable. Un store séparé conserve au maximum
+1 024 états d’éviction pendant 48 heures, nettoyés à la demande, pour préserver
+les temporisations lors d’une redécouverte. Aucun worker n’est ajouté. L’ordre
+du parcours des autres candidats reste à traiter au lot 4.
+
 ## 1. Aperçu
 
 Une collection arachnea-proxies déclare une ou plusieurs sources de proxys publics

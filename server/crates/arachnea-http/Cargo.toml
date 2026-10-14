@@ -45,6 +45,8 @@ path = "examples/cloudflare_hybrid.rs"
 required-features = ["chaser-cf"]
 
 [dev-dependencies]
+rustls.workspace = true
+tokio-rustls.workspace = true
 # Enables the SQLite backend for typed-store validation tests.
 arachnea-core = { path = "../arachnea-core", features = ["sqlite-persistence"] }
 rusqlite = { workspace = true }

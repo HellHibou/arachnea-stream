@@ -86,7 +86,11 @@ pub struct ScraperAgregator {
     local_country: SharedLocalCountry,
     /// Typed store backing the dynamic proxy inventory cache.
     #[cfg(feature = "arachnea-proxy")]
-    proxy_store: Arc<dyn TypedEntityStore<ProxyRecord>>,
+    pub(crate) proxy_store: Arc<dyn TypedEntityStore<ProxyRecord>>,
+    #[cfg(feature = "arachnea-proxy")]
+    pub(crate) proxy_repository: Arc<dyn arachnea_proxy::ProxyRepository>,
+    #[cfg(feature = "arachnea-proxy")]
+    pub(crate) proxy_preferences: Arc<dyn arachnea_proxy::ProxyPreferenceRepository>,
     /// Typed store backing the Cloudflare session cache of created HTTP clients.
     session_store: Arc<dyn TypedEntityStore<CachedChaserSession>>,
     source_enabled: Option<Arc<dyn ScraperSourceEnabled>>,
@@ -173,6 +177,15 @@ impl ScraperAgregator {
             proxy_handle,
             local_country: SharedLocalCountry::new(),
             #[cfg(feature = "arachnea-proxy")]
+            proxy_repository: Arc::new(arachnea_proxy::TypedProxyRepository::new(
+                proxy_store.clone(),
+            )),
+            #[cfg(feature = "arachnea-proxy")]
+            proxy_preferences: Arc::new(arachnea_proxy::TypedProxyPreferenceRepository::new(
+                arachnea_proxy::core::proxy_preference_repository::memory_proxy_preference_store()
+                    .expect("valid preference schema"),
+            )),
+            #[cfg(feature = "arachnea-proxy")]
             proxy_store,
             session_store,
             source_enabled: None,
@@ -226,6 +239,8 @@ impl ScraperAgregator {
             self.session_store.clone(),
         );
         snapshot.local_country = self.local_country.clone();
+        snapshot.proxy_repository = self.proxy_repository.clone();
+        snapshot.proxy_preferences = self.proxy_preferences.clone();
         snapshot.source_enabled = self.source_enabled.clone();
         for group in groups {
             if let Some(service) = self.queries_collection.get(*group) {
@@ -281,6 +296,15 @@ impl ScraperAgregator {
             proxy_handle,
             local_country: SharedLocalCountry::new(),
             #[cfg(feature = "arachnea-proxy")]
+            proxy_repository: Arc::new(arachnea_proxy::TypedProxyRepository::new(
+                proxy_store.clone(),
+            )),
+            #[cfg(feature = "arachnea-proxy")]
+            proxy_preferences: Arc::new(arachnea_proxy::TypedProxyPreferenceRepository::new(
+                arachnea_proxy::core::proxy_preference_repository::memory_proxy_preference_store()
+                    .expect("valid preference schema"),
+            )),
+            #[cfg(feature = "arachnea-proxy")]
             proxy_store,
             session_store,
             source_enabled: None,
@@ -288,6 +312,21 @@ impl ScraperAgregator {
             #[cfg(feature = "arachnea-proxy")]
             proxy_core: None,
         }
+    }
+
+    /// Injects shared proxy repositories before initializing or replacing the core.
+    ///
+    /// # Arguments
+    /// * `inventory` - Inventory and rediscovery-protection repository.
+    /// * `preferences` - Durable exact-destination accepted histories.
+    #[cfg(feature = "arachnea-proxy")]
+    pub fn set_proxy_repositories(
+        &mut self,
+        inventory: Arc<dyn arachnea_proxy::ProxyRepository>,
+        preferences: Arc<dyn arachnea_proxy::ProxyPreferenceRepository>,
+    ) {
+        self.proxy_repository = inventory;
+        self.proxy_preferences = preferences;
     }
 
     /// Sets the optional policy that overrides manifest source activation.
@@ -1505,6 +1544,85 @@ fn resolve_manifest_sources_recursive(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "arachnea-proxy")]
+    #[tokio::test]
+    async fn replacement_preserves_shared_proxy_history_during_active_response(
+    ) -> anyhow::Result<()> {
+        configure_test_application_data_dir();
+        use arachnea_proxy::core::*;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            let store = memory_proxy_store()?;
+            let session_store = memory_session_store()?;
+            let old = ScraperAgregator::new_with_proxy_handle_and_typed_stores(
+                SharedProxyConfigHandle::new(), store.clone(), session_store.clone(),
+            );
+            let mut replacement = ScraperAgregator::new_with_proxy_handle_and_typed_stores(
+                SharedProxyConfigHandle::new(), store, session_store,
+            );
+            replacement.set_proxy_repositories(old.proxy_repository.clone(), old.proxy_preferences.clone());
+            let snapshot = old.provider_snapshot(&[]);
+            assert!(Arc::ptr_eq(&snapshot.proxy_preferences, &old.proxy_preferences));
+            assert!(Arc::ptr_eq(&replacement.proxy_repository, &old.proxy_repository));
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+            let address = listener.local_addr()?;
+            let (received_tx, received_rx) = tokio::sync::oneshot::channel();
+            let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+            let server = tokio::spawn(async move {
+                let (mut stream, _) = listener.accept().await?;
+                let mut head = Vec::new();
+                while !head.ends_with(b"\r\n\r\n") {
+                    head.push(stream.read_u8().await?);
+                    anyhow::ensure!(head.len() <= 8192, "fixture header limit");
+                }
+                received_tx.send(()).map_err(|_| anyhow::anyhow!("receiver dropped"))?;
+                release_rx.await?;
+                stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok").await?;
+                stream.shutdown().await?;
+                Ok::<_, anyhow::Error>(())
+            });
+            let proxy: ProxyRecord = serde_json::from_value(serde_json::json!({
+                "host": "127.0.0.1", "port": address.port(), "country": "BE", "protocol": "Http",
+                "status": "ok", "http_forwarding": "available", "https_tunnel": "available"
+            }))?;
+            old.proxy_repository.save_many(&[proxy.clone()]).await?;
+            let inventory = ProxyInventory::new(InventoryConfig::default(), None, None)
+                .with_proxy_repository(old.proxy_repository.clone())
+                .with_preference_repository(old.proxy_preferences.clone());
+            inventory.add_or_update(vec![proxy.clone()]).await;
+            let core = ArachneaProxyCore::new(ProxyConfig::default())?.with_proxy_inventory(inventory)
+                .with_parameter_handler(DynamicCountryRoutingProxyHandler::new(CoexistencePolicy::DynamicOnly));
+            let mut context = ClientContext::new();
+            context.insert(PROXY_PARAMETER_COUNTRIES, ClientParameter::String("[\"BE\"]".into()));
+            let destination = Destination::host_port("origin.example", 80).with_protocol(ApplicationProtocol::Http);
+            let selected = core.select_for_request(ConnectRequest::new(destination.clone()).with_client_context(context)).await?;
+            let token = selected.selection_token.clone().unwrap();
+            let request = tokio::spawn(async move {
+                let mut outgoing = selected.core.connect_http_request(ConnectRequest::new(destination)).await?;
+                outgoing.stream.write_all(b"GET http://origin.example/ HTTP/1.1\r\nHost: origin.example\r\nConnection: close\r\n\r\n").await?;
+                let mut response = Vec::new();
+                outgoing.stream.read_to_end(&mut response).await?;
+                anyhow::ensure!(response.starts_with(b"HTTP/1.1 200"), "expected success");
+                token.record_http_response(200).await;
+                token.record_accepted().await;
+                Ok::<_, anyhow::Error>(())
+            });
+            received_rx.await?;
+            drop(old);
+            release_tx.send(()).map_err(|_| anyhow::anyhow!("server dropped"))?;
+            request.await??;
+            server.await??;
+            let restored = ProxyInventory::new(InventoryConfig::default(), None, None)
+                .with_proxy_repository(replacement.proxy_repository.clone())
+                .with_preference_repository(replacement.proxy_preferences.clone());
+            let destination = Destination::host_port("origin.example", 80).with_protocol(ApplicationProtocol::Http);
+            assert_eq!(restored.select_for_destination("BE", false, Some(&destination)).await?.authority(), proxy.authority());
+            let key = ProxyDestinationPreference::destination_key(&destination);
+            assert_eq!(snapshot.proxy_preferences.get(&key).await?.unwrap().endpoints.len(), 1);
+            Ok(())
+        }).await?
+    }
+
     use super::*;
     use std::sync::Once;
 

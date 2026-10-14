@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -78,8 +79,9 @@ struct InventoryInner {
     country_records: HashMap<String, Vec<String>>,
     country_load_locks: HashMap<String, Arc<Mutex<()>>>,
     country_last_refresh_attempts: HashMap<String, Instant>,
-    /// Last successfully validated proxy authority per country and destination.
-    preferred_by_destination: HashMap<String, String>,
+    /// Bounded accepted histories per exact destination, independent of countries.
+    preferred_by_destination: HashMap<String, crate::core::ProxyDestinationPreference>,
+    evicted: HashMap<String, ProxyRecord>,
     /// Opaque request affinity keys mapped to one eligible proxy authority.
     affinity_bindings: HashMap<String, ProxyAffinityBinding>,
 }
@@ -102,6 +104,11 @@ pub struct ProxyInventory {
     /// Persistent cache for dynamic proxy records, when configured.
     #[cfg(feature = "persistence")]
     persistence: Option<Arc<dyn ProxyRepository>>,
+    #[cfg(feature = "persistence")]
+    preferences: Option<Arc<dyn crate::core::ProxyPreferenceRepository>>,
+    destination_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    persistence_commits: Mutex<()>,
+    preference_persistence_failures: AtomicU64,
     config: InventoryConfig,
     ip_country_resolver: Option<Arc<IpCountryResolver>>,
 }
@@ -132,6 +139,7 @@ impl ProxyInventory {
                 country_load_locks: HashMap::new(),
                 country_last_refresh_attempts: HashMap::new(),
                 preferred_by_destination: HashMap::new(),
+                evicted: HashMap::new(),
                 affinity_bindings: HashMap::new(),
             }),
             provider,
@@ -139,6 +147,11 @@ impl ProxyInventory {
             selection_probe_locks: Mutex::new(HashMap::new()),
             #[cfg(feature = "persistence")]
             persistence: None,
+            #[cfg(feature = "persistence")]
+            preferences: None,
+            destination_locks: Mutex::new(HashMap::new()),
+            persistence_commits: Mutex::new(()),
+            preference_persistence_failures: AtomicU64::new(0),
             config,
             ip_country_resolver: None,
         }
@@ -154,6 +167,28 @@ impl ProxyInventory {
     pub fn with_proxy_repository(mut self, persistence: Arc<dyn ProxyRepository>) -> Self {
         self.persistence = Some(persistence);
         self
+    }
+
+    /// Attaches the application-owned durable accepted-history repository.
+    ///
+    /// # Arguments
+    /// * `repository` - Shared repository whose commits are awaited by successful calls.
+    #[cfg(feature = "persistence")]
+    pub fn with_preference_repository(
+        mut self,
+        repository: Arc<dyn crate::core::ProxyPreferenceRepository>,
+    ) -> Self {
+        self.preferences = Some(repository);
+        self
+    }
+
+    async fn destination_lock(&self, key: &str) -> Arc<Mutex<()>> {
+        let mut locks = self.destination_locks.lock().await;
+        locks.retain(|_, lock| Arc::strong_count(lock) > 1);
+        locks
+            .entry(key.to_string())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
     }
 
     /// Sets an IP-country resolver for on-demand geolocation during strict
@@ -203,6 +238,12 @@ impl ProxyInventory {
         &self.config
     }
 
+    /// Returns failed accepted-history commits since this inventory was constructed.
+    /// Successful business responses are preserved despite these storage failures.
+    pub fn preference_persistence_failures(&self) -> u64 {
+        self.preference_persistence_failures.load(Ordering::Relaxed)
+    }
+
     /// Returns the number of records currently stored.
     pub async fn len(&self) -> usize {
         self.inner.read().await.records.len()
@@ -236,7 +277,15 @@ impl ProxyInventory {
         let Some(persistence) = &self.persistence else {
             return;
         };
-        if let Err(error) = persist_proxy_records(persistence, records).await {
+        let _guard = self.persistence_commits.lock().await;
+        let current = {
+            let inner = self.inner.read().await;
+            records
+                .iter()
+                .filter_map(|record| inner.records.get(&record.authority()).cloned())
+                .collect::<Vec<_>>()
+        };
+        if let Err(error) = persist_proxy_records(persistence, &current).await {
             tracing::warn!(%error, count = records.len(), "failed to persist proxy records");
         }
     }
@@ -276,39 +325,85 @@ impl ProxyInventory {
     pub async fn add_or_update(&self, records: Vec<ProxyRecord>) -> Vec<ProxyRecord> {
         // Resolve missing countries for records whose host is an IP address
         let records = self.resolve_ip_countries(records).await;
+        #[cfg(feature = "persistence")]
+        let mut records = records;
+        #[cfg(feature = "persistence")]
+        if let Some(repository) = &self.persistence {
+            for record in &mut records {
+                if self
+                    .inner
+                    .read()
+                    .await
+                    .records
+                    .contains_key(&record.authority())
+                {
+                    continue;
+                }
+                match repository.get(&record.key()).await {
+                    Ok(Some(current)) => {
+                        if current.health_evidence.last_positive_at.is_some()
+                            || current.cooldown_until.is_some()
+                        {
+                            let country = record.country.clone();
+                            *record = current;
+                            if country.is_some() {
+                                record.country = country;
+                            }
+                            continue;
+                        }
+                    }
+                    Err(error) => tracing::warn!(%error, "failed to restore current proxy health"),
+                    _ => {}
+                }
+                match repository.get_failure(&record.key()).await {
+                    Ok(Some(failure)) => {
+                        let country = record.country.clone();
+                        *record = failure;
+                        if country.is_some() {
+                            record.country = country;
+                        }
+                    }
+                    Err(error) => {
+                        tracing::warn!(%error, "failed to restore proxy rediscovery protection")
+                    }
+                    _ => {}
+                }
+            }
+        }
 
         let mut inner = self.inner.write().await;
         let mut retained = Vec::with_capacity(records.len());
-        let mut removed_keys = Vec::new();
-        for record in records {
+        let now = SystemTime::now();
+        inner.evicted.retain(|_, record| {
+            record.health_evidence.evicted_at.is_some_and(|date| {
+                now.duration_since(date).unwrap_or_default() < Duration::from_secs(48 * 3600)
+            })
+        });
+        for mut record in records {
             let key = record.authority();
-            let old_country = inner.records.get(&key).and_then(|r| r.country.clone());
-            let remove_stale_failed_probe = inner.records.get(&key).is_some_and(|existing| {
-                proxy_validation_is_stale(existing, SystemTime::now())
-                    && has_newer_runtime_update(existing, &record)
-                    && !matches!(record.status, ProxyRuntimeStatus::Ok)
-            });
-            if remove_stale_failed_probe {
-                if let Some(existing) = inner.records.remove(&key) {
-                    if let Some(country) = &existing.country {
-                        if let Some(keys) = inner.country_records.get_mut(country) {
-                            keys.retain(|authority| authority != &key);
-                        }
+            if !inner.records.contains_key(&key) {
+                if let Some(failure) = inner.evicted.get(&key) {
+                    let country = record.country.clone();
+                    record = failure.clone();
+                    if country.is_some() {
+                        record.country = country;
                     }
-                    removed_keys.push(existing.key());
                 }
-                tracing::debug!(
-                    authority = %key,
-                    "removed stale dynamic proxy after failed provider probe"
-                );
-                continue;
             }
+            if record.health_evidence.evicted_at.is_some() {
+                if record.cooldown_until.is_some_and(|date| date > now) {
+                    continue;
+                }
+                record.health_evidence.evicted_at = None;
+            }
+            let old_country = inner.records.get(&key).and_then(|r| r.country.clone());
             let retained_record = if let Some(existing) = inner.records.get(&key) {
                 let mut merged = record.clone();
                 merged.health_evidence.first_discovered_at = existing
                     .health_evidence
                     .first_discovered_at
-                    .or(record.health_evidence.first_discovered_at);
+                    .or(record.health_evidence.first_discovered_at)
+                    .or(Some(now));
                 merged.health_evidence.last_positive_at = existing
                     .health_evidence
                     .last_positive_at
@@ -323,7 +418,12 @@ impl ProxyInventory {
                 if record.probe_attempts.get("tcp") < existing.probe_attempts.get("tcp") {
                     merged.tcp_reachable = existing.tcp_reachable;
                 }
-                if should_preserve_runtime_exclusion(existing) || !has_fresh_runtime_update(&record)
+                if (should_preserve_runtime_exclusion(existing)
+                    && !(record.tcp_reachable == Some(true)
+                        && record.health_evidence.last_positive_at
+                            > existing.health_evidence.last_positive_at
+                        && existing.authentication_required != Some(true)))
+                    || !has_fresh_runtime_update(&record)
                 {
                     merged.status = existing.status.clone();
                     merged.http_forwarding = existing.http_forwarding;
@@ -369,13 +469,6 @@ impl ProxyInventory {
             retained.push(retained_record);
         }
         drop(inner);
-
-        #[cfg(feature = "persistence")]
-        for key in removed_keys {
-            self.delete_persisted_record(&key).await;
-        }
-        #[cfg(not(feature = "persistence"))]
-        drop(removed_keys);
 
         retained
     }
@@ -450,6 +543,7 @@ impl ProxyInventory {
     /// The persisted record, when a persistence store is configured, is deleted
     /// as well.
     pub async fn remove(&self, authority: &str) {
+        let _commit = self.persistence_commits.lock().await;
         let removed_key = {
             let mut inner = self.inner.write().await;
             inner.records.remove(authority).map(|record| {
@@ -458,12 +552,25 @@ impl ProxyInventory {
                         keys.retain(|k| k != authority);
                     }
                 }
+                for preference in inner.preferred_by_destination.values_mut() {
+                    preference
+                        .endpoints
+                        .retain(|item| item.endpoint != record.key());
+                }
+                inner
+                    .affinity_bindings
+                    .retain(|_, binding| binding.authority != authority);
                 record.key()
             })
         };
         #[cfg(feature = "persistence")]
         if let Some(key) = removed_key {
             self.delete_persisted_record(&key).await;
+            if let Some(repository) = &self.preferences {
+                if let Err(error) = repository.remove_endpoint(&key).await {
+                    tracing::warn!(%error, endpoint = %authority, "failed to clean removed proxy preferences");
+                }
+            }
         }
         #[cfg(not(feature = "persistence"))]
         let _ = removed_key;
@@ -701,15 +808,82 @@ impl ProxyInventory {
         destination: Option<&Destination>,
     ) -> Option<ProxyRecord> {
         let destination = destination?;
+        let key = crate::core::ProxyDestinationPreference::destination_key(destination);
+        let lock = self.destination_lock(&key).await;
+        let _guard = lock.lock().await;
+        #[cfg(feature = "persistence")]
+        if !self
+            .inner
+            .read()
+            .await
+            .preferred_by_destination
+            .contains_key(&key)
+        {
+            if let Some(repository) = &self.preferences {
+                match repository.get(&key).await {
+                    Ok(Some(mut preference)) => {
+                        let mut present = Vec::new();
+                        if let Some(inventory) = &self.persistence {
+                            for item in &preference.endpoints {
+                                if self
+                                    .inner
+                                    .read()
+                                    .await
+                                    .records
+                                    .values()
+                                    .any(|record| record.key() == item.endpoint)
+                                {
+                                    present.push(item.clone());
+                                    continue;
+                                }
+                                match inventory.get(&item.endpoint).await {
+                                    Ok(Some(record)) => {
+                                        self.add_or_update(vec![record]).await;
+                                        present.push(item.clone());
+                                    }
+                                    Ok(None) => {
+                                        if let Err(error) =
+                                            repository.remove_endpoint(&item.endpoint).await
+                                        {
+                                            tracing::warn!(%error, destination = %key, "failed to clean orphan proxy preference");
+                                        }
+                                    }
+                                    Err(error) => {
+                                        tracing::warn!(%error, destination = %key, "failed to restore preferred proxy endpoint");
+                                        present.push(item.clone());
+                                    }
+                                }
+                            }
+                            preference.endpoints = present;
+                        }
+                        self.inner
+                            .write()
+                            .await
+                            .preferred_by_destination
+                            .insert(key.clone(), preference);
+                    }
+                    Err(error) => {
+                        tracing::warn!(%error, destination = %key, "failed to restore proxy preference")
+                    }
+                    _ => {}
+                }
+            }
+        }
         let inner = self.inner.read().await;
-        for country in countries {
-            let Some(authority) = inner
-                .preferred_by_destination
-                .get(&destination_preference_key(country, destination))
+        let preference = inner.preferred_by_destination.get(&key)?;
+        for item in &preference.endpoints {
+            let Some(record) = inner
+                .records
+                .values()
+                .find(|record| record.key() == item.endpoint)
             else {
                 continue;
             };
-            let Some(record) = inner.records.get(authority) else {
+            let Some(country) = record.country.as_ref().filter(|country| {
+                countries
+                    .iter()
+                    .any(|allowed| allowed.eq_ignore_ascii_case(country))
+            }) else {
                 continue;
             };
             if is_eligible(
@@ -722,7 +896,7 @@ impl ProxyInventory {
             ) {
                 tracing::debug!(
                     destination = %destination,
-                    proxy = %authority,
+                    proxy = %record.authority(),
                     country,
                     "reusing proxy validated for destination without discovery"
                 );
@@ -939,13 +1113,29 @@ impl ProxyInventory {
         let preferred_authority = destination.and_then(|destination| {
             inner
                 .preferred_by_destination
-                .get(&destination_preference_key(country, destination))
+                .get(&crate::core::ProxyDestinationPreference::destination_key(
+                    destination,
+                ))
+                .and_then(|preference| {
+                    preference.endpoints.iter().find_map(|item| {
+                        inner
+                            .records
+                            .values()
+                            .find(|record| {
+                                record.key() == item.endpoint
+                                    && record.country.as_deref() == Some(country)
+                            })
+                            .map(ProxyRecord::authority)
+                    })
+                })
         });
         candidates.sort_by(|a, b| {
-            let a_preferred =
-                preferred_authority.is_some_and(|authority| authority == &a.authority());
-            let b_preferred =
-                preferred_authority.is_some_and(|authority| authority == &b.authority());
+            let a_preferred = preferred_authority
+                .as_ref()
+                .is_some_and(|authority| authority == &a.authority());
+            let b_preferred = preferred_authority
+                .as_ref()
+                .is_some_and(|authority| authority == &b.authority());
             b_preferred.cmp(&a_preferred).then_with(|| {
                 let https_validation_rank = |record: &ProxyRecord| {
                     if !require_https {
@@ -973,7 +1163,6 @@ impl ProxyInventory {
         });
 
         let candidates: Vec<ProxyRecord> = candidates.into_iter().cloned().collect();
-        let preferred_authority = preferred_authority.cloned();
         drop(inner);
         for window in candidates.chunks(self.config.probe_batch_size.max(1)) {
             let prechecks = stream::iter(window.iter().cloned().map(|candidate| async move {
@@ -1050,6 +1239,10 @@ impl ProxyInventory {
             record.probe_attempts.insert(phase.to_string(), started);
             if let Some(reachable) = tcp {
                 record.tcp_reachable = Some(reachable);
+                if reachable && record.status == ProxyRuntimeStatus::Ko {
+                    record.status = ProxyRuntimeStatus::Unknown;
+                    record.cooldown_until = None;
+                }
                 let now = SystemTime::now();
                 record.record_observation(crate::core::ProxyObservation {
                     context: crate::core::ProxyProbeContext {
@@ -1078,6 +1271,9 @@ impl ProxyInventory {
         self.persist_records(std::slice::from_ref(&updated)).await;
         #[cfg(not(feature = "persistence"))]
         drop(updated);
+        if tcp == Some(false) {
+            self.record_global_failure(authority).await;
+        }
     }
 
     /// Validates missing capabilities on demand without holding inventory data
@@ -1155,9 +1351,26 @@ impl ProxyInventory {
                 error = ?result.err(),
                 "completed on-demand proxy capability probe"
             );
+            let endpoint_failed = record.observations.iter().any(|observation| {
+                observation.context.phase == crate::core::ProxyObservationPhase::EndpointConnect
+                    && observation
+                        .completed_at
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis()
+                        >= u128::from(started)
+                    && matches!(
+                        observation.outcome,
+                        crate::core::ProxyObservationOutcome::Failed { .. }
+                    )
+            });
             let retained = self.add_or_update(vec![record]).await;
             #[cfg(feature = "persistence")]
             self.persist_records(&retained).await;
+            if endpoint_failed {
+                self.record_global_failure(&authority).await;
+                return None;
+            }
             record = retained.into_iter().next()?;
         }
         if needs_capability_probe(&record, require_https) {
@@ -1438,8 +1651,14 @@ impl ProxyInventory {
             }) {
                 failure.failure_count = failure.failure_count.saturating_add(1);
                 failure.last_failed = now;
-                failure.reason = reason;
-                failure.cooldown_until = Some(now + self.config.destination_failure_cooldown);
+                if failure.reason != crate::core::ProxyDestinationFailureReason::BlockedByOrigin
+                    || reason == crate::core::ProxyDestinationFailureReason::BlockedByOrigin
+                {
+                    failure.reason = reason;
+                }
+                failure.cooldown_until = failure
+                    .cooldown_until
+                    .max(Some(now + self.config.destination_failure_cooldown));
             } else {
                 record
                     .destination_failures
@@ -1462,7 +1681,10 @@ impl ProxyInventory {
         false
     }
 
-    /// Marks a proxy as globally failed (KO) with cooldown.
+    /// Records a proven endpoint connection failure, with cooldown or age-based eviction.
+    ///
+    /// # Arguments
+    /// * `authority` - Endpoint whose own connection failed, not a remote tunnel or TLS failure.
     pub async fn record_global_failure(&self, authority: &str) {
         if self.remove_if_stale(authority).await {
             return;
@@ -1472,9 +1694,9 @@ impl ProxyInventory {
             if let Some(record) = inner.records.get_mut(authority) {
                 let now = SystemTime::now();
                 record.status = ProxyRuntimeStatus::Ko;
-                record.failure_count += 1;
+                record.failure_count = record.failure_count.saturating_add(1);
+                record.tcp_reachable = Some(false);
                 record.cooldown_until = Some(now + self.config.ko_cooldown);
-                record.destination_failures.clear();
                 Some(record.clone())
             } else {
                 None
@@ -1490,9 +1712,6 @@ impl ProxyInventory {
 
     /// Records that a proxy requires authentication.
     pub async fn record_auth_required(&self, authority: &str) {
-        if self.remove_if_stale(authority).await {
-            return;
-        }
         let updated = {
             let mut inner = self.inner.write().await;
             if let Some(record) = inner.records.get_mut(authority) {
@@ -1520,7 +1739,6 @@ impl ProxyInventory {
                 record.status = ProxyRuntimeStatus::Ok;
                 record.failure_count = 0;
                 record.cooldown_until = None;
-                record.destination_failures.clear();
                 record.last_validated_at = Some(SystemTime::now());
                 record.health_evidence.last_positive_at = record
                     .health_evidence
@@ -1543,36 +1761,96 @@ impl ProxyInventory {
     /// the proxy as the preferred candidate for that exact destination without
     /// clearing unrelated proxy or destination failure state.
     pub async fn record_validated_response(&self, authority: &str, destination: &Destination) {
+        let accepted_at = SystemTime::now();
+        let key = crate::core::ProxyDestinationPreference::destination_key(destination);
+        let lock = self.destination_lock(&key).await;
+        let _guard = lock.lock().await;
+        #[cfg(feature = "persistence")]
+        if !self
+            .inner
+            .read()
+            .await
+            .preferred_by_destination
+            .contains_key(&key)
+        {
+            if let Some(repository) = &self.preferences {
+                match repository.get(&key).await {
+                    Ok(Some(preference)) => {
+                        self.inner
+                            .write()
+                            .await
+                            .preferred_by_destination
+                            .insert(key.clone(), preference);
+                    }
+                    Err(error) => {
+                        tracing::warn!(%error, destination = %key, "failed to load proxy history before accepted response")
+                    }
+                    _ => {}
+                }
+            }
+        }
         let updated = {
             let mut inner = self.inner.write().await;
             let updated = inner.records.get_mut(authority).map(|record| {
-                record.last_validated_at = Some(SystemTime::now());
+                record.last_validated_at = record.last_validated_at.max(Some(accepted_at));
                 record.health_evidence.last_positive_at = record
                     .health_evidence
                     .last_positive_at
                     .max(record.last_validated_at);
                 record.clone()
             });
-            if let Some(country) = updated.as_ref().and_then(|record| record.country.as_ref()) {
-                inner.preferred_by_destination.insert(
-                    destination_preference_key(country, destination),
-                    authority.to_string(),
-                );
+            if let Some(record) = &updated {
+                inner
+                    .preferred_by_destination
+                    .entry(key.clone())
+                    .or_insert_with(|| crate::core::ProxyDestinationPreference {
+                        destination: key.clone(),
+                        endpoints: Vec::new(),
+                    })
+                    .record_success(record.key(), accepted_at);
             }
             updated
         };
         if let Some(record) = updated {
             #[cfg(feature = "persistence")]
-            self.persist_records(std::slice::from_ref(&record)).await;
+            {
+                self.persist_records(std::slice::from_ref(&record)).await;
+                let _commit = self.persistence_commits.lock().await;
+                if let Some(repository) = &self.preferences {
+                    let preference =
+                        {
+                            let inner = self.inner.read().await;
+                            inner.preferred_by_destination.get(&key).cloned().map(
+                                |mut preference| {
+                                    preference.endpoints.retain(|item| {
+                                        inner
+                                            .records
+                                            .values()
+                                            .any(|record| record.key() == item.endpoint)
+                                    });
+                                    preference
+                                },
+                            )
+                        };
+                    if let Some(preference) = preference {
+                        if let Err(error) = repository.save(&preference).await {
+                            self.preference_persistence_failures
+                                .fetch_add(1, Ordering::Relaxed);
+                            tracing::error!(%error, destination = %key, endpoint = %authority,
+                                "failed to persist accepted proxy preference; response and memory history preserved");
+                        }
+                    }
+                }
+            }
             #[cfg(not(feature = "persistence"))]
             drop(record);
         }
     }
 
-    /// Removes a proxy only when its last successful validation is older than
-    /// [`PROXY_CACHE_TTL`].
+    /// Evicts only on an observed endpoint connection failure after the retention threshold.
     async fn remove_if_stale(&self, authority: &str) -> bool {
-        let removed_key = {
+        let _commit = self.persistence_commits.lock().await;
+        let removed_record = {
             let mut inner = self.inner.write().await;
             let stale = inner
                 .records
@@ -1581,7 +1859,32 @@ impl ProxyInventory {
             if !stale {
                 return false;
             }
-            let removed = inner.records.remove(authority);
+            let mut removed = inner.records.remove(authority);
+            if let Some(record) = &mut removed {
+                record.health_evidence.evicted_at = Some(SystemTime::now());
+                record.cooldown_until = Some(SystemTime::now() + self.config.ko_cooldown);
+                record.status = ProxyRuntimeStatus::Ko;
+                record.tcp_reachable = Some(false);
+                inner.evicted.insert(authority.to_string(), record.clone());
+                if inner.evicted.len() > 1024 {
+                    if let Some(oldest) = inner
+                        .evicted
+                        .iter()
+                        .min_by_key(|(_, record)| record.health_evidence.evicted_at)
+                        .map(|(key, _)| key.clone())
+                    {
+                        inner.evicted.remove(&oldest);
+                    }
+                }
+                for preference in inner.preferred_by_destination.values_mut() {
+                    preference
+                        .endpoints
+                        .retain(|item| item.endpoint != record.key());
+                }
+                inner
+                    .affinity_bindings
+                    .retain(|_, binding| binding.authority != authority);
+            }
             if let Some(record) = &removed {
                 if let Some(country) = &record.country {
                     if let Some(keys) = inner.country_records.get_mut(country) {
@@ -1589,15 +1892,24 @@ impl ProxyInventory {
                     }
                 }
             }
-            removed.map(|record| record.key())
+            removed
         };
 
         #[cfg(feature = "persistence")]
-        if let Some(key) = removed_key {
-            self.delete_persisted_record(&key).await;
+        if let Some(record) = removed_record {
+            if let Some(repository) = &self.persistence {
+                if let Err(error) = repository.evict(&record).await {
+                    tracing::error!(%error, endpoint = %authority, "failed to persist proxy endpoint eviction");
+                }
+            }
+            if let Some(repository) = &self.preferences {
+                if let Err(error) = repository.remove_endpoint(&record.key()).await {
+                    tracing::warn!(%error, endpoint = %authority, "failed to clean evicted proxy preferences");
+                }
+            }
         }
         #[cfg(not(feature = "persistence"))]
-        let _ = removed_key;
+        let _ = removed_record;
 
         tracing::debug!(
             authority,
@@ -1618,9 +1930,12 @@ async fn persist_proxy_records(
 
 #[cfg(test)]
 mod tests {
+    include!("tests/proxy_lifecycle_tests.rs");
     use super::*;
     #[cfg(feature = "persistence")]
     use crate::core::proxy_repository::memory_proxy_store;
+    #[cfg(feature = "persistence")]
+    use crate::core::ProxyPreferenceRepository;
     #[cfg(feature = "persistence")]
     use crate::core::TypedProxyRepository;
     use crate::core::{ProxyAvailabilityHint, ProxyDestinationFailure};
@@ -2013,6 +2328,34 @@ mod tests {
             inventory.select("BE", true).await.unwrap().authority(),
             validated.authority()
         );
+        let mut other_country = record(ProxyRuntimeStatus::Ok);
+        other_country.host = "accepted-fr.example".into();
+        other_country.country = Some("FR".into());
+        inventory.add_or_update(vec![other_country.clone()]).await;
+        inventory
+            .record_validated_response(&other_country.authority(), &preferred_destination)
+            .await;
+        for countries in [
+            vec!["BE".into(), "FR".into()],
+            vec!["FR".into(), "BE".into()],
+        ] {
+            assert_eq!(
+                inventory
+                    .select_any_for_destination(&countries, true, Some(&preferred_destination))
+                    .await
+                    .unwrap()
+                    .authority(),
+                other_country.authority()
+            );
+        }
+        assert_eq!(
+            inventory
+                .select_for_destination("BE", true, Some(&preferred_destination))
+                .await
+                .unwrap()
+                .authority(),
+            validated.authority()
+        );
     }
 
     #[tokio::test]
@@ -2163,8 +2506,12 @@ mod tests {
     async fn blocked_by_origin_is_restored_from_persistence() -> AnyResult<()> {
         let store = memory_proxy_store()?;
         let repository = Arc::new(TypedProxyRepository::new(Arc::clone(&store)));
+        let preferences = Arc::new(crate::core::TypedProxyPreferenceRepository::new(
+            crate::core::proxy_preference_repository::memory_proxy_preference_store()?,
+        ));
         let initial = ProxyInventory::new(InventoryConfig::default(), None, None)
-            .with_proxy_repository(repository.clone());
+            .with_proxy_repository(repository.clone())
+            .with_preference_repository(preferences.clone());
         let mut blocked = record(ProxyRuntimeStatus::Ok);
         blocked.host = "blocked-proxy.example".to_string();
         blocked.latency_ms = Some(5);
@@ -2180,21 +2527,57 @@ mod tests {
             .with_protocol(crate::core::ApplicationProtocol::Https);
 
         initial
+            .record_validated_response(&blocked_authority, &destination)
+            .await;
+        let restarted = ProxyInventory::new(InventoryConfig::default(), None, None)
+            .with_proxy_repository(repository.clone())
+            .with_preference_repository(preferences.clone());
+        assert_eq!(
+            restarted
+                .select_for_destination("BE", true, Some(&destination))
+                .await?
+                .authority(),
+            blocked_authority
+        );
+        initial.record_ok(&blocked_authority).await;
+
+        initial
             .record_destination_failure(
                 &blocked_authority,
                 &destination,
                 crate::core::ProxyDestinationFailureReason::BlockedByOrigin,
             )
             .await;
+        initial.record_ok(&blocked_authority).await;
 
         let restored = ProxyInventory::new(InventoryConfig::default(), None, None)
-            .with_proxy_repository(repository);
+            .with_proxy_repository(repository)
+            .with_preference_repository(preferences.clone());
         assert_eq!(
             restored
                 .select_for_destination("BE", true, Some(&destination))
                 .await?
                 .authority(),
             fallback.authority()
+        );
+        let history = preferences
+            .get(&crate::core::ProxyDestinationPreference::destination_key(
+                &destination,
+            ))
+            .await?
+            .unwrap();
+        assert_eq!(history.endpoints[0].endpoint.host, "blocked-proxy.example");
+        restored
+            .record_validated_response(&fallback.authority(), &destination)
+            .await;
+        assert_eq!(
+            preferences
+                .get(&history.destination)
+                .await?
+                .unwrap()
+                .endpoints
+                .len(),
+            2
         );
         Ok(())
     }
@@ -2330,7 +2713,8 @@ fn recent_probe_attempt(record: &ProxyRecord, phase: &str, ttl: Duration) -> boo
 }
 
 fn needs_capability_probe(record: &ProxyRecord, require_https: bool) -> bool {
-    record.last_checked.is_none()
+    record.tcp_reachable == Some(false)
+        || record.last_checked.is_none()
         || record.protocol.is_none()
         || matches!(record.status, ProxyRuntimeStatus::Unknown)
         || if require_https {
@@ -2357,7 +2741,11 @@ fn is_selection_candidate(
         return false;
     }
     let mut candidate = record.clone();
-    if candidate.status == ProxyRuntimeStatus::Unknown {
+    if candidate.status == ProxyRuntimeStatus::Unknown
+        || (candidate.status == ProxyRuntimeStatus::Ko
+            && candidate.tcp_reachable == Some(false)
+            && candidate.cooldown_until.is_some_and(|until| until <= now))
+    {
         candidate.status = ProxyRuntimeStatus::Ok;
     }
     if candidate.http_forwarding == ProxyCapabilityStatus::Unknown {
@@ -2387,6 +2775,9 @@ fn is_eligible(
     now: SystemTime,
     probe_mode: ProbeMode,
 ) -> bool {
+    if record.health_evidence.evicted_at.is_some() {
+        return false;
+    }
     if record.country.as_deref() != Some(country) {
         return false;
     }
@@ -2432,13 +2823,6 @@ fn should_preserve_runtime_exclusion(record: &ProxyRecord) -> bool {
 
 fn has_fresh_runtime_update(record: &ProxyRecord) -> bool {
     record.last_checked.is_some() && !matches!(record.status, ProxyRuntimeStatus::Unknown)
-}
-
-fn has_newer_runtime_update(existing: &ProxyRecord, incoming: &ProxyRecord) -> bool {
-    has_fresh_runtime_update(incoming)
-        && incoming
-            .last_checked
-            .is_some_and(|incoming_checked| existing.last_checked < Some(incoming_checked))
 }
 
 fn probe_is_expired(record: &ProxyRecord, now: SystemTime, probe_ttl: Duration) -> bool {
@@ -2600,7 +2984,11 @@ fn preferred_availability(
 }
 
 fn proxy_validation_is_stale(record: &ProxyRecord, now: SystemTime) -> bool {
-    let Some(last_validated_at) = record.last_validated_at.or(record.last_checked) else {
+    let Some(last_validated_at) = record
+        .health_evidence
+        .last_positive_at
+        .or(record.health_evidence.first_discovered_at)
+    else {
         return false;
     };
 
@@ -2669,14 +3057,4 @@ fn destination_scheme(destination: &Destination) -> String {
         crate::core::ApplicationProtocol::Https => "https".to_string(),
         _ => "tcp".to_string(),
     }
-}
-
-fn destination_preference_key(country: &str, destination: &Destination) -> String {
-    format!(
-        "{}|{}|{}|{}",
-        country,
-        destination_scheme(destination),
-        destination.host_for_protocol(),
-        destination.port
-    )
 }

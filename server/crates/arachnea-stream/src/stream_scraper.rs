@@ -20,7 +20,10 @@ use arachnea_core::{
     },
 };
 use arachnea_http::chaser_session::{CachedChaserSession, CLOUDFLARE_SESSION_STORE_NAME};
-use arachnea_proxy::core::{ArachneaProxyCore, ProxyConfig, ProxyRecord};
+use arachnea_proxy::core::{
+    ArachneaProxyCore, ProxyConfig, ProxyDestinationPreference, ProxyRecord,
+    TypedProxyPreferenceRepository, TypedProxyRepository, PROXY_PREFERENCE_STORE_NAME,
+};
 use arachnea_scrapyfy::{
     scraper_result::{ScraperAggregationResult, ScraperErrorOrigin, ScraperExecutionError},
     *,
@@ -64,6 +67,10 @@ const SERVICE_STORE_SCHEMA_V2_MARKER: &str = ".source-service-schema-v2";
 pub struct ApplicationStores {
     /// Dynamic proxy inventory cache (`proxy-inventory`).
     pub proxy_inventory: Arc<dyn TypedEntityStore<ProxyRecord>>,
+    /// Durable bounded rediscovery protection for evicted endpoints.
+    pub proxy_failures: Arc<dyn TypedEntityStore<ProxyRecord>>,
+    /// Durable accepted histories independent of the request country filter.
+    pub proxy_preferences: Arc<dyn TypedEntityStore<ProxyDestinationPreference>>,
     /// Cached Cloudflare sessions (`cloudflare-session`).
     pub cloudflare_session: Arc<dyn TypedEntityStore<CachedChaserSession>>,
     /// Administrator service records: activation override and encrypted
@@ -102,6 +109,20 @@ pub fn sqlite_application_stores(
     let root = application_data_path.into().join(PERSISTENCE_DATA_ROOT);
     reset_legacy_service_store(&root)?;
     let stores = ApplicationStores {
+        proxy_failures: Arc::new(SqliteEntityStore::new(
+            PersistenceStoreConfig::new(
+                arachnea_proxy::core::proxy_repository::PROXY_FAILURE_STORE_NAME,
+                ProxyRecord::schema(),
+            )?,
+            &root,
+        )?),
+        proxy_preferences: Arc::new(SqliteEntityStore::new(
+            PersistenceStoreConfig::new(
+                PROXY_PREFERENCE_STORE_NAME,
+                ProxyDestinationPreference::schema(),
+            )?,
+            &root,
+        )?),
         proxy_inventory: Arc::new(SqliteEntityStore::new(
             PersistenceStoreConfig::new("proxy-inventory", ProxyRecord::schema())?,
             &root,
@@ -144,6 +165,9 @@ fn reset_legacy_service_store(root: &std::path::Path) -> Result<()> {
 /// Returns an error when a store configuration is invalid.
 pub fn memory_application_stores() -> Result<ApplicationStores> {
     Ok(ApplicationStores {
+        proxy_failures: arachnea_proxy::core::proxy_repository::memory_proxy_store()?,
+        proxy_preferences:
+            arachnea_proxy::core::proxy_preference_repository::memory_proxy_preference_store()?,
         proxy_inventory: Arc::new(MemoryEntityStore::new(PersistenceStoreConfig::new(
             "proxy-inventory",
             ProxyRecord::schema(),
@@ -444,6 +468,15 @@ impl StreamScraper {
             Arc::clone(&stores.proxy_inventory),
             Arc::clone(&stores.cloudflare_session),
         ));
+        agregator.set_proxy_repositories(
+            Arc::new(TypedProxyRepository::with_failure_store(
+                stores.proxy_inventory.clone(),
+                stores.proxy_failures.clone(),
+            )),
+            Arc::new(TypedProxyPreferenceRepository::new(
+                stores.proxy_preferences.clone(),
+            )),
+        );
         agregator.set_source_enabled(Arc::new(PersistenceSourceEnabled::with_typed_store(
             Arc::clone(&stores.source_enabled),
         )));

@@ -2,7 +2,7 @@
 
 Date : 13 octobre 2026.
 
-Statut : analyse initiale et plan ; implémentation du lot 1 en cours de validation le 14 octobre 2026 (section 13).
+Statut : lots 1 et 2 intégrés ; validations et limites de recette suivies le 14 octobre 2026 en sections 13 et 14.
 
 Révision : prise en compte des deux phases de test, de l’indisponibilité ou des restrictions géographiques du serveur de test, et des décisions sur la persistance et les pays autorisés.
 
@@ -777,7 +777,7 @@ Si les recherches échouent souvent alors qu’il reste des candidats utiles, aj
 
 ### 11.1. Périmètre et principes d’exécution
 
-Ce plan décrit les changements à réaliser. Le lot 0 d’inspection et de conception est réalisé et documenté en section 12. Le lot 1 a été intégré après confirmation de sa conception ; sa recette exhaustive reste à terminer (section 13). Les lots 2 à 7 restent à implémenter. Les lots structurants doivent être présentés avant leur implémentation conformément aux règles du dépôt.
+Ce plan décrit les changements à réaliser. Le lot 0 d’inspection et de conception est réalisé et documenté en section 12. Les lots 1 et 2 ont été intégrés après confirmation de leur conception ; leurs recettes exhaustives restent à terminer (sections 13 et 14). Les lots 3 à 7 restent à implémenter. Les lots structurants doivent être présentés avant leur implémentation conformément aux règles du dépôt.
 
 Principes communs :
 
@@ -859,12 +859,16 @@ Suivi des livrables :
 - [x] Préserver les contrôles TLS/DNS et supprimer les promotions KO/évictions fondées uniquement sur les échecs distants.
 - [x] Exécuter les compilations et suites existantes pertinentes ; documenter les échecs Scrapyfy et les différences de formatage global (section 13.1).
 - [x] Actualiser les README, le TODO, le changelog et le suivi du lot.
-- [ ] Exécuter la recette locale avec réponses concurrentes sur une même origine, connexions réutilisées, redirections, serveur complémentaire 503 et changement d’URL de probe (procédure en section 13).
+- [x] Ajouter et exécuter les tests locaux de réponses concurrentes sur une même origine, reconnexions épinglées, redirection, cible HTTP 503 et changement de configuration — section 15.
+- [x] Vérifier la réutilisation d’une même socket Rquest et le 503 HTTPS après tunnel/TLS valide sur le parcours métier — test local en section 16.
+- [ ] Vérifier spécifiquement le 503 HTTPS dans `ProxyProbe` : le test métier Rquest ne remplace pas ce parcours, dont les racines de confiance sont actuellement fixes.
 - [ ] Valider exhaustivement les critères de sortie ci-dessous ; la compilation et les suites existantes ne remplacent pas cette recette.
 
 **Critères de sortie :** un échec distant ne devient pas une panne globale du proxy ; les retours HTTP ne peuvent pas modifier l’état d’un autre endpoint concurrent ; aucun timestamp d’échec ne renouvelle la preuve positive.
 
 ### 11.6. Lot 2 — Persister les préférences et appliquer les règles d’éviction
+
+**État : code intégré après confirmation ; suites existantes adaptées et recette exhaustive encore ouverte.** Les cases ci-dessous suivent les livrables de code, non une validation exhaustive de chaque scénario.
 
 **Fichiers existants à adapter :**
 
@@ -882,16 +886,17 @@ Suivi des livrables :
 
 Travail prévu :
 
-- Définir une entité par schéma/hôte/port, contenant au maximum 3 endpoints distincts et leurs dates de succès acceptés, sans expiration automatique.
-- Injecter son repository et son store depuis l’application, avec implémentation mémoire pour les constructeurs compatibles. Adapter aussi les snapshots et remplacements d’agrégateur afin de conserver le partage des stores.
-- Charger les préférences et leurs endpoints avant découverte, au démarrage ou paresseusement à la première demande avec mutualisation. Vérifier les exclusions et pays actuels avant réutilisation.
-- Sérialiser les mises à jour concurrentes par destination et empêcher une écriture tardive d’un ancien succès d’écraser un succès plus récent. Ne pas maintenir un verrou global de données pendant l’I/O.
-- Persister les exclusions de destination et leur échéance configurable, avec conservation de l’historique et sans levée anticipée implicite.
-- Limiter l’éviction globale à l’échec de connexion au proxy et au seuil défini : 24 heures depuis la dernière preuve positive, ou depuis la découverte pour un endpoint jamais validé. Mettre à l’écart ce dernier pendant 15 minutes après un échec.
-- [x] Retirer l’éviction globale actuellement possible sur la seule base d’un échec distant ancien et la promotion des erreurs ambiguës de cible en KO global — préalable intégré au lot 1 ; les règles complètes d’éviction restent à réaliser dans ce lot 2.
-- Nettoyer les références orphelines et conserver des états d’échec bornés pour empêcher une redécouverte immédiate de remettre à zéro les temporisations.
-- Sur échec d’écriture de préférence, préserver la réponse métier et l’état mémoire, contextualiser le log et exposer le diagnostic via les primitives d’observation disponibles. Ne pas ajouter de worker de réparation.
-- Pour les anciens records, ne pas inventer de preuve positive à partir de `last_checked`. Les anciens succès d’origine non persistés ne peuvent pas être reconstruits : commencer l’historique durable à partir des nouvelles observations fiables.
+- [x] Définir une entité par schéma/hôte/port, contenant au maximum 3 endpoints distincts et leurs dates de succès acceptés, sans expiration automatique.
+- [x] Injecter son repository et son store depuis l’application, avec implémentation mémoire pour les constructeurs compatibles. Adapter aussi les snapshots et remplacements d’agrégateur afin de conserver le partage des stores.
+- [x] Charger les préférences et leurs endpoints avant découverte, paresseusement à la première demande avec mutualisation. Vérifier les exclusions et pays actuels avant réutilisation.
+- [x] Sérialiser les mises à jour concurrentes par destination et empêcher une écriture tardive d’un ancien succès d’écraser un succès plus récent. Ne pas maintenir un verrou global de données pendant l’I/O.
+- [x] Persister les exclusions de destination et leur échéance configurable, avec conservation de l’historique et sans levée anticipée implicite.
+- [x] Limiter l’éviction globale à l’échec de connexion au proxy et au seuil défini : 24 heures depuis la dernière preuve positive, ou depuis la découverte pour un endpoint jamais validé. Mettre à l’écart ce dernier pendant 15 minutes après un échec.
+- [x] Retirer l’éviction globale actuellement possible sur la seule base d’un échec distant ancien et la promotion des erreurs ambiguës de cible en KO global — préalable intégré au lot 1, règles complètes d’éviction intégrées au lot 2.
+- [x] Nettoyer les références orphelines et conserver des états d’échec bornés pour empêcher une redécouverte immédiate de remettre à zéro les temporisations : store séparé, 1 024 endpoints maximum, 48 heures depuis éviction, nettoyage à la demande.
+- [x] Sur échec d’écriture de préférence, préserver la réponse métier et l’état mémoire, contextualiser le log et exposer le diagnostic via `preference_persistence_failures()`. Ne pas ajouter de worker de réparation.
+- [x] Pour les anciens records, ne pas inventer de preuve positive à partir de `last_checked`. Les anciens succès d’origine non persistés ne peuvent pas être reconstruits : commencer l’historique durable à partir des nouvelles observations fiables.
+- [x] Compléter les tests locaux réseau/concurrence, l’échec d’écriture avec log capturé, les reprises et les frontières de commit simulées — sections 15 et 16. Les coupures réelles processus/disque restent hors couverture.
 
 **Critères de sortie :** après redémarrage, un endpoint accepté et éligible est réutilisé sans consultation fournisseur ; l’ordre des pays ne change pas le choix ; une exclusion survit au redémarrage ; un échec de stockage ne provoque pas un rejeu métier.
 
@@ -1062,7 +1067,7 @@ Clôture attendue :
 
 ### 12.1. État et périmètre
 
-**Lot 0 réalisé : inspection locale, propositions de contrats et validations initiales.** Cette section décrit l’état au moment du lot 0, avant toute implémentation des contrats Rust proposés. L’implémentation ultérieure du lot 1, confirmée avant modification, est suivie en sections 11.5 et 13 ; les lots 2 à 7 restent à réaliser.
+**Lot 0 réalisé : inspection locale, propositions de contrats et validations initiales.** Cette section décrit l’état au moment du lot 0, avant toute implémentation des contrats Rust proposés. Les implémentations ultérieures des lots 1 et 2, confirmées avant modification, sont suivies en sections 13 et 14 ; les lots 3 à 7 restent à réaliser.
 
 L’inspection a porté sur les records et repositories, les stores typés, SQLite et fichier, le core de sélection, le listener CONNECT, le connecteur Rquest loopback, les interfaces des moteurs HTTP, les réponses matérialisées, les clients Scrapyfy et les appels frontend/API du dépôt. Aucun benchmark réseau ni test vers des fournisseurs publics n’a été effectué.
 
@@ -1245,7 +1250,7 @@ Limites de recette : aucun nouveau test créé ni benchmark réseau réalisé. L
 
 Procédure manuelle reproductible à compléter avant recette finale : utiliser deux proxies locaux contrôlés, effectuer des appels concurrents sur une même origine, retarder la réponse du premier, rejeter le second et vérifier dans l’inventaire que seul son endpoint est exclu ; répéter après réutilisation de connexion et redirection vers une seconde origine. Faire répondre le serveur complémentaire 503 après TLS valide puis vérifier les observations TLS/HTTP et l’absence de KO global. Remplacer l’URL de probe et vérifier que la temporisation distante ancienne n’empêche pas la nouvelle validation. Aucun fournisseur public n’est nécessaire pour cette procédure.
 
-Les règles complètes d’éviction, la persistance des préférences, les handlers, les budgets et circuits restent aux lots 2 à 6. Les résultats définitifs des validations sont consignés ci-dessous après exécution.
+À la clôture du lot 1, les règles complètes d’éviction et la persistance des préférences restaient au lot 2, maintenant intégré et suivi en section 14. Les handlers, budgets et circuits restent aux lots 3 à 6.
 
 ### 13.1. Validations exécutées
 
@@ -1261,3 +1266,147 @@ Commandes hors réseau depuis `/Users/jdecker/Downloads/arachnea/server` :
 - `cargo fmt --all -- --check` : différences préexistantes hors périmètre ; fichiers Rust modifiés formatés individuellement avec `skip_children=true`. `git diff --check` passe.
 
 Aucun nouveau test automatique n’a été ajouté. Deux tests existants ont été adaptés : date de découverte attendue dans le roundtrip fournisseur et recherche des headers par nom plutôt que position instable. Les scénarios réseau/concurrence de la procédure ci-dessus restent non exécutés ; le lot 1 est intégré et compilable mais sa recette exhaustive n’est pas déclarée terminée.
+
+## 14. Implémentation du lot 2 — 14 octobre 2026
+
+Conception présentée puis confirmée avant implémentation. Le lot est intégré ;
+les livrables de code sont cochés en section 11.6, distinctement de la recette.
+
+### 14.1. Livrables
+
+- [x] `ProxyDestinationPreference` et repository typé : destination canonique sans pays, trois endpoints distincts maximum, dates UTC à précision milliseconde, tri récent puis départage stable, pas d’expiration par âge.
+- [x] Stores applicatifs SQLite `proxy-preferences` et `proxy-failures`, injection dans l’agrégateur et partage par snapshots/reconstruction ; constructeurs historiques mémoire conservés.
+- [x] Restauration paresseuse avant découverte, résolution des endpoints par clé sans dépendre d’un ancien pays, filtrage par éligibilité actuelle et conservation des associations non autorisées pour un appel.
+- [x] Verrous par destination et commits attendus, sérialisés entre repositories utilisant le même store `Arc` ; fusion durable empêchant un ancien succès d’écraser un succès récent. Pas de verrou global de données pendant l’I/O ni worker autonome.
+- [x] Exclusions persistées conservées après succès technique, panne globale temporaire et actualisation ; échéance configurable sans raccourcissement implicite. Historique accepté conservé pendant l’exclusion.
+- [x] Éviction seulement sur échec établi de connexion à l’endpoint après 24 heures depuis preuve positive, sinon découverte initiale. Aucun recours à `last_checked` comme preuve. Avant éviction, indisponibilité globale et nouvel essai uniquement à la demande après le cooldown (15 minutes par défaut).
+- [x] Suppression de l’inventaire disponible et nettoyage mémoire/durable des préférences et affinités ; état d’éviction séparé borné à 1 024 endpoints, conservé 48 heures et nettoyé à la demande. Une redécouverte ne renouvelle ni preuve ni découverte, et ne contourne pas le cooldown.
+- [x] Échec de préférence journalisé avec destination/endpoint, compteur `preference_persistence_failures()` exposé, réponse métier et mémoire préservées sans rejeu. Une écriture peut être retentée lors d’un succès ultérieur.
+- [x] README proxy/Scrapyfy/application, spécifications proxies FR/EN, TODO et changelog actualisés ; aucun YAML ni framework ajouté.
+
+### 14.2. Validations exécutées
+
+Commandes hors réseau depuis `/Users/jdecker/Downloads/arachnea/server` :
+
+| Validation | Résultat |
+| --- | --- |
+| `cargo check -p arachnea-proxy --no-default-features --features core` | Réussite |
+| `cargo check -p arachnea-proxy --features persistence,controller-service,rquest,arachnea-dns` | Réussite |
+| `cargo check -p arachnea-stream` | Réussite, intégration HTTP/Scrapyfy incluse |
+| `cargo test -p arachnea-proxy --lib --features persistence,controller-service` | 89 réussis |
+| `cargo test -p arachnea-proxy --test post_action_integration --features controller-service` | 4 réussis |
+| `cargo test -p arachnea-http --lib --features arachnea-proxy` | 44 réussis |
+| Suite Scrapyfy avec `arachnea-proxy,sqlite-persistence,arachnea-proxy/controller-service` | 76 réussis, 3 échecs préexistants d’initialisation globale du répertoire applicatif |
+| Même suite, filtre `scraper_agregator::tests -- --test-threads=1` | 15 réussis |
+| Compilation Scrapyfy sans `arachnea-proxy/controller-service` | E0432 préexistant dans `actions/resolve_url.rs`, inchangé |
+| `cargo fmt --all -- --check` | Différences préexistantes hors périmètre ; fichiers modifiés formatés individuellement |
+| `git diff --check` | Réussite |
+
+Aucun nouveau test n’a été créé. Quatre tests existants ont été étendus :
+préférence avec permutations des pays et filtre restreint ; restauration des
+préférences avant découverte et maintien d’une exclusion après succès technique ;
+roundtrip des préférences mémoire/fichier/SQLite et observation ancienne ne
+remplaçant pas un succès récent ; éviction SQLite et redécouverte immédiate après
+reconstruction de l’inventaire. Ces validations ne constituent pas un benchmark.
+
+### 14.3. Limites et recette restant ouverte
+
+- [x] Injecter un échec du store de préférences et vérifier statut HTTP conservé, compteur incrémenté, préférence mémoire conservée, une seule requête et log contextualisé capturé — sections 15 et 16.
+- [x] Exécuter des réponses HTTP réellement concurrentes et des réponses retardées pendant une éviction et une reconstruction d’agrégateur avec repositories partagés — sections 15 et 16. Le test d’agrégateur exerce les constructeurs et le snapshot, pas une commande admin complète.
+- [x] Vérifier le cooldown de 15 minutes et sa fin par date expirée injectée, l’éviction après 24 heures depuis preuve/découverte et la rétention de 48 heures avec nettoyage à la demande — section 15.
+- [x] Vérifier un état SQLite équivalent à une interruption après écriture du tombstone, avant suppression de l’inventaire et nettoyage de l’historique ; réouverture et exclusion de l’endpoint vérifiées — section 15.
+- [x] Simuler les quatre frontières de commit de l’éviction : avant tombstone, après tombstone, après suppression d’inventaire, après nettoyage des préférences ; vérifier réouverture et reprise idempotente — section 16.
+- [ ] Tester les véritables coupures du processus/disque ; les simulations logiques ne démontrent pas la résistance à une panne matérielle et il n’existe pas de transaction inter-stores.
+
+Les garanties de commit portent sur des wrappers du même objet store partagé,
+pas sur des objets indépendants visant le même fichier ni plusieurs processus.
+La précision durable est la milliseconde, avec départage stable des égalités.
+Les records hérités sans découverte reçoivent leur date lors de leur import,
+sans reconstituer une ancienneté ou une preuve positive inconnue. Les états
+d’éviction sont volontairement bornés ; après leur rétention, un fournisseur peut
+à nouveau proposer un endpoint comme candidat inconnu à valider. Une erreur de
+stockage ne garantit pas la restauration après redémarrage et reste signalée.
+
+Le choix dans l’historique accepté est indépendant de l’ordre des pays dès ce lot.
+Le classement des autres candidats et le parcours fournisseur restent au lot 4.
+La politique actuelle de classification HTTP est inchangée, jusqu’au lot 3 ;
+le terme « accepté » désigne encore les observations produites par ces adaptateurs.
+
+## 15. Tests ciblés supplémentaires des lots 1 et 2
+
+Créés et exécutés à la demande de l’utilisateur, sans nouvelle dépendance ni framework. Seuls des tests et la documentation ont été ajoutés ; aucun comportement de production n’a été corrigé dans cette étape.
+
+### 15.1. Scénarios automatisés ajoutés
+
+Les fixtures réseau écoutent sur `127.0.0.1` avec ports attribués par le système. Les réponses simultanées sont synchronisées par une barrière et les scénarios HTTP sont limités à 5 secondes. Aucun fournisseur, DNS distant ou proxy public n’est nécessaire.
+
+Dans `/Users/jdecker/Downloads/arachnea/server/crates/arachnea-proxy/src/core/tests/proxy_lifecycle_tests.rs`, inclus dans le module de tests de l’inventaire :
+
+- `concurrent_http_responses_keep_endpoint_tokens_and_pinned_reconnects` : deux endpoints, même origine, réponses 200/403 réellement concurrentes ; deux connexions successives sur chaque route, puis succès/rejet concurrents attribués aux bons endpoints.
+- `preference_write_failure_preserves_http_success_and_does_not_replay` : store typé rejetant l’écriture ; réponse 200 conservée, un seul appel HTTP, compteur d’échec à 1 et préférence réutilisable en mémoire. Le log existe dans le parcours appelé mais son contenu n’est pas asserté.
+- `endpoint_failure_retention_uses_positive_evidence_not_attempt_date` : preuve positive de 23 h conservée avec cooldown ; preuve de 25 h et découverte de 25 h sans succès entraînant l’éviction malgré une tentative récente.
+- `cooldown_expiry_allows_endpoint_revalidation_and_preserves_discovery` : exclusion avant expiration, candidat de nouveau admissible après injection d’une échéance passée, connexion TCP locale réussie et preuve renouvelée sans changer la découverte initiale. Le test vérifie la valeur par défaut de 15 minutes, sans attente réelle et sans démontrer le futur ordonnanceur automatique.
+- `probe_target_change_invalidates_aggregates_without_erasing_positive_facts` : changement de configuration/URL, invalidation des agrégats et tentatives distantes, preuve positive conservée.
+- `unavailable_http_probe_target_keeps_endpoint_positive_evidence` : vrai échange HTTP 503 via l’endpoint local, sans KO global ni exclusion d’origine.
+- `redirect_response_token_belongs_to_final_origin_only` : deux réponses HTTP locales, redirection inter-domaines, jeton et préférence associés seulement à l’origine finale, corps conservé.
+- `late_concurrent_token_results_do_not_resurrect_evicted_endpoint` : callbacks concurrents de réponse et succès après éviction ; aucune résurrection ni création d’historique orphelin.
+
+Dans `/Users/jdecker/Downloads/arachnea/server/crates/arachnea-proxy/src/core/proxy_repository.rs` :
+
+- `interrupted_eviction_hides_available_record_and_orphan_preference` : stores SQLite réouverts avec tombstone durable, endpoint encore présent et préférence orpheline ; endpoint masqué par le repository, inutilisable après restauration/redécouverte, suppression rejouable. Simulation logique d’état partiel, pas arrêt forcé du processus.
+- `failure_retention_expires_after_48_hours_and_prunes_on_demand` : tombstone de 49 h ignoré, conservé physiquement jusqu’au nettoyage déclenché par une éviction suivante.
+- `concurrent_file_history_commits_survive_reopen_across_destinations` : 20 écritures concurrentes via deux wrappers du même store fichier, 4 destinations ; réouverture, 3 endpoints par historique et succès les plus récents conservés.
+
+### 15.2. Portée et limites
+
+Les 11 tests complètent les tests existants ; ils ne ferment pas toutes les cases de recette. Restent notamment la réutilisation de socket du client Rquest, le TLS distant valide suivi d’un 503 HTTPS, les requêtes actives pendant remplacement d’agrégateur, les autres points de coupure inter-stores et les pannes réelles du processus/disque. Les sockets des fixtures concurrentes sont rouvertes : ce sont des reconnexions sur une route épinglée, pas un test de keep-alive HTTP.
+
+Les âges sont simulés par des dates historiques et un cooldown expiré injecté dans l’état de test. Aucun champ ni horloge de production n’a été ajouté. Les statuts sont classifiés explicitement par le scénario, sans prétendre tester le handler du lot 3 qui reste à implémenter.
+
+### 15.3. Validation
+
+Depuis `/Users/jdecker/Downloads/arachnea/server`, avec `CARGO_NET_OFFLINE=true` :
+
+- `cargo test -p arachnea-proxy --lib --features persistence,controller-service` : **100 tests réussis, aucun échec**, dont les 11 nouveaux.
+- `cargo test -p arachnea-http --lib --features arachnea-proxy` : **44 tests réussis, aucun échec**.
+- `cargo test -p arachnea-scrapyfy --lib --features arachnea-proxy,sqlite-persistence,arachnea-proxy/controller-service scraper_agregator::tests -- --test-threads=1` : **15 tests réussis, aucun échec**, 64 filtrés. Ce filtre ne remplace pas la suite complète dont les limites sont décrites en section 14.2.
+- `cargo test -p arachnea-proxy --lib --no-default-features --features core proxy_inventory::tests` : **19 tests réussis, aucun échec**, 66 filtrés ; vérifie notamment les nouveaux tests ne nécessitant pas la persistance.
+- `rustfmt --edition 2021 --check` sur le fichier de fixtures et le repository modifié, et `git diff --check` : **réussite**.
+
+Les deux nouveaux fichiers/blocs de tests sont formatés avec Rustfmt ; les différences préexistantes de formatage global ne sont pas réécrites. Les premiers essais ont identifié une erreur de fixture (`ClientContext` utilise `insert`) et une attente incorrecte de sélection sans prober pour un candidat KO : les tests ont été ajustés aux interfaces et frontières effectivement testées, sans changer le code métier.
+
+## 16. Complément de recette automatisée des lots 1 et 2
+
+### 16.1. Tests réalisés
+
+- **Rquest keep-alive et HTTPS 503** : `/Users/jdecker/Downloads/arachnea/server/crates/arachnea-http/src/engine/rquest_proxy_tests.rs`, `keep_alive_tls_503_keeps_exact_selection_and_positive_phases`. Un proxy HTTP local reçoit CONNECT puis sert TLS ; le serveur lit deux requêtes sur le même stream accepté et renvoie 200 puis 503. La CA de test est explicitement approuvée par Rquest ; vérifications TLS et hostname restent actives. Une autre sélection rejetée entre les appels conserve son exclusion propre ; tunnel, TLS et réception HTTP restent des faits positifs pour l’endpoint réellement utilisé. Aucune préférence nouvelle n’est créée sur le seul 503.
+- **Éviction pendant réponse réseau active** : `endpoint_eviction_during_delayed_http_response_does_not_resurrect_history`, dans `/Users/jdecker/Downloads/arachnea/server/crates/arachnea-proxy/src/core/tests/proxy_lifecycle_tests.rs`. Le serveur signale la réception avant de suspendre sa réponse ; après injection d’une preuve ancienne et éviction, il rend 200. Le jeton tardif ne ressuscite pas l’endpoint ni son historique. L’âge est injecté pour construire l’entrelacement, pas obtenu en attendant 24 heures.
+- **Reconstruction d’agrégateur pendant requête active** : `replacement_preserves_shared_proxy_history_during_active_response`, dans `/Users/jdecker/Downloads/arachnea/server/crates/arachnea-scrapyfy/src/scrapyfy/scraper_agregator.rs`. Les constructeurs existants, `set_proxy_repositories` et `provider_snapshot` partagent les repositories ; l’ancien agrégateur est détruit après réception HTTP et avant réponse. L’appel conservé termine et sa préférence est restaurée par le nouvel inventaire sans fournisseur. Ce scénario contrôlé ne prétend pas exercer toute la commande administrative de reload.
+- **Frontières de commit inter-stores** : `eviction_recovery_handles_remaining_inter_store_commit_boundaries`, dans `/Users/jdecker/Downloads/arachnea/server/crates/arachnea-proxy/src/core/proxy_repository.rs`. Quatre états SQLite sont construits et réouverts : aucune écriture d’éviction, tombstone seul, inventaire supprimé, historique nettoyé. L’éviction/cleanup explicite peut être rejoué deux fois. Avant la première écriture durable, le redémarrage ne peut pas connaître la panne observée uniquement en mémoire : le test documente cette limite, il ne la masque pas.
+- **Log de persistance** : le test existant d’échec d’écriture capture maintenant un subscriber scoped avec `WithSubscriber`. Il vérifie message, cause injectée et destination, sans modifier le subscriber global ni rejouer la requête.
+
+Quatre nouveaux tests ont été ajoutés et un test précédent renforcé. `rustls` et `tokio-rustls`, déjà utilisés par le workspace, sont ajoutés uniquement aux dev-dependencies HTTP ; aucun framework nouveau. Les fixtures DER et leur clé serveur publique de test sont documentées dans `/Users/jdecker/Downloads/arachnea/server/crates/arachnea-proxy/src/core/tests/fixtures/README.md`. Leur validité est du 14 octobre 2026 au 11 octobre 2036 ; elles ne doivent jamais être utilisées en production. La clé privée de la CA n’est pas versionnée.
+
+### 16.2. Validations finales exécutées
+
+Depuis `/Users/jdecker/Downloads/arachnea/server` avec `CARGO_NET_OFFLINE=true` :
+
+| Commande | Résultat |
+| --- | --- |
+| `cargo test -p arachnea-proxy --lib --features persistence,controller-service` | 102 réussis, 0 échec |
+| `cargo test -p arachnea-http --lib --features arachnea-proxy` | 45 réussis, 0 échec |
+| `cargo test -p arachnea-scrapyfy --lib --features arachnea-proxy,sqlite-persistence,arachnea-proxy/controller-service scraper_agregator::tests -- --test-threads=1` | 16 réussis, 0 échec ; 64 filtrés |
+| `cargo check -p arachnea-stream` | Réussite |
+| Rustfmt ciblé et `git diff --check` | Réussite |
+
+Les premiers essais des nouvelles fixtures ont exposé des erreurs de noms d’API/valeurs serde et le besoin d’initialiser le répertoire applicatif de test ; ils ont été corrigés dans les tests, sans modification du comportement de production. Les suites finales ci-dessus ont toutes été relancées avec succès.
+
+### 16.3. Limites encore ouvertes et clôture
+
+Les tests désormais réalisés ferment les scénarios locaux de keep-alive métier, TLS métier + 503, callbacks pendant requêtes retardées, log et états partiels d’éviction. Les assertions de la section 15 restent valables ; ses limites décrivent l’état à cette étape, complété ici.
+
+La recette exhaustive du lot 1 n’est pas cochée : `ProxyProbe` construit ses racines WebPKI en interne sans injection de CA. Tester son propre parcours HTTPS avec une CA locale demanderait un point d’injection de confiance, à concevoir et confirmer séparément, ou une cible externe réellement approuvée. Le présent test Rquest ne remplace pas cette validation et aucune désactivation de certificat n’a été introduite.
+
+Le lot 2 dispose des scénarios locaux demandés, mais ne garantit pas une coupure matérielle, un kill de processus à tous les instants ni une transaction inter-stores. Ces niveaux supplémentaires restent explicitement hors couverture. Les trois échecs préexistants de la suite globale Scrapyfy et la configuration de feature isolée restent suivis ; le filtre agrégateur passant ne les corrige pas.
+
+Aucun changement de comportement backend n’a été réalisé dans ce complément : uniquement tests, fixtures, dépendances de développement et suivi documentaire.

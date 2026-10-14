@@ -1,5 +1,22 @@
 # arachnea-proxies YAML format specification
 
+### Runtime persistence — lot 2
+
+Without changing provider YAML, the application injects `proxy-inventory`,
+`proxy-preferences` and `proxy-failures` typed stores. Durable histories retain
+three accepted endpoints per scheme/host/port, without country in the key or
+age-based expiration. Restoration precedes discovery; the newest eligible success
+within the allowed countries wins independently of country-list order.
+Destination exclusions survive technical successes and provider refreshes.
+
+Global eviction requires an endpoint connection failure after 24 hours from the
+latest positive evidence, or initial discovery without positive evidence.
+`last_checked` is not evidence. Before that threshold, global cooldown defaults
+to 15 minutes and is configurable. A separate failure store retains at most
+1,024 evicted endpoints for 48 hours, cleaned on demand, preserving rediscovery
+cooldowns. No worker is introduced. Non-preferred candidate country ordering
+remains for lot 4.
+
 ## 1. Overview
 
 An arachnea-proxies collection declares one or more public (free, open) proxy
