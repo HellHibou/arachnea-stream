@@ -31,3 +31,13 @@ proxy lists are still loaded lazily for country-based requests.
 ## Notes
 
 Keep source-specific response shaping in YAML actions or generic post-processors whenever possible. Service-specific Rust should remain limited to behavior that cannot be expressed generically.
+
+### Dynamic proxy response attribution
+
+HTTP response acceptance and configured status rejection use the request-owned
+selection from `ArachneaResponse`, not the most recent connection for a destination.
+Redirects attribute the final response only to its own origin. Uncorrelated browser
+responses do not update dynamic proxy preferences or exclusions. Transport errors
+after response headers preserve the proxy and do not trigger transport rotation.
+The existing rejection-status policy and retry counts remain in place; shared
+classifiers and replay-safety budgets are separate planned implementation lots.

@@ -55,6 +55,9 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 
 ## Server/Proxy
 
+- Terminer la recette du lot 1 puis implémenter les lots 2 à 7 d’optimisation des proxies localisés après validation de leur conception : préférences durables, observations contextualisées, classification et budgets communs. Le lot 0 est documenté dans `/Users/jdecker/Downloads/arachnea/docs/dev-tracking/analyse-optimisation-proxies-localises.md`, section 12. Lot 1 : observations persistables, sélection épinglée et attribution par jeton intégrées ; recette concurrente et couverture réseau à compléter sans nouveaux tests automatiques. Les handlers, préférences durables et budgets restent aux lots suivants.
+- Corriger la compilation isolée de Scrapyfy avec `arachnea-proxy,sqlite-persistence` : le helper importé par `resolve_url.rs` dépend actuellement de la feature proxy `controller-service`, non activée dans ce cas ; la compilation de l’application complète masque ce défaut par unification des features.
+- Sécuriser l’ordre des commits de snapshots du store fichier utilisé par les repositories proxy : `FileEntityStore` relâche son verrou avant la persistance. Une sérialisation par destination seule ne protège pas plusieurs destinations dans le même fichier ; définir une sérialisation partagée des écritures sans worker autonome et documenter la limite multi-processus.
 - Surveiller la croissance de la base SQLite `proxy-inventory` ; les proxys dont la dernière validation dépasse 24 heures ne sont supprimés qu'après un échec observé, donc un très grand nombre de proxys jamais réutilisés justifiera un suivi de volume et, au besoin, une politique de nettoyage ou un vacuum planifié.
 - Évaluer MASQUE CONNECT-UDP après la stabilisation du socle UDP et d'une pile Rust HTTP/3 compatible.
 - Ajouter l'orchestration `ExternalTunnel` pour les processus locaux comme obfs4proxy, WebTunnel, les plugins Shadowsocks ou un daemon Tor local.
@@ -69,7 +72,7 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 - Durcir l'authentification optionnelle HTTP proxy et SOCKS5 avec des tests d'échec, la rotation des secrets et un stockage externe plus robuste des secrets.
 - Ajouter une vraie limitation de débit par IP client ; l'implémentation actuelle applique des limites de connexions, tandis que la limitation de débit reste déclarative.
 - Ajouter des benchmarks pour le débit TCP, la latence CONNECT, le comportement du relais UDP et le surcoût du chainage multi-hop.
-- Prototyper si `rquest::ClientBuilder::connector_layer` peut supporter un connecteur interne ; garder la boucle locale via `rquest::Proxy` comme chemin de compatibilité tant que ce n'est pas prouvé.
+- Concevoir le passage interne par `arachnea-proxy` sans loopback pour tous les échanges concernés lorsque le proxy est activé, en préservant le mode direct explicite lorsque le proxy est désactivé. `connector_layer` seul ne permet pas de construire les types privés de `newwreq 5.1.7` ; adapter Rquest, les solveurs et navigateurs sans exception loopback ni accès autonome au proxy distant. Auditer sous-requêtes, modes, bootstrap DNS/fournisseurs, sessions et appels HTTP construits hors client partagé ; signaler les moteurs incompatibles sans repli direct implicite. Analyse : `/Users/jdecker/Downloads/arachnea/docs/dev-tracking/analyse-remplacement-loopback-rquest.md`. Aucun remplacement implémenté.
 - Ajouter ou terminer un profil `censorship_resistance` s'il reste prévu dans l'API publique.
 - Garder l'interception TLS hors du comportement proxy normal ; ajouter seulement un futur mode de debug explicite si le modèle de sécurité est documenté.
 - Continuer à valider les composants anti-censure comme fonctionnalités modulaires : serveurs amont Tor, transports enfichables, tunnels externes, expérimentations de padding/jitter, recherche ECH et documentation claire du modèle de menace.
@@ -78,3 +81,5 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 
 
 ## Divers
+
+- Vérifier la suite complète Scrapyfy : trois tests d’agrégateur échouent après résolution préalable du répertoire de données applicatif (Once empoisonné), mais passent en isolation ; observé lors du lot 1.

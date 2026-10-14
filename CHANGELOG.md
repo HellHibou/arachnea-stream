@@ -89,6 +89,12 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Documented the feasibility of replacing the Rquest loopback with an internal pre-TLS stream connector: the locked `newwreq 5.1.7` middleware hook cannot construct its private connection types. The analysis distinguishes an upstream/dependency extension from an explicit internal HTTP engine and browser-specific compatibility; no runtime transport change is included.
+- Revised the no-loopback target to cover all traffic governed by proxy-enabled configuration, including solver/browser subrequests, while preserving explicit proxy-disabled direct access. Browser loopback and autonomous remote-proxy configuration are not final solutions; unsupported engines, bootstrap routing and existing core fallbacks require explicit handling. This revision changes documentation only.
+
+- Localized proxy lot 1 adds bounded contextual observations, optional positive-health/discovery evidence with compatible persistence, and request-owned selection tokens with pinned routes. Destination failures no longer promote or evict proxies globally; HTTP 5xx does not erase successful TLS evidence. Probe configuration changes invalidate aggregate capability reuse without discarding contextual history.
+
+
 - INFO country-routing diagnostics expose requested territories, local-country bypass decisions, selected candidate authority/country and route transport; unavailable geo-proxy warnings include the destination. Routing, fallback, and retry behavior are unchanged, and credentials and affinity values are not logged.
 - TLS handshake failure warnings expose the TLS server name and certificate-verification flag to distinguish HTTPS upstream-proxy failures from destination failures without disabling validation or logging signed media URLs.
 - HTTP CONNECT diagnostics distinguish tunnel establishment, client acknowledgement failures and subsequent relay failures, with elapsed time and directional byte totals on normal completion, without logging tunnel payloads or changing relay behavior.
@@ -216,6 +222,9 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Localized proxy lot 1 attributes accepted/rejected HTTP results to their request-owned selection, including redirects, and avoids transport rotation after response-body collection errors. No new YAML policy or retry expansion is introduced.
+
+
 - Loaded query collections expose sorted query names for capability discovery without additional provider queries or duplicated YAML flags.
 
 - Scraper HTTP configuration uses `proxy_countries`, an ordered normalized country list forwarded to proxy routing as a JSON array; the singular `proxy_country` field is not accepted.
@@ -243,6 +252,9 @@ All notable changes to the server workspace are recorded here.
 ### <u>arachnea-http</u>
 
 #### Added
+
+- Localized proxy lot 1 pins Rquest routes per origin/endpoint/route identity, carries the exact selection in responses and attributed errors, and observes HTTP headers before body collection. Delivery evidence stays conservative; browser engines without reliable attribution expose no selection token.
+
 
 #### Changed
 

@@ -977,24 +977,18 @@ pub async fn handle_proxy_http(
         Ok(response) => response,
         Err(error) => return Ok(stream_error(502, format!("Proxy error: {error}"))),
     };
-    let destination = crate::core::Destination::host_port(
-        parsed_target.host_str().unwrap_or_default(),
-        parsed_target.port_or_known_default().unwrap_or(443),
-    )
-    .with_protocol(if parsed_target.scheme() == "https" {
-        crate::core::ApplicationProtocol::Https
-    } else {
-        crate::core::ApplicationProtocol::Http
-    });
     let rejection_statuses = redirect_opts
         .as_ref()
         .map(|opts| opts.proxy_rejection_statuses.as_slice())
         .unwrap_or_default();
     if rejection_statuses.contains(&proxy_response.status)
-        && request_proxy_core
-            .mark_dynamic_proxy_blocked_by_origin(&destination)
-            .await
+        && proxy_response.selection_token.is_some()
     {
+        if let Some(token) = &proxy_response.selection_token {
+            token
+                .record_failure(crate::core::ProxyDestinationFailureReason::BlockedByOrigin)
+                .await;
+        }
         tracing::warn!(
             status = proxy_response.status,
             target = %target_url_str,
@@ -1006,13 +1000,15 @@ pub async fn handle_proxy_http(
         };
     }
     if rejection_statuses.contains(&proxy_response.status) {
-        request_proxy_core
-            .mark_dynamic_proxy_blocked_by_origin(&destination)
-            .await;
+        if let Some(token) = &proxy_response.selection_token {
+            token
+                .record_failure(crate::core::ProxyDestinationFailureReason::BlockedByOrigin)
+                .await;
+        }
     } else {
-        request_proxy_core
-            .mark_dynamic_proxy_validated(&destination)
-            .await;
+        if let Some(token) = &proxy_response.selection_token {
+            token.record_accepted().await;
+        }
     }
 
     let status = proxy_response.status;
@@ -1364,12 +1360,19 @@ mod tests {
             .expect("opts should contain headers");
 
         assert_eq!(headers.len(), 2);
-        assert_eq!(headers[0][0], PROXY_HEADER_PARAMETER_COUNTRIES);
-        assert_eq!(headers[0][1], r#"["FR"]"#);
-        assert_eq!(headers[1][0], REMOVE_HEADER_ACTION_HEADER);
+        let country_header = headers
+            .iter()
+            .find(|header| header[0] == PROXY_HEADER_PARAMETER_COUNTRIES)
+            .expect("country header should be present");
+        let action_header = headers
+            .iter()
+            .find(|header| header[0] == REMOVE_HEADER_ACTION_HEADER)
+            .expect("action header should be present");
+        assert_eq!(country_header[1], r#"["FR"]"#);
 
-        let action_value: serde_json::Value = serde_json::from_str(headers[1][1].as_str().unwrap())
-            .expect("RemoveHeader value should be JSON");
+        let action_value: serde_json::Value =
+            serde_json::from_str(action_header[1].as_str().unwrap())
+                .expect("RemoveHeader value should be JSON");
         assert_eq!(action_value.get("type").unwrap(), "onHttp302");
         assert_eq!(
             action_value.get("headers").unwrap(),

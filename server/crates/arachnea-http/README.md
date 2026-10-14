@@ -225,3 +225,21 @@ cargo run -p arachnea-http --features ghostwire,chaser-cf,tauri-cloudflare-solve
 - `src/cloudflare.rs`: Cloudflare detection and cookie state helpers.
 - `src/engine/`: engine abstraction and concrete engine adapters.
 - `examples/`: runnable usage examples.
+
+### Correlated Arachnea proxy attempts
+
+The built-in Rquest path resolves and pins the route before every attempt, including
+each redirect hop. Reusable clients are isolated by origin, endpoint and resolved
+route identity; the bounded cache holds at most 32 entries. Active attempts retain
+their loopback helper even if a concurrent cache replacement occurs.
+`ArachneaResponse::proxy_selection()` exposes the exact dynamic selection.
+Rquest records response receipt before collecting the body, independently of the
+HTTP status. This is an observation hook, not yet the injectable response classifier
+or the end-to-end search deadline planned in later lots.
+
+`ArachneaHttpError::ProxyAttempt` retains the token and delivery evidence:
+preselection failures are `NotSent`, opaque Rquest send failures are `PossiblySent`,
+and failures collecting a body after headers are `ResponseReceived`. Body collection
+errors do not invalidate another endpoint or trigger Scrapyfy transport rotation.
+Browser/custom-engine responses without reliable correlation expose no token and
+must not create a dynamic preference or exclusion by destination-map inference.

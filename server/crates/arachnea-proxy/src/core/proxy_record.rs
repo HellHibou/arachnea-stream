@@ -164,6 +164,12 @@ pub struct ProxyDestinationFailure {
 /// addresses are automatically bracketed during conversion to [`ProxyNode`].
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ProxyRecord {
+    /// Positive health facts; legacy attempt timestamps are not migrated into evidence.
+    #[serde(default)]
+    pub health_evidence: super::ProxyHealthEvidence,
+    /// Latest contextual observations, bounded to 64 contexts per endpoint.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub observations: Vec<super::ProxyObservation>,
     /// Persisted attempt times in epoch milliseconds, keyed by tcp/http/https.
     /// Missing entries mean that phase has never been attempted.
     #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
@@ -205,8 +211,8 @@ pub struct ProxyRecord {
     pub https_tunnel: ProxyCapabilityStatus,
     /// Runtime result of destination HTTPS validation through the tunnel.
     ///
-    /// Availability requires a valid TLS handshake and certificate followed by
-    /// an accepted HTTP response from the configured probe URL.
+    /// Availability requires a valid TLS handshake and certificate, independently
+    /// of the HTTP status returned afterwards.
     #[serde(default)]
     pub destination_tls: ProxyCapabilityStatus,
     /// Runtime validity of the TLS certificate presented by an HTTPS proxy.
@@ -237,7 +243,8 @@ pub struct ProxyRecord {
     /// Timestamp of the last successful probe or non-rejected origin response.
     ///
     /// Records older than [`PROXY_CACHE_TTL`] remain usable, but are deleted if
-    /// their next observed proxy or origin interaction fails.
+    /// a directly observed endpoint connection fails; destination failures alone
+    /// never trigger global eviction.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -263,6 +270,53 @@ pub struct ProxyKey {
 }
 
 impl ProxyRecord {
+    /// Records a completed phase without erasing an earlier positive fact.
+    ///
+    /// # Arguments
+    /// - `observation`: Completed, contextualized observation without secrets.
+    pub fn record_observation(&mut self, mut observation: super::ProxyObservation) {
+        if let Some(index) = self
+            .observations
+            .iter()
+            .position(|existing| existing.context == observation.context)
+        {
+            let mut existing = self.observations.remove(index);
+            observation.last_succeeded_at = observation
+                .last_succeeded_at
+                .max(existing.last_succeeded_at);
+            if existing.completed_at > observation.completed_at {
+                existing.last_succeeded_at = existing
+                    .last_succeeded_at
+                    .max(observation.last_succeeded_at);
+                if observation.outcome == super::ProxyObservationOutcome::Succeeded {
+                    existing.last_succeeded_at = existing
+                        .last_succeeded_at
+                        .max(Some(observation.completed_at));
+                    self.health_evidence.last_positive_at = self
+                        .health_evidence
+                        .last_positive_at
+                        .max(Some(observation.completed_at));
+                }
+                self.observations.push(existing);
+                return;
+            }
+        }
+        if observation.outcome == super::ProxyObservationOutcome::Succeeded {
+            observation.last_succeeded_at = observation
+                .last_succeeded_at
+                .max(Some(observation.completed_at));
+            self.health_evidence.last_positive_at = self
+                .health_evidence
+                .last_positive_at
+                .max(Some(observation.completed_at));
+        }
+        self.observations.push(observation);
+        self.observations.sort_by_key(|item| item.completed_at);
+        if self.observations.len() > 64 {
+            self.observations.remove(0);
+        }
+    }
+
     /// Returns the native endpoint key used by persistent stores.
     pub fn key(&self) -> ProxyKey {
         ProxyKey {
@@ -430,7 +484,7 @@ pub trait ProxyDataProvider: Send + Sync {
 // ---------------------------------------------------------------------------
 
 /// Serialises a `SystemTime` as epoch millis (u64).
-mod system_time_serde {
+pub(crate) mod system_time_serde {
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     use serde::{Deserialize, Deserializer, Serializer};
@@ -456,7 +510,7 @@ mod system_time_serde {
 }
 
 /// Serialises an `Option<SystemTime>` as epoch millis or null.
-mod option_system_time_serde {
+pub(crate) mod option_system_time_serde {
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     use serde::{Deserialize, Deserializer, Serializer};

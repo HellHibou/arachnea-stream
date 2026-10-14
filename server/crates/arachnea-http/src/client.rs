@@ -81,6 +81,13 @@ fn global_cloudflare_user_agents() -> Arc<RwLock<HashMap<String, String>>> {
 /// asynchronously, such as the `arachnea-proxy` loopback helper.
 #[derive(Clone)]
 struct PreparedProxyRuntime {
+    /// Request-selected transports isolated by exact destination and endpoint.
+    #[cfg(feature = "arachnea-proxy")]
+    pinned_clients: Arc<
+        tokio::sync::Mutex<
+            std::collections::HashMap<String, (Arc<ArachneaRquestLoopback>, RquestEngine)>,
+        >,
+    >,
     #[cfg(feature = "arachnea-proxy")]
     loopback_proxy: Option<Arc<ArachneaRquestLoopback>>,
     /// Parameter-bound loopback proxy for browser clients that cannot attach
@@ -138,6 +145,7 @@ impl PreparedProxyRuntime {
                 _ => None,
             };
             return Ok(Self {
+                pinned_clients: Default::default(),
                 loopback_proxy,
                 chaser_cf_loopback_proxy,
             });
@@ -1274,6 +1282,93 @@ impl ArachneaHttpClient {
     ) -> Result<ArachneaResponse, ArachneaHttpError> {
         info!(engine = "rquest", method = %options.method, url = %options.url, "sending request");
         let request = self.engine_request(options).await?;
+        #[cfg(feature = "arachnea-proxy")]
+        if let HttpProxyConfig::Arachnea(core) = &self.config.proxy {
+            use arachnea_proxy::core::{ApplicationProtocol, ConnectRequest, Destination};
+            let url = url::Url::parse(&request.url)
+                .map_err(|error| ArachneaHttpError::InvalidUrl(error.to_string()))?;
+            let destination = Destination::host_port(
+                url.host_str()
+                    .ok_or_else(|| ArachneaHttpError::InvalidUrl("missing host".into()))?,
+                url.port_or_known_default()
+                    .ok_or_else(|| ArachneaHttpError::InvalidUrl("missing port".into()))?,
+            )
+            .with_protocol(if url.scheme() == "https" {
+                ApplicationProtocol::Https
+            } else {
+                ApplicationProtocol::Http
+            });
+            let context = arachnea_proxy::core::context_from_parameter_pairs(
+                self.config
+                    .proxy_parameters
+                    .iter()
+                    .map(|(name, value)| (name.as_str(), value.as_str())),
+                &core.parameter_definitions(),
+            );
+            let selected =
+                Box::pin(core.select_for_request(
+                    ConnectRequest::new(destination).with_client_context(context),
+                ))
+                .await
+                .map_err(|error| ArachneaHttpError::ProxyAttempt {
+                    selection: None,
+                    delivery: arachnea_proxy::core::ProxyRequestDelivery::NotSent,
+                    source: Box::new(ArachneaHttpError::Proxy(error.to_string())),
+                })?;
+            let key = format!(
+                "{}|{}|{}",
+                url.origin().ascii_serialization(),
+                selected
+                    .selection_token
+                    .as_ref()
+                    .map(|token| token.endpoint())
+                    .unwrap_or("static"),
+                selected.route_generation
+            );
+            let cached = self
+                ._proxy_runtime
+                .pinned_clients
+                .lock()
+                .await
+                .get(&key)
+                .cloned();
+            let (loopback, engine) = if let Some(cached) = cached {
+                cached
+            } else {
+                let loopback =
+                    Arc::new(ArachneaRquestLoopback::start(selected.core).await.map_err(
+                        |error| ArachneaHttpError::ProxyAttempt {
+                            selection: selected.selection_token.clone(),
+                            delivery: arachnea_proxy::core::ProxyRequestDelivery::NotSent,
+                            source: Box::new(ArachneaHttpError::Proxy(error.to_string())),
+                        },
+                    )?);
+                let engine = RquestEngine::new(
+                    &self.config,
+                    Some(loopback.proxy_url()),
+                    Some(
+                        loopback
+                            .client()
+                            .map_err(|error| ArachneaHttpError::Proxy(error.to_string()))?,
+                    ),
+                )?;
+                let mut cache = self._proxy_runtime.pinned_clients.lock().await;
+                if cache.len() >= 32 {
+                    cache.clear();
+                }
+                cache.insert(key, (loopback.clone(), engine.clone()));
+                (loopback, engine)
+            };
+            let response = engine
+                .send_for_proxy(request, selected.selection_token.clone())
+                .await?;
+            drop(loopback);
+            self.store_response_cookies(&response.url, &response.headers)
+                .await?;
+            let mut response = ArachneaResponse::from_engine(response);
+            response.proxy_selection = selected.selection_token;
+            return Ok(response);
+        }
         let response = if let Some(rquest) = self.rquest.as_ref() {
             rquest.send(request).await?
         } else {
@@ -1704,6 +1799,9 @@ impl RequestOptions {
 /// Materialized HTTP response returned by Arachnea.
 #[derive(Debug, Clone)]
 pub struct ArachneaResponse {
+    /// Exact dynamic route used for this response, absent for uncorrelated engines.
+    #[cfg(feature = "arachnea-proxy")]
+    proxy_selection: Option<arachnea_proxy::core::ProxySelectionToken>,
     /// Final URL reported by the engine.
     url: String,
     /// Redirect target URLs followed by the HTTP facade.
@@ -1728,6 +1826,8 @@ impl ArachneaResponse {
     /// A public response wrapper.
     fn from_engine(response: crate::engine::EngineResponse) -> Self {
         Self {
+            #[cfg(feature = "arachnea-proxy")]
+            proxy_selection: None,
             url: response.url,
             redirect_urls: Vec::new(),
             status: response.status,
@@ -1742,6 +1842,8 @@ impl ArachneaResponse {
     /// need to share the same response helpers as real HTTP responses.
     pub fn from_text(url: impl Into<String>, body: impl Into<Bytes>) -> Self {
         Self {
+            #[cfg(feature = "arachnea-proxy")]
+            proxy_selection: None,
             url: url.into(),
             redirect_urls: Vec::new(),
             status: StatusCode::OK,
@@ -1757,6 +1859,12 @@ impl ArachneaResponse {
     /// Final response URL as a string slice.
     pub fn url(&self) -> &str {
         &self.url
+    }
+
+    /// Returns the request-owned selection, never inferred from a destination map.
+    #[cfg(feature = "arachnea-proxy")]
+    pub fn proxy_selection(&self) -> Option<&arachnea_proxy::core::ProxySelectionToken> {
+        self.proxy_selection.as_ref()
     }
 
     /// Returns redirect target URLs followed before this response.

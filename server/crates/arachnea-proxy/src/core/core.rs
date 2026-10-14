@@ -81,6 +81,13 @@ pub struct ArachneaProxyCore {
     proxy_pool_states: Arc<RwLock<BTreeMap<String, ProxyPoolRuntimeState>>>,
     proxy_inventory: Option<Arc<ProxyInventory>>,
     dynamic_proxy_selections: Option<Arc<RwLock<HashMap<Destination, ProxyPoolSelection>>>>,
+    pinned_route: Option<
+        Arc<(
+            Destination,
+            ResolvedProxyChain,
+            Option<crate::core::ProxySelectionToken>,
+        )>,
+    >,
     dns_resolver: ProxyDnsResolver,
 }
 
@@ -215,6 +222,7 @@ impl ArachneaProxyCore {
                 proxy_pool_states: Arc::new(RwLock::new(BTreeMap::new())),
                 proxy_inventory: None,
                 dynamic_proxy_selections: None,
+                pinned_route: None,
                 dns_resolver: ProxyDnsResolver::system(),
             })
         }
@@ -259,6 +267,7 @@ impl ArachneaProxyCore {
                 proxy_pool_states: Arc::new(RwLock::new(BTreeMap::new())),
                 proxy_inventory: Some(Arc::new(inventory)),
                 dynamic_proxy_selections: None,
+                pinned_route: None,
                 dns_resolver: ProxyDnsResolver::system(),
             })
         }
@@ -324,6 +333,7 @@ impl ArachneaProxyCore {
             proxy_pool_states: Arc::new(RwLock::new(BTreeMap::new())),
             proxy_inventory: Some(Arc::new(inventory)),
             dynamic_proxy_selections: None,
+            pinned_route: None,
             dns_resolver: ProxyDnsResolver::with_arachnea_dns(dns_core),
         })
     }
@@ -338,6 +348,65 @@ impl ArachneaProxyCore {
         let mut scoped = self.clone();
         scoped.dynamic_proxy_selections = Some(Arc::new(RwLock::new(HashMap::new())));
         scoped
+    }
+
+    /// Resolves a concrete route before a request is sent and pins every reconnect.
+    ///
+    /// # Arguments
+    /// - `request`: Exact destination and validated caller routing parameters.
+    ///
+    /// # Errors
+    /// Returns policy, routing or dynamic selection errors without sending a business request.
+    pub fn select_for_request(
+        &self,
+        request: ConnectRequest,
+    ) -> futures::future::BoxFuture<'_, Result<crate::core::SelectedProxy>> {
+        Box::pin(async move {
+            self.config
+                .as_config()
+                .security
+                .validate_destination(&request.destination)?;
+            let decision = self
+                .config
+                .as_config()
+                .routing
+                .decide(&self.config, &request)?;
+            let chain = self.apply_parameter_handlers(&decision.chain, &request)?;
+            let resolved = Box::pin(self.resolve_proxy_pools_in_chain(&chain, &request)).await?;
+            let token = resolved.pool_selections.iter().rev().find_map(|selection| {
+                dynamic_pool_countries(&selection.pool_name)
+                    .ok()
+                    .flatten()?;
+                Some(crate::core::ProxySelectionToken::new(
+                    self.proxy_inventory.clone()?,
+                    selection.endpoint.clone()?,
+                    request.destination.clone(),
+                ))
+            });
+            use std::hash::{Hash, Hasher};
+            let mut route_hash = std::collections::hash_map::DefaultHasher::new();
+            format!("{:?}", resolved.chain).hash(&mut route_hash);
+            let route_generation = route_hash.finish();
+            let mut scoped = self.clone();
+            scoped.dynamic_proxy_selections = None;
+            scoped.pinned_route = Some(Arc::new((request.destination, resolved, token.clone())));
+            Ok(crate::core::SelectedProxy {
+                core: scoped,
+                selection_token: token,
+                route_generation,
+            })
+        })
+    }
+
+    fn validate_pinned_destination(&self, destination: &Destination) -> Result<()> {
+        if self.pinned_route.as_ref().is_some_and(|route| {
+            route.0.address != destination.address || route.0.port != destination.port
+        }) {
+            return Err(ProxyError::AccessDenied(
+                "pinned proxy route cannot be reused for another destination".into(),
+            ));
+        }
+        Ok(())
     }
 
     /// Records the dynamically selected proxy as blocked by one destination.
@@ -362,16 +431,6 @@ impl ArachneaProxyCore {
         let Some(selection) = selection else {
             return false;
         };
-
-        if let Ok(mut states) = self.proxy_pool_states.write() {
-            let state = states.entry(selection.pool_name.clone()).or_default();
-            state
-                .statuses
-                .insert(selection.upstream.clone(), ProxyPoolMemberStatus::Ko);
-            if state.selected.as_deref() == Some(selection.upstream.as_str()) {
-                state.selected = None;
-            }
-        }
 
         if let Some(inventory) = &self.proxy_inventory {
             let authority = selection
@@ -424,16 +483,6 @@ impl ArachneaProxyCore {
         let Some(selection) = selection else {
             return false;
         };
-
-        if let Ok(mut states) = self.proxy_pool_states.write() {
-            let state = states.entry(selection.pool_name.clone()).or_default();
-            state
-                .statuses
-                .insert(selection.upstream.clone(), ProxyPoolMemberStatus::Ko);
-            if state.selected.as_deref() == Some(selection.upstream.as_str()) {
-                state.selected = None;
-            }
-        }
 
         if let Some(inventory) = &self.proxy_inventory {
             let authority = selection
@@ -797,7 +846,14 @@ impl ArachneaProxyCore {
     ///
     /// Returns an error when policy validation fails, the route is proxied, or
     /// socket setup fails.
-    pub async fn connect_udp_request(&self, request: ConnectRequest) -> Result<UdpSocket> {
+    pub fn connect_udp_request(
+        &self,
+        request: ConnectRequest,
+    ) -> futures::future::BoxFuture<'_, Result<UdpSocket>> {
+        Box::pin(self.connect_udp_request_inner(request))
+    }
+
+    async fn connect_udp_request_inner(&self, request: ConnectRequest) -> Result<UdpSocket> {
         self.config
             .as_config()
             .security
@@ -942,60 +998,83 @@ impl ArachneaProxyCore {
     ///
     /// Returns an error when policy validation, routing, or transport setup
     /// fails.
-    pub async fn connect_request(&self, request: ConnectRequest) -> Result<ProxyStream> {
-        self.config
-            .as_config()
-            .security
-            .validate_destination(&request.destination)?;
-        let decision = self
-            .config
-            .as_config()
-            .routing
-            .decide(&self.config, &request)?;
-        let chain = self.apply_parameter_handlers(&decision.chain, &request)?;
-        let retry_budget = self.proxy_pool_retry_budget(&chain);
+    pub fn connect_request(
+        &self,
+        request: ConnectRequest,
+    ) -> futures::future::BoxFuture<'_, Result<ProxyStream>> {
+        Box::pin(async move {
+            self.validate_pinned_destination(&request.destination)?;
+            self.config
+                .as_config()
+                .security
+                .validate_destination(&request.destination)?;
+            let decision = self
+                .config
+                .as_config()
+                .routing
+                .decide(&self.config, &request)?;
+            let chain = self.apply_parameter_handlers(&decision.chain, &request)?;
+            let retry_budget = if self.pinned_route.is_some() {
+                0
+            } else {
+                self.proxy_pool_retry_budget(&chain)
+            };
 
-        for attempt in 0..=retry_budget {
-            let resolved_chain = self.resolve_proxy_pools_in_chain(&chain, &request).await?;
-            match self.connect_chain(&resolved_chain.chain, &request).await {
-                Ok(mut stream) => {
-                    stream.metadata_mut().route_name = Some(decision.selected_chain);
-                    self.stats.record_opened();
-                    return Ok(stream);
-                }
-                Err(error)
-                    if attempt < retry_budget && !resolved_chain.pool_selections.is_empty() =>
-                {
-                    let proxy_names: Vec<&str> = resolved_chain
-                        .pool_selections
-                        .iter()
-                        .map(|s| s.upstream.as_str())
-                        .collect();
-                    tracing::debug!(
-                        attempt = %attempt,
-                        max_attempts = %retry_budget,
-                        failed_proxies = %proxy_names.join(", "),
-                        "dynamic proxy selection failed, marking failed and retrying with another candidate"
-                    );
-                    self.mark_proxy_pool_selections_ko(
-                        &resolved_chain.pool_selections,
-                        &request.destination,
-                        &error,
-                    )
-                    .await;
-                    continue;
-                }
-                Err(error) => {
-                    self.stats.record_failed();
-                    return Err(error);
+            for attempt in 0..=retry_budget {
+                let resolved_chain = if let Some(route) = &self.pinned_route {
+                    route.1.clone()
+                } else {
+                    self.resolve_proxy_pools_in_chain(&chain, &request).await?
+                };
+                match self.connect_chain(&resolved_chain.chain, &request).await {
+                    Ok(mut stream) => {
+                        stream.metadata_mut().route_name = Some(decision.selected_chain);
+                        stream.metadata_mut().selection_token =
+                            self.pinned_route.as_ref().and_then(|route| route.2.clone());
+                        self.stats.record_opened();
+                        return Ok(stream);
+                    }
+                    Err(error)
+                        if attempt < retry_budget && !resolved_chain.pool_selections.is_empty() =>
+                    {
+                        let proxy_names: Vec<&str> = resolved_chain
+                            .pool_selections
+                            .iter()
+                            .map(|s| s.upstream.as_str())
+                            .collect();
+                        tracing::debug!(
+                            attempt = %attempt,
+                            max_attempts = %retry_budget,
+                            failed_proxies = %proxy_names.join(", "),
+                            "dynamic proxy selection failed, marking failed and retrying with another candidate"
+                        );
+                        self.mark_proxy_pool_selections_ko(
+                            &resolved_chain.pool_selections,
+                            &request.destination,
+                            &error,
+                        )
+                        .await;
+                        continue;
+                    }
+                    Err(error) => {
+                        if let Some(token) = self
+                            .pinned_route
+                            .as_ref()
+                            .and_then(|route| route.2.as_ref())
+                        {
+                            token.record_transport_failure(&error).await;
+                        }
+                        self.stats.record_failed();
+                        return Err(error);
+                    }
                 }
             }
-        }
 
-        self.stats.record_failed();
-        Err(ProxyError::RouteUnavailable(
-            "proxy pool retry budget exhausted".to_string(),
-        ))
+            self.stats.record_failed();
+            Err(ProxyError::RouteUnavailable(
+                "proxy pool retry budget exhausted".to_string(),
+            ))
+        })
     }
 
     /// Opens a stream for relaying one explicit HTTP request.
@@ -1018,97 +1097,120 @@ impl ArachneaProxyCore {
     ///
     /// Returns an error when policy validation, routing, or connection setup
     /// fails.
-    pub async fn connect_http_request(&self, request: ConnectRequest) -> Result<HttpRequestStream> {
-        self.config
-            .as_config()
-            .security
-            .validate_destination(&request.destination)?;
-        let decision = self
-            .config
-            .as_config()
-            .routing
-            .decide(&self.config, &request)?;
-        let chain = self.apply_parameter_handlers(&decision.chain, &request)?;
-        let retry_budget = self.proxy_pool_retry_budget(&chain);
-
-        for attempt in 0..=retry_budget {
-            let resolved_chain = self.resolve_proxy_pools_in_chain(&chain, &request).await?;
-            let use_absolute_form = request.destination.protocol == ApplicationProtocol::Http
-                && resolved_chain
-                    .chain
-                    .nodes
-                    .iter()
-                    .rev()
-                    .find(|node| node.kind != TransportKind::Direct)
-                    .is_some_and(|node| {
-                        matches!(
-                            node.kind,
-                            TransportKind::HttpProxy | TransportKind::HttpsProxy
-                        )
-                    });
-
-            let result = if use_absolute_form {
-                self.connect_chain_to_http_proxy(&resolved_chain.chain)
-                    .await
+    pub fn connect_http_request(
+        &self,
+        request: ConnectRequest,
+    ) -> futures::future::BoxFuture<'_, Result<HttpRequestStream>> {
+        Box::pin(async move {
+            self.validate_pinned_destination(&request.destination)?;
+            self.config
+                .as_config()
+                .security
+                .validate_destination(&request.destination)?;
+            let decision = self
+                .config
+                .as_config()
+                .routing
+                .decide(&self.config, &request)?;
+            let chain = self.apply_parameter_handlers(&decision.chain, &request)?;
+            let retry_budget = if self.pinned_route.is_some() {
+                0
             } else {
-                self.connect_chain(&resolved_chain.chain, &request).await
+                self.proxy_pool_retry_budget(&chain)
             };
 
-            let proxy_authorization = if use_absolute_form {
-                selected_http_proxy_credentials(&resolved_chain.chain)?.map(|credentials| {
-                    format!("Basic {}", http::basic_authorization_value(&credentials))
-                })
-            } else {
-                None
-            };
-
-            match result {
-                Ok(mut stream) => {
-                    stream.metadata_mut().route_name = Some(decision.selected_chain);
-                    self.stats.record_opened();
-                    return Ok(HttpRequestStream {
-                        stream,
-                        target_form: if use_absolute_form {
-                            HttpRequestTargetForm::AbsoluteForm
-                        } else {
-                            HttpRequestTargetForm::OriginForm
-                        },
-                        proxy_authorization,
-                    });
-                }
-                Err(error)
-                    if attempt < retry_budget && !resolved_chain.pool_selections.is_empty() =>
-                {
-                    let proxy_names: Vec<&str> = resolved_chain
-                        .pool_selections
+            for attempt in 0..=retry_budget {
+                let resolved_chain = if let Some(route) = &self.pinned_route {
+                    route.1.clone()
+                } else {
+                    self.resolve_proxy_pools_in_chain(&chain, &request).await?
+                };
+                let use_absolute_form = request.destination.protocol == ApplicationProtocol::Http
+                    && resolved_chain
+                        .chain
+                        .nodes
                         .iter()
-                        .map(|s| s.upstream.as_str())
-                        .collect();
-                    tracing::debug!(
-                        attempt = %attempt,
-                        max_attempts = %retry_budget,
-                        failed_proxies = %proxy_names.join(", "),
-                        "dynamic proxy selection failed, marking failed and retrying with another candidate"
-                    );
-                    self.mark_proxy_pool_selections_ko(
-                        &resolved_chain.pool_selections,
-                        &request.destination,
-                        &error,
-                    )
-                    .await;
-                    continue;
-                }
-                Err(error) => {
-                    self.stats.record_failed();
-                    return Err(error);
+                        .rev()
+                        .find(|node| node.kind != TransportKind::Direct)
+                        .is_some_and(|node| {
+                            matches!(
+                                node.kind,
+                                TransportKind::HttpProxy | TransportKind::HttpsProxy
+                            )
+                        });
+
+                let result = if use_absolute_form {
+                    self.connect_chain_to_http_proxy(&resolved_chain.chain)
+                        .await
+                } else {
+                    self.connect_chain(&resolved_chain.chain, &request).await
+                };
+
+                let proxy_authorization = if use_absolute_form {
+                    selected_http_proxy_credentials(&resolved_chain.chain)?.map(|credentials| {
+                        format!("Basic {}", http::basic_authorization_value(&credentials))
+                    })
+                } else {
+                    None
+                };
+
+                match result {
+                    Ok(mut stream) => {
+                        stream.metadata_mut().route_name = Some(decision.selected_chain);
+                        stream.metadata_mut().selection_token =
+                            self.pinned_route.as_ref().and_then(|route| route.2.clone());
+                        self.stats.record_opened();
+                        return Ok(HttpRequestStream {
+                            stream,
+                            target_form: if use_absolute_form {
+                                HttpRequestTargetForm::AbsoluteForm
+                            } else {
+                                HttpRequestTargetForm::OriginForm
+                            },
+                            proxy_authorization,
+                        });
+                    }
+                    Err(error)
+                        if attempt < retry_budget && !resolved_chain.pool_selections.is_empty() =>
+                    {
+                        let proxy_names: Vec<&str> = resolved_chain
+                            .pool_selections
+                            .iter()
+                            .map(|s| s.upstream.as_str())
+                            .collect();
+                        tracing::debug!(
+                            attempt = %attempt,
+                            max_attempts = %retry_budget,
+                            failed_proxies = %proxy_names.join(", "),
+                            "dynamic proxy selection failed, marking failed and retrying with another candidate"
+                        );
+                        self.mark_proxy_pool_selections_ko(
+                            &resolved_chain.pool_selections,
+                            &request.destination,
+                            &error,
+                        )
+                        .await;
+                        continue;
+                    }
+                    Err(error) => {
+                        if let Some(token) = self
+                            .pinned_route
+                            .as_ref()
+                            .and_then(|route| route.2.as_ref())
+                        {
+                            token.record_transport_failure(&error).await;
+                        }
+                        self.stats.record_failed();
+                        return Err(error);
+                    }
                 }
             }
-        }
 
-        self.stats.record_failed();
-        Err(ProxyError::RouteUnavailable(
-            "proxy pool retry budget exhausted".to_string(),
-        ))
+            self.stats.record_failed();
+            Err(ProxyError::RouteUnavailable(
+                "proxy pool retry budget exhausted".to_string(),
+            ))
+        })
     }
 
     /// Creates the minimal HTTP convenience client backed by this core.
@@ -1687,9 +1789,8 @@ impl ArachneaProxyCore {
 
     /// Marks selected pool members as failed after a connection setup failure.
     ///
-    /// For dynamic country pools, transport failures are propagated globally to
-    /// the inventory so the failed proxy is not selected for another destination.
-    /// Other failures remain scoped to the current destination.
+    /// Only explicitly attributed endpoint connection failures affect global
+    /// inventory health. Tunnel and opaque transport failures remain contextual.
     ///
     /// # Parameters
     ///
@@ -1703,6 +1804,14 @@ impl ArachneaProxyCore {
     ) {
         if let Ok(mut states) = self.proxy_pool_states.write() {
             for selection in selections {
+                if dynamic_pool_countries(&selection.pool_name)
+                    .ok()
+                    .flatten()
+                    .is_some()
+                    && !is_dynamic_proxy_transport_failure(error)
+                {
+                    continue;
+                }
                 let state = states.entry(selection.pool_name.clone()).or_default();
                 state
                     .statuses
@@ -1967,7 +2076,38 @@ impl ArachneaProxyCore {
         }
 
         let first = &proxy_nodes[0];
-        let mut stream = self.connect_first_proxy(first, chain).await?;
+        let mut stream = match self.connect_first_proxy(first, chain).await {
+            Ok(stream) => stream,
+            Err(error) => {
+                if let Some(token) = self
+                    .pinned_route
+                    .as_ref()
+                    .and_then(|route| route.2.as_ref())
+                {
+                    if first.endpoint.as_deref() == Some(token.endpoint()) {
+                        if let Some(inventory) = &self.proxy_inventory {
+                            inventory.record_global_failure(token.endpoint()).await;
+                        }
+                    }
+                }
+                return Err(error);
+            }
+        };
+        if let Some(token) = self
+            .pinned_route
+            .as_ref()
+            .and_then(|route| route.2.as_ref())
+        {
+            if first.endpoint.as_deref() == Some(token.endpoint()) {
+                token
+                    .record_phase(
+                        crate::core::ProxyObservationPhase::EndpointConnect,
+                        true,
+                        None,
+                    )
+                    .await;
+            }
+        }
 
         for (index, node) in proxy_nodes.iter().enumerate() {
             if node.kind == TransportKind::HttpsProxy {
@@ -1984,6 +2124,17 @@ impl ArachneaProxyCore {
                 )
                 .await?;
                 stream = ProxyStream::new(tls_stream, metadata);
+                if let Some(token) = self
+                    .pinned_route
+                    .as_ref()
+                    .and_then(|route| route.2.as_ref())
+                {
+                    if node.endpoint.as_deref() == Some(token.endpoint()) {
+                        token
+                            .record_phase(crate::core::ProxyObservationPhase::ProxyTls, true, None)
+                            .await;
+                    }
+                }
             }
 
             let target = if let Some(next) = proxy_nodes.get(index + 1) {
@@ -1995,8 +2146,28 @@ impl ArachneaProxyCore {
                 request.destination.clone()
             };
 
-            self.connect_proxy_hop(&mut stream, node, &target).await?;
+            self.connect_proxy_hop(&mut stream, node, &target)
+                .await
+                .map_err(|error| error.at_phase(crate::core::ProxyObservationPhase::Tunnel))?;
             stream.metadata_mut().hops.push(node.name.clone());
+            if let Some(token) = self
+                .pinned_route
+                .as_ref()
+                .and_then(|route| route.2.as_ref())
+            {
+                if node.endpoint.as_deref() == Some(token.endpoint()) {
+                    token
+                        .record_phase(
+                            crate::core::ProxyObservationPhase::ProxyProtocol,
+                            true,
+                            None,
+                        )
+                        .await;
+                    token
+                        .record_phase(crate::core::ProxyObservationPhase::Tunnel, true, None)
+                        .await;
+                }
+            }
             stream.metadata_mut().transport_kind = Some(node.kind.clone());
         }
 
@@ -2068,7 +2239,9 @@ impl ArachneaProxyCore {
                 ProxyError::Config(format!("node '{}' has no endpoint", next.name))
             })?;
             let target = Destination::from_authority(endpoint, ApplicationProtocol::Tcp)?;
-            self.connect_proxy_hop(&mut stream, node, &target).await?;
+            self.connect_proxy_hop(&mut stream, node, &target)
+                .await
+                .map_err(|error| error.at_phase(crate::core::ProxyObservationPhase::Tunnel))?;
             stream.metadata_mut().hops.push(node.name.clone());
             stream.metadata_mut().transport_kind = Some(node.kind.clone());
         }
@@ -2111,13 +2284,22 @@ impl ArachneaProxyCore {
             transport = ?first.kind,
             "connecting to first proxy hop"
         );
-        let first_addr = self.resolve_destination_addr(&first_destination).await?;
+        let first_addr = self
+            .resolve_destination_addr(&first_destination)
+            .await
+            .map_err(|error| error.at_phase(crate::core::ProxyObservationPhase::EndpointConnect))?;
         let tcp = time::timeout(
             self.config.as_config().timeouts.connect_duration(),
             TcpStream::connect(first_addr),
         )
         .await
-        .map_err(|_| ProxyError::Timeout("connect to first proxy"))??;
+        .map_err(|_| {
+            ProxyError::Timeout("connect to first proxy")
+                .at_phase(crate::core::ProxyObservationPhase::EndpointConnect)
+        })?
+        .map_err(|error| {
+            ProxyError::Io(error).at_phase(crate::core::ProxyObservationPhase::EndpointConnect)
+        })?;
 
         Ok(ProxyStream::new(
             tcp,
@@ -2125,6 +2307,7 @@ impl ArachneaProxyCore {
                 route_name: Some(chain.name.clone()),
                 transport_kind: Some(first.kind.clone()),
                 hops: Vec::new(),
+                selection_token: None,
             },
         ))
     }
@@ -2520,6 +2703,9 @@ fn log_connect_chain_iteration(chain: &ProxyChain, destination: &Destination, at
 ///
 /// `true` for SOCKS5 host-unreachable or general-failure replies.
 fn is_socks5_remote_dns_failure(error: &ProxyError) -> bool {
+    if let ProxyError::Observation { source, .. } = error {
+        return is_socks5_remote_dns_failure(source);
+    }
     let ProxyError::UpstreamRejected(message) = error else {
         return false;
     };
@@ -2528,13 +2714,15 @@ fn is_socks5_remote_dns_failure(error: &ProxyError) -> bool {
 
 /// Returns whether a dynamic proxy failed before a usable tunnel was established.
 ///
-/// These failures identify the proxy transport rather than the requested origin,
-/// so the inventory applies its global KO cooldown. Origin HTTP rejections and
-/// protocol-level target rejections remain destination-scoped.
+/// Only a directly attributed endpoint connection failure establishes global
+/// unavailability. Opaque I/O, TLS and timeout errors are insufficient evidence.
 fn is_dynamic_proxy_transport_failure(error: &ProxyError) -> bool {
     matches!(
         error,
-        ProxyError::Timeout(_) | ProxyError::Io(_) | ProxyError::Tls(_)
+        ProxyError::Observation {
+            phase: crate::core::ProxyObservationPhase::EndpointConnect,
+            ..
+        }
     )
 }
 

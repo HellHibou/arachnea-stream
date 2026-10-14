@@ -34,6 +34,8 @@ pub enum ProxiedResponseBody {
 
 /// Full proxied HTTP response with parsed headers and body.
 pub struct ProxiedHttpResponse {
+    /// Exact route used by the final response, including after redirects.
+    pub selection_token: Option<crate::core::ProxySelectionToken>,
     /// Numeric HTTP status code.
     pub status: u16,
     /// Response headers.
@@ -237,7 +239,14 @@ impl SimpleHttpClient {
         let is_https = protocol == crate::core::ApplicationProtocol::Https;
 
         let destination = Destination::host_port(host, port).with_protocol(protocol);
-        let stream = self
+        let selected = self
+            .core
+            .select_for_request(
+                ConnectRequest::new(destination.clone())
+                    .with_client_context(request.client_context.clone()),
+            )
+            .await?;
+        let stream = selected
             .core
             .connect_http_request(
                 ConnectRequest::new(destination)
@@ -331,6 +340,19 @@ impl SimpleHttpClient {
                     request.verify_tls,
                 )
                 .await?;
+                if let Some(token) = selected
+                    .selection_token
+                    .as_ref()
+                    .filter(|_| request.verify_tls)
+                {
+                    token
+                        .record_phase(
+                            crate::core::ProxyObservationPhase::DestinationTls,
+                            true,
+                            None,
+                        )
+                        .await;
+                }
                 ProxyStream::new(tls_stream, metadata)
             } else {
                 stream.stream
@@ -343,6 +365,10 @@ impl SimpleHttpClient {
             send_body,
         )
         .await?;
+
+        if let Some(token) = &selected.selection_token {
+            token.record_http_response(status_code).await;
+        }
 
         let body = if request.headers_only || (300..400).contains(&status_code) {
             ProxiedResponseBody::Buffered(Vec::new())
@@ -379,6 +405,7 @@ impl SimpleHttpClient {
         };
 
         Ok(ProxiedHttpResponse {
+            selection_token: selected.selection_token,
             status: status_code,
             headers,
             body,

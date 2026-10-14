@@ -109,6 +109,8 @@ impl PersistentEntity for ProxyRecord {
             .field(Field::boolean("supports_https").nullable())
             .field(Field::json("declarations").nullable())
             .field(Field::json("probe_attempts").nullable())
+            .field(Field::json("health_evidence").nullable())
+            .field(Field::json("observations").nullable())
             .field(Field::boolean("tcp_reachable").nullable())
             .field(Field::string("status"))
             .field(Field::string("http_forwarding").nullable())
@@ -130,6 +132,11 @@ impl PersistentEntity for ProxyRecord {
     }
     fn write_to(&self, writer: &mut EntityWriter) -> Result<()> {
         writer.string("host", &self.host)?;
+        writer.json(
+            "health_evidence",
+            serde_json::to_value(&self.health_evidence)?,
+        )?;
+        writer.json("observations", serde_json::to_value(&self.observations)?)?;
         writer.integer("port", i64::from(self.port))?;
         if let Some(protocol) = &self.protocol {
             writer.string("protocol", protocol.to_string())?;
@@ -206,6 +213,16 @@ impl PersistentEntity for ProxyRecord {
         let failure_count = u32::try_from(reader.integer("failure_count")?)
             .context("persisted proxy failure count is outside the u32 range")?;
         Ok(ProxyRecord {
+            health_evidence: reader
+                .optional_json("health_evidence")?
+                .map(|value| serde_json::from_value(value.clone()))
+                .transpose()?
+                .unwrap_or_default(),
+            observations: reader
+                .optional_json("observations")?
+                .map(|value| serde_json::from_value(value.clone()))
+                .transpose()?
+                .unwrap_or_default(),
             probe_attempts: reader
                 .optional_json("probe_attempts")?
                 .map(|value| serde_json::from_value(value.clone()))
@@ -349,6 +366,8 @@ mod tests {
             })
             .expect("system time after UNIX_EPOCH");
         ProxyRecord {
+            health_evidence: Default::default(),
+            observations: Vec::new(),
             probe_attempts: std::collections::HashMap::from([("https".to_string(), 1791540000000)]),
             tcp_reachable: Some(true),
             protocol: Some(ProxyProtocol::Socks5),

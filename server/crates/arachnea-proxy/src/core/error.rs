@@ -6,6 +6,15 @@ pub type Result<T> = std::result::Result<T, ProxyError>;
 /// Typed errors returned by the proxy core and adapters.
 #[derive(Debug, thiserror::Error)]
 pub enum ProxyError {
+    /// Transport error attributed at the boundary where it was observed.
+    #[error("proxy phase {phase:?} failed: {source}")]
+    Observation {
+        /// Actual failing phase, not inferred from an opaque error string.
+        phase: super::ProxyObservationPhase,
+        /// Original typed transport failure.
+        #[source]
+        source: Box<ProxyError>,
+    },
     /// The supplied configuration is invalid or unsafe.
     #[error("invalid proxy configuration: {0}")]
     Config(String),
@@ -39,4 +48,21 @@ pub enum ProxyError {
     /// An I/O operation failed.
     #[error(transparent)]
     Io(#[from] io::Error),
+}
+
+impl ProxyError {
+    /// Attaches a known phase without replacing an already precise attribution.
+    ///
+    /// # Arguments
+    /// - `phase`: Boundary that directly observed the failure.
+    pub fn at_phase(self, phase: super::ProxyObservationPhase) -> Self {
+        if matches!(self, Self::Observation { .. }) {
+            self
+        } else {
+            Self::Observation {
+                phase,
+                source: Box::new(self),
+            }
+        }
+    }
 }

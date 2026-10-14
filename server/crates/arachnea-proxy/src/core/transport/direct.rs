@@ -41,6 +41,7 @@ pub async fn connect_tcp(destination: &Destination, timeout: Duration) -> Result
     Ok(ProxyStream::new(
         stream,
         ConnectMetadata {
+            selection_token: None,
             route_name: Some("direct".to_string()),
             transport_kind: Some(TransportKind::Direct),
             hops: vec!["direct".to_string()],

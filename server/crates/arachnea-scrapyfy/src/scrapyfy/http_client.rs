@@ -10,10 +10,7 @@ use arachnea_http::{
     SharedCookieCache,
 };
 #[cfg(feature = "arachnea-proxy")]
-use arachnea_proxy::core::{
-    ApplicationProtocol, ArachneaProxyCore, Destination, ProxyDestinationFailureReason,
-    UsageProfile,
-};
+use arachnea_proxy::core::{ArachneaProxyCore, ProxyDestinationFailureReason, UsageProfile};
 use http::{HeaderMap, Method};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -847,100 +844,90 @@ impl HttpClient {
         Ok(client)
     }
 
-    /// Invalidates a dynamic proxy rejected by the origin and drops the cached
-    /// HTTP client so its connection pool cannot reuse the rejected tunnel.
+    /// Excludes only the endpoint correlated with the actual response.
     #[cfg(feature = "arachnea-proxy")]
-    async fn rotate_rejected_proxy(&self, url: &str, status: u16) -> Result<bool> {
-        if !self.http_config.proxy_rejection_statuses.contains(&status) {
-            return Ok(false);
-        }
-
-        let proxy_state = self.proxy_handle.snapshot();
-        let Some(HttpProxyConfig::Arachnea(core)) = proxy_state.proxy else {
-            return Ok(false);
-        };
-        let destination = proxy_destination_from_url(url)?;
-        if !core
-            .mark_dynamic_proxy_blocked_by_origin(&destination)
-            .await
+    async fn rotate_rejected_proxy(&self, response: &ArachneaResponse) -> Result<bool> {
+        if !self
+            .http_config
+            .proxy_rejection_statuses
+            .contains(&response.status().as_u16())
         {
             return Ok(false);
         }
-
+        let Some(token) = response.proxy_selection() else {
+            return Ok(false);
+        };
+        token
+            .record_failure(ProxyDestinationFailureReason::BlockedByOrigin)
+            .await;
         *self.client.write().await = None;
-        tracing::warn!(
-            status,
-            url,
-            "origin rejected dynamic proxy; retrying with another candidate"
-        );
         Ok(true)
     }
 
-    /// Invalidates a dynamic proxy after an HTTP engine transport failure.
-    ///
-    /// Only errors explicitly classified as proxy failures are eligible. The
-    /// cached HTTP client is dropped so its connection pool cannot reuse the
-    /// failed tunnel or endpoint.
+    /// Opaque transport failures remain correlated and destination-scoped.
     #[cfg(feature = "arachnea-proxy")]
     async fn invalidate_transport_failed_proxy(
         &self,
-        url: &str,
+        _url: &str,
         error: &anyhow::Error,
     ) -> Result<bool> {
-        if !error.chain().any(|cause| {
-            matches!(
-                cause.downcast_ref::<ArachneaHttpError>(),
-                Some(ArachneaHttpError::Proxy(_))
-            )
-        }) {
-            return Ok(false);
-        }
-
-        let proxy_state = self.proxy_handle.snapshot();
-        let Some(HttpProxyConfig::Arachnea(core)) = proxy_state.proxy else {
+        let attempt = error.chain().find_map(|cause| {
+            if let Some(ArachneaHttpError::ProxyAttempt {
+                selection: Some(token),
+                delivery,
+                ..
+            }) = cause.downcast_ref::<ArachneaHttpError>()
+            {
+                Some((token.clone(), *delivery))
+            } else {
+                None
+            }
+        });
+        let Some((token, delivery)) = attempt else {
             return Ok(false);
         };
-        let destination = proxy_destination_from_url(url)?;
-        if !core
-            .mark_dynamic_proxy_transport_failed(&destination, ProxyDestinationFailureReason::Other)
-            .await
-        {
+        if delivery == arachnea_proxy::core::ProxyRequestDelivery::ResponseReceived {
             return Ok(false);
         }
-
+        token
+            .record_failure(ProxyDestinationFailureReason::Other)
+            .await;
         *self.client.write().await = None;
         Ok(true)
     }
 
-    /// Renews the selected dynamic proxy after any non-rejected HTTP response.
+    /// Preserves existing status policy while applying it to the actual route.
     #[cfg(feature = "arachnea-proxy")]
-    async fn validate_accepted_proxy_response(&self, url: &str, status: u16) -> Result<()> {
-        if self.http_config.proxy_rejection_statuses.contains(&status) {
+    async fn validate_accepted_proxy_response(&self, response: &ArachneaResponse) -> Result<()> {
+        if self
+            .http_config
+            .proxy_rejection_statuses
+            .contains(&response.status().as_u16())
+        {
             return Ok(());
         }
-
-        let proxy_state = self.proxy_handle.snapshot();
-        let Some(HttpProxyConfig::Arachnea(core)) = proxy_state.proxy else {
-            return Ok(());
-        };
-        let destination = proxy_destination_from_url(url)?;
-        core.mark_dynamic_proxy_validated(&destination).await;
+        if let Some(token) = response.proxy_selection() {
+            token.record_accepted().await;
+        }
         Ok(())
     }
 
-    /// Records a rejected retry without attempting a third request.
+    /// Records the retry result without attributing it to another concurrent attempt.
     #[cfg(feature = "arachnea-proxy")]
-    async fn record_final_proxy_response(&self, url: &str, status: u16) -> Result<()> {
-        if self.http_config.proxy_rejection_statuses.contains(&status) {
-            let proxy_state = self.proxy_handle.snapshot();
-            if let Some(HttpProxyConfig::Arachnea(core)) = proxy_state.proxy {
-                let destination = proxy_destination_from_url(url)?;
-                core.mark_dynamic_proxy_blocked_by_origin(&destination)
+    async fn record_final_proxy_response(&self, response: &ArachneaResponse) -> Result<()> {
+        if self
+            .http_config
+            .proxy_rejection_statuses
+            .contains(&response.status().as_u16())
+        {
+            if let Some(token) = response.proxy_selection() {
+                token
+                    .record_failure(ProxyDestinationFailureReason::BlockedByOrigin)
                     .await;
             }
             return Ok(());
         }
-        self.validate_accepted_proxy_response(url, status).await
+        self.validate_accepted_proxy_response(response).await
     }
 
     /// Sends one textual request without applying status-based proxy rotation.
@@ -1451,11 +1438,7 @@ impl HttpClient {
                         .await
                     {
                         Ok(response) => {
-                            self.record_final_proxy_response(
-                                response.url(),
-                                response.status().as_u16(),
-                            )
-                            .await?;
+                            self.record_final_proxy_response(&response).await?;
                             return Ok(response);
                         }
                         Err(retry_error) => {
@@ -1479,10 +1462,7 @@ impl HttpClient {
             }
         };
         #[cfg(feature = "arachnea-proxy")]
-        if self
-            .rotate_rejected_proxy(response.url(), response.status().as_u16())
-            .await?
-        {
+        if self.rotate_rejected_proxy(&response).await? {
             let response = match self
                 .send_text_once(method, url, request_headers, request_body)
                 .await
@@ -1504,13 +1484,11 @@ impl HttpClient {
                     );
                 }
             };
-            self.record_final_proxy_response(response.url(), response.status().as_u16())
-                .await?;
+            self.record_final_proxy_response(&response).await?;
             return Ok(response);
         }
         #[cfg(feature = "arachnea-proxy")]
-        self.validate_accepted_proxy_response(response.url(), response.status().as_u16())
-            .await?;
+        self.validate_accepted_proxy_response(&response).await?;
         Ok(response)
     }
 
@@ -1572,11 +1550,7 @@ impl HttpClient {
                         .await
                     {
                         Ok(response) => {
-                            self.record_final_proxy_response(
-                                response.url(),
-                                response.status().as_u16(),
-                            )
-                            .await?;
+                            self.record_final_proxy_response(&response).await?;
                             return Ok(response);
                         }
                         Err(retry_error) => {
@@ -1600,10 +1574,7 @@ impl HttpClient {
             }
         };
         #[cfg(feature = "arachnea-proxy")]
-        if self
-            .rotate_rejected_proxy(response.url(), response.status().as_u16())
-            .await?
-        {
+        if self.rotate_rejected_proxy(&response).await? {
             let response = match self
                 .send_bytes_once(method, url, request_headers, request_body)
                 .await
@@ -1625,30 +1596,11 @@ impl HttpClient {
                     );
                 }
             };
-            self.record_final_proxy_response(response.url(), response.status().as_u16())
-                .await?;
+            self.record_final_proxy_response(&response).await?;
             return Ok(response);
         }
         #[cfg(feature = "arachnea-proxy")]
-        self.validate_accepted_proxy_response(response.url(), response.status().as_u16())
-            .await?;
+        self.validate_accepted_proxy_response(&response).await?;
         Ok(response)
     }
-}
-
-#[cfg(feature = "arachnea-proxy")]
-fn proxy_destination_from_url(url: &str) -> Result<Destination> {
-    let parsed = Url::parse(url).with_context(|| format!("Invalid proxy response URL `{url}`"))?;
-    let host = parsed
-        .host_str()
-        .with_context(|| format!("Missing host in proxy response URL `{url}`"))?;
-    let port = parsed
-        .port_or_known_default()
-        .with_context(|| format!("Missing port in proxy response URL `{url}`"))?;
-    let protocol = match parsed.scheme() {
-        "http" => ApplicationProtocol::Http,
-        "https" => ApplicationProtocol::Https,
-        scheme => ApplicationProtocol::Other(scheme.to_string()),
-    };
-    Ok(Destination::host_port(host, port).with_protocol(protocol))
 }

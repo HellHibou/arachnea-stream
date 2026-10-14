@@ -28,6 +28,8 @@ mod parameters;
 pub mod policy;
 /// Dynamic proxy inventory with health tracking.
 pub mod proxy_inventory;
+/// Contextual proxy observations and positive health evidence.
+pub mod proxy_observation;
 /// Proxy liveness probing engine.
 pub mod proxy_probe;
 /// Proxy record types used by inventory and stores.
@@ -35,6 +37,8 @@ pub mod proxy_record;
 /// Typed persistence repository for proxy records.
 #[cfg(feature = "persistence")]
 pub mod proxy_repository;
+/// Explicit request selection and pinned route correlation.
+pub mod proxy_selection;
 mod routing;
 mod stats;
 pub mod transport;
@@ -80,6 +84,10 @@ pub use policy::{
 pub use proxy_inventory::{
     CoexistencePolicy, InventoryConfig, ProxyInventory, PROXY_DESTINATION_FAILURE_COOLDOWN,
 };
+pub use proxy_observation::{
+    ProxyFailureScope, ProxyHealthEvidence, ProxyObservation, ProxyObservationOutcome,
+    ProxyObservationPhase, ProxyProbeContext, ProxyRequestDelivery,
+};
 pub use proxy_probe::{ProbeConfig, ProbeMode, ProbeTimeoutConfig, ProxyProbe};
 pub use proxy_record::{
     ProxyAvailabilityHint, ProxyCapabilityStatus, ProxyDataProvider, ProxyDeclaration,
@@ -88,6 +96,7 @@ pub use proxy_record::{
 };
 #[cfg(feature = "persistence")]
 pub use proxy_repository::{ProxyRepository, TypedProxyRepository, PROXY_STORE_NAME};
+pub use proxy_selection::{ProxySelectionToken, SelectedProxy};
 pub use routing::{RouteDecision, RoutePolicy, RouteRule};
 pub use stats::{ProxyStats, ProxyStatsSnapshot};
 pub use transport::{socks::Socks5UdpAssociation, OutboundTransport, UdpAssociation};

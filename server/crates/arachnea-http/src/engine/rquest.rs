@@ -18,6 +18,69 @@ pub(crate) struct RquestEngine {
 }
 
 impl RquestEngine {
+    /// Executes a correlated route and observes headers before body collection.
+    ///
+    /// # Arguments
+    /// - `request`: Business request sent only through the pinned client.
+    /// - `selection`: Exact route correlation for this attempt.
+    ///
+    /// # Errors
+    /// Returns an attributed failure with conservative delivery evidence.
+    #[cfg(feature = "arachnea-proxy")]
+    pub(crate) async fn send_for_proxy(
+        &self,
+        request: EngineRequest,
+        selection: Option<arachnea_proxy::core::ProxySelectionToken>,
+    ) -> Result<EngineResponse, ArachneaHttpError> {
+        let mut builder = self
+            .client
+            .request(request.method, &request.url)
+            .timeout(self.request_timeout);
+        for (name, value) in &request.headers {
+            builder = builder.header(name, value);
+        }
+        if let Some(body) = request.body {
+            builder = builder.body(body);
+        }
+        let response = builder
+            .send()
+            .await
+            .map_err(|error| ArachneaHttpError::ProxyAttempt {
+                selection: selection.clone(),
+                delivery: arachnea_proxy::core::ProxyRequestDelivery::PossiblySent,
+                source: Box::new(ArachneaHttpError::Proxy(error.to_string())),
+            })?;
+        let status = response.status();
+        let headers = response.headers().clone();
+        let url = response.url().to_string();
+        if let Some(token) = &selection {
+            if url.starts_with("https:") {
+                token
+                    .record_phase(
+                        arachnea_proxy::core::ProxyObservationPhase::DestinationTls,
+                        true,
+                        None,
+                    )
+                    .await;
+            }
+            token.record_http_response(status.as_u16()).await;
+        }
+        let body = response
+            .bytes()
+            .await
+            .map_err(|error| ArachneaHttpError::ProxyAttempt {
+                selection,
+                delivery: arachnea_proxy::core::ProxyRequestDelivery::ResponseReceived,
+                source: Box::new(ArachneaHttpError::Proxy(error.to_string())),
+            })?;
+        Ok(EngineResponse {
+            url,
+            status,
+            headers,
+            body,
+        })
+    }
+
     /// Creates a configured `rquest` engine.
     ///
     /// # Parameters

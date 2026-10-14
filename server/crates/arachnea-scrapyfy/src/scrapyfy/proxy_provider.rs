@@ -247,6 +247,8 @@ fn entry_to_proxy_record(entry: &HashMap<String, ScraperDataNode>) -> Option<Pro
         .unwrap_or(ProxyAvailabilityHint::Unknown);
 
     let record = ProxyRecord {
+        health_evidence: Default::default(),
+        observations: Vec::new(),
         probe_attempts: Default::default(),
         tcp_reachable: None,
         protocol: protocol.clone(),

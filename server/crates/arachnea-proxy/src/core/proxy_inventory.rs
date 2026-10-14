@@ -49,7 +49,8 @@ pub struct InventoryConfig {
     /// How long a per-destination failure stays active before retrying.
     pub destination_failure_cooldown: Duration,
     /// Maximum number of active non-origin-block destination failures before
-    /// the proxy is marked globally KO.
+    /// the proxy was formerly marked globally KO. Retained for configuration
+    /// compatibility; destination observations no longer promote global failure.
     pub max_destination_failures_before_ko: usize,
     /// Maximum parallel endpoint prechecks in an automatic selection window.
     /// Destination capability validations remain sequential.
@@ -304,6 +305,17 @@ impl ProxyInventory {
             }
             let retained_record = if let Some(existing) = inner.records.get(&key) {
                 let mut merged = record.clone();
+                merged.health_evidence.first_discovered_at = existing
+                    .health_evidence
+                    .first_discovered_at
+                    .or(record.health_evidence.first_discovered_at);
+                merged.health_evidence.last_positive_at = existing
+                    .health_evidence
+                    .last_positive_at
+                    .max(record.health_evidence.last_positive_at);
+                for observation in &existing.observations {
+                    merged.record_observation(observation.clone());
+                }
                 for (phase, checked) in &existing.probe_attempts {
                     let incoming = merged.probe_attempts.entry(phase.clone()).or_default();
                     *incoming = (*incoming).max(*checked);
@@ -339,6 +351,11 @@ impl ProxyInventory {
                 inner.records.insert(key.clone(), merged.clone());
                 merged
             } else {
+                let mut record = record;
+                record
+                    .health_evidence
+                    .first_discovered_at
+                    .get_or_insert_with(SystemTime::now);
                 inner.records.insert(key.clone(), record.clone());
                 record
             };
@@ -844,6 +861,16 @@ impl ProxyInventory {
         require_https: bool,
         destination: Option<&Destination>,
     ) -> Option<ProxyRecord> {
+        if let Some(probe) = &self.probe {
+            let mut inner = self.inner.write().await;
+            for record in inner
+                .records
+                .values_mut()
+                .filter(|record| record.country.as_deref() == Some(country))
+            {
+                probe.prepare_context(record);
+            }
+        }
         let inner = self.inner.read().await;
         let now = SystemTime::now();
 
@@ -1023,6 +1050,27 @@ impl ProxyInventory {
             record.probe_attempts.insert(phase.to_string(), started);
             if let Some(reachable) = tcp {
                 record.tcp_reachable = Some(reachable);
+                let now = SystemTime::now();
+                record.record_observation(crate::core::ProxyObservation {
+                    context: crate::core::ProxyProbeContext {
+                        phase: crate::core::ProxyObservationPhase::EndpointConnect,
+                        protocol: None,
+                        target: None,
+                        method: None,
+                        configuration: "tcp-precheck-v1".into(),
+                    },
+                    outcome: if reachable {
+                        crate::core::ProxyObservationOutcome::Succeeded
+                    } else {
+                        crate::core::ProxyObservationOutcome::Failed {
+                            scope: crate::core::ProxyFailureScope::Proxy,
+                            cause: "endpoint_connection_failed".into(),
+                        }
+                    },
+                    completed_at: now,
+                    last_succeeded_at: reachable.then_some(now),
+                    http_status: None,
+                });
             }
             record.clone()
         };
@@ -1338,137 +1386,80 @@ impl ProxyInventory {
 
     // ── Failure tracking ─────────────────────────────────────────────
 
-    /// Records a per-destination failure against a proxy.
+    /// Stores a contextual phase observation without synthesizing global failure.
     ///
-    /// When the number of active non-origin-block destination failures reaches
-    /// `max_destination_failures_before_ko`, the proxy is marked globally KO
-    /// and its destination failures list is cleared. `BlockedByOrigin`
-    /// failures remain scoped to their destination and never contribute to the
-    /// global failure threshold.
+    /// # Arguments
+    /// - `authority`: Endpoint to which the observation belongs.
+    /// - `observation`: Completed phase, never a synthetic cancellation failure.
+    pub async fn record_observation(
+        &self,
+        authority: &str,
+        observation: crate::core::ProxyObservation,
+    ) {
+        let updated = {
+            let mut inner = self.inner.write().await;
+            let Some(record) = inner.records.get_mut(authority) else {
+                return;
+            };
+            record.record_observation(observation);
+            record.clone()
+        };
+        #[cfg(feature = "persistence")]
+        self.persist_records(std::slice::from_ref(&updated)).await;
+        #[cfg(not(feature = "persistence"))]
+        drop(updated);
+    }
+
+    /// Records a destination-scoped failure without globally degrading or evicting the proxy.
+    ///
+    /// # Arguments
+    /// - `authority`: Endpoint actually used by the attempt.
+    /// - `destination`: Exact destination of the failed exchange.
+    /// - `reason`: Contextual failure category.
     ///
     /// # Returns
-    ///
-    /// `true` when the proxy was marked globally KO due to the threshold.
+    /// Always `false`; retained for compatibility with the former promotion API.
     pub async fn record_destination_failure(
         &self,
         authority: &str,
         destination: &Destination,
         reason: crate::core::ProxyDestinationFailureReason,
     ) -> bool {
-        let (outcome, removed_key) = {
+        let updated = {
             let mut inner = self.inner.write().await;
-            let stale = inner
-                .records
-                .get(authority)
-                .is_some_and(|record| proxy_validation_is_stale(record, SystemTime::now()));
-            if stale {
-                let removed = inner.records.remove(authority);
-                if let Some(record) = &removed {
-                    if let Some(country) = &record.country {
-                        if let Some(keys) = inner.country_records.get_mut(country) {
-                            keys.retain(|key| key != authority);
-                        }
-                        let preference_key = destination_preference_key(country, destination);
-                        if inner
-                            .preferred_by_destination
-                            .get(&preference_key)
-                            .is_some_and(|preferred| preferred == authority)
-                        {
-                            inner.preferred_by_destination.remove(&preference_key);
-                        }
-                    }
-                }
-                (None, removed.map(|record| record.key()))
+            let Some(record) = inner.records.get_mut(authority) else {
+                return false;
+            };
+            let now = SystemTime::now();
+            let host = destination.host_for_protocol();
+            let scheme = destination_scheme(destination);
+            if let Some(failure) = record.destination_failures.iter_mut().find(|failure| {
+                failure.scheme == scheme && failure.host == host && failure.port == destination.port
+            }) {
+                failure.failure_count = failure.failure_count.saturating_add(1);
+                failure.last_failed = now;
+                failure.reason = reason;
+                failure.cooldown_until = Some(now + self.config.destination_failure_cooldown);
             } else {
-                let record = match inner.records.get_mut(authority) {
-                    Some(record) => record,
-                    None => return false,
-                };
-
-                let now = SystemTime::now();
-                let failure_host = destination.host_for_protocol();
-                let country = record.country.clone();
-
-                let entry = record.destination_failures.iter_mut().find(|f| {
-                    f.scheme == destination_scheme(destination)
-                        && f.host == failure_host
-                        && f.port == destination.port
-                });
-
-                match entry {
-                    Some(failure) => {
-                        failure.failure_count += 1;
-                        failure.last_failed = now;
-                        failure.reason = reason;
-                        failure.cooldown_until =
-                            Some(now + self.config.destination_failure_cooldown);
-                    }
-                    None => {
-                        record
-                            .destination_failures
-                            .push(crate::core::ProxyDestinationFailure {
-                                scheme: destination_scheme(destination),
-                                host: failure_host,
-                                port: destination.port,
-                                reason,
-                                failure_count: 1,
-                                last_failed: now,
-                                cooldown_until: Some(
-                                    now + self.config.destination_failure_cooldown,
-                                ),
-                            });
-                    }
-                }
-
-                let global_failure_count = record
+                record
                     .destination_failures
-                    .iter()
-                    .filter(|failure| {
-                        failure.reason
-                            != crate::core::ProxyDestinationFailureReason::BlockedByOrigin
-                    })
-                    .count();
-                let outcome =
-                    if global_failure_count >= self.config.max_destination_failures_before_ko {
-                        record.status = ProxyRuntimeStatus::Ko;
-                        record.failure_count += 1;
-                        record.cooldown_until = Some(now + self.config.ko_cooldown);
-                        record.destination_failures.clear();
-                        (Some((true, record.clone())), None)
-                    } else {
-                        (Some((false, record.clone())), None)
-                    };
-                if let Some(country) = country {
-                    let preference_key = destination_preference_key(&country, destination);
-                    if inner
-                        .preferred_by_destination
-                        .get(&preference_key)
-                        .is_some_and(|preferred| preferred == authority)
-                    {
-                        inner.preferred_by_destination.remove(&preference_key);
-                    }
-                }
-                outcome
+                    .push(crate::core::ProxyDestinationFailure {
+                        scheme,
+                        host,
+                        port: destination.port,
+                        reason,
+                        failure_count: 1,
+                        last_failed: now,
+                        cooldown_until: Some(now + self.config.destination_failure_cooldown),
+                    });
             }
+            record.clone()
         };
-
         #[cfg(feature = "persistence")]
-        if let Some(key) = removed_key {
-            self.delete_persisted_record(&key).await;
-        }
+        self.persist_records(std::slice::from_ref(&updated)).await;
         #[cfg(not(feature = "persistence"))]
-        let _ = removed_key;
-
-        let Some(outcome) = outcome else {
-            tracing::debug!(
-                authority,
-                "removed stale dynamic proxy after observed failure"
-            );
-            return true;
-        };
-        #[cfg(feature = "persistence")]
-        self.persist_records(std::slice::from_ref(&outcome.1)).await;
-        outcome.0
+        drop(updated);
+        false
     }
 
     /// Marks a proxy as globally failed (KO) with cooldown.
@@ -1531,6 +1522,10 @@ impl ProxyInventory {
                 record.cooldown_until = None;
                 record.destination_failures.clear();
                 record.last_validated_at = Some(SystemTime::now());
+                record.health_evidence.last_positive_at = record
+                    .health_evidence
+                    .last_positive_at
+                    .max(record.last_validated_at);
                 Some(record.clone())
             } else {
                 None
@@ -1552,6 +1547,10 @@ impl ProxyInventory {
             let mut inner = self.inner.write().await;
             let updated = inner.records.get_mut(authority).map(|record| {
                 record.last_validated_at = Some(SystemTime::now());
+                record.health_evidence.last_positive_at = record
+                    .health_evidence
+                    .last_positive_at
+                    .max(record.last_validated_at);
                 record.clone()
             });
             if let Some(country) = updated.as_ref().and_then(|record| record.country.as_ref()) {
@@ -1684,6 +1683,8 @@ mod tests {
 
     fn record(status: ProxyRuntimeStatus) -> ProxyRecord {
         ProxyRecord {
+            health_evidence: Default::default(),
+            observations: Vec::new(),
             probe_attempts: Default::default(),
             tcp_reachable: None,
             protocol: Some(ProxyProtocol::Socks5),
@@ -1804,6 +1805,7 @@ mod tests {
             .with_proxy_repository(repository);
 
         let mut retained = record(ProxyRuntimeStatus::Ko);
+        retained.health_evidence.first_discovered_at = Some(SystemTime::now());
         retained.failure_count = 3;
         retained.authentication_required = Some(true);
         retained.last_validated_at =
@@ -2511,6 +2513,8 @@ fn retain_cached_runtime(record: &mut ProxyRecord, cached: &ProxyRecord) {
     record.destination_failures = cached.destination_failures.clone();
     record.last_checked = cached.last_checked;
     record.last_validated_at = cached.last_validated_at;
+    record.health_evidence = cached.health_evidence.clone();
+    record.observations = cached.observations.clone();
     record.cooldown_until = cached.cooldown_until;
 }
 
