@@ -168,6 +168,22 @@ impl SimpleHttpClient {
     /// Returns an error when URL parsing, connection, or HTTP I/O fails.
     pub async fn request_proxied(
         &self,
+        request: ProxiedHttpRequest,
+    ) -> Result<ProxiedHttpResponse> {
+        if crate::core::ProxySearchContext::current().is_none()
+            && request
+                .client_context
+                .get_string("countries")
+                .is_some_and(|countries| !countries.is_empty() && countries != "[]")
+        {
+            let search = crate::core::ProxySearchContext::default();
+            return search.scope(self.request_proxied_scoped(request)).await;
+        }
+        self.request_proxied_scoped(request).await
+    }
+
+    async fn request_proxied_scoped(
+        &self,
         mut request: ProxiedHttpRequest,
     ) -> Result<ProxiedHttpResponse> {
         let redirect_limit = request.follow_redirects;
@@ -214,6 +230,26 @@ impl SimpleHttpClient {
     }
 
     async fn request_proxied_once(
+        &self,
+        request: ProxiedHttpRequest,
+        requested_url: &str,
+        redirect_urls: &[String],
+    ) -> Result<ProxiedHttpResponse> {
+        if let Some(search) = crate::core::ProxySearchContext::current() {
+            return search
+                .for_url(&request.url)
+                .scope(search.origin(self.request_proxied_once_inner(
+                    request,
+                    requested_url,
+                    redirect_urls,
+                )))
+                .await?;
+        }
+        self.request_proxied_once_inner(request, requested_url, redirect_urls)
+            .await
+    }
+
+    async fn request_proxied_once_inner(
         &self,
         request: ProxiedHttpRequest,
         requested_url: &str,
@@ -270,7 +306,12 @@ impl SimpleHttpClient {
                 ConnectRequest::new(destination)
                     .with_client_context(request.client_context.clone()),
             )
-            .await?;
+            .await
+            .map_err(|error| ProxyError::RequestAttempt {
+                selection: selected.selection_token.clone(),
+                delivery: crate::core::ProxyRequestDelivery::NotSent,
+                source: Box::new(error),
+            })?;
 
         // Build request headers
         let mut header_lines = Vec::new();
@@ -357,7 +398,12 @@ impl SimpleHttpClient {
                     Duration::from_secs(10),
                     request.verify_tls,
                 )
-                .await?;
+                .await
+                .map_err(|error| ProxyError::RequestAttempt {
+                    selection: selected.selection_token.clone(),
+                    delivery: crate::core::ProxyRequestDelivery::NotSent,
+                    source: Box::new(error),
+                })?;
                 if let Some(token) = selected
                     .selection_token
                     .as_ref()
@@ -376,13 +422,24 @@ impl SimpleHttpClient {
                 stream.stream
             };
 
-        let (status_code, mut headers) = send_request_and_read_head(
+        let head = send_request_and_read_head(
             &mut unified_stream,
             &request_to_send,
             &request.body,
             send_body,
-        )
-        .await?;
+        );
+        let (status_code, mut headers) = if crate::core::ProxySearchContext::current().is_some() {
+            tokio::time::timeout(Duration::from_secs(30), head)
+                .await
+                .unwrap_or_else(|_| Err(ProxyError::Timeout("media response headers")))
+        } else {
+            head.await
+        }
+        .map_err(|error| ProxyError::RequestAttempt {
+            selection: selected.selection_token.clone(),
+            delivery: crate::core::ProxyRequestDelivery::PossiblySent,
+            source: Box::new(error),
+        })?;
 
         if let Some(token) = &selected.selection_token {
             token.record_http_response(status_code).await;
@@ -444,17 +501,53 @@ impl SimpleHttpClient {
                 body_state: ProxyBodyState::Unavailable,
             },
             stream,
-            PROXY_RESPONSE_INSPECTION_TIMEOUT,
+            crate::core::ProxySearchContext::current()
+                .map(|search| {
+                    search
+                        .origin_remaining()
+                        .min(PROXY_RESPONSE_INSPECTION_TIMEOUT)
+                })
+                .unwrap_or(PROXY_RESPONSE_INSPECTION_TIMEOUT),
         )
         .await;
-        let body = if request.headers_only || (300..400).contains(&status_code) {
+        if matches!(response_decision, ProxyResponseDecision::Accepted)
+            && !(300..400).contains(&status_code)
+        {
+            if let Some(search) = crate::core::ProxySearchContext::current() {
+                search.accept();
+            }
+        }
+        let retry_rejection =
+            matches!(
+                response_decision,
+                ProxyResponseDecision::RejectedForDestination { .. }
+            ) && crate::core::ProxySearchContext::current().is_some_and(|search| {
+                search.can_start()
+                    && crate::core::proxy_retry_allowed(
+                        &request.method,
+                        search.replayable(),
+                        crate::core::ProxyRequestDelivery::ResponseReceived,
+                        true,
+                    )
+            });
+        let body = if retry_rejection || request.headers_only || (300..400).contains(&status_code) {
             ProxiedResponseBody::Buffered(Vec::new())
         } else {
             let is_chunked = transfer_encoding_is_chunked(&headers);
             if request.buffer_response_body {
                 let mut body = Vec::new();
-                while let Some(chunk) = inspected_stream.next().await {
-                    body.extend_from_slice(&chunk?);
+                let collect = async {
+                    while let Some(chunk) = inspected_stream.next().await {
+                        body.extend_from_slice(&chunk?);
+                    }
+                    Ok::<_, std::io::Error>(())
+                };
+                if crate::core::ProxySearchContext::current().is_some() {
+                    tokio::time::timeout(Duration::from_secs(30), collect)
+                        .await
+                        .map_err(|_| ProxyError::Timeout("media response body transfer"))??;
+                } else {
+                    collect.await?;
                 }
                 if is_chunked {
                     remove_header_case_insensitive(&mut headers, "transfer-encoding");

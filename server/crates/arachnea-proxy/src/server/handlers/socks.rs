@@ -172,7 +172,8 @@ async fn read_parameter_username_password(
 /// Builds a client context from a SOCKS5 username parameter string.
 ///
 /// The accepted format is `name=value;name2=value2`. Commas are also accepted
-/// as separators for clients that make semicolons awkward to configure.
+/// as separators outside JSON arrays/quoted strings, for clients that make
+/// semicolons awkward to configure.
 ///
 /// # Parameters
 ///
@@ -186,8 +187,39 @@ fn context_from_socks_username(
     username: &str,
     definitions: &[ParameterDefinition],
 ) -> ClientContext {
+    let mut depth = 0usize;
+    let mut quoted = false;
+    let mut escaped = false;
     let pairs = username
-        .split([';', ','])
+        .split(|character| {
+            if escaped {
+                escaped = false;
+                return false;
+            }
+            if quoted && character == '\\' {
+                escaped = true;
+                return false;
+            }
+            if character == '"' {
+                quoted = !quoted;
+                return false;
+            }
+            if quoted {
+                return false;
+            }
+            match character {
+                '[' | '{' => {
+                    depth += 1;
+                    false
+                }
+                ']' | '}' => {
+                    depth = depth.saturating_sub(1);
+                    false
+                }
+                ';' | ',' => depth == 0,
+                _ => false,
+            }
+        })
         .filter_map(|part| part.split_once('='))
         .map(|(name, value)| (name.trim(), value.trim()));
     context_from_parameter_pairs(pairs, definitions)

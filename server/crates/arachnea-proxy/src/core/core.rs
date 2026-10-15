@@ -88,6 +88,7 @@ pub struct ArachneaProxyCore {
             Option<crate::core::ProxySelectionToken>,
         )>,
     >,
+    search_context: Option<crate::core::ProxySearchContext>,
     dns_resolver: ProxyDnsResolver,
 }
 
@@ -223,6 +224,7 @@ impl ArachneaProxyCore {
                 proxy_inventory: None,
                 dynamic_proxy_selections: None,
                 pinned_route: None,
+                search_context: None,
                 dns_resolver: ProxyDnsResolver::system(),
             })
         }
@@ -268,6 +270,7 @@ impl ArachneaProxyCore {
                 proxy_inventory: Some(Arc::new(inventory)),
                 dynamic_proxy_selections: None,
                 pinned_route: None,
+                search_context: None,
                 dns_resolver: ProxyDnsResolver::system(),
             })
         }
@@ -334,8 +337,24 @@ impl ArachneaProxyCore {
             proxy_inventory: Some(Arc::new(inventory)),
             dynamic_proxy_selections: None,
             pinned_route: None,
+            search_context: None,
             dns_resolver: ProxyDnsResolver::with_arachnea_dns(dns_core),
         })
+    }
+
+    /// Attaches a request-owned search to adapters executing on another Tokio task.
+    ///
+    /// # Arguments
+    /// - `search`: Shared logical request budget, including redirects and retries.
+    pub fn with_proxy_search(&self, search: crate::core::ProxySearchContext) -> Self {
+        let mut core = self.clone();
+        core.search_context = Some(search);
+        core
+    }
+
+    /// Remaining establishment time for adapters that execute on a separate task.
+    pub fn proxy_search_remaining(&self) -> Option<std::time::Duration> {
+        self.search_context.as_ref().map(|search| search.origin_remaining())
     }
 
     /// Returns a clone that tracks dynamic proxy selections for HTTP outcomes.
@@ -358,6 +377,22 @@ impl ArachneaProxyCore {
     /// # Errors
     /// Returns policy, routing or dynamic selection errors without sending a business request.
     pub fn select_for_request(
+        &self,
+        request: ConnectRequest,
+    ) -> futures::future::BoxFuture<'_, Result<crate::core::SelectedProxy>> {
+        Box::pin(async move {
+            let search = crate::core::ProxySearchContext::current().or(self.search_context.clone());
+            if let Some(search) = search {
+                search
+                    .scope(search.origin(self.select_for_request_inner(request)))
+                    .await?
+            } else {
+                self.select_for_request_inner(request).await
+            }
+        })
+    }
+
+    fn select_for_request_inner(
         &self,
         request: ConnectRequest,
     ) -> futures::future::BoxFuture<'_, Result<crate::core::SelectedProxy>> {
@@ -389,6 +424,7 @@ impl ArachneaProxyCore {
             let route_generation = route_hash.finish();
             let mut scoped = self.clone();
             scoped.dynamic_proxy_selections = None;
+            scoped.search_context = crate::core::ProxySearchContext::current().or(self.search_context.clone());
             scoped.pinned_route = Some(Arc::new((request.destination, resolved, token.clone())));
             Ok(crate::core::SelectedProxy {
                 core: scoped,
@@ -1003,6 +1039,30 @@ impl ArachneaProxyCore {
         request: ConnectRequest,
     ) -> futures::future::BoxFuture<'_, Result<ProxyStream>> {
         Box::pin(async move {
+            let search = crate::core::ProxySearchContext::current()
+                .or(self.search_context.clone())
+                .or_else(|| {
+                    self.proxy_inventory.as_ref().map(|_| {
+                        let mut limits = crate::core::ProxySearchLimits::default();
+                        limits.extension = std::time::Duration::ZERO;
+                        crate::core::ProxySearchContext::new(limits)
+                    })
+                });
+            if let Some(search) = search {
+                search
+                    .scope(search.origin(self.connect_request_inner(request)))
+                    .await?
+            } else {
+                self.connect_request_inner(request).await
+            }
+        })
+    }
+
+    fn connect_request_inner(
+        &self,
+        request: ConnectRequest,
+    ) -> futures::future::BoxFuture<'_, Result<ProxyStream>> {
+        Box::pin(async move {
             self.validate_pinned_destination(&request.destination)?;
             self.config
                 .as_config()
@@ -1098,6 +1158,30 @@ impl ArachneaProxyCore {
     /// Returns an error when policy validation, routing, or connection setup
     /// fails.
     pub fn connect_http_request(
+        &self,
+        request: ConnectRequest,
+    ) -> futures::future::BoxFuture<'_, Result<HttpRequestStream>> {
+        Box::pin(async move {
+            let search = crate::core::ProxySearchContext::current()
+                .or(self.search_context.clone())
+                .or_else(|| {
+                    self.proxy_inventory.as_ref().map(|_| {
+                        let mut limits = crate::core::ProxySearchLimits::default();
+                        limits.extension = std::time::Duration::ZERO;
+                        crate::core::ProxySearchContext::new(limits)
+                    })
+                });
+            if let Some(search) = search {
+                search
+                    .scope(search.origin(self.connect_http_request_inner(request)))
+                    .await?
+            } else {
+                self.connect_http_request_inner(request).await
+            }
+        })
+    }
+
+    fn connect_http_request_inner(
         &self,
         request: ConnectRequest,
     ) -> futures::future::BoxFuture<'_, Result<HttpRequestStream>> {
@@ -1308,7 +1392,7 @@ impl ArachneaProxyCore {
                         .await
                     {
                         Ok(selected) => selected,
-                        Err(error) if is_dynamic_country_proxy_unavailable(&error) => {
+                        Err(error) if is_dynamic_country_proxy_unavailable(&error) && crate::core::ProxySearchContext::current().is_none() => {
                             tracing::warn!(
                                 destination = %request.destination,
                                 requested_proxy_countries = ?countries,
@@ -1402,6 +1486,9 @@ impl ArachneaProxyCore {
                 affinity,
             )
             .await?;
+        if let Some(search) = crate::core::ProxySearchContext::current() {
+            search.start_origin(&record.authority(), destination)?;
+        }
         record.try_to_node().ok_or_else(|| {
             ProxyError::RouteUnavailable(format!(
                 "dynamic proxy selected for requested countries has no resolved protocol"
@@ -1891,10 +1978,10 @@ impl ArachneaProxyCore {
                 continue;
             }
             // Dynamic country pools: use a fixed budget. The inventory will
-            // select a different candidate on each retry because the failed
-            // proxy is marked KO in the inventory.
+            // select a different candidate on each retry; the shared search
+            // excludes attempted endpoints without inventing a global failure.
             if node.name.starts_with(DYNAMIC_COUNTRY_POOL_PREFIX) {
-                budget += 10;
+                budget += 7;
             }
         }
         budget
@@ -2009,6 +2096,12 @@ impl ArachneaProxyCore {
         request: &ConnectRequest,
     ) -> Result<ProxyStream> {
         log_connect_chain_iteration(chain, &request.destination, 0);
+        if crate::core::ProxySearchContext::current().is_some()
+            && (request.client_context.get_string("countries").is_some()
+                || self.pinned_route.as_ref().is_some_and(|route| route.2.is_some()))
+        {
+            return self.connect_chain_once(chain, request).await;
+        }
         let retry_budget = chain
             .nodes
             .iter()

@@ -116,7 +116,8 @@ where
     let mut pending_client_bytes = Vec::new();
     let connect_result = {
         let connect = tokio::time::timeout(
-            crate::core::PROXY_CONNECT_ESTABLISHMENT_TIMEOUT,
+            core.proxy_search_remaining()
+                .unwrap_or(crate::core::PROXY_CONNECT_ESTABLISHMENT_TIMEOUT),
             core.connect_request(ConnectRequest::new(destination).with_client_context(context)),
         );
         tokio::pin!(connect);

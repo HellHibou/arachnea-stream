@@ -43,6 +43,7 @@ const ALLOWED_OPTS_FIELDS: &[&str] = &[
     "follow_redirects",
     "proxy_rejection_statuses",
     "proxy_response_classifier",
+    "proxy_retry_replayable",
 ];
 
 /// Parsed options from the `opts` segment of a proxy URL.
@@ -59,10 +60,12 @@ struct ProxyHttpOpts {
     insecure_tls: bool,
     /// Optional maximum number of upstream redirects to follow.
     follow_redirects: Option<usize>,
-    /// HTTP statuses that reject the selected dynamic proxy and trigger one retry.
+    /// HTTP statuses that reject a destination association under the safe retry policy.
     proxy_rejection_statuses: Vec<u16>,
     /// Known policy taking precedence over the legacy status list.
     proxy_response_classifier: Option<super::response_classifier::ProxyResponseClassifierConfig>,
+    /// Explicit operation-level replay guarantee; request bodies are buffered and cloneable.
+    proxy_retry_replayable: bool,
 }
 
 struct MergedProxyHttpInput {
@@ -95,6 +98,7 @@ fn parse_opts_value(value: &serde_json::Value) -> Result<ProxyHttpOpts, (u16, St
                 insecure_tls: false,
                 follow_redirects: None,
                 proxy_rejection_statuses: Vec::new(),
+                proxy_retry_replayable: false,
                 proxy_response_classifier: None,
             });
         }
@@ -248,6 +252,18 @@ fn parse_opts_value(value: &serde_json::Value) -> Result<ProxyHttpOpts, (u16, St
         follow_redirects,
         proxy_rejection_statuses,
         proxy_response_classifier,
+        proxy_retry_replayable: obj
+            .get("proxy_retry_replayable")
+            .map(|value| {
+                value.as_bool().ok_or_else(|| {
+                    (
+                        400,
+                        "'proxy_retry_replayable' must be a boolean".to_string(),
+                    )
+                })
+            })
+            .transpose()?
+            .unwrap_or(false),
     })
 }
 
@@ -533,11 +549,15 @@ fn encode_proxy_opts(opts: &ProxyHttpOpts) -> String {
         && opts.follow_redirects.is_none()
         && opts.proxy_rejection_statuses.is_empty()
         && opts.proxy_response_classifier.is_none()
+        && !opts.proxy_retry_replayable
     {
         return String::new();
     }
 
     let mut object = serde_json::Map::new();
+    if opts.proxy_retry_replayable {
+        object.insert("proxy_retry_replayable".into(), serde_json::json!(true));
+    }
     if let Some(config) = &opts.proxy_response_classifier {
         object.insert(
             "proxy_response_classifier".into(),
@@ -1012,35 +1032,75 @@ pub async fn handle_proxy_http(
             .and_then(|opts| opts.follow_redirects),
     };
 
-    let mut proxy_response = match client.request_proxied(proxy_request.clone()).await {
+    let search = proxy_request
+        .client_context
+        .get_string("countries")
+        .filter(|countries| !countries.is_empty() && *countries != "[]")
+        .map(|_| {
+            crate::core::ProxySearchContext::default().with_replayable(
+                redirect_opts
+                    .as_ref()
+                    .is_some_and(|opts| opts.proxy_retry_replayable),
+            )
+        });
+    let execute = async {
+        loop {
+            match client.request_proxied(proxy_request.clone()).await {
+                Ok(response) => {
+                    if let Some(token) = &response.selection_token {
+                        token
+                            .record_response_decision(&response.response_decision)
+                            .await;
+                    }
+                    let retry = response.selection_token.is_some()
+                        && matches!(response.response_decision, super::response_classifier::ProxyResponseDecision::RejectedForDestination { .. })
+                        && search.as_ref().is_some_and(|search| search.can_start() && crate::core::proxy_retry_allowed(
+                            &method, search.replayable(), crate::core::ProxyRequestDelivery::ResponseReceived, true));
+                    if retry {
+                        search.as_ref().unwrap().end_attempt();
+                        continue;
+                    }
+                    break Ok(response);
+                }
+                Err(error) => {
+                    if let crate::core::ProxyError::RequestAttempt {
+                        selection: Some(token),
+                        delivery,
+                        ..
+                    } = &error
+                    {
+                        if *delivery != crate::core::ProxyRequestDelivery::ResponseReceived {
+                            token
+                                .record_failure(crate::core::ProxyDestinationFailureReason::Other)
+                                .await;
+                        }
+                        if search.as_ref().is_some_and(|search| {
+                            search.can_start()
+                                && crate::core::proxy_retry_allowed(
+                                    &method,
+                                    search.replayable(),
+                                    *delivery,
+                                    false,
+                                )
+                        }) {
+                            search.as_ref().unwrap().end_attempt();
+                            continue;
+                        }
+                    }
+                    break Err(error);
+                }
+            }
+        }
+    };
+    let result = if let Some(search) = &search {
+        search.scope(execute).await
+    } else {
+        execute.await
+    };
+    let proxy_response = match result {
         Ok(response) => response,
         Err(error) => return Ok(stream_error(502, format!("Proxy error: {error}"))),
     };
-    if matches!(
-        proxy_response.response_decision,
-        super::response_classifier::ProxyResponseDecision::RejectedForDestination { .. }
-    ) && proxy_response.selection_token.is_some()
-    {
-        if let Some(token) = &proxy_response.selection_token {
-            token
-                .record_response_decision(&proxy_response.response_decision)
-                .await;
-        }
-        tracing::warn!(
-            status = proxy_response.status,
-            target = %target_url_str,
-            "origin rejected proxied media request; retrying with another candidate"
-        );
-        proxy_response = match client.request_proxied(proxy_request).await {
-            Ok(response) => response,
-            Err(error) => return Ok(stream_error(502, format!("Proxy error: {error}"))),
-        };
-    }
-    if let Some(token) = &proxy_response.selection_token {
-        token
-            .record_response_decision(&proxy_response.response_decision)
-            .await;
-    }
 
     let status = proxy_response.status;
     let mut response_headers = proxy_response.headers;
@@ -1418,6 +1478,7 @@ mod tests {
             insecure_tls: false,
             follow_redirects: None,
             proxy_rejection_statuses: Vec::new(),
+            proxy_retry_replayable: true,
             proxy_response_classifier: Some(crate::core::http::response_classifier::ProxyResponseClassifierConfig::Http403),
         };
         let encoded = encode_proxy_opts(&opts);
@@ -1442,6 +1503,8 @@ mod tests {
         assert_eq!(headers[0][0], "X-Keep");
         assert_eq!(headers[0][1], "1");
         assert_eq!(next["proxy_response_classifier"]["type"], "http403");
+        assert_eq!(next["proxy_retry_replayable"], true);
+        assert!(parse_opts_value(&serde_json::json!({ "proxy_retry_replayable": "yes" })).is_err());
         let parsed = parse_opts_value(&next).unwrap();
         assert!(parsed.proxy_response_classifier.is_some());
         use crate::core::http::response_classifier::*;
@@ -1528,6 +1591,7 @@ mod tests {
             insecure_tls: false,
             follow_redirects: None,
             proxy_rejection_statuses: Vec::new(),
+            proxy_retry_replayable: false,
             proxy_response_classifier: None,
         };
         let encoded = encode_proxy_opts(&opts);

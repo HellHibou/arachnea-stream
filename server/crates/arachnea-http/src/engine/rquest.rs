@@ -17,7 +17,7 @@ pub(crate) struct RquestEngine {
     client: rquest::Client,
     /// Whether this client routes through a configured proxy transport.
     uses_proxy: bool,
-    /// Total request timeout, including response body collection.
+    /// Ordinary total timeout; contextual headers and accepted bodies use it separately.
     request_timeout: std::time::Duration,
 }
 
@@ -49,24 +49,37 @@ impl RquestEngine {
         use futures::StreamExt;
         let started = tokio::time::Instant::now();
         let method = request.method.clone();
-        let mut builder = self
-            .client
-            .request(request.method, &request.url)
-            .timeout(self.request_timeout);
+        let search = arachnea_proxy::core::ProxySearchContext::current();
+        let mut builder = self.client.request(request.method, &request.url);
+        if search.is_none() {
+            builder = builder.timeout(self.request_timeout);
+        }
         for (name, value) in &request.headers {
             builder = builder.header(name, value);
         }
         if let Some(body) = request.body {
             builder = builder.body(body);
         }
-        let response = builder
-            .send()
-            .await
-            .map_err(|error| ArachneaHttpError::ProxyAttempt {
-                selection: selection.clone(),
-                delivery: arachnea_proxy::core::ProxyRequestDelivery::PossiblySent,
-                source: Box::new(ArachneaHttpError::Proxy(error.to_string())),
-            })?;
+        let send = async {
+            tokio::time::timeout(self.request_timeout, builder.send())
+                .await
+                .map_err(|_| "origin response headers timed out".to_string())?
+                .map_err(|error| error.to_string())
+        };
+        let response = if let Some(search) = &search {
+            search
+                .origin(send)
+                .await
+                .map_err(|error| error.to_string())
+                .and_then(|result| result)
+        } else {
+            send.await
+        }
+        .map_err(|error| ArachneaHttpError::ProxyAttempt {
+            selection: selection.clone(),
+            delivery: arachnea_proxy::core::ProxyRequestDelivery::PossiblySent,
+            source: Box::new(ArachneaHttpError::Proxy(error)),
+        })?;
         let status = response.status();
         let headers = response.headers().clone();
         let url = response.url().to_string();
@@ -87,7 +100,7 @@ impl RquestEngine {
                 .bytes_stream()
                 .map(|result| result.map_err(std::io::Error::other)),
         );
-        let (decision, mut stream) = inspect_proxy_response(
+        let inspection = inspect_proxy_response(
             policy,
             ProxyResponseView {
                 method: method.as_str(),
@@ -101,17 +114,73 @@ impl RquestEngine {
                 body_state: ProxyBodyState::Unavailable,
             },
             stream,
-            self.request_timeout.saturating_sub(started.elapsed()),
-        )
-        .await;
-        let mut body = Vec::new();
-        while let Some(chunk) = stream.next().await {
-            body.extend_from_slice(&chunk.map_err(|error| ArachneaHttpError::ProxyAttempt {
+            search
+                .as_ref()
+                .map(|search| search.origin_remaining())
+                .unwrap_or_else(|| self.request_timeout.saturating_sub(started.elapsed())),
+        );
+        let (decision, mut stream) = if let Some(search) = &search {
+            search
+                .origin(inspection)
+                .await
+                .map_err(|error| ArachneaHttpError::ProxyAttempt {
+                    selection: selection.clone(),
+                    delivery: arachnea_proxy::core::ProxyRequestDelivery::ResponseReceived,
+                    source: Box::new(ArachneaHttpError::Proxy(error.to_string())),
+                })?
+        } else {
+            inspection.await
+        };
+        let accepted =
+            matches!(decision, ProxyResponseDecision::Accepted) && !status.is_redirection();
+        if accepted {
+            if let Some(search) = &search {
+                search.accept();
+            }
+        }
+        let retry_rejection = matches!(
+            decision,
+            ProxyResponseDecision::RejectedForDestination { .. }
+        ) && search.as_ref().is_some_and(|search| {
+            search.can_start()
+                && arachnea_proxy::core::proxy_retry_allowed(
+                    method.as_str(),
+                    search.replayable(),
+                    arachnea_proxy::core::ProxyRequestDelivery::ResponseReceived,
+                    true,
+                )
+        });
+        let collect = async {
+            let mut body = Vec::new();
+            if !retry_rejection {
+                while let Some(chunk) = stream.next().await {
+                    body.extend_from_slice(&chunk?);
+                }
+            }
+            Ok::<_, std::io::Error>(body)
+        };
+        let transfer_timeout = if accepted {
+            self.request_timeout
+        } else {
+            search
+                .as_ref()
+                .map(|s| s.origin_remaining().min(self.request_timeout))
+                .unwrap_or(self.request_timeout)
+        };
+        let body = tokio::time::timeout(transfer_timeout, collect)
+            .await
+            .map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "response body transfer timed out",
+                )
+            })
+            .and_then(|result| result)
+            .map_err(|error| ArachneaHttpError::ProxyAttempt {
                 selection: selection.clone(),
                 delivery: arachnea_proxy::core::ProxyRequestDelivery::ResponseReceived,
                 source: Box::new(ArachneaHttpError::Proxy(error.to_string())),
-            })?);
-        }
+            })?;
         Ok((
             EngineResponse {
                 url,

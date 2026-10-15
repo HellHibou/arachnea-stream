@@ -370,10 +370,7 @@ pub fn default_scrapyfy_proxy_inventory(
     };
     let preferences = scraper_agregator.proxy_preferences.clone();
     ProxyInventory::new(
-        InventoryConfig {
-            probe_batch_size: 32,
-            ..InventoryConfig::default()
-        },
+        InventoryConfig::default(),
         Some(Arc::new(ScrapyfyProxyDataProvider::new(scraper_agregator))),
         Some(Arc::new(ProxyProbe::new(probe_config))),
     )

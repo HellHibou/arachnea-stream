@@ -1768,7 +1768,9 @@ fn capability_status<T>(result: &Result<T>) -> ProxyCapabilityStatus {
 
 fn failed_capability_status(error: &ProxyError) -> ProxyCapabilityStatus {
     match error {
-        ProxyError::Observation { source, .. } => failed_capability_status(source),
+        ProxyError::Observation { source, .. } | ProxyError::RequestAttempt { source, .. } => {
+            failed_capability_status(source)
+        }
         ProxyError::Timeout(_)
         | ProxyError::Io(_)
         | ProxyError::Config(_)

@@ -104,14 +104,19 @@ impl ArachneaRquestLoopback {
             network: NetworkConfig::default(),
         });
         let task = tokio::spawn(async move {
+            let mut connections = tokio::task::JoinSet::new();
             loop {
-                let Ok((stream, peer)) = listener.accept().await else {
+                let accepted = tokio::select! {
+                    accepted = listener.accept() => accepted,
+                    _ = connections.join_next(), if !connections.is_empty() => continue,
+                };
+                let Ok((stream, peer)) = accepted else {
                     break;
                 };
                 let conn_config = Arc::clone(&config);
                 let conn_core = core.clone();
                 let conn_context = client_context.clone();
-                tokio::spawn(async move {
+                connections.spawn(async move {
                     if let Err(error) = handlers::http::handle_with_client_context(
                         stream,
                         peer,

@@ -40,7 +40,12 @@ async fn keep_alive_tls_503_keeps_exact_selection_and_positive_phases() -> anyho
                 &b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 4\r\nConnection: close\r\n\r\ndown"[..],
             ] {
                 requests.push(read_head(&mut tls).await?);
-                tls.write_all(response).await?;
+                if response.ends_with(b"ok") {
+                    tokio::time::sleep(Duration::from_millis(150)).await;
+                    tls.write_all(&response[..response.len() - 2]).await?;
+                    tokio::time::sleep(Duration::from_millis(450)).await;
+                    tls.write_all(b"ok").await?;
+                } else { tls.write_all(response).await?; }
             }
             tls.shutdown().await?;
             // Both requests above were read from the same accepted TCP/TLS stream.
@@ -81,7 +86,18 @@ async fn keep_alive_tls_503_keeps_exact_selection_and_positive_phases() -> anyho
             method: ::http::Method::GET, url: "https://localhost/content".into(),
             headers: Default::default(), body: None,
         };
-        let (first, first_decision) = engine.send_for_proxy(request(), Some(token.clone()), None, "https://localhost/content", &[]).await?;
+        let search = ProxySearchContext::new(ProxySearchLimits {
+            target: Duration::from_millis(100), extension: Duration::from_millis(300), ..Default::default()
+        });
+        search.start_origin(token.endpoint(), token.destination())?;
+        let (first, first_decision) = search.scope(search.origin(engine.send_for_proxy(request(), Some(token.clone()), None, "https://localhost/content", &[]))).await??;
+        assert!(!search.can_start());
+        assert!(search.remaining().is_zero());
+        assert!(!proxy_retry_allowed("POST", false, ProxyRequestDelivery::PossiblySent, false));
+        assert!(!proxy_retry_allowed("POST", false, ProxyRequestDelivery::ResponseReceived, true));
+        assert!(proxy_retry_allowed("POST", false, ProxyRequestDelivery::NotSent, false));
+        assert!(proxy_retry_allowed("POST", true, ProxyRequestDelivery::ResponseReceived, true));
+        assert!(!proxy_retry_allowed("GET", false, ProxyRequestDelivery::ResponseReceived, false));
         assert_eq!(first_decision, arachnea_proxy::core::http::response_classifier::ProxyResponseDecision::Accepted);
         assert_eq!(first.status.as_u16(), 200);
         token.record_accepted().await;

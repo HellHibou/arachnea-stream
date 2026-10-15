@@ -17,9 +17,9 @@ preference. A 403 rejection remains opt-in, including FranceTV and TF1.
 Scrapyfy applies the early Rquest decision to the exact response token, rather
 than reclassifying a transformed/materialized body. A custom policy can inspect
 a non-destructive prefix up to 64 KiB within three seconds and the remaining
-request timeout. Unsupported engines have no correlated decision and do not
-update preferences or exclusions by inference. Existing retry counts are not
-expanded; the common search deadline and replay policy remain lot 5 work.
+search time. Unsupported engines return an explicit unsupported-operation error
+inside correlated localized searches and do not update preferences or exclusions
+by inference. The HTTP facade owns safe retries within the common budget.
 
 ## Durable localized proxy histories
 
@@ -35,17 +35,35 @@ are normalized, deduplicated and sorted for stable request identities. Their ord
 has no routing priority. The inventory ranks all allowed countries together after
 importing their persistent caches, preferring fresh validated capabilities before
 revalidation or unknown candidates for both HTTP and HTTPS. Provider requests
-also use canonical country sets. Discovery remains sequential until all requested
-countries have been loaded; concurrency and shared budgets remain lot 5 work.
+also use canonical country sets. Country loads run with concurrency two and are single-flight per country.
+Results are still ranked after all requested country loads; progressive source
+publication and exploration/refresh overlap remain lot 6 work.
 
 ## Geo-proxy request timeout
 
-HTTP clients using the Arachnea proxy transport with non-empty country hints
-allow `PROXY_CONNECT_ESTABLISHMENT_TIMEOUT` plus 25 seconds for each HTTP request
-(145 seconds with the current two-minute CONNECT budget). This leaves time for
-the origin request after proxy selection and connection. Other requests retain
-the 25-second timeout. The timeout is per attempt, not a deadline for a complete
-resolver sequence or its retries; per-candidate probe limits remain unchanged.
+Localized calls scope one `ProxySearchContext` before waiting for the shared HTTP
+client. The target is 120 seconds through accepted response classification, with
+15 additional seconds only for an already engaged business attempt. Probes,
+loads, redirects and rotations share counters: 64 TCP precheck reservations,
+32 full-validation reservations and eight distinct business endpoints. Queued
+cancelled work conservatively consumes its reservation. Per-search/shared
+concurrency is 8/16 TCP, 2/4 validations and 2/2 country loads.
+
+The HTTP facade owns retries, so Scrapyfy does not create another retry loop or
+add 120 seconds to each attempt. GET/HEAD may retry relevant transport failures
+or configured rejections; modifying requests require proven absence of sending,
+or explicit `http.proxy_retry_replayable: true` and a reproducible body. The
+optional boolean inherits normally; `false` overrides a parent's authorization.
+Inconclusive responses and errors collecting an already received body do not
+rotate. After accepted classification, the ordinary 25-second body transfer
+timeout applies separately. Ordinary requests retain their 25-second timeout.
+The search is per logical HTTP call, not an entire multi-query resolver sequence.
+
+Contextual Rquest loopbacks are owned by the active request rather than cached
+across requests, to preserve exact cancellation/deadline ownership. Destination
+preferences still provide fast selection, but these calls reconnect. Browser or
+custom engines lacking correlated early observation reject this search mode;
+explicit browser-page APIs remain separate from the correlated HTTP contract.
 
 `arachnea-scrapyfy` contains the generic scraping engine used by Arachnea.
 
@@ -78,4 +96,4 @@ Redirects attribute the final response only to its own origin. Uncorrelated brow
 responses do not update dynamic proxy preferences or exclusions. Transport errors
 after response headers preserve the proxy and do not trigger transport rotation.
 Legacy rejection-status configuration now adapts to the shared classifier above;
-retry counts remain unchanged and replay-safety budgets remain lot 5 work.
+safe sequential retries use the shared deadline and replay policy described above.

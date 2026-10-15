@@ -933,6 +933,13 @@ impl ArachneaHttpClient {
             headers,
             body: None,
         };
+        #[cfg(feature = "arachnea-proxy")]
+        if arachnea_proxy::core::ProxySearchContext::current().is_some() {
+            return Err(ArachneaHttpError::UnsupportedEngineOperation {
+                engine: engine.name(),
+                operation: "correlated localized proxy search",
+            });
+        }
         let response = if fresh {
             engine.refresh_cloudflare_fresh(request).await?
         } else {
@@ -978,6 +985,26 @@ impl ArachneaHttpClient {
     ///
     /// Returns URL, engine, cookie, or Cloudflare detection failures.
     async fn execute(
+        &self,
+        options: RequestOptions,
+    ) -> Result<ArachneaResponse, ArachneaHttpError> {
+        #[cfg(feature = "arachnea-proxy")]
+        if arachnea_proxy::core::ProxySearchContext::current().is_none()
+            && matches!(self.config.proxy, HttpProxyConfig::Arachnea(_))
+            && self
+                .config
+                .proxy_parameters
+                .iter()
+                .any(|(name, value)| name == "countries" && !value.is_empty() && value != "[]")
+        {
+            let search = arachnea_proxy::core::ProxySearchContext::default()
+                .with_replayable(self.config.proxy_retry_replayable);
+            return search.scope(Box::pin(self.execute_scoped(options))).await;
+        }
+        Box::pin(self.execute_scoped(options)).await
+    }
+
+    async fn execute_scoped(
         &self,
         options: RequestOptions,
     ) -> Result<ArachneaResponse, ArachneaHttpError> {
@@ -1261,6 +1288,80 @@ impl ArachneaHttpClient {
         &self,
         options: RequestOptions,
     ) -> Result<ArachneaResponse, ArachneaHttpError> {
+        #[cfg(feature = "arachnea-proxy")]
+        if let Some(search) = arachnea_proxy::core::ProxySearchContext::current() {
+            use arachnea_proxy::core::{proxy_retry_allowed, ProxyRequestDelivery};
+            loop {
+                let result = Box::pin(self.execute_with_rquest_once(options.clone())).await;
+                match result {
+                    Ok(response) => {
+                        if let (Some(token), Some(decision)) = (
+                            response.proxy_selection(),
+                            response.proxy_response_decision(),
+                        ) {
+                            token.record_response_decision(decision).await;
+                            let rejected = matches!(decision, arachnea_proxy::core::http::response_classifier::ProxyResponseDecision::RejectedForDestination { .. });
+                            if rejected
+                                && search.can_start()
+                                && proxy_retry_allowed(
+                                    options.method.as_str(),
+                                    search.replayable(),
+                                    ProxyRequestDelivery::ResponseReceived,
+                                    true,
+                                )
+                            {
+                                search.end_attempt();
+                                continue;
+                            }
+                        }
+                        return Ok(response);
+                    }
+                    Err(error) => {
+                        if let ArachneaHttpError::ProxyAttempt {
+                            selection: Some(token),
+                            delivery,
+                            ..
+                        } = &error
+                        {
+                            if *delivery != ProxyRequestDelivery::ResponseReceived {
+                                token
+                                    .record_failure(
+                                        arachnea_proxy::core::ProxyDestinationFailureReason::Other,
+                                    )
+                                    .await;
+                            }
+                            if search.can_start()
+                                && proxy_retry_allowed(
+                                    options.method.as_str(),
+                                    search.replayable(),
+                                    *delivery,
+                                    false,
+                                )
+                            {
+                                search.end_attempt();
+                                continue;
+                            }
+                        }
+                        return Err(error);
+                    }
+                }
+            }
+        }
+        let response = Box::pin(self.execute_with_rquest_once(options)).await?;
+        #[cfg(feature = "arachnea-proxy")]
+        if let (Some(token), Some(decision)) = (
+            response.proxy_selection(),
+            response.proxy_response_decision(),
+        ) {
+            token.record_response_decision(decision).await;
+        }
+        Ok(response)
+    }
+
+    async fn execute_with_rquest_once(
+        &self,
+        options: RequestOptions,
+    ) -> Result<ArachneaResponse, ArachneaHttpError> {
         self.execute_with_redirects(
             options,
             "rquest",
@@ -1286,6 +1387,27 @@ impl ArachneaHttpClient {
     ///
     /// Returns request execution or cookie storage errors.
     async fn execute_one_with_rquest(
+        &self,
+        options: RequestOptions,
+        requested_url: String,
+        redirect_urls: Vec<String>,
+    ) -> Result<ArachneaResponse, ArachneaHttpError> {
+        #[cfg(feature = "arachnea-proxy")]
+        if let Some(search) = arachnea_proxy::core::ProxySearchContext::current() {
+            return search
+                .for_url(&options.url)
+                .scope(Box::pin(self.execute_one_with_rquest_scoped(
+                    options,
+                    requested_url,
+                    redirect_urls,
+                )))
+                .await;
+        }
+        self.execute_one_with_rquest_scoped(options, requested_url, redirect_urls)
+            .await
+    }
+
+    async fn execute_one_with_rquest_scoped(
         &self,
         options: RequestOptions,
         requested_url: String,
@@ -1329,14 +1451,17 @@ impl ArachneaHttpClient {
                     source: Box::new(ArachneaHttpError::Proxy(error.to_string())),
                 })?;
             let key = format!(
-                "{}|{}|{}",
+                "{}|{}|{}|{}",
                 url.origin().ascii_serialization(),
                 selected
                     .selection_token
                     .as_ref()
                     .map(|token| token.endpoint())
                     .unwrap_or("static"),
-                selected.route_generation
+                selected.route_generation,
+                arachnea_proxy::core::ProxySearchContext::current()
+                    .map(|search| search.id())
+                    .unwrap_or_default()
             );
             let cached = self
                 ._proxy_runtime
@@ -1369,7 +1494,9 @@ impl ArachneaHttpClient {
                 if cache.len() >= 32 {
                     cache.clear();
                 }
-                cache.insert(key, (loopback.clone(), engine.clone()));
+                if arachnea_proxy::core::ProxySearchContext::current().is_none() {
+                    cache.insert(key, (loopback.clone(), engine.clone()));
+                }
                 (loopback, engine)
             };
             let (response, decision) = engine
@@ -1455,6 +1582,13 @@ impl ArachneaHttpClient {
             .ok_or(ArachneaHttpError::CloudflareSolverUnavailable)?;
         info!(engine = engine.name(), method = %options.method, url = %options.url, "sending request");
         let request = self.engine_request(options).await?;
+        #[cfg(feature = "arachnea-proxy")]
+        if arachnea_proxy::core::ProxySearchContext::current().is_some() {
+            return Err(ArachneaHttpError::UnsupportedEngineOperation {
+                engine: engine.name(),
+                operation: "correlated localized proxy search",
+            });
+        }
         let response = engine.send(request).await?;
         self.store_response_cookies(&response.url, &response.headers)
             .await?;
@@ -1804,7 +1938,7 @@ impl ArachneaRequestBuilder {
             headers: self.headers,
             body: self.body,
         };
-        self.client.execute(options).await
+        Box::pin(self.client.execute(options)).await
     }
 }
 

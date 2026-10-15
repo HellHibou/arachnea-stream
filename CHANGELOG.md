@@ -111,6 +111,9 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Localized proxy lot 5 adds a request-owned 120-second search target with 15-second engaged-origin grace, 64/32 technical-work reservations and eight distinct business endpoints. TCP/validation/country-load concurrency is bounded per search and inventory; prechecks and full validations complete progressively using subscriber-owned shared futures. Last-subscriber cancellation drops work without synthetic failures. CONNECT inherits remaining time, safe replay replaces independent retries, and contextual media options accept an explicit boolean replay guarantee. Contextual loopbacks own and abort their child connections; they reconnect across calls instead of retaining stale request budgets.
+
+
 - Localized proxy lot 4 treats countries as a canonical allowed set across routing parameters, dynamic pool markers, media URLs and Scrapyfy configuration/provider calls. HTTP and HTTPS selection ranks all allowed countries together after persistent-cache imports, preferring accepted histories and fresh validated candidates before revalidation, partial capabilities or unknowns. Ready candidates bypass precheck windows; static country routes use stable endpoint/name ordering. Preference eligibility also rejects known invalid proxy certificates. Cold discovery still loads countries sequentially before ranking their combined results; shared budgets and concurrent selection remain lot 5 work.
 
 
@@ -126,6 +129,9 @@ All notable changes to the server workspace are recorded here.
 - Accepted origin responses now make the corresponding dynamic proxy the preferred candidate for that exact country, scheme, host and port instead of globally preferring it for every destination in the country. Concurrent domains therefore retain independent preferred proxies, and preferred reuse still passes every normal eligibility check.
 
 #### Fixed
+
+- SOCKS username parameter parsing preserves commas inside JSON arrays and quoted strings, fixing multi-country lists exposed by the combined proxy/HTTP feature validation.
+
 
 - Dynamic proxy selection now probes unknown or expired required capabilities on demand, including persisted and affinity candidates. Provider loading retains untested records instead of probing the full list; sequential selection stops at the first usable candidate, persists probe results, and throttles inconclusive attempts without disabling TLS validation.
 - HTTP CONNECT establishment stops after 20 seconds or client disconnect instead of continuing abandoned route searches. Complete automatic endpoint probes are bounded to 8 seconds and run inline for cancellation; per-endpoint locks replace the global probe lock without disabling TLS validation.
@@ -247,6 +253,9 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Localized HTTP calls share one search before client acquisition and delegate retries to arachnea-http, replacing the former 145-second per-attempt timeout and duplicate retry loops. Optional http.proxy_retry_replayable inherits with explicit false override; country loading uses bounded concurrency two instead of a 32-wide TCP precheck setting.
+
+
 - HTTP requests using the Arachnea geo-proxy transport now derive their timeout from the shared CONNECT budget plus 25 seconds (145 seconds currently), instead of abandoning proxy discovery after 25 seconds. Requests without Arachnea country routing retain the 25-second timeout.
 
 - `ScraperHttpConfig` now accepts only ordered `proxy_countries`; Scrapyfy no
@@ -272,6 +281,9 @@ All notable changes to the server workspace are recorded here.
 
 
 #### Changed
+
+- Localized Rquest calls propagate the common search across redirects and safe sequential retries, observe acceptance before body collection and keep a separate accepted-body transfer timeout. Modifying operations require NotSent evidence or explicit proxy_retry_replayable authorization; inconclusive results and body errors never rotate. Engines without early correlation reject the scoped search explicitly; ordinary request timeouts and non-search keep-alive remain unchanged.
+
 
 #### Fixed
 

@@ -940,7 +940,12 @@ does not carry proxy countries or geo-proxy rejection statuses, so playback no
 longer uses a geolocated proxy. The territory list is retained for the storyboard
 and deferred Widevine license request, without a local retry or direct fallback.
 The storyboard `/api/proxy` URL encodes HTTP `403` as a rejection status, causing
-one retry with another eligible candidate.
+safe sequential retries within the shared 120-second search target, 15-second
+engaged-attempt grace and eight-endpoint limit. Modifying operations are not
+replayed after uncertain sending without an explicit `proxy_retry_replayable`
+boolean in the proxy URL options. Accepted media streams retain their existing
+transfer policy; buffered localized bodies use a separate 30-second transfer
+timeout.
 
 The TV5MONDE+ resolver uses the player-supplied list for anonymous
 authentication and the initial entitlement request. It then extracts country

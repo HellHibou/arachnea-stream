@@ -124,7 +124,8 @@ http:
   user_agent: "Custom UA"       # optional: complete User-Agent override
   proxy_countries: ["US", "CA"] # optional: allowed proxy countries
   proxy_affinity: "opaque-session-id" # optional: retain the same eligible proxy
-  proxy_rejection_statuses: [403] # optional: rotate the dynamic proxy and retry once
+  proxy_rejection_statuses: [403] # optional: destination rejection; safe retries share one budget
+  proxy_retry_replayable: false # optional: explicit safe-replay guarantee for modifying operations
   max_redirects: 16             # optional: max redirect count (global default: 16)
 ```
 `proxy_countries` is an unordered set of allowed uppercase ISO alpha-2 codes.
@@ -184,7 +185,22 @@ three seconds and the remaining request timeout; all consumed bytes are replayed
 An incomplete/unavailable prefix cannot demonstrate the absence of a marker.
 Handler errors are logged and inconclusive. Engines without early correlated
 observation do not infer preferences or exclusions. The public HTTP response
-remains materialized; common search deadlines and replay safety remain lot 5 work.
+remains materialized. Localized HTTP calls share a 120-second acceptance target,
+with at most 15 seconds to finish an already engaged business attempt. All retry
+layers share limits of 64 precheck reservations, 32 validation reservations and
+eight distinct business endpoints. No new work begins during grace. Accepted
+body collection uses the separate ordinary HTTP timeout (25 seconds in Scrapyfy).
+
+GET/HEAD may retry relevant transport failures or configured rejections.
+Modifying requests with uncertain delivery are never retried by default, even
+on a configured rejection. `proxy_retry_replayable: true` explicitly guarantees
+safe replay of the operation and a reproducible body; it inherits like other
+optional HTTP settings, and `false` overrides a parent. Proven pre-send failures
+may retry without this flag. Inconclusive results and body collection errors do
+not rotate. Browser/custom engines without early correlation reject the scoped
+localized HTTP search mode; explicit browser-page execution remains separate.
+Contextual Rquest calls retain destination preferences but reconnect between
+calls so each loopback has exact cancellation/deadline ownership.
 
 ### HTTP modes (`mode`)
 

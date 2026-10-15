@@ -44,6 +44,9 @@ pub mod proxy_record;
 pub mod proxy_repository;
 /// Explicit request selection and pinned route correlation.
 pub mod proxy_selection;
+/// Shared request-owned proxy search budgets and replay policy.
+pub mod proxy_search;
+pub use proxy_search::{proxy_retry_allowed, ProxySearchContext, ProxySearchLimits};
 mod routing;
 mod stats;
 pub mod transport;

@@ -2,7 +2,7 @@
 
 Date : 13 octobre 2026.
 
-Statut : lots 1 à 4 intégrés ; validations et limites de recette des lots 1/2 en sections 13 à 16, lot 3 en section 17, lot 4 en section 18 (15 octobre 2026).
+Statut : lots 1 à 5 intégrés ; validations et limites de recette des lots 1/2 en sections 13 à 16, lot 3 en section 17, lot 4 en section 18, lot 5 en section 19 (15 octobre 2026).
 
 Révision : prise en compte des deux phases de test, de l’indisponibilité ou des restrictions géographiques du serveur de test, et des décisions sur la persistance et les pays autorisés.
 
@@ -777,7 +777,7 @@ Si les recherches échouent souvent alors qu’il reste des candidats utiles, aj
 
 ### 11.1. Périmètre et principes d’exécution
 
-Ce plan décrit les changements à réaliser. Le lot 0 d’inspection et de conception est réalisé et documenté en section 12. Les lots 1 à 4 ont été intégrés après confirmation de leur conception ; leurs limites de recette sont suivies en sections 13 à 18. Les lots 5 à 7 restent à implémenter. Les lots structurants doivent être présentés avant leur implémentation conformément aux règles du dépôt.
+Ce plan décrit les changements à réaliser. Le lot 0 d’inspection et de conception est réalisé et documenté en section 12. Les lots 1 à 5 ont été intégrés après confirmation de leur conception ; leurs limites de recette sont suivies en sections 13 à 19. Les lots 6 et 7 restent à implémenter. Les lots structurants doivent être présentés avant leur implémentation conformément aux règles du dépôt.
 
 Principes communs :
 
@@ -960,16 +960,16 @@ Travail prévu :
 
 Travail prévu :
 
-- Créer une échéance monotone commune et des compteurs de travail par recherche : cible 120 secondes, marge initiale 15 secondes, 64 préchecks, 32 validations complètes et 8 endpoints métier.
-- Distinguer la fin de recherche de la durée du transfert ; après acceptation, un flux établi n’est pas coupé par l’échéance de découverte.
-- À 120 secondes, cesser de lancer des travaux. N’autoriser la marge que pour une tentative réelle déjà engagée et ne pas lancer une nouvelle rotation durant cette marge.
-- Transmettre le contexte aux retries de connexion et HTTP afin que les budgets ne se multiplient pas entre les couches. Réduire chaque timeout au temps restant.
-- Appliquer la politique de rejeu validée et conserver les corps nécessaires au rejeu autorisé ; un envoi incertain d’une opération modificatrice interdit le retry automatique.
-- Remplacer `collect()` sur la fenêtre entière par la consommation progressive des résultats et lancer la validation dès qu’un candidat est prêt.
-- Borner la concurrence par recherche et par inventaire avec les limites initiales de la section 10.3. Inclure l’attente des créneaux dans le budget.
-- Mutualiser les préchecks et validations aux bonnes portées ; distinguer tentative en cours, échec, résultat inconclusif et annulation parce qu’un autre candidat a gagné.
-- Gérer les attentes partagées sans laisser de tâches détachées. L’abandon d’un appel retire son intérêt, mais ne coupe pas une opération encore attendue par un autre ; après disparition du dernier intérêt, annuler le travail.
-- Ne pas fusionner les requêtes métier, leurs corps, cookies ou identités ; coordonner uniquement la découverte et les preuves techniques partageables.
+- [x] Créer une échéance monotone commune et des compteurs de travail par recherche : cible 120 secondes, marge initiale 15 secondes, 64 préchecks, 32 validations complètes et 8 endpoints métier.
+- [x] Distinguer la fin de recherche de la durée du transfert ; après acceptation, un flux établi n’est pas coupé par l’échéance de découverte.
+- [x] À 120 secondes, cesser de lancer des travaux. N’autoriser la marge que pour une tentative réelle déjà engagée et ne pas lancer une nouvelle rotation durant cette marge.
+- [x] Transmettre le contexte aux retries de connexion et HTTP afin que les budgets ne se multiplient pas entre les couches. Réduire chaque timeout au temps restant.
+- [x] Appliquer la politique de rejeu validée et conserver les corps nécessaires au rejeu autorisé ; un envoi incertain d’une opération modificatrice interdit le retry automatique.
+- [x] Remplacer `collect()` sur la fenêtre entière par la consommation progressive des résultats et lancer la validation dès qu’un candidat est prêt.
+- [x] Borner la concurrence par recherche et par inventaire avec les limites initiales de la section 10.3. Inclure l’attente des créneaux dans le budget.
+- [x] Mutualiser les préchecks et validations aux bonnes portées ; distinguer tentative en cours, échec, résultat inconclusif et annulation parce qu’un autre candidat a gagné.
+- [x] Gérer les attentes partagées sans laisser de tâches détachées. L’abandon d’un appel retire son intérêt, mais ne coupe pas une opération encore attendue par un autre ; après disparition du dernier intérêt, annuler le travail.
+- [x] Ne pas fusionner les requêtes métier, leurs corps, cookies ou identités ; coordonner uniquement la découverte et les preuves techniques partageables.
 
 **Critères de sortie :** aucune attente de tout un lot, succès rendu dès disponibilité, plafond total respecté entre retries, absence de rejeu non sûr, annulation sans pollution du cache ni arrêt d’un autre appel.
 
@@ -1586,3 +1586,159 @@ La suite Scrapyfy globale n’a pas été relancée ; ses limites préexistantes
 conservées en section 17. Les tests locaux ne constituent pas une mesure du délai
 réel de découverte multi-pays. Les retests concurrents, budgets et retries restent
 au lot 5. Aucun test ni infrastructure de test supplémentaire n’a été créé.
+
+
+## 19. Lot 5 — budget commun, retries sûrs et pipeline progressif (15 octobre 2026)
+
+### 19.1. Contexte et frontières
+
+La conception a été confirmée avant modification. Le module `proxy_search.rs`
+définit `ProxySearchLimits`, `ProxySearchContext` et `proxy_retry_allowed`, sans
+dépendance à arachnea-http ou aux services. Un contexte possède un départ
+monotone, une cible de 120 secondes et une limite absolue de 135 secondes.
+Les scopes Tokio propagent le contexte sans le sérialiser. Le core épinglé le
+conserve explicitement pour les tâches du connecteur loopback.
+
+La sélection, les imports de cache, l’attente de verrous/créneaux et les fournisseurs
+restent bornés à la cible. La marge de 15 secondes ne concerne que la tentative
+métier déjà engagée ; aucun nouveau candidat ou retry n’est lancé pendant cette
+marge. Les plafonds communs sont 64 réservations TCP, 32 réservations de validation
+et 8 endpoints métier distincts. Une réservation peut être consommée pendant
+l’attente d’un créneau puis annulée : ce choix conservateur garantit les plafonds
+mais peut réduire le nombre de tests réseau effectivement exécutés sous forte
+contention. Les lectures et candidats prêts ne consomment pas de réservation.
+Une opération mutualisée utilise une exécution réseau et une réservation dans
+chaque recherche participante ; aucune remise à zéro entre les couches.
+
+Les tentatives d’un même endpoint/URL sont exclues localement. Les URL effectives
+distinguent les redirections de la répétition d’une tentative ; les endpoints
+restent comptés une seule fois dans le plafond commun. Les requêtes métier restent
+séquentielles, avec leurs propres méthodes, corps, cookies et identités.
+Le fallback SOCKS DNS ne réessaie pas le même endpoint dynamique dans ce parcours.
+Les pools statiques indépendants conservent leurs politiques.
+
+L’acceptation finale ferme la recherche dès les en-têtes ou l’extrait requis,
+y compris pendant la marge. Un canal watch libère alors les attentes d’échéance
+encore actives : un corps accepté peut dépasser 135 secondes. Rquest utilise
+séparément le timeout HTTP ordinaire pour les en-têtes puis le transfert accepté
+(25 secondes via Scrapyfy, 30 par défaut dans arachnea-http). Le client médias
+limite ses en-têtes contextuels et corps bufferisés à 30 secondes ; les flux
+streamés acceptés conservent leur politique de transfert. Les appels médias sans
+contexte ne reçoivent pas ce nouveau timeout. Le tunnel seul conserve un budget
+d’établissement de 120 secondes, sans inventer d’acceptation HTTP.
+
+### 19.2. Pipeline et durée de vie
+
+L’inventaire partage ses données, limites, verrous et métriques entre clones.
+Les préchecks utilisent `buffer_unordered` et alimentent immédiatement les
+validations, sans collecte de fenêtre complète. Limites par recherche/inventaire :
+TCP 8/16, validations 2/4 et chargements pays 2/2. `probe_batch_size` est borné
+à 1..=8 ; Scrapyfy n’installe plus sa valeur historique de 32.
+
+Les préchecks sont mutualisés par endpoint ; les validations par endpoint,
+phase HTTP/HTTPS et identité de configuration ; les fournisseurs par pays.
+Les registres conservent seulement des `WeakShared`. Chaque participant pilote
+la future partagée et borne sa propre attente. Le départ d’un participant ne
+coupe pas ceux qui attendent encore. Le départ du dernier abandonne la future,
+libère les créneaux et ne produit aucun échec ni résultat inconclusif artificiel.
+L’abandon d’une opération technique est journalisé séparément d’un résultat.
+Aucun worker de découverte ni tâche de réparation n’est détaché.
+
+Les validations complètes conservent leur plafond de huit secondes. Seules les
+tentatives terminées, y compris un timeout réel de ce plafond, enregistrent leur
+temporisation. Une validation interrompue avant résultat n’écrit pas un échec ;
+un redémarrage peut donc la retenter. Les preuves positives effectivement acquises
+restent valides. Chaque appel réapplique pays, exclusions et sécurité à un résultat
+partagé avant de le proposer.
+
+Les loopbacks contextuels vivent avec l’appel, hors cache inter-appels. Leur
+`JoinSet` annule les connexions enfants quand le listener est abandonné. Cela
+évite de garder un ancien budget sur une reconnexion, mais entraîne actuellement
+une reconnexion entre appels contextuels. Les préférences par destination et les
+clients keep-alive ordinaires restent disponibles. Le remplacement par un
+connecteur natif ou une corrélation permettant une meilleure réutilisation de
+socket reste un chantier distinct ; il n’est pas dissimulé dans le lot 5.
+
+### 19.3. Retry, configuration et intégration
+
+La façade arachnea-http porte la boucle de retry Rquest ; les deux boucles
+textuelle/binaire Scrapyfy et leur addition 120 + 25 secondes sont supprimées.
+Le contexte Scrapyfy commence avant l’acquisition du client partagé. La route
+médias utilise la même politique et le même contexte jusqu’à la classification.
+Les refus sont enregistrés au jeton exact même si la requête n’est pas rejouable.
+Un résultat inconclusif ou une erreur de collecte après en-têtes ne tourne pas.
+
+GET/HEAD peuvent réessayer un refus configuré ou une erreur de transport pertinente.
+Une opération modificatrice ne le peut qu’avant envoi démontré, ou avec garantie
+explicite de rejeu et corps reproductible. Une erreur Rquest opaque reste
+`PossiblySent`. Les erreurs médias distinguent les frontières pré-envoi,
+écriture/lecture d’en-têtes incertaines et collecte de corps. `ProxyError` expose
+le variant contextualisé `RequestAttempt` ; les erreurs sans preuve d’envoi
+absent ne sont pas requalifiées à partir d’une chaîne de caractères.
+
+L’option `http.proxy_retry_replayable: true` est facultative et héritée ; `false`
+annule une autorisation parent. La configuration code arachnea-http propose le
+builder équivalent. Les options JSON d’URL médias acceptent le même booléen,
+strictement validé et conservé lors de la réécriture des redirections. Aucun
+service n’est déclaré rejouable automatiquement. Les schémas YAML ne changent
+pas d’autres champs ni les opérations métier des services.
+
+Les moteurs navigateur/personnalisés sans corrélation précoce retournent une
+erreur d’opération non supportée lorsqu’ils sont invoqués dans cette recherche,
+y compris en fallback automatique. Les API explicites de page navigateur restent
+un autre parcours ; elles ne sont pas présentées comme couvertes par ces budgets.
+L’épuisement d’une recherche contextualisée ne déclenche pas un fallback direct.
+
+Le contrôle combiné des features HTTP/proxy a exposé le test serveur SOCKS déjà
+existant : son parseur séparait aussi les virgules internes à la liste JSON de
+pays. La correction locale conserve les séparateurs historiques hors tableaux/
+chaînes JSON, sans réorganiser le serveur ni changer le contrat du paramètre.
+
+### 19.4. Validation et limites de recette
+
+Aucun nouveau test ni infrastructure de test n’a été créé. Les scénarios existants
+sont adaptés : expiration d’un premier appel pendant qu’un second continue le
+même chargement fournisseur ; réponse TLS acceptée pendant une marge simulée en
+millisecondes, corps terminé après sa limite absolue et seconde réponse 503 sur
+le même stream ; règles de rejeu POST/GET ; héritage/surcharge du booléen et
+conservation/validation dans les options de redirection. Les autres scénarios
+locaux des lots précédents restent exécutés.
+
+Les premiers essais ont corrigé une contrainte de durée de vie des futures
+concurrentes et les correspondances exhaustives du nouveau variant d’erreur.
+Les tests réseau doivent s’exécuter hors sandbox pour leurs sockets locales.
+La combinaison de features élargit la suite proxy de 102 à 125 tests existants ;
+le défaut SOCKS constaté dans cette combinaison a été corrigé, et non filtré.
+
+Les suites ne constituent pas une recette exhaustive de charge : les plafonds
+64/32/8 avec toutes les combinaisons de retries, la mesure des sémaphores sous
+forte concurrence, toutes les annulations de validation/fournisseur et l’absence
+de rejeu POST sur de vrais effets serveur restent à compléter sur autorisation
+de tests supplémentaires. Aucun benchmark fournisseur réel, proxy externe ou
+reverse proxy de production n’a été utilisé. La configuration d’exploitation
+doit autoriser l’horizon de recherche de 135 secondes et le transfert séparé.
+La suite globale Scrapyfy conserve les limites préexistantes de la section 17.
+La publication progressive des sources, le chevauchement après 10 secondes/8
+validations et les circuits de cible restent au lot 6.
+
+Le filtre d’agrégateur a également révélé un dépassement de pile dû à la taille
+des futures HTTP composées. Les frontières publiques/internes concernées sont
+boxées, sans augmenter la pile du runtime ni modifier les scénarios. Le filtre
+complet de 16 tests repasse avec la taille de pile habituelle.
+
+Contrôles finaux, Cargo offline (commandes depuis la racine sauf indication) :
+
+| Commande | Résultat |
+|---|---|
+| `cargo test --offline --manifest-path server/Cargo.toml -p arachnea-proxy -p arachnea-http --lib --features arachnea-proxy/persistence,arachnea-proxy/controller-service,arachnea-http/arachnea-proxy --quiet` | Proxy : 125 réussis ; HTTP : 45 réussis ; aucun échec |
+| `cargo test --offline --manifest-path server/Cargo.toml -p arachnea-scrapyfy --lib --features arachnea-proxy,sqlite-persistence,arachnea-proxy/controller-service -- scrapyfy::http_client` | 2 réussis, 78 filtrés |
+| `cargo test --offline -p arachnea-scrapyfy --lib --features arachnea-proxy,sqlite-persistence,arachnea-proxy/controller-service scraper_agregator::tests -- --test-threads=1` (depuis `server/`) | 16 réussis, 64 filtrés ; pile normale |
+| `cargo test --offline --manifest-path server/Cargo.toml -p arachnea-proxy --lib --no-default-features --features core multi_country_selection_checks_all_cached_countries_before_loading` | 1 réussi, 85 filtrés |
+| `cargo check --offline --manifest-path server/Cargo.toml -p arachnea-http -p arachnea-scrapyfy --no-default-features` | Réussite ; warnings préexistants de code inutilisé selon features |
+| `cargo check --offline --manifest-path server/Cargo.toml -p arachnea-stream` | Réussite |
+| Rustfmt ciblé et `git diff --check` | Réussite |
+
+La suite combinée proxy/HTTP a passé avant le boxing final ; le filtre complet
+d’agrégateur et les compilations ont ensuite repassé après ce changement de
+représentation des futures. Les résultats ne valent pas validation exhaustive
+des plafonds et entrelacements non couverts, listés ci-dessus.

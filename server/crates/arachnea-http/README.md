@@ -256,7 +256,7 @@ their loopback helper even if a concurrent cache replacement occurs.
 `ArachneaResponse::proxy_selection()` exposes the exact dynamic selection.
 Rquest records response receipt before collecting the body, independently of the
 HTTP status. Lot 3 adds the injectable response classifier at this boundary;
-the end-to-end search deadline remains planned for lot 5.
+localized calls share the search deadline and replay policy below.
 
 `ArachneaHttpError::ProxyAttempt` retains the token and delivery evidence:
 preselection failures are `NotSent`, opaque Rquest send failures are `PossiblySent`,
@@ -264,3 +264,36 @@ and failures collecting a body after headers are `ResponseReceived`. Body collec
 errors do not invalidate another endpoint or trigger Scrapyfy transport rotation.
 Browser/custom-engine responses without reliable correlation expose no token and
 must not create a dynamic preference or exclusion by destination-map inference.
+
+
+## Localized proxy search and safe retries
+
+With the Arachnea transport and non-empty `countries`, the facade creates one
+`ProxySearchContext` across selection, redirects and retries. An explicitly scoped
+context is reused. Defaults are a 120-second discovery/acceptance target, a
+15-second grace period for an engaged origin attempt, 64 TCP precheck reservations,
+32 validation reservations and eight distinct business endpoints. Waiting for
+resources consumes the same deadline. Retry layers never reset it.
+
+Rquest header/prefix observation uses the remaining origin deadline. Once a final
+response is accepted, its body collection uses a separate `request_timeout`
+(default 30 seconds), without the search deadline cutting an accepted transfer.
+Ordinary requests keep their existing total request timeout. A safe-to-retry
+rejected response is released before collecting its body; responses that cannot
+be replayed retain body collection within the remaining time. A body collection
+error is `ResponseReceived` and never triggers a transport retry.
+
+GET/HEAD may retry relevant correlated transport errors or configured rejections.
+Other methods require `NotSent` evidence or explicit operation-level authorization
+through `ArachneaHttpConfig::builder().proxy_retry_replayable(true)`. Bodies are
+reproduced from owned bytes. Rejection status alone does not authorize replay.
+Inconclusive results return without rotation. Destination observations remain
+attached to the exact token and never establish global proxy failure.
+
+Contextual loopbacks live only as long as the call; they are excluded from the
+cross-call pinned-client cache, so these calls reconnect while still reusing
+accepted destination preferences. Ordinary non-search keep-alive clients are
+unchanged. Browser/custom engines without early route correlation return
+`UnsupportedEngineOperation` within this scoped search, rather than bypassing
+its limits or inferring a proxy result. External API gateways must allow the
+135-second search horizon plus the separate accepted-body transfer policy.

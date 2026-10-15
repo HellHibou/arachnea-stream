@@ -463,8 +463,11 @@ pub struct ArachneaHttpConfig {
         Option<arachnea_proxy::core::http::response_classifier::ProxyResponsePolicy>,
     /// Margin before cookie expiry where Cloudflare cookies are proactively refreshed.
     pub cookie_refresh_margin: Duration,
-    /// Timeout applied to outbound HTTP requests.
+    /// Ordinary total timeout. Localized searches use it separately for origin
+    /// response headers and accepted-body transfer within their shared search budget.
     pub request_timeout: Duration,
+    /// Explicit operation-level authorization to replay a reproducible modifying request.
+    pub proxy_retry_replayable: bool,
     /// Maximum number of HTTP redirects followed by the facade.
     ///
     /// `None` uses the crate default, currently three redirects. `Some(0)`
@@ -511,6 +514,7 @@ impl Default for ArachneaHttpConfig {
             proxy_response_classifier: None,
             cookie_refresh_margin: Duration::from_secs(300),
             request_timeout: Duration::from_secs(30),
+            proxy_retry_replayable: false,
             max_redirects: None,
             max_cloudflare_retries: 1,
             default_session_cookie_ttl: Duration::from_secs(60 * 60),
@@ -763,6 +767,15 @@ impl ArachneaHttpConfigBuilder {
     /// The updated builder.
     pub fn cookie_refresh_margin(mut self, duration: Duration) -> Self {
         self.config.cookie_refresh_margin = duration;
+        self
+    }
+
+    /// Authorizes proxy retries for operations whose effects and body permit replay.
+    ///
+    /// # Arguments
+    /// - `replayable`: Explicit caller guarantee; false preserves safe defaults.
+    pub fn proxy_retry_replayable(mut self, replayable: bool) -> Self {
+        self.config.proxy_retry_replayable = replayable;
         self
     }
 
