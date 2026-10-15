@@ -7,7 +7,7 @@ use std::time::{Duration, Instant, SystemTime};
 use crate::core::ProxySearchContext;
 use futures::future::{BoxFuture, WeakShared};
 use futures::{stream, FutureExt, StreamExt};
-use tokio::sync::{Mutex, RwLock, Semaphore};
+use tokio::sync::{watch, Mutex, RwLock, Semaphore};
 
 #[cfg(feature = "persistence")]
 use crate::core::ProxyRepository;
@@ -29,6 +29,21 @@ impl Drop for SharedExecution {
         if !self.completed {
             tracing::debug!(work = %self.key, "cancelled shared proxy work after last subscriber departed");
         }
+    }
+}
+
+struct InventoryBatchSink {
+    inventory: ProxyInventory,
+    country: String,
+}
+
+#[async_trait::async_trait]
+impl crate::core::proxy_record::ProxyBatchSink for InventoryBatchSink {
+    async fn publish(&self, records: Vec<ProxyRecord>) -> Result<()> {
+        self.inventory
+            .merge_provider_batch(&self.country, records)
+            .await;
+        Ok(())
     }
 }
 
@@ -75,6 +90,12 @@ pub struct InventoryConfig {
     pub probe_batch_size: usize,
     /// Minimum delay between provider refresh attempts for the same country.
     pub provider_refresh_cooldown: Duration,
+    /// Lower bound retained when an observed endpoint failure requests early refresh.
+    pub provider_min_refresh_interval: Duration,
+    /// Cache exploration time before discovery overlaps the remaining candidates.
+    pub exploration_before_refresh: Duration,
+    /// Completed unsuccessful validations before discovery overlaps the cache.
+    pub failures_before_refresh: usize,
 }
 
 impl Default for InventoryConfig {
@@ -86,6 +107,9 @@ impl Default for InventoryConfig {
             max_destination_failures_before_ko: 10,
             probe_batch_size: 8,
             provider_refresh_cooldown: Duration::from_secs(120),
+            provider_min_refresh_interval: Duration::from_secs(10),
+            exploration_before_refresh: Duration::from_secs(10),
+            failures_before_refresh: 8,
         }
     }
 }
@@ -96,6 +120,7 @@ struct InventoryInner {
     country_records: HashMap<String, Vec<String>>,
     country_load_locks: HashMap<String, Arc<Mutex<()>>>,
     country_last_refresh_attempts: HashMap<String, Instant>,
+    country_early_refresh: std::collections::HashSet<String>,
     /// Bounded accepted histories per exact destination, independent of countries.
     preferred_by_destination: HashMap<String, crate::core::ProxyDestinationPreference>,
     evicted: HashMap<String, ProxyRecord>,
@@ -124,6 +149,7 @@ pub struct ProxyInventory {
     tcp_slots: Arc<Semaphore>,
     validation_slots: Arc<Semaphore>,
     provider_slots: Arc<Semaphore>,
+    discovery_revision: watch::Sender<u64>,
     /// Persistent cache for dynamic proxy records, when configured.
     #[cfg(feature = "persistence")]
     persistence: Option<Arc<dyn ProxyRepository>>,
@@ -161,6 +187,7 @@ impl ProxyInventory {
                 country_records: HashMap::new(),
                 country_load_locks: HashMap::new(),
                 country_last_refresh_attempts: HashMap::new(),
+                country_early_refresh: Default::default(),
                 preferred_by_destination: HashMap::new(),
                 evicted: HashMap::new(),
                 affinity_bindings: HashMap::new(),
@@ -172,6 +199,7 @@ impl ProxyInventory {
             tcp_slots: Arc::new(Semaphore::new(16)),
             validation_slots: Arc::new(Semaphore::new(4)),
             provider_slots: Arc::new(Semaphore::new(2)),
+            discovery_revision: watch::channel(0).0,
             #[cfg(feature = "persistence")]
             persistence: None,
             #[cfg(feature = "persistence")]
@@ -703,7 +731,7 @@ impl ProxyInventory {
     ///
     /// Accepted history and affinity are consulted first, then all relevant
     /// persistent records are imported before cached candidates are ranked together.
-    /// Providers are consulted only after the combined cache yields no candidate.
+    /// Discovery overlaps slow cache exploration and publishes candidates as sources complete.
     pub async fn select_any_for_destination(
         &self,
         countries: &[String],
@@ -767,31 +795,138 @@ impl ProxyInventory {
         for country in &attempted {
             self.load_cached_country(country).await;
         }
-        if let Some(record) = self
-            .select_cached_any(&attempted, require_https, destination)
-            .await
-        {
-            self.bind_affinity(affinity, &record).await;
-            return Ok(record);
+        let search = ProxySearchContext::current().expect("selection is search scoped");
+        let mut failures = search.validation_failures();
+        let initial_failures = *failures.borrow();
+        let mut revisions = self.discovery_revision.subscribe();
+        let refresh_after = tokio::time::sleep(self.config.exploration_before_refresh);
+        futures::pin_mut!(refresh_after);
+        let mut selectors =
+            futures::stream::FuturesUnordered::<BoxFuture<'_, Option<ProxyRecord>>>::new();
+        selectors.push(
+            self.select_cached_any(&attempted, require_https, destination)
+                .boxed(),
+        );
+        let countries = self
+            .discovery_order(&attempted, require_https, destination)
+            .await;
+        let loads = async {
+            let loads = stream::iter(countries.into_iter().map(|country| async move {
+                self.load_if_needed(&country).await;
+            }))
+            .buffer_unordered(2);
+            loads.collect::<Vec<_>>().await;
+        }
+        .boxed();
+        futures::pin_mut!(loads);
+        let mut refreshing = false;
+        let mut loaded = false;
+        let mut dirty = false;
+        loop {
+            if !refreshing
+                && (selectors.is_empty()
+                    || (*failures.borrow()).saturating_sub(initial_failures)
+                        >= self.config.failures_before_refresh.max(1))
+            {
+                refreshing = true;
+            }
+            if dirty && selectors.len() < 2 {
+                dirty = false;
+                selectors.push(
+                    self.select_cached_any(&attempted, require_https, destination)
+                        .boxed(),
+                );
+            }
+            if loaded && selectors.is_empty() {
+                break;
+            }
+            tokio::select! {
+                result = selectors.next(), if !selectors.is_empty() => {
+                    if let Some(Some(record)) = result {
+                        self.bind_affinity(affinity, &record).await;
+                        return Ok(record);
+                    }
+                }
+                _ = &mut refresh_after, if !refreshing => { refreshing = true; }
+                _ = failures.changed(), if !refreshing => {}
+                _ = revisions.changed(), if refreshing && !loaded => { dirty = true; }
+                _ = &mut loads, if refreshing && !loaded => { loaded = true; dirty = true; }
+            }
         }
 
-        let loads = stream::iter(attempted.clone().into_iter().map(|country| async move {
-            self.load_if_needed(&country).await;
-        }))
-        .buffer_unordered(2);
-        loads.collect::<Vec<_>>().await;
-        if let Some(record) = self
-            .select_cached_any(&attempted, require_https, destination)
-            .await
+        if self.probe_mode() == ProbeMode::Strict
+            && self.inner.read().await.records.values().any(|record| {
+                record
+                    .country
+                    .as_ref()
+                    .is_some_and(|country| attempted.contains(country))
+                    && record.tcp_reachable == Some(true)
+                    && needs_capability_probe(record, require_https)
+                    && is_selection_candidate(
+                        record,
+                        record.country.as_deref().unwrap_or_default(),
+                        require_https,
+                        destination,
+                        SystemTime::now(),
+                        ProbeMode::Strict,
+                    )
+            })
         {
-            self.bind_affinity(affinity, &record).await;
-            return Ok(record);
+            return Err(ProxyError::RouteUnavailable(format!(
+                "strict proxy validation remained inconclusive for countries [{}]",
+                attempted.join(", ")
+            )));
         }
-
         Err(ProxyError::RouteUnavailable(format!(
             "no working proxy available for requested countries [{}]",
             attempted.join(", ")
         )))
+    }
+
+    async fn discovery_order(
+        &self,
+        countries: &[String],
+        require_https: bool,
+        destination: Option<&Destination>,
+    ) -> Vec<String> {
+        let inner = self.inner.read().await;
+        let now = SystemTime::now();
+        let mut ranked: Vec<_> = countries
+            .iter()
+            .map(|country| {
+                let usable = inner
+                    .country_records
+                    .get(country)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|key| inner.records.get(key))
+                    .filter(|record| {
+                        is_selection_candidate(
+                            record,
+                            country,
+                            require_https,
+                            destination,
+                            now,
+                            self.probe_mode(),
+                        )
+                    })
+                    .count();
+                let mut hash = std::collections::hash_map::DefaultHasher::new();
+                use std::hash::{Hash, Hasher};
+                country.hash(&mut hash);
+                (
+                    country.clone(),
+                    usable,
+                    inner.country_last_refresh_attempts.get(country).copied(),
+                    hash.finish(),
+                )
+            })
+            .collect();
+        ranked.sort_by_key(|(_, usable, refreshed, tie)| (*usable, *refreshed, *tie));
+        ranked
+            .into_iter()
+            .map(|(country, _, _, _)| country)
+            .collect()
     }
 
     /// Reuses the proxy accepted by this exact origin before any new endpoint
@@ -1313,7 +1448,13 @@ impl ProxyInventory {
                     future
                 }
             };
-            shared.await
+            let result = shared.await;
+            if validation && result.is_none() {
+                if let Some(search) = &search {
+                    search.failed_validation();
+                }
+            }
+            result
         };
         match &search {
             Some(search) => search.technical(wait).await.ok().flatten(),
@@ -1322,7 +1463,8 @@ impl ProxyInventory {
     }
 
     /// Persists phase attempts independently of health and capability results,
-    /// so inconclusive or cancelled validations remain throttled after restart.
+    /// so completed inconclusive validations remain throttled after restart.
+    /// Cancellation without a completed result never writes a synthetic attempt.
     async fn save_probe_attempt(
         &self,
         authority: &str,
@@ -1422,24 +1564,20 @@ impl ProxyInventory {
         {
             let phase = if require_https { "https" } else { "http" };
             if recent_probe_attempt(&record, phase, self.config.probe_ttl) {
-                return None;
+                return (complementary_trial_allowed(&record, self.probe_mode())
+                    && is_eligible(
+                        &record,
+                        &country,
+                        require_https,
+                        destination,
+                        SystemTime::now(),
+                        self.probe_mode(),
+                    ))
+                .then_some(record);
             }
             let started = epoch_millis();
             tracing::info!(proxy = %authority, require_https, "probing proxy capabilities before selection");
-            let result = match tokio::time::timeout(
-                Duration::from_secs(8),
-                probe.probe_required(&mut record, require_https),
-            )
-            .await
-            {
-                Ok(result) => result,
-                Err(_) => {
-                    tracing::warn!(proxy = %authority, require_https, "complete proxy capability probe budget exhausted");
-                    self.save_probe_attempt(&authority, phase, started, None)
-                        .await;
-                    return None;
-                }
-            };
+            let result = probe.probe_required(&mut record, require_https).await;
             tracing::info!(
                 proxy = %authority,
                 require_https,
@@ -1472,7 +1610,9 @@ impl ProxyInventory {
             }
             record = retained.into_iter().next()?;
         }
-        if needs_capability_probe(&record, require_https) {
+        if needs_capability_probe(&record, require_https)
+            && !complementary_trial_allowed(&record, self.probe_mode())
+        {
             return None;
         }
         is_eligible(
@@ -1557,16 +1697,24 @@ impl ProxyInventory {
             let now = Instant::now();
             if let Some(last_attempt) = inner.country_last_refresh_attempts.get(country) {
                 let elapsed = now.duration_since(*last_attempt);
-                if elapsed < self.config.provider_refresh_cooldown {
+                let cooldown = if inner.country_early_refresh.contains(country) {
+                    self.config.provider_min_refresh_interval
+                } else {
+                    self.config
+                        .provider_refresh_cooldown
+                        .max(self.config.provider_min_refresh_interval)
+                };
+                if elapsed < cooldown {
                     tracing::debug!(
                         country = %country,
                         elapsed_ms = elapsed.as_millis(),
-                        cooldown_ms = self.config.provider_refresh_cooldown.as_millis(),
+                        cooldown_ms = cooldown.as_millis(),
                         "dynamic proxy provider refresh suppressed by inventory cooldown"
                     );
                     return;
                 }
             }
+            inner.country_early_refresh.remove(country);
             inner
                 .country_last_refresh_attempts
                 .insert(country.to_string(), now);
@@ -1575,120 +1723,121 @@ impl ProxyInventory {
         tracing::info!(
             country = %country,
             cooldown_seconds = self.config.provider_refresh_cooldown.as_secs(),
-            "refreshing dynamic proxy provider after cache yielded no eligible candidate"
+            "refreshing dynamic proxy provider during candidate exploration"
         );
 
-        let result = provider
-            .load_proxies(crate::core::ProxyLoadRequest {
-                countries: vec![country.to_string()],
-            })
-            .await;
-
-        match result {
-            Ok(records) => {
-                let loaded_count = records.len();
-                let existing = self.inner.read().await.records.clone();
-                let (records, probe_indices, duplicate_count, cached_count) =
-                    prepare_provider_records(
-                        records,
-                        &existing,
-                        SystemTime::now(),
-                        self.config.probe_ttl,
-                    );
-                let pending_probe_count = probe_indices.len();
-                let probe_stats = selection_stats(
-                    records.iter(),
-                    country,
-                    false,
-                    None,
-                    SystemTime::now(),
-                    self.config.probe_ttl,
-                    self.probe_mode(),
-                );
-                let protocol_conflict_count = records
-                    .iter()
-                    .filter(|record| declared_protocol_count(record) > 1)
-                    .count();
-                let undeclared_protocol_count = records
-                    .iter()
-                    .filter(|record| runtime_protocol_is_undeclared(record))
-                    .count();
-                tracing::info!(
-                    country = %country,
-                    loaded_count,
-                    deduplicated_count = records.len(),
-                    duplicate_count,
-                    protocol_conflict_count,
-                    undeclared_protocol_count,
-                    cached_count,
-                    pending_probe_count,
-                    ok = probe_stats.ok,
-                    unknown = probe_stats.unknown,
-                    ko = probe_stats.ko,
-                    auth_required = probe_stats.authentication_required,
-                    auth_flag = probe_stats.authentication_required_flag,
-                    http_forward_available = probe_stats.http_forward_available,
-                    http_forward_unavailable = probe_stats.http_forward_unavailable,
-                    http_forward_unknown = probe_stats.http_forward_unknown,
-                    https_tunnel_available = probe_stats.https_tunnel_available,
-                    https_tunnel_unavailable = probe_stats.https_tunnel_unavailable,
-                    https_tunnel_unknown = probe_stats.https_tunnel_unknown,
-                    destination_tls_available = probe_stats.destination_tls_available,
-                    destination_tls_unavailable = probe_stats.destination_tls_unavailable,
-                    destination_tls_unknown = probe_stats.destination_tls_unknown,
-                    proxy_tls_valid = probe_stats.proxy_tls_valid,
-                    proxy_tls_invalid = probe_stats.proxy_tls_invalid,
-                    proxy_tls_unknown = probe_stats.proxy_tls_unknown,
-                    "loaded dynamic proxies prepared for on-demand probing"
-                );
-                let records_to_persist = self.add_or_update(records).await;
-
-                let http_stats = self
-                    .selection_stats_for_country(country, false)
-                    .await
-                    .unwrap_or_default();
-                let https_stats = self
-                    .selection_stats_for_country(country, true)
-                    .await
-                    .unwrap_or_default();
-                tracing::info!(
-                    country = %country,
-                    total = http_stats.total,
-                    ok = http_stats.ok,
-                    eligible_http = http_stats.eligible,
-                    eligible_https = https_stats.eligible,
-                    http_forward_available = http_stats.http_forward_available,
-                    http_forward_unavailable = http_stats.http_forward_unavailable,
-                    http_forward_unknown = http_stats.http_forward_unknown,
-                    https_tunnel_available = https_stats.https_tunnel_available,
-                    https_tunnel_unavailable = https_stats.https_tunnel_unavailable,
-                    https_tunnel_unknown = https_stats.https_tunnel_unknown,
-                    destination_tls_available = https_stats.destination_tls_available,
-                    destination_tls_unavailable = https_stats.destination_tls_unavailable,
-                    destination_tls_unknown = https_stats.destination_tls_unknown,
-                    https_rejected = https_stats.https_rejected,
-                    ko = http_stats.ko,
-                    auth_required = http_stats.authentication_required,
-                    cooldown = http_stats.cooldown,
-                    "dynamic proxy inventory updated"
-                );
-
-                #[cfg(feature = "persistence")]
-                self.persist_records(&records_to_persist).await;
-                #[cfg(not(feature = "persistence"))]
-                let _ = records_to_persist;
-            }
-            Err(error) => {
-                tracing::warn!(country = %country, %error, "failed to load proxies");
-            }
+        if let Err(error) = provider
+            .load_proxies_progressively(
+                crate::core::ProxyLoadRequest {
+                    countries: vec![country.to_string()],
+                },
+                Arc::new(InventoryBatchSink {
+                    inventory: self.clone(),
+                    country: country.to_string(),
+                }),
+            )
+            .await
+        {
+            tracing::warn!(country, %error, "progressive proxy load stopped; published batches retained");
         }
+    }
+
+    async fn merge_provider_batch(&self, country: &str, records: Vec<ProxyRecord>) {
+        let loaded_count = records.len();
+        let existing = self.inner.read().await.records.clone();
+        let (records, probe_indices, duplicate_count, cached_count) =
+            prepare_provider_records(records, &existing, SystemTime::now(), self.config.probe_ttl);
+        let pending_probe_count = probe_indices.len();
+        let probe_stats = selection_stats(
+            records.iter(),
+            country,
+            false,
+            None,
+            SystemTime::now(),
+            self.config.probe_ttl,
+            self.probe_mode(),
+        );
+        let protocol_conflict_count = records
+            .iter()
+            .filter(|record| declared_protocol_count(record) > 1)
+            .count();
+        let undeclared_protocol_count = records
+            .iter()
+            .filter(|record| runtime_protocol_is_undeclared(record))
+            .count();
+        tracing::info!(
+            country = %country,
+            loaded_count,
+            deduplicated_count = records.len(),
+            duplicate_count,
+            protocol_conflict_count,
+            undeclared_protocol_count,
+            cached_count,
+            pending_probe_count,
+            ok = probe_stats.ok,
+            unknown = probe_stats.unknown,
+            ko = probe_stats.ko,
+            auth_required = probe_stats.authentication_required,
+            auth_flag = probe_stats.authentication_required_flag,
+            http_forward_available = probe_stats.http_forward_available,
+            http_forward_unavailable = probe_stats.http_forward_unavailable,
+            http_forward_unknown = probe_stats.http_forward_unknown,
+            https_tunnel_available = probe_stats.https_tunnel_available,
+            https_tunnel_unavailable = probe_stats.https_tunnel_unavailable,
+            https_tunnel_unknown = probe_stats.https_tunnel_unknown,
+            destination_tls_available = probe_stats.destination_tls_available,
+            destination_tls_unavailable = probe_stats.destination_tls_unavailable,
+            destination_tls_unknown = probe_stats.destination_tls_unknown,
+            proxy_tls_valid = probe_stats.proxy_tls_valid,
+            proxy_tls_invalid = probe_stats.proxy_tls_invalid,
+            proxy_tls_unknown = probe_stats.proxy_tls_unknown,
+            "loaded dynamic proxies prepared for on-demand probing"
+        );
+        let records_to_persist = self.add_or_update(records).await;
+
+        let http_stats = self
+            .selection_stats_for_country(country, false)
+            .await
+            .unwrap_or_default();
+        let https_stats = self
+            .selection_stats_for_country(country, true)
+            .await
+            .unwrap_or_default();
+        tracing::info!(
+            country = %country,
+            total = http_stats.total,
+            ok = http_stats.ok,
+            eligible_http = http_stats.eligible,
+            eligible_https = https_stats.eligible,
+            http_forward_available = http_stats.http_forward_available,
+            http_forward_unavailable = http_stats.http_forward_unavailable,
+            http_forward_unknown = http_stats.http_forward_unknown,
+            https_tunnel_available = https_stats.https_tunnel_available,
+            https_tunnel_unavailable = https_stats.https_tunnel_unavailable,
+            https_tunnel_unknown = https_stats.https_tunnel_unknown,
+            destination_tls_available = https_stats.destination_tls_available,
+            destination_tls_unavailable = https_stats.destination_tls_unavailable,
+            destination_tls_unknown = https_stats.destination_tls_unknown,
+            https_rejected = https_stats.https_rejected,
+            ko = http_stats.ko,
+            auth_required = http_stats.authentication_required,
+            cooldown = http_stats.cooldown,
+            "dynamic proxy inventory updated"
+        );
+
+        #[cfg(feature = "persistence")]
+        self.persist_records(&records_to_persist).await;
+        #[cfg(not(feature = "persistence"))]
+        let _ = records_to_persist;
+        self.discovery_revision
+            .send_modify(|revision| *revision = revision.wrapping_add(1));
     }
 
     /// Allows the provider to be consulted again after an observed proxy
     /// connection failure.
     ///
-    /// This does not load any data itself. It only clears the per-country
-    /// refresh-attempt cooldown so a later selection may refresh the provider
+    /// This does not load any data itself. It shortens the per-country
+    /// refresh-attempt cooldown to the configured minimum so a later selection may refresh the provider
     /// if all cached and persisted candidates have become ineligible. The
     /// failed proxy keeps its runtime exclusion and is therefore not revived by
     /// a provider response while its cached probe remains fresh.
@@ -1703,16 +1852,7 @@ impl ProxyInventory {
             if country.is_empty() {
                 continue;
             }
-            if inner
-                .country_last_refresh_attempts
-                .remove(country)
-                .is_some()
-            {
-                tracing::debug!(
-                    country,
-                    "dynamic proxy provider refresh cooldown cleared after observed connection failure"
-                );
-            }
+            inner.country_early_refresh.insert(country.to_string());
         }
     }
 
@@ -2101,7 +2241,9 @@ mod tests {
     use crate::core::ProxyPreferenceRepository;
     #[cfg(feature = "persistence")]
     use crate::core::TypedProxyRepository;
-    use crate::core::{ProxyAvailabilityHint, ProxyDestinationFailure};
+    use crate::core::{
+        ProxyAvailabilityHint, ProxyBatchSink, ProxyDestinationFailure, ProxyLoadRequest,
+    };
     use anyhow::Result as AnyResult;
     use async_trait::async_trait;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -2407,6 +2549,7 @@ mod tests {
         let inventory = ProxyInventory::new(
             InventoryConfig {
                 provider_refresh_cooldown: Duration::from_millis(20),
+                provider_min_refresh_interval: Duration::from_millis(10),
                 ..InventoryConfig::default()
             },
             Some(provider.clone()),
@@ -2696,6 +2839,50 @@ mod tests {
 
         assert!(inventory.select_any(&countries, true).await.is_err());
         assert_eq!(provider.calls.load(Ordering::SeqCst), countries.len());
+        inventory
+            .allow_provider_refresh_after_observed_failure(&countries)
+            .await;
+        assert!(inventory.select_any(&countries, true).await.is_err());
+        assert_eq!(provider.calls.load(Ordering::SeqCst), countries.len());
+        {
+            let mut inner = inventory.inner.write().await;
+            for at in inner.country_last_refresh_attempts.values_mut() {
+                *at = Instant::now() - Duration::from_secs(11);
+            }
+        }
+        assert!(inventory.select_any(&countries, true).await.is_err());
+        assert_eq!(provider.calls.load(Ordering::SeqCst), countries.len() * 2);
+
+        struct ProgressiveProvider;
+        #[async_trait]
+        impl ProxyDataProvider for ProgressiveProvider {
+            async fn load_proxies(&self, _: ProxyLoadRequest) -> Result<Vec<ProxyRecord>> {
+                panic!("progressive selection must not wait for the list adapter");
+            }
+            async fn load_proxies_progressively(
+                &self,
+                request: ProxyLoadRequest,
+                sink: Arc<dyn ProxyBatchSink>,
+            ) -> Result<()> {
+                let mut candidate = record(ProxyRuntimeStatus::Ok);
+                candidate.country = Some(request.countries[0].clone());
+                sink.publish(vec![candidate]).await?;
+                futures::future::pending().await
+            }
+        }
+        let inventory = ProxyInventory::new(
+            InventoryConfig::default(),
+            Some(Arc::new(ProgressiveProvider)),
+            None,
+        );
+        let selected = tokio::time::timeout(
+            Duration::from_secs(1),
+            inventory.select_any(&countries, true),
+        )
+        .await
+        .expect("published candidates must precede provider completion")
+        .unwrap();
+        assert!(countries.contains(selected.country.as_ref().unwrap()));
     }
 
     #[tokio::test]
@@ -2947,7 +3134,6 @@ fn selection_stats<'a>(
     stats
 }
 
-/// Returns whether the requested capability still needs a runtime measurement.
 fn epoch_millis() -> u64 {
     SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -2962,6 +3148,16 @@ fn recent_probe_attempt(record: &ProxyRecord, phase: &str, ttl: Duration) -> boo
     })
 }
 
+fn complementary_trial_allowed(record: &ProxyRecord, mode: ProbeMode) -> bool {
+    mode == ProbeMode::Relaxed
+        && record.tcp_reachable == Some(true)
+        && record.protocol.is_some()
+        && record.authentication_required != Some(true)
+        && (record.protocol != Some(ProxyProtocol::Https)
+            || record.proxy_tls_certificate == ProxyCapabilityStatus::Available)
+}
+
+/// Returns whether the requested capability still needs a runtime measurement.
 fn needs_capability_probe(record: &ProxyRecord, require_https: bool) -> bool {
     record.tcp_reachable == Some(false)
         || record.last_checked.is_none()

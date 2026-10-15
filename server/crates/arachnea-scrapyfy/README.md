@@ -36,8 +36,21 @@ has no routing priority. The inventory ranks all allowed countries together afte
 importing their persistent caches, preferring fresh validated capabilities before
 revalidation or unknown candidates for both HTTP and HTTPS. Provider requests
 also use canonical country sets. Country loads run with concurrency two and are single-flight per country.
-Results are still ranked after all requested country loads; progressive source
-publication and exploration/refresh overlap remain lot 6 work.
+Discovery sources publish batches in completion order, independently of ordinary
+scraper aggregation, which keeps configuration ordering and its cache contract.
+Cache exhaustion, 10 seconds of exploration or eight unsuccessful validations
+start discovery without cancelling cache exploration. Country scheduling uses
+eligible cache contents and last refresh; observed transport failures preserve a
+10-second refresh floor (normal cooldown: 120 seconds).
+
+Already localized rows are published immediately. Unknown countries are resolved
+for at most 20 distinct IPs per country load, sharing four concurrent geo lookups
+and subscriber-owned per-IP work. Positive/negative results are cached for 15
+minutes/60 seconds in a bounded 1,024-entry runtime cache. Endpoint/declaration
+deduplication precedes geo work; unresolved countries are never guessed. Dropping
+the last load subscriber cancels pending sources and geo work. Probe methods,
+response policies and target-scoped suspicion are configured through the injected
+`ProxyProbe` (see the proxy crate README); they never suspend a country.
 
 ## Geo-proxy request timeout
 

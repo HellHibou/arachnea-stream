@@ -2,7 +2,7 @@
 
 Date : 13 octobre 2026.
 
-Statut : lots 1 à 5 intégrés ; validations et limites de recette des lots 1/2 en sections 13 à 16, lot 3 en section 17, lot 4 en section 18, lot 5 en section 19 (15 octobre 2026).
+Statut : lots 1 à 6 intégrés ; validations et limites de recette des lots 1/2 en sections 13 à 16, lot 3 en section 17, lot 4 en section 18, lot 5 en section 19, lot 6 en section 20 (15 octobre 2026).
 
 Révision : prise en compte des deux phases de test, de l’indisponibilité ou des restrictions géographiques du serveur de test, et des décisions sur la persistance et les pays autorisés.
 
@@ -983,19 +983,19 @@ Travail prévu :
 - `/Users/jdecker/Downloads/arachnea/server/crates/arachnea-scrapyfy/src/scrapyfy/proxy_provider.rs`
 - `/Users/jdecker/Downloads/arachnea/server/crates/arachnea-scrapyfy/src/scrapyfy/scraper_agregator.rs`
 
-Travail prévu :
+Travail intégré (recette et limites en section 20) :
 
-- Déclencher une actualisation après 10 secondes d’exploration ou 8 validations infructueuses, dans le contexte de recherche existant et sans abandonner les candidats du cache.
-- Mutualiser les chargements par pays et maintenir le cooldown fournisseur avec un plancher anti-boucle, même lorsque des échecs observés permettent une nouvelle consultation.
-- Démarrer les pays éligibles selon l’état du cache et les créneaux, jamais selon leur position dans la liste.
-- Ajouter une interface progressive du fournisseur qui publie des lots au fil des sources, tout en gardant un adaptateur compatible avec l’interface retournant une liste. Ne pas attendre `join_all` pour commencer à utiliser la première liste pertinente.
-- Isoler ce mode progressif pour la découverte des proxies ; conserver les contrats d’agrégation et l’ordre de présentation des résultats des autres scrapers.
-- Dédupliquer avant les opérations coûteuses et fusionner sans écraser les dates de succès, exclusions, découvertes initiales ou tentatives récentes.
-- Mettre à disposition les candidats déjà géolocalisés sans attendre toutes les résolutions manquantes ; borner et mutualiser ces dernières, sans inventer un pays.
-- Configurer les méthodes, URLs et politiques de test validées : HEAD HTTPS par défaut, GET explicite, pas de redirection suivie par défaut, une seule cible de secours et preuves séparées.
-- Appliquer l’option B et le mode strict explicite sans créer de faux succès ni laisser un résultat inconclusif imposer une exclusion générale.
-- Enregistrer la suspicion de panne après 3 échecs convergents en 60 secondes. Séparer refus individuels, observations ambigües et indices d’indisponibilité de service ; ne créer aucun circuit par pays.
-- Suspendre uniquement le travail complémentaire répétitif selon la politique 30/60/120 secondes, avec reprise à la demande et succès levant la suspicion. Ne pas empêcher l’exploration métier d’autres endpoints ni arrêter sur la seule base de timeouts multiples.
+- [x] Déclencher une actualisation après 10 secondes d’exploration ou 8 validations infructueuses, dans le contexte de recherche existant et sans abandonner les candidats du cache.
+- [x] Mutualiser les chargements par pays et maintenir le cooldown fournisseur avec un plancher anti-boucle, même lorsque des échecs observés permettent une nouvelle consultation.
+- [x] Démarrer les pays éligibles selon l’état du cache et les créneaux, jamais selon leur position dans la liste.
+- [x] Ajouter une interface progressive du fournisseur qui publie des lots au fil des sources, tout en gardant un adaptateur compatible avec l’interface retournant une liste. Ne pas attendre `join_all` pour commencer à utiliser la première liste pertinente.
+- [x] Isoler ce mode progressif pour la découverte des proxies ; conserver les contrats d’agrégation et l’ordre de présentation des résultats des autres scrapers.
+- [x] Dédupliquer avant les opérations coûteuses et fusionner sans écraser les dates de succès, exclusions, découvertes initiales ou tentatives récentes.
+- [x] Mettre à disposition les candidats déjà géolocalisés sans attendre toutes les résolutions manquantes ; borner et mutualiser ces dernières, sans inventer un pays.
+- [x] Configurer les méthodes, URLs et politiques de test validées : HEAD HTTPS par défaut, GET explicite, pas de redirection suivie par défaut, une seule cible de secours et preuves séparées.
+- [x] Appliquer l’option B et le mode strict explicite sans créer de faux succès ni laisser un résultat inconclusif imposer une exclusion générale.
+- [x] Enregistrer la suspicion de panne après 3 échecs convergents en 60 secondes. Séparer refus individuels, observations ambigües et indices d’indisponibilité de service ; ne créer aucun circuit par pays.
+- [x] Suspendre uniquement le travail complémentaire répétitif selon la politique 30/60/120 secondes, avec reprise à la demande et succès levant la suspicion. Ne pas empêcher l’exploration métier d’autres endpoints ni arrêter sur la seule base de timeouts multiples.
 
 **Critères de sortie :** premières sources utilisables sans attendre les plus lentes ; actualisation sans boucle ; cibles indisponibles sans dégradation massive du cache ; blacklist de plusieurs endpoints sans exclusion de leurs pays ; aucun travail autonome après la recherche.
 
@@ -1742,3 +1742,82 @@ La suite combinée proxy/HTTP a passé avant le boxing final ; le filtre complet
 d’agrégateur et les compilations ont ensuite repassé après ce changement de
 représentation des futures. Les résultats ne valent pas validation exhaustive
 des plafonds et entrelacements non couverts, listés ci-dessus.
+
+
+## 20. Lot 6 — Découverte et sondes complémentaires progressives
+
+Implémentation du 15 octobre 2026, selon la conception validée.
+
+La recherche conserve le budget du lot 5 et l’exploration active du cache.
+L’épuisement du cache, 10 secondes d’exploration ou huit validations terminées
+sans candidat déclenchent la découverte. Les pays sont ordonnés selon leurs
+candidats éligibles et la dernière consultation ; deux chargements au maximum
+restent actifs. Le cooldown normal reste de 120 secondes, avec un plancher
+configurable de 10 secondes même après un échec autorisant une consultation anticipée.
+
+`ProxyBatchSink` et `load_proxies_progressively` conservent les fournisseurs
+retournant une liste via un adaptateur. Scrapyfy publie chaque source terminée,
+puis les résolutions géographiques au fil de l’eau, sans changer l’ordre ni le
+cache des agrégations ordinaires. Les doublons endpoint/déclaration sont écartés
+avant géolocalisation ; les pays connus n’attendent pas les inconnus. La limite
+est de 20 IPs distinctes par chargement pays, quatre résolutions concurrentes
+mutualisées, cache borné à 1 024 entrées (positif 15 minutes, négatif 60 secondes).
+L’abandon du dernier souscripteur annule sources et résolutions restantes.
+
+`ProbeTargetPolicy` configure méthode HEAD/GET, politique de réponse, identité
+versionnée, indices 5xx et une URL de secours de même schéma. HTTPS utilise HEAD
+par défaut ; aucun redirect n’est suivi. Un seul secours est permis pour toute
+la validation, sous la même échéance (huit secondes dans l’inventaire). Les GET
+peuvent inspecter un préfixe décodé de 64 Kio pendant trois secondes. Réception
+HTTP et acceptation de la cible sont deux observations distinctes ; les 5xx
+préservent les preuves réelles de tunnel/TLS et ne créent pas de préférence métier.
+
+L’option B en mode relaxed autorise un essai métier borné après une sonde ambiguë
+si le protocole déclaré et les indices HTTPS restent admissibles, l’endpoint est
+joignable et le certificat d’un proxy HTTPS est validé. Le mode strict exige les
+capacités réellement disponibles et contextualise les résultats inconclusifs.
+Aucun résultat `Available` n’est inventé ; authentification et faits négatifs
+explicites restent bloquants.
+
+La suspicion est propre à l’URL complète et à la configuration. Trois endpoints
+distincts signalant 502/503/504 en 60 secondes suspendent seulement les sondes
+complémentaires pendant 30 secondes. La reprise est à la demande, un seul essai
+à la fois ; un résultat non sain allonge à 60 puis 120 secondes, un résultat sain
+lève la suspicion. `ProbeTargetSuspension` rend ces seuils configurables et
+`target_diagnostics` expose l’état mémoire. Timeouts, TLS/tunnels, 403/451 seuls
+ne déclenchent aucune panne collective. Aucun circuit pays, diagnostic direct,
+nouvelle dépendance externe par défaut ni tâche périodique n’est ajouté.
+Les observations persistées retirent les query strings et distinguent les URLs
+complètes par une empreinte de configuration/cible.
+
+La recette exhaustive et les mesures de fournisseurs réels restent au lot 7.
+Les scénarios existants sont adaptés, sans ajouter de fonctions de test.
+
+Contrôles effectués avec Cargo offline et les fixtures existantes :
+
+| Contrôle | Résultat |
+|---|---|
+| Suites combinées `arachnea-proxy` / `arachnea-http`, features persistence/controller-service et intégration proxy | 125 + 45 tests réussis |
+| Filtre `scraper_agregator::tests`, features proxy/sqlite/controller-service, depuis `server/` | 16 tests réussis ; ordre ordinaire et lots progressifs vérifiés |
+| Filtre Scrapyfy `scrapyfy::http_client`, mêmes features | 2 tests réussis |
+| Filtre proxy `multi_country_selection`, core sans features par défaut | 2 tests réussis |
+| `cargo check` HTTP/Scrapyfy sans features par défaut | Réussite ; avertissements préexistants de code inutilisé |
+| `cargo check -p arachnea-stream` | Réussite |
+| Rustfmt ciblé et `git diff --check` | Réussite |
+
+Le scénario multi-pays existant couvre le plancher de rafraîchissement et une
+publication gagnante alors que le fournisseur ne termine pas. Le scénario HTTP
+503 existant couvre trois endpoints du même pays, maintien des preuves positives,
+suspension du seul échange complémentaire, reprise échouée avec backoff puis
+levée par un GET accepté avec préfixe chunked. Aucune fonction de test ni
+infrastructure supplémentaire n’est créée. Les tests réseau utilisent des sockets
+locales hors sandbox ; aucun fournisseur externe n’est sollicité.
+
+Restent à la recette du lot 7 : chevauchement sous charge réelle des seuils
+10 secondes/huit validations, plafonds et mutualisation géographiques sous forte
+concurrence, toutes les annulations/reprises simultanées, secours HTTP/HTTPS,
+certificats du parcours HTTPS propre à `ProxyProbe`, erreurs/timeouts de politiques
+et mesure de la latence à froid. Les limites antérieures sur la suite globale
+Scrapyfy (initialisation du répertoire applicatif), les moteurs et la persistance
+processus/disque restent applicables. Ces résultats ne constituent pas une mesure
+de performance ni une recette exhaustive des entrelacements.

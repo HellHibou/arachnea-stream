@@ -111,6 +111,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Localized proxy lot 6 overlaps cache exploration with discovery after 10 seconds or eight unsuccessful validations, ranks country refreshes by cache state/age, preserves a configurable 10-second refresh floor and accepts progressive provider batches through a compatible list adapter. Configurable probe methods/policies, one deadline-sharing fallback and separate target acceptance retain real transport evidence. Relaxed mode allows bounded business trials after ambiguous complementary probes; target-only suspicion uses distinct endpoints and on-demand 30/60/120-second recovery without country exclusions or background work.
+
 - Localized proxy lot 5 adds a request-owned 120-second search target with 15-second engaged-origin grace, 64/32 technical-work reservations and eight distinct business endpoints. TCP/validation/country-load concurrency is bounded per search and inventory; prechecks and full validations complete progressively using subscriber-owned shared futures. Last-subscriber cancellation drops work without synthetic failures. CONNECT inherits remaining time, safe replay replaces independent retries, and contextual media options accept an explicit boolean replay guarantee. Contextual loopbacks own and abort their child connections; they reconnect across calls instead of retaining stale request budgets.
 
 
@@ -252,6 +254,8 @@ All notable changes to the server workspace are recorded here.
 - Proxy sources can expose a `protocols` array; the proxy provider selects one supported protocol deterministically while preserving a valid singular `protocol`. The disabled-by-default ProxyCompass source uses this support, maps ISO country codes to API country names, and requests at most 1,000 proxy candidates.
 
 #### Changed
+
+- Proxy discovery consumes source results as they complete while ordinary aggregation retains its ordering/cache behavior. Localized records publish immediately; deduplicated unknown IPs use at most 20 geo lookups per country load, four concurrent shared lookups, bounded positive/negative caching and cancellation with the final subscriber.
 
 - Localized HTTP calls share one search before client acquisition and delegate retries to arachnea-http, replacing the former 145-second per-attempt timeout and duplicate retry loops. Optional http.proxy_retry_replayable inherits with explicit false override; country loading uses bounded concurrency two instead of a 32-wide TCP precheck setting.
 

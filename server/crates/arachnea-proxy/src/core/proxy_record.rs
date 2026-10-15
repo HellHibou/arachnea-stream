@@ -461,6 +461,20 @@ pub struct ProxyLoadRequest {
     pub countries: Vec<String>,
 }
 
+/// Consumer of incrementally discovered proxy batches. Publishing is awaited,
+/// and dropping the load cancels source work without leaving a producer task.
+#[async_trait]
+pub trait ProxyBatchSink: Send + Sync {
+    /// Publishes source records without claiming any runtime validation.
+    ///
+    /// # Arguments
+    /// - `records`: A partial batch; later sources may add declarations for the same endpoint.
+    ///
+    /// # Errors
+    /// Returns an error when the consumer can no longer accept the batch.
+    async fn publish(&self, records: Vec<ProxyRecord>) -> Result<()>;
+}
+
 /// Provider that loads dynamic proxy records from an external source.
 ///
 /// Implementations are typically provided by `arachnea-scrapyfy` and wired
@@ -477,6 +491,22 @@ pub trait ProxyDataProvider: Send + Sync {
     ///
     /// A list of proxy records loaded from the external source.
     async fn load_proxies(&self, request: ProxyLoadRequest) -> Result<Vec<ProxyRecord>>;
+
+    /// Publishes batches as they become available. Legacy providers publish one batch.
+    ///
+    /// # Arguments
+    /// - `request`: Allowed countries for this load.
+    /// - `sink`: Awaited consumer sharing the lifetime of the load.
+    ///
+    /// # Errors
+    /// Returns provider or consumer errors; already published batches remain useful.
+    async fn load_proxies_progressively(
+        &self,
+        request: ProxyLoadRequest,
+        sink: std::sync::Arc<dyn ProxyBatchSink>,
+    ) -> Result<()> {
+        sink.publish(self.load_proxies(request).await?).await
+    }
 }
 
 // ---------------------------------------------------------------------------

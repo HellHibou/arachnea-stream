@@ -89,7 +89,7 @@ This README is the design and usage home for the proxy crate. Remaining work is 
 - Public-bind safety checks, ACLs, optional HTTP/SOCKS authentication, connection limits, and typed errors.
 - Optional integration with `arachnea-dns` when local resolution or Smart DNS decisions are required.
 - Optional persistent cache for dynamic proxies (feature `persistence`): the inventory consults injected typed repositories before falling back to the provider. Available records use a composite host/port key in `proxy-inventory`, with country field queries. The 24-hour threshold is measured from the latest positive evidence, or initial discovery for never-validated records, not attempt dates; age alone never deletes a working endpoint. Accepted histories live in `proxy-preferences`, and bounded eviction protection in `proxy-failures`.
-- Dynamic provider refresh policy belongs to the shared inventory rather than HTTP clients. Refreshes are single-flight per country and normally suppressed for 120 seconds after every provider attempt, including failures and empty lists. An observed connection or tunnel failure clears that cooldown without loading immediately, allowing the next exhausted-cache selection to discover new endpoints while preserving the failed endpoint's cached exclusion. HTTP engine failures observed before response headers remain destination-scoped. Correlated HTTP orchestration retries only under the common deadline, endpoint limit and replay policy; body errors after headers never rotate. Configured origin-response rejections do not clear the provider cooldown. Multi-country selection imports every allowed country's persistent cache before exploring unknown memory candidates or consulting providers, then refreshes the canonical allowed country set and ranks the combined results. Refreshed provider lists are deduplicated by endpoint and compared with the inventory before network probes: cached protocol, HTTPS capability, health and failure metadata are reused while `last_checked` remains within `probe_ttl`; provider records are stored without eager batch probing, and automatic selection validates unknown or expired required capabilities progressively within shared concurrency limits until a candidate works. Accepted origin responses update positive evidence and the durable history for that exact scheme, host and port, independently of country; the newest eligible accepted endpoint wins within the allowed countries. Optional affinity bindings are retained for 15 minutes and are reused only while the bound proxy still passes country, protocol, freshness, global cooldown, and destination-cooldown checks. Statuses listed in `proxy_rejection_statuses` persist a 24-hour destination rejection, make the recorded destination association ineligible without deleting its last success, and rotate without bypassing those checks.
+- Dynamic provider refresh policy belongs to the shared inventory rather than HTTP clients. Refreshes are single-flight per country and normally suppressed for 120 seconds after every provider attempt, including failures and empty lists. An observed connection or tunnel failure shortens that cooldown to the configurable 10-second minimum without loading immediately, allowing the next exhausted-cache selection to discover new endpoints while preserving the failed endpoint's cached exclusion. HTTP engine failures observed before response headers remain destination-scoped. Correlated HTTP orchestration retries only under the common deadline, endpoint limit and replay policy; body errors after headers never rotate. Configured origin-response rejections do not clear the provider cooldown. Multi-country selection imports every allowed country's persistent cache before exploring unknown memory candidates or consulting providers, then overlaps slow exploration with eligible country refreshes and ranks incrementally published results. Refreshed provider lists are deduplicated by endpoint and compared with the inventory before network probes: cached protocol, HTTPS capability, health and failure metadata are reused while `last_checked` remains within `probe_ttl`; provider records are stored without eager batch probing, and automatic selection validates unknown or expired required capabilities progressively within shared concurrency limits until a candidate works. Accepted origin responses update positive evidence and the durable history for that exact scheme, host and port, independently of country; the newest eligible accepted endpoint wins within the allowed countries. Optional affinity bindings are retained for 15 minutes and are reused only while the bound proxy still passes country, protocol, freshness, global cooldown, and destination-cooldown checks. Statuses listed in `proxy_rejection_statuses` persist a 24-hour destination rejection, make the recorded destination association ineligible without deleting its last success, and rotate without bypassing those checks.
 
 ## Profiles
 
@@ -233,18 +233,35 @@ worked, or that no application capability was configured.
 - `proxy_tls_certificate`: validating the certificate presented by an HTTPS
   proxy endpoint.
 
-The HTTPS probe continues through the established tunnel, sends a lightweight
-`HEAD` request to the configured URL, and accepts syntactically valid HTTP
-responses with status 200 through 499. Redirects prove end-to-end HTTPS
-transport without being followed; 5xx responses, invalid responses, TLS errors
-and timeouts do not validate the destination. Selection always rejects an
-explicitly unavailable tunnel or destination
-validation result. `ProbeMode::Strict` requires runtime `Available` results for
-HTTP forwarding and, for HTTPS destinations, both the tunnel and complete
-destination TLS validation. `ProbeMode::Relaxed` may use a declared protocol
-and the provider's positive `supports_https` hint when the corresponding
-runtime result is absent or inconclusive. SOCKS declarations are sufficient as
-the relaxed HTTPS hint because those protocols carry arbitrary TCP tunnels.
+The HTTPS probe continues through the established tunnel with a `HEAD` request
+by default. `ProbeConfig::http_policy` and `https_policy` configure `Head`/`Get`,
+an optional `ProxyResponsePolicy`, a versioned policy `identity`, service-indication
+statuses and an optional same-scheme fallback URL. The conservative default accepts
+2xx; redirects are never followed. One fallback at most is attempted across the
+entire validation, sharing its deadline. GET permits a decoded body prefix bounded
+to 64 KiB and three seconds. Handler errors remain inconclusive. Change the policy
+identity whenever custom code behavior changes.
+
+Every syntactically valid HTTP response records transport evidence separately
+from `ProbeTargetAccepted`; even a 5xx response preserves successful TLS/tunnel
+facts. Neither phase creates a business preference. Strict mode requires actual
+runtime `Available` forwarding/tunnel/TLS capabilities. Relaxed mode permits a
+bounded business trial after an inconclusive complementary test when the endpoint
+is reachable, a declared protocol is usable and any HTTPS proxy certificate is
+valid. Provider HTTPS hints (or SOCKS declarations) remain required where the
+runtime capability is unknown. Authentication requirements and explicit negative
+security/capability facts still reject the candidate; no capability is fabricated.
+
+Target diagnostics are runtime-only and keyed by full URL and configuration.
+The persisted observation target omits queries; a hash distinguishes full targets.
+Three distinct endpoint service indications (default 502/503/504) within 60 seconds
+suspend only repetitive complementary work for 30 seconds. An on-demand recovery
+is shared by target; unsuccessful recoveries back off to 60 then 120 seconds, and
+a healthy response clears suspicion. `ProbeTargetSuspension` configures these
+thresholds. Timeouts, TLS/tunnel errors, 403 and 451 alone never create a service
+outage verdict. Endpoint checks and eligible business trials continue during the
+suspension. `ProxyProbe::target_diagnostics()` exposes this state; there is no country
+circuit, direct diagnostic request, periodic task or automatic external fallback.
 
 `supports_https` remains provider metadata and is not overwritten by runtime
 probing. HTTP/HTTPS unknown or expired capabilities are validated on demand.
@@ -288,10 +305,15 @@ count and stable endpoint identity break ties within a category. Fresh candidate
 are tried before any precheck window. An eligible accepted destination history and
 existing affinity binding retain their fast paths before country cache imports.
 The persistent cache is imported before unknown candidates are probed. Discovery
-runs only after this combined cache fails; country loads are single-flight with concurrency two per search and per inventory.
-All allowed country loads still complete before their candidates are ranked
-together. A slow provider can therefore delay cold discovery; source-level
-publication and cache/refresh overlap remain lot 6 work.
+starts after cache exhaustion, 10 seconds of exploration or eight unsuccessful
+completed validations, without dropping active cache exploration. Country loads
+are single-flight with concurrency two per search and inventory, scheduled by
+eligible cache size and last refresh rather than caller order. These thresholds
+and the refresh floor are configurable through `InventoryConfig`.
+`ProxyDataProvider::load_proxies_progressively` publishes awaited `ProxyBatchSink`
+batches directly to selection; the default adapter preserves list-only providers.
+A useful batch may win while other sources are still pending. Last-subscriber
+cancellation drops unfinished source work. No search budget is reset by discovery.
 Probe validation concerns the configured probe destination and does not guarantee
 acceptance by every origin. Explicitly unavailable capabilities and invalid proxy
 certificates remain ineligible, including on the preference fast path.
@@ -313,10 +335,9 @@ Probe time limits are configured through `ProbeConfig::timeouts` and the public
 `ProbeTimeoutConfig`. Its intentionally low defaults are 3 seconds to connect to
 the proxy, 5 seconds for proxy protocol exchanges and probe requests, 5 seconds
 for local target resolution or tunnel setup, 5 seconds for TLS handshakes, and a
-10-second overall limit for each capability probe or destination validation
-attempt. Protocol detection applies that overall limit independently to each
-protocol candidate so a failed candidate does not consume the budget of the
-following candidates. A TCP connection failure for the endpoint itself stops the
+10-second overall limit for an explicit probe or destination validation
+attempt. Inventory capability validation caps the whole probe at eight seconds,
+including all protocol candidates and the sole optional fallback. A TCP connection failure for the endpoint itself stops the
 remaining capability and protocol variants because they all share the same
 `host:port`; protocol-specific failures on a reachable endpoint still allow the
 remaining declared variants to run.
@@ -368,9 +389,8 @@ authority as TCP instead of HTTPS. Tokens are not serialized or sent to origins.
 Legacy destination-only observation APIs remain compatibility helpers and are not
 safe for concurrent attribution; Scrapyfy and the media route use tokens instead.
 
-Shared response classifiers are implemented in lot 3 above. Search budgets and
-replay safety are implemented below; complementary probe circuits remain lot 6
-work. No background maintenance is introduced.
+Shared response classifiers, search budgets, replay safety and target-scoped
+complementary probe suspension operate without background maintenance.
 
 ### Durable preferences and endpoint eviction (lot 2)
 

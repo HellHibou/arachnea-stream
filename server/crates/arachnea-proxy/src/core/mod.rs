@@ -37,15 +37,19 @@ pub mod proxy_preference;
 pub mod proxy_preference_repository;
 /// Proxy liveness probing engine.
 pub mod proxy_probe;
+mod proxy_probe_target;
+pub use proxy_probe_target::{
+    ProbeHttpMethod, ProbeTargetDiagnostics, ProbeTargetPolicy, ProbeTargetSuspension,
+};
 /// Proxy record types used by inventory and stores.
 pub mod proxy_record;
 /// Typed persistence repository for proxy records.
 #[cfg(feature = "persistence")]
 pub mod proxy_repository;
-/// Explicit request selection and pinned route correlation.
-pub mod proxy_selection;
 /// Shared request-owned proxy search budgets and replay policy.
 pub mod proxy_search;
+/// Explicit request selection and pinned route correlation.
+pub mod proxy_selection;
 pub use proxy_search::{proxy_retry_allowed, ProxySearchContext, ProxySearchLimits};
 mod routing;
 mod stats;
@@ -105,9 +109,10 @@ pub use proxy_preference_repository::{
 };
 pub use proxy_probe::{ProbeConfig, ProbeMode, ProbeTimeoutConfig, ProxyProbe};
 pub use proxy_record::{
-    ProxyAvailabilityHint, ProxyCapabilityStatus, ProxyDataProvider, ProxyDeclaration,
-    ProxyDestinationFailure, ProxyDestinationFailureReason, ProxyKey, ProxyLoadRequest,
-    ProxyProtocol, ProxyRecord, ProxyRuntimeStatus, PROXY_CACHE_TTL, PROXY_PROTOCOL_PRIORITY,
+    ProxyAvailabilityHint, ProxyBatchSink, ProxyCapabilityStatus, ProxyDataProvider,
+    ProxyDeclaration, ProxyDestinationFailure, ProxyDestinationFailureReason, ProxyKey,
+    ProxyLoadRequest, ProxyProtocol, ProxyRecord, ProxyRuntimeStatus, PROXY_CACHE_TTL,
+    PROXY_PROTOCOL_PRIORITY,
 };
 #[cfg(feature = "persistence")]
 pub use proxy_repository::{ProxyRepository, TypedProxyRepository, PROXY_STORE_NAME};

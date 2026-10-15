@@ -345,27 +345,92 @@ async fn cooldown_expiry_allows_endpoint_revalidation_and_preserves_discovery() 
 
 #[tokio::test]
 async fn unavailable_http_probe_target_keeps_endpoint_positive_evidence() -> AnyResult<()> {
+    use crate::core::http::response_classifier::{
+        ProxyBodyRequirement, ProxyBodyState, ProxyResponseClassifier, ProxyResponseDecision,
+        ProxyResponsePolicy, ProxyResponseView,
+    };
+    struct ContentPolicy;
+    impl ProxyResponseClassifier for ContentPolicy {
+        fn body_requirement(&self) -> ProxyBodyRequirement {
+            ProxyBodyRequirement::Prefix(3)
+        }
+        fn classify(&self, view: &ProxyResponseView<'_>) -> Result<ProxyResponseDecision> {
+            assert_eq!(view.method, "GET");
+            Ok(
+                if view.status == 200
+                    && view.body == b"yes"
+                    && view.body_state == ProxyBodyState::Limited
+                {
+                    ProxyResponseDecision::Accepted
+                } else {
+                    ProxyResponseDecision::Inconclusive
+                },
+            )
+        }
+    }
     tokio::time::timeout(Duration::from_secs(5), async {
-        let (mut proxy, server) = local_http_endpoint(
-            b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-            Arc::new(tokio::sync::Barrier::new(1)),
-            1,
-        )
-        .await;
+        let url = "http://unavailable.example/";
         let probe = ProxyProbe::new(crate::core::ProbeConfig {
-            http_probe_url: Some("http://unavailable.example/".into()),
+            http_probe_url: Some(url.into()),
             https_probe_url: None,
+            http_policy: crate::core::ProbeTargetPolicy {
+                identity: "fixture-content-v1".into(),
+                response_policy: Some(ProxyResponsePolicy(Arc::new(ContentPolicy))),
+                suspension: crate::core::ProbeTargetSuspension {
+                    backoff: [Duration::from_millis(50), Duration::from_millis(100), Duration::from_millis(200)],
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
             ..Default::default()
         });
+        for _ in 0..3 {
+            let (mut proxy, server) = local_http_endpoint(
+                b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                Arc::new(tokio::sync::Barrier::new(1)), 1,
+            ).await;
+            let _result = probe.probe(&mut proxy).await;
+            assert_eq!(server.await??, 1);
+            assert_ne!(proxy.status, ProxyRuntimeStatus::Ko);
+            assert!(proxy.health_evidence.last_positive_at.is_some());
+            assert!(proxy.observations.iter().any(|item| {
+                item.context.phase == crate::core::ProxyObservationPhase::DestinationHttp
+                    && item.outcome == crate::core::ProxyObservationOutcome::Succeeded
+            }));
+            assert!(proxy.destination_failures.is_empty());
+        }
+        assert!(probe.target_diagnostics(url).suspected);
+        assert!(!probe.target_diagnostics(url).suspended_for.is_zero());
+        let (mut proxy, server) = local_http_endpoint(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n",
+            Arc::new(tokio::sync::Barrier::new(1)), 1,
+        ).await;
+        let _result = probe.probe(&mut proxy).await;
+        assert!(proxy.health_evidence.last_positive_at.is_some());
+        assert!(!proxy.observations.iter().any(|item| {
+            item.context.phase == crate::core::ProxyObservationPhase::DestinationHttp
+        }));
+        assert!(server.await?.is_err());
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        let (mut proxy, server) = local_http_endpoint(
+            b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n",
+            Arc::new(tokio::sync::Barrier::new(1)), 1,
+        ).await;
         let _result = probe.probe(&mut proxy).await;
         assert_eq!(server.await??, 1);
-        assert_ne!(proxy.status, ProxyRuntimeStatus::Ko);
-        assert!(proxy.health_evidence.last_positive_at.is_some());
+        assert!(probe.target_diagnostics(url).suspended_for > Duration::from_millis(50));
+        tokio::time::sleep(Duration::from_millis(110)).await;
+        let (mut proxy, server) = local_http_endpoint(
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nyes\r\n0\r\n\r\n",
+            Arc::new(tokio::sync::Barrier::new(1)), 1,
+        ).await;
+        probe.probe(&mut proxy).await?;
+        assert_eq!(server.await??, 1);
+        assert!(!probe.target_diagnostics(url).suspected);
         assert!(proxy.observations.iter().any(|item| {
-            item.context.phase == crate::core::ProxyObservationPhase::EndpointConnect
+            item.context.phase == crate::core::ProxyObservationPhase::ProbeTargetAccepted
                 && item.outcome == crate::core::ProxyObservationOutcome::Succeeded
         }));
-        assert!(proxy.destination_failures.is_empty());
         Ok(())
     })
     .await?

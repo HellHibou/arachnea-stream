@@ -56,6 +56,7 @@ pub struct ProxySearchContext {
     target_key: Option<String>,
     work: Arc<Mutex<Work>>,
     accepted: watch::Sender<bool>,
+    validation_failures: watch::Sender<usize>,
     /// Per-search TCP concurrency; waiting consumes the target deadline.
     pub(crate) tcp_slots: Arc<Semaphore>,
     /// Per-search full-validation concurrency.
@@ -85,6 +86,7 @@ impl ProxySearchContext {
             target_key: None,
             work: Arc::new(Mutex::new(Work::default())),
             accepted: watch::channel(false).0,
+            validation_failures: watch::channel(0).0,
             tcp_slots: Arc::new(Semaphore::new(8)),
             validation_slots: Arc::new(Semaphore::new(2)),
             provider_slots: Arc::new(Semaphore::new(2)),
@@ -217,6 +219,12 @@ impl ProxySearchContext {
         }
         work.technical.insert(key);
         true
+    }
+    pub(crate) fn failed_validation(&self) {
+        self.validation_failures.send_modify(|count| *count += 1);
+    }
+    pub(crate) fn validation_failures(&self) -> watch::Receiver<usize> {
+        self.validation_failures.subscribe()
     }
     pub(crate) fn can_discover(&self) -> bool {
         self.can_start() && self.work.lock().unwrap().endpoints.len() < self.limits.endpoints

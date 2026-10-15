@@ -852,6 +852,62 @@ impl ScraperAgregator {
         None
     }
 
+    /// Streams unconditional proxy-source batches in completion order.
+    /// This discovery-only path leaves ordinary aggregation, ordering and caching unchanged.
+    ///
+    /// # Arguments
+    /// - `group_name`: Loaded proxy source group.
+    /// - `query_name`: Source query to execute without conditional validators.
+    /// - `params`: Owned source parameters, normally the requested country.
+    #[cfg(feature = "arachnea-proxy")]
+    pub(crate) fn proxy_source_batches<'a>(
+        &'a self,
+        group_name: &str,
+        query_name: &'a str,
+        params: HashMap<String, String>,
+    ) -> futures::stream::BoxStream<'a, Result<Vec<HashMap<String, ScraperDataNode>>>> {
+        use futures::{FutureExt, StreamExt};
+        let Some(group) = self.queries_collection.get(group_name) else {
+            return futures::stream::once(async {
+                anyhow::bail!("proxy source group is not loaded")
+            })
+            .boxed();
+        };
+        let pending = futures::stream::FuturesUnordered::new();
+        for query in &group.services {
+            let params = params.clone();
+            pending.push(
+                async move {
+                    let (mut rows, _) = query
+                        .execute_query_with_validation(
+                            query_name,
+                            &params,
+                            None,
+                            None,
+                            None,
+                            query.yaml_hash(),
+                        )
+                        .await
+                        .map_err(|error| {
+                            error.context(format!("proxy source {} failed", query.name()))
+                        })?;
+                    for row in &mut rows {
+                        row.insert(
+                            "proxy_source".into(),
+                            ScraperDataNode::from_values_typed(
+                                vec![query.name().to_string()],
+                                ScraperOutputType::String,
+                            ),
+                        );
+                    }
+                    Ok(rows)
+                }
+                .boxed(),
+            );
+        }
+        pending.boxed()
+    }
+
     /// Executes a single aggregation pass of one query on every selected source.
     ///
     /// # Arguments
@@ -2001,6 +2057,20 @@ queries:
         assert_eq!(result.data.len(), 2);
         assert_eq!(value_from_row(&result.data[0]), Some("first"));
         assert_eq!(value_from_row(&result.data[1]), Some("second"));
+        #[cfg(feature = "arachnea-proxy")]
+        {
+            use futures::StreamExt;
+            let mut batches = aggregator.proxy_source_batches("test", "probe", HashMap::new());
+            let mut values = Vec::new();
+            while let Some(batch) = batches.next().await {
+                for row in batch.expect("discovery source should succeed") {
+                    assert!(row.contains_key("proxy_source"));
+                    values.push(value_from_row(&row).unwrap().to_string());
+                }
+            }
+            values.sort();
+            assert_eq!(values, ["first", "second"]);
+        }
         std::fs::remove_dir_all(dir).expect("test service directory should be removed");
     }
 

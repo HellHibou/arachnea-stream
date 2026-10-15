@@ -1,4 +1,9 @@
+use super::http::response_classifier::*;
+use super::proxy_probe_target::{
+    ProbeHttpMethod, ProbeTargetDiagnostics, ProbeTargetPolicy, TargetStates,
+};
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
@@ -67,6 +72,10 @@ pub struct ProbeConfig {
     /// HTTP request. When absent, [`ProxyRecord::https_tunnel`] and
     /// [`ProxyRecord::destination_tls`] remain unknown.
     pub https_probe_url: Option<String>,
+    /// HTTP complementary-target policy. URLs are never followed as redirects.
+    pub http_policy: ProbeTargetPolicy,
+    /// HTTPS complementary-target policy; HEAD is the compatibility default.
+    pub https_policy: ProbeTargetPolicy,
     /// Time limits for the individual probe phases and complete attempts.
     pub timeouts: ProbeTimeoutConfig,
     /// Probe mode.
@@ -80,6 +89,11 @@ impl Default for ProbeConfig {
         Self {
             http_probe_url: Some("http://example.com/".to_string()),
             https_probe_url: None,
+            http_policy: ProbeTargetPolicy::default(),
+            https_policy: ProbeTargetPolicy {
+                method: ProbeHttpMethod::Head,
+                ..Default::default()
+            },
             timeouts: ProbeTimeoutConfig::default(),
             mode: ProbeMode::Relaxed,
             protocol_detection_order: PROXY_PROTOCOL_PRIORITY.to_vec(),
@@ -96,6 +110,9 @@ impl Default for ProbeConfig {
 pub struct ProxyProbe {
     configuration_identity: Option<String>,
     observations: Arc<Mutex<Vec<super::ProxyObservation>>>,
+    target_states: TargetStates,
+    fallback_used: Arc<AtomicBool>,
+    attempt_deadline: Option<Instant>,
     config: ProbeConfig,
     dns_resolver: ProxyDnsResolver,
 }
@@ -106,6 +123,9 @@ impl ProxyProbe {
         Self {
             configuration_identity: None,
             observations: Arc::new(Mutex::new(Vec::new())),
+            target_states: TargetStates::default(),
+            fallback_used: Arc::new(AtomicBool::new(false)),
+            attempt_deadline: None,
             config,
             dns_resolver: ProxyDnsResolver::system(),
         }
@@ -134,6 +154,26 @@ impl ProxyProbe {
         format!("probe-v1:{:016x}", hash.finish())
     }
 
+    /// Returns diagnostic state for a configured or fallback URL without starting work.
+    ///
+    /// # Arguments
+    /// - `url`: Exact URL used by the probe.
+    pub fn target_diagnostics(&self, url: &str) -> ProbeTargetDiagnostics {
+        self.target_states
+            .diagnostics(&format!("{}|{}", self.configuration_id(), url))
+    }
+
+    fn observation_configuration(&self, target: Option<&str>) -> String {
+        use std::hash::{Hash, Hasher};
+        if let Some(target) = target {
+            let mut hash = std::collections::hash_map::DefaultHasher::new();
+            target.hash(&mut hash);
+            format!("{}:target:{:016x}", self.configuration_id(), hash.finish())
+        } else {
+            self.configuration_id()
+        }
+    }
+
     /// Invalidates legacy aggregate results when their probe context changes.
     ///
     /// # Arguments
@@ -160,6 +200,7 @@ impl ProxyProbe {
         succeeded: bool,
         status: Option<u16>,
     ) {
+        let configuration = self.observation_configuration(target);
         let target = target
             .and_then(|target| url::Url::parse(target).ok())
             .map(|mut url| {
@@ -178,21 +219,22 @@ impl ProxyProbe {
                     phase,
                     protocol: Some(protocol.clone()),
                     method: match phase {
-                        super::ProxyObservationPhase::DestinationHttp => Some(
+                        super::ProxyObservationPhase::DestinationHttp
+                        | super::ProxyObservationPhase::ProbeTargetAccepted => Some(
                             if target
                                 .as_deref()
                                 .is_some_and(|url| url.starts_with("https:"))
                             {
-                                "HEAD"
+                                self.config.https_policy.method.as_str()
                             } else {
-                                "GET"
+                                self.config.http_policy.method.as_str()
                             }
                             .into(),
                         ),
                         _ => None,
                     },
                     target,
-                    configuration: self.configuration_id(),
+                    configuration,
                 },
                 outcome: if succeeded {
                     super::ProxyObservationOutcome::Succeeded
@@ -231,6 +273,7 @@ impl ProxyProbe {
     ) -> Result<()> {
         let mut targeted = self.clone();
         targeted.configuration_identity = Some(self.configuration_id());
+        targeted.config.timeouts.attempt = self.config.timeouts.attempt.min(Duration::from_secs(8));
         let previous_protocol = record.protocol.clone();
         let http_forwarding = record.http_forwarding;
         let https_tunnel = record.https_tunnel;
@@ -278,21 +321,52 @@ impl ProxyProbe {
     /// configuration error when no configured capability can be used. The
     /// record is updated before the error is returned.
     pub async fn probe(&self, record: &mut ProxyRecord) -> Result<()> {
+        self.validate_configuration()?;
         self.prepare_context(record);
         record.last_checked = Some(SystemTime::now());
         let mut scoped = self.clone();
         scoped.observations = Arc::new(Mutex::new(Vec::new()));
+        scoped.fallback_used = Arc::new(AtomicBool::new(false));
+        scoped.attempt_deadline = Some(Instant::now() + self.config.timeouts.attempt);
         let protocols = self.protocol_candidates(record);
-        let result = scoped.detect_protocol(record, &protocols).await;
-        for observation in scoped
-            .observations
-            .lock()
-            .expect("probe observation lock poisoned")
-            .drain(..)
-        {
+        let result = time::timeout(
+            self.config.timeouts.attempt,
+            scoped.detect_protocol(record, &protocols),
+        )
+        .await;
+        for observation in scoped.observations.lock().unwrap().drain(..) {
+            if observation.context.protocol == record.protocol
+                && observation.outcome == super::ProxyObservationOutcome::Succeeded
+            {
+                match observation.context.phase {
+                    super::ProxyObservationPhase::ProxyTls => {
+                        record.proxy_tls_certificate = ProxyCapabilityStatus::Available
+                    }
+                    super::ProxyObservationPhase::DestinationTls => {
+                        record.destination_tls = ProxyCapabilityStatus::Available
+                    }
+                    super::ProxyObservationPhase::Tunnel
+                        if observation
+                            .context
+                            .target
+                            .as_deref()
+                            .is_some_and(|target| target.starts_with("https:")) =>
+                    {
+                        record.https_tunnel = ProxyCapabilityStatus::Available
+                    }
+                    super::ProxyObservationPhase::EndpointConnect => {
+                        record.tcp_reachable = Some(true);
+                        if record.status == ProxyRuntimeStatus::Unknown {
+                            record.status = ProxyRuntimeStatus::Ok;
+                        }
+                    }
+                    _ => {}
+                }
+            }
             record.record_observation(observation);
         }
-
+        let result =
+            result.map_err(|_| ProxyError::Timeout("complete proxy probe including fallback"))?;
         match result {
             Ok(probe_result) => {
                 if let Some(error) = self.apply_result(record, probe_result) {
@@ -438,6 +512,12 @@ impl ProxyProbe {
         }
         record.proxy_tls_certificate = result.proxy_tls_certificate;
 
+        if result.authentication_required {
+            record.status = ProxyRuntimeStatus::AuthenticationRequired;
+            record.authentication_required = Some(true);
+            record.failure_count += 1;
+            return result.error;
+        }
         let relaxed_fallback = matches!(self.config.mode, ProbeMode::Relaxed)
             && result.endpoint_reachable
             && self.relaxed_fallback_is_usable(record, &result);
@@ -457,10 +537,6 @@ impl ProxyProbe {
             }
             record.authentication_required = Some(false);
             record.failure_count = 0;
-        } else if result.authentication_required {
-            record.status = ProxyRuntimeStatus::AuthenticationRequired;
-            record.authentication_required = Some(true);
-            record.failure_count += 1;
         } else if result.endpoint_connection_failed {
             record.status = ProxyRuntimeStatus::Ko;
             record.authentication_required = Some(false);
@@ -481,15 +557,20 @@ impl ProxyProbe {
         record: &ProxyRecord,
         result: &ProtocolProbeResult,
     ) -> bool {
+        if result.authentication_required || record.authentication_required == Some(true) {
+            return false;
+        }
         let protocol = result.protocol.as_ref().or(record.protocol.as_ref());
         let proxy_transport_usable = !matches!(
             result.proxy_tls_certificate,
             ProxyCapabilityStatus::Unavailable
         );
-        let http_fallback = proxy_transport_usable
+        let http_fallback = self.config.http_probe_url.is_some()
+            && proxy_transport_usable
             && matches!(result.http_forwarding, ProxyCapabilityStatus::Unknown)
             && protocol.is_some();
-        let https_fallback = proxy_transport_usable
+        let https_fallback = self.config.https_probe_url.is_some()
+            && proxy_transport_usable
             && !matches!(result.destination_tls, ProxyCapabilityStatus::Unavailable)
             && match result.https_tunnel {
                 ProxyCapabilityStatus::Available => true,
@@ -574,7 +655,6 @@ impl ProxyProbe {
         let mut last_error = None;
         let mut last_result = None;
         let mut authentication_result = None;
-        let mut relaxed_declared_result = None;
         for protocol in protocols {
             let declared = record
                 .declarations
@@ -599,8 +679,7 @@ impl ProxyProbe {
                         && result.endpoint_reachable
                         && self.relaxed_fallback_is_usable(record, &result)
                     {
-                        relaxed_declared_result.get_or_insert(result);
-                        continue;
+                        return Ok(result);
                     }
                     if !declared
                         && matches!(self.config.mode, ProbeMode::Relaxed)
@@ -623,9 +702,6 @@ impl ProxyProbe {
                 }
                 Err(error) => last_error = Some(error),
             }
-        }
-        if let Some(result) = relaxed_declared_result {
-            return Ok(result);
         }
         if let Some(result) = authentication_result {
             return Ok(result);
@@ -822,15 +898,321 @@ impl ProxyProbe {
         protocol: &ProxyProtocol,
         target: CapabilityProbeTarget<'_>,
     ) -> CapabilityProbeAttempt {
-        match time::timeout(
-            self.config.timeouts.attempt,
-            self.probe_capability_inner(host, port, protocol, target),
-        )
-        .await
+        let (url, policy) = match &target {
+            CapabilityProbeTarget::HttpForwarding(_) => (
+                self.config.http_probe_url.as_deref(),
+                &self.config.http_policy,
+            ),
+            CapabilityProbeTarget::Https(_) => (
+                self.config.https_probe_url.as_deref(),
+                &self.config.https_policy,
+            ),
+        };
+        let Some(url) = url else {
+            return self.probe_endpoint(host, port, protocol).await;
+        };
+        let first = self
+            .probe_target_once(host, port, protocol, target, url)
+            .await;
+        if first.authentication_required
+            || first.proxy_tls_certificate == ProxyCapabilityStatus::Unavailable
         {
-            Ok(attempt) => attempt,
-            Err(_) => CapabilityProbeAttempt::failed(ProxyError::Timeout("proxy probe attempt")),
+            return first;
         }
+        let accepted = self.target_accepted(url);
+        if accepted || first.endpoint_connection_failed {
+            return first;
+        }
+        if let Some(fallback) = &policy.fallback_url {
+            if self
+                .fallback_used
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+            {
+                let mut alternate = self.clone();
+                alternate.configuration_identity = Some(self.configuration_id());
+                let mut second = if url.starts_with("https:") {
+                    alternate.config.https_probe_url = Some(fallback.clone());
+                    match parse_https_probe_url(fallback) {
+                        Ok(probe) => {
+                            alternate
+                                .probe_target_once(
+                                    host,
+                                    port,
+                                    protocol,
+                                    CapabilityProbeTarget::Https(&probe),
+                                    fallback,
+                                )
+                                .await
+                        }
+                        Err(error) => CapabilityProbeAttempt::failed(error),
+                    }
+                } else {
+                    alternate.config.http_probe_url = Some(fallback.clone());
+                    match parse_http_probe_url(fallback, 80) {
+                        Ok(probe) => {
+                            alternate
+                                .probe_target_once(
+                                    host,
+                                    port,
+                                    protocol,
+                                    CapabilityProbeTarget::HttpForwarding(&probe),
+                                    fallback,
+                                )
+                                .await
+                        }
+                        Err(error) => CapabilityProbeAttempt::failed(error),
+                    }
+                };
+                if first.capability_status == ProxyCapabilityStatus::Available {
+                    second.capability_status = first.capability_status;
+                }
+                if first.destination_tls == ProxyCapabilityStatus::Available {
+                    second.destination_tls = first.destination_tls;
+                }
+                if first.proxy_tls_certificate == ProxyCapabilityStatus::Available
+                    && second.proxy_tls_certificate == ProxyCapabilityStatus::Unknown
+                {
+                    second.proxy_tls_certificate = first.proxy_tls_certificate;
+                }
+                if first.endpoint_reachable {
+                    second.endpoint_reachable = true;
+                    second.endpoint_connection_failed = false;
+                }
+                return second;
+            }
+        }
+        first
+    }
+
+    fn target_accepted(&self, url: &str) -> bool {
+        let target = sanitized_probe_target(url);
+        self.observations
+            .lock()
+            .unwrap()
+            .iter()
+            .rev()
+            .find(|observation| {
+                observation.context.phase == super::ProxyObservationPhase::ProbeTargetAccepted
+                    && observation.context.target == target
+                    && observation.context.configuration
+                        == self.observation_configuration(Some(url))
+            })
+            .is_some_and(|observation| {
+                observation.outcome == super::ProxyObservationOutcome::Succeeded
+            })
+    }
+
+    async fn probe_target_once(
+        &self,
+        host: &str,
+        port: u16,
+        protocol: &ProxyProtocol,
+        target: CapabilityProbeTarget<'_>,
+        url: &str,
+    ) -> CapabilityProbeAttempt {
+        let key = format!("{}|{}", self.configuration_id(), url);
+        let policy = if url.starts_with("https:") {
+            &self.config.https_policy
+        } else {
+            &self.config.http_policy
+        };
+        let Some(lease) = self
+            .target_states
+            .enter(key, &policy.suspension, self.attempt_deadline)
+        else {
+            return self.probe_endpoint(host, port, protocol).await;
+        };
+        let attempt = self
+            .probe_capability_inner(host, port, protocol, target)
+            .await;
+        let sanitized = sanitized_probe_target(url);
+        let status = self
+            .observations
+            .lock()
+            .unwrap()
+            .iter()
+            .rev()
+            .find(|observation| {
+                observation.context.phase == super::ProxyObservationPhase::DestinationHttp
+                    && observation.context.target == sanitized
+                    && observation.context.configuration
+                        == self.observation_configuration(Some(url))
+            })
+            .and_then(|observation| observation.http_status);
+        let healthy = status.and_then(|status| {
+            if self.target_accepted(url) || status < 500 {
+                Some(true)
+            } else if policy.unavailable_statuses.contains(&status) {
+                Some(false)
+            } else {
+                None
+            }
+        });
+        lease.finish(format!("{host}:{port}"), healthy);
+        attempt
+    }
+
+    async fn exchange_probe<S: AsyncRead + AsyncWrite + Unpin + Send + ?Sized>(
+        &self,
+        stream: &mut S,
+        request_target: &str,
+        host: &str,
+        url: &str,
+        policy: &ProbeTargetPolicy,
+        protocol: &ProxyProtocol,
+    ) -> Result<u16> {
+        let method = policy.method.as_str();
+        let request = format!(
+            "{method} {request_target} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
+        );
+        let (status, headers) = time::timeout(self.config.timeouts.proxy_handshake, async {
+            stream.write_all(request.as_bytes()).await?;
+            stream.flush().await?;
+            read_probe_headers(stream).await
+        })
+        .await
+        .map_err(|_| ProxyError::Timeout("complementary probe response headers"))??;
+        if status == 407 && request_target.starts_with("http") {
+            return Err(ProxyError::UpstreamRejected(
+                "http forward returned status 407".into(),
+            ));
+        }
+        self.observe(
+            super::ProxyObservationPhase::DestinationHttp,
+            protocol,
+            Some(url),
+            true,
+            Some(status),
+        );
+        let default = ProxyResponsePolicy(Arc::new(HttpStatusProxyResponseClassifier::default()));
+        let handler = policy.response_policy.as_ref().unwrap_or(&default);
+        let mut body = Vec::new();
+        let mut body_state = ProxyBodyState::Unavailable;
+        if let ProxyBodyRequirement::Prefix(limit) = handler.0.body_requirement() {
+            let limit = limit.min(MAX_PROXY_RESPONSE_PREFIX);
+            if method == "HEAD" || matches!(status, 101 | 204 | 304) {
+                body_state = ProxyBodyState::Complete;
+            } else {
+                use super::http::body_readers::{
+                    ChunkedBodyReader, ContentLengthBodyReader, UntilEofBodyReader,
+                };
+                let chunked = headers
+                    .get("transfer-encoding")
+                    .and_then(|value| value.to_str().ok())
+                    .is_some_and(|value| {
+                        value
+                            .split(',')
+                            .any(|value| value.trim().eq_ignore_ascii_case("chunked"))
+                    });
+                let length = headers
+                    .get("content-length")
+                    .and_then(|value| value.to_str().ok())
+                    .and_then(|value| value.parse::<usize>().ok());
+                let reader: Box<dyn AsyncRead + Send + Unpin + '_> = if chunked {
+                    Box::new(ChunkedBodyReader::new(stream))
+                } else if let Some(length) = length {
+                    Box::new(ContentLengthBodyReader::new(stream, length))
+                } else {
+                    Box::new(UntilEofBodyReader::new(stream))
+                };
+                let mut prefix = reader.take(limit as u64);
+                if matches!(
+                    time::timeout(
+                        PROXY_RESPONSE_INSPECTION_TIMEOUT,
+                        prefix.read_to_end(&mut body)
+                    )
+                    .await,
+                    Ok(Ok(_))
+                ) {
+                    body_state = if body.len() < limit {
+                        ProxyBodyState::Complete
+                    } else {
+                        ProxyBodyState::Limited
+                    };
+                }
+            }
+        }
+        let view = ProxyResponseView {
+            method,
+            requested_url: url,
+            effective_url: url,
+            redirect_urls: &[],
+            status,
+            headers: &headers,
+            selection: None,
+            body: &body,
+            body_state,
+        };
+        let decision = handler.0.classify(&view).unwrap_or_else(|error| {
+            tracing::warn!(%error, "complementary target handler failed; result remains inconclusive");
+            ProxyResponseDecision::Inconclusive
+        });
+        self.observe(
+            super::ProxyObservationPhase::ProbeTargetAccepted,
+            protocol,
+            Some(url),
+            matches!(decision, ProxyResponseDecision::Accepted),
+            Some(status),
+        );
+        Ok(status)
+    }
+
+    fn validate_configuration(&self) -> Result<()> {
+        for (url, policy, scheme) in [
+            (
+                &self.config.http_probe_url,
+                &self.config.http_policy,
+                "http",
+            ),
+            (
+                &self.config.https_probe_url,
+                &self.config.https_policy,
+                "https",
+            ),
+        ] {
+            if policy.suspension.distinct_endpoints == 0
+                || policy.suspension.observation_window.is_zero()
+                || policy
+                    .suspension
+                    .backoff
+                    .iter()
+                    .any(|delay| delay.is_zero() || Instant::now().checked_add(*delay).is_none())
+            {
+                return Err(ProxyError::Config(
+                    "probe suspension thresholds and representable delays must be positive".into(),
+                ));
+            }
+            if policy.identity.trim().is_empty()
+                || policy
+                    .unavailable_statuses
+                    .iter()
+                    .any(|status| !(500..600).contains(status))
+            {
+                return Err(ProxyError::Config(
+                    "probe policy requires an identity and 5xx service indications".into(),
+                ));
+            }
+            if url.is_some() && url == &policy.fallback_url {
+                return Err(ProxyError::Config(
+                    "probe fallback must differ from its primary URL".into(),
+                ));
+            }
+            for url in url.iter().chain(policy.fallback_url.iter()) {
+                let parsed = url::Url::parse(url)
+                    .map_err(|_| ProxyError::Config("invalid complementary probe URL".into()))?;
+                if parsed.scheme() != scheme
+                    || parsed.host_str().is_none()
+                    || !parsed.username().is_empty()
+                    || parsed.password().is_some()
+                {
+                    return Err(ProxyError::Config(
+                        "probe URL must have the configured scheme and no credentials".into(),
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 
     async fn probe_capability_inner(
@@ -906,19 +1288,23 @@ impl ProxyProbe {
                     ProxyProtocol::Http | ProxyProtocol::Https,
                     CapabilityProbeTarget::HttpForwarding(probe),
                 ) => {
-                    let result = send_http_forward_probe(
-                        &mut *stream,
-                        probe,
-                        self.config.timeouts.proxy_handshake,
-                    )
-                    .await;
-                    self.observe(
-                        super::ProxyObservationPhase::DestinationHttp,
-                        protocol,
-                        self.config.http_probe_url.as_deref(),
-                        result.is_ok(),
-                        result.as_ref().ok().copied(),
-                    );
+                    let result = self
+                        .exchange_probe(
+                            &mut *stream,
+                            &probe.request_target,
+                            &probe.host_header,
+                            self.config.http_probe_url.as_deref().unwrap(),
+                            &self.config.http_policy,
+                            protocol,
+                        )
+                        .await
+                        .map_err(|error| {
+                            if is_auth_required(&error) {
+                                error
+                            } else {
+                                error.at_phase(super::ProxyObservationPhase::DestinationHttp)
+                            }
+                        });
                     let authentication_required =
                         result.as_ref().is_err_and(|error| is_auth_required(error));
                     let result = result.map(|_| ());
@@ -963,6 +1349,24 @@ impl ProxyProbe {
                     let authentication_required = result
                         .as_ref()
                         .is_err_and(|error| is_socks5_auth_required(error));
+                    let result = if result.is_ok() {
+                        let url = self.config.http_probe_url.as_deref().unwrap();
+                        self.exchange_probe(
+                            &mut *stream,
+                            &probe_origin_target(url),
+                            &probe.host_header,
+                            url,
+                            &self.config.http_policy,
+                            protocol,
+                        )
+                        .await
+                        .map_err(|error| {
+                            error.at_phase(super::ProxyObservationPhase::DestinationHttp)
+                        })
+                        .map(|_| ())
+                    } else {
+                        result
+                    };
                     (
                         capability_status(&result),
                         ProxyCapabilityStatus::Unknown,
@@ -992,6 +1396,24 @@ impl ProxyProbe {
                             .await
                         }
                         Err(error) => Err(error),
+                    };
+                    let result = if result.is_ok() {
+                        let url = self.config.http_probe_url.as_deref().unwrap();
+                        self.exchange_probe(
+                            &mut *stream,
+                            &probe_origin_target(url),
+                            &probe.host_header,
+                            url,
+                            &self.config.http_policy,
+                            protocol,
+                        )
+                        .await
+                        .map_err(|error| {
+                            error.at_phase(super::ProxyObservationPhase::DestinationHttp)
+                        })
+                        .map(|_| ())
+                    } else {
+                        result
                     };
                     (
                         capability_status(&result),
@@ -1103,19 +1525,16 @@ impl ProxyProbe {
                                     true,
                                     None,
                                 );
-                                let response = send_https_probe_request(
-                                    &mut destination_stream,
-                                    probe,
-                                    self.config.timeouts.proxy_handshake,
-                                )
-                                .await;
-                                self.observe(
-                                    super::ProxyObservationPhase::DestinationHttp,
-                                    protocol,
-                                    self.config.https_probe_url.as_deref(),
-                                    response.is_ok(),
-                                    response.as_ref().ok().copied(),
-                                );
+                                let response = self
+                                    .exchange_probe(
+                                        &mut destination_stream,
+                                        &probe.request_target,
+                                        &probe.host_header,
+                                        self.config.https_probe_url.as_deref().unwrap(),
+                                        &self.config.https_policy,
+                                        protocol,
+                                    )
+                                    .await;
                                 let result = response.map(|_| ());
                                 let destination_tls = ProxyCapabilityStatus::Available;
                                 (
@@ -1331,67 +1750,6 @@ where
         .nth(1)
         .and_then(|s| s.parse::<u16>().ok())
         .ok_or_else(|| ProxyError::Protocol("invalid http status line".to_string()))
-}
-
-/// Sends an HTTP forward request through an HTTP proxy.
-///
-/// This validates classic HTTP proxy forwarding. It intentionally does not use
-/// CONNECT because many HTTP proxies only allow CONNECT to HTTPS ports.
-async fn send_http_forward_probe<S>(
-    stream: &mut S,
-    probe: &HttpProbeTarget,
-    timeout: Duration,
-) -> Result<u16>
-where
-    S: AsyncRead + AsyncWrite + Unpin + ?Sized,
-{
-    let request = format!(
-        "GET {} HTTP/1.1\r\nHost: {}\r\nProxy-Connection: close\r\nConnection: close\r\n\r\n",
-        probe.request_target, probe.host_header
-    );
-
-    time::timeout(timeout, async {
-        stream.write_all(request.as_bytes()).await?;
-        stream.flush().await?;
-
-        let status = read_http_response_status(stream).await?;
-        if status == 407 {
-            return Err(ProxyError::UpstreamRejected(
-                "http forward returned status 407".to_string(),
-            ));
-        }
-        Ok(status)
-    })
-    .await
-    .map_err(|_| ProxyError::Timeout("http forward probe"))?
-}
-
-/// Sends a lightweight HTTP request through an established TLS tunnel.
-///
-/// Any valid HTTP response proves an exchange, not application acceptance.
-/// Redirects are not followed, and server errors do not erase TLS evidence.
-async fn send_https_probe_request<S>(
-    stream: &mut S,
-    probe: &HttpsProbeTarget,
-    timeout: Duration,
-) -> Result<u16>
-where
-    S: AsyncRead + AsyncWrite + Unpin + ?Sized,
-{
-    let request = format!(
-        "HEAD {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
-        probe.request_target, probe.host_header
-    );
-
-    time::timeout(timeout, async {
-        stream.write_all(request.as_bytes()).await?;
-        stream.flush().await?;
-
-        let status = read_http_response_status(stream).await?;
-        Ok(status)
-    })
-    .await
-    .map_err(|_| ProxyError::Timeout("https request through proxy tunnel"))?
 }
 
 /// Performs a SOCKS5 CONNECT handshake over an existing stream.
@@ -1643,6 +2001,67 @@ impl ServerCertVerifier for NoCertificateVerification {
     }
 }
 
+fn sanitized_probe_target(value: &str) -> Option<String> {
+    url::Url::parse(value).ok().map(|mut url| {
+        let _ = url.set_username("");
+        let _ = url.set_password(None);
+        url.set_query(None);
+        url.set_fragment(None);
+        url.to_string()
+    })
+}
+
+fn probe_origin_target(value: &str) -> String {
+    url::Url::parse(value)
+        .map(|url| match url.query() {
+            Some(query) => format!("{}?{query}", url.path()),
+            None => url.path().to_string(),
+        })
+        .unwrap_or_else(|_| "/".to_string())
+}
+
+async fn read_probe_headers<S: AsyncRead + Unpin + ?Sized>(
+    stream: &mut S,
+) -> Result<(u16, http::HeaderMap)> {
+    for _ in 0..8 {
+        let mut raw = Vec::new();
+        while !raw.ends_with(b"\r\n\r\n") {
+            if raw.len() >= 64 * 1024 {
+                return Err(ProxyError::Protocol(
+                    "probe response headers exceed 64 KiB".into(),
+                ));
+            }
+            raw.push(stream.read_u8().await?);
+        }
+        let head = std::str::from_utf8(&raw)
+            .map_err(|_| ProxyError::Protocol("probe response headers are not UTF-8".into()))?;
+        let mut lines = head.split("\r\n");
+        let status = lines
+            .next()
+            .and_then(|line| line.split_whitespace().nth(1))
+            .and_then(|status| status.parse::<u16>().ok())
+            .filter(|status| (100..600).contains(status))
+            .ok_or_else(|| ProxyError::Protocol("invalid probe HTTP status".into()))?;
+        let mut headers = http::HeaderMap::new();
+        for line in lines.filter(|line| !line.is_empty()) {
+            let (name, value) = line
+                .split_once(':')
+                .ok_or_else(|| ProxyError::Protocol("invalid probe header".into()))?;
+            let name = http::header::HeaderName::from_bytes(name.as_bytes())
+                .map_err(|_| ProxyError::Protocol("invalid probe header name".into()))?;
+            let value = http::header::HeaderValue::from_str(value.trim())
+                .map_err(|_| ProxyError::Protocol("invalid probe header value".into()))?;
+            headers.append(name, value);
+        }
+        if status >= 200 || status == 101 {
+            return Ok((status, headers));
+        }
+    }
+    Err(ProxyError::Protocol(
+        "too many informational probe responses".into(),
+    ))
+}
+
 // ── URL parsing helper ──────────────────────────────────────────────
 
 struct HttpProbeTarget {
@@ -1768,6 +2187,10 @@ fn capability_status<T>(result: &Result<T>) -> ProxyCapabilityStatus {
 
 fn failed_capability_status(error: &ProxyError) -> ProxyCapabilityStatus {
     match error {
+        ProxyError::Observation {
+            phase: super::ProxyObservationPhase::DestinationHttp,
+            ..
+        } => ProxyCapabilityStatus::Unknown,
         ProxyError::Observation { source, .. } | ProxyError::RequestAttempt { source, .. } => {
             failed_capability_status(source)
         }

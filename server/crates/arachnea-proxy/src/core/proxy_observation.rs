@@ -22,6 +22,8 @@ pub enum ProxyObservationPhase {
     DestinationTls,
     /// HTTP response received from the destination.
     DestinationHttp,
+    /// Acceptance by a complementary probe policy, independent of transport and business preference.
+    ProbeTargetAccepted,
 }
 
 /// Attribution of a negative observation.
