@@ -1,5 +1,63 @@
 # arachnea-proxy
 
+## Shared response classification (localized proxy lot 3)
+
+`core::http::response_classifier` exposes a client-independent response view,
+`ProxyResponseClassifier` and `ProxyResponseDecision`: `Accepted`,
+`RejectedForDestination { cooldown, reason }`, or `Inconclusive`. Receiving a
+response is transport evidence, not application acceptance. Defaults accept only
+2xx; unconfigured 403, other 4xx, 5xx and redirects remain inconclusive and do not
+create preferences or exclusions. `HttpStatusProxyResponseClassifier::http_403()`
+explicitly rejects 403 while preserving conservative acceptance for other codes.
+FranceTV and TF1 retain their existing explicit `[403]` activation.
+
+The same policy runs before media post-actions and Rquest body materialization.
+Only the orchestrator applies its decision to the exact selection token. Handler
+errors are logged and become inconclusive; they do not reject the endpoint.
+An inconclusive response preserves the existing durable history. Redirect
+responses are classified with the actual hop's method, effective URL and token;
+a final accepted response never validates the original domain by inference.
+
+Code injects `ProxyResponsePolicy(Arc<dyn ProxyResponseClassifier>)` through
+`ProxiedHttpRequest::response_classifier` or the HTTP/Scrapyfy client builders.
+The synchronous handler must not block, perform network I/O, mutate inventory or
+retry. By default it reads no body. `Prefix(n)` exposes at most 64 KiB with an
+inspection allowance capped at three seconds (and the remaining request timeout
+in Rquest). The adapter replays every consumed byte and read error. Complete,
+limited and unavailable observations are distinct; reaching the limit never
+proves EOF. Missing content in an incomplete prefix cannot establish rejection.
+Media bodies remain streamed unless existing post-actions/controller requirements
+already need buffering. Content-prefix inspection uses the transfer-decoded
+stream; it cannot use the buffered compatibility fallback for upstreams sending
+already-dechunked data with a stale `Transfer-Encoding: chunked` header. This
+malformed-response tolerance remains available for header-only classifiers.
+
+YAML HTTP options and media URL JSON options accept `proxy_response_classifier`:
+
+```yaml
+proxy_response_classifier:
+  type: statuses
+  rejected_statuses: [403]
+  accepted_statuses: [200, 206]
+  cooldown_seconds: 86400
+```
+
+Other known types are `{ type: default }` and `{ type: http403 }`. Statuses must
+be in 100..599, acceptance and rejection lists must not overlap, and an explicit
+cooldown must be positive and representable. Omitted accepted statuses mean all
+2xx; an explicit empty list accepts nothing. Omitted cooldown uses the inventory
+default. Existing exclusions are never shortened. Precedence is code injection,
+then an explicit known policy, then legacy `proxy_rejection_statuses`, then
+conservative defaults; policies are not silently combined. Child YAML policies
+override inherited policies. `{ type: default }` explicitly resets an inherited
+rejection policy. The configuration travels with rewritten media redirect URLs.
+
+The public HTTP facade still returns materialized bodies, and transfer timeouts
+remain separate from prefix inspection. End-to-end search deadlines and retry
+safety/budgets belong to lot 5; lot 3 does not extend retries. Engines without
+early observation/correlation do not infer proxy acceptance or rejection and
+report this limitation when a policy is configured.
+
 `arachnea-proxy` provides the proxy layer for Arachnea. It exposes a reusable routing core, optional client connectors, and optional local proxy server listeners.
 
 This README is the design and usage home for the proxy crate. Remaining work is tracked in the root `docs/TODO.md`.
@@ -307,9 +365,9 @@ authority as TCP instead of HTTPS. Tokens are not serialized or sent to origins.
 Legacy destination-only observation APIs remain compatibility helpers and are not
 safe for concurrent attribution; Scrapyfy and the media route use tokens instead.
 
-Response classifiers, end-to-end budgets and complementary probe circuits remain
-subsequent implementation lots. Current HTTP acceptance and retry configuration
-is otherwise unchanged. No new background maintenance is introduced.
+Shared response classifiers are implemented in lot 3 above. End-to-end budgets,
+retry safety and complementary probe circuits remain subsequent implementation
+lots. No new background maintenance is introduced.
 
 ### Durable preferences and endpoint eviction (lot 2)
 

@@ -2,7 +2,7 @@
 
 Date : 13 octobre 2026.
 
-Statut : lots 1 et 2 intégrés ; validations et limites de recette suivies le 14 octobre 2026 en sections 13 et 14.
+Statut : lots 1 à 3 intégrés ; validations et limites de recette des lots 1/2 en sections 13 à 16, lot 3 en section 17 (15 octobre 2026).
 
 Révision : prise en compte des deux phases de test, de l’indisponibilité ou des restrictions géographiques du serveur de test, et des décisions sur la persistance et les pays autorisés.
 
@@ -777,7 +777,7 @@ Si les recherches échouent souvent alors qu’il reste des candidats utiles, aj
 
 ### 11.1. Périmètre et principes d’exécution
 
-Ce plan décrit les changements à réaliser. Le lot 0 d’inspection et de conception est réalisé et documenté en section 12. Les lots 1 et 2 ont été intégrés après confirmation de leur conception ; leurs recettes exhaustives restent à terminer (sections 13 et 14). Les lots 3 à 7 restent à implémenter. Les lots structurants doivent être présentés avant leur implémentation conformément aux règles du dépôt.
+Ce plan décrit les changements à réaliser. Le lot 0 d’inspection et de conception est réalisé et documenté en section 12. Les lots 1 à 3 ont été intégrés après confirmation de leur conception ; leurs limites de recette sont suivies en sections 13 à 17. Les lots 4 à 7 restent à implémenter. Les lots structurants doivent être présentés avant leur implémentation conformément aux règles du dépôt.
 
 Principes communs :
 
@@ -902,6 +902,8 @@ Travail prévu :
 
 ### 11.7. Lot 3 — Introduire le handler de réponse commun
 
+**État : intégré après confirmation de la conception ; détails et limites en section 17.** Les cases ci-dessous suivent les livrables de code, non une recette exhaustive ; les scénarios encore non couverts restent ouverts en §11.12 et §17.3.
+
 **Module nouveau proposé :** `/Users/jdecker/Downloads/arachnea/server/crates/arachnea-proxy/src/core/http/response_classifier.rs`.
 
 **Adaptateurs principaux :**
@@ -916,15 +918,15 @@ Travail prévu :
 
 Travail prévu :
 
-- Implémenter la vue indépendante de réponse, le trait de classification et les trois résultats validés.
-- Fournir la politique prudente par défaut, le handler de statuts configurables et le handler 403 réutilisable.
-- Préserver la configuration `proxy_rejection_statuses` comme adaptateur vers le handler. Permettre l’injection par le code sans mettre un objet trait dans une structure YAML sérialisable.
-- Définir les configurations de handlers connus pour YAML et URLs, et leur validation ; conserver la priorité explicite entre injection et liste de statuts.
-- Remplacer les comparaisons dupliquées dans Scrapyfy et la route de médias par la même classification, avec application des effets sur le jeton de sélection du lot 1.
-- Classifier avant toute transformation de réponse pouvant masquer un blocage ; ne pas confondre les post-actions avec le handler.
-- Ajouter l’inspection facultative de 64 Kio, avec restitution exacte des octets dans le flux, sans attente du corps intégral. Une observation insuffisante reste inconclusive.
-- Réutiliser le point d’observation HTTP disponible avant matérialisation complète ; s’il manque dans un moteur, adapter sa frontière minimale ou signaler explicitement la limitation plutôt que laisser le budget couvrir tout un flux.
-- Conserver l’activation explicite du rejet 403 pour FranceTV et TF1, tant pour leurs clients que leurs URLs de médias.
+- [x] Implémenter la vue indépendante de réponse, le trait de classification et les trois résultats validés.
+- [x] Fournir la politique prudente par défaut, le handler de statuts configurables et le handler 403 réutilisable.
+- [x] Préserver la configuration `proxy_rejection_statuses` comme adaptateur vers le handler. Permettre l’injection par le code sans mettre un objet trait dans une structure YAML sérialisable.
+- [x] Définir les configurations de handlers connus pour YAML et URLs, et leur validation ; conserver la priorité explicite entre injection et liste de statuts.
+- [x] Remplacer les comparaisons dupliquées dans Scrapyfy et la route de médias par la même classification, avec application des effets sur le jeton de sélection du lot 1.
+- [x] Classifier avant toute transformation de réponse pouvant masquer un blocage ; ne pas confondre les post-actions avec le handler.
+- [x] Ajouter l’inspection facultative de 64 Kio, avec restitution exacte des octets dans le flux, sans attente du corps intégral. Une observation insuffisante reste inconclusive.
+- [x] Réutiliser le point d’observation HTTP disponible avant matérialisation complète ; s’il manque dans un moteur, adapter sa frontière minimale ou signaler explicitement la limitation plutôt que laisser le budget couvrir tout un flux.
+- [x] Conserver l’activation explicite du rejet 403 pour FranceTV et TF1, tant pour leurs clients que leurs URLs de médias.
 
 **Critères de sortie :** 2xx accepté selon politique, 403 excluant uniquement si activé, 4xx/5xx non classifié sans exclusion automatique, pas de succès attribué au mauvais domaine après redirection, aucune altération du corps inspecté.
 
@@ -1410,3 +1412,109 @@ La recette exhaustive du lot 1 n’est pas cochée : `ProxyProbe` construit ses 
 Le lot 2 dispose des scénarios locaux demandés, mais ne garantit pas une coupure matérielle, un kill de processus à tous les instants ni une transaction inter-stores. Ces niveaux supplémentaires restent explicitement hors couverture. Les trois échecs préexistants de la suite globale Scrapyfy et la configuration de feature isolée restent suivis ; le filtre agrégateur passant ne les corrige pas.
 
 Aucun changement de comportement backend n’a été réalisé dans ce complément : uniquement tests, fixtures, dépendances de développement et suivi documentaire.
+
+## 17. Lot 3 — handler commun intégré (15 octobre 2026)
+
+### 17.1. Implémentation et contrats
+
+La conception a été confirmée avant modification. Le module
+`/Users/jdecker/Downloads/arachnea/server/crates/arachnea-proxy/src/core/http/response_classifier.rs`
+définit une politique synchrone `Send + Sync`, une vue empruntée indépendante
+d’arachnea-http, une décision acceptée/rejetée pour destination/inconclusive et
+une inspection non destructive réutilisée par Rquest et le client médias.
+
+- Par défaut seuls les 2xx sont acceptés. Les autres statuts, dont 5xx et 403
+  non configuré, restent inconclusifs. Un rejet ne dégrade jamais globalement
+  l’endpoint et un résultat inconclusif ne modifie ni historique ni exclusion.
+- Les politiques connues sérialisables sont `default`, `http403`, `statuses`.
+  Cette dernière valide les statuts 100..599, leur non-chevauchement et le
+  cooldown optionnel positif/représentable. Une liste d’acceptation omise signifie
+  2xx ; une liste vide n’accepte rien. Les objets traits ne sont pas sérialisés.
+- Priorité : injection code, configuration connue explicite, adaptation de
+  `proxy_rejection_statuses`, politique prudente. Une politique enfant remplace
+  celle du parent ; `default` permet une réinitialisation explicite. Les clients
+  Scrapyfy configurés/à cookies isolés préservent la politique injectée.
+- Les options JSON d’URL médias acceptent la même configuration, validée en
+  entrée et conservée lors de la réécriture des redirections. Les activations
+  403 FranceTV/TF1 (ainsi que M6Play) existantes sont conservées sans modifier
+  les services. Aucun shaping métier n’est déplacé dans leurs façades.
+- La vue porte méthode réelle, URL initiale/effective, redirections disponibles,
+  statut, en-têtes originaux, jeton exact et état du préfixe. Un rejet explicite
+  d’une redirection est rendu à l’orchestrateur avant le saut suivant. Seul le
+  jeton de la réponse finale rendue est validé ; les origines précédentes ne sont
+  pas validées par inférence.
+- Le handler de statuts ne lit aucun corps. Un handler code peut demander
+  `Prefix(n)` ; l’adaptateur limite l’extrait à 64 Kio et l’attente à trois
+  secondes (également au timeout restant pour Rquest). Les octets et erreurs
+  consommés sont rejoués dans l’ordre. Les états complet, limité et indisponible
+  sont distincts ; atteindre la limite ne prouve jamais EOF. Un extrait
+  incomplet ne démontre pas l’absence d’un marqueur. Les erreurs retournées
+  par le handler sont journalisées puis rendues inconclusives.
+- La classification précède la matérialisation Rquest et les post-actions
+  médias. Les orchestrateurs appliquent la décision déjà produite au jeton,
+  sans refaire une classification après transformation. Un cooldown de rejet
+  optionnel utilise le stockage existant et ne raccourcit pas une exclusion.
+- La feature `stream` de la dépendance Rquest existante est activée, sans nouveau
+  framework. Les moteurs navigateur/personnalisés sans frontière équivalente
+  restent explicitement sans décision corrélée et signalent cette limitation
+  lorsqu’une politique est configurée.
+
+### 17.2. Validation et adaptations des tests existants
+
+Aucun nouveau test ni infrastructure de test n’a été créé. Des scénarios
+existants sont adaptés :
+
+- le keep-alive TLS/Rquest 200 puis 503 vérifie les décisions prudentes et un
+  préfixe de deux octets `do` tout en restituant le corps complet `down` ;
+- le test d’options de redirection vérifie la conservation de `http403`, sa
+  priorité sur une liste historique `[500]`, 200 accepté/403 rejeté/451 et 500
+  inconclusifs, ainsi que plusieurs configurations invalides ;
+- le test de redirection inter-domaines applique la décision au jeton final,
+  conserve l’historique sur résultat inconclusif et vérifie un cooldown injecté ;
+- le test de configuration Scrapyfy vérifie l’héritage et la surcharge explicite
+  ainsi que la conservation du handler code dans les clients dérivés.
+
+Commandes exécutées depuis `/Users/jdecker/Downloads/arachnea/server` avec
+`CARGO_NET_OFFLINE=true` :
+
+| Contrôle | Résultat |
+|---|---|
+| `cargo test -p arachnea-proxy --lib --features persistence,controller-service` | 102 tests réussis |
+| `cargo test -p arachnea-proxy --test post_action_integration --features controller-service` | 4 tests réussis |
+| `cargo test -p arachnea-http --lib --features arachnea-proxy` | 45 tests réussis |
+| `cargo test -p arachnea-scrapyfy --lib --features arachnea-proxy,sqlite-persistence,arachnea-proxy/controller-service -- scrapyfy::http_client` | 2 tests réussis |
+| `cargo check -p arachnea-http --no-default-features` | Réussite ; warning préexistant dans arachnea-core |
+| `cargo check -p arachnea-scrapyfy --no-default-features` | Réussite ; warnings de code inutilisé selon features |
+| `cargo check -p arachnea-stream` | Réussite |
+| Rustfmt limité aux fichiers Rust concernés et `git diff --check` | Réussite |
+
+La suite globale Scrapyfy exécutée avec les mêmes features obtient **76 succès
+et 4 échecs** : résolution du répertoire applicatif avant configuration, puis
+empoisonnement du verrou `Once`. C’est la même cause préexistante que les trois
+échecs signalés précédemment ; cette exécution touche aussi le scénario de
+remplacement d’agrégateur. Le filtre HTTP passant ne corrige pas ce défaut.
+La compilation isolée avec proxy sans `controller-service` reste le problème
+de feature préexistant suivi dans TODO. L’outil build de l’IDE JetBrains n’a pas
+de projet Arachnea ouvert dans cet environnement VS Code ; les validations
+effectives ci-dessus utilisent Cargo.
+
+### 17.3. Limites de couverture et périmètre restant
+
+L’implémentation ne signifie pas recette exhaustive : aucun scénario dédié
+ne valide encore les 64 Kio exacts, un corps binaire fragmenté, les timeouts/
+erreurs de lecture ou de handler, les flux HLS/MPD/chunked avec handler de
+contenu, le masquage par post-action, ni tous les moteurs sans corrélation.
+Leurs contrats sont implémentés et documentés, mais ces cas doivent faire l’objet
+d’une autorisation explicite de tests supplémentaires avant de cocher §11.12.
+Les tests de post-actions existants ne prouvent pas à eux seuls l’ordre de
+classification sur un vrai flux réseau transformé.
+
+L’inspection du contenu utilise un flux décodé du transfert HTTP. La tolérance
+historique des réponses déjà déchunkées portant encore l’en-tête chunked est
+préservée dans le parcours bufferisé à handler d’en-têtes ; elle n’est pas
+disponible pour l’inspection précoce de contenu, qui reste stricte. Le corps
+public arachnea-http reste matérialisé. Aucun timeout global recherche + essais,
+budget commun de retries, nouvel ordre de pays ou parallélisme de sélection
+n’est ajouté ; lots 4/5 et suivants inchangés. Un handler synchrone doit rester
+non bloquant : le plafond de lecture ne peut pas interrompre un handler code
+qui viole ce contrat.

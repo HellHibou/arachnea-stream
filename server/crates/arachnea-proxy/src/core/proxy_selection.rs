@@ -72,6 +72,32 @@ impl ProxySelectionToken {
             .await;
     }
 
+    /// Applies a classified response only to this exact selection.
+    ///
+    /// # Arguments
+    /// - `decision`: Side-effect-free classifier result; inconclusive is a no-op.
+    pub async fn record_response_decision(
+        &self,
+        decision: &super::http::response_classifier::ProxyResponseDecision,
+    ) {
+        use super::http::response_classifier::ProxyResponseDecision;
+        match decision {
+            ProxyResponseDecision::Accepted => self.record_accepted().await,
+            ProxyResponseDecision::RejectedForDestination { cooldown, reason } => {
+                tracing::debug!(endpoint = %self.endpoint, %reason, "proxy rejected for selected destination");
+                self.inventory
+                    .record_destination_failure_with_cooldown(
+                        &self.endpoint,
+                        &self.destination,
+                        ProxyDestinationFailureReason::BlockedByOrigin,
+                        *cooldown,
+                    )
+                    .await;
+            }
+            ProxyResponseDecision::Inconclusive => {}
+        }
+    }
+
     /// Excludes this association without degrading another route or endpoint.
     ///
     /// # Arguments

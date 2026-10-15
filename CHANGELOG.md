@@ -89,6 +89,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Localized proxy lot 3 introduces a shared side-effect-free response classifier, conservative 2xx acceptance, configurable status/403 policies, exact-token destination exclusions with optional cooldowns, and bounded non-destructive body-prefix inspection before media post-actions. YAML/media URL policies preserve explicit legacy rejection lists and FranceTV/TF1 activation; unclassified errors remain inconclusive.
+
 - Extended localized-proxy validation with a verified-TLS Rquest keep-alive fixture returning 200 then 503, delayed-response eviction and aggregator replacement scenarios, scoped persistence-error log assertions, and four SQLite eviction commit-boundary simulations. Actual process/disk crashes and the HTTPS-specific `ProxyProbe` path remain outside this coverage.
 
 - Added eleven localized-proxy lifecycle tests covering synchronized HTTP responses and pinned reconnects, redirect attribution, injected preference write failures, probe context changes, HTTP 503 observations, retention/cooldown boundaries, partial SQLite eviction recovery and concurrent file-history commits. Fixtures use local endpoints and existing test infrastructure; Rquest keep-alive, HTTPS 503 and actual process-crash coverage remain pending.
@@ -228,6 +230,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Localized proxy lot 3 adds inherited `http.proxy_response_classifier` configuration and code injection, replacing duplicated status checks with the early correlated decision. Injected policies survive derived clients; unclassified 4xx/5xx no longer establish accepted preferences. Existing retry counts are unchanged.
+
 - Localized proxy lot 1 attributes accepted/rejected HTTP results to their request-owned selection, including redirects, and avoids transport rotation after response-body collection errors. No new YAML policy or retry expansion is introduced.
 
 
@@ -258,6 +262,8 @@ All notable changes to the server workspace are recorded here.
 ### <u>arachnea-http</u>
 
 #### Added
+
+- Localized proxy lot 3 exposes optional response policy injection and the early response decision, evaluated before Rquest body materialization with exact hop metadata and replayed prefixes up to 64 KiB. Existing Rquest streaming support is enabled; unsupported engines explicitly remain uncorrelated. Common search deadlines remain future work.
 
 - Localized proxy lot 1 pins Rquest routes per origin/endpoint/route identity, carries the exact selection in responses and attributed errors, and observes HTTP headers before body collection. Delivery evidence stays conservative; browser engines without reliable attribution expose no selection token.
 

@@ -7,6 +7,8 @@ pub mod body_readers;
 pub mod client;
 #[cfg(feature = "controller-service")]
 pub mod proxy_service;
+/// Shared HTTP response classification and non-destructive prefix inspection.
+pub mod response_classifier;
 
 pub use client::{
     ProxiedHttpRequest, ProxiedHttpResponse, ProxiedResponseBody, SimpleHttpClient,

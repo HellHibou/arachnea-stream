@@ -145,10 +145,41 @@ currently selected dynamic proxy for that destination. A matching request is
 retried once with another cached eligible candidate. The list is empty by
 default and has no effect without an in-process dynamic proxy route. The
 rejection is persisted in the proxy inventory for 24 hours and is scoped to the
-exact scheme, host and port. After a non-rejected response, the selected proxy
+exact scheme, host and port. After an accepted response (2xx by default), the selected proxy
 becomes the preferred candidate for that exact destination while remaining
 subject to all normal eligibility checks; different destinations keep separate
 preferences.
+
+With the `arachnea-proxy` feature, `http.proxy_response_classifier` selects a
+known policy and replaces the legacy list without implicit composition:
+
+```yaml
+http:
+  proxy_response_classifier:
+    type: statuses
+    rejected_statuses: [403]
+    accepted_statuses: [200, 206]
+    cooldown_seconds: 86400
+```
+
+Known types are `default` (accept 2xx), `http403` (reject 403, otherwise apply
+conservative acceptance), and `statuses`. Statuses must be in 100..599,
+acceptance/rejection lists must not overlap, and an explicit cooldown must be
+positive and representable. Omitted acceptance statuses mean all 2xx; an empty
+list accepts nothing. Omitted cooldown uses the inventory default; an active
+exclusion is never shortened. Child policies override parents; `type: default`
+explicitly resets an inherited policy. Precedence is code-injected handler,
+known policy, legacy list, then conservative defaults. Unclassified 4xx/5xx and
+redirects remain inconclusive: no exclusion or new accepted preference.
+
+Classification observes original headers before transformations and the exact
+response destination token, never validating prior redirect origins by inference.
+Status handlers read no body. Code handlers can request up to 64 KiB within
+three seconds and the remaining request timeout; all consumed bytes are replayed.
+An incomplete/unavailable prefix cannot demonstrate the absence of a marker.
+Handler errors are logged and inconclusive. Engines without early correlated
+observation do not infer preferences or exclusions. The public HTTP response
+remains materialized; common search deadlines and replay safety remain lot 5 work.
 
 ### HTTP modes (`mode`)
 

@@ -457,6 +457,10 @@ pub struct ArachneaHttpConfig {
     pub proxy: HttpProxyConfig,
     /// Request routing parameters sent to proxy transports that support them.
     pub proxy_parameters: Vec<(String, String)>,
+    /// Optional code-injected response policy; not part of serialized configuration.
+    #[cfg(feature = "arachnea-proxy")]
+    pub proxy_response_classifier:
+        Option<arachnea_proxy::core::http::response_classifier::ProxyResponsePolicy>,
     /// Margin before cookie expiry where Cloudflare cookies are proactively refreshed.
     pub cookie_refresh_margin: Duration,
     /// Timeout applied to outbound HTTP requests.
@@ -503,6 +507,8 @@ impl Default for ArachneaHttpConfig {
             user_agent_profile: BrowserProfile::default(),
             proxy: HttpProxyConfig::Disabled,
             proxy_parameters: Vec::new(),
+            #[cfg(feature = "arachnea-proxy")]
+            proxy_response_classifier: None,
             cookie_refresh_margin: Duration::from_secs(300),
             request_timeout: Duration::from_secs(30),
             max_redirects: None,
@@ -521,6 +527,18 @@ pub struct ArachneaHttpConfigBuilder {
 }
 
 impl ArachneaHttpConfigBuilder {
+    /// Injects a response classifier for correlated Rquest proxy requests.
+    ///
+    /// # Arguments
+    /// - `classifier`: Nonblocking policy evaluated before body materialization.
+    #[cfg(feature = "arachnea-proxy")]
+    pub fn proxy_response_classifier(
+        mut self,
+        classifier: arachnea_proxy::core::http::response_classifier::ProxyResponsePolicy,
+    ) -> Self {
+        self.config.proxy_response_classifier = Some(classifier);
+        self
+    }
     /// Sets the outbound HTTP engine.
     ///
     /// # Parameters

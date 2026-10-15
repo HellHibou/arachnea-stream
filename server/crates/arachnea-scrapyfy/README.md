@@ -1,4 +1,25 @@
-# Arachnea Scrapyfy
+# arachnea-scrapyfy
+
+## Proxy response policies
+
+With `arachnea-proxy`, YAML `http.proxy_response_classifier` selects a shared
+known policy: `{ type: default }`, `{ type: http403 }`, or
+`{ type: statuses, rejected_statuses: [403], accepted_statuses: [200, 206], cooldown_seconds: 86400 }`.
+The optional policy inherits from the parent unless explicitly overridden.
+An injected `HttpClient::with_proxy_response_classifier(ProxyResponsePolicy)`
+takes precedence and is retained by configured/isolated-cookie clients. Otherwise
+the explicit known policy replaces (does not combine with) the legacy
+`proxy_rejection_statuses` list. Status lists and cooldowns are validated when
+constructing the transport. Default acceptance is 2xx only; unconfigured 4xx,
+5xx and redirects are inconclusive, without an automatic exclusion or new
+preference. A 403 rejection remains opt-in, including FranceTV and TF1.
+
+Scrapyfy applies the early Rquest decision to the exact response token, rather
+than reclassifying a transformed/materialized body. A custom policy can inspect
+a non-destructive prefix up to 64 KiB within three seconds and the remaining
+request timeout. Unsupported engines have no correlated decision and do not
+update preferences or exclusions by inference. Existing retry counts are not
+expanded; the common search deadline and replay policy remain lot 5 work.
 
 ## Durable localized proxy histories
 
@@ -52,5 +73,5 @@ selection from `ArachneaResponse`, not the most recent connection for a destinat
 Redirects attribute the final response only to its own origin. Uncorrelated browser
 responses do not update dynamic proxy preferences or exclusions. Transport errors
 after response headers preserve the proxy and do not trigger transport rotation.
-The existing rejection-status policy and retry counts remain in place; shared
-classifiers and replay-safety budgets are separate planned implementation lots.
+Legacy rejection-status configuration now adapts to the shared classifier above;
+retry counts remain unchanged and replay-safety budgets remain lot 5 work.

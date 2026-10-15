@@ -431,6 +431,7 @@ async fn redirect_response_token_belongs_to_final_origin_only() -> AnyResult<()>
         context.insert(crate::core::PROXY_PARAMETER_COUNTRIES,
             crate::core::ClientParameter::String("[\"BE\"]".into()));
         let response = core.http_client().request_proxied(ProxiedHttpRequest {
+            response_classifier: None,
             url: "http://initial.example/start".into(), method: "GET".into(),
             headers: Default::default(), cookies: Default::default(), body: Vec::new(),
             client_context: context, post_actions: Vec::new(), buffer_response_body: true,
@@ -440,10 +441,23 @@ async fn redirect_response_token_belongs_to_final_origin_only() -> AnyResult<()>
         assert_eq!(response.status, 200);
         let token = response.selection_token.unwrap();
         assert_eq!(token.destination().host_for_protocol(), "final.example");
-        token.record_accepted().await;
+        use crate::core::http::response_classifier::ProxyResponseDecision;
+        assert_eq!(response.response_decision, ProxyResponseDecision::Accepted);
+        token.record_response_decision(&response.response_decision).await;
         let inner = core.proxy_inventory().unwrap().inner.read().await;
         assert_eq!(inner.preferred_by_destination.len(), 1);
         assert!(inner.preferred_by_destination.keys().all(|key| key.contains("final.example")));
+        drop(inner);
+        token.record_response_decision(&ProxyResponseDecision::RejectedForDestination {
+            reason: "fixture rejection".into(), cooldown: Some(Duration::from_secs(120)),
+        }).await;
+        token.record_response_decision(&ProxyResponseDecision::Inconclusive).await;
+        let inner = core.proxy_inventory().unwrap().inner.read().await;
+        assert_eq!(inner.preferred_by_destination.len(), 1);
+        let record = inner.records.get(token.endpoint()).unwrap();
+        assert_eq!(record.destination_failures.len(), 1);
+        let remaining = record.destination_failures[0].cooldown_until.unwrap().duration_since(SystemTime::now())?;
+        assert!(remaining <= Duration::from_secs(120) && remaining > Duration::from_secs(100));
         assert!(matches!(response.body, ProxiedResponseBody::Buffered(ref bytes) if bytes == b"ok"));
         let requests = server.await??;
         assert!(requests[0].starts_with("GET http://initial.example/start "));

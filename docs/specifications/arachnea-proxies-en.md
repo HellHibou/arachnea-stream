@@ -1,5 +1,26 @@
 # arachnea-proxies YAML format specification
 
+### Runtime HTTP classification — lot 3
+
+Provider-list schemas are unchanged. Scraper HTTP options and media URL JSON
+options share `proxy_response_classifier`: `{"type":"default"}`,
+`{"type":"http403"}`, or
+`{"type":"statuses","rejected_statuses":[403],"accepted_statuses":[200,206],"cooldown_seconds":86400}`.
+Statuses must be in 100..599, acceptance and rejection lists disjoint, and explicit
+cooldowns positive and representable. This configuration replaces legacy
+`proxy_rejection_statuses`; code-injected handlers take precedence. No trait
+object is serialized. Policies survive rewritten redirect URLs; FranceTV/TF1
+keep explicit 403 activation.
+
+Defaults accept only 2xx. Unclassified 4xx/5xx and redirects are inconclusive,
+without new preferences or automatic exclusions. Explicit rejection excludes
+only the endpoint/destination in the actual response token. Classification runs
+before post-actions and reads no body by default. Optional content inspection
+replays all consumed bytes, exposes at most 64 KiB and waits at most three seconds
+within the available remaining timeout. Incomplete prefixes cannot establish
+absence of a marker. Engines without early correlated observation do not infer
+preferences/exclusions. Common search deadlines and retries remain lot 5 work.
+
 ### Runtime persistence — lot 2
 
 Without changing provider YAML, the application injects `proxy-inventory`,

@@ -1,5 +1,26 @@
 # Spécification du format YAML arachnea-proxies
 
+### Classification HTTP runtime — lot 3
+
+Le schéma des listes fournisseur ne change pas. Les options HTTP du scraper et
+les options JSON des URLs médias partagent `proxy_response_classifier` :
+`{"type":"default"}`, `{"type":"http403"}`, ou
+`{"type":"statuses","rejected_statuses":[403],"accepted_statuses":[200,206],"cooldown_seconds":86400}`.
+Les statuts 100..599 doivent être disjoints entre acceptation et rejet ; un
+cooldown explicite est positif et représentable. Cette politique remplace la
+liste historique `proxy_rejection_statuses` ; un handler injecté par code reste
+prioritaire. Aucun objet trait n’est sérialisé. La politique suit les URLs de
+redirection réécrites, et ne change pas les activations 403 de FranceTV/TF1.
+
+Par défaut, seuls les 2xx créent une préférence. Un 4xx/5xx ou une redirection
+non classifiés restent inconclusifs ; un rejet explicite exclut seulement le
+couple endpoint/destination du jeton. La classification précède les post-actions,
+sans lecture du corps par défaut. Un handler de contenu peut demander un extrait
+non destructif de 64 Kio maximum, pendant trois secondes au plus et dans le
+timeout restant disponible. Un extrait incomplet ne prouve pas l’absence d’un
+marqueur. Les moteurs sans observation précoce corrélée restent sans effet sur
+les préférences/exclusions. Les budgets et retries communs restent au lot 5.
+
 ### Persistance runtime — lot 2
 
 Sans changement du YAML fournisseur, l’application injecte les stores typés

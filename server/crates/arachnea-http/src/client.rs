@@ -756,6 +756,10 @@ impl ArachneaHttpClient {
         navigation: PageNavigationRequest,
         request: PageFetchRequest,
     ) -> Result<PageFetchResponse, ArachneaHttpError> {
+        #[cfg(feature = "arachnea-proxy")]
+        if self.config.proxy_response_classifier.is_some() {
+            tracing::warn!("browser page fetch does not support correlated early proxy response classification; no preference or exclusion will be inferred");
+        }
         let origin = origin_url(&navigation.url)?;
         let manager = self.browser_session_manager.as_ref().ok_or_else(|| {
             ArachneaHttpError::BrowserSessionUnavailable {
@@ -1257,9 +1261,14 @@ impl ArachneaHttpClient {
         &self,
         options: RequestOptions,
     ) -> Result<ArachneaResponse, ArachneaHttpError> {
-        self.execute_with_redirects(options, "rquest", |options| async move {
-            self.execute_one_with_rquest(options).await
-        })
+        self.execute_with_redirects(
+            options,
+            "rquest",
+            |options, requested_url, redirect_urls| async move {
+                self.execute_one_with_rquest(options, requested_url, redirect_urls)
+                    .await
+            },
+        )
         .await
     }
 
@@ -1279,7 +1288,11 @@ impl ArachneaHttpClient {
     async fn execute_one_with_rquest(
         &self,
         options: RequestOptions,
+        requested_url: String,
+        redirect_urls: Vec<String>,
     ) -> Result<ArachneaResponse, ArachneaHttpError> {
+        #[cfg(not(feature = "arachnea-proxy"))]
+        let _ = (&requested_url, &redirect_urls);
         info!(engine = "rquest", method = %options.method, url = %options.url, "sending request");
         let request = self.engine_request(options).await?;
         #[cfg(feature = "arachnea-proxy")]
@@ -1359,14 +1372,21 @@ impl ArachneaHttpClient {
                 cache.insert(key, (loopback.clone(), engine.clone()));
                 (loopback, engine)
             };
-            let response = engine
-                .send_for_proxy(request, selected.selection_token.clone())
+            let (response, decision) = engine
+                .send_for_proxy(
+                    request,
+                    selected.selection_token.clone(),
+                    self.config.proxy_response_classifier.as_ref(),
+                    &requested_url,
+                    &redirect_urls,
+                )
                 .await?;
             drop(loopback);
             self.store_response_cookies(&response.url, &response.headers)
                 .await?;
             let mut response = ArachneaResponse::from_engine(response);
             response.proxy_selection = selected.selection_token;
+            response.proxy_response_decision = Some(decision);
             return Ok(response);
         }
         let response = if let Some(rquest) = self.rquest.as_ref() {
@@ -1402,7 +1422,7 @@ impl ArachneaHttpClient {
         &self,
         options: RequestOptions,
     ) -> Result<ArachneaResponse, ArachneaHttpError> {
-        self.execute_with_redirects(options, "direct", |options| async move {
+        self.execute_with_redirects(options, "direct", |options, _, _| async move {
             self.execute_one_with_direct_engine(options).await
         })
         .await
@@ -1425,6 +1445,10 @@ impl ArachneaHttpClient {
         &self,
         options: RequestOptions,
     ) -> Result<ArachneaResponse, ArachneaHttpError> {
+        #[cfg(feature = "arachnea-proxy")]
+        if self.config.proxy_response_classifier.is_some() {
+            tracing::warn!("selected HTTP engine does not support correlated early proxy response classification; no preference or exclusion will be inferred");
+        }
         let engine = self
             .direct_engine
             .as_ref()
@@ -1445,14 +1469,20 @@ impl ArachneaHttpClient {
         mut execute_once: F,
     ) -> Result<ArachneaResponse, ArachneaHttpError>
     where
-        F: FnMut(RequestOptions) -> Fut,
+        F: FnMut(RequestOptions, String, Vec<String>) -> Fut,
         Fut: std::future::Future<Output = Result<ArachneaResponse, ArachneaHttpError>>,
     {
         let max_redirects = self.config.max_redirects.unwrap_or(DEFAULT_MAX_REDIRECTS);
-        let mut response = execute_once(options.clone()).await?;
+        let requested_url = options.url.clone();
+        let mut response = execute_once(options.clone(), requested_url.clone(), Vec::new()).await?;
         let mut redirect_urls = Vec::new();
 
         for redirect_index in 0..max_redirects {
+            #[cfg(feature = "arachnea-proxy")]
+            if matches!(response.proxy_response_decision(), Some(arachnea_proxy::core::http::response_classifier::ProxyResponseDecision::RejectedForDestination { .. })) {
+                response.set_redirect_urls(redirect_urls);
+                return Ok(response);
+            }
             let Some(next_url) = redirect_target(&response)? else {
                 response.set_redirect_urls(redirect_urls);
                 return Ok(response);
@@ -1467,9 +1497,19 @@ impl ArachneaHttpClient {
             );
             redirect_urls.push(next_url.clone());
             options = options.for_redirect(next_url, response.status);
-            response = execute_once(options.clone()).await?;
+            response = execute_once(
+                options.clone(),
+                requested_url.clone(),
+                redirect_urls.clone(),
+            )
+            .await?;
         }
 
+        #[cfg(feature = "arachnea-proxy")]
+        if matches!(response.proxy_response_decision(), Some(arachnea_proxy::core::http::response_classifier::ProxyResponseDecision::RejectedForDestination { .. })) {
+            response.set_redirect_urls(redirect_urls);
+            return Ok(response);
+        }
         if redirect_target(&response)?.is_some() {
             return Err(ArachneaHttpError::RedirectLimitExceeded {
                 limit: max_redirects,
@@ -1799,6 +1839,10 @@ impl RequestOptions {
 /// Materialized HTTP response returned by Arachnea.
 #[derive(Debug, Clone)]
 pub struct ArachneaResponse {
+    /// Decision observed before body materialization or transformations.
+    #[cfg(feature = "arachnea-proxy")]
+    proxy_response_decision:
+        Option<arachnea_proxy::core::http::response_classifier::ProxyResponseDecision>,
     /// Exact dynamic route used for this response, absent for uncorrelated engines.
     #[cfg(feature = "arachnea-proxy")]
     proxy_selection: Option<arachnea_proxy::core::ProxySelectionToken>,
@@ -1815,6 +1859,13 @@ pub struct ArachneaResponse {
 }
 
 impl ArachneaResponse {
+    /// Returns the early decision, absent for engines without observation support.
+    #[cfg(feature = "arachnea-proxy")]
+    pub fn proxy_response_decision(
+        &self,
+    ) -> Option<&arachnea_proxy::core::http::response_classifier::ProxyResponseDecision> {
+        self.proxy_response_decision.as_ref()
+    }
     /// Converts an engine response into a public response.
     ///
     /// # Parameters
@@ -1826,6 +1877,8 @@ impl ArachneaResponse {
     /// A public response wrapper.
     fn from_engine(response: crate::engine::EngineResponse) -> Self {
         Self {
+            #[cfg(feature = "arachnea-proxy")]
+            proxy_response_decision: None,
             #[cfg(feature = "arachnea-proxy")]
             proxy_selection: None,
             url: response.url,
@@ -1842,6 +1895,8 @@ impl ArachneaResponse {
     /// need to share the same response helpers as real HTTP responses.
     pub fn from_text(url: impl Into<String>, body: impl Into<Bytes>) -> Self {
         Self {
+            #[cfg(feature = "arachnea-proxy")]
+            proxy_response_decision: None,
             #[cfg(feature = "arachnea-proxy")]
             proxy_selection: None,
             url: url.into(),

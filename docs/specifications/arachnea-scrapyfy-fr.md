@@ -146,9 +146,43 @@ La requête correspondante est réessayée une fois avec un autre candidat élig
 déjà en cache. La liste est vide par défaut et reste sans effet sans route proxy
 dynamique intégrée au processus. Le rejet est persisté dans l'inventaire des
 proxys pendant 24 heures et reste limité au triplet exact protocole, hôte et
-port. Après une réponse non rejetée, le proxy sélectionné devient le candidat
+port. Après une réponse acceptée (2xx par défaut), le proxy sélectionné devient le candidat
 prioritaire pour cette destination exacte tout en restant soumis à tous les
 contrôles d'éligibilité ; chaque destination conserve une préférence distincte.
+
+Avec la feature `arachnea-proxy`, `http.proxy_response_classifier` sélectionne
+une politique connue et remplace la liste de rejet, sans composition implicite :
+
+```yaml
+http:
+  proxy_response_classifier:
+    type: statuses
+    rejected_statuses: [403]
+    accepted_statuses: [200, 206]
+    cooldown_seconds: 86400
+```
+
+Les types sont `default` (2xx acceptés), `http403` (403 rejeté, autres réponses
+selon la politique prudente) et `statuses`. Les statuts doivent appartenir à
+100..599, les listes acceptées/rejetées être disjointes et le cooldown explicite
+être strictement positif et représentable. Sans `accepted_statuses`, tous les
+2xx sont acceptés ; une liste vide n’accepte rien. Sans cooldown, la valeur de
+l’inventaire s’applique. Une exclusion active n’est jamais raccourcie.
+La configuration enfant remplace celle du parent ; `type: default` permet une
+réinitialisation explicite. La priorité est handler injecté par code, politique
+connue, liste historique, puis politique prudente. Les 4xx/5xx non classifiés et
+les redirections restent inconclusifs : ni exclusion ni nouveau succès.
+
+La classification utilise les en-têtes originaux avant transformation et le jeton
+de la destination réellement observée, sans valider les origines précédentes
+d’une redirection. Les handlers de statuts ne lisent aucun corps. Un handler
+injecté peut demander au maximum 64 Kio, avec une lecture limitée à trois
+secondes et au timeout restant ; les octets sont restitués. Un extrait limité,
+indisponible ou insuffisant ne démontre pas l’absence d’un marqueur. Les erreurs
+du handler sont journalisées et inconclusives. Les moteurs sans observation
+précoce corrélée ne produisent pas de préférence ou d’exclusion par déduction.
+La réponse publique HTTP reste matérialisée ; les budgets communs et règles
+de rejeu du lot 5 ne sont pas introduits par cette option.
 
 ### Modes HTTP (`mode`)
 

@@ -35,7 +35,20 @@ impl RquestEngine {
         &self,
         request: EngineRequest,
         selection: Option<arachnea_proxy::core::ProxySelectionToken>,
-    ) -> Result<EngineResponse, ArachneaHttpError> {
+        policy: Option<&arachnea_proxy::core::http::response_classifier::ProxyResponsePolicy>,
+        requested_url: &str,
+        redirect_urls: &[String],
+    ) -> Result<
+        (
+            EngineResponse,
+            arachnea_proxy::core::http::response_classifier::ProxyResponseDecision,
+        ),
+        ArachneaHttpError,
+    > {
+        use arachnea_proxy::core::http::response_classifier::*;
+        use futures::StreamExt;
+        let started = tokio::time::Instant::now();
+        let method = request.method.clone();
         let mut builder = self
             .client
             .request(request.method, &request.url)
@@ -69,20 +82,45 @@ impl RquestEngine {
             }
             token.record_http_response(status.as_u16()).await;
         }
-        let body = response
-            .bytes()
-            .await
-            .map_err(|error| ArachneaHttpError::ProxyAttempt {
-                selection,
+        let stream: ProxyResponseStream = Box::pin(
+            response
+                .bytes_stream()
+                .map(|result| result.map_err(std::io::Error::other)),
+        );
+        let (decision, mut stream) = inspect_proxy_response(
+            policy,
+            ProxyResponseView {
+                method: method.as_str(),
+                requested_url,
+                effective_url: &url,
+                redirect_urls,
+                status: status.as_u16(),
+                headers: &headers,
+                selection: selection.as_ref(),
+                body: &[],
+                body_state: ProxyBodyState::Unavailable,
+            },
+            stream,
+            self.request_timeout.saturating_sub(started.elapsed()),
+        )
+        .await;
+        let mut body = Vec::new();
+        while let Some(chunk) = stream.next().await {
+            body.extend_from_slice(&chunk.map_err(|error| ArachneaHttpError::ProxyAttempt {
+                selection: selection.clone(),
                 delivery: arachnea_proxy::core::ProxyRequestDelivery::ResponseReceived,
                 source: Box::new(ArachneaHttpError::Proxy(error.to_string())),
-            })?;
-        Ok(EngineResponse {
-            url,
-            status,
-            headers,
-            body,
-        })
+            })?);
+        }
+        Ok((
+            EngineResponse {
+                url,
+                status,
+                headers,
+                body: body.into(),
+            },
+            decision,
+        ))
     }
 
     /// Creates a configured `rquest` engine.

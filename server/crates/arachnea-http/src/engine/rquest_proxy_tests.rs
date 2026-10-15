@@ -81,12 +81,29 @@ async fn keep_alive_tls_503_keeps_exact_selection_and_positive_phases() -> anyho
             method: ::http::Method::GET, url: "https://localhost/content".into(),
             headers: Default::default(), body: None,
         };
-        let first = engine.send_for_proxy(request(), Some(token.clone())).await?;
+        let (first, first_decision) = engine.send_for_proxy(request(), Some(token.clone()), None, "https://localhost/content", &[]).await?;
+        assert_eq!(first_decision, arachnea_proxy::core::http::response_classifier::ProxyResponseDecision::Accepted);
         assert_eq!(first.status.as_u16(), 200);
         token.record_accepted().await;
         let independent = core.select_for_request(select("FR")).await?;
         independent.selection_token.unwrap().record_failure(ProxyDestinationFailureReason::BlockedByOrigin).await;
-        let second = engine.send_for_proxy(request(), Some(token.clone())).await?;
+        struct PrefixPolicy;
+        impl arachnea_proxy::core::http::response_classifier::ProxyResponseClassifier for PrefixPolicy {
+            fn body_requirement(&self) -> arachnea_proxy::core::http::response_classifier::ProxyBodyRequirement {
+                arachnea_proxy::core::http::response_classifier::ProxyBodyRequirement::Prefix(2)
+            }
+            fn classify(&self, view: &arachnea_proxy::core::http::response_classifier::ProxyResponseView<'_>) -> arachnea_proxy::core::Result<arachnea_proxy::core::http::response_classifier::ProxyResponseDecision> {
+                use arachnea_proxy::core::http::response_classifier::*;
+                assert_eq!(view.body, b"do");
+                assert_eq!(view.body_state, ProxyBodyState::Limited);
+                assert_eq!(view.method, "GET");
+                assert!(view.selection.is_some());
+                HttpStatusProxyResponseClassifier::default().classify(view)
+            }
+        }
+        let policy = arachnea_proxy::core::http::response_classifier::ProxyResponsePolicy(std::sync::Arc::new(PrefixPolicy));
+        let (second, second_decision) = engine.send_for_proxy(request(), Some(token.clone()), Some(&policy), "https://localhost/content", &[]).await?;
+        assert_eq!(second_decision, arachnea_proxy::core::http::response_classifier::ProxyResponseDecision::Inconclusive);
         assert_eq!(second.status.as_u16(), 503);
         assert_eq!(second.body.as_ref(), b"down");
         let records = core.proxy_inventory().unwrap().all_records().await;

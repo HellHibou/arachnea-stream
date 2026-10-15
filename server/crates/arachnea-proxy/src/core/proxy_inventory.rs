@@ -1638,6 +1638,26 @@ impl ProxyInventory {
         destination: &Destination,
         reason: crate::core::ProxyDestinationFailureReason,
     ) -> bool {
+        self.record_destination_failure_with_cooldown(authority, destination, reason, None)
+            .await
+    }
+
+    /// Records a destination failure using a policy override without shortening
+    /// an existing exclusion.
+    ///
+    /// # Arguments
+    /// - `authority`: Endpoint actually used.
+    /// - `destination`: Exact observed destination.
+    /// - `reason`: Contextual failure category.
+    /// - `cooldown`: Optional override of the inventory default.
+    pub async fn record_destination_failure_with_cooldown(
+        &self,
+        authority: &str,
+        destination: &Destination,
+        reason: crate::core::ProxyDestinationFailureReason,
+        cooldown: Option<Duration>,
+    ) -> bool {
+        let cooldown = cooldown.unwrap_or(self.config.destination_failure_cooldown);
         let updated = {
             let mut inner = self.inner.write().await;
             let Some(record) = inner.records.get_mut(authority) else {
@@ -1656,9 +1676,10 @@ impl ProxyInventory {
                 {
                     failure.reason = reason;
                 }
-                failure.cooldown_until = failure
-                    .cooldown_until
-                    .max(Some(now + self.config.destination_failure_cooldown));
+                failure.cooldown_until = failure.cooldown_until.max(Some(
+                    now.checked_add(cooldown)
+                        .unwrap_or(now + self.config.destination_failure_cooldown),
+                ));
             } else {
                 record
                     .destination_failures
@@ -1669,7 +1690,10 @@ impl ProxyInventory {
                         reason,
                         failure_count: 1,
                         last_failed: now,
-                        cooldown_until: Some(now + self.config.destination_failure_cooldown),
+                        cooldown_until: Some(
+                            now.checked_add(cooldown)
+                                .unwrap_or(now + self.config.destination_failure_cooldown),
+                        ),
                     });
             }
             record.clone()

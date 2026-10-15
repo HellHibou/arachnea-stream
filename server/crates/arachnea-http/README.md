@@ -6,6 +6,27 @@ This README is the design and usage home for the HTTP crate. Remaining work is t
 
 ## Design Contract
 
+### Correlated proxy response policies
+
+With `arachnea-proxy`, `ArachneaHttpConfig::builder().proxy_response_classifier(policy)`
+accepts a `ProxyResponsePolicy` from `arachnea-proxy::core::http::response_classifier`.
+Rquest evaluates it on original headers and an optional prefix before full body
+materialization. The view includes the original URL, effective hop URL, redirect
+targets, actual method and exact selection token. The default accepts only 2xx;
+unconfigured errors/redirects are inconclusive. Callers inspect
+`ArachneaResponse::proxy_response_decision()` and apply effects with the token;
+classification does not itself retry or mutate inventory.
+
+Custom synchronous policies must be nonblocking and side-effect-free. Optional
+prefixes are capped at 64 KiB and three seconds or the remaining request timeout,
+whichever is shorter. Every consumed byte is replayed into the materialized body.
+Incomplete or unavailable prefixes are explicitly identified, and policy errors
+are logged as inconclusive. The public response remains materialized; no promise
+of an end-to-end search deadline or streaming public HTTP API is added here.
+The existing Rquest dependency enables its `stream` feature for this boundary.
+Browser/custom engines do not expose equivalent early correlated observations:
+their decisions remain absent, with a warning when a policy is configured.
+
 - Keep the public API centered on `ArachneaHttpClient`.
 - Keep HTTP engine choice explicit and observable through configuration and logs.
 - Keep Cloudflare behavior explicit through the default request mode or a per-request mode.
@@ -234,8 +255,8 @@ route identity; the bounded cache holds at most 32 entries. Active attempts reta
 their loopback helper even if a concurrent cache replacement occurs.
 `ArachneaResponse::proxy_selection()` exposes the exact dynamic selection.
 Rquest records response receipt before collecting the body, independently of the
-HTTP status. This is an observation hook, not yet the injectable response classifier
-or the end-to-end search deadline planned in later lots.
+HTTP status. Lot 3 adds the injectable response classifier at this boundary;
+the end-to-end search deadline remains planned for lot 5.
 
 `ArachneaHttpError::ProxyAttempt` retains the token and delivery evidence:
 preselection failures are `NotSent`, opaque Rquest send failures are `PossiblySent`,

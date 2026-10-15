@@ -42,6 +42,7 @@ const ALLOWED_OPTS_FIELDS: &[&str] = &[
     "insecure_tls",
     "follow_redirects",
     "proxy_rejection_statuses",
+    "proxy_response_classifier",
 ];
 
 /// Parsed options from the `opts` segment of a proxy URL.
@@ -60,6 +61,8 @@ struct ProxyHttpOpts {
     follow_redirects: Option<usize>,
     /// HTTP statuses that reject the selected dynamic proxy and trigger one retry.
     proxy_rejection_statuses: Vec<u16>,
+    /// Known policy taking precedence over the legacy status list.
+    proxy_response_classifier: Option<super::response_classifier::ProxyResponseClassifierConfig>,
 }
 
 struct MergedProxyHttpInput {
@@ -92,6 +95,7 @@ fn parse_opts_value(value: &serde_json::Value) -> Result<ProxyHttpOpts, (u16, St
                 insecure_tls: false,
                 follow_redirects: None,
                 proxy_rejection_statuses: Vec::new(),
+                proxy_response_classifier: None,
             });
         }
         _ => return Err((400, "'opts' must be a JSON object".to_string())),
@@ -223,6 +227,19 @@ fn parse_opts_value(value: &serde_json::Value) -> Result<ProxyHttpOpts, (u16, St
         None => Vec::new(),
     };
 
+    let proxy_response_classifier = obj
+        .get("proxy_response_classifier")
+        .map(|value| {
+            let config: super::response_classifier::ProxyResponseClassifierConfig =
+                serde_json::from_value(value.clone()).map_err(|error| {
+                    (400, format!("invalid proxy_response_classifier: {error}"))
+                })?;
+            config
+                .validate()
+                .map_err(|error| (400, error.to_string()))?;
+            Ok::<_, (u16, String)>(config)
+        })
+        .transpose()?;
     Ok(ProxyHttpOpts {
         headers,
         cookies,
@@ -230,6 +247,7 @@ fn parse_opts_value(value: &serde_json::Value) -> Result<ProxyHttpOpts, (u16, St
         insecure_tls,
         follow_redirects,
         proxy_rejection_statuses,
+        proxy_response_classifier,
     })
 }
 
@@ -514,11 +532,18 @@ fn encode_proxy_opts(opts: &ProxyHttpOpts) -> String {
         && !opts.insecure_tls
         && opts.follow_redirects.is_none()
         && opts.proxy_rejection_statuses.is_empty()
+        && opts.proxy_response_classifier.is_none()
     {
         return String::new();
     }
 
     let mut object = serde_json::Map::new();
+    if let Some(config) = &opts.proxy_response_classifier {
+        object.insert(
+            "proxy_response_classifier".into(),
+            serde_json::json!(config),
+        );
+    }
     if !opts.headers.is_empty() {
         let headers: Vec<Vec<String>> = opts
             .headers
@@ -953,6 +978,20 @@ pub async fn handle_proxy_http(
     let client = SimpleHttpClient::new(request_proxy_core.clone());
     let headers_only = method == "HEAD";
     let proxy_request = ProxiedHttpRequest {
+        response_classifier: Some(
+            match super::response_classifier::resolve_response_policy(
+                redirect_opts
+                    .as_ref()
+                    .and_then(|opts| opts.proxy_response_classifier.as_ref()),
+                redirect_opts
+                    .as_ref()
+                    .map(|opts| opts.proxy_rejection_statuses.as_slice())
+                    .unwrap_or_default(),
+            ) {
+                Ok(policy) => policy,
+                Err(error) => return Ok(stream_error(400, error.to_string())),
+            },
+        ),
         url: target_url_str.clone(),
         method: method.clone(),
         headers,
@@ -977,16 +1016,14 @@ pub async fn handle_proxy_http(
         Ok(response) => response,
         Err(error) => return Ok(stream_error(502, format!("Proxy error: {error}"))),
     };
-    let rejection_statuses = redirect_opts
-        .as_ref()
-        .map(|opts| opts.proxy_rejection_statuses.as_slice())
-        .unwrap_or_default();
-    if rejection_statuses.contains(&proxy_response.status)
-        && proxy_response.selection_token.is_some()
+    if matches!(
+        proxy_response.response_decision,
+        super::response_classifier::ProxyResponseDecision::RejectedForDestination { .. }
+    ) && proxy_response.selection_token.is_some()
     {
         if let Some(token) = &proxy_response.selection_token {
             token
-                .record_failure(crate::core::ProxyDestinationFailureReason::BlockedByOrigin)
+                .record_response_decision(&proxy_response.response_decision)
                 .await;
         }
         tracing::warn!(
@@ -999,16 +1036,10 @@ pub async fn handle_proxy_http(
             Err(error) => return Ok(stream_error(502, format!("Proxy error: {error}"))),
         };
     }
-    if rejection_statuses.contains(&proxy_response.status) {
-        if let Some(token) = &proxy_response.selection_token {
-            token
-                .record_failure(crate::core::ProxyDestinationFailureReason::BlockedByOrigin)
-                .await;
-        }
-    } else {
-        if let Some(token) = &proxy_response.selection_token {
-            token.record_accepted().await;
-        }
+    if let Some(token) = &proxy_response.selection_token {
+        token
+            .record_response_decision(&proxy_response.response_decision)
+            .await;
     }
 
     let status = proxy_response.status;
@@ -1402,6 +1433,7 @@ mod tests {
             insecure_tls: false,
             follow_redirects: None,
             proxy_rejection_statuses: Vec::new(),
+            proxy_response_classifier: Some(crate::core::http::response_classifier::ProxyResponseClassifierConfig::Http403),
         };
         let encoded = encode_proxy_opts(&opts);
         let redirect_actions = vec![ProxyHttpRedirectActionConfig::RemoveHeader(
@@ -1424,6 +1456,48 @@ mod tests {
         assert_eq!(headers.len(), 1);
         assert_eq!(headers[0][0], "X-Keep");
         assert_eq!(headers[0][1], "1");
+        assert_eq!(next["proxy_response_classifier"]["type"], "http403");
+        let parsed = parse_opts_value(&next).unwrap();
+        assert!(parsed.proxy_response_classifier.is_some());
+        use crate::core::http::response_classifier::*;
+        for value in [
+            serde_json::json!({"type": "unknown"}),
+            serde_json::json!({"type": "statuses", "rejected_statuses": [99]}),
+            serde_json::json!({"type": "statuses", "rejected_statuses": [200]}),
+            serde_json::json!({"type": "statuses", "cooldown_seconds": 0}),
+        ] {
+            assert!(
+                parse_opts_value(&serde_json::json!({ "proxy_response_classifier": value }))
+                    .is_err()
+            );
+        }
+        let policy =
+            resolve_response_policy(parsed.proxy_response_classifier.as_ref(), &[500]).unwrap();
+        let empty_headers = http::HeaderMap::new();
+        for (status, expected) in [
+            (200, "accepted"),
+            (403, "rejected"),
+            (451, "inconclusive"),
+            (500, "inconclusive"),
+        ] {
+            let view = ProxyResponseView {
+                method: "GET",
+                requested_url: "https://example.test/",
+                effective_url: "https://example.test/",
+                redirect_urls: &[],
+                status,
+                headers: &empty_headers,
+                selection: None,
+                body: &[],
+                body_state: ProxyBodyState::Unavailable,
+            };
+            let actual = match policy.0.classify(&view).unwrap() {
+                ProxyResponseDecision::Accepted => "accepted",
+                ProxyResponseDecision::RejectedForDestination { .. } => "rejected",
+                ProxyResponseDecision::Inconclusive => "inconclusive",
+            };
+            assert_eq!(actual, expected);
+        }
     }
 
     #[test]
@@ -1469,6 +1543,7 @@ mod tests {
             insecure_tls: false,
             follow_redirects: None,
             proxy_rejection_statuses: Vec::new(),
+            proxy_response_classifier: None,
         };
         let encoded = encode_proxy_opts(&opts);
         let redirect_actions = vec![ProxyHttpRedirectActionConfig::RemoveHeader(

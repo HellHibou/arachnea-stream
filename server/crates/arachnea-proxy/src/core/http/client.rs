@@ -34,6 +34,8 @@ pub enum ProxiedResponseBody {
 
 /// Full proxied HTTP response with parsed headers and body.
 pub struct ProxiedHttpResponse {
+    /// Original response decision, computed before post-actions.
+    pub response_decision: super::response_classifier::ProxyResponseDecision,
     /// Exact route used by the final response, including after redirects.
     pub selection_token: Option<crate::core::ProxySelectionToken>,
     /// Numeric HTTP status code.
@@ -47,6 +49,8 @@ pub struct ProxiedHttpResponse {
 /// Input for a proxied HTTP request through the Arachnea proxy core.
 #[derive(Clone, Debug)]
 pub struct ProxiedHttpRequest {
+    /// Code-injected policy, taking precedence over serialized policies.
+    pub response_classifier: Option<super::response_classifier::ProxyResponsePolicy>,
     /// Absolute target URL (http or https scheme only).
     pub url: String,
     /// HTTP method (GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS).
@@ -167,8 +171,18 @@ impl SimpleHttpClient {
         mut request: ProxiedHttpRequest,
     ) -> Result<ProxiedHttpResponse> {
         let redirect_limit = request.follow_redirects;
+        let requested_url = request.url.clone();
+        let mut redirect_urls = Vec::new();
         for redirect_index in 0..redirect_limit.unwrap_or_default() {
-            let response = self.request_proxied_once(request.clone()).await?;
+            let response = self
+                .request_proxied_once(request.clone(), &requested_url, &redirect_urls)
+                .await?;
+            if matches!(
+                response.response_decision,
+                super::response_classifier::ProxyResponseDecision::RejectedForDestination { .. }
+            ) {
+                return Ok(response);
+            }
             if !(300..400).contains(&response.status) {
                 return Ok(response);
             }
@@ -192,14 +206,18 @@ impl SimpleHttpClient {
                 "following proxied HTTP redirect"
             );
             request.url = next_url.clone();
+            redirect_urls.push(next_url.clone());
             request.context.target_url = next_url;
         }
-        self.request_proxied_once(request).await
+        self.request_proxied_once(request, &requested_url, &redirect_urls)
+            .await
     }
 
     async fn request_proxied_once(
         &self,
         request: ProxiedHttpRequest,
+        requested_url: &str,
+        redirect_urls: &[String],
     ) -> Result<ProxiedHttpResponse> {
         if !request.buffer_response_body && !request.post_actions.is_empty() {
             return Err(ProxyError::Protocol(
@@ -370,18 +388,74 @@ impl SimpleHttpClient {
             token.record_http_response(status_code).await;
         }
 
+        use super::response_classifier::*;
+        let classifier_headers: http::HeaderMap = headers
+            .iter()
+            .filter_map(|(name, value)| {
+                Some((
+                    http::header::HeaderName::from_bytes(name.as_bytes()).ok()?,
+                    http::HeaderValue::from_str(value).ok()?,
+                ))
+            })
+            .collect();
+        let stream: ProxyResponseStream =
+            if request.headers_only || matches!(status_code, 204 | 304) {
+                Box::pin(futures::stream::empty())
+            } else if request.buffer_response_body
+                && self.tolerate_dechunked_bodies
+                && !matches!(
+                    request
+                        .response_classifier
+                        .as_ref()
+                        .map(|policy| policy.0.body_requirement()),
+                    Some(ProxyBodyRequirement::Prefix(_))
+                )
+            {
+                let headers = headers.clone();
+                let tolerate = self.tolerate_dechunked_bodies;
+                Box::pin(futures::stream::once(async move {
+                    read_buffered_response_body(
+                        unified_stream,
+                        &headers,
+                        transfer_encoding_is_chunked(&headers),
+                        tolerate,
+                    )
+                    .await
+                    .map(Bytes::from)
+                    .map_err(std::io::Error::other)
+                }))
+            } else {
+                Box::pin(ReaderStream::new(select_body_reader(
+                    unified_stream,
+                    &headers,
+                )))
+            };
+        let (response_decision, mut inspected_stream) = inspect_proxy_response(
+            request.response_classifier.as_ref(),
+            ProxyResponseView {
+                method: &request.method,
+                requested_url,
+                effective_url: &request.url,
+                redirect_urls,
+                status: status_code,
+                headers: &classifier_headers,
+                selection: selected.selection_token.as_ref(),
+                body: &[],
+                body_state: ProxyBodyState::Unavailable,
+            },
+            stream,
+            PROXY_RESPONSE_INSPECTION_TIMEOUT,
+        )
+        .await;
         let body = if request.headers_only || (300..400).contains(&status_code) {
             ProxiedResponseBody::Buffered(Vec::new())
         } else {
             let is_chunked = transfer_encoding_is_chunked(&headers);
             if request.buffer_response_body {
-                let body = read_buffered_response_body(
-                    unified_stream,
-                    &headers,
-                    is_chunked,
-                    self.tolerate_dechunked_bodies,
-                )
-                .await?;
+                let mut body = Vec::new();
+                while let Some(chunk) = inspected_stream.next().await {
+                    body.extend_from_slice(&chunk?);
+                }
                 if is_chunked {
                     remove_header_case_insensitive(&mut headers, "transfer-encoding");
                     remove_header_case_insensitive(&mut headers, "content-length");
@@ -394,17 +468,16 @@ impl SimpleHttpClient {
                     &request.context,
                 )?)
             } else {
-                let reader = select_body_reader(unified_stream, &headers);
                 if is_chunked {
                     remove_header_case_insensitive(&mut headers, "transfer-encoding");
                     remove_header_case_insensitive(&mut headers, "content-length");
                 }
-                let reader_stream = ReaderStream::new(reader);
-                ProxiedResponseBody::Streamed(Box::pin(reader_stream))
+                ProxiedResponseBody::Streamed(inspected_stream)
             }
         };
 
         Ok(ProxiedHttpResponse {
+            response_decision,
             selection_token: selected.selection_token,
             status: status_code,
             headers,

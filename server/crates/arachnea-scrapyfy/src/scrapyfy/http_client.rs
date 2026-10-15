@@ -279,6 +279,11 @@ pub struct ScraperHttpConfig {
     /// HTTP statuses that should invalidate the selected dynamic proxy and retry once.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub proxy_rejection_statuses: Vec<u16>,
+    /// Known response policy; overrides the legacy rejection list when present.
+    #[cfg(feature = "arachnea-proxy")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy_response_classifier:
+        Option<arachnea_proxy::core::http::response_classifier::ProxyResponseClassifierConfig>,
     /// HTTP statuses that should produce an empty scraper response.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub empty_on_statuses: Vec<u16>,
@@ -304,6 +309,10 @@ pub struct ScraperHttpConfig {
 impl ScraperHttpConfig {
     /// Returns whether this configuration has no explicit options.
     pub fn is_empty(&self) -> bool {
+        #[cfg(feature = "arachnea-proxy")]
+        if self.proxy_response_classifier.is_some() {
+            return false;
+        }
         self.mode.is_none()
             && self.user_agent_profile.is_none()
             && self.user_agent.is_none()
@@ -322,6 +331,12 @@ impl ScraperHttpConfig {
     /// Applies a child override on top of this config.
     pub fn merge(&self, child: &Self) -> Self {
         Self {
+            #[cfg(feature = "arachnea-proxy")]
+            proxy_response_classifier: child
+                .proxy_response_classifier
+                .as_ref()
+                .or(self.proxy_response_classifier.as_ref())
+                .cloned(),
             mode: child.mode.or(self.mode),
             user_agent_profile: child.user_agent_profile.or(self.user_agent_profile),
             user_agent: child
@@ -513,6 +528,43 @@ mod tests {
 
         assert_eq!(config.proxy_countries, vec!["FR", "BE"]);
         assert_eq!(config.proxy_countries_hint(), vec!["FR", "BE"]);
+        #[cfg(feature = "arachnea-proxy")]
+        {
+            use arachnea_proxy::core::http::response_classifier::*;
+            let parent = ScraperHttpConfig {
+                proxy_response_classifier: Some(ProxyResponseClassifierConfig::Http403),
+                ..config.clone()
+            };
+            assert_eq!(
+                parent
+                    .merge(&ScraperHttpConfig::default())
+                    .proxy_response_classifier,
+                parent.proxy_response_classifier
+            );
+            let child: ScraperHttpConfig = serde_json::from_value(
+                serde_json::json!({ "proxy_response_classifier": { "type": "default" } }),
+            )
+            .unwrap();
+            assert_eq!(
+                parent.merge(&child).proxy_response_classifier,
+                Some(ProxyResponseClassifierConfig::Default)
+            );
+            let policy = ProxyResponseClassifierConfig::Default.build().unwrap();
+            let client =
+                HttpClient::with_http_config(parent).with_proxy_response_classifier(policy.clone());
+            assert!(Arc::ptr_eq(
+                &client.configured(child).response_classifier.unwrap().0,
+                &policy.0
+            ));
+            assert!(Arc::ptr_eq(
+                &client
+                    .with_isolated_cookies()
+                    .response_classifier
+                    .unwrap()
+                    .0,
+                &policy.0
+            ));
+        }
     }
 }
 
@@ -543,6 +595,9 @@ pub fn remove_router() {
 /// Thin scraper HTTP wrapper around `arachnea-http`.
 #[derive(Clone)]
 pub struct HttpClient {
+    #[cfg(feature = "arachnea-proxy")]
+    response_classifier:
+        Option<arachnea_proxy::core::http::response_classifier::ProxyResponsePolicy>,
     http_config: ScraperHttpConfig,
     proxy_handle: SharedProxyConfigHandle,
     local_country: SharedLocalCountry,
@@ -621,6 +676,8 @@ impl HttpClient {
         cookie_cache: Arc<AsyncRwLock<SharedCookieCache>>,
     ) -> Self {
         Self {
+            #[cfg(feature = "arachnea-proxy")]
+            response_classifier: None,
             http_config,
             proxy_handle,
             local_country,
@@ -635,13 +692,19 @@ impl HttpClient {
 
     /// Returns a clone using a fresh cookie cache while preserving HTTP and proxy config.
     pub fn with_isolated_cookies(&self) -> Self {
-        Self::with_http_config_proxy_handle_and_cookie_cache(
+        let client = Self::with_http_config_proxy_handle_and_cookie_cache(
             self.http_config.clone(),
             self.proxy_handle.clone(),
             self.local_country.clone(),
             self.session_store.clone(),
             Arc::new(AsyncRwLock::new(SharedCookieCache::default())),
-        )
+        );
+        #[cfg(feature = "arachnea-proxy")]
+        let client = Self {
+            response_classifier: self.response_classifier.clone(),
+            ..client
+        };
+        client
     }
 
     /// Returns the shared mutable proxy handle used by this client family.
@@ -658,7 +721,13 @@ impl HttpClient {
         // Browser execution settings do not alter the underlying HTTP transport.
         // Reuse its client and engine when mode, browser fingerprint, and proxy
         // routing remain unchanged so retained page sessions outlive sub-queries.
-        if http_config.request_mode() == self.http_config.request_mode()
+        #[cfg(not(feature = "arachnea-proxy"))]
+        let same_policy = true;
+        #[cfg(feature = "arachnea-proxy")]
+        let same_policy =
+            http_config.proxy_response_classifier == self.http_config.proxy_response_classifier;
+        if same_policy
+            && http_config.request_mode() == self.http_config.request_mode()
             && http_config.browser_profile() == self.http_config.browser_profile()
             && http_config.proxy_countries_hint() == self.http_config.proxy_countries_hint()
             && http_config.proxy_affinity == self.http_config.proxy_affinity
@@ -666,6 +735,8 @@ impl HttpClient {
             && http_config.max_redirects == self.http_config.max_redirects
         {
             return Self {
+                #[cfg(feature = "arachnea-proxy")]
+                response_classifier: self.response_classifier.clone(),
                 http_config,
                 proxy_handle: self.proxy_handle.clone(),
                 local_country: self.local_country.clone(),
@@ -676,13 +747,33 @@ impl HttpClient {
             };
         }
 
-        Self::with_http_config_proxy_handle_and_cookie_cache(
+        let client = Self::with_http_config_proxy_handle_and_cookie_cache(
             http_config,
             self.proxy_handle.clone(),
             self.local_country.clone(),
             self.session_store.clone(),
             self.cookie_cache.clone(),
-        )
+        );
+        #[cfg(feature = "arachnea-proxy")]
+        let client = Self {
+            response_classifier: self.response_classifier.clone(),
+            ..client
+        };
+        client
+    }
+
+    /// Installs a code policy overriding YAML and legacy statuses, with a fresh cache.
+    ///
+    /// # Arguments
+    /// - `policy`: Nonblocking response classifier shared with derived clients.
+    #[cfg(feature = "arachnea-proxy")]
+    pub fn with_proxy_response_classifier(
+        mut self,
+        policy: arachnea_proxy::core::http::response_classifier::ProxyResponsePolicy,
+    ) -> Self {
+        self.response_classifier = Some(policy);
+        self.client = Arc::new(AsyncRwLock::new(None));
+        self
     }
 
     /// Stores simple name/value cookies for a URL in the shared HTTP cache.
@@ -799,6 +890,18 @@ impl HttpClient {
             .user_agent_profile(self.http_config.browser_profile())
             .request_timeout(request_timeout)
             .max_redirects(self.http_config.max_redirects);
+        #[cfg(feature = "arachnea-proxy")]
+        {
+            use arachnea_proxy::core::http::response_classifier::resolve_response_policy;
+            let policy = match &self.response_classifier {
+                Some(policy) => policy.clone(),
+                None => resolve_response_policy(
+                    self.http_config.proxy_response_classifier.as_ref(),
+                    &self.http_config.proxy_rejection_statuses,
+                )?,
+            };
+            builder = builder.proxy_response_classifier(policy);
+        }
         let proxy_transport_configured = proxy_state.proxy.is_some();
         if let Some(proxy) = proxy_state.proxy {
             builder = builder.proxy(proxy);
@@ -847,19 +950,16 @@ impl HttpClient {
     /// Excludes only the endpoint correlated with the actual response.
     #[cfg(feature = "arachnea-proxy")]
     async fn rotate_rejected_proxy(&self, response: &ArachneaResponse) -> Result<bool> {
-        if !self
-            .http_config
-            .proxy_rejection_statuses
-            .contains(&response.status().as_u16())
-        {
+        use arachnea_proxy::core::http::response_classifier::ProxyResponseDecision;
+        let Some(decision @ ProxyResponseDecision::RejectedForDestination { .. }) =
+            response.proxy_response_decision()
+        else {
             return Ok(false);
-        }
+        };
         let Some(token) = response.proxy_selection() else {
             return Ok(false);
         };
-        token
-            .record_failure(ProxyDestinationFailureReason::BlockedByOrigin)
-            .await;
+        token.record_response_decision(decision).await;
         *self.client.write().await = None;
         Ok(true)
     }
@@ -896,18 +996,14 @@ impl HttpClient {
         Ok(true)
     }
 
-    /// Preserves existing status policy while applying it to the actual route.
+    /// Applies only the early decision to the actual route, never a guessed success.
     #[cfg(feature = "arachnea-proxy")]
     async fn validate_accepted_proxy_response(&self, response: &ArachneaResponse) -> Result<()> {
-        if self
-            .http_config
-            .proxy_rejection_statuses
-            .contains(&response.status().as_u16())
-        {
-            return Ok(());
-        }
-        if let Some(token) = response.proxy_selection() {
-            token.record_accepted().await;
+        if let (Some(token), Some(decision)) = (
+            response.proxy_selection(),
+            response.proxy_response_decision(),
+        ) {
+            token.record_response_decision(decision).await;
         }
         Ok(())
     }
@@ -915,18 +1011,6 @@ impl HttpClient {
     /// Records the retry result without attributing it to another concurrent attempt.
     #[cfg(feature = "arachnea-proxy")]
     async fn record_final_proxy_response(&self, response: &ArachneaResponse) -> Result<()> {
-        if self
-            .http_config
-            .proxy_rejection_statuses
-            .contains(&response.status().as_u16())
-        {
-            if let Some(token) = response.proxy_selection() {
-                token
-                    .record_failure(ProxyDestinationFailureReason::BlockedByOrigin)
-                    .await;
-            }
-            return Ok(());
-        }
         self.validate_accepted_proxy_response(response).await
     }
 
