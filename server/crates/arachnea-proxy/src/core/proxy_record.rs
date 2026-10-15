@@ -456,7 +456,7 @@ impl std::fmt::Display for ProxyProtocol {
 /// Parameters for requesting a dynamic proxy load.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProxyLoadRequest {
-    /// Ordered ISO country codes to load. An empty list does not constrain the
+    /// Allowed ISO country codes to load; their order has no priority. An empty list does not constrain the
     /// provider.
     pub countries: Vec<String>,
 }

@@ -81,12 +81,7 @@ impl ScrapyfyProxyDataProvider {
 #[async_trait]
 impl ProxyDataProvider for ScrapyfyProxyDataProvider {
     async fn load_proxies(&self, request: ProxyLoadRequest) -> Result<Vec<ProxyRecord>> {
-        let countries = request
-            .countries
-            .iter()
-            .map(|country| normalize_proxy_country(country))
-            .filter(|country| !country.is_empty())
-            .collect::<Vec<_>>();
+        let countries = arachnea_proxy::core::canonical_proxy_countries(&request.countries);
         if countries.is_empty() {
             return Ok(Vec::new());
         }
@@ -391,7 +386,7 @@ pub fn default_scrapyfy_proxy_inventory(
 /// by scrapyfy proxy sources.
 ///
 /// The returned core uses [`DynamicCountryRoutingProxyHandler`] with
-/// `DynamicOnly` coexistence policy — an ordered JSON `countries` request
+/// `DynamicOnly` coexistence policy — a JSON set of allowed `countries` in the request
 /// parameter triggers a `ProxyInventory` lookup that lazily loads proxy data through
 /// [`ScrapyfyProxyDataProvider`].
 ///

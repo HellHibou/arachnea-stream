@@ -30,9 +30,13 @@ Compatibility constructors use memory-only repositories. Accepted histories are
 restored before provider discovery and retain three endpoints per scheme/host/port;
 the current country set filters eligibility without deleting other associations.
 Destination exclusions survive technical successes and provider refreshes.
-Storage failures do not replay a successful business request. The remaining
-non-preferred country ordering is unchanged until localized proxy lot 4; the YAML
-schema and response classification policy are not changed by lot 2.
+Storage failures do not replay a successful business request. Allowed countries
+are normalized, deduplicated and sorted for stable request identities. Their order
+has no routing priority. The inventory ranks all allowed countries together after
+importing their persistent caches, preferring fresh validated capabilities before
+revalidation or unknown candidates for both HTTP and HTTPS. Provider requests
+also use canonical country sets. Discovery remains sequential until all requested
+countries have been loaded; concurrency and shared budgets remain lot 5 work.
 
 ## Geo-proxy request timeout
 

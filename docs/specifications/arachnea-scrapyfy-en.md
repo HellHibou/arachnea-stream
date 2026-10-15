@@ -122,13 +122,18 @@ http:
   mode: auto                    # auto | direct | cloudflare_smart | cloudflare_browser
   user_agent_profile: chrome    # chrome | chrome_stable | firefox | firefox_stable
   user_agent: "Custom UA"       # optional: complete User-Agent override
-  proxy_countries: ["US", "CA"] # optional: ordered proxy country hints
+  proxy_countries: ["US", "CA"] # optional: allowed proxy countries
   proxy_affinity: "opaque-session-id" # optional: retain the same eligible proxy
   proxy_rejection_statuses: [403] # optional: rotate the dynamic proxy and retry once
   max_redirects: 16             # optional: max redirect count (global default: 16)
 ```
-`proxy_countries` is normalized as ordered, uppercase ISO alpha-2 codes with
-duplicates removed. `proxy_countries` is a static YAML list; each list item
+`proxy_countries` is an unordered set of allowed uppercase ISO alpha-2 codes.
+Invalid codes are ignored; duplicates are removed and resolved values are sorted
+for stable identities. Sorting does not define routing priority. Candidates from
+all allowed countries are ranked together, with accepted destination history and
+fresh validated capabilities preferred before revalidation or unknown candidates.
+Persistent country caches are imported before costly exploration or discovery.
+`proxy_countries` is a static YAML list; each list item
 supports runtime template interpolation. A runtime JSON country list can be
 expanded with `http.proxy_countries: ["{proxy_countries}"]`; static entries can
 be combined with it. A single country must also use a one-item list, for example

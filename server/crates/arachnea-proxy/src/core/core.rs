@@ -1370,7 +1370,7 @@ impl ArachneaProxyCore {
     ///
     /// # Parameters
     ///
-    /// - `countries`: Ordered ISO country codes extracted from the pool marker.
+    /// - `countries`: Canonical set of allowed ISO country codes extracted from the pool marker.
     /// - `require_https`: Whether the destination requires HTTPS support.
     /// - `destination`: Original destination used for destination-specific
     ///   cooldown filtering.
@@ -2659,8 +2659,9 @@ impl ArachneaProxyCore {
 }
 
 fn parse_dynamic_country_pool(value: &str) -> Result<Vec<String>> {
-    serde_json::from_str(value)
-        .map_err(|_| ProxyError::Config("invalid dynamic country pool marker".to_string()))
+    let countries: Vec<String> = serde_json::from_str(value)
+        .map_err(|_| ProxyError::Config("invalid dynamic country pool marker".to_string()))?;
+    Ok(crate::core::canonical_proxy_countries(&countries))
 }
 
 fn dynamic_pool_countries(pool_name: &str) -> Result<Option<Vec<String>>> {
@@ -2669,7 +2670,7 @@ fn dynamic_pool_countries(pool_name: &str) -> Result<Option<Vec<String>>> {
     }
     Ok(pool_name
         .strip_prefix("dynamic-country:")
-        .map(|country| vec![country.to_string()]))
+        .map(|country| crate::core::canonical_proxy_countries(&[country.to_string()])))
 }
 
 /// Logs a connect_chain iteration at DEBUG level.

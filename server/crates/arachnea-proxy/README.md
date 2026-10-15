@@ -89,7 +89,7 @@ This README is the design and usage home for the proxy crate. Remaining work is 
 - Public-bind safety checks, ACLs, optional HTTP/SOCKS authentication, connection limits, and typed errors.
 - Optional integration with `arachnea-dns` when local resolution or Smart DNS decisions are required.
 - Optional persistent cache for dynamic proxies (feature `persistence`): the inventory consults injected typed repositories before falling back to the provider. Available records use a composite host/port key in `proxy-inventory`, with country field queries. The 24-hour threshold is measured from the latest positive evidence, or initial discovery for never-validated records, not attempt dates; age alone never deletes a working endpoint. Accepted histories live in `proxy-preferences`, and bounded eviction protection in `proxy-failures`.
-- Dynamic provider refresh policy belongs to the shared inventory rather than HTTP clients. Refreshes are single-flight per country and normally suppressed for 120 seconds after every provider attempt, including failures and empty lists. An observed connection or tunnel failure clears that cooldown without loading immediately, allowing the next exhausted-cache selection to discover new endpoints while preserving the failed endpoint's cached exclusion. HTTP engine proxy failures observed after route establishment are recorded against the exact destination, clear the cached client, and retry once with another candidate; a failed replacement is recorded but is not retried a third time. Configured origin-response rejections do not clear the provider cooldown. Multi-country selection searches every requested country's memory and persistent cache before consulting providers, then refreshes eligible countries in caller order. Refreshed provider lists are deduplicated by endpoint and compared with the inventory before network probes: cached protocol, HTTPS capability, health and failure metadata are reused while `last_checked` remains within `probe_ttl`; provider records are stored without eager batch probing, and automatic selection tests unknown or expired required capabilities sequentially until the first usable candidate is found. Accepted origin responses update positive evidence and the durable history for that exact scheme, host and port, independently of country; the newest eligible accepted endpoint wins within the allowed countries. Optional affinity bindings are retained for 15 minutes and are reused only while the bound proxy still passes country, protocol, freshness, global cooldown, and destination-cooldown checks. Statuses listed in `proxy_rejection_statuses` persist a 24-hour destination rejection, make the recorded destination association ineligible without deleting its last success, and rotate without bypassing those checks.
+- Dynamic provider refresh policy belongs to the shared inventory rather than HTTP clients. Refreshes are single-flight per country and normally suppressed for 120 seconds after every provider attempt, including failures and empty lists. An observed connection or tunnel failure clears that cooldown without loading immediately, allowing the next exhausted-cache selection to discover new endpoints while preserving the failed endpoint's cached exclusion. HTTP engine proxy failures observed after route establishment are recorded against the exact destination, clear the cached client, and retry once with another candidate; a failed replacement is recorded but is not retried a third time. Configured origin-response rejections do not clear the provider cooldown. Multi-country selection imports every allowed country's persistent cache before exploring unknown memory candidates or consulting providers, then refreshes the canonical allowed country set and ranks the combined results. Refreshed provider lists are deduplicated by endpoint and compared with the inventory before network probes: cached protocol, HTTPS capability, health and failure metadata are reused while `last_checked` remains within `probe_ttl`; provider records are stored without eager batch probing, and automatic selection tests unknown or expired required capabilities sequentially until the first usable candidate is found. Accepted origin responses update positive evidence and the durable history for that exact scheme, host and port, independently of country; the newest eligible accepted endpoint wins within the allowed countries. Optional affinity bindings are retained for 15 minutes and are reused only while the bound proxy still passes country, protocol, freshness, global cooldown, and destination-cooldown checks. Statuses listed in `proxy_rejection_statuses` persist a 24-hour destination rejection, make the recorded destination association ineligible without deleting its last success, and rotate without bypassing those checks.
 
 ## Profiles
 
@@ -137,7 +137,7 @@ The retired design notes also reserved `censorship_resistance`; it remains track
 
 ## Country Routing Parameters
 
-Country routing accepts only the ordered JSON `countries` parameter. HTTP proxy clients must send it in the `Arachnea-Proxy-Countries` header, for example `Arachnea-Proxy-Countries: ["FR", "DE"]`; SOCKS5 clients can provide `countries=["FR","DE"]` through the parameterized username format. Country codes are normalized to uppercase, duplicates are removed while preserving order, and static routing and non-preferred dynamic selection currently select the first available country; restored accepted histories instead select the newest eligible success independently of country-list order (the remaining ordering is scheduled for lot 4). The legacy singular `country` parameter and `Arachnea-Proxy-Country` header are not supported.
+Country routing accepts only the JSON `countries` parameter, interpreted as an unordered set of allowed origins. HTTP proxy clients must send it in the `Arachnea-Proxy-Countries` header, for example `Arachnea-Proxy-Countries: ["FR", "DE"]`; SOCKS5 clients can provide `countries=["FR","DE"]` through the parameterized username format. Country codes are normalized to uppercase, invalid codes are ignored, and duplicates are removed with a stable alphabetical representation for parameters, pool markers and media URL headers. This representation does not define a routing priority. Dynamic selection ranks the combined candidates across all allowed countries; restored accepted histories select the newest eligible success. Static country routes choose by endpoint then node name, independently of country-list order; unrelated static pools retain their own ordering. The legacy singular `country` parameter and `Arachnea-Proxy-Country` header are not supported.
 
 Dynamic country routing emits INFO diagnostics for local-country bypass decisions
 and selected candidate authority and country. Routine route evaluation,
@@ -285,13 +285,20 @@ ignored without deletion. Histories do not expire on age alone.
 Health, authentication, capability failures, country restrictions and destination
 cooldowns still apply. Observed destination failures temporarily make the association ineligible without
 deleting its last success; configured origin rejections remain destination-scoped.
-Other candidates are ranked by runtime validation
-before latency: an available tunnel with validated destination TLS comes first,
-then an available tunnel with unknown TLS, then relaxed protocol/provider hints
-with an unknown tunnel. HTTP selection keeps its latency ordering, and existing
-eligible affinity bindings are preserved. Probe validation concerns the configured
-probe destination and does not guarantee acceptance by every origin. Explicitly
-unavailable capabilities remain ineligible; certificate verification is unchanged.
+Other candidates from all allowed countries are ranked together for HTTP and HTTPS:
+fully validated fresh capabilities first, complete capabilities requiring revalidation
+next, then partial relevant capabilities and unknown candidates. Latency, failure
+count and stable endpoint identity break ties within a category. Fresh candidates
+are tried before any precheck window. An eligible accepted destination history and
+existing affinity binding retain their fast paths before country cache imports.
+The persistent cache is imported before unknown candidates are probed. Discovery
+runs only after this combined cache fails; country loads remain sequential and
+single-flight per country, but all allowed loads complete before their candidates
+are ranked together. A slow provider can therefore still delay cold discovery;
+progressive/concurrent discovery and shared search budgets remain future work.
+Probe validation concerns the configured probe destination and does not guarantee
+acceptance by every origin. Explicitly unavailable capabilities and invalid proxy
+certificates remain ineligible, including on the preference fast path.
 
 Provider rows reach inventory preparation without endpoint-level deduplication,
 then merge into one runtime record per `host:port`. `ProxyRecord::declarations`
@@ -402,5 +409,4 @@ a success and cannot immediately revive the endpoint. Destination exclusions
 (24 hours by default, configurable) survive technical successes and provider
 refreshes, without an implicit early release when all candidates are excluded.
 Legacy records remain readable, but their attempt dates do not invent evidence
-or historical accepted preferences. The remaining non-preferred selection and
-provider country ordering will be revised in lot 4.
+or historical accepted preferences. Country selection is independent of input order.

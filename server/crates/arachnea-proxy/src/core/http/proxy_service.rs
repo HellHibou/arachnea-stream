@@ -1109,7 +1109,7 @@ pub fn register_service(
     });
 }
 
-/// Builds a proxied media URL carrying an ordered JSON country list.
+/// Builds a proxied media URL carrying a canonical JSON set of allowed countries.
 pub fn proxied_url_with_countries(
     media_locator: &str,
     http_proxy_public_path: Option<&str>,
@@ -1153,7 +1153,7 @@ pub fn proxied_url_with_countries_and_policy(
     )
 }
 
-/// Builds a proxied media URL carrying an ordered JSON country list and an
+/// Builds a proxied media URL carrying a canonical JSON set of allowed countries and an
 /// optional TLS bypass flag.
 pub fn proxied_url_with_countries_and_insecure_tls(
     media_locator: &str,
@@ -1209,7 +1209,7 @@ fn proxied_url_with_countries_and_internal_options(
     insecure_tls: bool,
     follow_redirects: Option<serde_json::Value>,
 ) -> String {
-    let countries = normalize_countries(countries);
+    let countries = crate::core::canonical_proxy_countries(countries);
     let mut all_headers = headers.to_vec();
     let encoded_countries = (!countries.is_empty())
         .then(|| serde_json::to_string(&countries).expect("country list serializes"));
@@ -1231,21 +1231,6 @@ fn proxied_url_with_countries_and_internal_options(
         follow_redirects,
         proxy_rejection_statuses,
     )
-}
-
-fn normalize_countries(countries: &[String]) -> Vec<String> {
-    countries
-        .iter()
-        .map(|country| country.trim().to_ascii_uppercase())
-        .filter(|country| {
-            country.len() == 2 && country.bytes().all(|byte| byte.is_ascii_alphabetic())
-        })
-        .fold(Vec::new(), |mut result, country| {
-            if !result.contains(&country) {
-                result.push(country);
-            }
-            result
-        })
 }
 
 fn proxied_url_with_internal_options(
@@ -1371,7 +1356,7 @@ mod tests {
         let url = proxied_url_with_countries(
             "https://example.test/manifest.mpd",
             Some("/proxy"),
-            &["fr".to_string()],
+            &["fr".to_string(), " be ".to_string(), "FR".to_string()],
             &[RemoveHeader::on_http302([
                 PROXY_HEADER_PARAMETER_COUNTRIES,
                 REMOVE_HEADER_ACTION_HEADER,
@@ -1399,7 +1384,7 @@ mod tests {
             .iter()
             .find(|header| header[0] == REMOVE_HEADER_ACTION_HEADER)
             .expect("action header should be present");
-        assert_eq!(country_header[1], r#"["FR"]"#);
+        assert_eq!(country_header[1], r#"["BE","FR"]"#);
 
         let action_value: serde_json::Value =
             serde_json::from_str(action_header[1].as_str().unwrap())

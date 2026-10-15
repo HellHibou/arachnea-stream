@@ -399,17 +399,35 @@ fn configured_parameter_handlers_contribute_definitions() {
 fn country_parameter_handler_selects_extra_proxy() {
     let handler = CountryRoutingProxyHandler::new()
         .with_proxy_for_country("us", ProxyNode::socks5("us", "127.0.0.1:9050"))
+        .unwrap()
+        .with_proxy_for_country("ca", ProxyNode::socks5("ca", "127.0.0.1:9051"))
         .unwrap();
-    let mut context = ClientContext::new();
-    context.insert(
-        PROXY_PARAMETER_COUNTRIES,
-        ClientParameter::String(r#"["CA", "US", "US"]"#.to_string()),
+    let dynamic = crate::core::DynamicCountryRoutingProxyHandler::new(
+        crate::core::CoexistencePolicy::DynamicOnly,
     );
-
-    let decision = handler.proxy_from_parameters(&context).unwrap();
-
-    assert!(decision.stop);
-    assert_eq!(decision.extra_proxy.unwrap().name, "us");
+    for countries in [r#"["CA", "US", "US"]"#, r#"["us", " ca "]"#] {
+        let mut context = ClientContext::new();
+        context.insert(
+            PROXY_PARAMETER_COUNTRIES,
+            ClientParameter::String(countries.to_string()),
+        );
+        let decision = handler.proxy_from_parameters(&context).unwrap();
+        assert!(decision.stop);
+        assert_eq!(decision.extra_proxy.unwrap().name, "us");
+        assert_eq!(
+            dynamic
+                .proxy_from_parameters(&context)
+                .unwrap()
+                .extra_proxy
+                .unwrap()
+                .name,
+            r#"dynamic-countries:["CA","US"]"#
+        );
+        assert_eq!(
+            crate::core::normalize_parameter_value(PROXY_PARAMETER_COUNTRIES, countries),
+            r#"["CA","US"]"#
+        );
+    }
 }
 
 /// Verifies that a parameter handler can append a proxy for one request only.

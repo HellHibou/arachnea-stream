@@ -381,7 +381,7 @@ impl ScraperHttpConfig {
         }
     }
 
-    /// Sets ordered proxy country hints after normalization and deduplication.
+    /// Sets allowed proxy countries in canonical order after normalization and deduplication.
     pub fn proxy_countries(mut self, countries: impl IntoIterator<Item = String>) -> Self {
         self.proxy_countries = normalize_proxy_countries(countries);
         self
@@ -443,18 +443,16 @@ fn normalize_country_code(country: &str) -> String {
 }
 
 fn normalize_proxy_countries(countries: impl IntoIterator<Item = String>) -> Vec<String> {
-    countries
+    let mut countries: Vec<_> = countries
         .into_iter()
-        .fold(Vec::new(), |mut normalized, country| {
-            let country = normalize_country_code(&country);
-            if country.len() == 2
-                && country.bytes().all(|byte| byte.is_ascii_alphabetic())
-                && !normalized.contains(&country)
-            {
-                normalized.push(country);
-            }
-            normalized
+        .map(|country| normalize_country_code(&country))
+        .filter(|country| {
+            country.len() == 2 && country.bytes().all(|byte| byte.is_ascii_alphabetic())
         })
+        .collect();
+    countries.sort_unstable();
+    countries.dedup();
+    countries
 }
 
 /// Resolves each country-list template and expands JSON array parameters.
@@ -466,7 +464,7 @@ fn resolve_proxy_countries_templates(
     countries: &[String],
     params: &HashMap<String, String>,
 ) -> Vec<String> {
-    countries.iter().fold(Vec::new(), |mut resolved, country| {
+    let mut resolved = countries.iter().fold(Vec::new(), |mut resolved, country| {
         let (value, missing_keys) = query_helpers::replace_template_placeholders(country, params);
 
         if !missing_keys.is_empty() {
@@ -483,7 +481,9 @@ fn resolve_proxy_countries_templates(
             }
         }
         resolved
-    })
+    });
+    resolved.sort_unstable();
+    resolved
 }
 
 #[cfg(test)]
@@ -512,7 +512,7 @@ mod tests {
             .resolve_collection_params("test", "resolve_stream", &params)
             .unwrap();
 
-        assert_eq!(config.proxy_countries, vec!["FR", "BE"]);
+        assert_eq!(config.proxy_countries, vec!["BE", "FR"]);
     }
 
     #[test]
@@ -526,8 +526,8 @@ mod tests {
             .resolve_collection_params("test", "resolve_stream", &HashMap::new())
             .unwrap();
 
-        assert_eq!(config.proxy_countries, vec!["FR", "BE"]);
-        assert_eq!(config.proxy_countries_hint(), vec!["FR", "BE"]);
+        assert_eq!(config.proxy_countries, vec!["BE", "FR"]);
+        assert_eq!(config.proxy_countries_hint(), vec!["BE", "FR"]);
         #[cfg(feature = "arachnea-proxy")]
         {
             use arachnea_proxy::core::http::response_classifier::*;

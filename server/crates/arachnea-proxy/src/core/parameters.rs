@@ -365,11 +365,11 @@ impl ProxyParameterHandler for CountryRoutingProxyHandler {
         vec![self.definition.clone()]
     }
 
-    /// Appends the proxy mapped to the first requested country with a configured route.
+    /// Selects a configured route from the allowed countries by stable endpoint order.
     ///
     /// # Parameters
     ///
-    /// - `parameters`: Client context containing an optional ordered JSON country list.
+    /// - `parameters`: Client context containing an optional JSON set of allowed countries.
     ///
     /// # Returns
     ///
@@ -390,7 +390,9 @@ impl ProxyParameterHandler for CountryRoutingProxyHandler {
         };
         Ok(countries
             .iter()
-            .find_map(|country| self.routes.get(country).cloned())
+            .filter_map(|country| self.routes.get(country))
+            .min_by_key(|proxy| (proxy.endpoint.as_deref(), proxy.name.as_str()))
+            .cloned()
             .map_or_else(ParameterHandlerDecision::continue_without_proxy, |proxy| {
                 ParameterHandlerDecision::with_proxy(proxy, self.stop_on_match)
             }))
@@ -401,7 +403,7 @@ impl ProxyParameterHandler for CountryRoutingProxyHandler {
 /// inventory at connect time.
 ///
 /// This handler is synchronous: it returns a `ProxyPool` marker node named
-/// `dynamic-country:<CODE>` that is resolved asynchronously during pool
+/// `dynamic-countries:[<CODE>,...]` that is resolved asynchronously during pool
 /// resolution in [`crate::core::ArachneaProxyCore`].
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DynamicCountryRoutingProxyHandler {
@@ -670,20 +672,30 @@ pub fn normalize_parameter_value(name: &str, value: &str) -> String {
     }
 }
 
-/// Parses, validates, uppercases and deduplicates an ordered JSON country list.
+/// Returns a stable set of uppercase ISO alpha-2 country codes.
+///
+/// Invalid codes are ignored. Sorting is for identity only, never a routing priority.
+///
+/// # Arguments
+///
+/// - `countries`: Allowed country codes, in any order and with possible duplicates.
+pub fn canonical_proxy_countries(countries: &[String]) -> Vec<String> {
+    let mut normalized: Vec<_> = countries
+        .iter()
+        .map(|country| normalize_country(country))
+        .filter(|country| {
+            country.len() == 2 && country.bytes().all(|byte| byte.is_ascii_alphabetic())
+        })
+        .collect();
+    normalized.sort_unstable();
+    normalized.dedup();
+    normalized
+}
+
+/// Parses a JSON set of allowed countries into its canonical representation.
 fn parse_countries_parameter(value: &str) -> Option<Vec<String>> {
     let countries = serde_json::from_str::<Vec<String>>(value).ok()?;
-    let mut normalized = Vec::new();
-    for country in countries {
-        let country = normalize_country(&country);
-        if country.len() == 2
-            && country.bytes().all(|byte| byte.is_ascii_alphabetic())
-            && !normalized.contains(&country)
-        {
-            normalized.push(country);
-        }
-    }
-    Some(normalized)
+    Some(canonical_proxy_countries(&countries))
 }
 
 /// Validates that a proxy node can be appended by a handler.

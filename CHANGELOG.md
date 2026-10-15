@@ -111,6 +111,9 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Localized proxy lot 4 treats countries as a canonical allowed set across routing parameters, dynamic pool markers, media URLs and Scrapyfy configuration/provider calls. HTTP and HTTPS selection ranks all allowed countries together after persistent-cache imports, preferring accepted histories and fresh validated candidates before revalidation, partial capabilities or unknowns. Ready candidates bypass precheck windows; static country routes use stable endpoint/name ordering. Preference eligibility also rejects known invalid proxy certificates. Cold discovery still loads countries sequentially before ranking their combined results; shared budgets and concurrent selection remain lot 5 work.
+
+
 - Routine dynamic country route evaluation, local-country mismatch, route selection, and validated-origin proxy reuse logs now use DEBUG instead of INFO; routing behavior and warning levels are unchanged.
 
 - Dynamic proxy loading now keeps distinct `host:port + protocol + source` candidates until inventory preparation, then merges them into one canonical endpoint record. Probes try every declared protocol in configured priority order; strict mode remains limited to declared transports, while relaxed mode may probe undeclared transports only after declared variants fail and selects them only on concrete runtime validation.

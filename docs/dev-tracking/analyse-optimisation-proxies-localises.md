@@ -2,7 +2,7 @@
 
 Date : 13 octobre 2026.
 
-Statut : lots 1 à 3 intégrés ; validations et limites de recette des lots 1/2 en sections 13 à 16, lot 3 en section 17 (15 octobre 2026).
+Statut : lots 1 à 4 intégrés ; validations et limites de recette des lots 1/2 en sections 13 à 16, lot 3 en section 17, lot 4 en section 18 (15 octobre 2026).
 
 Révision : prise en compte des deux phases de test, de l’indisponibilité ou des restrictions géographiques du serveur de test, et des décisions sur la persistance et les pays autorisés.
 
@@ -777,7 +777,7 @@ Si les recherches échouent souvent alors qu’il reste des candidats utiles, aj
 
 ### 11.1. Périmètre et principes d’exécution
 
-Ce plan décrit les changements à réaliser. Le lot 0 d’inspection et de conception est réalisé et documenté en section 12. Les lots 1 à 3 ont été intégrés après confirmation de leur conception ; leurs limites de recette sont suivies en sections 13 à 17. Les lots 4 à 7 restent à implémenter. Les lots structurants doivent être présentés avant leur implémentation conformément aux règles du dépôt.
+Ce plan décrit les changements à réaliser. Le lot 0 d’inspection et de conception est réalisé et documenté en section 12. Les lots 1 à 4 ont été intégrés après confirmation de leur conception ; leurs limites de recette sont suivies en sections 13 à 18. Les lots 5 à 7 restent à implémenter. Les lots structurants doivent être présentés avant leur implémentation conformément aux règles du dépôt.
 
 Principes communs :
 
@@ -942,13 +942,13 @@ Travail prévu :
 
 Travail prévu :
 
-- Canonicaliser l’ensemble autorisé : normalisation, déduplication et représentation stable indépendante de l’ordre pour les marqueurs et clés de mutualisation.
-- Regrouper les candidats des pays autorisés avant classement ; ne pas épuiser les inconnus d’un pays avant de voir un candidat validé d’un autre.
-- Charger le cache persistant pertinent avant l’exploration coûteuse, sans bloquer inutilement une préférence déjà restaurée et utilisable.
-- Appliquer les catégories : historique accepté pour la destination, capacités pertinentes validées, revalidation nécessaire, inconnus puis découvertes.
-- Harmoniser ce classement pour HTTP et HTTPS ; la latence ne doit pas faire passer un inconnu devant un candidat prêt.
-- Conserver toutes les exclusions, contrôles d’authentification, certificats et contraintes de pays sur le parcours rapide.
-- Auditer les handlers statiques qui consomment le même paramètre afin qu’ils n’introduisent pas une priorité fondée sur l’ordre fourni. Ne pas changer l’ordre d’un pool statique sans rapport avec ce paramètre.
+- [x] Canonicaliser l’ensemble autorisé : normalisation, déduplication et représentation stable indépendante de l’ordre pour les marqueurs et clés de mutualisation.
+- [x] Regrouper les candidats des pays autorisés avant classement ; ne pas épuiser les inconnus d’un pays avant de voir un candidat validé d’un autre.
+- [x] Charger le cache persistant pertinent avant l’exploration coûteuse, sans bloquer inutilement une préférence déjà restaurée et utilisable.
+- [x] Appliquer les catégories : historique accepté pour la destination, capacités pertinentes validées, revalidation nécessaire, inconnus puis découvertes.
+- [x] Harmoniser ce classement pour HTTP et HTTPS ; la latence ne doit pas faire passer un inconnu devant un candidat prêt.
+- [x] Conserver toutes les exclusions, contrôles d’authentification, certificats et contraintes de pays sur le parcours rapide.
+- [x] Auditer les handlers statiques qui consomment le même paramètre afin qu’ils n’introduisent pas une priorité fondée sur l’ordre fourni. Ne pas changer l’ordre d’un pool statique sans rapport avec ce paramètre.
 
 **Critères de sortie :** permutations d’un même ensemble sans priorité géographique ; autres endpoints d’un pays toujours éligibles après des refus ; préférence non autorisée ignorée mais conservée ; réutilisation sans précheck de lot ni découverte inutile.
 
@@ -1518,3 +1518,71 @@ budget commun de retries, nouvel ordre de pays ou parallélisme de sélection
 n’est ajouté ; lots 4/5 et suivants inchangés. Un handler synchrone doit rester
 non bloquant : le plafond de lecture ne peut pas interrompre un handler code
 qui viole ce contrat.
+
+
+## 18. Lot 4 — sélection dans un ensemble de pays, cache d’abord (15 octobre 2026)
+
+### 18.1. Implémentation
+
+La conception a été confirmée avant modification. Les pays sont normalisés,
+filtrés en codes alpha-2, dédupliqués et triés pour leurs identités : paramètres,
+marqueurs multi-pays (y compris leur lecture), URLs médias, configuration HTTP
+Scrapyfy et requêtes fournisseur. Le tri ne donne aucune priorité géographique.
+Les handlers statiques du même paramètre départagent leurs routes autorisées par
+endpoint puis nom ; les pools statiques indépendants ne sont pas modifiés.
+
+L’inventaire conserve le parcours rapide historique accepté, puis affinité.
+Une préférence non autorisée reste conservée. Sans résultat sur ce parcours,
+il importe les caches persistants des pays autorisés avant toute exploration
+réseau des inconnus, puis classe tous les candidats ensemble, pour HTTP comme
+pour HTTPS : capacités complètes fraîches, capacités complètes à revalider,
+preuves pertinentes partielles, inconnus. La latence, les échecs puis l’endpoint
+départagent chaque catégorie. Les candidats prêts passent avant toute fenêtre
+de préchecks. Santé, authentification, pays, capacités, exclusions de destination
+et certificat du proxy restent contrôlés ; un certificat explicitement invalide
+est également refusé sur le parcours rapide des préférences et affinités.
+
+Après épuisement du cache combiné, les chargements fournisseur restent séquentiels
+et mutualisés par pays. Tous les pays autorisés sont chargés avant de classer
+ensemble leurs résultats : une source lente peut encore retarder cette découverte
+à froid. Les budgets communs, l’exploration bornée et le pipeline concurrent
+restent au lot 5 ; aucun travail en arrière-plan n’est ajouté.
+
+### 18.2. Validation et limites
+
+Aucun nouveau test n’est créé. Les tests existants sont adaptés pour vérifier
+les permutations/normalisations des pays, le départage statique par endpoint,
+les marqueurs canoniques, les en-têtes d’URLs médias et la configuration Scrapyfy.
+Le scénario multi-pays vérifie HTTP et HTTPS avec un prober configuré, un inconnu
+moins coûteux annoncé et un candidat prêt d’un autre pays, chargé uniquement
+depuis le repository lorsque la feature persistence est active. Aucun précheck
+ni test complet n’est enregistré pour l’inconnu, aucun fournisseur n’est appelé.
+Une seconde partie départage deux candidats prêts de pays différents par latence.
+Les scénarios existants d’historique, d’exclusion et de persistance sont conservés.
+Le scénario d’éligibilité vérifie aussi le rejet d’un certificat explicitement
+invalide sur le parcours rapide, puis la réutilisation après restauration du statut.
+
+Les premiers contrôles ont relevé une référence de log supprimée, puis un
+classement trop proche des capacités partielles et complètes anciennes ; ils ont
+été corrigés. Les fixtures réseau exigent une exécution hors sandbox pour ouvrir
+leurs sockets locales. Les résultats finaux sont consignés ci-dessous.
+
+
+Contrôles finaux, depuis `server/`, en mode Cargo offline :
+
+| Commande | Résultat |
+|---|---|
+| `cargo test --offline -p arachnea-proxy --lib --features persistence,controller-service --quiet` | 102 réussis, 0 échec |
+| `cargo test --offline -p arachnea-http --lib --features arachnea-proxy --quiet` | 45 réussis, 0 échec |
+| `cargo test --offline -p arachnea-scrapyfy --lib --features arachnea-proxy,sqlite-persistence,arachnea-proxy/controller-service -- scrapyfy::http_client` | 2 réussis, 78 filtrés |
+| `cargo test --offline -p arachnea-proxy --lib --no-default-features --features core multi_country_selection_checks_all_cached_countries_before_loading` | 1 réussi, 85 filtrés ; parcours mémoire sans persistance |
+| `cargo test --offline --manifest-path server/Cargo.toml -p arachnea-proxy --lib --features persistence,controller-service validated_proxy_preference_never_bypasses_eligibility` (depuis la racine) | 1 réussi, 101 filtrés ; complément certificat après la suite globale |
+| `cargo check --offline -p arachnea-scrapyfy --no-default-features` | Réussite ; warnings de code inutilisé dans core/Scrapyfy selon features |
+| `cargo check --offline -p arachnea-stream` | Réussite |
+| Rustfmt ciblé et `git diff --check` | Réussite |
+
+Aucun benchmark réseau ni appel aux fournisseurs réels n’a été effectué.
+La suite Scrapyfy globale n’a pas été relancée ; ses limites préexistantes sont
+conservées en section 17. Les tests locaux ne constituent pas une mesure du délai
+réel de découverte multi-pays. Les retests concurrents, budgets et retries restent
+au lot 5. Aucun test ni infrastructure de test supplémentaire n’a été créé.

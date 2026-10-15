@@ -75,10 +75,10 @@ pub use ip_country::{
 };
 pub use observability::{LogSensitivity, ObservabilityConfig};
 pub use parameters::{
-    build_parameter_handler, context_from_parameter_pairs, normalize_parameter_value,
-    CountryRoutingProxyHandler, DynamicCountryRoutingProxyHandler, ParameterDefinition,
-    ParameterHandlerConfig, ParameterHandlerDecision, ParameterHandlerKind, ParameterProxyRoute,
-    ParameterRegistry, ProxyParameterHandler, SmartDnsProxyHandler,
+    build_parameter_handler, canonical_proxy_countries, context_from_parameter_pairs,
+    normalize_parameter_value, CountryRoutingProxyHandler, DynamicCountryRoutingProxyHandler,
+    ParameterDefinition, ParameterHandlerConfig, ParameterHandlerDecision, ParameterHandlerKind,
+    ParameterProxyRoute, ParameterRegistry, ProxyParameterHandler, SmartDnsProxyHandler,
     PROXY_HEADER_PARAMETER_AFFINITY, PROXY_HEADER_PARAMETER_COUNTRIES, PROXY_PARAMETER_AFFINITY,
     PROXY_PARAMETER_COUNTRIES,
 };

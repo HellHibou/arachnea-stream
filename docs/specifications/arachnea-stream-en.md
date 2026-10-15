@@ -884,17 +884,20 @@ Returns a list of MediaItem objects with `key` and `media-type: video/live`:
 | `release-date` | Current programme start time |
 | `expire` | Current programme end time |
 
-A player can request ordered geo routing for a `scraper-query` resolution by
-declaring `resolver > proxy > countries` in YAML as a list of ISO alpha-2
+A player can request geo routing within an allowed country set for a
+`scraper-query` resolution by declaring `resolver > proxy > countries` in YAML as a list of ISO alpha-2
 codes, for example `countries: ["FR", "BE"]`. Empty, invalid and duplicate
 values are discarded; valid values are uppercased while preserving declaration
-order. The frontend forwards the resulting list as `proxy_countries` to
+order at this input boundary; routing does not assign priority to that order.
+The frontend forwards the resulting list as `proxy_countries` to
 `get_stream`.
 
 The source's `resolve_stream` query can consume the structured JSON list with
 `http.proxy_countries: ["{proxy_countries}"]`. Generated proxy URLs embed the
-ordered JSON list in their `opts` headers as `Arachnea-Proxy-Countries`, so the
-manifest fetch tries each country's dynamic proxy pool in order. A missing or
+canonical JSON set in their `opts` headers as `Arachnea-Proxy-Countries`.
+The proxy ranks all allowed countries together, independently of input order;
+accepted destination history and fresh validated capabilities precede unknown
+candidates, after importing the relevant persistent caches. A missing or
 empty list requests no geo proxy; it does not fall back to a singular country.
 
 #### Geo-routing migration for external integrations
@@ -943,7 +946,7 @@ The TV5MONDE+ resolver uses the player-supplied list for anonymous
 authentication and the initial entitlement request. It then extracts country
 codes from the `materialProfile` string returned by the `/play` entitlement,
 normalizes and deduplicates them, and preserves their order. This list becomes
-the proxy context for the manifest, storyboard, and deferred Widevine license
+an unordered set of allowed countries in the proxy context for the manifest, storyboard, and deferred Widevine license
 request. If the field is absent or contains no valid alpha-2 code, the initial
 player-supplied list is retained.
 
