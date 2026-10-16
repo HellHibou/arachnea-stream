@@ -32,6 +32,23 @@ impl Drop for SharedExecution {
     }
 }
 
+/// Releases unfinished request-local work when a candidate pipeline is cancelled.
+struct SearchReservation {
+    search: ProxySearchContext,
+    key: String,
+    validation: bool,
+    completed: bool,
+}
+
+impl Drop for SearchReservation {
+    fn drop(&mut self) {
+        if !self.completed {
+            self.search
+                .release_incomplete_work(self.validation, &self.key);
+        }
+    }
+}
+
 struct InventoryBatchSink {
     inventory: ProxyInventory,
     country: String,
@@ -85,8 +102,9 @@ pub struct InventoryConfig {
     /// the proxy was formerly marked globally KO. Retained for configuration
     /// compatibility; destination observations no longer promote global failure.
     pub max_destination_failures_before_ko: usize,
-    /// Maximum per-search TCP prechecks, clamped to 1..=8.
-    /// Full validations run progressively with concurrency two per search.
+    /// Maximum concurrent candidate pipelines in one selection pass, clamped to 1..=8.
+    /// TCP and validation stages are driven together; full validations retain
+    /// their separate concurrency limit of two per search.
     pub probe_batch_size: usize,
     /// Minimum delay between provider refresh attempts for the same country.
     pub provider_refresh_cooldown: Duration,
@@ -342,6 +360,41 @@ impl ProxyInventory {
         };
         if let Err(error) = persist_proxy_records(persistence, &current).await {
             tracing::warn!(%error, count = records.len(), "failed to persist proxy records");
+        }
+    }
+
+    /// Persists acceptance without letting the repository's conservative failure
+    /// merge restore the superseded exclusion. Both writes use the latest state.
+    #[cfg(feature = "persistence")]
+    async fn persist_accepted_record(
+        &self,
+        record: &ProxyRecord,
+        destination: &Destination,
+        accepted_at: SystemTime,
+    ) {
+        let Some(persistence) = &self.persistence else {
+            return;
+        };
+        let _guard = self.persistence_commits.lock().await;
+        let current = self
+            .inner
+            .read()
+            .await
+            .records
+            .get(&record.authority())
+            .cloned();
+        let Some(current) = current else {
+            return;
+        };
+        if let Err(error) = persistence.save_many(std::slice::from_ref(&current)).await {
+            tracing::warn!(%error, "failed to persist accepted proxy record");
+            return;
+        }
+        if let Err(error) = persistence
+            .clear_superseded_destination_failures(&current.key(), destination, accepted_at)
+            .await
+        {
+            tracing::warn!(%error, "failed to persist superseded proxy exclusion repair");
         }
     }
 
@@ -999,6 +1052,31 @@ impl ProxyInventory {
                 }
             }
         }
+        let repaired = {
+            let mut inner = self.inner.write().await;
+            let endpoints = inner.preferred_by_destination.get(&key)?.endpoints.clone();
+            let mut repaired = Vec::new();
+            for item in endpoints {
+                if let Some(record) = inner
+                    .records
+                    .values_mut()
+                    .find(|record| record.key() == item.endpoint)
+                {
+                    if clear_superseded_destination_failures(record, destination, item.accepted_at)
+                    {
+                        repaired.push((record.clone(), item.accepted_at));
+                    }
+                }
+            }
+            repaired
+        };
+        #[cfg(feature = "persistence")]
+        for (record, accepted_at) in &repaired {
+            self.persist_accepted_record(record, destination, *accepted_at)
+                .await;
+        }
+        #[cfg(not(feature = "persistence"))]
+        drop(repaired);
         let inner = self.inner.read().await;
         let preference = inner.preferred_by_destination.get(&key)?;
         for item in &preference.endpoints {
@@ -1312,87 +1390,92 @@ impl ProxyInventory {
             }
             pending.push(candidate);
         }
-        let prechecks = stream::iter(pending.into_iter().map(|candidate| async move {
-            let Some(probe) = &self.probe else {
-                return Some(candidate);
-            };
-            if recent_probe_attempt(&candidate, "tcp", self.config.probe_ttl) {
-                return (candidate.tcp_reachable == Some(true)).then_some(candidate);
-            }
-            let key = format!("tcp:{}", candidate.authority());
-            let inventory = self.clone();
-            let probe = probe.clone();
-            self.shared_operation(
-                key,
-                false,
-                async move {
-                    let _slot = inventory.tcp_slots.acquire().await.ok()?;
-                    let started = epoch_millis();
-                    let result = probe.precheck_endpoint(&candidate).await;
-                    let reachable = result.is_ok();
-                    inventory
-                        .save_probe_attempt(&candidate.authority(), "tcp", started, Some(reachable))
-                        .await;
-                    reachable.then_some(candidate)
+        // Poll both stages together: a suspended precheck can own a commit lock
+        // needed by a validation, even while all validation slots are occupied.
+        let validations = stream::iter(pending.into_iter().map(|candidate| async move {
+            let candidate = async {
+                let Some(probe) = &self.probe else {
+                    return Some(candidate);
+                };
+                if recent_probe_attempt(&candidate, "tcp", self.config.probe_ttl) {
+                    return (candidate.tcp_reachable == Some(true)).then_some(candidate);
                 }
-                .boxed(),
-            )
-            .await
+                let key = format!("tcp:{}", candidate.authority());
+                let inventory = self.clone();
+                let probe = probe.clone();
+                self.shared_operation(
+                    key,
+                    false,
+                    async move {
+                        let _slot = inventory.tcp_slots.acquire().await.ok()?;
+                        let started = epoch_millis();
+                        let result = probe.precheck_endpoint(&candidate).await;
+                        let reachable = result.is_ok();
+                        inventory
+                            .save_probe_attempt(
+                                &candidate.authority(),
+                                "tcp",
+                                started,
+                                Some(reachable),
+                            )
+                            .await;
+                        reachable.then_some(candidate)
+                    }
+                    .boxed(),
+                )
+                .await
+            }
+            .await?;
+            if self.probe.is_none() {
+                return self
+                    .validate_selection_candidate(candidate, require_https, destination)
+                    .await;
+            }
+            let key = format!(
+                "validate:{}:{}:{}",
+                candidate.authority(),
+                require_https,
+                self.probe
+                    .as_ref()
+                    .map(|p| p.configuration_id())
+                    .unwrap_or_default()
+            );
+            let inventory = self.clone();
+            let validated = self
+                .shared_operation(
+                    key,
+                    true,
+                    async move {
+                        let _slot = inventory.validation_slots.acquire().await.ok()?;
+                        inventory
+                            .validate_selection_candidate(candidate, require_https, None)
+                            .await
+                    }
+                    .boxed(),
+                )
+                .await?;
+            let latest = self
+                .inner
+                .read()
+                .await
+                .records
+                .get(&validated.authority())
+                .cloned()?;
+            (latest
+                .country
+                .as_ref()
+                .is_some_and(|country| countries.contains(country))
+                && is_eligible(
+                    &latest,
+                    latest.country.as_deref()?,
+                    require_https,
+                    destination,
+                    SystemTime::now(),
+                    self.probe_mode(),
+                ))
+            .then_some(latest)
         }))
         .buffer_unordered(self.config.probe_batch_size.clamp(1, 8));
-        let validations = prechecks
-            .map(|candidate| async move {
-                let candidate = candidate?;
-                if self.probe.is_none() {
-                    return self
-                        .validate_selection_candidate(candidate, require_https, destination)
-                        .await;
-                }
-                let key = format!(
-                    "validate:{}:{}:{}",
-                    candidate.authority(),
-                    require_https,
-                    self.probe
-                        .as_ref()
-                        .map(|p| p.configuration_id())
-                        .unwrap_or_default()
-                );
-                let inventory = self.clone();
-                let validated = self
-                    .shared_operation(
-                        key,
-                        true,
-                        async move {
-                            let _slot = inventory.validation_slots.acquire().await.ok()?;
-                            inventory
-                                .validate_selection_candidate(candidate, require_https, None)
-                                .await
-                        }
-                        .boxed(),
-                    )
-                    .await?;
-                let latest = self
-                    .inner
-                    .read()
-                    .await
-                    .records
-                    .get(&validated.authority())
-                    .cloned()?;
-                (latest
-                    .country
-                    .as_ref()
-                    .is_some_and(|country| countries.contains(country))
-                    && is_eligible(
-                        &latest,
-                        latest.country.as_deref()?,
-                        require_https,
-                        destination,
-                        SystemTime::now(),
-                        self.probe_mode(),
-                    ))
-                .then_some(latest)
-            })
-            .buffer_unordered(2);
         futures::pin_mut!(validations);
         while let Some(result) = validations.next().await {
             if result.is_some() {
@@ -1402,6 +1485,8 @@ impl ProxyInventory {
         None
     }
 
+    /// Shares an owned probe task without extending the caller's polling stack.
+    /// The last subscriber aborts the task; caller deadlines and slots stay local.
     async fn shared_operation(
         &self,
         key: String,
@@ -1426,6 +1511,12 @@ impl ProxyInventory {
             {
                 return None;
             }
+            let mut reservation = search.as_ref().map(|search| SearchReservation {
+                search: search.clone(),
+                key: key.clone(),
+                validation,
+                completed: false,
+            });
             let shared = {
                 let mut registry = self.shared_work.lock().await;
                 registry.retain(|_, weak| weak.upgrade().is_some());
@@ -1433,15 +1524,29 @@ impl ProxyInventory {
                     existing
                 } else {
                     let work_key = key.clone();
-                    let future = ProxySearchContext::unscoped(async move {
-                        let mut execution = SharedExecution {
-                            key: work_key,
-                            completed: false,
-                        };
-                        let result = operation.await;
-                        execution.completed = true;
-                        result
-                    })
+                    let future = async move {
+                        let mut tasks = tokio::task::JoinSet::new();
+                        tasks.spawn(ProxySearchContext::unscoped(async move {
+                            let mut execution = SharedExecution {
+                                key: work_key,
+                                completed: false,
+                            };
+                            let result = operation.await;
+                            execution.completed = true;
+                            result
+                        }));
+                        match tasks.join_next().await {
+                            Some(Ok(result)) => result,
+                            Some(Err(error)) => {
+                                tracing::warn!(
+                                    panicked = error.is_panic(),
+                                    "shared proxy probe task failed"
+                                );
+                                None
+                            }
+                            None => None,
+                        }
+                    }
                     .boxed()
                     .shared();
                     registry.insert(key, future.downgrade()?);
@@ -1449,6 +1554,15 @@ impl ProxyInventory {
                 }
             };
             let result = shared.await;
+            if let Some(reservation) = &mut reservation {
+                reservation.completed = true;
+            }
+            if let Some(search) = &search {
+                search.completed_work(validation, result.is_some());
+                if validation {
+                    search.log_progress("capability validation completed");
+                }
+            }
             if validation && result.is_none() {
                 if let Some(search) = &search {
                     search.failed_validation();
@@ -1584,6 +1698,7 @@ impl ProxyInventory {
                 http_forwarding = ?record.http_forwarding,
                 https_tunnel = ?record.https_tunnel,
                 destination_tls = ?record.destination_tls,
+                capability_proven = !needs_capability_probe(&record, require_https),
                 error = ?result.err(),
                 "completed on-demand proxy capability probe"
             );
@@ -1634,7 +1749,9 @@ impl ProxyInventory {
     /// concurrent or subsequent calls reuse inventory state until the cooldown
     /// expires, including when the provider failed or returned no candidates.
     /// Provider records are deduplicated and stored without eager batch probing.
-    /// Selection consumes prechecks and full validations progressively within shared limits.
+    /// Selection runs prechecks and full validations progressively within the shared deadline.
+    /// The shared refresh owns a child task to avoid extending the caller's HTTP
+    /// polling stack; dropping its last subscriber aborts that task.
     async fn load_if_needed(&self, country: &str) {
         let search = ProxySearchContext::current();
         if search.as_ref().is_some_and(|search| !search.can_discover()) {
@@ -1655,11 +1772,26 @@ impl ProxyInventory {
                 } else {
                     let inventory = self.clone();
                     let country = country.to_string();
-                    let future = ProxySearchContext::unscoped(async move {
-                        let _slot = inventory.provider_slots.acquire().await.ok()?;
-                        inventory.load_country(&country).await;
+                    let future = async move {
+                        // The owner breaks the nested HTTP polling stack and aborts
+                        // the child when the last shared subscriber disappears.
+                        let mut tasks = tokio::task::JoinSet::new();
+                        let load_country = country.clone();
+                        tasks.spawn(ProxySearchContext::unscoped(async move {
+                            let Ok(_slot) = inventory.provider_slots.acquire().await else {
+                                return;
+                            };
+                            inventory.load_country(&load_country).await;
+                        }));
+                        if let Some(Err(error)) = tasks.join_next().await {
+                            tracing::warn!(
+                                country,
+                                panicked = error.is_panic(),
+                                "dynamic proxy provider task failed"
+                            );
+                        }
                         None
-                    })
+                    }
                     .boxed()
                     .shared();
                     registry.insert(key, future.downgrade()?);
@@ -2061,8 +2193,9 @@ impl ProxyInventory {
     }
 
     /// Renews the validation age after an accepted origin response and records
-    /// the proxy as the preferred candidate for that exact destination without
-    /// clearing unrelated proxy or destination failure state.
+    /// the proxy as the preferred candidate for that exact destination. Clears
+    /// older ambiguous failures for this association, preserving explicit origin
+    /// rejections, newer failures and unrelated proxy or destination failure state.
     pub async fn record_validated_response(&self, authority: &str, destination: &Destination) {
         let accepted_at = SystemTime::now();
         let key = crate::core::ProxyDestinationPreference::destination_key(destination);
@@ -2095,6 +2228,7 @@ impl ProxyInventory {
         let updated = {
             let mut inner = self.inner.write().await;
             let updated = inner.records.get_mut(authority).map(|record| {
+                clear_superseded_destination_failures(record, destination, accepted_at);
                 record.last_validated_at = record.last_validated_at.max(Some(accepted_at));
                 record.health_evidence.last_positive_at = record
                     .health_evidence
@@ -2117,7 +2251,8 @@ impl ProxyInventory {
         if let Some(record) = updated {
             #[cfg(feature = "persistence")]
             {
-                self.persist_records(std::slice::from_ref(&record)).await;
+                self.persist_accepted_record(&record, destination, accepted_at)
+                    .await;
                 let _commit = self.persistence_commits.lock().await;
                 if let Some(repository) = &self.preferences {
                     let preference =
@@ -2494,20 +2629,100 @@ mod tests {
         let search = ProxySearchContext::new(limits);
         let hop = search.for_url("https://redirect.example/path");
         assert_eq!(hop.id(), search.id());
-        for index in 0..64 {
+        for index in 0..201 {
             assert!(hop.reserve(false, &format!("tcp:{index}")));
         }
-        assert!(!search.reserve(false, "tcp:65"));
-        for index in 0..32 {
+        assert!(!search.reserve(false, "tcp:0"));
+        for index in 0..201 {
             assert!(search.reserve(true, &format!("validate:{index}")));
         }
-        assert!(!hop.reserve(true, "validate:33"));
+        assert!(!hop.reserve(true, "validate:0"));
         let destination = Destination::host_port("origin.example", 443);
-        for index in 0..8 {
+        for index in 0..201 {
             search.start_origin(&format!("endpoint:{index}"), &destination)?;
             search.end_attempt();
         }
-        assert!(hop.start_origin("endpoint:9", &destination).is_err());
+        assert!(search.start_origin("endpoint:0", &destination).is_err());
+        assert!(search.attempted("endpoint:200", Some(&destination)));
+        assert!(!search.attempted("endpoint:201", Some(&destination)));
+        hop.start_origin("endpoint:0", &destination)?;
+        hop.end_attempt();
+        assert!(hop.start_origin("endpoint:0", &destination).is_err());
+        assert!(search.can_discover());
+        let configured = crate::core::TimeoutConfig::default();
+        let localized = search.connection_timeouts("endpoint:0", &configured);
+        assert_eq!(localized.connect_ms, 3_000);
+        assert_eq!(localized.handshake_ms, 5_000);
+        assert_eq!(localized.idle_ms, configured.idle_ms);
+        assert_eq!(
+            search.connection_timeouts("ordinary", &configured),
+            configured
+        );
+        let shorter = crate::core::TimeoutConfig {
+            connect_ms: 100,
+            handshake_ms: 200,
+            idle_ms: 300,
+        };
+        assert_eq!(hop.connection_timeouts("endpoint:0", &shorter), shorter);
+        for validation in [false, true] {
+            let caller_task = tokio::task::try_id();
+            assert!(search
+                .scope(
+                    inventory.shared_operation(
+                        format!("isolated:{validation}"),
+                        validation,
+                        async move {
+                            assert_ne!(
+                                tokio::task::try_id(),
+                                caller_task,
+                                "probe work must not extend the caller's polling stack"
+                            );
+                            assert!(ProxySearchContext::current().is_none());
+                            Some(record(ProxyRuntimeStatus::Ok))
+                        }
+                        .boxed(),
+                    )
+                )
+                .await
+                .is_some());
+            let key = format!("cancelled:{validation}");
+            let slots = if validation {
+                inventory.validation_slots.clone()
+            } else {
+                inventory.tcp_slots.clone()
+            };
+            let available = slots.available_permits();
+            let operation_slots = slots.clone();
+            let (started, running) = tokio::sync::oneshot::channel();
+            {
+                let pending = search.scope(
+                    inventory.shared_operation(
+                        key.clone(),
+                        validation,
+                        async move {
+                            let _slot = operation_slots.acquire().await.ok()?;
+                            let _ = started.send(());
+                            futures::future::pending().await
+                        }
+                        .boxed(),
+                    ),
+                );
+                tokio::pin!(pending);
+                tokio::select! {
+                    _ = &mut pending => panic!("fixture work must remain pending"),
+                    result = running => result.expect("owned probe task must start"),
+                }
+                assert!(!search.reserve(validation, &key));
+            }
+            tokio::time::timeout(Duration::from_secs(1), async {
+                while slots.available_permits() != available {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .expect("last-subscriber cancellation must release probe slots");
+            assert!(search.reserve(validation, &key));
+        }
         let tcp = search.tcp_slots.try_acquire_many(8)?;
         assert!(hop.tcp_slots.try_acquire().is_err());
         drop(tcp);
@@ -2525,7 +2740,7 @@ mod tests {
             drop(queued);
         });
         drop(permit?);
-        eprintln!("lot7 slot wait: wait_us={}, tcp_limit=8, validation_limit=2, country_limit=2, reservations=64/32, endpoints=8", wait_started.elapsed().as_micros());
+        eprintln!("lot7 slot wait: wait_us={}, tcp_limit=8, validation_limit=2, country_limit=2, prechecks=201, validations=201, endpoints=201, work_count_limit=none", wait_started.elapsed().as_micros());
 
         for engaged in [false, true] {
             let timed = ProxySearchContext::new(crate::core::ProxySearchLimits {
@@ -2839,12 +3054,82 @@ mod tests {
                 }
             );
         }
+        let other_destination = Destination::host_port("other.example", 443)
+            .with_protocol(crate::core::ApplicationProtocol::Https);
+        for target in [&destination, &other_destination] {
+            inventory
+                .record_destination_failure(
+                    &validated_authority,
+                    target,
+                    crate::core::ProxyDestinationFailureReason::Other,
+                )
+                .await;
+        }
+        assert_eq!(
+            inventory
+                .select_for_destination("BE", true, Some(&destination))
+                .await
+                .unwrap()
+                .authority(),
+            fallback.authority()
+        );
+        inventory
+            .record_validated_response(&validated_authority, &destination)
+            .await;
+        assert_eq!(
+            inventory
+                .select_for_destination("BE", true, Some(&destination))
+                .await
+                .unwrap()
+                .authority(),
+            validated_authority
+        );
+        assert_eq!(
+            inventory
+                .select_for_destination("BE", true, Some(&other_destination))
+                .await
+                .unwrap()
+                .authority(),
+            fallback.authority()
+        );
+        inventory
+            .record_destination_failure(
+                &validated_authority,
+                &destination,
+                crate::core::ProxyDestinationFailureReason::Other,
+            )
+            .await;
+        {
+            let mut inner = inventory.inner.write().await;
+            let record = inner.records.get_mut(&validated_authority).unwrap();
+            record
+                .destination_failures
+                .iter_mut()
+                .find(|failure| failure.host == "blocked.example")
+                .unwrap()
+                .last_failed = SystemTime::now() + Duration::from_secs(60);
+        }
+        inventory
+            .record_validated_response(&validated_authority, &destination)
+            .await;
+        assert_eq!(
+            inventory
+                .select_for_destination("BE", true, Some(&destination))
+                .await
+                .unwrap()
+                .authority(),
+            fallback.authority(),
+            "acceptance must preserve newer failures"
+        );
         inventory
             .record_destination_failure(
                 &validated_authority,
                 &destination,
                 crate::core::ProxyDestinationFailureReason::BlockedByOrigin,
             )
+            .await;
+        inventory
+            .record_validated_response(&validated_authority, &destination)
             .await;
 
         assert_eq!(
@@ -2857,6 +3142,9 @@ mod tests {
         );
 
         inventory.record_global_failure(&validated_authority).await;
+        inventory
+            .record_validated_response(&validated_authority, &destination)
+            .await;
         assert_eq!(
             inventory.select("BE", true).await.unwrap().authority(),
             fallback.authority()
@@ -2978,7 +3266,7 @@ mod tests {
         assert!(inventory.select_any(&countries, true).await.is_err());
         assert_eq!(provider.calls.load(Ordering::SeqCst), countries.len() * 2);
 
-        struct ProgressiveProvider(Arc<AtomicUsize>);
+        struct ProgressiveProvider(Arc<AtomicUsize>, Option<tokio::task::Id>);
         struct PendingLoad(Arc<AtomicUsize>);
         impl Drop for PendingLoad {
             fn drop(&mut self) {
@@ -2995,6 +3283,15 @@ mod tests {
                 request: ProxyLoadRequest,
                 sink: Arc<dyn ProxyBatchSink>,
             ) -> Result<()> {
+                assert_ne!(
+                    tokio::task::try_id(),
+                    self.1,
+                    "provider refresh must not extend the caller's polling stack"
+                );
+                assert!(
+                    ProxySearchContext::current().is_none(),
+                    "provider requests must not inherit business acceptance state"
+                );
                 let _pending = PendingLoad(self.0.clone());
                 let mut candidate = record(ProxyRuntimeStatus::Ok);
                 candidate.country = Some(request.countries[0].clone());
@@ -3005,7 +3302,10 @@ mod tests {
         let cancelled = Arc::new(AtomicUsize::new(0));
         let inventory = ProxyInventory::new(
             InventoryConfig::default(),
-            Some(Arc::new(ProgressiveProvider(cancelled.clone()))),
+            Some(Arc::new(ProgressiveProvider(
+                cancelled.clone(),
+                tokio::task::try_id(),
+            ))),
             None,
         );
         let discovery_started = Instant::now();
@@ -3016,16 +3316,123 @@ mod tests {
         .await
         .expect("published candidates must precede provider completion")
         .unwrap();
+        let first_candidate_elapsed = discovery_started.elapsed();
+        assert!(countries.contains(selected.country.as_ref().unwrap()));
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while cancelled.load(Ordering::SeqCst) == 0
+                || inventory.provider_slots.available_permits() != 2
+            {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("last-subscriber cancellation must stop owned provider tasks and release slots");
         eprintln!(
             "lot7 progressive discovery: first_candidate_us={}, cancelled_pending_loads={}",
-            discovery_started.elapsed().as_micros(),
+            first_candidate_elapsed.as_micros(),
             cancelled.load(Ordering::SeqCst)
         );
-        assert!(countries.contains(selected.country.as_ref().unwrap()));
         assert!(
             cancelled.load(Ordering::SeqCst) > 0,
             "pending producers must be dropped with the final subscriber"
         );
+
+        let strict_inventory = ProxyInventory::new(
+            InventoryConfig::default(),
+            None,
+            Some(Arc::new(ProxyProbe::new(crate::core::ProbeConfig {
+                http_probe_url: None,
+                https_probe_url: Some("https://probe.example/".into()),
+                mode: ProbeMode::Strict,
+                ..Default::default()
+            }))),
+        );
+        #[cfg(feature = "persistence")]
+        let strict_inventory = {
+            struct YieldingRepository(Arc<dyn ProxyRepository>);
+            #[async_trait]
+            impl ProxyRepository for YieldingRepository {
+                async fn get(&self, key: &crate::core::ProxyKey) -> AnyResult<Option<ProxyRecord>> {
+                    self.0.get(key).await
+                }
+                async fn get_failure(
+                    &self,
+                    key: &crate::core::ProxyKey,
+                ) -> AnyResult<Option<ProxyRecord>> {
+                    self.0.get_failure(key).await
+                }
+                async fn evict(&self, record: &ProxyRecord) -> AnyResult<()> {
+                    self.0.evict(record).await
+                }
+                async fn find_by_country(&self, country: &str) -> AnyResult<Vec<ProxyRecord>> {
+                    self.0.find_by_country(country).await
+                }
+                async fn save_many(&self, records: &[ProxyRecord]) -> AnyResult<()> {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                    self.0.save_many(records).await
+                }
+                async fn clear_superseded_destination_failures(
+                    &self,
+                    key: &crate::core::ProxyKey,
+                    destination: &Destination,
+                    accepted_at: SystemTime,
+                ) -> AnyResult<()> {
+                    self.0
+                        .clear_superseded_destination_failures(key, destination, accepted_at)
+                        .await
+                }
+                async fn delete(&self, key: &crate::core::ProxyKey) -> AnyResult<()> {
+                    self.0.delete(key).await
+                }
+            }
+            strict_inventory.with_proxy_repository(Arc::new(YieldingRepository(Arc::new(
+                TypedProxyRepository::new(memory_proxy_store().unwrap()),
+            ))))
+        };
+        let mut servers = Vec::new();
+        for _ in 0..3 {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                loop {
+                    let (mut stream, _) = listener.accept().await?;
+                    let Ok(first) = stream.read_u8().await else {
+                        continue;
+                    };
+                    let mut head = vec![first];
+                    while !head.ends_with(b"\r\n\r\n") {
+                        head.push(stream.read_u8().await?);
+                        anyhow::ensure!(head.len() <= 8192, "fixture header limit");
+                    }
+                    stream.write_all(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await?;
+                    stream.shutdown().await?;
+                    return Ok::<_, anyhow::Error>(1);
+                }
+            });
+            let mut candidate = record(ProxyRuntimeStatus::Unknown);
+            candidate.host = address.ip().to_string();
+            candidate.port = address.port();
+            candidate.protocol = Some(ProxyProtocol::Http);
+            candidate.declarations.clear();
+            candidate.country = Some("FR".into());
+            candidate.http_forwarding = ProxyCapabilityStatus::Unknown;
+            candidate.https_tunnel = ProxyCapabilityStatus::Unknown;
+            candidate.destination_tls = ProxyCapabilityStatus::Unknown;
+            candidate.last_checked = None;
+            candidate.tcp_reachable = None;
+            candidate.probe_attempts.clear();
+            strict_inventory.add_or_update(vec![candidate]).await;
+            servers.push(server);
+        }
+        tokio::time::timeout(Duration::from_secs(5), async {
+            assert!(strict_inventory.select_any(&countries, true).await.is_err());
+            for server in servers {
+                assert_eq!(server.await.unwrap().unwrap(), 1);
+            }
+        })
+        .await
+        .expect("prechecks and validations must progress while persistence yields");
     }
 
     #[tokio::test]
@@ -3107,8 +3514,53 @@ mod tests {
             .with_protocol(crate::core::ApplicationProtocol::Https);
 
         initial
+            .record_destination_failure(
+                &blocked_authority,
+                &destination,
+                crate::core::ProxyDestinationFailureReason::Other,
+            )
+            .await;
+        initial
             .record_validated_response(&blocked_authority, &destination)
             .await;
+        let mut legacy = repository
+            .get(&initial.inner.read().await.records[&blocked_authority].key())
+            .await?
+            .unwrap();
+        assert!(
+            legacy.destination_failures.is_empty(),
+            "accepted responses must durably clear older ambiguous failures"
+        );
+        let accepted_at = preferences
+            .get(&crate::core::ProxyDestinationPreference::destination_key(
+                &destination,
+            ))
+            .await?
+            .unwrap()
+            .endpoints[0]
+            .accepted_at;
+        let old_failure = crate::core::ProxyDestinationFailure {
+            scheme: "https".into(),
+            host: "origin.example".into(),
+            port: 443,
+            reason: crate::core::ProxyDestinationFailureReason::Other,
+            failure_count: 1,
+            last_failed: accepted_at - Duration::from_secs(1),
+            cooldown_until: Some(accepted_at + Duration::from_secs(86400)),
+        };
+        legacy.destination_failures.push(old_failure.clone());
+        for (scheme, host, port) in [
+            ("http", "origin.example", 443),
+            ("https", "other.example", 443),
+            ("https", "origin.example", 8443),
+        ] {
+            let mut unrelated = old_failure.clone();
+            unrelated.scheme = scheme.into();
+            unrelated.host = host.into();
+            unrelated.port = port;
+            legacy.destination_failures.push(unrelated);
+        }
+        repository.save_many(&[legacy.clone()]).await?;
         let provider = Arc::new(CountingProvider {
             records: Vec::new(),
             calls: AtomicUsize::new(0),
@@ -3127,6 +3579,58 @@ mod tests {
             blocked_authority
         );
         let restore_us = restore_started.elapsed().as_micros();
+        let repaired = repository.get(&legacy.key()).await?.unwrap();
+        assert_eq!(repaired.destination_failures.len(), 3);
+        assert!(!has_active_destination_cooldown(
+            &repaired,
+            &destination,
+            SystemTime::now()
+        ));
+        for (reason, last_failed) in [
+            (
+                crate::core::ProxyDestinationFailureReason::Other,
+                accepted_at,
+            ),
+            (
+                crate::core::ProxyDestinationFailureReason::Other,
+                accepted_at + Duration::from_secs(1),
+            ),
+            (
+                crate::core::ProxyDestinationFailureReason::BlockedByOrigin,
+                accepted_at - Duration::from_secs(1),
+            ),
+        ] {
+            let mut protected = repaired.clone();
+            let mut failure = old_failure.clone();
+            failure.reason = reason;
+            failure.last_failed = last_failed;
+            protected.destination_failures.push(failure);
+            store.put(&protected).await?;
+            repository
+                .clear_superseded_destination_failures(&legacy.key(), &destination, accepted_at)
+                .await?;
+            let protected_inventory = ProxyInventory::new(InventoryConfig::default(), None, None)
+                .with_proxy_repository(repository.clone())
+                .with_preference_repository(preferences.clone());
+            assert_eq!(
+                protected_inventory
+                    .select_for_destination("BE", true, Some(&destination))
+                    .await?
+                    .authority(),
+                fallback.authority(),
+                "restored successes must preserve explicit, equal-date and newer exclusions"
+            );
+            assert_eq!(
+                repository
+                    .get(&legacy.key())
+                    .await?
+                    .unwrap()
+                    .destination_failures
+                    .len(),
+                4
+            );
+        }
+        store.put(&repaired).await?;
         let warm_started = Instant::now();
         for countries in [
             vec!["FR".into(), "BE".into()],
@@ -3624,6 +4128,25 @@ fn proxy_validation_is_stale(record: &ProxyRecord, now: SystemTime) -> bool {
     now.duration_since(last_validated_at)
         .map(|age| age > PROXY_CACHE_TTL)
         .unwrap_or(false)
+}
+
+/// Removes only ambiguous failures strictly older than acceptance by the same origin.
+pub(super) fn clear_superseded_destination_failures(
+    record: &mut ProxyRecord,
+    destination: &Destination,
+    accepted_at: SystemTime,
+) -> bool {
+    let previous_len = record.destination_failures.len();
+    let scheme = destination_scheme(destination);
+    let host = destination.host_for_protocol();
+    record.destination_failures.retain(|failure| {
+        !(failure.reason == crate::core::ProxyDestinationFailureReason::Other
+            && failure.scheme == scheme
+            && failure.host == host
+            && failure.port == destination.port
+            && failure.last_failed < accepted_at)
+    });
+    record.destination_failures.len() != previous_len
 }
 
 fn has_active_destination_cooldown(

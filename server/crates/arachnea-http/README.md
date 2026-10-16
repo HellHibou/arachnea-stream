@@ -268,12 +268,25 @@ must not create a dynamic preference or exclusion by destination-map inference.
 
 ## Localized proxy search and safe retries
 
+Localized Rquest attempts log the selected proxy endpoint, destination origin and
+search identity before sending. Failures log delivery evidence and replay
+eligibility, followed by bounded search counters at retry/final completion.
+These diagnostics distinguish selection/probing from the business request;
+no request body, cookies or additional full URL is logged by these events.
+
 With the Arachnea transport and non-empty `countries`, the facade creates one
 `ProxySearchContext` across selection, redirects and retries. An explicitly scoped
 context is reused. Defaults are a 120-second discovery/acceptance target, a
-15-second grace period for an engaged origin attempt, 64 TCP precheck reservations,
-32 validation reservations and eight distinct business endpoints. Waiting for
-resources consumes the same deadline. Retry layers never reset it.
+15-second grace period for an engaged origin attempt. There is no count limit on
+TCP prechecks, full validations or distinct business endpoints: discovery continues
+until acceptance, candidate exhaustion or the shared deadline. Concurrency remains
+bounded. Waiting for resources consumes the same deadline. Retry layers never reset it.
+
+Localized Rquest clients cap complete connection establishment (including the
+loopback proxy and destination TLS) at 15 seconds, or a shorter configured request
+timeout. Native connector timeouts preserve `NotSent` evidence on the first hop;
+the outer response-header timeout remains conservative after possible sending.
+It emits a correlated `timeout` diagnostic with `phase=response_headers`.
 
 Rquest header/prefix observation uses the remaining origin deadline. Once a final
 response is accepted, its body collection uses a separate `request_timeout`
@@ -284,6 +297,16 @@ be replayed retain body collection within the remaining time. A body collection
 error is `ResponseReceived` and never triggers a transport retry.
 
 GET/HEAD may retry relevant correlated transport errors or configured rejections.
+Rquest connector errors on the first hop (TCP, proxy CONNECT or destination TLS
+setup) prove `NotSent`, allowing a modifying request to select another endpoint
+before any business bytes are sent. Outer header/deadline timeouts and failures
+after sending remain `PossiblySent`. Connector errors on a redirect hop also
+remain conservative for the original operation, which may already have been sent.
+Certificate verification remains enabled. Diagnostic categories distinguish
+proxy tunnel, TLS certificate/handshake, connection, timeout and request failures
+without logging raw source chains or URLs; only `is_connect()` and redirect
+history determine the new absence-of-sending evidence.
+
 Other methods require `NotSent` evidence or explicit operation-level authorization
 through `ArachneaHttpConfig::builder().proxy_retry_replayable(true)`. Bodies are
 reproduced from owned bytes. Rejection status alone does not authorize replay.

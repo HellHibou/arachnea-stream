@@ -1002,7 +1002,7 @@ impl ArachneaProxyCore {
         let credentials = node.credentials()?;
         let relay_endpoint = socks::udp_associate(
             &mut control,
-            self.config.as_config().timeouts.handshake_duration(),
+            self.proxy_timeouts(node).handshake_duration(),
             credentials.as_ref(),
         )
         .await?;
@@ -1075,12 +1075,13 @@ impl ArachneaProxyCore {
                 .decide(&self.config, &request)?;
             let chain = self.apply_parameter_handlers(&decision.chain, &request)?;
             let retry_budget = if self.pinned_route.is_some() {
-                0
+                Some(0)
             } else {
                 self.proxy_pool_retry_budget(&chain)
             };
 
-            for attempt in 0..=retry_budget {
+            let mut attempt = 0usize;
+            loop {
                 let resolved_chain = if let Some(route) = &self.pinned_route {
                     route.1.clone()
                 } else {
@@ -1095,7 +1096,8 @@ impl ArachneaProxyCore {
                         return Ok(stream);
                     }
                     Err(error)
-                        if attempt < retry_budget && !resolved_chain.pool_selections.is_empty() =>
+                        if retry_budget.map_or(true, |limit| attempt < limit)
+                            && !resolved_chain.pool_selections.is_empty() =>
                     {
                         let proxy_names: Vec<&str> = resolved_chain
                             .pool_selections
@@ -1104,7 +1106,7 @@ impl ArachneaProxyCore {
                             .collect();
                         tracing::debug!(
                             attempt = %attempt,
-                            max_attempts = %retry_budget,
+                            max_attempts = ?retry_budget,
                             failed_proxies = %proxy_names.join(", "),
                             "dynamic proxy selection failed, marking failed and retrying with another candidate"
                         );
@@ -1114,6 +1116,7 @@ impl ArachneaProxyCore {
                             &error,
                         )
                         .await;
+                        attempt += 1;
                         continue;
                     }
                     Err(error) => {
@@ -1129,11 +1132,6 @@ impl ArachneaProxyCore {
                     }
                 }
             }
-
-            self.stats.record_failed();
-            Err(ProxyError::RouteUnavailable(
-                "proxy pool retry budget exhausted".to_string(),
-            ))
         })
     }
 
@@ -1198,12 +1196,13 @@ impl ArachneaProxyCore {
                 .decide(&self.config, &request)?;
             let chain = self.apply_parameter_handlers(&decision.chain, &request)?;
             let retry_budget = if self.pinned_route.is_some() {
-                0
+                Some(0)
             } else {
                 self.proxy_pool_retry_budget(&chain)
             };
 
-            for attempt in 0..=retry_budget {
+            let mut attempt = 0usize;
+            loop {
                 let resolved_chain = if let Some(route) = &self.pinned_route {
                     route.1.clone()
                 } else {
@@ -1255,7 +1254,8 @@ impl ArachneaProxyCore {
                         });
                     }
                     Err(error)
-                        if attempt < retry_budget && !resolved_chain.pool_selections.is_empty() =>
+                        if retry_budget.map_or(true, |limit| attempt < limit)
+                            && !resolved_chain.pool_selections.is_empty() =>
                     {
                         let proxy_names: Vec<&str> = resolved_chain
                             .pool_selections
@@ -1264,7 +1264,7 @@ impl ArachneaProxyCore {
                             .collect();
                         tracing::debug!(
                             attempt = %attempt,
-                            max_attempts = %retry_budget,
+                            max_attempts = ?retry_budget,
                             failed_proxies = %proxy_names.join(", "),
                             "dynamic proxy selection failed, marking failed and retrying with another candidate"
                         );
@@ -1274,6 +1274,7 @@ impl ArachneaProxyCore {
                             &error,
                         )
                         .await;
+                        attempt += 1;
                         continue;
                     }
                     Err(error) => {
@@ -1289,11 +1290,6 @@ impl ArachneaProxyCore {
                     }
                 }
             }
-
-            self.stats.record_failed();
-            Err(ProxyError::RouteUnavailable(
-                "proxy pool retry budget exhausted".to_string(),
-            ))
         })
     }
 
@@ -1965,8 +1961,8 @@ impl ArachneaProxyCore {
     ///
     /// # Returns
     ///
-    /// Number of retry attempts allowed.
-    fn proxy_pool_retry_budget(&self, chain: &ProxyChain) -> usize {
+    /// Static retry count, or `None` for dynamic discovery bounded by the search deadline.
+    fn proxy_pool_retry_budget(&self, chain: &ProxyChain) -> Option<usize> {
         let mut budget = 0usize;
         for node in &chain.nodes {
             if node.kind != TransportKind::ProxyPool {
@@ -1977,14 +1973,12 @@ impl ArachneaProxyCore {
                 budget += pool.proxy_nodes.len();
                 continue;
             }
-            // Dynamic country pools: use a fixed budget. The inventory will
-            // select a different candidate on each retry; the shared search
-            // excludes attempted endpoints without inventing a global failure.
+            // Dynamic discovery stops at list exhaustion or the shared deadline.
             if node.name.starts_with(DYNAMIC_COUNTRY_POOL_PREFIX) {
-                budget += 7;
+                return None;
             }
         }
-        budget
+        Some(budget)
     }
 
     /// Checks whether one pool member can support this chain position.
@@ -2214,7 +2208,7 @@ impl ArachneaProxyCore {
                 let tls_stream = tls::client_tls(
                     stream,
                     server_name,
-                    self.config.as_config().timeouts.handshake_duration(),
+                    self.proxy_timeouts(node).handshake_duration(),
                     node.verify_tls,
                 )
                 .await?;
@@ -2347,6 +2341,21 @@ impl ArachneaProxyCore {
         )))
     }
 
+    /// Returns configured timeouts capped only for a selected localized endpoint.
+    ///
+    /// # Arguments
+    /// - `node`: Proxy hop whose authority must belong to the active search.
+    fn proxy_timeouts(&self, node: &ProxyNode) -> crate::core::TimeoutConfig {
+        let configured = &self.config.as_config().timeouts;
+        match (
+            crate::core::ProxySearchContext::current(),
+            node.endpoint.as_deref(),
+        ) {
+            (Some(search), Some(endpoint)) => search.connection_timeouts(endpoint, configured),
+            _ => configured.clone(),
+        }
+    }
+
     /// Opens the TCP connection to the first proxy node in a chain.
     ///
     /// # Parameters
@@ -2384,7 +2393,7 @@ impl ArachneaProxyCore {
             .await
             .map_err(|error| error.at_phase(crate::core::ProxyObservationPhase::EndpointConnect))?;
         let tcp = time::timeout(
-            self.config.as_config().timeouts.connect_duration(),
+            self.proxy_timeouts(first).connect_duration(),
             TcpStream::connect(first_addr),
         )
         .await
@@ -2435,7 +2444,7 @@ impl ArachneaProxyCore {
         let tls_stream = tls::client_tls(
             stream,
             server_name,
-            self.config.as_config().timeouts.handshake_duration(),
+            self.proxy_timeouts(node).handshake_duration(),
             node.verify_tls,
         )
         .await?;
@@ -2467,7 +2476,7 @@ impl ArachneaProxyCore {
                 http::connect_tunnel(
                     stream,
                     &target,
-                    self.config.as_config().timeouts.handshake_duration(),
+                    self.proxy_timeouts(node).handshake_duration(),
                     credentials.as_ref(),
                 )
                 .await
@@ -2477,7 +2486,7 @@ impl ArachneaProxyCore {
                 socks::connect_tunnel(
                     stream,
                     &target,
-                    self.config.as_config().timeouts.handshake_duration(),
+                    self.proxy_timeouts(node).handshake_duration(),
                     credentials.as_ref(),
                 )
                 .await
@@ -2486,7 +2495,7 @@ impl ArachneaProxyCore {
                 socks::connect_tunnel_v4(
                     stream,
                     &target,
-                    self.config.as_config().timeouts.handshake_duration(),
+                    self.proxy_timeouts(node).handshake_duration(),
                     node.username.as_deref(),
                 )
                 .await

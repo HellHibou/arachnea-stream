@@ -1314,6 +1314,7 @@ impl ArachneaHttpClient {
                                 continue;
                             }
                         }
+                        search.log_progress("response received");
                         return Ok(response);
                     }
                     Err(error) => {
@@ -1323,6 +1324,9 @@ impl ArachneaHttpClient {
                             ..
                         } = &error
                         {
+                            tracing::warn!(search_id = search.id(), proxy = token.endpoint(), delivery = ?delivery,
+                                retry_allowed = search.can_start() && proxy_retry_allowed(options.method.as_str(), search.replayable(), *delivery, false),
+                                "localized proxy origin attempt failed");
                             if *delivery != ProxyRequestDelivery::ResponseReceived {
                                 token
                                     .record_failure(
@@ -1339,9 +1343,11 @@ impl ArachneaHttpClient {
                                 )
                             {
                                 search.end_attempt();
+                                search.log_progress("retry after origin failure");
                                 continue;
                             }
                         }
+                        search.log_progress("request failed");
                         return Err(error);
                     }
                 }
@@ -1499,6 +1505,15 @@ impl ArachneaHttpClient {
                 }
                 (loopback, engine)
             };
+            if let (Some(search), Some(token)) = (
+                arachnea_proxy::core::ProxySearchContext::current(),
+                selected.selection_token.as_ref(),
+            ) {
+                tracing::info!(search_id = search.id(), proxy = token.endpoint(),
+                    destination = %token.destination(), method = %request.method,
+                    "trying localized proxy origin request");
+                search.log_progress("origin attempt started");
+            }
             let (response, decision) = engine
                 .send_for_proxy(
                     request,

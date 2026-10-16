@@ -25,4 +25,7 @@ In tab mode, the strip is hidden when there is only one tab or when the active p
 
 On macOS, tab layout reads AppKit `contentLayoutRect` on the main thread and converts it into the native parent view coordinates before placing child webviews. This accounts for native title bar and toolbar insets without a fixed decoration offset. Other desktop platforms continue to use the window inner size.
 
-Binary routes on the desktop custom URI scheme execute in background async tasks and reply through Tauri’s asynchronous protocol responder. Response bodies remain fully buffered before delivery; network waits do not block the protocol callback. REST routes can deliver streaming bodies progressively.
+Binary routes on the desktop custom URI scheme execute in background async tasks and reply through Tauri’s asynchronous protocol responder. Response bodies remain fully buffered before delivery; network waits do not block the protocol callback. REST routes can deliver streaming bodies progressively. Registered REST routes are
+combined in a balanced Warp filter tree, preserving registration priority and
+per-route client ACL checks while keeping polling depth logarithmic. This avoids
+linear routing stack growth underneath TLS and proxy work in debug builds.

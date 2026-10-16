@@ -83,6 +83,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- REST route registration now builds a balanced Warp filter tree instead of a linear chain. Registration priority and client ACL checks are preserved, while polling depth grows logarithmically; this reduces stack pressure during nested proxy/TLS operations implicated in macOS debug stack-overflow reports.
+
 - Linux resource probing now prefers the AppImage mount root (`$APPDIR/usr/lib/*/services`): the resolution previously derived `../lib` from the executable path alone, which resolved to `/tmp/.mount_.../usr/bin/services` (missing) instead of the Tauri bundler layout `$APPDIR/usr/lib/<product>/services`. deb/rpm probing via the executable path is unchanged.
 
 ### <u>arachnea-proxy</u>
@@ -111,6 +113,10 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Localized proxy searches no longer stop at 64 TCP prechecks, 32 full validations or eight business endpoints. Dynamic connection retries also follow the shared deadline and candidate exhaustion instead of a fixed attempt count. Concurrency and replay protections remain unchanged; cancelled technical reservations are released for later selection in the same search.
+
+- Localized search INFO diagnostics distinguish reserved/completed TCP and validation work, reachable endpoints, eligible results and business attempts, with elapsed/remaining budgets and a request-local search identity. Probe logs expose whether capabilities were actually proven. Existing fixtures verify progression beyond two concurrent validation slots; work limits are unchanged.
+
 - Localized proxy lot 7 extends existing acceptance fixtures to verify shared work/endpoint caps, semaphore waits, deadline grace, accepted transfers, replay eligibility, final-subscriber cancellation, restored country-filtered preferences and content-policy byte preservation. Local timing/counter samples and the acceptance coverage matrix are documented without changing production limits or adding test infrastructure.
 
 - Localized proxy lot 6 overlaps cache exploration with discovery after 10 seconds or eight unsuccessful validations, ranks country refreshes by cache state/age, preserves a configurable 10-second refresh floor and accepts progressive provider batches through a compatible list adapter. Configurable probe methods/policies, one deadline-sharing fallback and separate target acceptance retain real transport evidence. Relaxed mode allows bounded business trials after ambiguous complementary probes; target-only suspicion uses distinct endpoints and on-demand 30/60/120-second recovery without country exclusions or background work.
@@ -133,6 +139,18 @@ All notable changes to the server workspace are recorded here.
 - Accepted origin responses now make the corresponding dynamic proxy the preferred candidate for that exact country, scheme, host and port instead of globally preferring it for every destination in the country. Concurrent domains therefore retain independent preferred proxies, and preferred reuse still passes every normal eligibility check.
 
 #### Fixed
+
+- Shared TCP prechecks and capability validations now own abort-on-drop child tasks, isolating probe TLS handshakes from the media handler's polling stack after the remaining FranceTV stack overflow. Work sharing, search deadlines and concurrency limits are preserved; existing fixtures verify task isolation and cancellation releasing inventory slots.
+
+- Accepted origin responses now clear strictly older ambiguous (`Other`) exclusions for the same proxy and exact destination. Preferred selection repairs and persists legacy exclusions superseded by stored successes, allowing reuse without deleting the cache; equal-date/newer failures, explicit origin rejections and unrelated health state remain protected.
+
+- Shared dynamic-provider refreshes now own an abort-on-drop child task, preventing nested media selection → Scrapyfy provider → HTTP selection from exhausting a Tokio worker stack. Refreshes remain shared per country and bounded by the existing slots and caller deadlines; the last subscriber aborts the child instead of leaving detached work. Existing progressive/cancellation fixtures cover the polling boundary, isolated business context and permit cleanup.
+
+- Localized endpoints now cap core TCP setup at three seconds and proxy handshakes at five seconds, preserving shorter configured limits and ordinary/idle policies. Unresponsive cached proxies return a phase failure sooner instead of consuming the HTTP response-header timeout.
+
+- Fixed localized selection stalling until the 120-second deadline after two probes when a suspended TCP precheck held the persistence commit lock. Candidate pipelines now keep both stages polled while separate semaphores preserve validation limits; writes remain awaited. The existing multi-country scenario reproduces the deadlock with yielding persistence and verifies all three candidates complete.
+
+- Current-country detection no longer inherits the pending business search's acceptance state. A successful auxiliary geo HTTP response previously closed the FranceTV K7 search and caused immediate proxy-search deadline errors. Detection retains its resolver timeout and awaited caller cancellation; an existing Rquest fixture reproduces the premature acceptance and verifies isolation.
 
 - SOCKS username parameter parsing preserves commas inside JSON arrays and quoted strings, fixing multi-country lists exposed by the combined proxy/HTTP feature validation.
 
@@ -290,10 +308,16 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Localized Rquest requests log the chosen proxy/origin before sending and report delivery evidence and retry eligibility on failure, correlating attempts with bounded search-progress diagnostics.
+
 - Localized Rquest calls propagate the common search across redirects and safe sequential retries, observe acceptance before body collection and keep a separate accepted-body transfer timeout. Modifying operations require NotSent evidence or explicit proxy_retry_replayable authorization; inconclusive results and body errors never rotate. Engines without early correlation reject the scoped search explicitly; ordinary request timeouts and non-search keep-alive remain unchanged.
 
 
 #### Fixed
+
+- Localized Rquest clients now bound complete connection establishment to 15 seconds (or a shorter request timeout), preserving native pre-send timeout evidence for safe proxy rotation. Outer response-header timeouts remain conservative and emit a correlated phase diagnostic. An existing POST fixture verifies the 15-second CONNECT timeout before the 25-second header deadline.
+
+- Rquest now preserves proven absence of business delivery for first-hop connector failures, including refused CONNECT and rejected destination TLS certificates, instead of treating every send error as `PossiblySent`. This permits bounded safe retries of 6play login setup failures. Transmitted POSTs, opaque timeouts and redirect-hop failures remain conservative. Sanitized failure categories expose TLS/tunnel causes without disabling verification or logging source chains.
 
 - The `rquest` engine now applies the configured total request timeout to loopback-proxy clients as well as ordinary clients, including response body collection. Previously supplied proxy clients skipped the timeout configuration and could hang after a successful tunnel connection.
 - The `chaser-cf` engine builds its default Chromium flags with `ChaserConfig::add_extra_arg` instead of `with_extra_args`. The latter *replaces* the whole flag set, so the defaults appended after `ChaserConfig::from_env()` silently discarded the flags that function had just parsed from `CHASER_EXTRA_ARGS`, making the documented override a no-op — a container passing `--no-sandbox` still started Chromium without it and hit `No usable sandbox!`.

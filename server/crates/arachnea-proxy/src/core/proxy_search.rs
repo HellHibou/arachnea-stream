@@ -1,4 +1,4 @@
-//! Request-owned deadlines, work limits and replay policy for localized proxies.
+//! Request-owned deadlines, work tracking and replay policy for localized proxies.
 
 use super::{Destination, ProxyError, ProxyRequestDelivery, Result};
 use std::{
@@ -12,28 +12,19 @@ use tokio::{
     time::Instant,
 };
 
-/// Initial limits shared by selection, connection and HTTP retries.
+/// Time limits shared by selection, connection and HTTP retries.
 #[derive(Clone, Debug)]
 pub struct ProxySearchLimits {
     /// Time during which new work may begin.
     pub target: Duration,
     /// Grace period for an already engaged business attempt only.
     pub extension: Duration,
-    /// Maximum reserved TCP prechecks.
-    pub prechecks: usize,
-    /// Maximum reserved full capability validations.
-    pub validations: usize,
-    /// Maximum distinct business endpoints.
-    pub endpoints: usize,
 }
 impl Default for ProxySearchLimits {
     fn default() -> Self {
         Self {
             target: Duration::from_secs(120),
             extension: Duration::from_secs(15),
-            prechecks: 64,
-            validations: 32,
-            endpoints: 8,
         }
     }
 }
@@ -45,6 +36,10 @@ struct Work {
     attempts: HashSet<(String, String)>,
     active: bool,
     accepted: bool,
+    prechecks_completed: usize,
+    prechecks_reachable: usize,
+    validations_completed: usize,
+    validations_eligible: usize,
 }
 
 /// Cloneable request-local search. It is never persisted or sent over the wire.
@@ -77,7 +72,7 @@ impl ProxySearchContext {
     /// Creates one monotonic budget for a logical business call.
     ///
     /// # Arguments
-    /// - `limits`: Work and duration limits, unchanged across retries.
+    /// - `limits`: Duration limits, unchanged across retries.
     pub fn new(limits: ProxySearchLimits) -> Self {
         Self {
             started: Instant::now(),
@@ -113,7 +108,7 @@ impl ProxySearchContext {
         (self.started + self.limits.target + self.limits.extension)
             .saturating_duration_since(Instant::now())
     }
-    /// Scopes redirect hops by actual URL while retaining the common work budget.
+    /// Scopes redirect hops by actual URL while retaining the common deadline.
     ///
     /// # Arguments
     /// - `url`: Actual request URL, distinguishing redirects from retries.
@@ -200,25 +195,76 @@ impl ProxySearchContext {
         }
         let mut work = self.work.lock().unwrap();
         let key = (validation, key.to_string());
-        if work.endpoints.len() >= self.limits.endpoints || work.technical.contains(&key) {
-            return false;
-        }
-        let count = work
-            .technical
-            .iter()
-            .filter(|(kind, _)| *kind == validation)
-            .count();
-        if count
-            >= if validation {
-                self.limits.validations
-            } else {
-                self.limits.prechecks
-            }
-        {
+        if work.technical.contains(&key) {
             return false;
         }
         work.technical.insert(key);
         true
+    }
+    /// Allows a later selection to resume a phase cancelled before completion.
+    pub(crate) fn release_incomplete_work(&self, validation: bool, key: &str) {
+        self.work
+            .lock()
+            .unwrap()
+            .technical
+            .remove(&(validation, key.to_string()));
+    }
+    /// Caps connection phases only for endpoints engaged by this localized search.
+    ///
+    /// # Arguments
+    /// - `endpoint`: Concrete proxy authority, checked against this search's attempts.
+    /// - `configured`: Ordinary transport limits; shorter limits and idle policy are retained.
+    pub(crate) fn connection_timeouts(
+        &self,
+        endpoint: &str,
+        configured: &super::TimeoutConfig,
+    ) -> super::TimeoutConfig {
+        let mut timeouts = configured.clone();
+        if self.work.lock().unwrap().endpoints.contains(endpoint) {
+            timeouts.connect_ms = timeouts.connect_ms.min(3_000);
+            timeouts.handshake_ms = timeouts.handshake_ms.min(5_000);
+        }
+        timeouts
+    }
+    pub(crate) fn completed_work(&self, validation: bool, usable: bool) {
+        let mut work = self.work.lock().unwrap();
+        if validation {
+            work.validations_completed += 1;
+            work.validations_eligible += usize::from(usable);
+        } else {
+            work.prechecks_completed += 1;
+            work.prechecks_reachable += usize::from(usable);
+        }
+    }
+    /// Logs bounded search counters without URLs, cookies or request bodies.
+    /// Reservations include queued and completed work; cancelled reservations are released.
+    ///
+    /// # Arguments
+    /// - `stage`: Static lifecycle description supplied by the orchestration layer.
+    pub fn log_progress(&self, stage: &'static str) {
+        let work = self.work.lock().unwrap();
+        let prechecks_reserved = work
+            .technical
+            .iter()
+            .filter(|(validation, _)| !validation)
+            .count();
+        let validations_reserved = work.technical.len() - prechecks_reserved;
+        tracing::info!(
+            search_id = self.id(),
+            stage,
+            elapsed_ms = self.started.elapsed().as_millis(),
+            remaining_ms = self.remaining().as_millis(),
+            prechecks_reserved,
+            prechecks_completed = work.prechecks_completed,
+            prechecks_reachable = work.prechecks_reachable,
+            validations_reserved,
+            validations_completed = work.validations_completed,
+            validations_eligible = work.validations_eligible,
+            business_endpoints = work.endpoints.len(),
+            origin_active = work.active,
+            accepted = work.accepted,
+            "localized proxy search progress"
+        );
     }
     pub(crate) fn failed_validation(&self) {
         self.validation_failures.send_modify(|count| *count += 1);
@@ -227,7 +273,7 @@ impl ProxySearchContext {
         self.validation_failures.subscribe()
     }
     pub(crate) fn can_discover(&self) -> bool {
-        self.can_start() && self.work.lock().unwrap().endpoints.len() < self.limits.endpoints
+        self.can_start()
     }
     /// Records an endpoint before engaging a real attempt, never during grace.
     ///
@@ -236,7 +282,7 @@ impl ProxySearchContext {
     /// - `destination`: Exact origin; redirect hops retain independent eligibility.
     ///
     /// # Errors
-    /// Returns an error on repeated attempts or exhausted time/work limits.
+    /// Returns an error on repeated attempts or an exhausted target deadline.
     pub fn start_origin(&self, endpoint: &str, destination: &Destination) -> Result<()> {
         if !self.can_start() {
             return Err(ProxyError::Timeout("proxy search target deadline"));
@@ -247,11 +293,9 @@ impl ProxySearchContext {
             self.target_key
                 .clone()
                 .unwrap_or_else(|| destination.to_string()),
-        )) || (!work.endpoints.contains(endpoint)
-            && work.endpoints.len() >= self.limits.endpoints)
-        {
+        )) {
             return Err(ProxyError::RouteUnavailable(
-                "proxy search endpoint limit or repeated endpoint".into(),
+                "proxy search repeated endpoint".into(),
             ));
         }
         work.endpoints.insert(endpoint.to_string());
@@ -266,9 +310,6 @@ impl ProxySearchContext {
     }
     pub(crate) fn attempted(&self, endpoint: &str, destination: Option<&Destination>) -> bool {
         let work = self.work.lock().unwrap();
-        if !work.endpoints.contains(endpoint) && work.endpoints.len() >= self.limits.endpoints {
-            return true;
-        }
         destination.is_some_and(|destination| {
             work.attempts.contains(&(
                 endpoint.to_string(),

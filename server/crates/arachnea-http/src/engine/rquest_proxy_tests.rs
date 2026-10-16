@@ -15,7 +15,206 @@ async fn read_head(stream: &mut (impl AsyncRead + Unpin)) -> anyhow::Result<Stri
 
 #[tokio::test]
 async fn keep_alive_tls_503_keeps_exact_selection_and_positive_phases() -> anyhow::Result<()> {
-    tokio::time::timeout(Duration::from_secs(10), async {
+    tokio::time::timeout(Duration::from_secs(25), async {
+        struct CountryProvider {
+            client: crate::client::ArachneaHttpClient,
+            url: String,
+        }
+        #[async_trait::async_trait]
+        impl IpCountryDataProvider for CountryProvider {
+            async fn load_ip_countries(
+                &self,
+            ) -> arachnea_proxy::core::Result<Vec<IpCountryRecord>> {
+                Ok(Vec::new())
+            }
+            async fn resolve_current_country(
+                &self,
+            ) -> arachnea_proxy::core::Result<Option<String>> {
+                let response = self.client.get(&self.url).send().await.map_err(|error| {
+                    ProxyError::Config(format!("country fixture request: {error}"))
+                })?;
+                let country = response.text().await.map_err(|error| {
+                    ProxyError::Config(format!("country fixture body: {error}"))
+                })?;
+                Ok(Some(country))
+            }
+        }
+        let country_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let country_address = country_listener.local_addr()?;
+        let country_server = tokio::spawn(async move {
+            let (mut stream, _) = country_listener.accept().await?;
+            read_head(&mut stream).await?;
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nLU")
+                .await?;
+            stream.shutdown().await?;
+            Ok::<_, anyhow::Error>(())
+        });
+        let country_client = crate::client::ArachneaHttpClient::new(
+            ArachneaHttpConfig::builder()
+                .proxy(crate::config::HttpProxyConfig::Arachnea(
+                    ArachneaProxyCore::new(UsageProfile::SystemRelay.config())?,
+                ))
+                .build()?,
+        )
+        .await?;
+        let resolver = IpCountryResolver::new(
+            IpCountryResolverConfig::default(),
+            Some(Arc::new(CountryProvider {
+                client: country_client,
+                url: format!("http://{country_address}/country"),
+            })),
+            None,
+        );
+        let business_search = ProxySearchContext::default();
+        business_search
+            .scope(async {
+                assert_eq!(resolver.resolve_current_country().await?, Some("LU".into()));
+                assert!(
+                    business_search.can_start(),
+                    "country detection must not accept the pending business request"
+                );
+                business_search.technical(async {}).await?;
+                Ok::<_, anyhow::Error>(())
+            })
+            .await?;
+        country_server.await??;
+        #[derive(Clone, Copy, PartialEq)]
+        enum DeliveryFixture {
+            ConnectRejected,
+            BodySent,
+            UntrustedTls,
+            RedirectConnect,
+            ConnectTimeout,
+        }
+        for stage in [
+            DeliveryFixture::ConnectRejected,
+            DeliveryFixture::BodySent,
+            DeliveryFixture::UntrustedTls,
+            DeliveryFixture::RedirectConnect,
+            DeliveryFixture::ConnectTimeout,
+        ] {
+            let url = if stage == DeliveryFixture::BodySent {
+                "http://origin.example/login"
+            } else {
+                "https://origin.example/login"
+            };
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+            let address = listener.local_addr()?;
+            let server = tokio::spawn(async move {
+                let (mut stream, _) = listener.accept().await?;
+                let head = read_head(&mut stream).await?;
+                if stage != DeliveryFixture::BodySent {
+                    anyhow::ensure!(
+                        head.starts_with("CONNECT "),
+                        "expected tunnel setup before POST"
+                    );
+                    if stage == DeliveryFixture::ConnectTimeout {
+                        let mut byte = [0; 1];
+                        anyhow::ensure!(
+                            stream.read(&mut byte).await? == 0,
+                            "timed out CONNECT must not receive POST bytes"
+                        );
+                        return Ok::<_, anyhow::Error>(());
+                    }
+                    if stage == DeliveryFixture::UntrustedTls {
+                        stream
+                            .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+                            .await?;
+                        let tls = rustls::ServerConfig::builder_with_provider(Arc::new(rustls::crypto::aws_lc_rs::default_provider()))
+                                    .with_safe_default_protocol_versions()?.with_no_client_auth().with_single_cert(
+                                        vec![rustls::pki_types::CertificateDer::from(include_bytes!("../../../arachnea-proxy/src/core/tests/fixtures/localhost-cert.der").to_vec())],
+                                        rustls::pki_types::PrivatePkcs8KeyDer::from(include_bytes!("../../../arachnea-proxy/src/core/tests/fixtures/localhost-key.der").to_vec()).into(),
+                                    )?;
+                        if let Ok(mut tls) = tokio_rustls::TlsAcceptor::from(Arc::new(tls))
+                            .accept(stream)
+                            .await
+                        {
+                            let mut byte = [0; 1];
+                            anyhow::ensure!(
+                                !matches!(tls.read(&mut byte).await, Ok(count) if count > 0),
+                                "untrusted TLS must not receive a POST"
+                            );
+                        }
+                        return Ok::<_, anyhow::Error>(());
+                    }
+                    stream.write_all(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await?;
+                } else {
+                    anyhow::ensure!(head.starts_with("POST "), "expected business POST");
+                    let mut body = [0; 3];
+                    stream.read_exact(&mut body).await?;
+                    anyhow::ensure!(&body == b"abc", "expected complete business body");
+                }
+                stream.shutdown().await?;
+                Ok::<_, anyhow::Error>(())
+            });
+            let attempt_started = tokio::time::Instant::now();
+            let search = ProxySearchContext::default();
+            let engine = search
+                .scope(async {
+                    RquestEngine::new(
+                        &ArachneaHttpConfig::builder()
+                            .request_timeout(Duration::from_secs(25))
+                            .build()?,
+                        Some(&format!("http://{address}")),
+                        None,
+                    )
+                })
+                .await?;
+            let redirects = if stage == DeliveryFixture::RedirectConnect {
+                vec!["https://prior.example/login".to_string()]
+            } else {
+                Vec::new()
+            };
+            let error = engine
+                .send_for_proxy(
+                    EngineRequest {
+                        method: ::http::Method::POST,
+                        url: url.into(),
+                        headers: Default::default(),
+                        body: Some(bytes::Bytes::from_static(b"abc")),
+                    },
+                    None,
+                    None,
+                    url,
+                    &redirects,
+                )
+                .await
+                .err()
+                .expect("fixture must reject setup or close before headers");
+            let ArachneaHttpError::ProxyAttempt {
+                delivery, source, ..
+            } = error
+            else {
+                anyhow::bail!("expected attributed proxy error");
+            };
+            let not_sent = matches!(
+                stage,
+                DeliveryFixture::ConnectRejected
+                    | DeliveryFixture::UntrustedTls
+                    | DeliveryFixture::ConnectTimeout
+            );
+            assert_eq!(
+                delivery,
+                if not_sent {
+                    ProxyRequestDelivery::NotSent
+                } else {
+                    ProxyRequestDelivery::PossiblySent
+                }
+            );
+            assert_eq!(
+                proxy_retry_allowed("POST", false, delivery, false),
+                not_sent
+            );
+            if stage == DeliveryFixture::UntrustedTls {
+                assert!(source.to_string().contains("tls_certificate"));
+            }
+            if stage == DeliveryFixture::ConnectTimeout {
+                assert!(attempt_started.elapsed() >= Duration::from_secs(14));
+                assert!(attempt_started.elapsed() < Duration::from_secs(20));
+            }
+            server.await??;
+        }
         let cert = include_bytes!("../../../arachnea-proxy/src/core/tests/fixtures/localhost-cert.der");
         let key = include_bytes!("../../../arachnea-proxy/src/core/tests/fixtures/localhost-key.der");
         let ca = include_bytes!("../../../arachnea-proxy/src/core/tests/fixtures/test-ca.der");

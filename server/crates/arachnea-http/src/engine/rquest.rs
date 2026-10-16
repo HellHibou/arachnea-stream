@@ -60,26 +60,79 @@ impl RquestEngine {
         if let Some(body) = request.body {
             builder = builder.body(body);
         }
+        use arachnea_proxy::core::ProxyRequestDelivery;
+        let failure = |delivery, reason| ArachneaHttpError::ProxyAttempt {
+            selection: selection.clone(),
+            delivery,
+            source: Box::new(ArachneaHttpError::Proxy(reason)),
+        };
         let send = async {
             tokio::time::timeout(self.request_timeout, builder.send())
                 .await
-                .map_err(|_| "origin response headers timed out".to_string())?
-                .map_err(|error| error.to_string())
+                .map_err(|_| {
+                    tracing::warn!(
+                        search_id = search.as_ref().map(|search| search.id()),
+                        proxy = selection.as_ref().map(|token| token.endpoint()),
+                        failure_kind = "timeout",
+                        phase = "response_headers",
+                        "localized proxy response headers timed out; delivery remains uncertain"
+                    );
+                    failure(
+                        ProxyRequestDelivery::PossiblySent,
+                        "origin response headers timed out".into(),
+                    )
+                })?
+                .map_err(|error| {
+                    let delivery = if error.is_connect() && redirect_urls.is_empty() {
+                        ProxyRequestDelivery::NotSent
+                    } else {
+                        ProxyRequestDelivery::PossiblySent
+                    };
+                    // Only the connector classification proves absence of sending.
+                    // Source text is inspected for diagnostic categories, never replay decisions.
+                    let mut kind = if error.is_timeout() {
+                        "timeout"
+                    } else if error.is_connect() {
+                        "connection"
+                    } else {
+                        "request"
+                    };
+                    let mut source = std::error::Error::source(&error);
+                    for _ in 0..8 {
+                        let Some(cause) = source else {
+                            break;
+                        };
+                        let description = cause.to_string().to_ascii_lowercase();
+                        if description.contains("certificate") {
+                            kind = "tls_certificate";
+                            break;
+                        }
+                        if description.contains("ssl") || description.contains("tls") {
+                            kind = "tls_handshake";
+                        } else if description.contains("tunnel") && kind != "tls_handshake" {
+                            kind = "proxy_tunnel";
+                        }
+                        source = cause.source();
+                    }
+                    tracing::warn!(
+                        search_id = search.as_ref().map(|search| search.id()),
+                        proxy = selection.as_ref().map(|token| token.endpoint()),
+                        failure_kind = kind,
+                        ?delivery,
+                        "localized proxy send failed"
+                    );
+                    failure(delivery, format!("{kind}: {}", error.without_url()))
+                })
         };
         let response = if let Some(search) = &search {
             search
                 .origin(send)
                 .await
-                .map_err(|error| error.to_string())
+                .map_err(|error| failure(ProxyRequestDelivery::PossiblySent, error.to_string()))
                 .and_then(|result| result)
         } else {
             send.await
-        }
-        .map_err(|error| ArachneaHttpError::ProxyAttempt {
-            selection: selection.clone(),
-            delivery: arachnea_proxy::core::ProxyRequestDelivery::PossiblySent,
-            source: Box::new(ArachneaHttpError::Proxy(error)),
-        })?;
+        }?;
         let status = response.status();
         let headers = response.headers().clone();
         let url = response.url().to_string();
@@ -224,6 +277,15 @@ impl RquestEngine {
             .timeout(config.request_timeout)
             .user_agent(config.user_agent_profile.user_agent())
             .redirect(rquest::redirect::Policy::none());
+
+        #[cfg(feature = "arachnea-proxy")]
+        if proxy_url.is_some() && arachnea_proxy::core::ProxySearchContext::current().is_some() {
+            builder = builder.connect_timeout(
+                config
+                    .request_timeout
+                    .min(std::time::Duration::from_secs(15)),
+            );
+        }
 
         if let Some(proxy_url) = proxy_url {
             let proxy = rquest::Proxy::all(proxy_url)

@@ -37,6 +37,22 @@ pub trait ProxyRepository: Send + Sync {
     async fn find_by_country(&self, country: &str) -> Result<Vec<ProxyRecord>>;
     /// Persists a batch of records atomically.
     async fn save_many(&self, records: &[ProxyRecord]) -> Result<()>;
+    /// Clears strictly older ambiguous exclusions for an accepted exact destination.
+    /// Reads and updates the latest record under the repository commit lock.
+    ///
+    /// # Arguments
+    /// * `key` - Endpoint whose accepted response was observed.
+    /// * `destination` - Exact scheme, host and port that accepted the response.
+    /// * `accepted_at` - Acceptance date; equal-date and newer failures remain intact.
+    ///
+    /// # Errors
+    /// Returns a storage error if reading or updating the record fails.
+    async fn clear_superseded_destination_failures(
+        &self,
+        key: &ProxyKey,
+        destination: &crate::core::Destination,
+        accepted_at: SystemTime,
+    ) -> Result<()>;
     /// Removes a record by its persisted endpoint identity.
     async fn delete(&self, key: &ProxyKey) -> Result<()>;
 }
@@ -181,6 +197,24 @@ impl ProxyRepository for TypedProxyRepository {
             merged.push(record);
         }
         Ok(self.store.put_all(&merged).await?)
+    }
+    async fn clear_superseded_destination_failures(
+        &self,
+        key: &ProxyKey,
+        destination: &crate::core::Destination,
+        accepted_at: SystemTime,
+    ) -> Result<()> {
+        let _guard = self.commits.lock().await;
+        if let Some(mut record) = self.store.get(key).await? {
+            if super::proxy_inventory::clear_superseded_destination_failures(
+                &mut record,
+                destination,
+                accepted_at,
+            ) {
+                self.store.put(&record).await?;
+            }
+        }
+        Ok(())
     }
     async fn delete(&self, key: &ProxyKey) -> Result<()> {
         let _guard = self.commits.lock().await;

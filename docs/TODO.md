@@ -47,6 +47,8 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 
 ## Server/HTTP
 
+- [x] Corriger la preuve d’envoi Rquest après les traces FranceTV/6play : `is_connect()` avant tout redirect établit `NotSent` et autorise un autre proxy pour un POST jamais envoyé. CONNECT refusé, TLS non fiable, POST effectivement transmis et erreur sur redirect vérifiés dans une fixture existante ; TLS reste vérifié. Diagnostic et limites : section 26 de l’analyse des proxies localisés.
+
 - Finish any source-specific or caller-reported invalidation hooks for reusable origin-scoped browser sessions. The HTTP primitive, Scrapyfy page-fetch sub-query, bounded retry policy, domain-scoped in-memory callback-token cache, Cloudflare cookie handoff, explicit invalidation, frontend recoverable error, and mock-engine tests are implemented. Chaser-CF is now limited to Cloudflare session solving; persistent page workflows require another browser engine. See `docs/dev-tracking/papadustream-browser-getxfield-analysis.md` and `docs/dev-tracking/chaser-cf-session-to-rquest-analysis.md`.
 - Décider si `arachnea-http` doit exposer une API `tower::Service` en plus du constructeur de requêtes fluide.
 - Ajouter des garde-fous optionnels d'usage responsable, comme de la limitation de débit, des délais entre requêtes, des reprises bornées, des vérifications de masquage des cookies et un support optionnel de `robots.txt` si le crate évolue vers du crawling.
@@ -54,6 +56,25 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 
 
 ## Server/Proxy
+
+- [x] Isoler la pile des sondes partagées TCP/TLS après le stack overflow FranceTV de 13:20 : tâche enfant possédée et annulable, mutualisation et créneaux conservés ; fixture existante étendue. Section 33 du suivi.
+- [ ] Distinguer les délais du proxy préféré déjà accepté par le domaine et ceux de la découverte : le handshake SOCKS reste plafonné à 5 s pendant la réutilisation. Proposition et confirmation requise pour les nouvelles valeurs en section 33 du suivi.
+- [x] Réconcilier les exclusions `Other` avec les succès postérieurs de la même association proxy/destination, à la réception et lors de la sélection préférentielle : cache existant réparé et persisté ; blocages explicites, échecs plus récents ou de date identique et autres destinations préservés. Section 32 du suivi.
+- [x] Isoler la pile du rafraîchissement fournisseur après le second stack overflow FranceTV : le futur partagé possède une tâche enfant annulée par `JoinSet` quand le dernier abonné disparaît ; mutualisation, sémaphores et échéances conservés. Fixture existante étendue pour la séparation du polling, le contexte technique et la libération des créneaux. Section 31 du suivi ; qualification de lecture média parallèle toujours ouverte.
+
+- [x] Appliquer les délais confirmés après l’échec 6play front-auth : TCP localisé 3 s, handshake proxy 5 s, connexion complète Rquest 15 s, sans augmenter les délais plus courts configurés, avec preuves d’envoi et recherche 120 s conservées. La fixture POST existante vérifie le CONNECT muet interrompu à 15 s puis `NotSent` ; validation réelle authentifiée encore ouverte. Section 30 du suivi.
+
+- [x] Corriger la profondeur linéaire des routes REST mise en évidence par les rapports de stack overflow macOS pendant une sonde TLS : arbre Warp équilibré, ordre d’enregistrement et ACL conservés. Diagnostic et validation : section 29 du suivi des proxies localisés ; la compatibilité réelle des proxies reste à qualifier.
+
+- [ ] Traiter les lenteurs 6play/Gigya auditées le 16 octobre : harmoniser les délais des phases de connexion avec l’enveloppe HTTP et remonter une preuve d’envoi typée, conserver les causes des sondes permissives, éviter les sondes annulées/recommencées et la suspension complète de découverte pendant un essai métier ; revoir séparément rafraîchissement des listes et cooldown de 24 h des erreurs ambiguës. Mesures et priorités : section 28 de l’analyse des proxies localisés. Aucun correctif moteur inclus dans cet audit.
+
+- [x] Supprimer les plafonds de nombre de préchecks, validations et essais métier : recherche jusqu’au succès, épuisement des candidats ou délai partagé de 120 secondes. Concurrence bornée conservée ; réservations annulées libérées et retries des pools dynamiques alignés. Suivi : section 27 de l’analyse des proxies localisés.
+
+- [x] Corriger le blocage de sélection observé sur FranceTV avec persistance : deux validations attendaient un verrou détenu par un précheck que le pipeline ne faisait plus avancer. Reproduction déterministe avec écritures suspendues, puis correction de la progression des deux phases sans augmenter les plafonds ni détacher les commits. Suivi : section 25 de l’analyse des proxies localisés.
+
+- [x] Distinguer dans les logs les listes chargées, préchecks TCP, validations et essais métier : compteurs de recherche corrélés, capacités réellement prouvées et échecs/reprises d’origine. Le scénario existant vérifie trois validations successives avec deux créneaux ; plafonds inchangés. Suivi : section 24 de l’analyse des proxies localisés.
+
+- [x] Isoler la détection du pays courant du contexte d’acceptation de la requête métier : régression reproduite localement puis corrigée après l’échec FranceTV K7 du 16 octobre 2026. La réponse HTTP de géolocalisation ne clôt plus la recherche K7 ; timeout du resolver et annulation de l’appel conservés. Détails : section 23 du suivi des proxies localisés.
 
 - [x] Proxies localisés : lots 0 à 6 intégrés et recette locale du lot 7 réalisée le 16 octobre 2026 ; 254 tests distincts réussis, compilations et mesures locales consignées. Suivi : `docs/dev-tracking/analyse-optimisation-proxies-localises.md`, sections 11 et 21.
 - [ ] Clore la qualification des proxies localisés : parcours HTTPS de `ProxyProbe` et secours, concurrence réseau/géolocalisation en charge, recherche à froid après redémarrage réel, POST à effet serveur et média long, horizon réel 120/135 secondes et timeouts de déploiement, coupures processus/disque. Checklist consolidée : section 22 du suivi. Les loopbacks contextuels reconnectent entre appels.

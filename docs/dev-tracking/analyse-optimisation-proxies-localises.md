@@ -6,10 +6,14 @@ Statut : lots 1 à 6 intégrés ; validations et limites de recette des lots 1/2
 
 Révision : prise en compte des deux phases de test, de l’indisponibilité ou des restrictions géographiques du serveur de test, et des décisions sur la persistance et les pays autorisés.
 
+Contrat courant (section 27) : recherche jusqu’au succès, épuisement des candidats
+ou échéance de 120 secondes, sans plafond de nombre de préchecks, validations ou
+endpoints métier. Les plafonds 64/32/8 des bilans antérieurs sont supprimés.
+
 ## Suivi consolidé — 16 octobre 2026
 
 Les coches distinguent les livrables réalisés de la qualification exhaustive.
-La section 22 regroupe les seuls points encore ouverts pour ce chantier.
+La section 22 regroupe la qualification restante ; les sections 26 et 27 suivent les corrections FranceTV/6play et leur vérification réelle.
 
 - [x] Lot 0 — Conception et état initial (section 12).
 - [x] Lot 1 — Observations, preuves positives et corrélation des réponses (sections 13, 15 et 16).
@@ -763,13 +767,17 @@ Ne pas découper les 120 secondes en tranches fixes à consommer successivement.
 | Cible totale | 120 secondes, décision acquise | Budget jusqu’à la première réponse acceptée |
 | Prolongation maximale | 15 secondes | Terminer uniquement une tentative réelle déjà engagée |
 | Exploration avant actualisation | 10 secondes ou 8 validations complètes infructueuses | Commencer la découverte sans épuiser tout le cache |
-| Endpoints soumis à un précheck | 64 au maximum par recherche | Borner le travail TCP, cache et découvertes confondus |
-| Candidats soumis à une validation complète | 32 au maximum par recherche | Borner les tests coûteux, indépendamment des préchecks |
-| Proxies essayés sur le domaine métier | 8 au maximum par recherche | Borner les rotations ; ne pas autoriser des retries non sûrs |
+| Endpoints soumis à un précheck | Sans plafond de nombre | Parcourir les candidats dans le délai partagé |
+| Candidats soumis à une validation complète | Sans plafond de nombre | Continuer jusqu’au succès, épuisement ou échéance |
+| Proxies essayés sur le domaine métier | Sans plafond de nombre | Rotations dans le délai partagé, selon les preuves d’envoi |
 
-Ces plafonds de travail sont des points de départ conservateurs, non des valeurs issues d’un benchmark. Ils sont indépendants : un endpoint peut contribuer aux trois compteurs sans constituer trois proxies différents. Les lectures du cache ne consomment pas un compteur de test réseau. Les tentatives sont comptées à leur démarrage, y compris celles qui échouent ou sont annulées ; une tentative mutualisée n’est exécutée qu’une fois et compte pour les appels qui l’utilisent. Les plafonds incluent toute la recherche, pas une remise à zéro après chaque chargement fournisseur.
-
-Les 8 essais métier sont un plafond, pas une obligation : les règles d’idempotence, une cible présumée indisponible ou le délai total peuvent arrêter le parcours plus tôt. Un échec ambigu ne justifie pas automatiquement une nouvelle tentative. Une fois les plafonds atteints, ne pas lancer d’autres candidats ; une tentative réelle déjà engagée peut seulement terminer dans le délai restant.
+La clarification du 16 octobre 2026 supprime les plafonds de travail initialement
+proposés à 64/32/8. Les compteurs servent au diagnostic et à la déduplication,
+jamais à arrêter une recherche disposant encore de candidats et de temps.
+Une vérification annulée avant résultat peut reprendre lors d’une sélection
+ultérieure du même appel. Les limites de concurrence et les règles de rejeu sûr
+restent applicables ; un POST dont l’envoi est incertain ne peut pas être répété
+sans garantie explicite de rejeu.
 
 #### Concurrence initiale et appels simultanés
 
@@ -983,7 +991,7 @@ Livrables réalisés :
 
 Livrables réalisés :
 
-- [x] Créer une échéance monotone commune et des compteurs de travail par recherche : cible 120 secondes, marge initiale 15 secondes, 64 préchecks, 32 validations complètes et 8 endpoints métier.
+- [x] Créer une échéance monotone commune et des compteurs de travail par recherche : cible 120 secondes, marge initiale 15 secondes ; plafonds de nombre supprimés après clarification utilisateur (section 27).
 - [x] Distinguer la fin de recherche de la durée du transfert ; après acceptation, un flux établi n’est pas coupé par l’échéance de découverte.
 - [x] À 120 secondes, cesser de lancer des travaux. N’autoriser la marge que pour une tentative réelle déjà engagée et ne pas lancer une nouvelle rotation durant cette marge.
 - [x] Transmettre le contexte aux retries de connexion et HTTP afin que les budgets ne se multiplient pas entre les couches. Réduire chaque timeout au temps restant.
@@ -1191,7 +1199,7 @@ Sur la route médias, préserver la lecture streamée et restituer le préfixe a
 Contrats proposés :
 
 ```text
-ProxySearchLimits { target_duration, extension, precheck_limit, validation_limit, origin_limit }
+ProxySearchLimits { target, extension }
 ProxySearchContext { id, started_at, target_deadline, hard_deadline, counters, attempted_endpoints }
 ProxySearchContext::remaining() -> Duration
 ProxySearchContext::try_start(work_kind, endpoint) -> Result<WorkPermit>
@@ -1962,7 +1970,7 @@ exhaustif de tous les chemins d’exécution.
 ### 22.1. Qualification encore nécessaire avant clôture complète
 
 - [ ] **HTTPS propre à `ProxyProbe` et secours** — Vérifier le 503 après tunnel/TLS valide, les erreurs de certificat et les secours HTTP/HTTPS sous une seule échéance. Le code utilise encore des racines `webpki_roots` fixes ; la fixture TLS métier Rquest ne couvre pas ce chemin. Une adaptation du point d’injection de confiance ou un endpoint de test adapté est à étudier pour une fixture locale complète.
-- [ ] **Concurrence en charge** — Exercer l’actualisation aux seuils 10 secondes/huit validations pendant l’exploration, les plafonds réseau réels 64/32/8 et 8/16–2/4–2/2, la limite de 20 IPs et les quatre résolutions géographiques mutualisées. Vérifier les courses d’annulation/reprise et la libération de tous les créneaux. Les tests de primitives ne remplacent pas cette campagne.
+- [ ] **Concurrence en charge** — Exercer l’actualisation aux seuils 10 secondes/huit validations pendant l’exploration, les limites de concurrence réseau 8/16–2/4–2/2 et la progression sans plafond de nombre, la limite de 20 IPs et les quatre résolutions géographiques mutualisées. Vérifier les courses d’annulation/reprise et la libération de tous les créneaux. Les tests de primitives ne remplacent pas cette campagne.
 - [ ] **Recherche à froid et redémarrage réel** — Mesurer fournisseur → acceptation puis réutilisation après redémarrage du processus avec les stores durables de l’application, plusieurs domaines et des permutations de pays. Les mesures actuelles de restauration d’inventaire utilisent un store mémoire ; les réouvertures fichier/SQLite sont vérifiées séparément.
 - [ ] **Rejeu et média de bout en bout** — Vérifier l’absence de second effet serveur pour les POST dont l’envoi est incertain, les frontières d’erreurs après en-têtes, les redirects et un flux média long à travers les moteurs concernés. Les tables de décision et flux locaux couvrent une partie de ce contrat, pas tous les transports réels.
 - [ ] **Durées de production et déploiement** — Vérifier un appel à la cible 120 secondes et à la limite 135 secondes, l’abandon client/API, les délais frontend/lecteur, hébergeur et reverse proxy, ainsi que le transfert accepté au-delà du budget de recherche. Les délais réduits du lot 7 valident le mécanisme, pas ces conditions d’exploitation.
@@ -1984,3 +1992,639 @@ Le remplacement des loopbacks et les futures intégrations de transport listées
 dans `docs/TODO.md` sont des chantiers distincts, pas des lots manquants de cette
 optimisation. Les implémentations livrées et les vérifications locales ne sont
 pas à refaire ; la suite du travail porte sur les cases non cochées ci-dessus.
+
+
+## 23. Correctif FranceTV K7 — détection du pays et acceptation métier
+
+Signalement du 16 octobre 2026 : `get_stream` FranceTV échoue sur le chargement
+K7, avec un `proxy search target deadline` immédiat dans `resolve_current_country`.
+La clôture locale du lot 7 ne couvrait pas encore cet appel auxiliaire imbriqué.
+
+### 23.1. Régression reproduite et correction
+
+- [x] Reproduire le défaut dans le test Rquest/TLS existant, avec un fournisseur de pays faisant un vrai appel HTTP 200 local via un core `SystemRelay`, sous le contexte d’une recherche métier.
+- [x] Constater l’échec avant correction : la réponse de géolocalisation fait passer `can_start()` à faux alors que la recherche métier n’a pas encore abouti. Le message de deadline peut donc apparaître sans que 120 secondes soient écoulées.
+- [x] Isoler l’appel `IpCountryDataProvider::resolve_current_country()` avec `ProxySearchContext::unscoped`, dans le timeout du resolver existant (cinq secondes par défaut). Le contexte de l’appelant est restauré après l’attente ; aucune nouvelle tâche, voie réseau ou politique de routage n’est ajoutée.
+- [x] Vérifier que la réponse 200 auxiliaire ne clôt plus la recherche appelante et qu’un travail technique reste autorisé. La fixture de TLS métier 200/503 continue ensuite de passer.
+
+La détection reste attendue directement : l’échéance entourant la sélection de
+route et l’abandon de l’appel annulent aussi cette future. Les transports du
+provider initialisés pendant cette détection ne capturent plus le contexte de
+la requête métier. Les réponses géographiques conservent leur politique système
+existante ; l’isolation ne constitue pas un repli direct ajouté à K7.
+
+### 23.2. Validation et limites
+
+Le filtre `keep_alive_tls_503` de `arachnea-http --features arachnea-proxy` échoue
+sur l’assertion de recherche encore ouverte avant le correctif, puis passe après.
+Le scénario est ajouté au test existant, sans nouvelle fonction de test.
+Contrôles après correction, Cargo offline :
+
+| Contrôle | Résultat |
+|---|---|
+| `cargo test --offline --manifest-path server/Cargo.toml -p arachnea-proxy -p arachnea-http --lib --features arachnea-proxy/persistence,arachnea-proxy/controller-service,arachnea-http/arachnea-proxy --quiet` | 125 proxy + 45 HTTP réussis |
+| `cargo test --offline -p arachnea-scrapyfy --lib --features arachnea-proxy,sqlite-persistence --quiet` depuis `server/` | 80 réussis |
+| `cargo check --offline --manifest-path server/Cargo.toml -p arachnea-stream` | Réussite |
+| Rustfmt ciblé et `git -c core.whitespace=cr-at-eol diff --check` | Réussite ; seule la fixture ajoutée au test HTTP est reformatée pour préserver le code existant |
+
+- [ ] Rejouer `get_stream` sur le média FranceTV K7 signalé avec le binaire corrigé et un endpoint FR réel admissible. La reproduction locale démontre la régression de contexte ; elle ne valide pas les réponses du service externe ni la disponibilité des proxies FR.
+
+Un redémarrage du backend avec le binaire reconstruit est nécessaire pour
+appliquer le correctif et recréer le resolver : une détection déjà échouée peut
+rester en cache négatif dans l’ancienne instance.
+
+
+## 24. Nombre de proxies essayés — diagnostic du 16 octobre 2026
+
+Les logs FranceTV fournis à 07:40:19 montrent 201 endpoints chargés et deux
+validations complètes terminées avec capacités inconnues. Ils ne montrent pas
+le nombre de préchecks TCP, le candidat retenu pour K7 ni la fin de l’appel.
+Les fermetures de tunnels GitHub à 90 secondes concernent le transport des
+listes ; elles ne mesurent pas la durée de la tentative K7.
+
+- [x] Relire le pipeline : `buffer_unordered(2)` limite la concurrence de validation, pas le nombre total. Les préchecks TCP sont distincts et la sélection peut retourner dès le premier candidat admissible.
+- [x] Étendre le scénario multi-pays existant avec trois endpoints joignables refusant CONNECT : en mode strict, les trois validations s’exécutent, puis la sélection échoue proprement. La troisième validation n’est pas bloquée par la limite de deux créneaux.
+- [x] Ajouter `capability_proven` aux résultats de probe. Un `error=None` avec capacités inconnues peut autoriser un essai métier en relaxed ; ce n’est pas une preuve HTTPS réussie.
+- [x] Ajouter des snapshots INFO `localized proxy search progress`, corrélés par `search_id` : réservations/completions TCP et validations, TCP joignables, résultats admissibles, endpoints métier distincts, temps écoulé/restant et état d’acceptation.
+- [x] Rendre visibles les essais d’origine avec endpoint, origine et méthode ; journaliser la preuve d’envoi et l’éligibilité au retry lors d’un échec, puis les compteurs lors de la reprise ou du retour final.
+- [ ] Relever la nouvelle trace du `get_stream` réel jusqu’à sa réponse/erreur pour déterminer si les échecs viennent des préchecks, des capacités, de CONNECT/TLS ou de K7. Les logs initiaux seuls ne permettent pas de conclure à un blocage après deux proxies.
+
+Les réservations incluent le travail en file et annulé ; les completions suivent
+les résultats attendus par chaque recherche, y compris les résultats mutualisés.
+Une validation admissible en relaxed ne signifie pas que toutes ses capacités
+sont démontrées. Les réutilisations de preuves TCP en cache ne lancent pas de
+nouvelle connexion de précheck. Les compteurs ne sont donc pas assimilables
+au nombre de sockets ouvertes au niveau du système.
+
+Aucune augmentation des valeurs 64 préchecks, 32 validations, huit endpoints
+métier, 120 secondes et 15 secondes de marge. Il n’est pas prévu de tester tous
+les records d’une liste de 201 endpoints avant d’essayer le domaine demandé.
+Ces changements portaient sur l’observation. Le premier scénario sans attente
+de persistance n’a pas reproduit de limite totale de deux validations ; il ne
+couvrait pas le blocage révélé par la trace suivante et reproduit en section 25.
+La disponibilité des proxies FR n’est pas validée par ces fixtures.
+
+Validation ciblée : le filtre existant
+`multi_country_selection_loads_each_country_at_most_once_per_call` passe avec
+les trois refus CONNECT. Contrôles finaux Cargo offline :
+
+| Contrôle | Résultat |
+|---|---|
+| Suites combinées proxy/HTTP, features persistence/controller-service et intégration proxy | 125 + 45 tests réussis |
+| `cargo check --offline --manifest-path server/Cargo.toml -p arachnea-stream` | Réussite |
+| Rustfmt ciblé et `git -c core.whitespace=cr-at-eol diff --check` | Réussite |
+
+
+## 25. Blocage après deux probes avec persistance — 16 octobre 2026
+
+La trace FranceTV de 07:57:58 à 07:59:58 précise le défaut : après 120 secondes,
+neuf préchecks sont réservés mais deux seulement terminés ; deux validations
+sont réservées, aucune terminée, et aucun endpoint métier n’a été essayé.
+Les deux logs de probe terminés ne signifiaient pas que leur fusion/persistance
+était achevée. K7 n’avait pas encore reçu de tentative métier de cette recherche.
+
+### 25.1. Cause et correction
+
+L’ancien pipeline emboîtait une fenêtre de préchecks et un buffer de deux
+validations. Lorsque les deux validations occupaient ce buffer, les futures de
+précheck n’étaient plus pollées. Un précheck pouvait alors rester suspendu
+pendant une écriture asynchrone, en détenant `persistence_commits`. Les validations
+qui venaient de terminer leur probe attendaient ce même verrou pour sauvegarder
+leurs résultats. Le détenteur ne pouvait plus progresser : l’ensemble attendait
+jusqu’au timeout global. Un store mémoire sans attente ne révélait pas ce cas.
+
+- [x] Étendre le scénario existant avec trois endpoints locaux, de vrais préchecks TCP et des refus CONNECT. Un repository enveloppant le store mémoire suspend chaque écriture 20 ms, tout en conservant les interfaces de persistance existantes.
+- [x] Reproduire l’échec avant correction : timeout de la fixture à cinq secondes, alors que tous les échanges réseau sont locaux et rapides.
+- [x] Faire progresser précheck puis validation dans chaque future candidate au sein d’un seul ensemble concurrent borné. Aucune phase en cours ne dépend désormais du polling d’un buffer amont arrêté par la saturation du buffer aval.
+- [x] Conserver les limites des sémaphores : huit préchecks et deux validations au maximum par recherche, 16/quatre par inventaire, ainsi que les réservations 64/32 et les huit endpoints métier. La fenêtre candidate reste bornée par `probe_batch_size` (1..=8).
+- [x] Conserver les commits attendus, leur sérialisation, les preuves et la propagation de l’annulation ; aucune tâche de persistance détachée ni hausse de timeout.
+- [x] Vérifier le scénario corrigé : les trois préchecks et refus CONNECT terminent en environ 140 ms dans l’exécution ciblée. Cette mesure inclut les écritures volontairement ralenties et ne constitue pas un benchmark fournisseur.
+
+Le précédent test démontrait seulement qu’il n’existait pas de plafond total de
+deux validations en l’absence de persistance suspendue. Il ne démontrait pas
+l’absence de blocage du pipeline avec des I/O réelles ; cette lacune est corrigée
+par la nouvelle reproduction dans la même fonction de test.
+
+### 25.2. Validation et qualification externe
+
+Le filtre `multi_country_selection_loads_each_country_at_most_once_per_call`,
+features `persistence,controller-service`, échoue avant le correctif puis passe
+après. Contrôles finaux Cargo offline :
+
+| Contrôle | Résultat |
+|---|---|
+| Suites combinées proxy/HTTP, features persistence/controller-service et intégration proxy | 125 + 45 tests réussis |
+| Suite Scrapyfy, features arachnea-proxy/sqlite-persistence | 80 tests réussis |
+| `cargo check --offline --manifest-path server/Cargo.toml -p arachnea-stream` | Réussite |
+| Rustfmt ciblé et `git -c core.whitespace=cr-at-eol diff --check` | Réussite |
+
+- [ ] Reconstruire/redémarrer le backend de l’utilisateur et vérifier la trace K7 réelle : les validations doivent maintenant se terminer et laisser démarrer des essais métier ou poursuivre les autres candidats. Ce correctif ne garantit pas l’acceptation par FranceTV des endpoints publics FR disponibles.
+
+
+## 26. FranceTV / 6play — plafonds de travail et preuve d’envoi
+
+Analyse des deux traces fournies le 16 octobre 2026, respectivement à 08:14:28
+et 08:17:02. Le blocage de la section 25 n’est plus présent.
+
+### 26.1. Constats de la trace réelle
+
+- [x] FranceTV : arrêt après 29 449 ms, 64 préchecks réservés (57 terminés, 46 joignables), 32 validations réservées (25 terminées), sept endpoints métier et aucun résultat accepté. Il reste environ 90 secondes, mais le budget de travail est épuisé. Les réservations annulées après le choix d’un candidat restent comptées, conformément au lot 5.
+- [x] Plusieurs endpoints HTTP sur port 443 refusent CONNECT avec 400 ; un tunnel 200 ne suffit pas à prouver le TLS de destination. Les `error=None` des probes relaxed ne signifient pas que HTTPS est validé.
+- [x] 6play : la récupération GET de la page de connexion échoue après huit endpoints. Le resolver utilise ensuite sa clé API de secours existante et démarre un nouveau budget pour le POST Gigya. Celui-ci échoue après le premier tunnel, classé `PossiblySent`, donc sans retry automatique.
+
+La durée 120 secondes est un plafond, pas une obligation d’attendre ni de tester
+les 201 records. Les traces n’établissent pas que tous les proxies FR seraient
+inutilisables : les plafonds arrêtent la recherche avant leur exploration complète.
+Les limites 64/32/8 ne sont pas augmentées dans ce correctif.
+
+### 26.2. Comparaisons réseau anonymes
+
+- [x] Comparer curl et Rquest sur des URLs publiques sans compte, cookies ni données de connexion. Les deux endpoints `13.38.27.183:1337` et `13.38.52.27:443` ont renvoyé CONNECT 400 sur `example.com` pendant le diagnostic.
+- [x] Constater qu’une tentative curl et une tentative Rquest natives via le premier proxy ont atteint la racine K7 en HTTPS 200, certificat vérifié ; il n’est donc pas justifié de conclure que ce proxy échoue toujours.
+- [x] Reproduire aussi, sur une autre connexion via ce proxy, un échec TLS Rquest `CERTIFICATE_VERIFY_FAILED`, « unable to get local issuer certificate ». Curl a ensuite signalé la même erreur via ce proxy ; son accès direct anonyme à K7 vérifiait le certificat (Let’s Encrypt YR1).
+
+Ces observations sont ponctuelles et les résultats du proxy varient entre
+connexions ; elles ne prouvent ni une panne générale de K7 ni une cause unique
+pour tous les endpoints. Le certificat non validé reste refusé. Les appels
+anonymes ont porté sur des ressources K7 publiques ; aucune tentative de login
+Gigya avec les identifiants de l’utilisateur n’a été effectuée. Le code temporaire
+de comparaison réseau a été retiré ; les tests conservés utilisent uniquement
+des serveurs locaux.
+
+### 26.3. Correction de l’attribution d’envoi
+
+- [x] Reproduire localement le refus CONNECT avant POST : l’ancienne attribution retourne `PossiblySent` alors que la requête métier n’a pas quitté la phase de connexion.
+- [x] Utiliser la classification native `rquest::Error::is_connect()` de la dépendance verrouillée pour établir `NotSent`, uniquement avant tout redirect. Cela couvre le refus CONNECT et l’échec de négociation TLS avant envoi métier, et permet au retry déjà borné de choisir un autre endpoint pour Gigya.
+- [x] Garder les timeouts opaques et les erreurs après envoi en `PossiblySent`. Un échec de connexion après redirect ne prouve pas l’absence d’envoi de l’opération initiale et reste conservateur. Une erreur après réception d’en-têtes reste `ResponseReceived`.
+- [x] Ajouter les catégories diagnostiques `proxy_tunnel`, `tls_certificate`, `tls_handshake`, `connection`, `timeout`, `request`. Les chaînes sources sont inspectées pour le diagnostic mais jamais pour autoriser un rejeu, et ne sont pas journalisées. L’URL est retirée de l’erreur native conservée.
+- [x] Étendre la fixture existante : CONNECT refusé et TLS non fiable donnent `NotSent` ; un POST dont le serveur a lu les trois octets donne `PossiblySent` ; l’échec sur un hop de redirect reste non rejouable pour le POST initial. Le certificat non fiable ne reçoit aucun POST.
+
+Les règles de sécurité, la validation TLS et les plafonds restent applicables.
+Ce correctif n’autorise pas la répétition d’un POST déjà envoyé et ne marque pas
+un pays ni un endpoint globalement KO à partir d’un échec distant ambigu.
+
+### 26.4. Validation et suite
+
+Le test existant `keep_alive_tls_503_keeps_exact_selection_and_positive_phases`
+échoue avant le correctif sur l’attente `NotSent` du refus CONNECT, puis passe
+avec les quatre cas d’envoi et les scénarios TLS antérieurs.
+
+- [x] Tests existants : 125 pour `arachnea-proxy`, 45 pour `arachnea-http`, 80 pour `arachnea-scrapyfy` passent (250 au total).
+- [x] Compilation de `arachnea-stream` et de `arachnea-http` sans fonctionnalités par défaut.
+- [x] Vérification du diff et formatage des modifications Rust ciblées.
+
+- [ ] Rejouer les appels réels FranceTV et 6play après reconstruction/redémarrage. Les nouvelles erreurs `localized proxy send failed` distinguent le TLS/certificat du refus CONNECT, et les échecs initiaux prouvés sans envoi doivent permettre la rotation du POST dans le budget disponible.
+- [x] Supprimer les plafonds 64/32/8 après clarification explicite de l’utilisateur : seule l’échéance de recherche limite le parcours des candidats encore disponibles (section 27).
+
+
+## 27. Recherche jusqu’à épuisement des candidats ou échéance
+
+Le 16 octobre 2026, l’utilisateur précise que les plafonds de nombre ne font pas
+partie du comportement attendu : la recherche continue tant qu’aucun proxy n’est
+accepté, qu’il reste des candidats et que les deux minutes ne sont pas écoulées.
+
+- [x] Retirer les champs de nombre de `ProxySearchLimits` et les refus associés dans les réservations techniques, la découverte et l’admission des tentatives métier.
+- [x] Retirer également le budget fixe de sept retries des pools dynamiques dans les deux chemins de connexion. Les pools statiques conservent leur parcours borné par leur configuration.
+- [x] Garder les sémaphores de concurrence : TCP 8/16, validations 2/4, fournisseurs 2/2 (recherche/inventaire). Aucun nouveau travail n’est engagé après 120 secondes.
+- [x] Libérer les réservations techniques incomplètes à l’annulation pour ne pas assimiler un candidat annulé à un candidat testé. Les résultats terminés restent dédupliqués ; aucune tâche de fond ni faux échec persistant n’est ajouté.
+- [x] Adapter une fixture existante pour autoriser 201 préchecks, 201 validations et 201 endpoints dans un même contexte, vérifier les doublons et l’identité des redirects, et reprendre les réservations annulées dans les deux phases.
+- [x] Mettre à jour les README et le suivi ; les compteurs diagnostiques sont conservés, les champs de plafonds de nombre sont supprimés.
+
+La marge préexistante de 15 secondes concerne uniquement la tentative métier déjà
+engagée, jamais les vérifications ou une nouvelle rotation. Les règles de rejeu
+et la validation TLS restent applicables. Les bilans datés des sections 19 à 26
+décrivent les plafonds de l’ancienne implémentation.
+
+Validation finale : 125 tests proxy, 45 tests HTTP et 80 tests Scrapyfy passent
+(250 au total) ; `cargo check --offline -p arachnea-stream` passe également.
+Diff vérifié et modifications Rust ciblées formatées. La vérification réelle
+FranceTV/6play après reconstruction/redémarrage reste ouverte.
+
+
+## 28. Audit des traces 6play/Gigya du 16 octobre 2026, 09:51–09:54
+
+### 28.1. Périmètre et méthode
+
+Audit des 590 lignes fournies par l’utilisateur, confrontées au code courant de
+`proxy_inventory.rs`, `proxy_probe.rs`, `proxy_selection.rs`, `proxy_search.rs`,
+`arachnea-http/src/engine/rquest.rs` et `m6play_resolver.rs`. Aucun appel Gigya,
+aucun identifiant utilisateur et aucun test externe de proxy n’ont été utilisés.
+Le repli direct demandé hors périmètre n’est pas modifié ni qualifié ici.
+
+Les durées de tentative viennent des différences entre `elapsed_ms` des événements
+`origin attempt started` et `retry after origin failure`/`request failed`.
+La précision des horodatages muraux seuls est d’une seconde. Le même `search_id`
+est réutilisé entre GET et POST mais `elapsed_ms` revient à zéro : l’identité
+actuelle est une adresse d’`Arc`, réutilisable après destruction, pas un identifiant
+unique de bout en bout du parcours de connexion.
+
+### 28.2. Chronologie mesurée
+
+| Étape | Durée | Travail observé | Résultat |
+| --- | --- | --- | --- |
+| Chargement initial, à partir de 09:51:09 | Lots utiles FR déjà publiés dans la même seconde ; consultations pays jusqu’à 09:51:10 | 15 pays autorisés, deux sources par pays, 30 GET GitHub ; inventaire FR de 201 endpoints | Le téléchargement initial ne consomme pas deux minutes |
+| GET `www.6play.fr/connexion`, 09:51:08–09:53:13 | 124 429 ms | 126 préchecks terminés, 89 joignables ; 81 validations terminées, 15 candidats admis et essayés ; aucun accepté | Échéance de recherche, avec tentative engagée dans la marge préexistante |
+| POST `login-gigya.m6.fr/accounts.login`, 09:53:13–09:53:56 | 42 937 ms | Zéro précheck TCP, 14 admissions via validations réutilisées, 14 endpoints essayés | Timeout de tentative, `PossiblySent`, rejeu interdit malgré 77 062 ms restants |
+
+Les deux appels HTTP successifs consomment environ **167,4 secondes**, chacun
+possédant son contexte. L’échec du GET est absorbé par `fetch_api_key(...)
+.unwrap_or_else(...)`, qui conserve la clé de secours existante puis lance le POST.
+L’erreur utilisateur contextualise l’échec de ce dernier ; elle ne prouve pas un
+refus des identifiants par Gigya.
+
+Pour le GET, **60 655 ms** sont passées dans les tentatives métier séquentielles,
+et **63 774 ms** entre ces tentatives et avant la première (sélection, sondes,
+attentes et persistance non décomposables plus finement avec ces logs). Deux
+proxies, `185.171.202.170:9150` et `195.123.166.125:9050`, consomment chacun
+25 006 ms : à eux seuls, environ 40 % de ce GET. Pendant ces tentatives, les
+compteurs techniques restent inchangés : l’exploration n’avance plus.
+
+Pour le POST, **40 713 ms** sont passées dans les tentatives métier et seulement
+**2 224 ms** hors de celles-ci. Les principaux coûts sont 5 047 ms sur
+`13.38.27.183:1337`, 10 059 ms sur `163.172.80.153:1080` et 25 003 ms sur
+`185.171.202.170:9150`.
+
+### 28.3. Compatibilité non démontrée et causes d’échec
+
+Les 81 sondes effectivement terminées portent toutes `capability_proven=false` :
+
+| Résultat de sonde HTTPS | Nombre |
+| --- | --- |
+| Tunnel indisponible, erreur finale `socks4: invalid reply null byte` | 53 |
+| Tunnel indisponible, fermeture avant réponse HTTP complète | 9 |
+| Tunnel et TLS inconnus, `error=None` | 14 |
+| Timeout global de sonde | 2 |
+| Timeout de connexion TCP pendant la sonde | 2 |
+| Tunnel disponible mais TLS destination inconnu, `error=None` | 1 |
+
+**Aucune ne porte `destination_tls=Available`.** Le nombre `validations_eligible`
+mesure l’admission selon le mode permissif, pas un succès HTTPS. Lors du POST,
+`shared_operation` peut compter une validation terminée alors que
+`recent_probe_attempt` a simplement réutilisé un résultat récent : ces 14
+validations ne constituent pas 14 nouveaux échanges réseau de sonde.
+
+Le code explique les résultats `Unknown`/`None` : les erreurs `UpstreamRejected`
+(dont un refus CONNECT 400/502) restent ambiguës pour la capacité générale ;
+`detect_protocol` peut arrêter sur un protocole déclaré et un indice HTTPS en
+mode permissif ; `apply_result` supprime l’erreur retournée lorsque ce repli est
+admis. Cette absence d’erreur ne démontre donc ni un tunnel ni un TLS réussi.
+Les erreurs par protocole restent au niveau DEBUG. En outre, après plusieurs
+protocoles essayés, l’erreur finale peut masquer celle du protocole initial.
+
+Sur les tentatives métier, les logs contiennent 26 échecs explicites de tunnel :
+16 CONNECT 400, deux CONNECT 502, deux refus SOCKS5 génériques, cinq connexions
+réinitialisées et une fin de flux prématurée. S’y ajoutent trois timeouts opaques
+(deux GET, un POST). Aucun tunnel métier établi ni aucune réponse HTTP métier
+acceptée n’apparaît. Il n’y a pas d’erreur de certificat explicite dans cet extrait,
+contrairement aux diagnostics antérieurs : ne pas les attribuer à cette capture.
+
+Un port TCP ouvert et une déclaration de fournisseur ne garantissent pas un
+proxy HTTPS exploitable vers M6. Cet extrait ne permet pas d’affirmer qu’un proxy
+compatible existe dans la liste, ni que toute la liste a été qualifiée. Il ne
+permet pas non plus de distinguer, pour chaque CONNECT refusé, un service impropre,
+une politique de proxy ou une restriction de destination. Le format CONNECT du
+transport et celui de la sonde sont cohérents à la lecture du code ; aucun défaut
+de syntaxe CONNECT n’est démontré par ces seules traces.
+
+### 28.4. Causes applicatives des lenteurs
+
+1. **Timeout opaque plus court que celui du transport.** Les sondes utilisent
+   TCP 3 s, échanges/tunnel/TLS 5 s et une enveloppe de 8 s pour la sélection.
+   En revanche, le core de transport Scrapyfy hérite de `TimeoutConfig` à 30 s
+   pour connexion et handshake ; l’enveloppe Rquest expire à 25 s. Elle peut
+   interrompre le transport avant qu’il retourne une preuve `NotSent`.
+   La trace du POST correspond exactement à cette enveloppe. L’absence de log
+   CONNECT établi suggère un blocage avant tunnel, sans constituer à elle seule
+   une preuve suffisante pour rejouer des identifiants.
+2. **Exploration interrompue par les essais métier.** La sélection retourne dès
+   le premier candidat admis ; le flux de sondes est alors détruit. Aucun travail
+   de découverte n’est conservé en progression pendant une tentative métier de
+   25 s. Cela limite fortement le nombre de candidats parcourus en deux minutes.
+3. **Annulations et recommencements.** 96 débuts de sondes pour 82 endpoints
+   distincts, mais seulement 81 terminaisons. `109.190.196.5:8090` démarre neuf
+   fois ; `195.123.166.125:9050` quatre fois ; trois autres endpoints deux fois.
+   Le différentiel est cohérent avec l’annulation des travaux sans dernier
+   abonné quand la sélection retourne. La réservation libérée permet de
+   recommencer, mais ne reprend pas les échanges partiellement effectués.
+4. **Ordre et qualité de preuve.** Le tri préfère les capacités prouvées puis
+   la latence et l’autorité ; la latence retenue peut être celle d’une connexion
+   TCP rapide. Les candidats permissifs sans preuve restent présents et les
+   premiers proxies `13.*` refusent rapidement les tunnels. Rendre le mode strict
+   obligatoire partout supprimerait ces essais, mais risquerait aussi d’écarter
+   des proxies fonctionnels lorsque la cible complémentaire est seule en panne.
+
+### 28.5. Cache et nouveau téléchargement de liste
+
+**La capture ne montre qu’une vague initiale de téléchargement**, 15 pays/deux
+sources, à 09:51:09–10. Aucun GET GitHub supplémentaire n’apparaît pendant le POST.
+Ce dernier réutilise bien l’inventaire : zéro précheck, pas de nouvelle sonde
+`probing proxy capabilities`, admissions rapides des candidats déjà explorés.
+Les domaines `www.6play.fr` et `login-gigya.m6.fr` sont des destinations distinctes :
+un échec sur le premier n’exclut pas automatiquement le proxy du second.
+
+Le code explique néanmoins un téléchargement lors d’une demande ultérieure :
+
+- Le cooldown fournisseur est de 120 s depuis la dernière consultation, sans
+  condition « liste différente ». Le premier GET dure déjà 124,4 s : le prochain
+  appel peut donc de nouveau consulter les mêmes sources. Ce cooldown, les
+  résultats techniques (TTL 600 s) et l’historique métier sont trois états distincts.
+- L’exploration à froid et la découverte se chevauchent après 10 s ou huit
+  validations infructueuses. Ce seuil n’attend pas nécessairement la qualification
+  complète de la liste en cache. Un téléchargement supplémentaire n’implique pas
+  un inventaire vide ; les fusions conservent les résultats récents et les échecs.
+- Le dernier proxy accepté ne peut pas être restauré lorsqu’aucun résultat
+  `Accepted` n’a été obtenu. Il n’existe pas ici de proxy métier validé à mémoriser.
+- Les échecs de transport sont enregistrés pour la destination avec la raison
+  `Other` et le cooldown par défaut de **24 h**, y compris les échecs ambigus.
+  Une nouvelle demande au même domaine ne réessaie donc pas immédiatement ces
+  endpoints. Ce choix peut prolonger un faux négatif ; il doit être distingué
+  d’un oubli du cache et d’un rejet métier confirmé.
+- Les fins de relais GitHub à 90/180 s sont des durées de vie de tunnels. Les lots
+  sont publiés beaucoup plus tôt : elles ne prouvent pas un téléchargement bloqué
+  pendant 90/180 s.
+
+Il manque un extrait complet d’une deuxième demande au même domaine pour prouver
+le déroulement exact du nouveau téléchargement décrit par l’utilisateur. Rien ne
+justifie de conclure à une perte générale du cache à partir de cette seule capture.
+
+### 28.6. Corrections à prioriser, non implémentées dans cet audit
+
+- [ ] **Priorité 1 — Phases de connexion et preuve d’envoi.** Faire expirer les phases TCP/tunnel avant l’enveloppe HTTP et remonter leur état typé jusqu’à Rquest, y compris à l’annulation. Permettre un autre proxy uniquement lorsque l’absence d’envoi métier est prouvée ; conserver la protection du POST transmis ou incertain. Améliorer aussi le log du timeout externe actuellement dépourvu de catégorie.
+- [ ] **Priorité 2 — Admission et diagnostic des sondes.** Conserver le motif d’échec même si le mode permissif autorise un essai réel, exposer protocole/cible/phase et cache versus échange réseau ; privilégier les preuves utiles au lieu d’une seule faible latence TCP. Ne pas promouvoir un candidat `Unknown` ni généraliser un refus distant à tous les domaines.
+- [ ] **Priorité 3 — Progression dans les 120 s.** Conserver les futurs de découverte sous la propriété de l’appel pendant les essais métier, ou reprendre explicitement leurs phases, sans tâches détachées. Comparer cette approche à la seule réduction des timeouts : moins de complexité pour cette dernière, mais exploration toujours suspendue pendant chaque essai.
+- [ ] **Priorité 4 — Rafraîchissement et exclusions.** Dissocier l’âge de la liste de l’avancement de qualification, exploiter les candidats non testés avant de recharger une liste identique lorsque possible, et distinguer le cooldown court d’un incident ambigu du cooldown d’un rejet confirmé. Les nouveaux délais et critères sont des choix de comportement à présenter avant implémentation.
+
+Cet audit modifie uniquement le suivi documentaire et les tâches. Aucun moteur,
+timeout, politique de rejeu ou comportement de repli direct n’est changé.
+
+
+## 29. Stack overflow macOS pendant une sonde TLS
+
+### 29.1. Diagnostic du 16 octobre 2026
+
+Après le signalement FranceTV, deux rapports macOS `arachnea-2026-10-16-121143.ips`
+et `arachnea-2026-10-16-121317.ips` ont été lus dans le répertoire local des rapports
+de diagnostic. Ils contiennent respectivement 423 et 416 frames, dont 271 liées
+à Warp, et montrent le débordement dans `rustls::client::hs::ExpectServerHello`
+pendant `wrap_tls` d’une sonde. Ils ne montrent pas une récursion infinie de
+sélection ni une erreur remontée par le proxy : c’est le processus qui déborde.
+
+La pile traverse la sonde, la sélection, le client HTTP proxy et le handler REST.
+Elle contient 28 niveaux `EitherFuture`/`UnifyFuture`/`MapErrFuture` du routeur.
+`RestControlerService::add_route` construisait une chaîne gauche par additions
+successives de `.or(...).unify().boxed()`. Le boxing efface les types mais ne
+supprime pas les appels imbriqués lors du polling. La profondeur REST consomme
+la pile du thread avant les traitements réseau et TLS.
+
+Une mesure temporaire dans une fixture existante relève 7 272 octets pour la
+future `probe_required` et 6 680 pour `probe` dans la configuration testée. Cette
+mesure seule n’explique pas le crash ; les rapports système apportent l’élément
+manquant sur la profondeur du chemin d’appel. L’instrumentation a été retirée.
+
+### 29.2. Correction locale
+
+- [x] Conserver les routes dans leur ordre d’enregistrement et reconstruire l’arbre par paires adjacentes. Sa profondeur devient logarithmique, environ cinq niveaux pour une trentaine de routes au lieu d’une chaîne d’environ trente niveaux.
+- [x] Garder l’ordre de priorité gauche/droite, les contrôles ACL sur chaque route, le chemin de lancement et la reconstruction du superviseur.
+- [x] Ne pas augmenter la pile des workers, modifier les sondes, désactiver TLS ou introduire de tâches détachées.
+- [x] Mettre à jour le README du core, le changelog et le suivi.
+
+Cette correction réduit la pression de pile à l’origine des traces observées.
+Elle ne prouve pas l’existence d’un proxy accepté par FranceTV ou Gigya et ne
+remplace pas les corrections de délais, de diagnostic et de progression recensées
+en section 28.
+
+### 29.3. Validation
+
+- [x] `cargo test --offline` sur les bibliothèques core, proxy, HTTP et Scrapyfy avec les fonctionnalités de persistance/proxy : 31 + 125 + 45 + 80 = **281 tests réussis**. Aucun nouveau test ni infrastructure de test n’est ajouté.
+- [x] Reconstruction du binaire debug `arachnea-stream --bin arachnea`, vérification du diff et `rustfmt --check` du fichier REST modifié.
+- [x] Rejeu sur un serveur local temporaire : le GET `api/get_stream` du resolver `francetv-video` pour la vidéo fournie retourne HTTP 200 en 3,150 s, sans erreurs applicatives, avec une URL de flux et trois chapitres. Cela ne démontre pas à lui seul qu’un proxy a été validé.
+- [x] Lecture bornée du manifeste via l’URL de proxy retournée : HTTP 502 après 120,006 s, sans stack overflow ni arrêt du serveur. Les refus de tunnel restent observés. Le serveur temporaire a été arrêté après le contrôle.
+- [x] Contrôle indépendant du proxy signalé `13.39.112.19:443` avec curl, vers la racine publique `https://cloudreplay.ftven.fr/`, sans cookies, identifiants ou URL signée : CONNECT refusé HTTP 400 en environ 31 ms. Le TLS destination n’est donc pas atteint ; cette mesure ne qualifie ni les autres proxies ni une indisponibilité générale du CDN.
+- [ ] Qualifier à nouveau la stabilité sur plusieurs parcours et poursuivre les corrections de la section 28 pour obtenir une sélection métier utilisable. La résolution de `get_stream` réussit dans ce rejeu, mais la lecture via proxy reste en échec.
+
+L’option CLI `--server-port 18080` est refusée par le parseur existant (`unknown
+argument: 18080`) ; le contrôle a utilisé le port 8080 libre, sans modifier la
+configuration. Le problème CLI préexistant est hors du correctif.
+
+Un échantillonnage ponctuel du processus pendant l’attente réseau n’a pas capturé
+la sonde TLS ; il ne constitue pas une mesure de profondeur après correction.
+La réduction de profondeur découle de l’assemblage par paires, et l’absence de
+crash est confirmée sur le rejeu complet ci-dessus.
+
+
+## 30. 6play : Gigya aboutit, blocage suivant sur front-auth
+
+### 30.1. Traces du 16 octobre 2026, 11:04–11:09
+
+Le nouvel extrait de 278 lignes prouve une progression par rapport à la section
+28 : `194.163.175.167:40002` et `62.210.189.192:11273` obtiennent tous deux
+`https_tunnel=Available`, `destination_tls=Available`, `capability_proven=true`.
+La page 6play et son bundle sont récupérés après redirection vers `www.m6.fr`.
+Le POST Gigya échoue sur un premier endpoint pendant TLS (`NotSent`), puis
+aboutit avec `195.154.233.154:8156`. Le resolver a donc lu UID, signature et
+horodatage avant d’appeler le GET `front-auth.6cloud.fr/.../getJwt`.
+
+| Étape | Durée dans les compteurs | Résultat |
+| --- | --- | --- |
+| Page de connexion et redirect | 119 761 ms | Acceptée |
+| Bundle et redirect | 43 824 ms | Accepté |
+| POST Gigya | 23 073 ms | Accepté après rotation sûre |
+| GET front-auth | 122 547 ms | Échec de transport après huit endpoints |
+
+Les trois premiers essais front-auth consomment chacun 25 s sur
+`57.128.249.250:9052`, `195.154.233.154:8156` et `62.210.189.192:11273`.
+Le quatrième (`194.163.175.167:40002`) établit le tunnel à 11:08:23 puis échoue
+pendant TLS à 11:08:38, sans envoi métier prouvé. Trois proxies `13.*` refusent
+ensuite CONNECT 400. Le dernier essai, sur `185.171.202.170:9150`, consomme encore
+25 s. L’arrêt à 122,5 s est compatible avec la marge d’une tentative déjà engagée.
+
+Aucune réponse HTTP front-auth n’est observée dans cette recherche. Le message
+`Failed to fetch 6play front-auth token: Fetch fail ...` ne démontre donc ni une
+signature Gigya rejetée ni un schéma JWT incorrect. Les données nécessaires sont
+construites par `get_or_login_session`, mais la connexion échoue avant de pouvoir
+qualifier leur acceptation par le service.
+
+### 30.2. Comparaison indépendante sans authentification
+
+Des GET anonymes bornés ont été exécutés, sans cookie, identifiant, UID ni signature
+Gigya. Seuls les protocoles HTTP confirmés en lecture seule dans l’inventaire sont
+retenus dans le tableau. Aucun store d’identifiants n’a été consulté.
+
+| Accès | Résultat au moment du diagnostic |
+| --- | --- |
+| Direct vers le même endpoint public | HTTP 400 en 0,093 s, avec `Missing homeid or deviceid to create JWT` : réponse attendue à une requête anonyme ; transport/TLS fonctionnels |
+| HTTP `62.210.189.192:11273` | Timeout de connexion TCP après 8,007 s ; aucun CONNECT ni réponse origine |
+| HTTP `195.154.233.154:8156` | Timeout de connexion TCP après 8,003 s ; aucun CONNECT ni réponse origine |
+| HTTP `194.163.175.167:40002` | CONNECT 200 puis timeout SSL dans l’enveloppe de connexion de 8,006 s ; aucune réponse origine |
+
+La disponibilité des proxies varie entre la sonde et les requêtes ultérieures,
+y compris d’un domaine à un autre. Une validation récente ne garantit pas une
+nouvelle connexion TCP ni un TLS vers front-auth. La comparaison reproduit des
+échecs hors Rquest, sans conclure que le service front-auth est indisponible ou
+que tous les proxies de la liste sont inutilisables.
+
+### 30.3. Correction autorisée et appliquée
+
+L’enveloppe HTTP de 25 s peut encore interrompre une connexion dont les phases
+core disposent de 30 s. La proposition est de borner uniquement les connexions
+localisées : TCP 3 s, handshake proxy 5 s et établissement complet Rquest 15 s,
+toujours dans l’échéance commune de recherche de 120 s. Les timeouts de phase
+prouvés avant envoi doivent autoriser la rotation ; un timeout après envoi reste
+conservateur. Aucun plafond de nombre de candidats ne doit être réintroduit et
+aucun repli direct automatique n’est proposé.
+
+Impact attendu : réduire le temps perdu sur les endpoints muets et laisser plus
+de temps à l’exploration. Compromis : un proxy techniquement compatible mais très
+lent peut être écarté. Les connexions ordinaires, le transfert d’une réponse déjà
+acceptée et les contrôles TLS doivent conserver leur politique existante.
+
+L’utilisateur a confirmé explicitement : « Oui, applique ces délais ».
+
+- [x] Le core utilise les plafonds 3/5 s uniquement si l’autorité du proxy appartient aux endpoints engagés du contexte localisé actif. Les limites configurées plus courtes restent prioritaires et les autres endpoints gardent leur configuration.
+- [x] Les clients Rquest construits pour les tentatives localisées appliquent `connect_timeout(15 s)` borné par le timeout de requête configuré. Les erreurs natives de connexion avant tout redirect continuent d’établir `NotSent` ; les redirects et les envois incertains restent conservateurs.
+- [x] Les timeouts d’en-têtes externes exposent désormais `failure_kind=timeout`, `phase=response_headers`, l’identité de recherche et l’endpoint, sans corps, cookies ni signatures.
+- [x] La fixture existante de budget vérifie 3/5 s, l’absence d’effet sur un endpoint ordinaire et la conservation de délais configurés plus courts.
+- [x] La fixture Rquest POST existante simule un CONNECT sans réponse : timeout réel à 15 s, avant le timeout d’en-têtes de 25 s, sans aucun octet POST reçu, `NotSent` et rejeu autorisé. Les autres cas TLS, refus CONNECT, POST transmis et redirect restent exercés.
+
+Validation finale : **281 tests existants passent** (31 core, 125 proxy,
+45 HTTP dont le CONNECT muet à 15 s, 80 Scrapyfy). Le binaire debug `arachnea`
+est reconstruit avec succès. Diff et formatage Rust ciblé vérifiés.
+Le scénario 6play authentifié reste à rejouer ; aucun identifiant utilisateur
+n’a été envoyé pendant ces contrôles.
+
+
+## 31. Second débordement de pile pendant la lecture et le rafraîchissement
+
+### 31.1. Constat des traces du 16 octobre 2026, 12:24–12:27
+
+Le nouvel extrait de 273 lignes montre une réponse acceptée sur K7 après
+116 131 ms, puis sur `hdfauth.ftven.fr` après 9 811 ms avec
+`213.199.47.140:1080`. Des recherches distinctes et simultanées visent ensuite
+`cloudreplay.ftven.fr`, rencontrent des refus CONNECT, des EOF TLS et des délais
+SOCKS. Le dernier événement précédant l’abandon du processus est le démarrage
+d’un rafraîchissement FR avec un GET GitHub.
+
+Les rapports locaux `arachnea-2026-10-16-122834.ips` et
+`arachnea-2026-10-16-142711.ips` contiennent chacun 225 frames dont 64 liées à
+Warp, avec cinq niveaux d’alternatives. Le correctif de la section 29 est donc
+visible (contre 271 frames Warp auparavant), mais ne suffisait pas à supprimer
+tous les chemins susceptibles de déborder.
+
+Cette fois, le chemin fautif est : handler média REST → client HTTP proxy →
+sélection dynamique → `load_if_needed`/`load_country` → fournisseur Scrapyfy →
+requête GitHub → client HTTP → `select_for_request`. Le rafraîchissement était
+mutualisé par un futur `Shared`, mais son polling restait entièrement imbriqué
+dans celui de la lecture. L’isolation du contexte d’acceptation n’isole pas la
+pile native. Le rapport ne montre pas un dépassement de compteur de tentatives
+ni une défaillance des paramètres de connexion de la section 30.
+
+Une validation sur K7 ou sur le serveur de signature n’est pas une validation du
+CDN média : les historiques et échecs restent associés aux destinations exactes.
+Les refus/EOF pendant les lectures expliquent la reprise d’exploration, mais ne
+doivent jamais entraîner un arrêt du processus.
+
+### 31.2. Correctif local
+
+- [x] Le futur partagé de chargement fournisseur possède un `JoinSet` avec une tâche enfant exécutant le chargement et ses appels Scrapyfy/HTTP. Le polling du fournisseur démarre sur une pile distincte de celle de l’appelant.
+- [x] Le job est créé au premier polling du futur partagé, une seule fois par chargement mutualisé ; les abonnés continuent de partager son résultat. Les sémaphores recherche/inventaire et le verrou par pays sont conservés.
+- [x] La tâche enfant est explicitement hors du contexte d’acceptation métier. L’abandon d’un seul abonné ne l’arrête pas tant qu’un autre le conserve ; la destruction du dernier futur partagé détruit le `JoinSet` et demande l’annulation de son enfant. Aucun `JoinHandle` n’est détaché et aucun délai n’est remis à zéro.
+- [x] La fixture existante de découverte progressive échoue avant le correctif sur l’identité de tâche identique à celle de l’appelant ; elle passe après séparation. Elle vérifie aussi l’absence de contexte métier dans le fournisseur, le résultat progressif avant fin de liste, l’annulation du producteur restant et le retour des deux créneaux fournisseur. Le contrôle d’annulation attend le traitement de l’abort par le runtime.
+- [x] README, changelog et TODO mis à jour. Aucun nouveau test ni infrastructure de test ajouté.
+
+### 31.3. Validation
+
+- [x] **281 tests existants réussis** : core 31, proxy 125, HTTP 45, Scrapyfy 80, avec fonctionnalités de persistance et proxy.
+- [x] Reconstruction du binaire debug `arachnea` réussie.
+- [x] Rejeu de la vidéo figurant dans les logs : `get_stream` retourne HTTP 200 en 2,545 s, sans erreur applicative et avec une URL de manifeste MPD.
+- [x] Trois GET parallèles bornés du manifeste via l’URL de proxy locale retournent HTTP 200 en 24,056 s, 18,440 s et 22,259 s. Les trois corps sont des documents XML DASH avec une racine MPD (48 461 octets), pas une page HTML de repli. Aucun stack overflow ni arrêt du serveur sur ces lectures.
+- [x] Trois requêtes parallèles de contrôle vers des URI d’initialisation reconstruites depuis `BaseURL`/`SegmentTemplate` retournent HTTP 502 en 64,519 s, 63,327 s et 63,329 s : `no working proxy available for requested countries [FR]`. Aucun nouveau stack overflow ni arrêt du serveur. Ces URI manuelles ne propagent pas le paramètre `hdnea` du manifeste ; aucune réponse CDN n’a été obtenue pour vérifier leur authentification. Ce contrôle ne vaut pas rejeu complet du lecteur.
+- [x] Compilation de `arachnea-proxy` sans fonctionnalités par défaut, avec `core`, réussie ; diff vérifié.
+- [x] Serveur temporaire arrêté et fichiers de contrôle contenant des URLs signées supprimés.
+
+Ces relectures ne démontrent pas la stabilité d’une lecture vidéo prolongée ni
+la disponibilité permanente des proxies du CDN. La frontière de tâche du
+rafraîchissement et sa durée de vie sont vérifiées par les fixtures existantes ;
+les timeouts de déploiement et la qualification exhaustive restent ouverts.
+
+
+## 32. Exclusion ambiguë conservée après un succès du CDN
+
+L’extrait du 16 octobre à 12:49 montre la réutilisation de
+`213.199.47.140:1080` pour K7 (1 228 ms) et hdfauth (3 024 ms), sans préchecks
+ni validations complémentaires. La recherche suivante explore des candidats
+sans démarrer d’essai métier et rafraîchit les fournisseurs après dix secondes.
+La persistance contient pour ce même proxy et `https://cloudreplay.ftven.fr:443`
+un échec `Other` suivi environ deux secondes plus tard d’un succès accepté.
+L’exclusion de 24 h restait pourtant active : enregistrer le succès ne retirait
+aucune erreur de destination. Les deux autres endpoints de l’historique CDN
+présentent aussi des exclusions, expliquant la reprise d’exploration.
+
+Correction autorisée par l’utilisateur :
+
+- [x] Un succès accepté supprime uniquement les échecs `Other` strictement plus anciens pour le même proxy, schéma, hôte et port.
+- [x] La sélection préférentielle réconcilie également l’inventaire avec les succès conservés dans l’historique ; les enregistrements corrigés sont persistés. Aucun effacement manuel du cache ni migration globale n’est nécessaire.
+- [x] Les échecs plus récents ou de date identique, `BlockedByOrigin`, les autres destinations et l’état global du proxy restent inchangés. La comparaison stricte évite de deviner l’ordre d’événements persistés à la même milliseconde.
+- [x] Les fixtures existantes d’éligibilité et de restauration sont étendues ; aucun nouveau test n’est créé.
+
+Les délais de connexion et de recherche ne changent pas. Lever une exclusion
+obsolète autorise un nouvel essai du proxy connu ; cela ne garantit pas sa
+disponibilité actuelle ni le succès de toute la lecture vidéo.
+
+Validation : **173 tests existants réussis** (128 proxy avec persistance,
+Rquest, DNS et contrôleur ; 45 HTTP avec proxy et persistance). La compilation
+proxy sans fonctionnalités par défaut, avec `core`, et la reconstruction du
+binaire debug `arachnea` réussissent. Formatage Rust ciblé et diff vérifiés.
+La fixture de restauration vérifie la réparation réellement persistée : le
+premier essai a révélé que `save_many` fusionnait à nouveau l’ancienne erreur.
+Une opération dédiée du repository relit et corrige désormais le dernier
+état sous son verrou de commit, sans supprimer les exclusions concurrentes
+plus récentes. Aucun nouveau scénario de lecture CDN réelle n’a été lancé ;
+la disponibilité réseau du proxy reste à confirmer au prochain appel.
+
+
+## 33. Délais de réutilisation et stack overflow dans les sondes TLS
+
+### Constat et correction locale du crash
+
+L’extrait du 16 octobre à 13:19–13:20 montre K7 accepté en 832 ms et hdfauth
+en 1 528 ms avec `213.199.47.140:1080`. Un appel média ultérieur échoue sur
+`socks5 connect handshake`, puis explore d’autres candidats. Le compteur
+`business_endpoints=1` confirme un essai avant cette exploration. Les 49 secondes
+de sondes suivantes restent dans l’échéance commune de 120 secondes.
+
+Le rapport local `arachnea-2026-10-16-152055.ips` contient 219 frames. Le sommet
+est la décapsulation ML-KEM dans AWS-LC/rustls ; le chemin applicatif passe par
+`ProxyProbe`, `validate_selection_candidate`, `shared_operation`, la sélection
+et le handler média Warp. Le fournisseur n’est plus le chemin actif du crash.
+Un futur partagé n’isole pas sa pile native de celle de son abonné.
+
+- [x] Les préchecks et validations partagés possèdent une tâche enfant `JoinSet` exécutée hors contexte métier, comme le rafraîchissement fournisseur déjà corrigé.
+- [x] Les abonnés conservent leurs créneaux, réservations et échéances ; les tâches restent mutualisées par clé. Le dernier abonné demande l’annulation de l’enfant, sans tâche détachée.
+- [x] La fixture existante vérifie les identités de tâche différentes pour TCP et validation, l’absence de contexte métier dans l’enfant, la reprise de réservation après annulation et la restitution des créneaux inventaire après traitement de l’abort.
+
+Validation du correctif de pile : **128 tests proxy existants réussis** avec
+persistance, Rquest, DNS et contrôleur. Compilation sans fonctionnalités par
+défaut avec `core`, reconstruction du binaire debug `arachnea`, formatage ciblé
+et contrôle du diff réussis. Aucun nouveau rejeu de lecture réseau n’a été
+réalisé : la disparition du crash sur la lecture réelle reste à confirmer.
+
+### Proposition de distinction des délais (en attente de confirmation)
+
+Les caps TCP 3 s / handshake 5 s du contexte de recherche s’appliquent aussi
+au proxy préféré, puisque `start_origin` ne conserve pas la provenance de la
+sélection. Rquest applique aussi le cap de connexion de 15 s à tout appel
+localisé. Le client média possède des délais séparés (TLS destination 10 s,
+en-têtes 30 s). Augmenter seulement un de ces délais serait insuffisant.
+
+Proposition : conserver les délais courts pour les nouveaux candidats et donner
+au proxy déjà accepté pour la destination exacte jusqu’à 30 s par phase TCP,
+handshake proxy et TLS destination, avec une enveloppe d’établissement complet
+de connexion et un délai d’attente des en-têtes de 60 s, dans les deux clients
+HTTP concernés. Ce profil remplace les bornes courtes de l’appel localisé
+lorsqu’il réutilise un proxy accepté ; les appels directs restent inchangés.
+L’échéance globale de recherche reste 120 s, avec la grâce existante uniquement
+pour un essai engagé, sans plafond de nombre d’essais. La provenance doit être
+attachée à la sélection exacte, sans utiliser le dernier proxy d’un autre appel
+concurrent. Après acceptation, la lecture conserve ses politiques de transfert.
+Le compromis est une attente plus longue avant remplacement d’un proxy connu
+qui est réellement devenu indisponible. Les règles de rejeu POST restent inchangées.
