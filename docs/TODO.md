@@ -55,8 +55,8 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 
 ## Server/Proxy
 
-- Terminer la recette exhaustive des lots 1/2, du handler commun (lot 3), des budgets/annulations (lot 5) et de la découverte/sondes complémentaires (lot 6), puis réaliser le lot 7 après validation. Le lot 6 est intégré : sources progressives, actualisation chevauchée, géolocalisation bornée et suspension propre à la cible ; aucun circuit par pays. Les validations locales existantes ne couvrent pas tous les entrelacements ni les fournisseurs réels. Restent aussi le parcours HTTPS propre à `ProxyProbe` (racines fixes), les coupures processus/disque, les erreurs/timeouts de handlers, flux médias et moteurs non corrélés. Les loopbacks contextuels reconnectent entre appels. Suivi : `docs/dev-tracking/analyse-optimisation-proxies-localises.md`, sections 17 à 20.
-- Corriger la compilation isolée de Scrapyfy avec `arachnea-proxy,sqlite-persistence` : le helper importé par `resolve_url.rs` dépend actuellement de la feature proxy `controller-service`, non activée dans ce cas ; la compilation de l’application complète masque ce défaut par unification des features.
+- [x] Proxies localisés : lots 0 à 6 intégrés et recette locale du lot 7 réalisée le 16 octobre 2026 ; 254 tests distincts réussis, compilations et mesures locales consignées. Suivi : `docs/dev-tracking/analyse-optimisation-proxies-localises.md`, sections 11 et 21.
+- [ ] Clore la qualification des proxies localisés : parcours HTTPS de `ProxyProbe` et secours, concurrence réseau/géolocalisation en charge, recherche à froid après redémarrage réel, POST à effet serveur et média long, horizon réel 120/135 secondes et timeouts de déploiement, coupures processus/disque. Checklist consolidée : section 22 du suivi. Les loopbacks contextuels reconnectent entre appels.
 - Lot 2 : commits des repositories proxy sérialisés entre wrappers du même store `Arc`, sans worker. Limite documentée : objets stores indépendants visant le même fichier et écritures multi-processus non coordonnées ; ne pas déclarer corrigée l’abstraction générique `FileEntityStore`.
 - Surveiller la croissance de la base SQLite `proxy-inventory` ; les proxys dont la dernière validation dépasse 24 heures ne sont supprimés qu'après un échec observé, donc un très grand nombre de proxys jamais réutilisés justifiera un suivi de volume et, au besoin, une politique de nettoyage ou un vacuum planifié.
 - Évaluer MASQUE CONNECT-UDP après la stabilisation du socle UDP et d'une pile Rust HTTP/3 compatible.
@@ -82,4 +82,5 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 
 ## Divers
 
-- Vérifier la suite complète Scrapyfy : trois tests d’agrégateur échouent après résolution préalable du répertoire de données applicatif (Once empoisonné), mais passent en isolation ; observé lors du lot 1.
+- [x] Vérifier et corriger la suite complète Scrapyfy : double initialisation du répertoire applicatif corrigée au lot 7 ; 80 tests réussis en série et en parallèle avec `arachnea-proxy,sqlite-persistence` (16 octobre 2026).
+- [ ] Corriger séparément les écarts de formatage préexistants du workspace relevés par `cargo fmt --all -- --check` ; les fichiers du chantier proxy ont fait l’objet d’un contrôle ciblé.

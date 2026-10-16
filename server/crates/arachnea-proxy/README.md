@@ -467,3 +467,25 @@ reused. Ordinary non-search pinned clients retain their keep-alive behavior.
 This trades cross-call socket reuse for exact lifetime/deadline ownership with
 the current loopback connector API. External reverse proxies must allow the
 135-second search horizon; their production settings are deployment-owned.
+
+### Localized proxy acceptance checks
+
+The existing lifecycle, inventory and repository tests cover shared reservation
+limits (64 TCP / 32 validations / eight endpoints), redirect budget identity,
+per-search slots, subscriber cancellation, bounded deadlines and safe replay
+eligibility. Short configurable deadlines verify target/grace behavior, including
+accepted transfer completion after the search deadline; default 120/15-second
+values are asserted separately. Content-policy fixtures check rejection,
+insufficient prefixes, handler errors/timeouts and byte-preserving stream replay.
+They complement local pinned HTTP/TLS, eviction and storage-failure fixtures.
+
+```sh
+cargo test --offline -p arachnea-proxy -p arachnea-http --lib --features arachnea-proxy/persistence,arachnea-proxy/controller-service,arachnea-http/arachnea-proxy -- --nocapture
+cargo test --offline -p arachnea-proxy --test post_action_integration --features controller-service
+```
+
+Test-only `lot7` output reports local timing samples and existing fixture counters;
+it is not a production metric export or a public-provider benchmark. The full
+acceptance matrix, measurements and remaining production checks are recorded in
+`docs/dev-tracking/analyse-optimisation-proxies-localises.md`, section 21 at the
+repository root. No production thresholds were increased from these samples.

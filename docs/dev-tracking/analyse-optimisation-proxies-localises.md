@@ -2,9 +2,28 @@
 
 Date : 13 octobre 2026.
 
-Statut : lots 1 à 6 intégrés ; validations et limites de recette des lots 1/2 en sections 13 à 16, lot 3 en section 17, lot 4 en section 18, lot 5 en section 19, lot 6 en section 20 (15 octobre 2026).
+Statut : lots 1 à 6 intégrés ; validations et limites de recette des lots 1/2 en sections 13 à 16, lot 3 en section 17, lot 4 en section 18, lot 5 en section 19, lot 6 en section 20 (15 octobre 2026). Lot 7 : recette locale réalisée le 16 octobre 2026, mesures et limites en section 21 ; recette en conditions réelles encore ouverte.
 
 Révision : prise en compte des deux phases de test, de l’indisponibilité ou des restrictions géographiques du serveur de test, et des décisions sur la persistance et les pays autorisés.
+
+## Suivi consolidé — 16 octobre 2026
+
+Les coches distinguent les livrables réalisés de la qualification exhaustive.
+La section 22 regroupe les seuls points encore ouverts pour ce chantier.
+
+- [x] Lot 0 — Conception et état initial (section 12).
+- [x] Lot 1 — Observations, preuves positives et corrélation des réponses (sections 13, 15 et 16).
+- [x] Lot 2 — Préférences durables, exclusions et éviction (sections 14 à 16).
+- [x] Lot 3 — Handler commun et inspection bornée des réponses (section 17).
+- [x] Lot 4 — Pays autorisés sans priorité et parcours rapide du cache (section 18).
+- [x] Lot 5 — Budget partagé, retries sûrs, concurrence et annulation (section 19).
+- [x] Lot 6 — Découverte progressive et sondes complémentaires contextualisées (section 20).
+- [x] Lot 7 — Recette locale, mesures, corrections Scrapyfy et bilan des limites (section 21).
+- [ ] Clôture complète — Qualification en conditions réelles et couverture restante de la section 22.
+
+Les constats des sections 4 à 10 et les bilans datés décrivent leurs états
+respectifs pendant le chantier ; les mentions historiques « reste à faire »
+ne remplacent pas ce suivi consolidé et les limites actuelles de la section 22.
 
 ## 1. Objectif et contraintes
 
@@ -777,7 +796,7 @@ Si les recherches échouent souvent alors qu’il reste des candidats utiles, aj
 
 ### 11.1. Périmètre et principes d’exécution
 
-Ce plan décrit les changements à réaliser. Le lot 0 d’inspection et de conception est réalisé et documenté en section 12. Les lots 1 à 5 ont été intégrés après confirmation de leur conception ; leurs limites de recette sont suivies en sections 13 à 19. Les lots 6 et 7 restent à implémenter. Les lots structurants doivent être présentés avant leur implémentation conformément aux règles du dépôt.
+Ce plan décrit les lots du chantier. Le lot 0 est réalisé (section 12), les lots 1 à 6 sont intégrés (sections 13 à 20), et la recette locale du lot 7 est réalisée (section 21). La qualification exhaustive reste ouverte ; ses actions restantes sont consolidées en section 22. Les lots structurants ont été présentés avant leur implémentation conformément aux règles du dépôt.
 
 Principes communs :
 
@@ -821,7 +840,7 @@ L’ordre conseillé est 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7. Une sépar
 
 **Objectif :** préciser les signatures et les invariants avant les modifications transversales.
 
-**État : terminé pour l’analyse et les validations initiales.** Les contrats proposés ne sont pas encore implémentés ; les résultats et limites sont détaillés en section 12.
+**État : terminé pour l’analyse et les validations initiales.** Les résultats initiaux figurent en section 12 ; les contrats ont ensuite été implémentés dans les lots 1 à 6.
 
 Suivi des tâches :
 
@@ -832,7 +851,7 @@ Suivi des tâches :
 - [x] Exécuter les validations initiales pertinentes et distinguer les défauts préexistants des changements futurs — section 12.8 : 146 tests réussis, compilation applicative réussie, défaut de features Scrapyfy et différences de formatage documentés.
 - [x] Consigner les contrats publics proposés, les adaptateurs à modifier et les points techniques à traiter avant l’implémentation — sections 12.3 à 12.9 et suivi dans `/Users/jdecker/Downloads/arachnea/docs/TODO.md`.
 
-**Livrable produit :** contrats et frontières techniques proposés, état initial des validations et limites documentées. Leur implémentation et les corrections identifiées appartiennent aux lots suivants ; elles ne sont pas cochées comme réalisées.
+**Livrable produit :** contrats et frontières techniques, état initial des validations et limites documentées. Leur implémentation et les corrections identifiées sont suivies séparément dans les lots suivants, désormais cochés selon leur état réel.
 
 ### 11.5. Lot 1 — Séparer les observations et corréler les réponses
 
@@ -884,7 +903,7 @@ Suivi des livrables :
 - `/Users/jdecker/Downloads/arachnea/server/crates/arachnea-proxy/src/core/proxy_preference.rs`
 - `/Users/jdecker/Downloads/arachnea/server/crates/arachnea-proxy/src/core/proxy_preference_repository.rs`
 
-Travail prévu :
+Livrables réalisés :
 
 - [x] Définir une entité par schéma/hôte/port, contenant au maximum 3 endpoints distincts et leurs dates de succès acceptés, sans expiration automatique.
 - [x] Injecter son repository et son store depuis l’application, avec implémentation mémoire pour les constructeurs compatibles. Adapter aussi les snapshots et remplacements d’agrégateur afin de conserver le partage des stores.
@@ -916,7 +935,7 @@ Travail prévu :
 - `/Users/jdecker/Downloads/arachnea/server/crates/arachnea-stream/src/services/francetv_resolver.rs`
 - `/Users/jdecker/Downloads/arachnea/server/crates/arachnea-stream/src/services/tf1_resolver.rs`
 
-Travail prévu :
+Livrables réalisés :
 
 - [x] Implémenter la vue indépendante de réponse, le trait de classification et les trois résultats validés.
 - [x] Fournir la politique prudente par défaut, le handler de statuts configurables et le handler 403 réutilisable.
@@ -932,6 +951,8 @@ Travail prévu :
 
 ### 11.8. Lot 4 — Sélectionner dans un ensemble de pays, cache d’abord
 
+**État : intégré ; recette locale exécutée, détails en sections 18 et 21.**
+
 **Fichiers principaux :**
 
 - `/Users/jdecker/Downloads/arachnea/server/crates/arachnea-proxy/src/core/proxy_inventory.rs`
@@ -940,7 +961,7 @@ Travail prévu :
 - `/Users/jdecker/Downloads/arachnea/server/crates/arachnea-proxy/src/core/http/proxy_service.rs`
 - `/Users/jdecker/Downloads/arachnea/server/crates/arachnea-scrapyfy/src/scrapyfy/proxy_provider.rs`
 
-Travail prévu :
+Livrables réalisés :
 
 - [x] Canonicaliser l’ensemble autorisé : normalisation, déduplication et représentation stable indépendante de l’ordre pour les marqueurs et clés de mutualisation.
 - [x] Regrouper les candidats des pays autorisés avant classement ; ne pas épuiser les inconnus d’un pays avant de voir un candidat validé d’un autre.
@@ -954,11 +975,13 @@ Travail prévu :
 
 ### 11.9. Lot 5 — Unifier budget, retries et pipeline concurrent
 
+**État : intégré ; primitives et scénarios locaux vérifiés, qualification sous charge encore ouverte (sections 19, 21 et 22).**
+
 **Module nouveau proposé :** `/Users/jdecker/Downloads/arachnea/server/crates/arachnea-proxy/src/core/proxy_search.rs`, contenant le contexte de recherche et ses limites, sans logique spécifique aux sources.
 
 **Intégrations principales :** inventaire, core, connecteurs, clients HTTP et route de médias déjà listés ; `/Users/jdecker/Downloads/arachnea/server/crates/arachnea-proxy/src/server/handlers/http.rs` pour le budget CONNECT ; `/Users/jdecker/Downloads/arachnea/server/crates/arachnea-http/src/config.rs` pour l’adaptation des timeouts.
 
-Travail prévu :
+Livrables réalisés :
 
 - [x] Créer une échéance monotone commune et des compteurs de travail par recherche : cible 120 secondes, marge initiale 15 secondes, 64 préchecks, 32 validations complètes et 8 endpoints métier.
 - [x] Distinguer la fin de recherche de la durée du transfert ; après acceptation, un flux établi n’est pas coupé par l’échéance de découverte.
@@ -974,6 +997,8 @@ Travail prévu :
 **Critères de sortie :** aucune attente de tout un lot, succès rendu dès disponibilité, plafond total respecté entre retries, absence de rejeu non sûr, annulation sans pollution du cache ni arrêt d’un autre appel.
 
 ### 11.10. Lot 6 — Actualisation progressive et tests complémentaires
+
+**État : intégré ; recette locale exécutée, couverture et limites en sections 20 à 22.**
 
 **Fichiers principaux :**
 
@@ -1001,7 +1026,18 @@ Travail intégré (recette et limites en section 20) :
 
 ### 11.11. Lot 7 — Vérification de bout en bout et mesure
 
-Scénarios de recette, à réaliser avec les moyens existants et sans nouvelles infrastructures par défaut :
+Recette locale effectuée ; couverture et limites de chaque scénario en section 21.
+Suivi des réalisations :
+
+- [x] Exécuter les suites proxy, HTTP, post-actions et Scrapyfy : 254 tests distincts réussis ; Scrapyfy vérifié en série et en parallèle.
+- [x] Vérifier les compilations core minimal, proxy avec DNS/Rquest, Scrapyfy isolé et application Stream.
+- [x] Vérifier localement les budgets/réservations partagés, annulations, reprises sûres, restauration des préférences et intégrité des corps inspectés.
+- [x] Mesurer les parcours locaux, l’attente de créneaux et les commits fichier, avec leurs limites d’interprétation.
+- [x] Corriger les deux défauts Scrapyfy identifiés : dépendance de feature manquante et double initialisation des fixtures.
+- [x] Documenter la matrice de couverture, les mesures, les limites et les résultats réels des commandes.
+- [ ] Exécuter la qualification exhaustive restante, regroupée en section 22 ; ne pas assimiler ces coches locales à sa clôture.
+
+Les scénarios de référence restent :
 
 1. Recherche à froid, succès, nouvel appel sur la même destination, puis redémarrage : préférence retrouvée et fournisseur non consulté inutilement.
 2. Deux domaines simultanés et plusieurs connexions sur un même domaine : retours attribués aux bons proxies, historiques atomiques et budgets non multipliés.
@@ -1019,7 +1055,7 @@ Les valeurs initiales ne seront augmentées qu’en présence d’observations u
 
 ### 11.12. Commandes de validation prévues
 
-Les commandes ci-dessous sont à exécuter depuis `/Users/jdecker/Downloads/arachnea/server` au moment des lots concernés. Elles ne sont pas présentées comme déjà exécutées dans le cadre de la rédaction du plan.
+Les commandes ci-dessous formaient la matrice prévue depuis `/Users/jdecker/Downloads/arachnea/server`. Les résultats effectivement obtenus, y compris les suites combinées couvrant les filtres et l’échec du formatage global, sont consignés en section 21.4 ; cette liste seule ne vaut pas compte rendu d’exécution.
 
 ```sh
 cargo fmt --all -- --check
@@ -1821,3 +1857,130 @@ et mesure de la latence à froid. Les limites antérieures sur la suite globale
 Scrapyfy (initialisation du répertoire applicatif), les moteurs et la persistance
 processus/disque restent applicables. Ces résultats ne constituent pas une mesure
 de performance ni une recette exhaustive des entrelacements.
+
+
+## 21. Lot 7 — Recette locale et mesures
+
+Bilan du 16 octobre 2026. Les scénarios existants sont enrichis sans nouvelle
+fonction de test, infrastructure, export de métriques ni changement des seuils
+d’exploitation. Les vérifications locales sont réalisées ; la qualification
+exhaustive en conditions réelles reste ouverte et n’est pas assimilée à un succès.
+
+### 21.1. Corrections issues de la recette
+
+La compilation isolée `arachnea-scrapyfy --features arachnea-proxy,sqlite-persistence`
+échouait sur l’import du helper de média `proxied_url_with_countries_and_options`.
+La feature Scrapyfy `arachnea-proxy` active maintenant explicitement
+`arachnea-proxy/controller-service`, déjà présente dans l’application complète.
+Aucun schéma YAML ni contrat des scrapers n’est modifié.
+
+La suite complète Scrapyfy reproduisait 76 succès et quatre échecs : les tests
+admin initialisaient le répertoire applicatif avant les tests agrégateur, dont
+l’initialisation répétée empoisonnait le `Once`. Ces deux groupes utilisent
+maintenant le même helper et le même `Once`, uniquement dans le code de test.
+Les 80 tests passent avec les seules features documentées, en série et en parallèle.
+
+### 21.2. Matrice de couverture
+
+| Scénario de la section 11.11 | Preuves locales exécutées | Limites restantes |
+|---|---|---|
+| 1. Première sélection, succès, réutilisation, redémarrage | HTTP 200 local puis préférence ; publication gagnante avant fin du fournisseur ; nouvel inventaire avec repositories partagés, zéro consultation fournisseur pour la préférence ; réouverture des stores fichier/SQLite dans les scénarios existants | Pas de mesure complète fournisseur public → acceptation après redémarrage réel du processus ; les mesures de restauration de l’inventaire utilisent un store mémoire |
+| 2. Concurrence, attribution, commits et budgets | Deux réponses simultanées 200/403 et reconnexions épinglées ; éviction pendant réponse ; 20 commits concurrents vers quatre domaines puis réouverture ; identité de recherche conservée entre redirects ; plafonds 64/32/8 partagés | Pas de campagne de charge combinant tous les domaines, créneaux et backends |
+| 3. Pays sans priorité | Permutations du même ensemble, filtrage par ensemble différent puis retour au pays initial sans effacement de préférence ; classement commun HTTP/HTTPS existant | Pas de trafic fournisseur réel pour comparer les permutations |
+| 4. Santé, âge et redécouverte | Scénarios existants de rétention selon preuve positive/découverte, cooldown, réintégration fournisseur, persistance des exclusions et évictions partielles | Pas de coupure brutale du processus ou du disque |
+| 5. Cible indisponible / endpoints bloqués | Trois 503 depuis des endpoints d’un même pays, transport positif préservé, suspension ciblée, reprise avec backoff puis levée ; 403 limité à l’association exacte, autre candidat/pays admissible | Parcours HTTPS propre à `ProxyProbe`, secours et géolocalisation sous forte concurrence non exercés de bout en bout |
+| 6. Politiques et flux | 403 explicite ; 200 avec contenu bloqué, préfixe insuffisant, erreur du handler, inspection expirée, corps restitué octet pour octet ; GET chunked de sonde ; post-actions existantes sur corps texte/non-texte | Pas de lecteur média réel ; handler synchrone bloquant exclu par son contrat |
+| 7. Rejeux, redirects, annulations | Table GET/HEAD/POST selon preuve d’envoi et autorisation ; redirects HTTP attribués au domaine final ; expiration d’un souscripteur sans arrêter l’autre ; producteurs en attente détruits au dernier abandon | Pas de POST avec effet serveur pour chaque frontière d’envoi ni de campagne exhaustive d’annulations simultanées |
+| 8. Échéances et transfert accepté | Valeurs par défaut 120/15 s vérifiées ; mêmes mécanismes exercés avec cible 30 ms et marge 60 ms : arrêt technique, tentative engagée seule en marge, refus de nouveau candidat, limite absolue ; transfert accepté termine au-delà de cette limite | Pas d’attente réelle de 135 s, ni de téléchargement média long complet à travers chaque moteur |
+| 9. Échec de stockage | Fixture injectant un échec de préférence : HTTP 200 conservé, une seule requête, compteur d’erreur et log contextualisé ; aucune réparation autonome | Pas d’injection physique d’erreurs disque |
+
+Les assertions de réservations et de créneaux vérifient les primitives partagées,
+pas une saturation réseau complète de 64/32 opérations. La file de créneau utilise
+un blocage volontaire ; les délais réduits emploient la même implémentation que
+les valeurs de production, sans horloge simulée ni attente de deux minutes.
+Les handlers restent synchrones et tenus de ne pas bloquer ; le timeout testé
+porte sur la lecture du préfixe, pas sur l’exécution arbitraire de code bloquant.
+
+### 21.3. Mesures locales observées
+
+Échantillon d’une exécution debug, tests parallèles, sockets loopback et stores
+locaux. Les sorties `lot7` sont propres aux tests et visibles avec `--nocapture`.
+Elles ne représentent ni une distribution de latence ni un benchmark comparatif.
+
+| Mesure | Valeur observée | Périmètre |
+|---|---:|---|
+| Première réponse HTTP 200 acceptée et préférence enregistrée | 947 µs | Cache déjà préchargé, avec une réponse 403 concurrente ; aucun fournisseur public |
+| Sélection de la préférence qui vient de réussir | 32 µs | Même inventaire et endpoint |
+| Première sélection après recréation de l’inventaire | 156 µs | Repositories mémoire partagés, aucune consultation fournisseur pour cette préférence |
+| Premier candidat d’un fournisseur progressif | 78 µs | Fournisseur simulé publiant un record déjà validé, sans réseau de découverte ; deux producteurs encore en attente annulés |
+| Souscripteur survivant à l’expiration du premier | 51,939 ms | Fournisseur retardé volontairement de 50 ms ; une seule consultation partagée |
+| Attente d’un créneau TCP | 21,883 ms | Libération volontaire après 20 ms ; plafonds locaux vérifiés 8/2/2 |
+| 20 commits d’historiques vers quatre destinations | 138,709 ms | Deux wrappers d’un même store fichier ; trois endpoints retenus par domaine |
+| Réouverture et lecture des quatre historiques | 131 µs | Store fichier, dans le même processus |
+
+Ces valeurs ne mesurent pas la recherche à froid avec sondes et résolution géo,
+ni la performance après un redémarrage du système. Elles ne justifient aucune
+augmentation des budgets ou de la concurrence ; les paramètres restent inchangés.
+Les mesures de charge fournisseur, de saturation et de latence réelle à froid
+restent à effectuer dans un environnement d’exploitation défini.
+
+### 21.4. Commandes et résultats
+
+Commandes Cargo offline ; les tests utilisant des sockets locales sont exécutés
+hors sandbox. Les chemins `--manifest-path` sont relatifs à la racine ; les
+commandes Scrapyfy sans cette option sont exécutées depuis `server/`.
+
+| Commande | Résultat |
+|---|---|
+| `cargo test --offline --manifest-path server/Cargo.toml -p arachnea-proxy -p arachnea-http --lib --features arachnea-proxy/persistence,arachnea-proxy/controller-service,arachnea-http/arachnea-proxy --quiet -- --nocapture` | 125 proxy + 45 HTTP réussis ; sorties de mesure ci-dessus |
+| `cargo test --offline --manifest-path server/Cargo.toml -p arachnea-proxy --test post_action_integration --features controller-service --quiet` | 4 réussis |
+| `cargo test --offline -p arachnea-scrapyfy --lib --features arachnea-proxy,sqlite-persistence -- --test-threads=1` | 80 réussis, aucun filtré |
+| `cargo test --offline -p arachnea-scrapyfy --lib --features arachnea-proxy,sqlite-persistence --quiet` | 80 réussis en parallèle, aucun filtré |
+| `cargo check --offline --manifest-path server/Cargo.toml -p arachnea-proxy --no-default-features --features core` | Réussite |
+| `cargo check --offline --manifest-path server/Cargo.toml -p arachnea-proxy --features persistence,controller-service,rquest,arachnea-dns` | Réussite |
+| `cargo check --offline --manifest-path server/Cargo.toml -p arachnea-scrapyfy --features arachnea-proxy,sqlite-persistence` | Réussite sans ajout manuel de controller-service |
+| `cargo check --offline --manifest-path server/Cargo.toml -p arachnea-http -p arachnea-scrapyfy --no-default-features` | Réussite ; avertissements préexistants de code inutilisé selon features |
+| `cargo check --offline --manifest-path server/Cargo.toml -p arachnea-stream` | Réussite |
+| `cargo fmt --manifest-path server/Cargo.toml --all -- --check` | Échec sur écarts préexistants hors périmètre, notamment HTTP browser/engine, proxy core, Scrapyfy admin et Stream resolvers/main ; aucune remise en forme globale |
+| Rustfmt ciblé sur les fichiers Rust enrichis, sauf le helper admin conservant son format préexistant ; `git -c core.whitespace=cr-at-eol diff --check` | Réussite ; fins de ligne CRLF du manifeste conservées |
+
+Le bilan clôt la recette locale du lot 7. Les limites de la matrice restent des
+points ouverts de qualification, et non des scénarios déclarés validés ou des
+limitations implicitement approuvées. Aucun fournisseur externe, navigateur réel
+ou déploiement de production n’a été sollicité pendant cette recette.
+
+
+## 22. Vérification du reste à faire — 16 octobre 2026
+
+Relecture croisée du plan, des livrables de code et des résultats de la section 21.
+Les types et stores de préférences, la propagation du budget HTTP, les paramètres
+d’exploration, la publication progressive, les limites géographiques et les
+politiques de cible sont présents. Aucun lot fonctionnel supplémentaire n’a été
+identifié comme manquant dans ce contrôle ciblé. Cela ne constitue pas un audit
+exhaustif de tous les chemins d’exécution.
+
+### 22.1. Qualification encore nécessaire avant clôture complète
+
+- [ ] **HTTPS propre à `ProxyProbe` et secours** — Vérifier le 503 après tunnel/TLS valide, les erreurs de certificat et les secours HTTP/HTTPS sous une seule échéance. Le code utilise encore des racines `webpki_roots` fixes ; la fixture TLS métier Rquest ne couvre pas ce chemin. Une adaptation du point d’injection de confiance ou un endpoint de test adapté est à étudier pour une fixture locale complète.
+- [ ] **Concurrence en charge** — Exercer l’actualisation aux seuils 10 secondes/huit validations pendant l’exploration, les plafonds réseau réels 64/32/8 et 8/16–2/4–2/2, la limite de 20 IPs et les quatre résolutions géographiques mutualisées. Vérifier les courses d’annulation/reprise et la libération de tous les créneaux. Les tests de primitives ne remplacent pas cette campagne.
+- [ ] **Recherche à froid et redémarrage réel** — Mesurer fournisseur → acceptation puis réutilisation après redémarrage du processus avec les stores durables de l’application, plusieurs domaines et des permutations de pays. Les mesures actuelles de restauration d’inventaire utilisent un store mémoire ; les réouvertures fichier/SQLite sont vérifiées séparément.
+- [ ] **Rejeu et média de bout en bout** — Vérifier l’absence de second effet serveur pour les POST dont l’envoi est incertain, les frontières d’erreurs après en-têtes, les redirects et un flux média long à travers les moteurs concernés. Les tables de décision et flux locaux couvrent une partie de ce contrat, pas tous les transports réels.
+- [ ] **Durées de production et déploiement** — Vérifier un appel à la cible 120 secondes et à la limite 135 secondes, l’abandon client/API, les délais frontend/lecteur, hébergeur et reverse proxy, ainsi que le transfert accepté au-delà du budget de recherche. Les délais réduits du lot 7 valident le mécanisme, pas ces conditions d’exploitation.
+- [ ] **Pannes réelles de persistance** — Tester arrêt brutal du processus et erreurs disque pendant les écritures/évictions. Les frontières de commit simulées et le store injectant une erreur ne démontrent pas la résistance à une panne physique ; il n’existe pas de transaction inter-stores.
+
+Ces actions requièrent des scénarios de recette supplémentaires et, pour les
+mesures externes, un environnement/fournisseur/domaine de validation défini.
+Le présent contrôle ne les a pas exécutées et n’a pas ajouté de tests.
+
+### 22.2. Points de suivi distincts
+
+- [x] Compilation isolée Scrapyfy avec `arachnea-proxy,sqlite-persistence` : corrigée au lot 7.
+- [x] Suite Scrapyfy complète après double initialisation du répertoire applicatif : 80 tests réussis en série et en parallèle ; ancienne entrée TODO corrigée.
+- [ ] Formatage global du workspace : écarts préexistants hors périmètre ; le contrôle ciblé reste réussi. À traiter séparément, sans reformater les services sans rapport avec ce chantier.
+
+Les objets stores indépendants visant le même fichier et les écritures
+multi-processus restent hors garantie de sérialisation des repositories.
+Le remplacement des loopbacks et les futures intégrations de transport listées
+dans `docs/TODO.md` sont des chantiers distincts, pas des lots manquants de cette
+optimisation. Les implémentations livrées et les vérifications locales ne sont
+pas à refaire ; la suite du travail porte sur les cases non cochées ci-dessus.

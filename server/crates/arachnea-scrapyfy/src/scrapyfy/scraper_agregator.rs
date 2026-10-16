@@ -1599,7 +1599,7 @@ fn resolve_manifest_sources_recursive(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     #[cfg(feature = "arachnea-proxy")]
     #[tokio::test]
     async fn replacement_preserves_shared_proxy_history_during_active_response(
@@ -1684,7 +1684,7 @@ mod tests {
 
     static TEST_APPLICATION_DATA_DIR: Once = Once::new();
 
-    fn configure_test_application_data_dir() {
+    pub(crate) fn configure_test_application_data_dir() {
         TEST_APPLICATION_DATA_DIR.call_once(|| {
             arachnea_core::application::configure_application_data_dir_name(
                 "arachnea-scrapyfy-tests",

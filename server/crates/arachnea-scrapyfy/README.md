@@ -1,5 +1,14 @@
 # arachnea-scrapyfy
 
+With `arachnea-proxy`, the crate also enables the proxy crate's
+`controller-service` feature for the proxied-media URL helpers used by
+`resolve_url`. Standalone builds do not require feature unification from the
+application. The localized-proxy test suites run with:
+
+```sh
+cargo test --offline -p arachnea-scrapyfy --lib --features arachnea-proxy,sqlite-persistence
+```
+
 ## Proxy response policies
 
 With `arachnea-proxy`, YAML `http.proxy_response_classifier` selects a shared

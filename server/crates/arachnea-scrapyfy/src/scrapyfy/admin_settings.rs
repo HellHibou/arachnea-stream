@@ -202,9 +202,7 @@ mod tests {
     use super::*;
 
     fn ensure_test_data_dir() {
-        let _ = arachnea_core::application::configure_application_data_dir_name(
-            "arachnea-scrapyfy-tests",
-        );
+        crate::scrapyfy::scraper_agregator::tests::configure_test_application_data_dir();
     }
 
     #[test]

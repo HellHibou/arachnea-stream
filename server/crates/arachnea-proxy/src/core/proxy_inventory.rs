@@ -2478,9 +2478,134 @@ mod tests {
             tokio::spawn(async move { inventory.select("BE", true).await })
         };
 
+        let started = Instant::now();
         assert!(first.await?.is_err());
         assert!(second.await??.supports_https.unwrap_or(false));
+        eprintln!(
+            "lot7 shared provider: survivor_wait_us={}, provider_calls={}",
+            started.elapsed().as_micros(),
+            provider.calls.load(Ordering::SeqCst)
+        );
         assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+
+        let limits = crate::core::ProxySearchLimits::default();
+        assert_eq!(limits.target, Duration::from_secs(120));
+        assert_eq!(limits.extension, Duration::from_secs(15));
+        let search = ProxySearchContext::new(limits);
+        let hop = search.for_url("https://redirect.example/path");
+        assert_eq!(hop.id(), search.id());
+        for index in 0..64 {
+            assert!(hop.reserve(false, &format!("tcp:{index}")));
+        }
+        assert!(!search.reserve(false, "tcp:65"));
+        for index in 0..32 {
+            assert!(search.reserve(true, &format!("validate:{index}")));
+        }
+        assert!(!hop.reserve(true, "validate:33"));
+        let destination = Destination::host_port("origin.example", 443);
+        for index in 0..8 {
+            search.start_origin(&format!("endpoint:{index}"), &destination)?;
+            search.end_attempt();
+        }
+        assert!(hop.start_origin("endpoint:9", &destination).is_err());
+        let tcp = search.tcp_slots.try_acquire_many(8)?;
+        assert!(hop.tcp_slots.try_acquire().is_err());
+        drop(tcp);
+        let validation = search.validation_slots.try_acquire_many(2)?;
+        assert!(hop.validation_slots.try_acquire().is_err());
+        drop(validation);
+        let country = search.provider_slots.try_acquire_many(2)?;
+        assert!(hop.provider_slots.try_acquire().is_err());
+        drop(country);
+        let queued = search.tcp_slots.acquire_many(8).await?;
+        let waiter = hop.tcp_slots.acquire();
+        let wait_started = Instant::now();
+        let (permit, ()) = tokio::join!(waiter, async {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            drop(queued);
+        });
+        drop(permit?);
+        eprintln!("lot7 slot wait: wait_us={}, tcp_limit=8, validation_limit=2, country_limit=2, reservations=64/32, endpoints=8", wait_started.elapsed().as_micros());
+
+        for engaged in [false, true] {
+            let timed = ProxySearchContext::new(crate::core::ProxySearchLimits {
+                target: Duration::from_millis(30),
+                extension: Duration::from_millis(60),
+                ..Default::default()
+            });
+            if engaged {
+                timed.start_origin("endpoint", &destination)?;
+            }
+            let deadline_started = Instant::now();
+            let result: Result<()> = tokio::time::timeout(Duration::from_secs(1), async {
+                if engaged {
+                    timed.origin(futures::future::pending()).await
+                } else {
+                    timed.technical(futures::future::pending()).await
+                }
+            })
+            .await
+            .expect("search deadlines must stop pending work");
+            assert!(
+                deadline_started.elapsed() >= Duration::from_millis(if engaged { 90 } else { 30 })
+            );
+            assert!(matches!(result, Err(ProxyError::Timeout(_))));
+            assert!(!timed.can_start());
+            assert!(timed.start_origin("new-endpoint", &destination).is_err());
+            assert!(timed.technical(async {}).await.is_err());
+        }
+        let margin = ProxySearchContext::new(crate::core::ProxySearchLimits {
+            target: Duration::from_millis(30),
+            extension: Duration::from_millis(60),
+            ..Default::default()
+        });
+        margin.start_origin("endpoint", &destination)?;
+        margin
+            .origin(async {
+                tokio::time::sleep(Duration::from_millis(40)).await;
+                assert!(!margin.can_start());
+                assert!(margin.start_origin("new-endpoint", &destination).is_err());
+                assert!(margin.technical(async {}).await.is_err());
+            })
+            .await?;
+        let accepted = ProxySearchContext::new(crate::core::ProxySearchLimits {
+            target: Duration::from_millis(30),
+            extension: Duration::from_millis(60),
+            ..Default::default()
+        });
+        accepted.start_origin("endpoint", &destination)?;
+        accepted
+            .origin(async {
+                accepted.accept();
+                tokio::time::sleep(Duration::from_millis(110)).await;
+            })
+            .await?;
+        assert!(!accepted.can_start());
+        use crate::core::{proxy_retry_allowed, ProxyRequestDelivery};
+        for method in ["GET", "HEAD", "POST"] {
+            assert!(proxy_retry_allowed(
+                method,
+                false,
+                ProxyRequestDelivery::NotSent,
+                false
+            ));
+            assert_eq!(
+                proxy_retry_allowed(method, false, ProxyRequestDelivery::PossiblySent, false),
+                method != "POST"
+            );
+            assert!(!proxy_retry_allowed(
+                method,
+                true,
+                ProxyRequestDelivery::ResponseReceived,
+                false
+            ));
+            assert!(proxy_retry_allowed(
+                method,
+                true,
+                ProxyRequestDelivery::ResponseReceived,
+                true
+            ));
+        }
         Ok(())
     }
 
@@ -2853,7 +2978,13 @@ mod tests {
         assert!(inventory.select_any(&countries, true).await.is_err());
         assert_eq!(provider.calls.load(Ordering::SeqCst), countries.len() * 2);
 
-        struct ProgressiveProvider;
+        struct ProgressiveProvider(Arc<AtomicUsize>);
+        struct PendingLoad(Arc<AtomicUsize>);
+        impl Drop for PendingLoad {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
         #[async_trait]
         impl ProxyDataProvider for ProgressiveProvider {
             async fn load_proxies(&self, _: ProxyLoadRequest) -> Result<Vec<ProxyRecord>> {
@@ -2864,17 +2995,20 @@ mod tests {
                 request: ProxyLoadRequest,
                 sink: Arc<dyn ProxyBatchSink>,
             ) -> Result<()> {
+                let _pending = PendingLoad(self.0.clone());
                 let mut candidate = record(ProxyRuntimeStatus::Ok);
                 candidate.country = Some(request.countries[0].clone());
                 sink.publish(vec![candidate]).await?;
                 futures::future::pending().await
             }
         }
+        let cancelled = Arc::new(AtomicUsize::new(0));
         let inventory = ProxyInventory::new(
             InventoryConfig::default(),
-            Some(Arc::new(ProgressiveProvider)),
+            Some(Arc::new(ProgressiveProvider(cancelled.clone()))),
             None,
         );
+        let discovery_started = Instant::now();
         let selected = tokio::time::timeout(
             Duration::from_secs(1),
             inventory.select_any(&countries, true),
@@ -2882,7 +3016,16 @@ mod tests {
         .await
         .expect("published candidates must precede provider completion")
         .unwrap();
+        eprintln!(
+            "lot7 progressive discovery: first_candidate_us={}, cancelled_pending_loads={}",
+            discovery_started.elapsed().as_micros(),
+            cancelled.load(Ordering::SeqCst)
+        );
         assert!(countries.contains(selected.country.as_ref().unwrap()));
+        assert!(
+            cancelled.load(Ordering::SeqCst) > 0,
+            "pending producers must be dropped with the final subscriber"
+        );
     }
 
     #[tokio::test]
@@ -2966,9 +3109,16 @@ mod tests {
         initial
             .record_validated_response(&blocked_authority, &destination)
             .await;
-        let restarted = ProxyInventory::new(InventoryConfig::default(), None, None)
-            .with_proxy_repository(repository.clone())
-            .with_preference_repository(preferences.clone());
+        let provider = Arc::new(CountingProvider {
+            records: Vec::new(),
+            calls: AtomicUsize::new(0),
+            delay: Duration::ZERO,
+        });
+        let restore_started = Instant::now();
+        let restarted =
+            ProxyInventory::new(InventoryConfig::default(), Some(provider.clone()), None)
+                .with_proxy_repository(repository.clone())
+                .with_preference_repository(preferences.clone());
         assert_eq!(
             restarted
                 .select_for_destination("BE", true, Some(&destination))
@@ -2976,6 +3126,37 @@ mod tests {
                 .authority(),
             blocked_authority
         );
+        let restore_us = restore_started.elapsed().as_micros();
+        let warm_started = Instant::now();
+        for countries in [
+            vec!["FR".into(), "BE".into()],
+            vec!["BE".into(), "FR".into()],
+        ] {
+            assert_eq!(
+                restarted
+                    .select_any_for_destination(&countries, true, Some(&destination))
+                    .await?
+                    .authority(),
+                blocked_authority
+            );
+        }
+        assert!(restarted
+            .select_for_destination("FR", true, Some(&destination))
+            .await
+            .is_err());
+        assert_eq!(
+            restarted
+                .select_for_destination("BE", true, Some(&destination))
+                .await?
+                .authority(),
+            blocked_authority
+        );
+        assert_eq!(
+            provider.calls.load(Ordering::SeqCst),
+            1,
+            "only the disallowed-country search should consult the provider"
+        );
+        eprintln!("lot7 restored preference: first_select_us={restore_us}, warm_and_country_checks_us={}, preferred_provider_calls=0", warm_started.elapsed().as_micros());
         initial.record_ok(&blocked_authority).await;
 
         initial

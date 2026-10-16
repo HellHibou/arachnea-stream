@@ -893,6 +893,7 @@ mod tests {
             store.clone(),
         ));
         let now = std::time::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        let writes_started = std::time::Instant::now();
         let mut tasks = Vec::new();
         for index in 0..20 {
             let repository = if index % 2 == 0 {
@@ -918,10 +919,13 @@ mod tests {
         for task in tasks {
             task.await??;
         }
+        let writes_us = writes_started.elapsed().as_micros();
         drop((first, second, store));
+        let reopen_started = std::time::Instant::now();
         let reopened =
             FileEntityStore::<crate::core::ProxyDestinationPreference>::new(root.clone(), config)?;
         let histories = reopened.find(&EntityQuery::new()).await?;
+        eprintln!("lot7 durable histories: commits=20, destinations={}, writes_us={writes_us}, reopen_and_read_us={}", histories.len(), reopen_started.elapsed().as_micros());
         assert_eq!(histories.len(), 4);
         for history in histories {
             assert_eq!(history.endpoints.len(), 3);

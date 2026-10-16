@@ -159,16 +159,36 @@ async fn concurrent_http_responses_keep_endpoint_tokens_and_pinned_reconnects() 
         let inventory = core.proxy_inventory().unwrap();
         let destination = Destination::host_port("origin.example", 80)
             .with_protocol(crate::core::ApplicationProtocol::Http);
+        let initial_started = Instant::now();
         let first = select_local_route(&core, &destination, "BE").await?;
         let second = select_local_route(&core, &destination, "FR").await?;
         assert_ne!(first.selection_token, second.selection_token);
-        for _ in 0..2 {
+        for round in 0..2 {
             let (a, b) = tokio::join!(
                 pinned_http_exchange(&first, &destination),
                 pinned_http_exchange(&second, &destination),
             );
             assert_eq!(a?, 200);
             assert_eq!(b?, 403);
+            if round == 0 {
+                first
+                    .selection_token
+                    .as_ref()
+                    .unwrap()
+                    .record_accepted()
+                    .await;
+                let first_accept_us = initial_started.elapsed().as_micros();
+                let warm_started = Instant::now();
+                let warm = select_local_route(&core, &destination, "BE").await?;
+                assert_eq!(
+                    warm.selection_token.as_ref().unwrap().endpoint(),
+                    first.selection_token.as_ref().unwrap().endpoint()
+                );
+                eprintln!(
+                    "lot7 local HTTP: first_accept_us={first_accept_us}, preferred_select_us={}",
+                    warm_started.elapsed().as_micros()
+                );
+            }
         }
         let ((), ()) = tokio::join!(
             first.selection_token.as_ref().unwrap().record_accepted(),
@@ -349,13 +369,22 @@ async fn unavailable_http_probe_target_keeps_endpoint_positive_evidence() -> Any
         ProxyBodyRequirement, ProxyBodyState, ProxyResponseClassifier, ProxyResponseDecision,
         ProxyResponsePolicy, ProxyResponseView,
     };
-    struct ContentPolicy;
+    struct ContentPolicy(bool);
     impl ProxyResponseClassifier for ContentPolicy {
         fn body_requirement(&self) -> ProxyBodyRequirement {
             ProxyBodyRequirement::Prefix(3)
         }
         fn classify(&self, view: &ProxyResponseView<'_>) -> Result<ProxyResponseDecision> {
             assert_eq!(view.method, "GET");
+            if self.0 {
+                return Err(ProxyError::Protocol("injected classifier failure".into()));
+            }
+            if view.body == b"no!" {
+                return Ok(ProxyResponseDecision::RejectedForDestination {
+                    cooldown: None,
+                    reason: "fixture block content".into(),
+                });
+            }
             Ok(
                 if view.status == 200
                     && view.body == b"yes"
@@ -375,7 +404,7 @@ async fn unavailable_http_probe_target_keeps_endpoint_positive_evidence() -> Any
             https_probe_url: None,
             http_policy: crate::core::ProbeTargetPolicy {
                 identity: "fixture-content-v1".into(),
-                response_policy: Some(ProxyResponsePolicy(Arc::new(ContentPolicy))),
+                response_policy: Some(ProxyResponsePolicy(Arc::new(ContentPolicy(false)))),
                 suspension: crate::core::ProbeTargetSuspension {
                     backoff: [Duration::from_millis(50), Duration::from_millis(100), Duration::from_millis(200)],
                     ..Default::default()
@@ -431,6 +460,31 @@ async fn unavailable_http_probe_target_keeps_endpoint_positive_evidence() -> Any
             item.context.phase == crate::core::ProxyObservationPhase::ProbeTargetAccepted
                 && item.outcome == crate::core::ProxyObservationOutcome::Succeeded
         }));
+        use crate::core::http::response_classifier::inspect_proxy_response;
+        use futures::StreamExt;
+        let headers = http::HeaderMap::new();
+        for (payload, fail) in [(b"no!media".as_slice(), false), (b"y".as_slice(), false), (b"yesmedia".as_slice(), false), (b"yesmedia".as_slice(), true)] {
+            let policy = ProxyResponsePolicy(Arc::new(ContentPolicy(fail)));
+            let stream = Box::pin(futures::stream::iter(vec![Ok(bytes::Bytes::copy_from_slice(payload))]));
+            let view = ProxyResponseView { method: "GET", requested_url: url, effective_url: url,
+                redirect_urls: &[], status: 200, headers: &headers, selection: None, body: &[], body_state: ProxyBodyState::Unavailable };
+            let (decision, mut restored) = inspect_proxy_response(Some(&policy), view, stream, Duration::from_millis(20)).await;
+            if fail || payload.len() < 3 { assert_eq!(decision, ProxyResponseDecision::Inconclusive); }
+            else if payload.starts_with(b"no!") { assert!(matches!(decision, ProxyResponseDecision::RejectedForDestination { .. })); }
+            else { assert_eq!(decision, ProxyResponseDecision::Accepted); }
+            let mut received = Vec::new();
+            while let Some(bytes) = restored.next().await { received.extend_from_slice(&bytes?); }
+            assert_eq!(received, payload, "classification must preserve every media byte");
+        }
+        let policy = ProxyResponsePolicy(Arc::new(ContentPolicy(false)));
+        let pending = futures::stream::iter(vec![Ok(bytes::Bytes::from_static(b"y"))])
+            .chain(futures::stream::pending());
+        let view = ProxyResponseView { method: "GET", requested_url: url, effective_url: url,
+            redirect_urls: &[], status: 200, headers: &headers, selection: None, body: &[], body_state: ProxyBodyState::Unavailable };
+        let (decision, mut restored) = inspect_proxy_response(Some(&policy), view, Box::pin(pending), Duration::from_millis(5)).await;
+        assert_eq!(decision, ProxyResponseDecision::Inconclusive);
+        assert_eq!(restored.next().await.unwrap()?, bytes::Bytes::from_static(b"y"));
+        drop(restored);
         Ok(())
     })
     .await?

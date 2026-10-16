@@ -111,6 +111,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Localized proxy lot 7 extends existing acceptance fixtures to verify shared work/endpoint caps, semaphore waits, deadline grace, accepted transfers, replay eligibility, final-subscriber cancellation, restored country-filtered preferences and content-policy byte preservation. Local timing/counter samples and the acceptance coverage matrix are documented without changing production limits or adding test infrastructure.
+
 - Localized proxy lot 6 overlaps cache exploration with discovery after 10 seconds or eight unsuccessful validations, ranks country refreshes by cache state/age, preserves a configurable 10-second refresh floor and accepts progressive provider batches through a compatible list adapter. Configurable probe methods/policies, one deadline-sharing fallback and separate target acceptance retain real transport evidence. Relaxed mode allows bounded business trials after ambiguous complementary probes; target-only suspicion uses distinct endpoints and on-demand 30/60/120-second recovery without country exclusions or background work.
 
 - Localized proxy lot 5 adds a request-owned 120-second search target with 15-second engaged-origin grace, 64/32 technical-work reservations and eight distinct business endpoints. TCP/validation/country-load concurrency is bounded per search and inventory; prechecks and full validations complete progressively using subscriber-owned shared futures. Last-subscriber cancellation drops work without synthetic failures. CONNECT inherits remaining time, safe replay replaces independent retries, and contextual media options accept an explicit boolean replay guarantee. Contextual loopbacks own and abort their child connections; they reconnect across calls instead of retaining stale request budgets.
@@ -271,6 +273,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Standalone `arachnea-proxy` builds now enable the proxy controller helpers required by media URL resolution. Shared test-directory initialization prevents the full Scrapyfy suite from reconfiguring an already resolved application root and poisoning its `Once` guard.
+
 - Text and binary scraper requests now rotate a dynamically selected proxy once when `arachnea-http` reports a proxy transport failure before an HTTP response, including failures occurring after an HTTP CONNECT tunnel was accepted. If the replacement also fails, both error contexts are retained and no third request is sent.
 - Proxifly country lookups now treat a missing country file (`404`) as an empty proxy list, avoiding the misleading `Invalid JSON payload` error for unsupported countries such as Andorra (`AD`).
 - Proxy and IP-country providers now own independent query runtimes instead of raw pointers into application aggregators, preserving source lifetime across runtime replacements without a core/provider ownership cycle.
@@ -380,6 +384,8 @@ All notable changes to the server workspace are recorded here.
 #### Added
 
 #### Changed
+
+- Reconciled localized-proxy completion checklists with the delivered lots and local acceptance results, closed the obsolete Scrapyfy test TODO, and consolidated the remaining production qualification and workspace-formatting tasks.
 
 - Reviewed `docs/dev-tracking/source-filtered-custom-homes-analysis.md`: recorded approved defaults, included title-based merging in the initial composition scope, and specified edit-mode-only add actions on service banners and categories, excluding custom-home banners. Documented remaining decisions and corrected illustrative TypeScript and Cargo commands. Documentation only; application implementation remains on hold.
 - Recorded follow-up approvals in the custom-home analysis: opt-in title merging, effective-title comparison, round-robin interleaving including intentionally repeated rails, and target selection with a saveable draft. Clarified the remaining choice of allowing category-reference copying from custom homes. No application implementation.
