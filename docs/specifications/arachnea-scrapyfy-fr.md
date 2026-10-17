@@ -1140,7 +1140,7 @@ Formats supportés (`GetDateSource`) :
 ```
 
 ### `normalize_duration`
-Parse les durées lisibles (ex: `39 min`, `1 h 05 min`) en secondes.
+Parse les durées lisibles (ex: `39 min`, `1 h 05 min`, `1 h 05`) en secondes. Un nombre seul suivant immédiatement une heure est interprété comme des minutes.
 
 ```yaml
 - type: normalize_duration
@@ -1404,6 +1404,7 @@ Pour chaque item d'un groupe, fait une requête HTTP, applique une regex sur la 
 | `source` | string | Champ groupe source |
 | `request_field` | string | Champ de l'item contenant l'URL à fetch |
 | `request_actions` | array | Actions appliquées à l'URL avant la requête |
+| `request_headers` | array (opt.) | En-têtes attachés à chaque requête ; même structure que la section [`request_headers`](#request_headers) |
 | `request_method` | `get` ou `post` (opt.) | Méthode HTTP ; `get` par défaut |
 | `response_pointer` | string (opt.) | Pointeur JSON sélectionnant le texte de réponse avant l'extraction regex |
 | `target` | string | Chemin cible pour les items extraits |
@@ -1418,6 +1419,11 @@ Pour chaque item d'un groupe, fait une requête HTTP, applique une regex sur la 
   request_field: "detail_url"
   request_actions:
     - type: resolve_url
+  request_headers:
+    - name: "Referer"
+      actions:
+        - type: format_text
+          argument: "{base_url}/"
   target: "episodes>sources"
   pattern: '<source src="(.*?)" type="(.*?)">'
   entries:
@@ -1569,7 +1575,8 @@ Ajoute des items statiques à un groupe, avec déduplication optionnelle.
 
 ### `set_nested_fields`
 Définit un ou plusieurs champs sur chaque item d'un sous-tableau, avec une
-valeur statique ou une copie depuis un champ voisin.
+valeur statique, une copie depuis un champ voisin, ou une extraction de nom
+d'hôte éventuellement traduite via un groupe de correspondance.
 
 | Champ | Type | Description |
 |-------|------|-------------|
@@ -1585,6 +1592,20 @@ Structure `ScraperNestedFieldDefinition` :
 | `value` | string (opt.) | Valeur statique à écrire (mutuellement exclusif avec `copy_from` et `host_from`) |
 | `copy_from` | string (opt.) | Champ source à copier depuis le même item (mutuellement exclusif avec `value` et `host_from`) |
 | `host_from` | string (opt.) | Extrait le nom d'hôte de l'URL contenue dans ce champ voisin (mutuellement exclusif avec `value` et `copy_from`) |
+| `lookup` | object (opt.) | Traduit la valeur de `copy_from` ou `host_from` via un groupe racine (interdit avec `value`) |
+
+Structure `ScraperNestedFieldLookup` :
+
+| Champ | Type | Description |
+|-------|------|-------------|
+| `source` | string | Champ groupe racine contenant les items de correspondance |
+| `key` | string | Champ scalaire lu sur chaque item comme clé |
+| `value` | string | Champ scalaire lu sur chaque item comme valeur |
+
+Lorsque `lookup` est combiné avec `host_from`, le nom d'hôte exact est essayé
+en premier, puis chaque domaine parent (`video.sibnet.ru` → `sibnet.ru`). Les
+valeurs sans correspondance sont écrites telles quelles. Les lookups
+`copy_from` utilisent uniquement une correspondance exacte.
 
 ```yaml
 - type: set_nested_fields
@@ -1597,6 +1618,10 @@ Structure `ScraperNestedFieldDefinition` :
       copy_from: web-link
     - target: name
       host_from: web-link
+      lookup:
+        source: "hosters"
+        key: "host"
+        value: "label"
 ```
 
 ---

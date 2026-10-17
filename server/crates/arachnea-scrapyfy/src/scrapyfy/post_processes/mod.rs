@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::actions::ScraperAction;
+use super::scraper::config::ScraperRequestHeaderRaw;
 use super::scraper_data_node::{ScraperDataNode, ScraperOutputType};
 
 mod append_static_items;
@@ -33,8 +34,8 @@ pub(crate) use math_helpers::{
 pub use sort_items::ScraperSortMethod;
 pub use types::{
     ScraperComputedFieldVariable, ScraperComputedFieldVariableScope, ScraperFieldMapping,
-    ScraperGeneratedField, ScraperNestedFieldDefinition, ScraperPostProcessContext,
-    ScraperRegexItemEntry,
+    ScraperGeneratedField, ScraperNestedFieldDefinition, ScraperNestedFieldLookup,
+    ScraperPostProcessContext, ScraperRegexItemEntry,
 };
 
 /// Structured transformations applied after one query extracted its raw fields.
@@ -140,6 +141,10 @@ pub enum ScraperPostProcess {
         /// Optional actions to apply to the request field before fetching.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         request_actions: Vec<ScraperAction>,
+        /// Optional HTTP headers attached to every fetch, resolved like
+        /// query and sub-query `request_headers`.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        request_headers: Vec<ScraperRequestHeaderRaw>,
         /// HTTP method used for each request.
         #[serde(default)]
         request_method: crate::scrapyfy::scraper::config::ScraperRequestMethod,
@@ -346,8 +351,15 @@ impl ScraperPostProcess {
                 pattern,
                 entries,
                 request_actions,
+                request_headers,
                 ..
-            } => fetch_regex_items_from_items::validate(owner, pattern, entries, request_actions),
+            } => fetch_regex_items_from_items::validate(
+                owner,
+                pattern,
+                entries,
+                request_actions,
+                request_headers,
+            ),
             ScraperPostProcess::FilterItems { pattern, .. } => {
                 filter_items::validate(owner, pattern)
             }
@@ -503,6 +515,7 @@ impl ScraperPostProcess {
                 source,
                 request_field,
                 request_actions,
+                request_headers,
                 request_method,
                 response_pointer,
                 target,
@@ -517,6 +530,7 @@ impl ScraperPostProcess {
                     source,
                     request_field,
                     request_actions,
+                    request_headers,
                     *request_method,
                     response_pointer.as_deref(),
                     target,

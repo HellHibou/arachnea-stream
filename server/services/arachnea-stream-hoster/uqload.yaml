@@ -1,7 +1,7 @@
 id: uqload
 title: Uqload
 description:
-  en: "Resolver for uqload.is, uqload.com"
+  en: "Resolver for uqload.<any 2-3 letter TLD> (uqload.is, uqload.com, uqload.to, uqload.ws, uqload.co, uqload.vc, uqload.net, uqload.cx, …)"
 http:
   mode: auto
 
@@ -21,7 +21,7 @@ queries:
         value: "{url}"
         actions:
           - type: regex_find_all
-            pattern: '^https?://(?:www\.)?(?:uqload\.(?:is|com|to|ws|co|vc))/'
+            pattern: '(?i)^https?://(?:www\.)?uqload\.[a-z]{2,3}/'
             format: "{service_id}"
 
 
@@ -58,22 +58,125 @@ queries:
       - name: stream_url
         type: string[]
         actions:
+          # Primary: packed player page (Dean Edwards Packer), then `file: "...".m3u8`.
           - type: get_response_body
           - type: unpack_packer
           - type: regex_find_all
             pattern: 'file:\s*"((?:https?://)[^"]+\.m3u8[^"]*)"'
+            format: "{1}"
+          # The CDN returns absolute child URLs, but some mirrors emit relative
+          # ones; both forms are rewritten to the proxy path so the player never
+          # falls back to a direct (cross-origin) CDN request. Every HLS content
+          # type is whitelisted because mirrors disagree on the manifest type.
+          - type: resolve_url
+            proxy: true
+            proxy_headers:
+              User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+              Referer: "{base_url}"
+              Origin: "{request_origin}"
+            proxy_replace_all:
+              - pattern: '(?m)^(https?://[^\r\n]+)'
+                replacement: '{proxy_inherited}/$1'
+                content_types:
+                  - application/vnd.apple.mpegurl
+                  - application/x-mpegurl
+                  - audio/mpegurl
+                  - audio/x-mpegurl
+              - pattern: '(?m)^([^#/\r\n][^\r\n]*)$'
+                replacement: '{proxy_inherited}/{base_url}{path_base}$1'
+                content_types:
+                  - application/vnd.apple.mpegurl
+                  - application/x-mpegurl
+                  - audio/mpegurl
+                  - audio/x-mpegurl
+      # Fallback: unpacked page with `file: "...".m3u8` (unpack_packer drops the
+      # whole text when the page is not a Dean Edwards Packer block).
+      - name: stream_url
+        type: string[]
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: 'file:\s*"([^"]+\.m3u8[^"]*)"'
             format: "{1}"
           - type: resolve_url
             proxy: true
             proxy_headers:
               User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
               Referer: "{base_url}"
-              Origine: "{base_url}"
+              Origin: "{request_origin}"
             proxy_replace_all:
               - pattern: '(?m)^(https?://[^\r\n]+)'
                 replacement: '{proxy_inherited}/$1'
                 content_types:
                   - application/vnd.apple.mpegurl
+                  - application/x-mpegurl
+                  - audio/mpegurl
+                  - audio/x-mpegurl
+              - pattern: '(?m)^([^#/\r\n][^\r\n]*)$'
+                replacement: '{proxy_inherited}/{base_url}{path_base}$1'
+                content_types:
+                  - application/vnd.apple.mpegurl
+                  - application/x-mpegurl
+                  - audio/mpegurl
+                  - audio/x-mpegurl
+      # Fallback: JSON-like `sources: [{file: "..."}]` player declaration.
+      - name: stream_url
+        type: string[]
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: 'sources:\s*\[\s*\{\s*file:\s*"([^"]+\.m3u8[^"]*)"'
+            format: "{1}"
+          - type: resolve_url
+            proxy: true
+            proxy_headers:
+              User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+              Referer: "{base_url}"
+              Origin: "{request_origin}"
+            proxy_replace_all:
+              - pattern: '(?m)^(https?://[^\r\n]+)'
+                replacement: '{proxy_inherited}/$1'
+                content_types:
+                  - application/vnd.apple.mpegurl
+                  - application/x-mpegurl
+                  - audio/mpegurl
+                  - audio/x-mpegurl
+              - pattern: '(?m)^([^#/\r\n][^\r\n]*)$'
+                replacement: '{proxy_inherited}/{base_url}{path_base}$1'
+                content_types:
+                  - application/vnd.apple.mpegurl
+                  - application/x-mpegurl
+                  - audio/mpegurl
+                  - audio/x-mpegurl
+      # Fallback: `hls2` / `hls3` / `hls4` keys used by some player variants.
+      - name: stream_url
+        type: string[]
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: "['\"]hls[234]['\"]\\s*:\\s*['\"]([^'\"]+\\.m3u8[^'\"]*)['\"]"
+            format: "{1}"
+          - type: resolve_url
+            proxy: true
+            proxy_headers:
+              User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+              Referer: "{base_url}"
+              Origin: "{request_origin}"
+            proxy_replace_all:
+              - pattern: '(?m)^(https?://[^\r\n]+)'
+                replacement: '{proxy_inherited}/$1'
+                content_types:
+                  - application/vnd.apple.mpegurl
+                  - application/x-mpegurl
+                  - audio/mpegurl
+                  - audio/x-mpegurl
+              - pattern: '(?m)^([^#/\r\n][^\r\n]*)$'
+                replacement: '{proxy_inherited}/{base_url}{path_base}$1'
+                content_types:
+                  - application/vnd.apple.mpegurl
+                  - application/x-mpegurl
+                  - audio/mpegurl
+                  - audio/x-mpegurl
       - name: manifest_type
         type: string
         actions:
@@ -95,10 +198,17 @@ queries:
           - type: regex_find_all
             pattern: '(https?://[^"''\s]+/vtt/[^"''\s]+_sli\.vtt)'
             format: "{1}"
+          # Storyboard sprite references are either absolute or relative; the
+          # absolute form is proxied as-is and the relative form is resolved
+          # against the sprite directory, so the two rules never stack.
           - type: resolve_url
             proxy: true
             proxy_replace_all:
-              - pattern: '(?m)^([^\r\n]+\.jpg#xywh=[^\r\n]+)$'
+              - pattern: '(?m)^(https?://[^\r\n]+\.jpg#xywh=[^\r\n]*)$'
+                replacement: '{proxy_inherited}/$1'
+                content_types:
+                  - text/vtt
+              - pattern: '(?m)^([^#/\r\n][^\r\n]*\.jpg#xywh=[^\r\n]*)$'
                 replacement: '{proxy_inherited}/{base_url}{path_base}$1'
                 content_types:
                   - text/vtt

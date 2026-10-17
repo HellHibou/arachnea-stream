@@ -1205,9 +1205,12 @@ queries:
         type: string
         select: first
         pointer: /id
+      # TF1 emits the "Si vous aimez…" rail twice for the same programme;
+      # the deferred link is identical, so keep only the first value to
+      # satisfy the scalar `string` contract.
       - name: recommendations > link
         type: string
-        select: all
+        select: first
         pointer: /editorialSections/*/sliders/*/decoration/label
         actions:
           - type: regex_find_all

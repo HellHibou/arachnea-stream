@@ -507,16 +507,6 @@ shared:
       entries: *collection_card_entries
     - name: entries
       type: object[]
-      pointer: /items/*[type=categorie]
-      select: all
-      entries: *category_card_entries
-    - name: entries
-      type: object[]
-      pointer: /items/*[type=sous_categorie]
-      select: all
-      entries: *category_card_entries
-    - name: entries
-      type: object[]
       pointer: /items/*[type=event]
       select: all
       entries: *event_card_entries
@@ -661,6 +651,76 @@ queries:
     row_pointer: /
     entries:
       - *source_entry
+      - name: categories
+        type: object[]
+        pointer: /collections/*/items/*[type=categorie]
+        select: all
+        entries:
+          - *source_entry
+          - name: key
+            type: string
+            select: first
+            pointer: /url_complete
+          - name: label
+            type: string
+            select: first
+            pointer: /label
+          - name: image
+            type: string
+            pointer: /images/*[type=background_16x9]/urls/w:1024
+            select: first
+          - name: request > name
+            type: string
+            actions:
+              - type: format_text
+                argument: "{source}"
+          - name: request > source
+            type: string
+            actions:
+              - type: format_text
+                argument: "{source}"
+          - name: request > query_url
+            type: string
+            select: first
+            pointer: /url_complete
+            actions:
+              - type: format_text
+                argument: "{api_mobile}/apps/sub-categories/{}?platform=apps&page=0"
+      - name: categories
+        type: object[]
+        pointer: /collections/*/items/*[type=sous_categorie]
+        select: all
+        entries:
+          - *source_entry
+          - name: key
+            type: string
+            select: first
+            pointer: /url_complete
+          - name: label
+            type: string
+            select: first
+            pointer: /label
+          - name: image
+            type: string
+            pointer: /images/*[type=background_16x9]/urls/w:1024
+            select: first
+          - name: request > name
+            type: string
+            actions:
+              - type: format_text
+                argument: "{source}"
+          - name: request > source
+            type: string
+            actions:
+              - type: format_text
+                argument: "{source}"
+          - name: request > query_url
+            type: string
+            select: first
+            pointer: /url_complete
+            actions:
+              - type: format_text
+                argument: "{api_mobile}/apps/sub-categories/{}?platform=apps&page=0"
       - name: sections
         type: object[]
         pointer: /collections/*

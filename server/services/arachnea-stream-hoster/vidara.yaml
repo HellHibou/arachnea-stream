@@ -23,7 +23,7 @@ queries:
         value: "{html}"
         actions:
           - type: regex_find_all
-            pattern: '(?s)fetch\(apiURL,\{method:"POST",headers:\{"Content-Type":"application/json"\},body:JSON\.stringify\(\{filecode:filecode,device:detectDevice\(\)\}\)\}\).*?abouttext:"Vidara"'
+            pattern: '(?s)fetch\(apiURL,\{method:"POST",headers:\{"Content-Type":"application/json"\},body:JSON\.stringify\(\{filecode:filecode,device:detectDevice\(\)[^}]*\}\)\}\).*?abouttext:"Vidara"'
             format: "{service_id}"
 
 
