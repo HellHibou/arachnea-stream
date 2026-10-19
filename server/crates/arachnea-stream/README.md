@@ -1,5 +1,21 @@
 # Arachnea Stream
 
+## Direct fallback when a country proxy is unavailable
+
+Stream scraper and resolver requests enable `fallback_direct` on their proxy core.
+The `/proxy` web handler is also instantiated with `fallback_direct: true`.
+If no usable proxy exists in the requested countries, routing falls back to a
+connection without any remote proxy. Other transport and origin failures retain
+their existing error behavior. A geo-restricted origin may still deny direct access.
+
+The web proxy's `opts` JSON can override the default with `{"fallback_direct": false}`
+or `true`. Alternatively, use `Arachnea-Proxy-Fallback-Direct: false` or `true`;
+the URL option takes precedence over that header. Proxy privacy restrictions remain
+applicable. An unavailable country proxy is returned as a source-attributed error
+alongside successfully extracted data in `get_entry` and other scraper aggregation
+responses. The existing frontend error adapter receives both through the usual
+`data` / `errors` envelope. Responses containing errors are not converted to HTTP 304.
+
 ## Localized proxy persistence
 
 The physical `proxy-inventory` store owns the `proxy-inventory`,

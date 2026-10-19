@@ -40,14 +40,16 @@ pub use urls::{
 /// - `controler`: Mutable reference to a controller service that will host the handler.
 /// - `proxy_core`: Reference to the proxy core used for outbound HTTP requests.
 /// - `name`: Name used to register the stream handler.
+/// - `fallback_direct`: Default when no country proxy is available; request options may override it.
 pub fn register_service(
     controler: &mut dyn ControlerService,
     proxy_core: &ArachneaProxyCore,
     name: &str,
+    fallback_direct: bool,
 ) {
     let core = Arc::new(proxy_core.clone());
-    controler.register_stream_function_with_state(name, core, |core, input| async move {
-        handle_proxy_http(core, input).await
+    controler.register_stream_function_with_state(name, core, move |core, input| async move {
+        handle_proxy_http(core, input, fallback_direct).await
     });
 }
 

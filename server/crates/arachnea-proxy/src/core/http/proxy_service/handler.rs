@@ -36,10 +36,21 @@ fn stream_error(status: u16, message: impl Into<String>) -> ControlerStreamOutpu
 /// This is the main entry point registered as a stream function. The
 /// entry-point URL used for rewriting `Location` headers in redirect responses
 /// is read from `input.entry_point`.
+///
+/// # Arguments
+/// - `proxy_core`: Routing core shared with the application.
+/// - `input`: Incoming controller stream request.
+/// - `fallback_direct`: Default if no country proxy is available. The boolean
+///   URL option overrides the request header, which overrides this default.
+///
+/// # Errors
+/// Returns controller stream errors; upstream failures produce an HTTP 502 response.
 pub async fn handle_proxy_http(
     proxy_core: Arc<ArachneaProxyCore>,
     input: ControlerStreamInput,
+    fallback_direct: bool,
 ) -> Result<ControlerStreamOutput, String> {
+    let proxy_core = Arc::new((*proxy_core).clone().with_fallback_direct(fallback_direct));
     // Validate URL length
     let full_url = format!(
         "{}/{}{}{}",
@@ -170,7 +181,13 @@ pub async fn handle_proxy_http(
         Err((status, error)) => return Ok(stream_error(status, error)),
     };
     let parameter_definitions = proxy_core.parameter_definitions();
-    let client_context = context_from_header_map(&headers, &parameter_definitions);
+    let mut client_context = context_from_header_map(&headers, &parameter_definitions);
+    if let Some(value) = redirect_opts.as_ref().and_then(|opts| opts.fallback_direct) {
+        client_context.insert(
+            crate::core::PROXY_PARAMETER_FALLBACK_DIRECT,
+            crate::core::ClientParameter::Bool(value),
+        );
+    }
     strip_non_forwarded_parameter_headers(&mut headers, &parameter_definitions);
 
     // Set the Host header from the target URL (host is removed as non-transferable

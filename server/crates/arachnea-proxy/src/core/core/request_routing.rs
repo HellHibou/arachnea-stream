@@ -22,6 +22,38 @@ pub(super) fn is_dynamic_proxy_transport_failure(error: &ProxyError) -> bool {
 }
 
 impl ArachneaProxyCore {
+    /// Sets the default behavior when no dynamic country proxy is available.
+    ///
+    /// # Arguments
+    /// - `fallback_direct`: Whether to connect without any remote proxy.
+    ///
+    /// Request-local `fallback_direct` overrides this default. Privacy policies
+    /// that forbid direct fallback always take precedence.
+    pub fn with_fallback_direct(mut self, fallback_direct: bool) -> Self {
+        self.fallback_direct = fallback_direct;
+        self
+    }
+
+    pub(super) fn fallback_direct_for_request(&self, request: &ConnectRequest) -> Result<bool> {
+        use crate::core::{ClientParameter, PROXY_PARAMETER_FALLBACK_DIRECT};
+        let enabled = match request.client_context.get(PROXY_PARAMETER_FALLBACK_DIRECT) {
+            None => self.fallback_direct,
+            Some(ClientParameter::Bool(value)) => *value,
+            Some(ClientParameter::String(value)) => value
+                .parse::<bool>()
+                .map_err(|_| ProxyError::Config("fallback_direct must be true or false".into()))?,
+            Some(_) => {
+                return Err(ProxyError::Config(
+                    "fallback_direct must be a boolean".into(),
+                ))
+            }
+        };
+        let config = self.config.as_config();
+        Ok(enabled
+            && config.routing.allow_direct_fallback
+            && !config.privacy.prevent_direct_fallback)
+    }
+
     /// Attaches a request-owned search to adapters executing on another Tokio task.
     ///
     /// # Arguments

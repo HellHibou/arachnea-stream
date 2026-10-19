@@ -34,6 +34,9 @@ pub struct ProxyConfig {
     pub egress_pools: Vec<EgressPool>,
     /// Route selection configuration.
     pub routing: RoutePolicy,
+    /// Use a direct route when no dynamic country proxy is available.
+    /// Request parameters may override this default, subject to privacy policy.
+    pub fallback_direct: bool,
     /// Privacy policy.
     pub privacy: PrivacyPolicy,
     /// Security policy.
@@ -55,6 +58,7 @@ impl Default for ProxyConfig {
             chains: vec![ProxyChain::direct()],
             egress_pools: Vec::new(),
             routing: RoutePolicy::default(),
+            fallback_direct: false,
             privacy: PrivacyPolicy::default(),
             security: SecurityPolicy::default(),
             timeouts: TimeoutConfig::default(),

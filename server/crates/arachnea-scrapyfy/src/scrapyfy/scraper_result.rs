@@ -46,7 +46,8 @@ pub enum ScraperErrorOrigin {
 
 /// A structured error payload for a single source within an aggregate request.
 ///
-/// Each instance corresponds to a single source that failed during execution.
+/// Each instance describes a source failure, including a non-fatal proxy
+/// availability failure recovered through a direct connection.
 /// The `code` field links the frontend notification to a server-side log
 /// entry for diagnostics.
 #[derive(Debug, Clone, Serialize)]
@@ -103,7 +104,8 @@ pub struct ScraperAggregationResult<T> {
     /// Successful response data, in the command-specific shape.
     pub data: T,
 
-    /// Per-source error collection. Empty on full success.
+    /// Per-source errors, including proxy availability errors recovered by direct
+    /// fallback. Data may be present for a source that also has an error.
     pub errors: Vec<ScraperExecutionError>,
 
     /// Per-source conditional-validation outcomes, keyed by source name.

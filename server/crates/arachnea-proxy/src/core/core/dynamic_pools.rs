@@ -26,7 +26,7 @@ pub(super) fn dynamic_pool_countries(pool_name: &str) -> Result<Option<Vec<Strin
 }
 
 /// Returns whether a dynamic country selection failure should fall back to the
-/// remaining route without materialising a geo proxy.
+/// direct route when the caller has explicitly enabled that policy.
 pub(super) fn is_dynamic_country_proxy_unavailable(error: &ProxyError) -> bool {
     matches!(error, ProxyError::RouteUnavailable(_))
 }

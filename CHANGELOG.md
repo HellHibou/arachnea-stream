@@ -123,6 +123,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Added explicit `fallback_direct` configuration (default false), core default override, request parameter/header override, and a required web-proxy default with an optional boolean URL override. Missing dynamic country proxies now use the selected policy consistently with or without a search context; direct fallback removes all remote proxy hops and respects privacy restrictions. Source-scoped diagnostics preserve non-fatal selection errors.
+
 - Implemented the approved proxy persistence design: inventory, failures and accepted preferences share `proxy-inventory.sqlite3` through typed table views and one connection. Existing repositories, retention and separate business commits are preserved. Existing fixtures cover shared-table restoration and interrupted eviction; this completes the earlier analysis entries.
 
 - Moved all nine inline unit-test modules into dedicated files under adjacent `tests/` directories, retaining their module names, private access, feature gates, and existing inventory lifecycle inclusion. Production logic and public APIs are unchanged.
@@ -234,6 +236,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Enabled direct fallback for scraper/resolver requests and explicitly for the web proxy API when no country proxy is available. Successful `get_entry` data can now be returned alongside the proxy availability error through the existing frontend envelope.
+
 - Bouké now exposes the locality directory as one `Localités` category. Opening it returns navigable locality categories, each loading its own paginated `/commune/<slug>` video listing through `get_category` instead of publishing every locality as a separate home category or prefetching every commune page.
 - Arte, TF1, France TV and RMC BFM Play now emit source-owned `key: rail:<provider-id>` rail identities, independent of titles; LN24's single category rail uses `rail:category-content`. Existing published keys, pagination, content extraction and title-based aggregation remain unchanged. The TF1 fixture contract now requires section keys; local HTML rails without persistent container ids remain documented follow-ups rather than using random slider ids.
 - Canal Zoom now exposes its `/liste-localite` directory as a `Localités` home category without preloading individual communes.
@@ -319,6 +323,8 @@ All notable changes to the server workspace are recorded here.
 - `set_nested_fields` fields now accept an optional `lookup` block that translates the value produced by `copy_from` or `host_from` through a root group of key/value items. Host lookups try the exact hostname and then each parent domain (`video.sibnet.ru` → `sibnet.ru`), and unmatched values are written unchanged.
 
 #### Changed
+
+- Return source-scoped direct-fallback diagnostics alongside successfully extracted data. Responses containing errors no longer emit a client ETag or return HTTP 304, preserving error delivery when content is unchanged.
 
 - Proxy discovery consumes source results as they complete while ordinary aggregation retains its ordering/cache behavior. Localized records publish immediately; deduplicated unknown IPs use at most 20 geo lookups per country load, four concurrent shared lookups, bounded positive/negative caching and cancellation with the final subscriber.
 

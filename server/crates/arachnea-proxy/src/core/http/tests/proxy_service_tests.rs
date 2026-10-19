@@ -99,6 +99,7 @@ fn remove_header_updates_redirect_opts_on_http_302() {
             cookies: HashMap::new(),
             proxy: serde_json::Value::Null,
             insecure_tls: false,
+        fallback_direct: Some(false),
             follow_redirects: None,
             proxy_rejection_statuses: Vec::new(),
             proxy_retry_replayable: true,
@@ -127,6 +128,30 @@ fn remove_header_updates_redirect_opts_on_http_302() {
     assert_eq!(headers[0][1], "1");
     assert_eq!(next["proxy_response_classifier"]["type"], "http403");
     assert_eq!(next["proxy_retry_replayable"], true);
+    assert_eq!(next["fallback_direct"], false);
+    assert_eq!(
+        parse_opts_value(&next).unwrap().fallback_direct,
+        Some(false)
+    );
+    assert_eq!(
+        parse_opts_value(&serde_json::json!({"fallback_direct": true}))
+            .unwrap()
+            .fallback_direct,
+        Some(true)
+    );
+    assert_eq!(
+        parse_opts_value(&serde_json::Value::Null)
+            .unwrap()
+            .fallback_direct,
+        None
+    );
+    for value in [
+        serde_json::json!("true"),
+        serde_json::json!(null),
+        serde_json::json!(1),
+    ] {
+        assert!(parse_opts_value(&serde_json::json!({"fallback_direct": value})).is_err());
+    }
     assert!(parse_opts_value(&serde_json::json!({ "proxy_retry_replayable": "yes" })).is_err());
     let parsed = parse_opts_value(&next).unwrap();
     assert!(parsed.proxy_response_classifier.is_some());
@@ -211,6 +236,7 @@ fn remove_header_keeps_redirect_opts_for_non_302() {
         cookies: HashMap::new(),
         proxy: serde_json::Value::Null,
         insecure_tls: false,
+        fallback_direct: Some(false),
         follow_redirects: None,
         proxy_rejection_statuses: Vec::new(),
         proxy_retry_replayable: false,

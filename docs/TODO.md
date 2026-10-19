@@ -5,7 +5,6 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 
 - Dans la description des services, ajouter des tags cle/valeur pour pouvoir distinguer le pays et la langue des vidéos.
 - Identités YAML des rails : clés standardisées `rail:<provider-id>` ajoutées pour Arte, TF1, France TV et RMC BFM Play ; clé fixe du rail LN24. Trouver une identité persistante pour les rails featured TeleMB et recommandations Canal Zoom/Télésambre sans descripteur ; les UIDs de slider changent entre requêtes et sont exclus. Ne pas utiliser de position ni de titre normalisé comme fausse clé stable.
-- Tests `arachnea-scrapyfy` : les tests `resolve_url` (appel de `apply` sans le paramètre `ProxyFollowRedirects`) ne compilent plus suite au changement de signature du proxy ; préexistant et hors périmètre, à réaligner comme les tests `arachnea-proxy`.
 - Utiliser obscura pour contourner Cloudflare (navigateur rust avec résolution cloudflare interne). 
 
 ## Front
@@ -50,6 +49,8 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 
 
 ## Server/Proxy
+
+- [x] Rendre le repli direct explicite et configurable (`fallback_direct`), avec surcharge par requête, activation dans arachnea-stream et restitution des erreurs de disponibilité avec les données extraites.
 
 - [x] Externaliser les neuf blocs de tests existants de `arachnea-proxy` dans des fichiers dédiés, en conservant modules, accès privés et conditions de compilation. Le fichier de cycle de vie déjà séparé reste inclus depuis les tests de l’inventaire. Suivi : [analyse-decoupage-arachnea-proxy.md](dev-tracking/analyse-decoupage-arachnea-proxy.md), section 10.
 - [x] Découper l’inventaire de `arachnea-proxy` par responsabilité : façade et neuf sous-modules privés, chemins publics et mécanismes de concurrence conservés. Bilan : [analyse-decoupage-arachnea-proxy.md](dev-tracking/analyse-decoupage-arachnea-proxy.md), section 11.

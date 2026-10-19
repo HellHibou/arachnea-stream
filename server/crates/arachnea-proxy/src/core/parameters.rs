@@ -17,6 +17,12 @@ pub const PROXY_HEADER_PARAMETER_AFFINITY: &str = "Arachnea-Proxy-Affinity";
 /// Proxy countries parameter name.
 pub const PROXY_PARAMETER_COUNTRIES: &str = "countries";
 
+/// Request override for direct fallback when no country proxy is available.
+pub const PROXY_PARAMETER_FALLBACK_DIRECT: &str = "fallback_direct";
+
+/// HTTP header carrying the boolean direct-fallback override.
+pub const PROXY_HEADER_PARAMETER_FALLBACK_DIRECT: &str = "Arachnea-Proxy-Fallback-Direct";
+
 /// Proxy affinity parameter name.
 pub const PROXY_PARAMETER_AFFINITY: &str = "proxy_affinity";
 
@@ -510,6 +516,11 @@ impl ParameterRegistry {
     pub fn with_defaults() -> Self {
         let mut registry = Self::default();
         registry.register(default_countries_parameter_definition());
+        registry.register(ParameterDefinition::new(
+            PROXY_HEADER_PARAMETER_FALLBACK_DIRECT,
+            PROXY_PARAMETER_FALLBACK_DIRECT,
+            false,
+        ));
         registry
     }
 

@@ -17,6 +17,7 @@ const ALLOWED_OPTS_FIELDS: &[&str] = &[
     "cookies",
     "proxy",
     "insecure_tls",
+    "fallback_direct",
     "follow_redirects",
     "proxy_rejection_statuses",
     "proxy_response_classifier",
@@ -35,6 +36,8 @@ pub(super) struct ProxyHttpOpts {
     pub(super) proxy: serde_json::Value,
     /// Requests a TLS bypass for an allowlisted exact host.
     pub(super) insecure_tls: bool,
+    /// Request override for the service direct-fallback default.
+    pub(super) fallback_direct: Option<bool>,
     /// Optional maximum number of upstream redirects to follow.
     pub(super) follow_redirects: Option<usize>,
     /// HTTP statuses that reject a destination association under the safe retry policy.
@@ -74,6 +77,7 @@ pub(super) fn parse_opts_value(value: &serde_json::Value) -> Result<ProxyHttpOpt
                 cookies: HashMap::new(),
                 proxy: serde_json::Value::Null,
                 insecure_tls: false,
+                fallback_direct: None,
                 follow_redirects: None,
                 proxy_rejection_statuses: Vec::new(),
                 proxy_retry_replayable: false,
@@ -227,6 +231,14 @@ pub(super) fn parse_opts_value(value: &serde_json::Value) -> Result<ProxyHttpOpt
         cookies,
         proxy,
         insecure_tls,
+        fallback_direct: obj
+            .get("fallback_direct")
+            .map(|value| {
+                value
+                    .as_bool()
+                    .ok_or_else(|| (400, "'fallback_direct' must be a boolean".to_string()))
+            })
+            .transpose()?,
         follow_redirects,
         proxy_rejection_statuses,
         proxy_response_classifier,
@@ -249,6 +261,7 @@ pub(super) fn encode_proxy_opts(opts: &ProxyHttpOpts) -> String {
     if opts.headers.is_empty()
         && opts.cookies.is_empty()
         && opts.proxy.is_null()
+        && opts.fallback_direct.is_none()
         && !opts.insecure_tls
         && opts.follow_redirects.is_none()
         && opts.proxy_rejection_statuses.is_empty()
@@ -259,6 +272,9 @@ pub(super) fn encode_proxy_opts(opts: &ProxyHttpOpts) -> String {
     }
 
     let mut object = serde_json::Map::new();
+    if let Some(value) = opts.fallback_direct {
+        object.insert("fallback_direct".into(), serde_json::json!(value));
+    }
     if opts.proxy_retry_replayable {
         object.insert("proxy_retry_replayable".into(), serde_json::json!(true));
     }

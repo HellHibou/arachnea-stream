@@ -291,7 +291,7 @@ fn register_routes(
                     .proxy_http_core
                     .as_ref()
                     .ok_or_else(|| "HTTP proxy core is unavailable".to_string())?;
-                arachnea_proxy::core::http::handle_proxy_http(Arc::new(core.clone()), input).await
+                arachnea_proxy::core::http::handle_proxy_http(Arc::new(core.clone()), input, true).await
             },
         );
     }

@@ -86,6 +86,7 @@ impl ArachneaProxyCore {
         chain: &ProxyChain,
         request: &ConnectRequest,
     ) -> Result<ResolvedProxyChain> {
+        let fallback_direct = self.fallback_direct_for_request(request)?;
         let mut resolved = chain.clone();
         resolved.nodes = Vec::with_capacity(chain.nodes.len());
         let mut pool_selections = Vec::new();
@@ -122,16 +123,22 @@ impl ArachneaProxyCore {
                     {
                         Ok(selected) => selected,
                         Err(error)
-                            if is_dynamic_country_proxy_unavailable(&error)
-                                && crate::core::ProxySearchContext::current().is_none() =>
+                            if is_dynamic_country_proxy_unavailable(&error) && fallback_direct =>
                         {
                             tracing::warn!(
                                 destination = %request.destination,
                                 requested_proxy_countries = ?countries,
                                 %error,
-                                "dynamic country proxy unavailable; continuing without geo proxy"
+                                "dynamic country proxy unavailable; falling back to a direct route"
                             );
-                            continue;
+                            crate::core::ProxyFallbackDiagnostics::record(format!(
+                                "{error}; using direct fallback for {}",
+                                request.destination
+                            ));
+                            return Ok(ResolvedProxyChain {
+                                chain: ProxyChain::direct(),
+                                pool_selections: Vec::new(),
+                            });
                         }
                         Err(error) => return Err(error),
                     };

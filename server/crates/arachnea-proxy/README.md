@@ -148,10 +148,32 @@ and selected candidate authority and country. Routine route evaluation,
 local-country mismatch, selected route transport, and reuse of the proxy validated
 for an origin are logged at DEBUG. Route selection logs include the destination
 authority; unavailable geo-proxy warnings also include it.
-A local country matching any requested country
-skips the dynamic geo-proxy, and an unavailable dynamic pool continues along the
-remaining route without that geo-proxy. These logs do not include proxy credentials
-or affinity values and do not change those routing decisions.
+A local country matching any requested country skips the dynamic geo-proxy.
+When no usable country proxy is available, `ProxyConfig.fallback_direct` defaults
+to `false` (return the selection error). Set it to `true`, or call
+`ArachneaProxyCore::with_fallback_direct(true)`, to select a fully direct route
+without any remote proxy. This policy applies equally with and without a
+`ProxySearchContext`; it does not recover unrelated transport or origin errors.
+`routing.allow_direct_fallback = false` and `privacy.prevent_direct_fallback = true`
+always prohibit this fallback, including request overrides.
+
+Library callers can override the default with the `fallback_direct` client-context
+parameter (`ClientParameter::Bool`, or the strings `true` / `false`). HTTP proxy
+requests can use `Arachnea-Proxy-Fallback-Direct: true` or `false`; the header is
+consumed locally and never forwarded to the destination. With `arachnea-http`,
+use the equivalent `proxy_parameter("fallback_direct", "true")` builder option.
+The controller web proxy requires an explicit default when registering or invoking
+its handler: `register_service(controller, core, name, fallback_direct)` and
+`handle_proxy_http(core, input, fallback_direct)`. Its `opts` JSON accepts an optional
+boolean `fallback_direct`; omission inherits the service default, and explicit
+`false` disables fallback. Precedence is URL option > request header > service
+(or core) default, within the privacy restrictions above. Redirect URL rewriting
+preserves the URL option.
+
+Direct fallback logs the selection error. `ProxyFallbackDiagnostics::scope`
+collects deduplicated non-fatal fallback diagnostics for a logical source execution,
+without mixing concurrent sources. These logs do not include proxy credentials
+or affinity values.
 
 TLS handshake failures emit a WARN diagnostic with the TLS server name,
 certificate-verification flag, and underlying error. The shared helper uses

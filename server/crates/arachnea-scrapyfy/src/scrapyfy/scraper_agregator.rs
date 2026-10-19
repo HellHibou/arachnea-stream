@@ -1034,7 +1034,7 @@ impl ScraperAgregator {
                 )),
             };
             let server_cache = self.server_cache.clone();
-            async move {
+            let execute: futures::future::BoxFuture<'_, _> = Box::pin(async move {
                 match server_cache_interaction {
                     ServerCacheInteraction::None => {
                         query_collection
@@ -1147,6 +1147,18 @@ impl ScraperAgregator {
                         result
                     }
                 }
+            });
+            async move {
+                #[cfg(feature = "arachnea-proxy")]
+                {
+                    let diagnostics = arachnea_proxy::core::ProxyFallbackDiagnostics::default();
+                    let result = diagnostics.scope(execute).await;
+                    (result, diagnostics.messages())
+                }
+                #[cfg(not(feature = "arachnea-proxy"))]
+                {
+                    (execute.await, Vec::<String>::new())
+                }
             }
         }))
         .await;
@@ -1155,7 +1167,24 @@ impl ScraperAgregator {
         let mut errors: Vec<ScraperExecutionError> = Vec::new();
         let mut validations: HashMap<String, ScraperSourceValidation> = HashMap::new();
 
-        for (query, result) in filtered_queries.into_iter().zip(results) {
+        for (query, (result, fallback_messages)) in filtered_queries.into_iter().zip(results) {
+            for message in fallback_messages {
+                let code = ERROR_CODE_GEN.next_code();
+                tracing::warn!(
+                    error_code = %code,
+                    operation,
+                    source = query.name(),
+                    error = %message,
+                    "source query used direct proxy fallback",
+                );
+                errors.push(ScraperExecutionError {
+                    code,
+                    operation: operation.to_string(),
+                    source: Some(query.name().to_string()),
+                    origin: ScraperErrorOrigin::Backend,
+                    message,
+                });
+            }
             match result {
                 Ok((entries, outcome)) => {
                     if let Some(outcome) = outcome {
@@ -1353,7 +1382,11 @@ impl ScraperAgregator {
                 .validations
                 .values()
                 .all(|validation| validation.status == ScraperSourceStatus::Stale);
-        if all_stale && global_etag.is_some() && global_etag == client_etag {
+        if result.errors.is_empty()
+            && all_stale
+            && global_etag.is_some()
+            && global_etag == client_etag
+        {
             result.global_etag = global_etag;
             return result;
         }
@@ -1451,7 +1484,7 @@ impl ScraperAgregator {
             }
         }
 
-        if client_flow {
+        if client_flow && result.errors.is_empty() {
             result.global_etag = global_etag;
         }
         result
@@ -2111,6 +2144,82 @@ queries:
         assert!(matches!(&error.origin, ScraperErrorOrigin::Backend));
         assert!(error.code.to_string().starts_with("ARACHNEA_E"));
         assert!(!error.message.is_empty());
+        #[cfg(feature = "arachnea-proxy")]
+        {
+            use arachnea_proxy::core::{
+                ArachneaProxyCore, CoexistencePolicy, DynamicCountryRoutingProxyHandler, ProxyConfig,
+            };
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let url = format!("http://{}/", listener.local_addr().unwrap());
+            let server = tokio::spawn(async move {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut head = Vec::new();
+                while !head.ends_with(b"\r\n\r\n") {
+                    head.push(stream.read_u8().await.unwrap());
+                    assert!(head.len() <= 8192);
+                }
+                assert!(!String::from_utf8_lossy(&head)
+                    .to_ascii_lowercase()
+                    .contains("arachnea-proxy-fallback-direct"));
+                let body = "<html><title>recovered</title></html>";
+                stream
+                    .write_all(
+                        format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                            body.len()
+                        )
+                        .as_bytes(),
+                    )
+                    .await
+                    .unwrap();
+            });
+            let yaml = failing_html_source("fallback", &url).replace(
+                "id: fallback",
+                "id: fallback\nhttp:\n  proxy_countries: [BE]",
+            );
+            let (aggregator, fallback_dir) = setup_aggregator_sources(&[
+                ("success", &static_source("success", "kept")),
+                ("fallback", &yaml),
+            ]);
+            let core = ArachneaProxyCore::new(ProxyConfig::default())
+                .unwrap()
+                .with_fallback_direct(true)
+                .with_parameter_handler(DynamicCountryRoutingProxyHandler::new(
+                    CoexistencePolicy::DynamicOnly,
+                ));
+            aggregator
+                .get_proxy_handle()
+                .set_proxy(HttpProxyConfig::Arachnea(core));
+            let result = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                aggregator.execute_query_async(
+                    &RequestControlerContext::default(),
+                    QueryParameters::from_cache_type(CacheType::ClientCache),
+                    "test",
+                    "probe",
+                    &HashMap::new(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    "get_entry",
+                ),
+            )
+            .await
+            .unwrap();
+            server.await.unwrap();
+            assert_eq!(result.data.len(), 2);
+            assert_eq!(value_from_row(&result.data[0]), Some("kept"));
+            assert_eq!(value_from_row(&result.data[1]), Some("recovered"));
+            assert_eq!(result.errors.len(), 1);
+            assert_eq!(result.errors[0].source.as_deref(), Some("fallback"));
+            assert_eq!(result.errors[0].operation, "get_entry");
+            assert!(result.errors[0].message.contains("using direct fallback"));
+            assert!(result.global_etag.is_none());
+            std::fs::remove_dir_all(fallback_dir).unwrap();
+        }
         std::fs::remove_dir_all(dir).expect("test service directory should be removed");
     }
 

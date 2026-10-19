@@ -63,6 +63,7 @@ struct ProxyPoolSelection {
 /// In-process proxy core used by libraries, servers and client connectors.
 #[derive(Clone)]
 pub struct ArachneaProxyCore {
+    fallback_direct: bool,
     config: Arc<ResolvedProxyConfig>,
     stats: Arc<ProxyStats>,
     parameter_handlers: Arc<Vec<Arc<dyn ProxyParameterHandler>>>,
@@ -229,6 +230,7 @@ impl ArachneaProxyCore {
         {
             let parameter_handlers = build_parameter_handlers(&config)?;
             Ok(Self {
+                fallback_direct: config.as_config().fallback_direct,
                 config: Arc::new(config),
                 stats: Arc::new(ProxyStats::default()),
                 parameter_handlers: Arc::new(parameter_handlers),
@@ -275,6 +277,7 @@ impl ArachneaProxyCore {
         {
             let parameter_handlers = build_parameter_handlers(&config)?;
             Ok(Self {
+                fallback_direct: config.as_config().fallback_direct,
                 config: Arc::new(config),
                 stats: Arc::new(ProxyStats::default()),
                 parameter_handlers: Arc::new(parameter_handlers),
@@ -342,6 +345,7 @@ impl ArachneaProxyCore {
         let dns_core = Arc::new(dns_core);
         let inventory = inventory.with_arachnea_dns(Arc::clone(&dns_core));
         Ok(Self {
+            fallback_direct: config.as_config().fallback_direct,
             config: Arc::new(config),
             stats: Arc::new(ProxyStats::default()),
             parameter_handlers: Arc::new(parameter_handlers),

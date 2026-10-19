@@ -450,6 +450,13 @@ impl StreamScraper {
             Arc::clone(&stores.source_enabled),
         )));
         agregator.ensure_proxy_core();
+        if let Some(core) = agregator.proxy_core().cloned() {
+            let core = core.with_fallback_direct(true);
+            agregator
+                .get_proxy_handle()
+                .set_proxy(HttpProxyConfig::Arachnea(core.clone()));
+            agregator.set_proxy_core(core);
+        }
         let proxy_handle = agregator.get_proxy_handle();
         let proxy_http_core = agregator.proxy_core().cloned();
 

@@ -61,7 +61,7 @@ fn country_parameter_handler_selects_extra_proxy() {
     }
 }
 
-/// Verifies that a parameter handler can append a proxy for one request only.
+/// Verifies request-local proxies and explicit direct-fallback precedence.
 #[tokio::test]
 async fn parameter_handler_appends_request_local_proxy() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -114,6 +114,87 @@ async fn parameter_handler_appends_request_local_proxy() {
     assert!(stream.is_ok());
     let request = accept.await.unwrap();
     assert!(request.starts_with("CONNECT example.com:443 "));
+
+    use crate::core::{
+        CoexistencePolicy, DynamicCountryRoutingProxyHandler, PrivacyPolicy,
+        ProxyFallbackDiagnostics, ProxySearchContext, PROXY_PARAMETER_FALLBACK_DIRECT,
+    };
+    let direct_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let destination =
+        Destination::host_port("127.0.0.1", direct_listener.local_addr().unwrap().port());
+    for scoped in [false, true] {
+        for (default, override_value, prevent, allow, expected) in [
+            (false, None, false, true, false),
+            (true, None, false, true, true),
+            (false, Some(true), false, true, true),
+            (true, Some(false), false, true, false),
+            (true, Some(true), true, true, false),
+            (true, Some(true), false, false, false),
+        ] {
+            let core = ArachneaProxyCore::new(ProxyConfig {
+                fallback_direct: default,
+                chains: vec![ProxyChain::fixed(
+                    "remote",
+                    vec![ProxyNode::http("unused", "127.0.0.1:1")],
+                )],
+                routing: RoutePolicy {
+                    default_chain: Some("remote".into()),
+                    allow_direct_fallback: allow,
+                    rules: Vec::new(),
+                },
+                privacy: PrivacyPolicy {
+                    prevent_direct_fallback: prevent,
+                    ..PrivacyPolicy::default()
+                },
+                ..ProxyConfig::default()
+            })
+            .unwrap()
+            .with_parameter_handler(DynamicCountryRoutingProxyHandler::new(
+                CoexistencePolicy::DynamicOnly,
+            ));
+            let mut context = ClientContext::new();
+            context.insert(
+                PROXY_PARAMETER_COUNTRIES,
+                ClientParameter::String(r#"["BE"]"#.into()),
+            );
+            if let Some(value) = override_value {
+                context.insert(
+                    PROXY_PARAMETER_FALLBACK_DIRECT,
+                    ClientParameter::String(value.to_string()),
+                );
+            }
+            let request = ConnectRequest::new(destination.clone()).with_client_context(context);
+            let diagnostics = ProxyFallbackDiagnostics::default();
+            let execute = async {
+                if scoped {
+                    ProxySearchContext::default()
+                        .scope(core.select_for_request(request.clone()))
+                        .await
+                } else {
+                    core.select_for_request(request.clone()).await
+                }
+            };
+            let selected = diagnostics.scope(execute).await;
+            assert_eq!(
+                selected.is_ok(),
+                expected,
+                "default={default}, override={override_value:?}, scoped={scoped}"
+            );
+            assert_eq!(diagnostics.messages().len(), usize::from(expected));
+            if let Ok(selected) = selected {
+                assert!(selected.selection_token.is_none());
+                let stream = selected.core.connect_request(request).await.unwrap();
+                let accepted = tokio::time::timeout(
+                    std::time::Duration::from_secs(1),
+                    direct_listener.accept(),
+                )
+                .await
+                .unwrap()
+                .unwrap();
+                drop((stream, accepted));
+            }
+        }
+    }
 }
 
 /// Verifies that routing rules can match client context parameters.

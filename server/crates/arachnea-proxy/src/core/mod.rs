@@ -38,6 +38,8 @@ pub mod proxy_preference_repository;
 /// Proxy liveness probing engine.
 pub mod proxy_probe;
 mod proxy_probe_target;
+mod proxy_fallback;
+pub use proxy_fallback::ProxyFallbackDiagnostics;
 pub use proxy_probe_target::{
     ProbeHttpMethod, ProbeTargetDiagnostics, ProbeTargetPolicy, ProbeTargetSuspension,
 };
@@ -87,7 +89,8 @@ pub use parameters::{
     ParameterDefinition, ParameterHandlerConfig, ParameterHandlerDecision, ParameterHandlerKind,
     ParameterProxyRoute, ParameterRegistry, ProxyParameterHandler, SmartDnsProxyHandler,
     PROXY_HEADER_PARAMETER_AFFINITY, PROXY_HEADER_PARAMETER_COUNTRIES, PROXY_PARAMETER_AFFINITY,
-    PROXY_PARAMETER_COUNTRIES,
+    PROXY_PARAMETER_COUNTRIES, PROXY_PARAMETER_FALLBACK_DIRECT,
+    PROXY_HEADER_PARAMETER_FALLBACK_DIRECT,
 };
 pub use policy::{
     EgressPool, EgressPoolStrategy, EgressSelector, NoopEgressSelector, PrivacyPolicy,

@@ -9,6 +9,17 @@ application. The localized-proxy test suites run with:
 cargo test --offline -p arachnea-scrapyfy --lib --features arachnea-proxy,sqlite-persistence
 ```
 
+## Direct fallback diagnostics
+
+The generic proxy defaults to returning an error when no country proxy is available.
+Applications may opt into direct fallback on the injected proxy core with
+`with_fallback_direct(true)`. Each source execution collects non-fatal fallback
+errors and returns them in the existing `errors` envelope alongside any successfully
+extracted `data`, including for `get_entry`. Concurrent sources have separate
+collectors. Responses with errors do not expose a client ETag or short-circuit as
+HTTP 304, so clients receive the diagnostic even when remote content is unchanged.
+No scraper YAML configuration is added by this policy.
+
 ## Proxy response policies
 
 With `arachnea-proxy`, YAML `http.proxy_response_classifier` selects a shared
