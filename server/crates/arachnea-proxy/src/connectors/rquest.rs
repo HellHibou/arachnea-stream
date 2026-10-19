@@ -172,11 +172,29 @@ impl ArachneaRquestLoopback {
     /// Returns an error when the proxy cannot be configured or the rquest
     /// client cannot be built.
     pub fn client(&self) -> Result<rquest::Client> {
+        self.client_with_connect_timeout(None)
+    }
+
+    /// Builds a loopback client with an explicit connection-establishment limit.
+    ///
+    /// # Arguments
+    /// - `timeout`: Complete connector budget, or `None` for the ordinary default.
+    ///
+    /// # Errors
+    /// Returns an error when the proxy or client cannot be configured.
+    pub fn client_with_connect_timeout(
+        &self,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<rquest::Client> {
         let proxy = rquest::Proxy::all(&self.proxy_url)
             .map_err(|error| ConnectorError::Rquest(error.to_string()))?;
-        rquest::Client::builder()
+        let mut builder = rquest::Client::builder()
             .proxy(proxy)
-            .redirect(rquest::redirect::Policy::none())
+            .redirect(rquest::redirect::Policy::none());
+        if let Some(timeout) = timeout {
+            builder = builder.connect_timeout(timeout);
+        }
+        builder
             .build()
             .map_err(|error| ConnectorError::Rquest(error.to_string()))
     }

@@ -151,6 +151,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Coordinate cold localized discovery by exact destination and allowed-country set, wake pending discovery on business success, and release ownership on outcome/cancellation before media transfer. Preserve immutable selection provenance, allow longer connection budgets for known endpoints, cap ambiguous destination exclusions at 30 seconds even in existing caches, and persist followed-redirect evidence separately from final acceptance. Existing fixtures cover followers, cancellation, restored redirect evidence and transient exclusions.
+
 - Shared TCP prechecks and capability validations now own abort-on-drop child tasks, isolating probe TLS handshakes from the media handler's polling stack after the remaining FranceTV stack overflow. Work sharing, search deadlines and concurrency limits are preserved; existing fixtures verify task isolation and cancellation releasing inventory slots.
 
 - Accepted origin responses now clear strictly older ambiguous (`Other`) exclusions for the same proxy and exact destination. Preferred selection repairs and persists legacy exclusions superseded by stored successes, allowing reuse without deleting the cache; equal-date/newer failures, explicit origin rejections and unrelated health state remain protected.
@@ -347,6 +349,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Reuse exact-destination proxy evidence with the longer connection/header profile, publish accepted responses before body collection with one commit per token, and record intermediate redirect routing evidence without accepting the starting domain's content. Preserve conservative POST delivery rules and separate accepted-body transfer limits; the existing TLS fixture verifies a reused endpoint can exceed ordinary header timing.
+
 - Localized Rquest clients now bound complete connection establishment to 15 seconds (or a shorter request timeout), preserving native pre-send timeout evidence for safe proxy rotation. Outer response-header timeouts remain conservative and emit a correlated phase diagnostic. An existing POST fixture verifies the 15-second CONNECT timeout before the 25-second header deadline.
 
 - Rquest now preserves proven absence of business delivery for first-hop connector failures, including refused CONNECT and rejected destination TLS certificates, instead of treating every send error as `PossiblySent`. This permits bounded safe retries of 6play login setup failures. Transmitted POSTs, opaque timeouts and redirect-hop failures remain conservative. Sanitized failure categories expose TLS/tunnel causes without disabling verification or logging source chains.
@@ -440,6 +444,8 @@ All notable changes to the server workspace are recorded here.
 #### Added
 
 #### Changed
+
+- Analyzed the October 19 localized-proxy logs: confirmed preferred-proxy reuse followed by the five-second SOCKS timeout, parallel destination attempts, intermediate redirect preference gaps, and remaining media-timeout evidence limits. Recorded proposed follow-up work; runtime behavior is unchanged.
 
 - Reconciled localized-proxy completion checklists with the delivered lots and local acceptance results, closed the obsolete Scrapyfy test TODO, and consolidated the remaining production qualification and workspace-formatting tasks.
 

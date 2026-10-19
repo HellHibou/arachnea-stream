@@ -1492,7 +1492,21 @@ impl ArachneaHttpClient {
                     Some(loopback.proxy_url()),
                     Some(
                         loopback
-                            .client()
+                            .client_with_connect_timeout(
+                                arachnea_proxy::core::ProxySearchContext::current().map(|_| {
+                                    if selected
+                                        .selection_token
+                                        .as_ref()
+                                        .is_some_and(|token| token.reuses_destination())
+                                    {
+                                        std::time::Duration::from_secs(60)
+                                    } else {
+                                        self.config
+                                            .request_timeout
+                                            .min(std::time::Duration::from_secs(15))
+                                    }
+                                }),
+                            )
                             .map_err(|error| ArachneaHttpError::Proxy(error.to_string()))?,
                     ),
                 )?;
@@ -1636,6 +1650,11 @@ impl ArachneaHttpClient {
                 response.set_redirect_urls(redirect_urls);
                 return Ok(response);
             };
+
+            #[cfg(feature = "arachnea-proxy")]
+            if let Some(token) = response.proxy_selection() {
+                token.record_redirect(response.status.as_u16()).await;
+            }
 
             debug!(
                 engine = engine_name,

@@ -354,7 +354,9 @@ impl ArachneaProxyCore {
 
     /// Remaining establishment time for adapters that execute on a separate task.
     pub fn proxy_search_remaining(&self) -> Option<std::time::Duration> {
-        self.search_context.as_ref().map(|search| search.origin_remaining())
+        self.search_context
+            .as_ref()
+            .map(|search| search.origin_remaining())
     }
 
     /// Returns a clone that tracks dynamic proxy selections for HTTP outcomes.
@@ -424,7 +426,8 @@ impl ArachneaProxyCore {
             let route_generation = route_hash.finish();
             let mut scoped = self.clone();
             scoped.dynamic_proxy_selections = None;
-            scoped.search_context = crate::core::ProxySearchContext::current().or(self.search_context.clone());
+            scoped.search_context =
+                crate::core::ProxySearchContext::current().or(self.search_context.clone());
             scoped.pinned_route = Some(Arc::new((request.destination, resolved, token.clone())));
             Ok(crate::core::SelectedProxy {
                 core: scoped,
@@ -1388,7 +1391,10 @@ impl ArachneaProxyCore {
                         .await
                     {
                         Ok(selected) => selected,
-                        Err(error) if is_dynamic_country_proxy_unavailable(&error) && crate::core::ProxySearchContext::current().is_none() => {
+                        Err(error)
+                            if is_dynamic_country_proxy_unavailable(&error)
+                                && crate::core::ProxySearchContext::current().is_none() =>
+                        {
                             tracing::warn!(
                                 destination = %request.destination,
                                 requested_proxy_countries = ?countries,
@@ -2092,7 +2098,10 @@ impl ArachneaProxyCore {
         log_connect_chain_iteration(chain, &request.destination, 0);
         if crate::core::ProxySearchContext::current().is_some()
             && (request.client_context.get_string("countries").is_some()
-                || self.pinned_route.as_ref().is_some_and(|route| route.2.is_some()))
+                || self
+                    .pinned_route
+                    .as_ref()
+                    .is_some_and(|route| route.2.is_some()))
         {
             return self.connect_chain_once(chain, request).await;
         }
@@ -2347,6 +2356,30 @@ impl ArachneaProxyCore {
     /// - `node`: Proxy hop whose authority must belong to the active search.
     fn proxy_timeouts(&self, node: &ProxyNode) -> crate::core::TimeoutConfig {
         let configured = &self.config.as_config().timeouts;
+        if let Some(token) = self
+            .pinned_route
+            .as_ref()
+            .and_then(|route| route.2.as_ref())
+            .filter(|_| {
+                self.search_context.is_some()
+                    || crate::core::ProxySearchContext::current().is_some()
+            })
+        {
+            if node.endpoint.as_deref() == Some(token.endpoint()) {
+                let mut timeouts = configured.clone();
+                timeouts.connect_ms = timeouts.connect_ms.min(if token.reuses_destination() {
+                    30_000
+                } else {
+                    3_000
+                });
+                timeouts.handshake_ms = timeouts.handshake_ms.min(if token.reuses_destination() {
+                    30_000
+                } else {
+                    5_000
+                });
+                return timeouts;
+            }
+        }
         match (
             crate::core::ProxySearchContext::current(),
             node.endpoint.as_deref(),

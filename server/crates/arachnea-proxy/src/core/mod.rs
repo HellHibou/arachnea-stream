@@ -95,6 +95,7 @@ pub use policy::{
 };
 pub use proxy_inventory::{
     CoexistencePolicy, InventoryConfig, ProxyInventory, PROXY_DESTINATION_FAILURE_COOLDOWN,
+    PROXY_TRANSIENT_FAILURE_COOLDOWN,
 };
 pub use proxy_observation::{
     ProxyFailureScope, ProxyHealthEvidence, ProxyObservation, ProxyObservationOutcome,
@@ -116,7 +117,7 @@ pub use proxy_record::{
 };
 #[cfg(feature = "persistence")]
 pub use proxy_repository::{ProxyRepository, TypedProxyRepository, PROXY_STORE_NAME};
-pub use proxy_selection::{ProxySelectionToken, SelectedProxy};
+pub use proxy_selection::{ProxySelectionProvenance, ProxySelectionToken, SelectedProxy};
 pub use routing::{RouteDecision, RoutePolicy, RouteRule};
 pub use stats::{ProxyStats, ProxyStatsSnapshot};
 pub use transport::{socks::Socks5UdpAssociation, OutboundTransport, UdpAssociation};

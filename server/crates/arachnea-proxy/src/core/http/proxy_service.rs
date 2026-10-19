@@ -1097,6 +1097,13 @@ pub async fn handle_proxy_http(
     } else {
         execute.await
     };
+    if let Some(search) = &search {
+        search.log_progress(if result.is_ok() {
+            "response received"
+        } else {
+            "request failed"
+        });
+    }
     let proxy_response = match result {
         Ok(response) => response,
         Err(error) => return Ok(stream_error(502, format!("Proxy error: {error}"))),

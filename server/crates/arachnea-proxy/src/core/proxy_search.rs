@@ -1,14 +1,14 @@
 //! Request-owned deadlines, work tracking and replay policy for localized proxies.
 
-use super::{Destination, ProxyError, ProxyRequestDelivery, Result};
+use super::{Destination, ProxyError, ProxyRequestDelivery, ProxySelectionProvenance, Result};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     future::Future,
     sync::{Arc, Mutex},
     time::Duration,
 };
 use tokio::{
-    sync::{watch, Semaphore},
+    sync::{watch, OwnedMutexGuard, Semaphore},
     time::Instant,
 };
 
@@ -34,6 +34,9 @@ struct Work {
     technical: HashSet<(bool, String)>,
     endpoints: HashSet<String>,
     attempts: HashSet<(String, String)>,
+    provenance: HashMap<(String, String), ProxySelectionProvenance>,
+    discovery: Option<OwnedMutexGuard<()>>,
+    reused_origin: bool,
     active: bool,
     accepted: bool,
     prechecks_completed: usize,
@@ -102,6 +105,71 @@ impl ProxySearchContext {
     /// Stable in-process identity for adapters bound to this logical call.
     pub fn id(&self) -> usize {
         Arc::as_ptr(&self.work) as usize
+    }
+
+    /// Attaches business evidence to an exact endpoint and origin before engagement.
+    ///
+    /// # Arguments
+    /// - `endpoint`: Selected proxy authority.
+    /// - `destination`: Origin for which the evidence was observed.
+    /// - `provenance`: Type of prior business evidence, independent of probe health.
+    pub(crate) fn mark_selection(
+        &self,
+        endpoint: &str,
+        destination: &Destination,
+        provenance: ProxySelectionProvenance,
+    ) {
+        self.work.lock().unwrap().provenance.insert(
+            (
+                endpoint.into(),
+                super::ProxyDestinationPreference::destination_key(destination),
+            ),
+            provenance,
+        );
+    }
+
+    /// Returns evidence for this exact route, defaulting to discovery.
+    ///
+    /// # Arguments
+    /// - `endpoint`: Concrete proxy authority.
+    /// - `destination`: Origin whose evidence must match.
+    pub(crate) fn selection_provenance(
+        &self,
+        endpoint: &str,
+        destination: &Destination,
+    ) -> ProxySelectionProvenance {
+        self.work
+            .lock()
+            .unwrap()
+            .provenance
+            .get(&(
+                endpoint.into(),
+                super::ProxyDestinationPreference::destination_key(destination),
+            ))
+            .copied()
+            .unwrap_or(ProxySelectionProvenance::Discovery)
+    }
+
+    /// Retains discovery ownership until it is claimed by a selection token.
+    ///
+    /// # Arguments
+    /// - `guard`: Exclusive ownership for this destination and country set.
+    pub(crate) fn hold_discovery(&self, guard: OwnedMutexGuard<()>) {
+        self.work.lock().unwrap().discovery = Some(guard);
+    }
+
+    /// Transfers ownership to a token, or releases it on cancellation or supersession.
+    pub(crate) fn take_discovery(&self) -> Option<OwnedMutexGuard<()>> {
+        self.work.lock().unwrap().discovery.take()
+    }
+
+    /// Connection envelope for the exact origin attempt, including destination TLS.
+    pub fn connection_timeout(&self) -> Duration {
+        Duration::from_secs(if self.work.lock().unwrap().reused_origin {
+            60
+        } else {
+            15
+        })
     }
     /// Remaining hard-deadline time for a business attempt already engaged.
     pub fn origin_remaining(&self) -> Duration {
@@ -220,9 +288,16 @@ impl ProxySearchContext {
         configured: &super::TimeoutConfig,
     ) -> super::TimeoutConfig {
         let mut timeouts = configured.clone();
-        if self.work.lock().unwrap().endpoints.contains(endpoint) {
-            timeouts.connect_ms = timeouts.connect_ms.min(3_000);
-            timeouts.handshake_ms = timeouts.handshake_ms.min(5_000);
+        let work = self.work.lock().unwrap();
+        if work.endpoints.contains(endpoint) {
+            timeouts.connect_ms =
+                timeouts
+                    .connect_ms
+                    .min(if work.reused_origin { 30_000 } else { 3_000 });
+            timeouts.handshake_ms =
+                timeouts
+                    .handshake_ms
+                    .min(if work.reused_origin { 30_000 } else { 5_000 });
         }
         timeouts
     }
@@ -262,6 +337,7 @@ impl ProxySearchContext {
             validations_eligible = work.validations_eligible,
             business_endpoints = work.endpoints.len(),
             origin_active = work.active,
+            reused_origin = work.reused_origin,
             accepted = work.accepted,
             "localized proxy search progress"
         );
@@ -306,6 +382,16 @@ impl ProxySearchContext {
                 .unwrap_or_else(|| destination.to_string()),
         ));
         work.active = true;
+        work.reused_origin = work
+            .provenance
+            .get(&(
+                endpoint.into(),
+                super::ProxyDestinationPreference::destination_key(destination),
+            ))
+            .is_some_and(|source| *source != ProxySelectionProvenance::Discovery);
+        tracing::info!(search_id = self.id(), proxy = endpoint, %destination,
+            provenance = ?work.provenance.get(&(endpoint.into(), super::ProxyDestinationPreference::destination_key(destination))).copied().unwrap_or(ProxySelectionProvenance::Discovery),
+            "localized proxy origin selected");
         Ok(())
     }
     pub(crate) fn attempted(&self, endpoint: &str, destination: Option<&Destination>) -> bool {
@@ -321,7 +407,9 @@ impl ProxySearchContext {
     }
     /// Completes a failed/rejected attempt without resetting deadlines or counters.
     pub fn end_attempt(&self) {
-        self.work.lock().unwrap().active = false;
+        let mut work = self.work.lock().unwrap();
+        work.active = false;
+        work.discovery.take();
     }
     /// Closes discovery after an accepted final response; transfer deadlines are separate.
     pub fn accept(&self) {

@@ -288,19 +288,38 @@ TCP prechecks, full validations or distinct business endpoints: discovery contin
 until acceptance, candidate exhaustion or the shared deadline. Concurrency remains
 bounded. Waiting for resources consumes the same deadline. Retry layers never reset it.
 
-Localized Rquest clients cap complete connection establishment (including the
-loopback proxy and destination TLS) at 15 seconds, or a shorter configured request
-timeout. Native connector timeouts preserve `NotSent` evidence on the first hop;
+New localized Rquest candidates cap complete connection establishment (including
+the loopback proxy and destination TLS) at 15 seconds, or a shorter configured
+request timeout. For an exact endpoint/origin with prior acceptance or followed
+redirect evidence, application-created pinned clients use a 60-second connection
+envelope and a 60-second send/header timeout. The latter includes connection
+establishment; Rquest has no separate TLS-only timer here. The token carries
+immutable provenance, so another request cannot change this profile. The longer
+profile replaces ordinary localized header limits; accepted-body collection
+still uses the configured `request_timeout`. Native connector timeouts preserve
+`NotSent` evidence on the first hop;
 the outer response-header timeout remains conservative after possible sending.
 It emits a correlated `timeout` diagnostic with `phase=response_headers`.
 
-Rquest header/prefix observation uses the remaining origin deadline. Once a final
+Cold discovery is coordinated by exact origin and canonical allowed-country set;
+waiting consumes each caller's own search budget. Shared success notifications
+also wake exploration already waiting on probes/providers. Responses and bodies
+remain request-specific, and warm reuse does not serialize transfers. Followed
+redirects store separate routing evidence for intermediate origins; they never
+attribute final-content acceptance to the starting domain. Ambiguous correlated
+transport failures suspend the association for at most 30 seconds, including old
+stored `Other` exclusions, while explicit origin rejection cooldowns remain intact.
+
+Rquest header/prefix observation uses the remaining origin deadline. Final
+acceptance is committed once per token before body collection and wakes waiting
+callers; a later body-transfer error does not erase that acceptance. Once a final
 response is accepted, its body collection uses a separate `request_timeout`
 (default 30 seconds), without the search deadline cutting an accepted transfer.
 Ordinary requests keep their existing total request timeout. A safe-to-retry
 rejected response is released before collecting its body; responses that cannot
 be replayed retain body collection within the remaining time. A body collection
-error is `ResponseReceived` and never triggers a transport retry.
+error is `ResponseReceived` and never triggers a transport retry. It releases
+cold-discovery ownership even if the caller retains the attributed error/token.
 
 GET/HEAD may retry relevant correlated transport errors or configured rejections.
 Rquest connector errors on the first hop (TCP, proxy CONNECT or destination TLS

@@ -6,6 +6,10 @@ Statut : lots 1 à 6 intégrés ; validations et limites de recette des lots 1/2
 
 Révision : prise en compte des deux phases de test, de l’indisponibilité ou des restrictions géographiques du serveur de test, et des décisions sur la persistance et les pays autorisés.
 
+Dernière livraison (19 octobre 2026, section 35) : profils de réutilisation,
+exclusions transitoires, coordination des appels parallèles et preuves de
+redirection intégrés après confirmation. Recette vidéo réelle encore ouverte.
+
 Contrat courant (section 27) : recherche jusqu’au succès, épuisement des candidats
 ou échéance de 120 secondes, sans plafond de nombre de préchecks, validations ou
 endpoints métier. Les plafonds 64/32/8 des bilans antérieurs sont supprimés.
@@ -2628,3 +2632,277 @@ attachée à la sélection exacte, sans utiliser le dernier proxy d’un autre a
 concurrent. Après acceptation, la lecture conserve ses politiques de transfert.
 Le compromis est une attente plus longue avant remplacement d’un proxy connu
 qui est réellement devenu indisponible. Les règles de rejeu POST restent inchangées.
+
+
+## 34. Analyse des appels successifs et parallèles du 19 octobre 2026
+
+### 34.1. Périmètre et conclusion
+
+Analyse statique du code courant et des 2 329 lignes de l’extrait fourni,
+entre 08:42:49 et 09:08:27 (horodatages tels que fournis). Aucun appel réseau,
+changement de code, réglage de délai ou effacement de cache effectué.
+Les numéros de lignes ci-dessous désignent cet extrait ; les URLs signées et
+les identifiants utilisateur ne sont pas recopiés.
+
+La préférence par destination existe et sa réutilisation est observable.
+Le problème combine plusieurs mécanismes : abandon rapide d’un endpoint connu,
+exclusion durable après erreur ambiguë, parcours métier indépendants en parallèle,
+et absence de mémorisation des étapes intermédiaires de redirection.
+Augmenter uniquement le budget de recherche ne résoudrait pas ces mécanismes.
+
+### 34.2. Chronologie probante
+
+| Séquence | Observation | Interprétation |
+| --- | --- | --- |
+| 08:42:49–08:42:51, lignes 1–26 | K7 accepté en 2 112 ms ; hdfauth accepté en 597 ms avec `213.199.47.140:1080`. | Le proxy fonctionne pour ces échanges. La seconde recherche ne fait ni précheck ni validation ; cela ne prouve pas une préférence préexistante pour hdfauth. |
+| 08:42:58, lignes 27–33 | Deux handshakes SOCKS vers `cloudreplay.ftven.fr` expirent sur ce même endpoint ; deux recherches distinctes continuent. | La réussite API/authentification ne garantit pas l’accès au CDN. Les connexions métier ne sont pas mutualisées. |
+| 08:43:28, lignes 220–222 | Deux recherches CDN atteignent chacune 24 endpoints métier, avec des compteurs très proches. | Les appels poursuivent des parcours parallèles largement similaires. Les compteurs ne représentent pas autant de sondes réseau indépendantes, certaines sondes étant partagées. |
+| 08:44:36, lignes 236–237 | Deux timeouts SOCKS sur `163.172.80.153:1080` vers le même CDN. | La répétition des essais métier est visible au-delà du premier endpoint. |
+| 08:46:38–08:46:39, lignes 1101–1116 | `57.128.249.250:9052` est utilisé sur `www.m6.fr` ; réponse finale acceptée après 100 626 ms et 35 endpoints. Le GET suivant vise `www.6play.fr` et sélectionne `51.15.20.32:3129`. | La réponse finale concerne m6.fr ; elle ne constitue pas une préférence pour 6play.fr. |
+| 08:47:47, ligne 1440 | Le GET du bundle échoue après 68 643 ms, avec 51 356 ms encore disponibles. | Ce n’est pas l’expiration du budget global de 120 s ; l’erreur finale détaillée manque dans l’extrait. |
+| 08:47:50, lignes 1494–1498 | `drm.6cloud.fr` accepte `57.128.249.250:9052` ; appel total 1 120 ms, trois endpoints essayés. | Preuve d’acceptation pour la destination DRM exacte. |
+| 09:06:44–09:06:49, lignes 1778–1785 | Le même proxy est essayé en premier sur DRM ; échec SOCKS après environ 5 s (`elapsed_ms=5052`). | La préférence n’est pas oubliée : elle est essayée puis abandonnée avec les délais courts de découverte. |
+| 09:08:27, ligne 2329 | La recherche DRM échoue après 103 235 ms, 41 endpoints et 47 validations terminées, dont 35 éligibles ; il reste 16 764 ms. | Le coût de la reprise d’exploration est confirmé. La cause terminale n’est pas explicitée ; on ne peut pas appeler cet événement un timeout global. |
+
+À 09:06:43–09:06:44, Gigya et front-auth répondent encore en 513 et 255 ms,
+sans préchecks ni validations. Il n’y a donc pas une panne systématique de tous
+les domaines ou de toute la mécanique de cache.
+
+### 34.3. Proxy connu : délai court puis exclusion longue
+
+`ProxySearchContext::connection_timeouts` plafonne à 3 s la connexion TCP et à
+5 s le handshake de tout endpoint engagé dans une recherche localisée.
+`start_origin` ne distingue pas un proxy préféré d’un candidat découvert.
+Le cas DRM ci-dessus confirme que le profil court touche aussi un endpoint
+antérieurement accepté pour la destination exacte.
+
+Les boucles de `arachnea-http/src/client.rs::execute_with_rquest` et du service
+média `arachnea-proxy/src/core/http/proxy_service.rs` enregistrent les erreurs
+de transport corrélées, sans réponse reçue, avec la raison `Other`.
+Le cooldown de destination vaut par défaut 24 h dans l’inventaire, y compris
+pour cette raison. La préférence reste dans l’historique mais devient inéligible.
+Un timeout ponctuel peut donc provoquer une longue exploration immédiatement,
+puis empêcher la réutilisation lors des appels suivants.
+
+La réconciliation de la section 32 retire un `Other` antérieur à un succès.
+Elle ne retire volontairement pas une erreur plus récente que ce succès : elle
+ne couvre donc pas le timeout DRM observé après l’acceptation.
+Les logs ne montrent pas la valeur effective de chaque exclusion persistée ;
+la durée de 24 h est le défaut vérifié dans le code, pas une mesure du store.
+
+### 34.4. Parallélisme : mutualisation technique partielle
+
+L’inventaire partage les chargements fournisseurs et les opérations techniques
+TCP/capacités. En revanche, chaque appel possède son `ProxySearchContext`, son
+ensemble de tentatives et son signal d’acceptation. Le verrou par destination
+protège la restauration/lecture et la mise à jour de l’historique ; il ne couvre
+pas toute la recherche suivie de l’essai métier.
+
+Deux appels peuvent donc sélectionner le même endpoint et ouvrir chacun un
+handshake vers le CDN. Si l’un échoue, les deux peuvent déjà être engagés.
+Les doubles timeouts et refus CONNECT de l’extrait sont compatibles avec ce
+fonctionnement ; ils ne prouvent pas un double chargement de liste fournisseur.
+
+De plus, `select_any_with_search` consulte la préférence au début de la
+sélection, puis attend les résultats des sélecteurs, les publications fournisseur
+et l’échéance. Cette attente ne s’abonne pas aux succès métier d’un autre appel
+pour reprendre immédiatement le nouveau proxy accepté. Une recherche déjà en
+cours peut continuer avec ses candidats alors qu’un appel concurrent vient de
+trouver un endpoint adapté. Ce risque est confirmé par le code ; l’extrait ne
+montre pas de succès CDN permettant de mesurer précisément cette course.
+
+### 34.5. Redirections et sens de « même domaine »
+
+La clé actuelle est `schéma + hôte exact + port`. Les pays autorisés sont
+vérifiés à la sélection. `www.6play.fr` et `www.m6.fr` ont donc des historiques
+distincts, comme K7, hdfauth et cloudreplay.
+
+Dans `arachnea-http`, `execute_with_redirects` suit les étapes et retourne la
+réponse finale ; `execute_with_rquest` enregistre ensuite la décision portée
+par son token final. La réponse intermédiaire de redirection n’est pas
+mémorisée individuellement. Le client média suit également les redirections
+avant l’enregistrement de la réponse par son service.
+
+Cela explique une partie des nouvelles recherches apparentes sur 6play après
+un succès final sur m6.fr. Il ne faut pas résoudre cela en attribuant au domaine
+de départ une preuve d’acceptation du domaine final, ni en fusionnant arbitrairement
+les sous-domaines : un redirect réussi prouve seulement cette étape de routage.
+La mémorisation éventuelle de cette preuve intermédiaire doit avoir une
+sémantique distincte de l’acceptation finale du contenu.
+
+### 34.6. Pourquoi le lecteur peut attendre puis s’interrompre
+
+Il faut distinguer trois durées :
+
+- La recherche et les retries partagent 120 s, avec la grâce existante de 15 s
+  uniquement pour un essai métier déjà engagé. Ces valeurs ne sont pas un délai
+  garanti acceptable pour le lecteur.
+- Chaque connexion et attente HTTP a ses propres bornes. Outre TCP/handshake
+  3/5 s, Rquest possède un cap localisé de connexion de 15 s ; le client média
+  borne le TLS destination à 10 s et l’attente des en-têtes à 30 s.
+- Après acceptation, le transfert possède sa propre politique : le client média
+  borne à 30 s la collecte d’un corps lorsqu’un buffering est requis, tandis que
+  le streaming retourne un flux. Le budget de recherche ne sert pas de timeout
+  global de la lecture acceptée.
+
+Un lecteur sollicite plusieurs ressources ; le succès d’un manifeste ou d’un
+segment ne garantit pas le prochain échange. Un segment ultérieur qui repart en
+exploration peut arriver trop tard pour le tampon de lecture. Les traces rendent
+ce scénario plausible, mais elles ne contiennent ni chronologie complète des
+segments, ni erreurs du lecteur, ni mesures de tampon : elles ne démontrent pas
+la cause précise de chaque arrêt après démarrage.
+
+Les échecs enregistrés à 68,6 s, 90,0 s et 103,2 s surviennent avant l’échéance
+globale. L’épuisement des candidats éligibles ou une autre erreur peuvent
+terminer une recherche avant 120 s ; les événements `request failed` seuls
+ne permettent pas de trancher. Les relais GitHub terminés après environ 90 s
+ne prouvent pas non plus qu’un chargement fournisseur a bloqué pendant 90 s :
+la durée du tunnel peut inclure sa conservation après réception.
+
+### 34.7. Approches proposées, sans implémentation
+
+Priorité recommandée : traiter ensemble la réutilisation et la coordination,
+puis qualifier la lecture avant de modifier davantage les budgets.
+
+1. **Préserver la valeur d’une acceptation antérieure.** Introduire la provenance
+   du candidat dans le token de sélection et appliquer un profil de connexion
+   adapté au proxy connu. La proposition 30 s par phase / enveloppe et en-têtes
+   60 s de la section 33 reste à confirmer ; ce n’est pas une valeur déduite de
+   ces logs. En contrepartie, un proxy réellement indisponible sera remplacé
+   plus tard. Revoir séparément `Other` : suspension courte ou progressive et
+   réévaluation bornée, au lieu du même défaut de 24 h qu’un refus durable.
+   Aucun nouvel essai d’une opération modificatrice sans preuve de rejeu sûr.
+2. **Coordonner la découverte métier par destination.** Un appel conduit
+   l’exploration ; les autres attendent un changement de génération de préférence
+   ou utilisent le proxy déjà connu. Chaque appel garde son budget, ses pays
+   autorisés, son annulation et sa propre réponse. Partager la découverte ne
+   signifie pas partager les corps, cookies ou réponses d’authentification.
+   Un succès doit réveiller aussi les sélections déjà en attente. Prévoir la
+   reprise si l’appel conducteur disparaît et une équité entre ensembles de
+   pays compatibles, sans imposer un verrou pendant tout le transfert vidéo.
+3. **Réduire le coût des redirections répétées.** Conserver une preuve explicite
+   de routage intermédiaire, indépendante de la preuve de contenu final, ou
+   faire viser l’hôte final par la configuration source si son contrat le permet.
+   La première approche reste générique mais enrichit le modèle ; la seconde
+   est plus locale mais dépend du service. Les blocages restent associés à la
+   destination réellement observée.
+4. **Rendre les prochaines traces décisives.** Exposer au niveau INFO la
+   provenance de sélection, la cause d’inéligibilité d’un préféré, les étapes de
+   redirect, l’attente d’une recherche partagée et la cause terminale typée.
+   Ajouter une corrélation aux appels média sans journaliser de jetons, cookies
+   ou URLs signées. Les compteurs « éligible » ne doivent pas être lus comme une
+   preuve de capacité : l’extrait contient `capability_proven=false` avec candidat
+   néanmoins autorisé par la politique permissive.
+
+Alternative minimale : différencier uniquement les délais et le cooldown
+`Other`. Elle limiterait certaines reprises inutiles mais laisserait les essais
+métier doublés et les recherches déjà engagées sans notification de succès.
+La coordination complète apporte davantage en parallèle, au prix d’une gestion
+supplémentaire des attentes, générations et annulations.
+
+La qualification ultérieure devra couvrir les appels successifs, des ouvertures
+parallèles, l’échec ponctuel du préféré, la redirection et la lecture prolongée
+avec ses segments réels. Aucun nouveau test n’est créé pour cette analyse.
+Les changements de contrat proposés restent soumis à confirmation avant
+implémentation conformément à `AGENTS.md`.
+
+
+## 35. Livraison après confirmation du 19 octobre 2026
+
+Les recommandations de la section 34 sont confirmées par l’utilisateur.
+Cette section décrit le comportement livré ; les propositions en attente des
+sections précédentes restent des bilans historiques.
+
+### 35.1. Réutilisation et erreurs transitoires
+
+- Le token conserve la provenance de l’association endpoint/destination exacte :
+  `Discovery`, `AcceptedDestination` ou `RedirectDestination`. Il ne dépend pas
+  du dernier proxy d’un autre appel. Le transport épinglé consulte ce token.
+- Pour les candidats nouveaux, TCP 3 s et handshake proxy 5 s restent les caps.
+  Un endpoint connu dispose jusqu’à 30 s par phase, sans relever un délai de
+  transport explicitement plus court. Le client média autorise le TLS destination
+  jusqu’à 30 s, dans une enveloppe commune d’établissement de 60 s, puis attend
+  les en-têtes jusqu’à 60 s.
+- Les clients Rquest épinglés créés par l’application reçoivent effectivement le
+  cap natif d’établissement : 15 s pour la découverte, 60 s pour la réutilisation.
+  Le chemin utilisant un client loopback préconstruit ne contourne plus ce cap.
+  L’enveloppe envoi/en-têtes passe à 60 s pour le token connu, indépendamment du
+  délai ordinaire de l’appel ; le délai de collecte du corps n’est pas relevé.
+  Rquest englobe le TLS destination dans ce budget de connexion et ne possède
+  pas ici de timer TLS indépendant de 30 s. Son délai envoi/en-têtes inclut
+  l’établissement, contrairement aux deux étapes séparées du client média.
+- Une erreur ambiguë `Other` suspend l’association pendant au plus 30 s depuis
+  son dernier échec, avec conservation des délais configurés plus courts. La
+  sélection applique aussi ce cap aux exclusions anciennes de 24 h : aucun reset
+  du cache n’est requis. Le champ historique d’expiration peut garder son ancienne
+  valeur ; l’éligibilité utilise l’expiration effective plafonnée. Les exclusions
+  explicites `BlockedByOrigin` gardent leur durée et leur priorité.
+
+### 35.2. Coordination et redirections
+
+La découverte à froid est coordonnée par destination exacte et ensemble canonique
+de pays autorisés. Un appel possède le droit de découvrir puis d’essayer son
+candidat ; les autres attendent avec leur propre budget et vérifient les preuves
+publiées. La garde est transmise au token, puis libérée après le résultat, ou lors
+de la disparition de ses derniers propriétaires. Annuler une attente ou une
+sélection inachevée libère aussi sa réservation. Les registres faibles sont nettoyés
+à la demande ; aucun worker ni tâche métier détachée n’est ajouté.
+
+Une acceptation réveille les appels déjà en exploration, y compris ceux qui
+attendent une sonde ou un fournisseur. Des ensembles de pays différents peuvent
+explorer indépendamment pour ne pas bloquer derrière une permission incompatible ;
+ils réutilisent le succès partagé seulement si son pays leur est autorisé.
+Les tentatives ratées rendent la main aux autres attentes ; une fois un proxy
+connu, les transferts suivants restent parallèles.
+
+L’acceptation finale est enregistrée après classification, avant la collecte
+complète du corps. Un `OnceCell` partagé par les clones du token évite de doubler
+ce commit lors du retour de la réponse à l’orchestrateur. Les appels en attente
+peuvent donc reprendre pendant le transfert du premier corps. Les règles de rejeu
+POST, le budget global 120/135 s et les politiques de corps restent applicables.
+
+Une redirection effectivement suivie (301/302/303/307/308) conserve une observation
+`business-redirect-v1` pour son origine réelle. Cette preuve de routage est
+persistée dans l’inventaire existant et consultée après les préférences de contenu
+et le chargement des caches pays, avant l’affinité et l’exploration. Une affinité
+sans preuve métier pour cette destination attend aussi la garde de découverte ;
+elle ne permet pas à un second appel de doubler l’essai initial. Elle ne crée aucune préférence d’acceptation
+finale pour le domaine initial et ne supprime aucune exclusion explicite.
+Aucune migration de table, configuration propre à FranceTV/6play ou fusion de
+domaines n’est introduite.
+
+Les nouvelles traces INFO/WARN exposent l’identité de recherche, la provenance,
+les raisons d’inéligibilité observables, les redirections suivies et les erreurs
+de sélection typées. Elles ne recopient ni URL signée, ni cookie, ni corps.
+
+### 35.3. Validation et limites
+
+Les fixtures existantes ont été étendues ; aucun nouveau test ou infrastructure
+n’est créé. Elles couvrent notamment : attente d’un résultat métier concurrent,
+indépendance des destinations, affinité partagée sans contournement de la garde,
+annulation du conducteur et d’un abonné, réveil
+pendant le chargement d’un fournisseur lent, profil connu avec conservation des
+délais configurés plus courts, anciennes exclusions ambiguës, preuve de redirect
+restaurée et absence d’acceptation finale du domaine initial.
+La fixture TLS Rquest retarde les en-têtes de 150 ms avec un délai ordinaire
+réduit à 50 ms sur la requête connue : elle vérifie le profil de réutilisation,
+tout en conservant les scénarios de preuve d’envoi et de POST déjà présents.
+La même fixture retourne un corps 503 tronqué : l’erreur reste `ResponseReceived`,
+sans rejeu de transport, et l’appel suivant peut sélectionner le proxy même si
+l’erreur et son token sont conservés. La réservation est également libérée si
+l’inspection après réception dépasse l’échéance.
+
+Validation locale : **253 tests existants réussis** (128 proxy avec persistance,
+Rquest, DNS et contrôleur ; 45 HTTP avec proxy et persistance ; 80 Scrapyfy avec
+proxy et SQLite). Les suites réseau utilisent uniquement leurs fixtures locales.
+Le sandbox refusait initialement l’ouverture des sockets locales ; les suites
+ont été relancées avec cette permission et réussissent. La compilation proxy
+sans fonctionnalités par défaut, avec `core`, ainsi que la compilation HTTP sans
+fonctionnalités par défaut réussissent. Formatage de production ciblé et contrôles
+du diff vérifiés. Le binaire debug `arachnea` est reconstruit avec succès après
+les derniers correctifs ; aucun serveur ni lecture distante n’est lancé.
+
+La recette réelle FranceTV/6play, les timeouts du lecteur et une lecture vidéo
+prolongée restent à vérifier ; les fixtures locales ne démontrent pas la
+fiabilité ni le débit des proxies publics. Les limites de sondes et de découverte
+pendant un essai métier encore ouvertes dans la section 28 restent suivies.

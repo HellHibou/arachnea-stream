@@ -2,7 +2,7 @@
 
 use std::sync::{
     atomic::{AtomicU64, Ordering},
-    Arc,
+    Arc, Mutex,
 };
 use std::time::SystemTime;
 
@@ -13,6 +13,17 @@ use super::{
 
 static NEXT_SELECTION: AtomicU64 = AtomicU64::new(1);
 
+/// Evidence used to select this exact endpoint and destination.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProxySelectionProvenance {
+    /// Candidate without a prior business success for this destination.
+    Discovery,
+    /// Previously accepted final response from this destination.
+    AcceptedDestination,
+    /// Previously followed redirect from this destination, without content acceptance.
+    RedirectDestination,
+}
+
 /// Opaque association between a concrete route, endpoint and exact destination.
 /// Never serialize this token or forward it to an origin server.
 #[derive(Clone)]
@@ -21,6 +32,9 @@ pub struct ProxySelectionToken {
     inventory: Arc<ProxyInventory>,
     endpoint: String,
     destination: Destination,
+    provenance: ProxySelectionProvenance,
+    discovery: Arc<Mutex<Option<tokio::sync::OwnedMutexGuard<()>>>>,
+    accepted: Arc<tokio::sync::OnceCell<()>>,
 }
 
 impl std::fmt::Debug for ProxySelectionToken {
@@ -30,6 +44,7 @@ impl std::fmt::Debug for ProxySelectionToken {
             .field("id", &self.id)
             .field("endpoint", &self.endpoint)
             .field("destination", &self.destination)
+            .field("provenance", &self.provenance)
             .finish()
     }
 }
@@ -47,11 +62,21 @@ impl ProxySelectionToken {
         endpoint: String,
         destination: Destination,
     ) -> Self {
+        let search = super::ProxySearchContext::current();
+        let provenance = search
+            .as_ref()
+            .map(|search| search.selection_provenance(&endpoint, &destination))
+            .unwrap_or(ProxySelectionProvenance::Discovery);
         Self {
             id: NEXT_SELECTION.fetch_add(1, Ordering::Relaxed),
             inventory,
             endpoint,
             destination,
+            provenance,
+            discovery: Arc::new(Mutex::new(
+                search.and_then(|search| search.take_discovery()),
+            )),
+            accepted: Arc::new(tokio::sync::OnceCell::new()),
         }
     }
 
@@ -65,17 +90,74 @@ impl ProxySelectionToken {
         &self.endpoint
     }
 
-    /// Records acceptance only for the endpoint and destination in this token.
-    pub async fn record_accepted(&self) {
+    /// Evidence attached to this selection, independent of concurrent calls.
+    pub fn provenance(&self) -> ProxySelectionProvenance {
+        self.provenance
+    }
+
+    /// Whether a previous business exchange supports the longer connection profile.
+    pub fn reuses_destination(&self) -> bool {
+        self.provenance != ProxySelectionProvenance::Discovery
+    }
+
+    /// Releases cold-discovery ownership without changing health or acceptance.
+    /// Adapters also call this on terminal body errors after response receipt.
+    pub fn finish_discovery(&self) {
+        self.discovery.lock().unwrap().take();
+    }
+
+    /// Records a followed redirect for this origin without accepting final content.
+    ///
+    /// # Arguments
+    /// - `status`: Redirect status actually followed by the HTTP client.
+    pub async fn record_redirect(&self, status: u16) {
+        if !matches!(status, 301 | 302 | 303 | 307 | 308) {
+            self.finish_discovery();
+            return;
+        }
+        let now = SystemTime::now();
         self.inventory
-            .record_validated_response(&self.endpoint, &self.destination)
+            .record_observation(
+                &self.endpoint,
+                ProxyObservation {
+                    context: ProxyProbeContext {
+                        phase: ProxyObservationPhase::DestinationHttp,
+                        protocol: None,
+                        target: Some(self.destination.to_string()),
+                        method: None,
+                        configuration: "business-redirect-v1".into(),
+                    },
+                    outcome: ProxyObservationOutcome::Succeeded,
+                    completed_at: now,
+                    last_succeeded_at: Some(now),
+                    http_status: Some(status),
+                },
+            )
             .await;
+        self.inventory.notify_destination_success();
+        tracing::info!(search_id = super::ProxySearchContext::current().map(|search| search.id()),
+            proxy = self.endpoint(), destination = %self.destination, status,
+            "recorded followed proxy redirect without final content acceptance");
+        self.finish_discovery();
+    }
+
+    /// Records acceptance once for this logical selection, before body transfer.
+    /// Concurrent clones share the awaited commit and release discovery ownership.
+    pub async fn record_accepted(&self) {
+        self.accepted
+            .get_or_init(|| async {
+                self.inventory
+                    .record_validated_response(&self.endpoint, &self.destination)
+                    .await;
+            })
+            .await;
+        self.finish_discovery();
     }
 
     /// Applies a classified response only to this exact selection.
     ///
     /// # Arguments
-    /// - `decision`: Side-effect-free classifier result; inconclusive is a no-op.
+    /// - `decision`: Classifier result; inconclusive preserves durable history.
     pub async fn record_response_decision(
         &self,
         decision: &super::http::response_classifier::ProxyResponseDecision,
@@ -96,6 +178,7 @@ impl ProxySelectionToken {
             }
             ProxyResponseDecision::Inconclusive => {}
         }
+        self.finish_discovery();
     }
 
     /// Excludes this association without degrading another route or endpoint.
@@ -106,6 +189,7 @@ impl ProxySelectionToken {
         self.inventory
             .record_destination_failure(&self.endpoint, &self.destination, reason)
             .await;
+        self.finish_discovery();
     }
 
     /// Records the remaining destination failure without guessing its endpoint.

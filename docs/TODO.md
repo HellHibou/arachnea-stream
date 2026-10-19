@@ -51,8 +51,10 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 
 ## Server/Proxy
 
+- [x] Traiter les reprises d’exploration observées le 19 octobre : provenance attachée au token, profil du proxy connu, erreurs `Other` plafonnées à 30 s y compris dans les anciens caches, coordination métier par destination/pays autorisés, notification des succès et preuve persistante des redirections intermédiaires. Livraison et limites en section 35 du suivi des proxies localisés ; recette vidéo réelle toujours ouverte.
+
 - [x] Isoler la pile des sondes partagées TCP/TLS après le stack overflow FranceTV de 13:20 : tâche enfant possédée et annulable, mutualisation et créneaux conservés ; fixture existante étendue. Section 33 du suivi.
-- [ ] Distinguer les délais du proxy préféré déjà accepté par le domaine et ceux de la découverte : le handshake SOCKS reste plafonné à 5 s pendant la réutilisation. Proposition et confirmation requise pour les nouvelles valeurs en section 33 du suivi.
+- [x] Distinguer les délais du proxy préféré et de la découverte après confirmation : transport connu jusqu’à 30 s par phase, établissement et en-têtes jusqu’à 60 s selon l’adaptateur ; limites détaillées en section 35. Rquest englobe TLS dans son délai de connexion, sans timer TLS indépendant.
 - [x] Réconcilier les exclusions `Other` avec les succès postérieurs de la même association proxy/destination, à la réception et lors de la sélection préférentielle : cache existant réparé et persisté ; blocages explicites, échecs plus récents ou de date identique et autres destinations préservés. Section 32 du suivi.
 - [x] Isoler la pile du rafraîchissement fournisseur après le second stack overflow FranceTV : le futur partagé possède une tâche enfant annulée par `JoinSet` quand le dernier abonné disparaît ; mutualisation, sémaphores et échéances conservés. Fixture existante étendue pour la séparation du polling, le contexte technique et la libération des créneaux. Section 31 du suivi ; qualification de lecture média parallèle toujours ouverte.
 
@@ -60,7 +62,7 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 
 - [x] Corriger la profondeur linéaire des routes REST mise en évidence par les rapports de stack overflow macOS pendant une sonde TLS : arbre Warp équilibré, ordre d’enregistrement et ACL conservés. Diagnostic et validation : section 29 du suivi des proxies localisés ; la compatibilité réelle des proxies reste à qualifier.
 
-- [ ] Traiter les lenteurs 6play/Gigya auditées le 16 octobre : harmoniser les délais des phases de connexion avec l’enveloppe HTTP et remonter une preuve d’envoi typée, conserver les causes des sondes permissives, éviter les sondes annulées/recommencées et la suspension complète de découverte pendant un essai métier ; revoir séparément rafraîchissement des listes et cooldown de 24 h des erreurs ambiguës. Mesures et priorités : section 28 de l’analyse des proxies localisés. Aucun correctif moteur inclus dans cet audit.
+- [ ] Terminer les optimisations de sondes 6play/Gigya identifiées le 16 octobre : conserver les causes des sondes permissives, éviter les sondes annulées/recommencées et la suspension complète de découverte pendant un essai métier ; qualifier le rafraîchissement des listes. Les délais, preuves d’envoi et cooldowns `Other` ont depuis été traités en sections 26, 30 et 35 ; les autres limites de la section 28 restent ouvertes.
 
 - [x] Supprimer les plafonds de nombre de préchecks, validations et essais métier : recherche jusqu’au succès, épuisement des candidats ou délai partagé de 120 secondes. Concurrence bornée conservée ; réservations annulées libérées et retries des pools dynamiques alignés. Suivi : section 27 de l’analyse des proxies localisés.
 

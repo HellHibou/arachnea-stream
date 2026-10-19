@@ -566,7 +566,17 @@ async fn redirect_response_token_belongs_to_final_origin_only() -> AnyResult<()>
         let inner = core.proxy_inventory().unwrap().inner.read().await;
         assert_eq!(inner.preferred_by_destination.len(), 1);
         assert!(inner.preferred_by_destination.keys().all(|key| key.contains("final.example")));
+        let initial = Destination::host_port("initial.example", 80).with_protocol(crate::core::ApplicationProtocol::Http);
+        assert!(inner.records.get(token.endpoint()).unwrap().observations.iter().any(|observation|
+            observation.context.configuration == "business-redirect-v1"
+                && observation.context.target.as_deref() == Some(initial.to_string().as_str())
+                && observation.http_status == Some(302)));
         drop(inner);
+        let search = ProxySearchContext::default();
+        let inventory = core.proxy_inventory().unwrap();
+        let selected = search.scope(inventory.select_any_for_destination(&["BE".into()], false, Some(&initial))).await?;
+        assert_eq!(selected.authority(), token.endpoint());
+        assert_eq!(search.selection_provenance(token.endpoint(), &initial), crate::core::ProxySelectionProvenance::RedirectDestination);
         token.record_response_decision(&ProxyResponseDecision::RejectedForDestination {
             reason: "fixture rejection".into(), cooldown: Some(Duration::from_secs(120)),
         }).await;

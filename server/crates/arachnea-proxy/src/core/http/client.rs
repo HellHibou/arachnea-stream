@@ -215,6 +215,9 @@ impl SimpleHttpClient {
                     ))
                 })?
                 .to_string();
+            if let Some(token) = &response.selection_token {
+                token.record_redirect(response.status).await;
+            }
             tracing::debug!(
                 from = %request.url,
                 to = %next_url,
@@ -300,18 +303,28 @@ impl SimpleHttpClient {
                     .with_client_context(request.client_context.clone()),
             )
             .await?;
-        let stream = selected
-            .core
-            .connect_http_request(
-                ConnectRequest::new(destination)
-                    .with_client_context(request.client_context.clone()),
-            )
-            .await
-            .map_err(|error| ProxyError::RequestAttempt {
-                selection: selected.selection_token.clone(),
-                delivery: crate::core::ProxyRequestDelivery::NotSent,
-                source: Box::new(error),
-            })?;
+        let reuses_destination = selected
+            .selection_token
+            .as_ref()
+            .is_some_and(|token| token.reuses_destination());
+        let connection_deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+        let connect = selected.core.connect_http_request(
+            ConnectRequest::new(destination).with_client_context(request.client_context.clone()),
+        );
+        let stream = if reuses_destination {
+            tokio::time::timeout_at(connection_deadline, connect)
+                .await
+                .unwrap_or(Err(ProxyError::Timeout(
+                    "known proxy connection establishment",
+                )))
+        } else {
+            connect.await
+        }
+        .map_err(|error| ProxyError::RequestAttempt {
+            selection: selected.selection_token.clone(),
+            delivery: crate::core::ProxyRequestDelivery::NotSent,
+            source: Box::new(error),
+        })?;
 
         // Build request headers
         let mut header_lines = Vec::new();
@@ -392,13 +405,21 @@ impl SimpleHttpClient {
 
         let mut unified_stream =
             if is_https && stream.target_form == HttpRequestTargetForm::OriginForm {
-                let tls_stream = crate::core::transport::tls::client_tls(
+                let handshake = crate::core::transport::tls::client_tls(
                     stream.stream,
                     host,
-                    Duration::from_secs(10),
+                    Duration::from_secs(if reuses_destination { 30 } else { 10 }),
                     request.verify_tls,
-                )
-                .await
+                );
+                let tls_stream = if reuses_destination {
+                    tokio::time::timeout_at(connection_deadline, handshake)
+                        .await
+                        .unwrap_or(Err(ProxyError::Timeout(
+                            "known proxy connection establishment",
+                        )))
+                } else {
+                    handshake.await
+                }
                 .map_err(|error| ProxyError::RequestAttempt {
                     selection: selected.selection_token.clone(),
                     delivery: crate::core::ProxyRequestDelivery::NotSent,
@@ -429,9 +450,12 @@ impl SimpleHttpClient {
             send_body,
         );
         let (status_code, mut headers) = if crate::core::ProxySearchContext::current().is_some() {
-            tokio::time::timeout(Duration::from_secs(30), head)
-                .await
-                .unwrap_or_else(|_| Err(ProxyError::Timeout("media response headers")))
+            tokio::time::timeout(
+                Duration::from_secs(if reuses_destination { 60 } else { 30 }),
+                head,
+            )
+            .await
+            .unwrap_or_else(|_| Err(ProxyError::Timeout("media response headers")))
         } else {
             head.await
         }
@@ -515,6 +539,9 @@ impl SimpleHttpClient {
         {
             if let Some(search) = crate::core::ProxySearchContext::current() {
                 search.accept();
+            }
+            if let Some(token) = &selected.selection_token {
+                token.record_accepted().await;
             }
         }
         let retry_rejection =

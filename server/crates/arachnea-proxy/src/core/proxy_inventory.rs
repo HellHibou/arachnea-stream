@@ -40,6 +40,19 @@ struct SearchReservation {
     completed: bool,
 }
 
+struct DiscoveryReservation {
+    search: ProxySearchContext,
+    selected: bool,
+}
+
+impl Drop for DiscoveryReservation {
+    fn drop(&mut self) {
+        if !self.selected {
+            self.search.take_discovery();
+        }
+    }
+}
+
 impl Drop for SearchReservation {
     fn drop(&mut self) {
         if !self.completed {
@@ -68,6 +81,8 @@ const PROXY_AFFINITY_TTL: Duration = Duration::from_secs(15 * 60);
 /// Default duration for excluding a proxy from one exact destination after a
 /// destination-scoped failure such as an HTTP 403 origin rejection.
 pub const PROXY_DESTINATION_FAILURE_COOLDOWN: Duration = Duration::from_secs(24 * 60 * 60);
+/// Maximum suspension after an ambiguous transport failure for one destination.
+pub const PROXY_TRANSIENT_FAILURE_COOLDOWN: Duration = Duration::from_secs(30);
 
 struct ProxyAffinityBinding {
     authority: String,
@@ -96,7 +111,7 @@ pub struct InventoryConfig {
     pub probe_ttl: Duration,
     /// How long a failed proxy must wait before it can be retried.
     pub ko_cooldown: Duration,
-    /// How long a per-destination failure stays active before retrying.
+    /// Origin rejection cooldown; ambiguous failures are capped at 30 seconds.
     pub destination_failure_cooldown: Duration,
     /// Maximum number of active non-origin-block destination failures before
     /// the proxy was formerly marked globally KO. Retained for configuration
@@ -174,6 +189,7 @@ pub struct ProxyInventory {
     #[cfg(feature = "persistence")]
     preferences: Option<Arc<dyn crate::core::ProxyPreferenceRepository>>,
     destination_locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
+    destination_searches: Arc<Mutex<HashMap<String, std::sync::Weak<Mutex<()>>>>>,
     persistence_commits: Arc<Mutex<()>>,
     preference_persistence_failures: Arc<AtomicU64>,
     config: InventoryConfig,
@@ -218,6 +234,7 @@ impl ProxyInventory {
             validation_slots: Arc::new(Semaphore::new(4)),
             provider_slots: Arc::new(Semaphore::new(2)),
             discovery_revision: watch::channel(0).0,
+            destination_searches: Arc::new(Mutex::new(HashMap::new())),
             #[cfg(feature = "persistence")]
             persistence: None,
             #[cfg(feature = "persistence")]
@@ -315,6 +332,11 @@ impl ProxyInventory {
     /// Successful business responses are preserved despite these storage failures.
     pub fn preference_persistence_failures(&self) -> u64 {
         self.preference_persistence_failures.load(Ordering::Relaxed)
+    }
+
+    pub(crate) fn notify_destination_success(&self) {
+        self.discovery_revision
+            .send_modify(|revision| *revision = revision.wrapping_add(1));
     }
 
     /// Returns the number of records currently stored.
@@ -782,9 +804,10 @@ impl ProxyInventory {
 
     /// Selects the best eligible candidate across an unordered set of countries.
     ///
-    /// Accepted history and affinity are consulted first, then all relevant
-    /// persistent records are imported before cached candidates are ranked together.
-    /// Discovery overlaps slow cache exploration and publishes candidates as sources complete.
+    /// Accepted history is consulted first. Persistent country caches are imported
+    /// before redirect evidence, coordinated affinity reuse and candidate exploration.
+    /// Cold business discovery is exclusive per origin/country set until its outcome;
+    /// accepted endpoints remain available for parallel requests.
     pub async fn select_any_for_destination(
         &self,
         countries: &[String],
@@ -805,14 +828,37 @@ impl ProxyInventory {
         affinity: Option<&str>,
     ) -> Result<ProxyRecord> {
         let search = ProxySearchContext::current().unwrap_or_default();
-        search
+        // A new pool selection supersedes any selection not yet claimed by a token.
+        search.take_discovery();
+        let mut reservation = DiscoveryReservation {
+            search: search.clone(),
+            selected: false,
+        };
+        let result = search
             .scope(search.technical(self.select_any_with_search(
                 countries,
                 require_https,
                 destination,
                 affinity,
             )))
-            .await?
+            .await
+            .and_then(|result| result);
+        reservation.selected = result.is_ok();
+        if let Err(error) = &result {
+            let failure_kind = match error {
+                ProxyError::Timeout(_) => "timeout",
+                ProxyError::RouteUnavailable(_) => "route_unavailable",
+                _ => "selection",
+            };
+            tracing::warn!(
+                search_id = search.id(),
+                failure_kind,
+                phase = "selection",
+                remaining_ms = search.remaining().as_millis(),
+                "localized proxy selection failed"
+            );
+        }
+        result
     }
 
     async fn select_any_with_search(
@@ -837,18 +883,86 @@ impl ProxyInventory {
             self.bind_affinity(affinity, &record).await;
             return Ok(record);
         }
+        #[cfg(feature = "persistence")]
+        for country in &attempted {
+            self.load_cached_country(country).await;
+        }
+        let search = ProxySearchContext::current().expect("selection is search scoped");
+        if let Some(record) = self
+            .select_redirect_destination(&attempted, require_https, destination)
+            .await
+        {
+            self.bind_affinity(affinity, &record).await;
+            return Ok(record);
+        }
+        if let Some(destination) = destination {
+            let key = format!(
+                "{}|{}",
+                crate::core::ProxyDestinationPreference::destination_key(destination),
+                attempted.join(",")
+            );
+            let gate = {
+                let mut gates = self.destination_searches.lock().await;
+                gates.retain(|_, gate| gate.strong_count() > 0);
+                if let Some(gate) = gates.get(&key).and_then(std::sync::Weak::upgrade) {
+                    gate
+                } else {
+                    let gate = Arc::new(Mutex::new(()));
+                    gates.insert(key, Arc::downgrade(&gate));
+                    gate
+                }
+            };
+            let mut changes = self.discovery_revision.subscribe();
+            let acquire = gate.lock_owned();
+            tokio::pin!(acquire);
+            tracing::info!(search_id = search.id(), %destination, countries = ?attempted, "coordinating destination proxy discovery");
+            loop {
+                if let Some(record) = self
+                    .select_preferred_destination(&attempted, require_https, Some(destination))
+                    .await
+                {
+                    self.bind_affinity(affinity, &record).await;
+                    return Ok(record);
+                }
+                if let Some(record) = self
+                    .select_redirect_destination(&attempted, require_https, Some(destination))
+                    .await
+                {
+                    self.bind_affinity(affinity, &record).await;
+                    return Ok(record);
+                }
+                tokio::select! {
+                    guard = &mut acquire => {
+                        search.hold_discovery(guard);
+                        break;
+                    }
+                    _ = changes.changed() => {}
+                }
+            }
+            // The previous leader may have published a success immediately before release.
+            if let Some(record) = self
+                .select_preferred_destination(&attempted, require_https, Some(destination))
+                .await
+            {
+                search.take_discovery();
+                self.bind_affinity(affinity, &record).await;
+                return Ok(record);
+            }
+            if let Some(record) = self
+                .select_redirect_destination(&attempted, require_https, Some(destination))
+                .await
+            {
+                search.take_discovery();
+                self.bind_affinity(affinity, &record).await;
+                return Ok(record);
+            }
+        }
         if let Some(record) = self
             .select_affinity_binding(&attempted, require_https, destination, affinity)
             .await
         {
             return Ok(record);
         }
-
-        #[cfg(feature = "persistence")]
-        for country in &attempted {
-            self.load_cached_country(country).await;
-        }
-        let search = ProxySearchContext::current().expect("selection is search scoped");
         let mut failures = search.validation_failures();
         let initial_failures = *failures.borrow();
         let mut revisions = self.discovery_revision.subscribe();
@@ -896,13 +1010,30 @@ impl ProxyInventory {
             tokio::select! {
                 result = selectors.next(), if !selectors.is_empty() => {
                     if let Some(Some(record)) = result {
+                        if let Some(preferred) = self.select_preferred_destination(&attempted, require_https, destination).await {
+                            search.take_discovery();
+                            self.bind_affinity(affinity, &preferred).await;
+                            return Ok(preferred);
+                        }
                         self.bind_affinity(affinity, &record).await;
                         return Ok(record);
                     }
                 }
                 _ = &mut refresh_after, if !refreshing => { refreshing = true; }
                 _ = failures.changed(), if !refreshing => {}
-                _ = revisions.changed(), if refreshing && !loaded => { dirty = true; }
+                _ = revisions.changed() => {
+                    if let Some(record) = self.select_preferred_destination(&attempted, require_https, destination).await {
+                        search.take_discovery();
+                        self.bind_affinity(affinity, &record).await;
+                        return Ok(record);
+                    }
+                    if let Some(record) = self.select_redirect_destination(&attempted, require_https, destination).await {
+                        search.take_discovery();
+                        self.bind_affinity(affinity, &record).await;
+                        return Ok(record);
+                    }
+                    dirty = true;
+                }
                 _ = &mut loads, if refreshing && !loaded => { loaded = true; dirty = true; }
             }
         }
@@ -1105,7 +1236,16 @@ impl ProxyInventory {
                     self.probe_mode(),
                 )
             {
-                tracing::debug!(
+                if let Some(search) = ProxySearchContext::current() {
+                    search.mark_selection(
+                        &record.authority(),
+                        destination,
+                        crate::core::ProxySelectionProvenance::AcceptedDestination,
+                    );
+                }
+                tracing::info!(
+                    search_id = ProxySearchContext::current().map(|search| search.id()),
+                    provenance = "accepted_destination",
                     destination = %destination,
                     proxy = %record.authority(),
                     country,
@@ -1113,8 +1253,73 @@ impl ProxyInventory {
                 );
                 return Some(record.clone());
             }
+            tracing::info!(search_id = ProxySearchContext::current().map(|search| search.id()),
+                %destination, proxy = %record.authority(),
+                destination_cooldown = has_active_destination_cooldown(record, destination, SystemTime::now()),
+                status = ?record.status,
+                already_attempted = ProxySearchContext::current().is_some_and(|search| search.attempted(&record.authority(), Some(destination))),
+                "preferred proxy currently ineligible");
         }
         None
+    }
+
+    async fn select_redirect_destination(
+        &self,
+        countries: &[String],
+        require_https: bool,
+        destination: Option<&Destination>,
+    ) -> Option<ProxyRecord> {
+        let destination = destination?;
+        let target = destination.to_string();
+        let now = SystemTime::now();
+        let search = ProxySearchContext::current();
+        let inner = self.inner.read().await;
+        let record = inner
+            .records
+            .values()
+            .filter(|record| {
+                record.country.as_ref().is_some_and(|country| {
+                    countries.contains(country)
+                        && is_eligible(
+                            record,
+                            country,
+                            require_https,
+                            Some(destination),
+                            now,
+                            self.probe_mode(),
+                        )
+                }) && !search
+                    .as_ref()
+                    .is_some_and(|search| search.attempted(&record.authority(), Some(destination)))
+            })
+            .filter_map(|record| {
+                record
+                    .observations
+                    .iter()
+                    .filter(|observation| {
+                        observation.context.configuration == "business-redirect-v1"
+                            && observation.context.target.as_deref() == Some(target.as_str())
+                            && observation.outcome
+                                == crate::core::ProxyObservationOutcome::Succeeded
+                    })
+                    .map(|observation| (observation.completed_at, record))
+                    .max_by_key(|(date, _)| *date)
+            })
+            .max_by(|(a_date, a), (b_date, b)| {
+                a_date
+                    .cmp(b_date)
+                    .then_with(|| b.authority().cmp(&a.authority()))
+            })?
+            .1;
+        if let Some(search) = &search {
+            search.mark_selection(
+                &record.authority(),
+                destination,
+                crate::core::ProxySelectionProvenance::RedirectDestination,
+            );
+        }
+        tracing::info!(search_id = search.map(|search| search.id()), %destination, proxy = %record.authority(), provenance = "redirect_destination", "reusing proxy with followed redirect evidence");
+        Some(record.clone())
     }
 
     async fn select_affinity_binding(
@@ -2053,8 +2258,9 @@ impl ProxyInventory {
             .await
     }
 
-    /// Records a destination failure using a policy override without shortening
-    /// an existing exclusion.
+    /// Records a destination failure without shortening an explicit origin rejection.
+    /// Ambiguous failures use at most 30 seconds, including legacy stored exclusions
+    /// when determining eligibility. Shorter configured limits remain effective.
     ///
     /// # Arguments
     /// - `authority`: Endpoint actually used.
@@ -2069,6 +2275,11 @@ impl ProxyInventory {
         cooldown: Option<Duration>,
     ) -> bool {
         let cooldown = cooldown.unwrap_or(self.config.destination_failure_cooldown);
+        let cooldown = if reason == crate::core::ProxyDestinationFailureReason::Other {
+            cooldown.min(PROXY_TRANSIENT_FAILURE_COOLDOWN)
+        } else {
+            cooldown
+        };
         let updated = {
             let mut inner = self.inner.write().await;
             let Some(record) = inner.records.get_mut(authority) else {
@@ -2196,6 +2407,10 @@ impl ProxyInventory {
     /// the proxy as the preferred candidate for that exact destination. Clears
     /// older ambiguous failures for this association, preserving explicit origin
     /// rejections, newer failures and unrelated proxy or destination failure state.
+    ///
+    /// # Arguments
+    /// - `authority`: Endpoint actually used by the accepted response.
+    /// - `destination`: Exact origin that accepted the response.
     pub async fn record_validated_response(&self, authority: &str, destination: &Destination) {
         let accepted_at = SystemTime::now();
         let key = crate::core::ProxyDestinationPreference::destination_key(destination);
@@ -2282,6 +2497,7 @@ impl ProxyInventory {
             }
             #[cfg(not(feature = "persistence"))]
             drop(record);
+            self.notify_destination_success();
         }
     }
 
@@ -2664,6 +2880,23 @@ mod tests {
             idle_ms: 300,
         };
         assert_eq!(hop.connection_timeouts("endpoint:0", &shorter), shorter);
+        let known = ProxySearchContext::default();
+        known.mark_selection(
+            "known:0",
+            &destination,
+            crate::core::ProxySelectionProvenance::AcceptedDestination,
+        );
+        known.start_origin("known:0", &destination)?;
+        let reused = known.connection_timeouts("known:0", &configured);
+        assert_eq!(reused.connect_ms, 30_000);
+        assert_eq!(reused.handshake_ms, 30_000);
+        assert_eq!(reused.idle_ms, configured.idle_ms);
+        assert_eq!(known.connection_timeouts("known:0", &shorter), shorter);
+        assert_eq!(known.connection_timeout(), Duration::from_secs(60));
+        assert_eq!(search.connection_timeout(), Duration::from_secs(15));
+        known.end_attempt();
+        known.start_origin("fresh:0", &destination)?;
+        assert_eq!(known.connection_timeout(), Duration::from_secs(15));
         for validation in [false, true] {
             let caller_task = tokio::task::try_id();
             assert!(search
@@ -2944,6 +3177,142 @@ mod tests {
                 .authority(),
             validated.authority()
         );
+
+        {
+            let inventory = Arc::new(ProxyInventory::new(InventoryConfig::default(), None, None));
+            inventory
+                .add_or_update(vec![fastest.clone(), validated.clone()])
+                .await;
+            let countries = vec!["BE".to_string()];
+            let leader = ProxySearchContext::default();
+            let selected = leader
+                .scope(inventory.select_any_for_destination_with_affinity(
+                    &countries,
+                    true,
+                    Some(&preferred_destination),
+                    Some("shared-cold-affinity"),
+                ))
+                .await
+                .unwrap();
+            let token = leader
+                .scope(async {
+                    crate::core::ProxySelectionToken::new(
+                        inventory.clone(),
+                        selected.authority(),
+                        preferred_destination.clone(),
+                    )
+                })
+                .await;
+            assert_eq!(
+                token.provenance(),
+                crate::core::ProxySelectionProvenance::Discovery
+            );
+            let follower = ProxySearchContext::default();
+            let pending = follower.scope(inventory.select_any_for_destination_with_affinity(
+                &countries,
+                true,
+                Some(&preferred_destination),
+                Some("shared-cold-affinity"),
+            ));
+            tokio::pin!(pending);
+            assert!(
+                tokio::time::timeout(Duration::from_millis(10), &mut pending)
+                    .await
+                    .is_err(),
+                "cold follower must await the leader's business result"
+            );
+            let unrelated = inventory
+                .select_any_for_destination(&countries, true, Some(&other_destination))
+                .await
+                .unwrap();
+            assert_eq!(unrelated.authority(), fastest.authority());
+            token.record_accepted().await;
+            let selected = tokio::time::timeout(Duration::from_secs(1), &mut pending)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(selected.authority(), token.endpoint());
+            assert_eq!(
+                follower.selection_provenance(&selected.authority(), &preferred_destination),
+                crate::core::ProxySelectionProvenance::AcceptedDestination
+            );
+
+            let cancelled = Destination::host_port("cancelled.example", 443)
+                .with_protocol(crate::core::ApplicationProtocol::Https);
+            let selected = leader
+                .scope(inventory.select_any_for_destination(&countries, true, Some(&cancelled)))
+                .await
+                .unwrap();
+            let token = leader
+                .scope(async {
+                    crate::core::ProxySelectionToken::new(
+                        inventory.clone(),
+                        selected.authority(),
+                        cancelled.clone(),
+                    )
+                })
+                .await;
+            let abandoned = ProxySearchContext::default();
+            assert!(tokio::time::timeout(
+                Duration::from_millis(10),
+                abandoned.scope(inventory.select_any_for_destination(
+                    &countries,
+                    true,
+                    Some(&cancelled)
+                ))
+            )
+            .await
+            .is_err());
+            drop(token);
+            assert!(
+                tokio::time::timeout(
+                    Duration::from_secs(1),
+                    inventory.select_any_for_destination(&countries, true, Some(&cancelled))
+                )
+                .await
+                .unwrap()
+                .is_ok(),
+                "cancelling a leader and a waiter must release discovery ownership"
+            );
+        }
+        {
+            let provider = Arc::new(CountingProvider {
+                records: Vec::new(),
+                calls: AtomicUsize::new(0),
+                delay: Duration::from_secs(60),
+            });
+            let waiting_inventory =
+                ProxyInventory::new(InventoryConfig::default(), Some(provider.clone()), None);
+            let countries = vec!["BE".into(), "FR".into()];
+            let search = ProxySearchContext::default();
+            let waiting = search.scope(waiting_inventory.select_any_for_destination(
+                &countries,
+                true,
+                Some(&preferred_destination),
+            ));
+            tokio::pin!(waiting);
+            assert!(
+                tokio::time::timeout(Duration::from_millis(10), &mut waiting)
+                    .await
+                    .is_err()
+            );
+            assert!(provider.calls.load(Ordering::SeqCst) > 0);
+            waiting_inventory
+                .add_or_update(vec![validated.clone()])
+                .await;
+            waiting_inventory
+                .record_validated_response(&validated.authority(), &preferred_destination)
+                .await;
+            assert_eq!(
+                tokio::time::timeout(Duration::from_secs(1), &mut waiting)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .authority(),
+                validated.authority(),
+                "an accepted response must wake discovery already awaiting a slow provider"
+            );
+        }
         assert_eq!(
             inventory
                 .select_for_destination("BE", true, Some(&other_destination))
@@ -3161,6 +3530,31 @@ mod tests {
             PROXY_DESTINATION_FAILURE_COOLDOWN,
             Duration::from_secs(24 * 60 * 60)
         );
+        let now = SystemTime::now();
+        let destination = Destination::host_port("transient.example", 443)
+            .with_protocol(crate::core::ApplicationProtocol::Https);
+        let mut proxy = record(ProxyRuntimeStatus::Ok);
+        proxy
+            .destination_failures
+            .push(crate::core::ProxyDestinationFailure {
+                scheme: "https".into(),
+                host: "transient.example".into(),
+                port: 443,
+                reason: crate::core::ProxyDestinationFailureReason::Other,
+                failure_count: 1,
+                last_failed: now - Duration::from_secs(31),
+                cooldown_until: Some(now + PROXY_DESTINATION_FAILURE_COOLDOWN),
+            });
+        assert!(
+            !has_active_destination_cooldown(&proxy, &destination, now),
+            "legacy ambiguous exclusions must use the short policy without resetting the cache"
+        );
+        proxy.destination_failures[0].last_failed = now;
+        assert!(has_active_destination_cooldown(&proxy, &destination, now));
+        proxy.destination_failures[0].last_failed = now - Duration::from_secs(31);
+        proxy.destination_failures[0].reason =
+            crate::core::ProxyDestinationFailureReason::BlockedByOrigin;
+        assert!(has_active_destination_cooldown(&proxy, &destination, now));
     }
 
     #[tokio::test]
@@ -3512,6 +3906,14 @@ mod tests {
         initial.persist_records(&[blocked, fallback.clone()]).await;
         let destination = Destination::host_port("origin.example", 443)
             .with_protocol(crate::core::ApplicationProtocol::Https);
+        let redirect_destination = Destination::host_port("redirect.example", 443)
+            .with_protocol(crate::core::ApplicationProtocol::Https);
+        let redirect_token = crate::core::ProxySelectionToken::new(
+            Arc::new(initial.clone()),
+            fallback.authority(),
+            redirect_destination.clone(),
+        );
+        redirect_token.record_redirect(302).await;
 
         initial
             .record_destination_failure(
@@ -3579,6 +3981,15 @@ mod tests {
             blocked_authority
         );
         let restore_us = restore_started.elapsed().as_micros();
+        let redirect_search = ProxySearchContext::default();
+        let redirected = redirect_search
+            .scope(restarted.select_for_destination("BE", true, Some(&redirect_destination)))
+            .await?;
+        assert_eq!(redirected.authority(), fallback.authority());
+        assert_eq!(
+            redirect_search.selection_provenance(&redirected.authority(), &redirect_destination),
+            crate::core::ProxySelectionProvenance::RedirectDestination
+        );
         let repaired = repository.get(&legacy.key()).await?.unwrap();
         assert_eq!(repaired.destination_failures.len(), 3);
         assert!(!has_active_destination_cooldown(
@@ -4160,9 +4571,20 @@ fn has_active_destination_cooldown(
         failure.scheme == scheme
             && failure.host == host
             && failure.port == destination.port
-            && failure
-                .cooldown_until
-                .is_some_and(|cooldown| cooldown > now)
+            && failure.cooldown_until.is_some_and(|cooldown| {
+                let cooldown =
+                    if failure.reason == crate::core::ProxyDestinationFailureReason::Other {
+                        cooldown.min(
+                            failure
+                                .last_failed
+                                .checked_add(PROXY_TRANSIENT_FAILURE_COOLDOWN)
+                                .unwrap_or(cooldown),
+                        )
+                    } else {
+                        cooldown
+                    };
+                cooldown > now
+            })
     })
 }
 

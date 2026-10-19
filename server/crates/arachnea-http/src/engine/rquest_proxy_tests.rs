@@ -244,7 +244,10 @@ async fn keep_alive_tls_503_keeps_exact_selection_and_positive_phases() -> anyho
                     tls.write_all(&response[..response.len() - 2]).await?;
                     tokio::time::sleep(Duration::from_millis(450)).await;
                     tls.write_all(b"ok").await?;
-                } else { tls.write_all(response).await?; }
+                } else {
+                    tokio::time::sleep(Duration::from_millis(150)).await;
+                    tls.write_all(response).await?;
+                }
             }
             tls.shutdown().await?;
             // Both requests above were read from the same accepted TCP/TLS stream.
@@ -317,7 +320,13 @@ async fn keep_alive_tls_503_keeps_exact_selection_and_positive_phases() -> anyho
             }
         }
         let policy = arachnea_proxy::core::http::response_classifier::ProxyResponsePolicy(std::sync::Arc::new(PrefixPolicy));
-        let (second, second_decision) = engine.send_for_proxy(request(), Some(token.clone()), Some(&policy), "https://localhost/content", &[]).await?;
+        let reuse_search = ProxySearchContext::default();
+        let reused = reuse_search.scope(core.select_for_request(select("BE"))).await?;
+        let reused_token = reused.selection_token.unwrap();
+        assert!(reused_token.reuses_destination());
+        assert_eq!(reused_token.provenance(), arachnea_proxy::core::ProxySelectionProvenance::AcceptedDestination);
+        let short_engine = RquestEngine { request_timeout: Duration::from_millis(50), ..engine.clone() };
+        let (second, second_decision) = reuse_search.scope(short_engine.send_for_proxy(request(), Some(reused_token), Some(&policy), "https://localhost/content", &[])).await?;
         assert_eq!(second_decision, arachnea_proxy::core::http::response_classifier::ProxyResponseDecision::Inconclusive);
         assert_eq!(second.status.as_u16(), 503);
         assert_eq!(second.body.as_ref(), b"down");
@@ -338,6 +347,43 @@ async fn keep_alive_tls_503_keeps_exact_selection_and_positive_phases() -> anyho
         assert_eq!(records.iter().find(|r| r.authority() == other_authority).unwrap().destination_failures.len(), 1);
         assert_eq!(server.await??.len(), 2);
         drop((engine, loopback));
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await?;
+            read_head(&mut stream).await?;
+            stream.write_all(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 4\r\nConnection: close\r\n\r\ndo").await?;
+            stream.shutdown().await?;
+            Ok::<_, anyhow::Error>(())
+        });
+        let proxy: ProxyRecord = serde_json::from_value(serde_json::json!({
+            "host": "127.0.0.1", "port": address.port(), "country": "US",
+            "protocol": "Http", "status": "ok", "http_forwarding": "available"
+        }))?;
+        core.proxy_inventory().unwrap().add_or_update(vec![proxy]).await;
+        let body_destination = Destination::host_port("body.example", 80).with_protocol(ApplicationProtocol::Http);
+        let body_request = || {
+            let mut context = ClientContext::new();
+            context.insert(PROXY_PARAMETER_COUNTRIES, ClientParameter::String("[\"US\"]".into()));
+            ConnectRequest::new(body_destination.clone()).with_client_context(context)
+        };
+        let body_search = ProxySearchContext::default();
+        let selected = body_search.scope(core.select_for_request(body_request())).await?;
+        let token = selected.selection_token.unwrap();
+        let loopback = arachnea_proxy::connectors::ArachneaRquestLoopback::start(selected.core).await?;
+        let engine = RquestEngine::new(&ArachneaHttpConfig::default(), Some(loopback.proxy_url()), Some(loopback.client()?))?;
+        let error = body_search.scope(engine.send_for_proxy(EngineRequest {
+            method: ::http::Method::GET, url: "http://body.example/content".into(),
+            headers: Default::default(), body: None,
+        }, Some(token.clone()), None, "http://body.example/content", &[])).await.err().expect("truncated body must fail");
+        assert!(matches!(&error, ArachneaHttpError::ProxyAttempt { delivery: ProxyRequestDelivery::ResponseReceived, .. }));
+        assert!(!proxy_retry_allowed("GET", false, ProxyRequestDelivery::ResponseReceived, false));
+        let next_search = ProxySearchContext::default();
+        let next = tokio::time::timeout(Duration::from_secs(1), next_search.scope(core.select_for_request(body_request()))).await??;
+        assert_eq!(next.selection_token.as_ref().unwrap().endpoint(), token.endpoint(), "retaining a body error must not retain discovery ownership");
+        server.await??;
+        drop((error, token, next, engine, loopback));
         Ok(())
     }).await?
 }

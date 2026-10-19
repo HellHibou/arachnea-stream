@@ -50,6 +50,15 @@ impl RquestEngine {
         let started = tokio::time::Instant::now();
         let method = request.method.clone();
         let search = arachnea_proxy::core::ProxySearchContext::current();
+        let header_timeout = if search.is_some()
+            && selection
+                .as_ref()
+                .is_some_and(|token| token.reuses_destination())
+        {
+            std::time::Duration::from_secs(60)
+        } else {
+            self.request_timeout
+        };
         let mut builder = self.client.request(request.method, &request.url);
         if search.is_none() {
             builder = builder.timeout(self.request_timeout);
@@ -67,7 +76,7 @@ impl RquestEngine {
             source: Box::new(ArachneaHttpError::Proxy(reason)),
         };
         let send = async {
-            tokio::time::timeout(self.request_timeout, builder.send())
+            tokio::time::timeout(header_timeout, builder.send())
                 .await
                 .map_err(|_| {
                     tracing::warn!(
@@ -173,14 +182,16 @@ impl RquestEngine {
                 .unwrap_or_else(|| self.request_timeout.saturating_sub(started.elapsed())),
         );
         let (decision, mut stream) = if let Some(search) = &search {
-            search
-                .origin(inspection)
-                .await
-                .map_err(|error| ArachneaHttpError::ProxyAttempt {
+            search.origin(inspection).await.map_err(|error| {
+                if let Some(token) = &selection {
+                    token.finish_discovery();
+                }
+                ArachneaHttpError::ProxyAttempt {
                     selection: selection.clone(),
                     delivery: arachnea_proxy::core::ProxyRequestDelivery::ResponseReceived,
                     source: Box::new(ArachneaHttpError::Proxy(error.to_string())),
-                })?
+                }
+            })?
         } else {
             inspection.await
         };
@@ -189,6 +200,9 @@ impl RquestEngine {
         if accepted {
             if let Some(search) = &search {
                 search.accept();
+            }
+            if let Some(token) = &selection {
+                token.record_accepted().await;
             }
         }
         let retry_rejection = matches!(
@@ -229,10 +243,15 @@ impl RquestEngine {
                 )
             })
             .and_then(|result| result)
-            .map_err(|error| ArachneaHttpError::ProxyAttempt {
-                selection: selection.clone(),
-                delivery: arachnea_proxy::core::ProxyRequestDelivery::ResponseReceived,
-                source: Box::new(ArachneaHttpError::Proxy(error.to_string())),
+            .map_err(|error| {
+                if let Some(token) = &selection {
+                    token.finish_discovery();
+                }
+                ArachneaHttpError::ProxyAttempt {
+                    selection: selection.clone(),
+                    delivery: arachnea_proxy::core::ProxyRequestDelivery::ResponseReceived,
+                    source: Box::new(ArachneaHttpError::Proxy(error.to_string())),
+                }
             })?;
         Ok((
             EngineResponse {
@@ -280,11 +299,13 @@ impl RquestEngine {
 
         #[cfg(feature = "arachnea-proxy")]
         if proxy_url.is_some() && arachnea_proxy::core::ProxySearchContext::current().is_some() {
-            builder = builder.connect_timeout(
-                config
-                    .request_timeout
-                    .min(std::time::Duration::from_secs(15)),
-            );
+            let search = arachnea_proxy::core::ProxySearchContext::current().unwrap();
+            let limit = search.connection_timeout();
+            builder = builder.connect_timeout(if limit == std::time::Duration::from_secs(60) {
+                limit
+            } else {
+                config.request_timeout.min(limit)
+            });
         }
 
         if let Some(proxy_url) = proxy_url {

@@ -14,9 +14,13 @@ FranceTV and TF1 retain their existing explicit `[403]` activation.
 The same policy runs before media post-actions and Rquest body materialization.
 Only the orchestrator applies its decision to the exact selection token. Handler
 errors are logged and become inconclusive; they do not reject the endpoint.
-An inconclusive response preserves the existing durable history. Redirect
-responses are classified with the actual hop's method, effective URL and token;
+An accepted final response is committed before body collection; token clones
+share one awaited acceptance commit. An inconclusive response preserves the
+existing durable history. Redirect responses are classified with the actual hop's method, effective URL and token;
 a final accepted response never validates the original domain by inference.
+A followed 301/302/303/307/308 also records separate, persistent routing evidence
+for its actual origin. It can reuse that endpoint before exploration but never
+creates a final-content acceptance preference or clears an origin rejection.
 
 Code injects `ProxyResponsePolicy(Arc<dyn ProxyResponseClassifier>)` through
 `ProxiedHttpRequest::response_classifier` or the HTTP/Scrapyfy client builders.
@@ -46,7 +50,7 @@ Other known types are `{ type: default }` and `{ type: http403 }`. Statuses must
 be in 100..599, acceptance and rejection lists must not overlap, and an explicit
 cooldown must be positive and representable. Omitted accepted statuses mean all
 2xx; an explicit empty list accepts nothing. Omitted cooldown uses the inventory
-default. Existing exclusions are never shortened. Precedence is code injection,
+default. Existing explicit origin exclusions are never shortened. Precedence is code injection,
 then an explicit known policy, then legacy `proxy_rejection_statuses`, then
 conservative defaults; policies are not silently combined. Child YAML policies
 override inherited policies. `{ type: default }` explicitly resets an inherited
@@ -123,7 +127,7 @@ The retired design notes also reserved `censorship_resistance`; it remains track
 - SOCKS4 uses local IPv4 resolution by default; `socks4a://` uses proxy-side hostname transmission.
 - SOCKS5 supports `local`, `proxy_then_local_fallback`, and `proxy_only` DNS strategies; `proxy_then_local_fallback` is the default and is used only after SOCKS5 reports a remote hostname-resolution failure.
 - `arachnea-dns` should be called only when the proxy truly needs local resolution or a precomputed Smart DNS route decision.
-- Dynamic proxies that time out or fail at transport/TLS setup are marked globally unavailable for their cooldown, whereas configured HTTP origin rejections remain scoped to the rejected destination.
+- Directly observed endpoint connection failures can suspend global availability. Tunnel and destination TLS failures remain scoped to the exact destination: ambiguous failures suspend reuse for at most 30 seconds, whereas configured origin rejections retain their explicit cooldown (24 hours by default).
 - The proxy should consume DNS decisions; it should not redefine DNS security, privacy, cache, DNSSEC, or anti-censorship policy.
 
 ## Security and Privacy
@@ -319,8 +323,10 @@ Other candidates from all allowed countries are ranked together for HTTP and HTT
 fully validated fresh capabilities first, complete capabilities requiring revalidation
 next, then partial relevant capabilities and unknown candidates. Latency, failure
 count and stable endpoint identity break ties within a category. Fresh candidates
-are tried before any precheck window. An eligible accepted destination history and
-existing affinity binding retain their fast paths before country cache imports.
+are tried before any precheck window. An eligible accepted destination history
+retains its fast path before country cache imports. Followed-redirect evidence is checked after country cache imports;
+affinity reuse without business evidence waits for cold-discovery ownership so
+parallel requests cannot bypass coordination through a newly created binding.
 The persistent cache is imported before unknown candidates are probed. Discovery
 starts after cache exhaustion, 10 seconds of exploration or eight unsuccessful
 completed validations, without dropping active cache exploration. Country loads
@@ -448,9 +454,14 @@ Eviction removes the available memory/persistent record, preference references
 and affinity bindings. The separate `proxy-failures` table retains at most 1,024 records
 for 48 hours from eviction; cleanup runs on demand. Rediscovery preserves the
 initial discovery, positive evidence, exclusions and active cooldown; it is not
-a success and cannot immediately revive the endpoint. Destination exclusions
+a success and cannot immediately revive the endpoint. Explicit origin exclusions
 (24 hours by default, configurable) survive technical successes and provider
 refreshes, without an implicit early release when all candidates are excluded.
+Ambiguous `Other` failures use at most 30 seconds from their latest failure,
+preserving shorter configured limits. Eligibility applies this cap to old stored
+`Other` exclusions too, without clearing the cache or shortening explicit origin
+rejections. Historical expiry fields may retain their old value; selection uses
+the capped effective expiry.
 Within the new database, missing optional health fields remain readable, but
 attempt dates do not invent positive evidence or historical accepted preferences.
 Country selection is independent of input order.
@@ -483,6 +494,30 @@ Reservations prevent duplicate technical work within a search; cancellation
 releases unfinished reservations so a later selection can resume those candidates.
 A shared operation uses one network execution. Reads and already validated
 candidates consume no probe reservation.
+Cold business discovery is coordinated for each exact destination and canonical
+set of allowed countries. One caller owns selection and its initial business
+attempt, including when selected through affinity; followers wait within their
+own deadline and recheck shared evidence.
+A success also wakes discovery already waiting on probes or providers, including
+other allowed-country sets. Country sets with different permissions can explore
+independently; responses, cookies, bodies and replay guarantees are never shared.
+An accepted response or followed redirect releases ownership before transfer;
+failure or cancellation releases it so another waiter can continue. Warm callers
+reuse eligible accepted or redirect evidence without serializing their transfers.
+
+The selection token records `Discovery`, `AcceptedDestination` or
+`RedirectDestination` for its exact endpoint and origin. New candidates keep TCP
+3 s / proxy handshake 5 s limits. Reused business evidence permits up to 30 s for
+each phase, preserving shorter configured transport limits. The media client
+allows 30 s for destination TLS, a 60 s establishment envelope and 60 s for
+response headers. Rquest application-created localized clients use a 60 s native
+connection envelope and a 60 s send/header timeout for reused evidence; its TLS
+phase is covered by that envelope, without an independent TLS-only timer. New
+Rquest candidates retain the 15 s connection cap. Accepted-body policies do not
+change. These profiles do not extend the shared 120/135 s search horizon.
+Selection provenance, preferred-endpoint ineligibility, followed redirects and
+selection failures are logged with search IDs without full signed URLs.
+
 Repeated endpoint/URL attempts are excluded locally without changing persistent
 health; redirect URLs retain their own attempt identity. Business requests are
 sequential and are never shared. SOCKS DNS fallback cannot retry the same dynamic
