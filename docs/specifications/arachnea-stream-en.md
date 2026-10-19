@@ -934,7 +934,11 @@ no hardcoded territory list is substituted.
 The TF1+ resolver reads the allowed territory list from `media.geoList` in the
 `mediainfocombo` response. It normalizes and deduplicates these codes, then uses
 them as proxy countries to retry a geo-blocked negotiation before evaluating
-`delivery.code`. This routing also applies when resolving the final manifest URL.
+`delivery.code`. Because TF1 can report a geo-restriction with HTTP `200` and
+`delivery.code >= 400`, the resolver also installs a mediainfo response
+classifier that rejects the current proxy for the destination and lets the
+localized proxy search retry another eligible candidate; HTTP `403` remains a
+rejection. This routing also applies when resolving the final manifest URL.
 The `stream_url` returned by `get_stream` keeps the local HTTP proxy wrapper but
 does not carry proxy countries or geo-proxy rejection statuses, so playback no
 longer uses a geolocated proxy. The territory list is retained for the storyboard

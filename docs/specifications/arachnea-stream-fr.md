@@ -942,9 +942,14 @@ codée en dur ne lui est substituée.
 Le résolveur TF1+ lit la liste de territoires autorisés dans `media.geoList`
 de la réponse `mediainfocombo`. Il normalise et déduplique ces codes, puis les
 utilise comme pays proxy pour relancer une négociation géobloquée avant
-d'évaluer `delivery.code`. Ce routage s'applique aussi à la résolution de l'URL
-finale du manifeste. Le champ `stream_url` retourné par `get_stream` conserve le
-proxy HTTP local, mais ne transmet ni pays proxy ni statuts de rejet géoproxy :
+d'évaluer `delivery.code`. Comme TF1 peut signaler un géoblocage avec un statut
+HTTP `200` et `delivery.code >= 400`, le résolveur installe aussi un classifier
+de réponse `mediainfo` qui rejette le proxy courant pour la destination et
+laisse la recherche proxy localisée essayer un autre candidat éligible ; un
+statut HTTP `403` reste également un rejet. Ce routage s'applique aussi à la
+résolution de l'URL finale du manifeste. Le champ `stream_url` retourné par
+`get_stream` conserve le proxy HTTP local, mais ne transmet ni pays proxy ni
+statuts de rejet géoproxy :
 la lecture ne passe donc plus par un proxy géolocalisé. La liste de territoires
 reste conservée pour le storyboard et la licence Widevine différée, sans retry
 local ni fallback direct. L'URL `/api/proxy` du storyboard encode le rejet du

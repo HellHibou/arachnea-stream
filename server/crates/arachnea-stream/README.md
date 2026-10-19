@@ -127,12 +127,19 @@ ordered list is exposed as `resolver.proxy.countries` and forwarded through the
 existing frontend geo-routing contract. This adds one metadata request per
 extracted video player; no local territory list is substituted.
 
+TF1 replay and live negotiation install a mediainfo response classifier that
+inspects the JSON body before accepting a localized proxy. TF1 reports a
+geo-restriction with HTTP `200` and `delivery.code >= 400`, so the classifier
+rejects that proxy for the destination and the localized search retries another
+eligible candidate. HTTP `403` remains a rejection as well. The same classifier
+keeps the previous status behavior for non-mediainfo requests.
+
 TF1 replay and live negotiation emit INFO diagnostics with the requested and
-configured proxy countries, mediainfo HTTP status, delivery code, remote territory
-list, and the existing country-change retry decision. Scrapyfy also logs whether
-a proxy transport is configured when it forwards non-empty country hints. These
-diagnostics do not include credentials, bearer tokens, headers, or response bodies
-and do not change routing or retry behavior.
+configured proxy countries, mediainfo HTTP status, delivery code, delivery
+country, remote territory list, and the existing country-change retry decision.
+Scrapyfy also logs whether a proxy transport is configured when it forwards
+non-empty country hints. These diagnostics do not include credentials, bearer
+tokens, headers, or response bodies.
 
 Gigya bootstrap transport failures produce a warning with the fixed endpoint,
 elapsed milliseconds, and the underlying error chain. The public error remains
