@@ -378,10 +378,32 @@ configured, both use that core; otherwise both fall back to
 ## Useful Paths
 
 - `src/core/`: routing, proxy chains, destinations, policies, transports, proxy pools, and errors.
+- `src/core/config/`: one module per public configuration type with its defaults and associated methods, plus private validation and system-environment helpers. Existing configuration imports remain available through the core and crate reexports.
+- `src/core/core/`: `ArachneaProxyCore` facade and private modules for request routing, pool selection and state, dynamic country pools, TCP/HTTP connections, proxy hops, UDP, and DNS resolution.
+- `src/core/http/proxy_service/`: controller HTTP service facade and private modules for request handling, headers, options, URLs, and redirects, enabled by `controller-service`. The existing public service and URL-construction imports are preserved.
+- `src/core/proxy_inventory/`: inventory facade and private modules for configuration, records, discovery, eligibility, selection, preferences, probing, observations, and persistence. Public inventory imports remain available through `core::proxy_inventory` and the existing crate reexports.
+- `src/core/proxy_probe/`: `ProxyProbe` facade and private modules for configuration, protocol detection, capability attempts, destination validation, HTTP/SOCKS exchanges, TLS, and results. Existing public probe imports are preserved through reexports.
 - `src/connectors/`: adapters for Rust HTTP client ecosystems.
 - `src/server/`: CLI, file configuration, listeners, handlers, ACLs, authentication, and safety checks.
+- `src/**/tests/`: unit tests loaded as child modules with `#[cfg(test)]` and explicit paths, preserving access to private implementation details. `src/core/tests/core/` and `src/core/tests/inventory/` group scenarios by domain with test-only support modules; inventory lifecycle scenarios are distributed across those inventory domains. Qualified test names now include the domain; filters using the test function name still work.
+- `tests/`: integration tests using the public crate API.
 - `config-sample/`: TOML examples for direct, upstream, routing, and listener configurations.
 - `examples/`: library and connector usage examples.
+
+## Controller HTTP Service
+
+With `controller-service`, `core::http::proxy_service::register_service` registers
+the HTTP stream handler under the supplied `name`. The request entry-point URL
+comes from `ControlerStreamInput::entry_point`.
+
+Request paths accept
+`/<API_PREFIX>/[opts_<BASE64>]/<PROTOCOL>[:<PORT>]/<HOST>/<PATH>[?<QUERY>]`,
+for example `/api/proxy/https:8080/example.test/resource`. The optional port in
+the protocol segment uses `:`. The public URL constructors also produce paths
+containing a full target URL, such as `/api/proxy/https://example.test/resource`.
+Options use Base64url without padding. Redirect `Location` headers use a
+root-relative path for HTTP/HTTPS entry points and preserve absolute custom-scheme
+entry points.
 
 ## References
 

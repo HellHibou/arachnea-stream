@@ -51,6 +51,13 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 
 ## Server/Proxy
 
+- [x] Externaliser les neuf blocs de tests existants de `arachnea-proxy` dans des fichiers dédiés, en conservant modules, accès privés et conditions de compilation. Le fichier de cycle de vie déjà séparé reste inclus depuis les tests de l’inventaire. Suivi : [analyse-decoupage-arachnea-proxy.md](dev-tracking/analyse-decoupage-arachnea-proxy.md), section 10.
+- [x] Découper l’inventaire de `arachnea-proxy` par responsabilité : façade et neuf sous-modules privés, chemins publics et mécanismes de concurrence conservés. Bilan : [analyse-decoupage-arachnea-proxy.md](dev-tracking/analyse-decoupage-arachnea-proxy.md), section 11.
+- [x] Découper `core.rs` et `proxy_probe.rs` de `arachnea-proxy` par responsabilité : neuf fichiers par module, API et logique conservées, état des pools séparé de leur sélection et échanges des sondes distincts des transports sortants. Bilan : [analyse-decoupage-arachnea-proxy.md](dev-tracking/analyse-decoupage-arachnea-proxy.md), section 12.
+- [x] Répartir les tests du core et de l’inventaire par domaine, avec fixtures partagées réservées aux tests, et séparer chaque type de configuration avec ses implémentations associées. Noms simples des tests, assertions, API de configuration et attributs Serde conservés. Bilan : [analyse-decoupage-arachnea-proxy.md](dev-tracking/analyse-decoupage-arachnea-proxy.md), section 13.
+- [x] Découper `http/proxy_service.rs` suivant l’analyse : façade et cinq sous-modules privés, API publique et traitement du handler conservés ; tests existants gardés sous leurs noms qualifiés. Aucun fichier Rust du crate ne dépasse désormais 1 000 lignes. Bilan : [analyse-decoupage-arachnea-proxy.md](dev-tracking/analyse-decoupage-arachnea-proxy.md), section 15.
+- [ ] Évaluer le besoin de découper les candidats secondaires restants de `arachnea-proxy` (paramètres et handler SOCKS), selon leur cohésion et les évolutions futures ; ils restent sous 1 000 lignes.
+
 - [x] Traiter les reprises d’exploration observées le 19 octobre : provenance attachée au token, profil du proxy connu, erreurs `Other` plafonnées à 30 s y compris dans les anciens caches, coordination métier par destination/pays autorisés, notification des succès et preuve persistante des redirections intermédiaires. Livraison et limites en section 35 du suivi des proxies localisés ; recette vidéo réelle toujours ouverte.
 
 - [x] Isoler la pile des sondes partagées TCP/TLS après le stack overflow FranceTV de 13:20 : tâche enfant possédée et annulable, mutualisation et créneaux conservés ; fixture existante étendue. Section 33 du suivi.

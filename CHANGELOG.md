@@ -97,6 +97,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added a source-size audit and staged file-splitting proposal in `docs/dev-tracking/analyse-decoupage-arachnea-proxy.md`, covering existing test extraction, responsibility-based private modules, public import compatibility, and planned validation. Implementation remains pending confirmation; no Rust behavior changed.
 - Documented the proposed consolidation of inventory, failure and preference tables into the physical `proxy-inventory` SQLite store, including table-scoped schema metadata, legacy data migration and the distinction between shared storage and business transaction atomicity. Implementation is pending confirmation.
 - Revised the persistence analysis following user decisions: select the shared SQLite owner with typed table views, separate store and table configuration, use flat `<STORENAME>.sqlite3*` paths for all SQLite stores, and discard legacy data instead of migrating it. The revised analysis supersedes the earlier migration proposal; runtime implementation remains outstanding.
 
@@ -123,6 +124,16 @@ All notable changes to the server workspace are recorded here.
 #### Changed
 
 - Implemented the approved proxy persistence design: inventory, failures and accepted preferences share `proxy-inventory.sqlite3` through typed table views and one connection. Existing repositories, retention and separate business commits are preserved. Existing fixtures cover shared-table restoration and interrupted eviction; this completes the earlier analysis entries.
+
+- Moved all nine inline unit-test modules into dedicated files under adjacent `tests/` directories, retaining their module names, private access, feature gates, and existing inventory lifecycle inclusion. Production logic and public APIs are unchanged.
+
+- Split the dynamic proxy inventory into a facade and nine private modules for configuration, records, discovery, eligibility, selection, preferences, probing, observations, and persistence. Existing public imports, test module names, feature gates, lock ordering, shared cancellable work, and probe budgets are preserved.
+
+- Split `ArachneaProxyCore` and `ProxyProbe` into nine files each, separating routing, pool selection/state, connections, DNS, protocol detection, capability probing, HTTP/SOCKS exchanges, TLS, and result handling. Public imports and method signatures are preserved; existing algorithms, feature gates, timeouts, and TLS policies remain unchanged.
+
+- Grouped core and inventory unit tests into domain modules with shared test-only fixtures, replacing the inventory lifecycle textual inclusion. Test assertions, function names, and feature gates are preserved; qualified test names now include their domain. Split configuration types and their associated implementations into dedicated modules, retaining public reexports, defaults, validation, and Serde attributes. The HTTP proxy service split remains deferred, with an updated implementation analysis.
+
+- Split the controller HTTP proxy service into a facade and five private modules for request handling, options, headers, URLs, and redirects. Public imports, handler processing, retry rules, and existing qualified test names are preserved. Corrected the port-separator examples and registration-name documentation; no Rust file in the proxy crate now exceeds 1,000 lines.
 
 - Localized proxy searches no longer stop at 64 TCP prechecks, 32 full validations or eight business endpoints. Dynamic connection retries also follow the shared deadline and candidate exhaustion instead of a fixed attempt count. Concurrency and replay protections remain unchanged; cancelled technical reservations are released for later selection in the same search.
 
