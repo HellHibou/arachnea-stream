@@ -2,15 +2,24 @@
 
 ## Localized proxy persistence
 
-Application stores include `proxy-inventory`, `proxy-preferences` and
-`proxy-failures`, each in its own SQLite database under the application data
-directory's `data/<store-name>/records.sqlite3`. Preferences retain up to three
+The physical `proxy-inventory` store owns the `proxy-inventory`,
+`proxy-preferences` and `proxy-failures` tables in the application data
+directory's `data/proxy-inventory.sqlite3`, sharing one SQLite connection.
+Each table has its own typed view and schema. Preferences retain up to three
 accepted endpoints per exact destination without age expiration. Failure records
 retain bounded rediscovery protection (1,024 endpoints, 48 hours from eviction,
 cleaned on demand). These stores are shared across aggregator rebuilds; no worker
 is started. Compatibility application constructors use memory-only stores.
-New stores are created additively; legacy attempt dates do not become positive
-health evidence, and historical non-persisted preferences cannot be recovered.
+The other physical stores use `data/cloudflare-session.sqlite3` and
+`data/arachnea-services.sqlite3`. WAL/SHM files, when present, are adjacent
+`<STORENAME>.sqlite3-wal` / `<STORENAME>.sqlite3-shm` files. Old
+`<STORENAME>/records.sqlite3*` databases are ignored, not imported or deleted.
+The first run with this layout starts with empty proxy records, accepted
+histories, eviction protection and Cloudflare sessions. Existing service
+activation overrides and stored credentials in the old services database must
+be configured again. New-format data survives subsequent restarts; no legacy
+reset directory or schema marker is created. Sharing one database does not
+make endpoint eviction and preference cleanup a single transaction.
 
 `arachnea-stream` is the executable Rust backend crate. It wires the stream service facade, player resolvers, configured scraper sources, credentials storage, and the selected controller backend.
 

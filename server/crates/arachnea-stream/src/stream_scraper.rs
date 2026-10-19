@@ -3,7 +3,6 @@ use const_format::concatcp;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::{
     collections::HashMap,
-    fs,
     path::PathBuf,
     sync::{Arc, LazyLock},
 };
@@ -16,13 +15,15 @@ use arachnea_core::{
     },
     persistence::{
         CredentialsStore, FileCredentialsStore, MemoryEntityStore, PersistenceStoreConfig,
-        PersistentEntity, SqliteEntityStore, TypedEntityStore,
+        PersistenceTableConfig, PersistentEntity, SqliteDatabase, SqliteStoreConfig,
+        TypedEntityStore,
     },
 };
 use arachnea_http::chaser_session::{CachedChaserSession, CLOUDFLARE_SESSION_STORE_NAME};
 use arachnea_proxy::core::{
     ArachneaProxyCore, ProxyConfig, ProxyDestinationPreference, ProxyRecord,
     TypedProxyPreferenceRepository, TypedProxyRepository, PROXY_PREFERENCE_STORE_NAME,
+    PROXY_STORE_NAME,
 };
 use arachnea_scrapyfy::{
     scraper_result::{ScraperAggregationResult, ScraperErrorOrigin, ScraperExecutionError},
@@ -56,13 +57,11 @@ pub const STREAM_SERVICES_STORE_NAME: &str = "arachnea-services";
 /// Root directory, relative to the application data directory, of the SQLite
 /// persistence stores.
 pub const PERSISTENCE_DATA_ROOT: &str = "data";
-/// Marker written after the namespaced service-record schema is initialized.
-const SERVICE_STORE_SCHEMA_V2_MARKER: &str = ".source-service-schema-v2";
 
 /// Typed persistence stores composing the application backends.
 ///
-/// Each store owns exactly one entity schema and one SQLite database; the
-/// in-memory variant is used by compatibility constructors and tests.
+/// Each handle represents one entity table. The three proxy tables share a
+/// physical SQLite database; compatibility constructors use in-memory tables.
 #[derive(Clone)]
 pub struct ApplicationStores {
     /// Dynamic proxy inventory cache (`proxy-inventory`).
@@ -80,82 +79,52 @@ pub struct ApplicationStores {
 
 /// Opens the application SQLite stores under `application_data_path`.
 ///
-/// Each store lives in its own `<root>/<store-name>/records.sqlite3` database;
-/// missing columns and indexes are reconciled at open time.
+/// Physical stores use `<root>/<store-name>.sqlite3`. Proxy inventory, failures
+/// and preferences share one database and connection through typed table views.
+/// Legacy directory-based databases are ignored, not imported or deleted.
+/// Existing service activation overrides, credentials and cached data in those
+/// legacy databases are not retained. New-format data survives later restarts.
+///
+/// # Arguments
+/// * `application_data_path` - Application directory containing the `data` root.
 ///
 /// # Errors
 ///
 /// Returns an error when a database cannot be opened or its physical schema is
-/// incompatible with the declared entity schema. The incompatible pre-v2
-/// `arachnea-services` schema is deliberately reset once: the store directory
-/// (including SQLite WAL/SHM files) is removed before the v2 composite primary
-/// key is created. Existing service activation overrides and credentials are
-/// therefore lost. Other legacy caches whose recorded schema no longer matches
-/// the declared entity must be deleted manually and are intentionally never
-/// migrated:
-///
-/// - the legacy proxy inventory cache uses an incompatible primary key; delete
-///   `<application-data>/data/persistence/proxy-inventory/` before opening
-///   this version;
-/// - the legacy Cloudflare session cache keeps a `session TEXT NOT NULL`
-///   column that the flattened `CachedChaserSession` schema no longer writes,
-///   so every insert into an existing database fails and legacy rows fail to
-///   decode; delete
-///   `<application-data>/data/persistence/cloudflare-session/` (including the
-///   SQLite WAL/SHM auxiliary files) before starting this version.
+/// incompatible with the declared entity schema.
 pub fn sqlite_application_stores(
     application_data_path: impl Into<PathBuf>,
 ) -> Result<ApplicationStores> {
     let root = application_data_path.into().join(PERSISTENCE_DATA_ROOT);
-    reset_legacy_service_store(&root)?;
-    let stores = ApplicationStores {
-        proxy_failures: Arc::new(SqliteEntityStore::new(
-            PersistenceStoreConfig::new(
-                arachnea_proxy::core::proxy_repository::PROXY_FAILURE_STORE_NAME,
-                ProxyRecord::schema(),
-            )?,
-            &root,
-        )?),
-        proxy_preferences: Arc::new(SqliteEntityStore::new(
-            PersistenceStoreConfig::new(
-                PROXY_PREFERENCE_STORE_NAME,
-                ProxyDestinationPreference::schema(),
-            )?,
-            &root,
-        )?),
-        proxy_inventory: Arc::new(SqliteEntityStore::new(
-            PersistenceStoreConfig::new("proxy-inventory", ProxyRecord::schema())?,
-            &root,
-        )?),
-        cloudflare_session: Arc::new(SqliteEntityStore::new(
-            PersistenceStoreConfig::new(
-                CLOUDFLARE_SESSION_STORE_NAME,
-                CachedChaserSession::schema(),
-            )?,
-            &root,
-        )?),
-        source_enabled: Arc::new(SqliteEntityStore::new(
-            PersistenceStoreConfig::new(STREAM_SERVICES_STORE_NAME, SourceServiceRecord::schema())?,
-            &root,
-        )?),
-    };
-    fs::create_dir_all(root.join(STREAM_SERVICES_STORE_NAME))?;
-    fs::write(
-        root.join(STREAM_SERVICES_STORE_NAME)
-            .join(SERVICE_STORE_SCHEMA_V2_MARKER),
-        b"v2",
+    let proxies = SqliteDatabase::open(SqliteStoreConfig::new(PROXY_STORE_NAME)?, &root)?;
+    let sessions = SqliteDatabase::open(
+        SqliteStoreConfig::new(CLOUDFLARE_SESSION_STORE_NAME)?,
+        &root,
     )?;
-    Ok(stores)
-}
-
-/// Removes the pre-v2 service-record database before opening the incompatible
-/// composite-key schema. The marker ensures the reset happens only once.
-fn reset_legacy_service_store(root: &std::path::Path) -> Result<()> {
-    let directory = root.join(STREAM_SERVICES_STORE_NAME);
-    if directory.exists() && !directory.join(SERVICE_STORE_SCHEMA_V2_MARKER).exists() {
-        fs::remove_dir_all(&directory)?;
-    }
-    Ok(())
+    let services =
+        SqliteDatabase::open(SqliteStoreConfig::new(STREAM_SERVICES_STORE_NAME)?, &root)?;
+    Ok(ApplicationStores {
+        proxy_failures: Arc::new(proxies.table(PersistenceTableConfig::new(
+            arachnea_proxy::core::proxy_repository::PROXY_FAILURE_STORE_NAME,
+            ProxyRecord::schema(),
+        )?)?),
+        proxy_preferences: Arc::new(proxies.table(PersistenceTableConfig::new(
+            PROXY_PREFERENCE_STORE_NAME,
+            ProxyDestinationPreference::schema(),
+        )?)?),
+        proxy_inventory: Arc::new(proxies.table(PersistenceTableConfig::new(
+            PROXY_STORE_NAME,
+            ProxyRecord::schema(),
+        )?)?),
+        cloudflare_session: Arc::new(sessions.table(PersistenceTableConfig::new(
+            CLOUDFLARE_SESSION_STORE_NAME,
+            CachedChaserSession::schema(),
+        )?)?),
+        source_enabled: Arc::new(services.table(PersistenceTableConfig::new(
+            STREAM_SERVICES_STORE_NAME,
+            SourceServiceRecord::schema(),
+        )?)?),
+    })
 }
 
 /// Builds the in-memory application stores used by compatibility constructors.

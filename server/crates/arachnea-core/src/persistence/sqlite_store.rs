@@ -1,8 +1,7 @@
 //! SQLite-backed typed persistence store with declared schema evolution.
 //!
-//! One store owns one SQLite database placed in its own directory
-//! (`<data-root>/<store-name>/records.sqlite3`) so WAL auxiliary files stay
-//! contained. The physical schema is derived from the entity schema: tables are
+//! One physical store owns `<data-root>/<store-name>.sqlite3` and a shared
+//! connection. Typed table views have independent entity schemas. Tables are
 //! `STRICT`, booleans are checked integers, and column/index evolution is
 //! reconciled at open time against internal metadata tables.
 
@@ -22,7 +21,8 @@ use rusqlite::{
 
 use super::typed_store::{
     checked_schema, decode, encode, expired, safe_name, EntityDocument, EntityQuery, EntitySchema,
-    FieldType, PersistenceStoreConfig, PersistentEntity, StoredValue, TypedEntityStore,
+    FieldType, PersistenceStoreConfig, PersistenceTableConfig, PersistentEntity, StoredValue,
+    TypedEntityStore,
 };
 
 /// Internal metadata table recording the logical type of every managed column.
@@ -96,11 +96,117 @@ fn stored_from_key_sql(field: &str, value: SqlValue) -> anyhow::Result<StoredVal
     })
 }
 
-/// SQLite-backed store bound to exactly one entity and one schema.
+/// Physical SQLite store configuration, independent of its entity tables.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SqliteStoreConfig {
+    /// Stable name used for `<store-name>.sqlite3` and SQLite auxiliary files.
+    pub name: String,
+}
+
+impl SqliteStoreConfig {
+    /// Creates a physical store configuration.
+    ///
+    /// # Arguments
+    /// * `name` - Non-empty physical store name, encoded safely for file placement.
+    ///
+    /// # Errors
+    /// Returns an error if the name is empty.
+    pub fn new(name: impl Into<String>) -> anyhow::Result<Self> {
+        let name = name.into();
+        anyhow::ensure!(!name.is_empty(), "SQLite store name must not be empty");
+        Ok(Self { name })
+    }
+}
+
+/// Shared physical database owner; table views keep its connection alive.
+#[derive(Clone)]
+pub struct SqliteDatabase {
+    connection: Arc<Mutex<Connection>>,
+}
+
+impl SqliteDatabase {
+    /// Opens `<data-root>/<store-name>.sqlite3` without reading legacy directories.
+    ///
+    /// # Arguments
+    /// * `config` - Physical store identity, independent of any entity schema.
+    /// * `data_root` - Directory containing the database and its WAL/SHM files.
+    ///
+    /// # Errors
+    /// Returns an error when the name, directory, database or SQLite setup is invalid.
+    pub fn open(config: SqliteStoreConfig, data_root: impl Into<PathBuf>) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            !config.name.is_empty(),
+            "SQLite store name must not be empty"
+        );
+        let root = data_root.into();
+        std::fs::create_dir_all(&root).map_err(|error| {
+            anyhow::anyhow!(
+                "failed to create sqlite persistence directory {}: {error}",
+                root.display()
+            )
+        })?;
+        let path = root.join(format!("{}.sqlite3", safe_name(&config.name)));
+        let connection = Connection::open(&path).map_err(|error| {
+            anyhow::anyhow!(
+                "failed to open sqlite persistence database {}: {error}",
+                path.display()
+            )
+        })?;
+        connection.execute_batch("PRAGMA synchronous = FULL; PRAGMA busy_timeout = 5000;")?;
+        connection.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()))?;
+        Ok(Self {
+            connection: Arc::new(Mutex::new(connection)),
+        })
+    }
+
+    /// Opens a typed table view on this database, reconciling only its schema.
+    ///
+    /// # Arguments
+    /// * `config` - Table name and entity schema; never a database path.
+    ///
+    /// # Errors
+    /// Returns an error for an invalid entity schema, reserved table name,
+    /// incompatible existing table or failed schema transaction.
+    pub fn table<E>(&self, config: PersistenceTableConfig) -> anyhow::Result<SqliteEntityStore<E>>
+    where
+        E: PersistentEntity,
+        E::Key: SqlKey,
+    {
+        checked_schema::<E>(&config)?;
+        anyhow::ensure!(
+            !config.name.is_empty(),
+            "SQLite table name must not be empty"
+        );
+        let table = safe_name(&config.name);
+        anyhow::ensure!(
+            !table.to_ascii_lowercase().starts_with("arachnea_")
+                && !table.to_ascii_lowercase().starts_with("sqlite_"),
+            "SQLite table name '{}' uses a reserved metadata prefix",
+            config.name
+        );
+        anyhow::ensure!(
+            E::Key::physical_types().len() == config.schema.primary_key_fields().len(),
+            "table '{}' SQLite key representation does not match the declared primary key",
+            config.name
+        );
+        let mut connection = self.connection.lock().map_err(|_| lock_poisoned())?;
+        let transaction = connection.transaction()?;
+        initialize_schema::<E>(&transaction, &config)?;
+        transaction.commit()?;
+        Ok(SqliteEntityStore {
+            table,
+            config,
+            database: self.clone(),
+            marker: PhantomData,
+        })
+    }
+}
+
+/// Typed table view sharing the physical database owner's connection.
 pub struct SqliteEntityStore<E: PersistentEntity> {
     config: PersistenceStoreConfig,
     table: String,
-    connection: Arc<Mutex<Connection>>,
+    database: SqliteDatabase,
     marker: PhantomData<E>,
 }
 
@@ -108,8 +214,12 @@ impl<E: PersistentEntity> SqliteEntityStore<E>
 where
     E::Key: SqlKey,
 {
-    /// Opens (and reconciles) the store database under
-    /// `<data-root>/<store-name>/records.sqlite3`.
+    /// Opens a standalone database and a table with the same name under
+    /// `<data-root>/<store-name>.sqlite3`. Use [`SqliteDatabase::table`] to share a store.
+    ///
+    /// # Arguments
+    /// * `config` - Entity table configuration, also naming the standalone database.
+    /// * `data_root` - Directory containing the database and its auxiliary files.
     ///
     /// # Errors
     ///
@@ -119,35 +229,7 @@ where
         config: PersistenceStoreConfig,
         data_root: impl Into<PathBuf>,
     ) -> anyhow::Result<Self> {
-        checked_schema::<E>(&config)?;
-        if E::Key::physical_types().len() != config.schema.primary_key_fields().len() {
-            anyhow::bail!(
-                "store '{}' SQLite key representation does not match the declared primary key",
-                config.name
-            );
-        }
-        let directory = data_root.into().join(safe_name(&config.name));
-        std::fs::create_dir_all(&directory).map_err(|error| {
-            anyhow::anyhow!(
-                "failed to create sqlite persistence directory {}: {error}",
-                directory.display()
-            )
-        })?;
-        let connection = Connection::open(directory.join("records.sqlite3")).map_err(|error| {
-            anyhow::anyhow!(
-                "failed to open sqlite persistence database for store '{}': {error}",
-                config.name
-            )
-        })?;
-        connection.execute_batch("PRAGMA synchronous = FULL; PRAGMA busy_timeout = 5000;")?;
-        connection.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()))?;
-        initialize_schema::<E>(&connection, &config)?;
-        Ok(Self {
-            table: safe_name(&config.name),
-            config,
-            connection: Arc::new(Mutex::new(connection)),
-            marker: PhantomData,
-        })
+        SqliteDatabase::open(SqliteStoreConfig::new(&config.name)?, data_root)?.table(config)
     }
 }
 
@@ -179,7 +261,9 @@ fn logical_type_name(field_type: FieldType) -> &'static str {
     }
 }
 fn index_name(table: &str, column: &str) -> String {
-    format!("idx_{table}_{column}")
+    // The length delimits table names containing underscores; the reserved prefix
+    // also avoids collisions with legacy index names during reconciliation.
+    format!("arachnea_idx_{}_{table}_{}", table.len(), safe_name(column))
 }
 fn column_list(schema: &EntitySchema) -> String {
     schema
@@ -319,9 +403,11 @@ where
 {
     connection.execute_batch(&format!(
         "CREATE TABLE IF NOT EXISTS {COLUMNS_META_TABLE} \
-             (name TEXT PRIMARY KEY, logical_type TEXT NOT NULL) STRICT;\
+             (table_name TEXT NOT NULL, name TEXT NOT NULL, logical_type TEXT NOT NULL, \
+              PRIMARY KEY (table_name, name)) STRICT;\
          CREATE TABLE IF NOT EXISTS {INDEXES_META_TABLE} \
-             (name TEXT PRIMARY KEY, column_name TEXT NOT NULL) STRICT;"
+             (table_name TEXT NOT NULL, name TEXT NOT NULL, column_name TEXT NOT NULL, \
+              PRIMARY KEY (table_name, name)) STRICT;"
     ))?;
     let table = safe_name(&config.name);
     let exists: bool = connection
@@ -338,37 +424,53 @@ where
         create_table::<E>(connection, &table, config)
     }
 }
-fn record_column(connection: &Connection, name: &str, field_type: FieldType) -> anyhow::Result<()> {
+fn record_column(
+    connection: &Connection,
+    table: &str,
+    name: &str,
+    field_type: FieldType,
+) -> anyhow::Result<()> {
     connection.execute(
         &format!(
-            "INSERT OR REPLACE INTO {COLUMNS_META_TABLE} (name, logical_type) VALUES (?1, ?2)"
+            "INSERT OR REPLACE INTO {COLUMNS_META_TABLE} (table_name, name, logical_type) VALUES (?1, ?2, ?3)"
         ),
-        rusqlite::params![name, logical_type_name(field_type)],
+        rusqlite::params![table, name, logical_type_name(field_type)],
     )?;
     Ok(())
 }
-fn record_index(connection: &Connection, name: &str, column: &str) -> anyhow::Result<()> {
+fn record_index(
+    connection: &Connection,
+    table: &str,
+    name: &str,
+    column: &str,
+) -> anyhow::Result<()> {
     connection.execute(
-        &format!("INSERT OR REPLACE INTO {INDEXES_META_TABLE} (name, column_name) VALUES (?1, ?2)"),
-        rusqlite::params![name, column],
+        &format!("INSERT OR REPLACE INTO {INDEXES_META_TABLE} (table_name, name, column_name) VALUES (?1, ?2, ?3)"),
+        rusqlite::params![table, name, column],
     )?;
     Ok(())
 }
-fn managed_columns(connection: &Connection) -> anyhow::Result<HashMap<String, String>> {
+fn managed_columns(
+    connection: &Connection,
+    table: &str,
+) -> anyhow::Result<HashMap<String, String>> {
     let mut statement = connection.prepare(&format!(
-        "SELECT name, logical_type FROM {COLUMNS_META_TABLE}"
+        "SELECT name, logical_type FROM {COLUMNS_META_TABLE} WHERE table_name = ?1"
     ))?;
-    let rows = statement.query_map([], |row| {
+    let rows = statement.query_map([table], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
     })?;
     rows.collect::<rusqlite::Result<HashMap<_, _>>>()
         .map_err(|error| anyhow::anyhow!("failed to read sqlite column metadata: {error}"))
 }
-fn managed_indexes(connection: &Connection) -> anyhow::Result<HashMap<String, String>> {
+fn managed_indexes(
+    connection: &Connection,
+    table: &str,
+) -> anyhow::Result<HashMap<String, String>> {
     let mut statement = connection.prepare(&format!(
-        "SELECT name, column_name FROM {INDEXES_META_TABLE}"
+        "SELECT name, column_name FROM {INDEXES_META_TABLE} WHERE table_name = ?1"
     ))?;
-    let rows = statement.query_map([], |row| {
+    let rows = statement.query_map([table], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
     })?;
     rows.collect::<rusqlite::Result<HashMap<_, _>>>()
@@ -428,14 +530,14 @@ where
         [],
     )?;
     for field in schema.fields() {
-        record_column(connection, field.name(), field.field_type())?;
+        record_column(connection, table, field.name(), field.field_type())?;
     }
     for (name, column) in declared_indexes(schema, table) {
         connection.execute(
             &format!("CREATE INDEX \"{name}\" ON \"{table}\" (\"{column}\")"),
             [],
         )?;
-        record_index(connection, &name, &column)?;
+        record_index(connection, table, &name, &column)?;
     }
     Ok(())
 }
@@ -450,7 +552,7 @@ where
     let schema = &config.schema;
     let primary_key_fields = schema.primary_key_fields();
     let physical_types = <E::Key as SqlKey>::physical_types();
-    let managed = managed_columns(connection)?;
+    let managed = managed_columns(connection, table)?;
     let mut statement = connection.prepare(&format!("PRAGMA table_info(\"{table}\")"))?;
     let existing = statement
         .query_map([], |row| {
@@ -520,7 +622,7 @@ where
                 ),
                 [],
             )?;
-            record_column(connection, field.name(), field.field_type())?;
+            record_column(connection, table, field.name(), field.field_type())?;
         }
     }
     reconcile_indexes(connection, table, schema)
@@ -531,7 +633,7 @@ fn reconcile_indexes(
     schema: &EntitySchema,
 ) -> anyhow::Result<()> {
     let declared = declared_indexes(schema, table);
-    let managed = managed_indexes(connection)?;
+    let managed = managed_indexes(connection, table)?;
     let physical = physical_indexes(connection, table)?;
     for (name, column) in &declared {
         if managed.contains_key(name) {
@@ -546,14 +648,14 @@ fn reconcile_indexes(
             &format!("CREATE INDEX \"{name}\" ON \"{table}\" (\"{column}\")"),
             [],
         )?;
-        record_index(connection, name, column)?;
+        record_index(connection, table, name, column)?;
     }
     for name in managed.keys() {
         if !declared.iter().any(|(declared, _)| declared == name) {
             connection.execute(&format!("DROP INDEX IF EXISTS \"{name}\""), [])?;
             connection.execute(
-                &format!("DELETE FROM {INDEXES_META_TABLE} WHERE name = ?1"),
-                [name],
+                &format!("DELETE FROM {INDEXES_META_TABLE} WHERE table_name = ?1 AND name = ?2"),
+                [table, name],
             )?;
         }
     }
@@ -567,7 +669,7 @@ where
     E::Key: SqlKey,
 {
     async fn get(&self, key: &E::Key) -> anyhow::Result<Option<E>> {
-        let connection = self.connection.clone();
+        let connection = self.database.connection.clone();
         let table = self.table.clone();
         let config = self.config.clone();
         let key_values = key.to_sql_values();
@@ -598,7 +700,7 @@ where
         task.await.map_err(join_error)?
     }
     async fn put(&self, entity: &E) -> anyhow::Result<()> {
-        let connection = self.connection.clone();
+        let connection = self.database.connection.clone();
         let table = self.table.clone();
         let config = self.config.clone();
         let entity = entity.clone();
@@ -610,7 +712,7 @@ where
         task.await.map_err(join_error)?
     }
     async fn put_all(&self, entities: &[E]) -> anyhow::Result<()> {
-        let connection = self.connection.clone();
+        let connection = self.database.connection.clone();
         let table = self.table.clone();
         let config = self.config.clone();
         let entities = entities.to_vec();
@@ -632,7 +734,7 @@ where
         task.await.map_err(join_error)?
     }
     async fn delete(&self, key: &E::Key) -> anyhow::Result<()> {
-        let connection = self.connection.clone();
+        let connection = self.database.connection.clone();
         let table = self.table.clone();
         let config = self.config.clone();
         let key_values = key.to_sql_values();
@@ -650,7 +752,7 @@ where
         task.await.map_err(join_error)?
     }
     async fn find(&self, query: &EntityQuery<E>) -> anyhow::Result<Vec<E>> {
-        let connection = self.connection.clone();
+        let connection = self.database.connection.clone();
         let table = self.table.clone();
         let config = self.config.clone();
         let predicates = query.predicates().to_vec();
@@ -799,14 +901,48 @@ mod tests {
     #[tokio::test]
     async fn put_get_delete_roundtrip() -> anyhow::Result<()> {
         let dir = temp_dir("roundtrip");
-        let store = store(&dir, false).await?;
+        let database = SqliteDatabase::open(SqliteStoreConfig::new("test-inventory")?, &dir)?;
+        let store = database.table::<TestEntity>(PersistenceTableConfig::new(
+            "test-inventory",
+            TestEntity::schema(),
+        )?)?;
+        let other = database.table::<TestEntity>(PersistenceTableConfig::new(
+            "other-table",
+            TestEntity::schema(),
+        )?)?;
+        assert!(Arc::ptr_eq(
+            &store.database.connection,
+            &other.database.connection
+        ));
+        assert!(dir.join("test-inventory.sqlite3").is_file());
+        assert!(!dir.join("test-inventory").exists());
+        assert!(!dir.join("other-table.sqlite3").exists());
+        assert!(database
+            .table::<TestEntity>(PersistenceTableConfig::new(
+                "arachnea_columns",
+                TestEntity::schema(),
+            )?)
+            .is_err());
+        drop(database);
         store.put(&entity("h1:80", "a", 60)).await?;
+        other.put(&entity("h1:80", "other", 60)).await?;
         let loaded = store.get(&"h1:80".to_string()).await?.expect("entity");
         assert_eq!(loaded.name, "a");
         assert_eq!(loaded.port, 8080);
         assert!(store.get(&"missing".to_string()).await?.is_none());
         store.delete(&"h1:80".to_string()).await?;
         assert!(store.get(&"h1:80".to_string()).await?.is_none());
+        assert_eq!(
+            other.get(&"h1:80".to_string()).await?.unwrap().name,
+            "other"
+        );
+        let independent = SqliteDatabase::open(SqliteStoreConfig::new("independent")?, &dir)?;
+        let separate = independent.table::<TestEntity>(PersistenceTableConfig::new(
+            "other-table",
+            TestEntity::schema(),
+        )?)?;
+        assert!(separate.get(&"h1:80".to_string()).await?.is_none());
+        assert!(dir.join("independent.sqlite3").is_file());
         let _ = std::fs::remove_dir_all(&dir);
         Ok(())
     }
@@ -943,6 +1079,16 @@ mod tests {
             &dir,
         );
         assert!(result.is_err(), "type change must be rejected");
+        let database = SqliteDatabase::open(SqliteStoreConfig::new("test-inventory")?, &dir)?;
+        // A same-named field in another table can have a different logical type.
+        drop(database.table::<Conflicting>(PersistenceTableConfig::new(
+            "different-schema",
+            Conflicting::schema(),
+        )?)?);
+        drop(database.table::<TestEntity>(PersistenceTableConfig::new(
+            "test-inventory",
+            TestEntity::schema(),
+        )?)?);
         let _ = std::fs::remove_dir_all(&dir);
         Ok(())
     }
@@ -950,12 +1096,30 @@ mod tests {
     #[tokio::test]
     async fn restart_keeps_persisted_entities() -> anyhow::Result<()> {
         let dir = temp_dir("restart");
+        let legacy = dir.join("test-inventory");
+        std::fs::create_dir_all(&legacy)?;
+        let legacy_path = legacy.join("records.sqlite3");
+        let connection = Connection::open(&legacy_path)?;
+        connection.execute_batch(
+            "CREATE TABLE legacy_data (value TEXT); INSERT INTO legacy_data VALUES ('ignored');",
+        )?;
+        drop(connection);
         {
             let store = store(&dir, false).await?;
             store.put(&entity("r:1", "n1", 60)).await?;
             store.put(&entity("r:2", "n2", 60)).await?;
         }
         let store = store(&dir, false).await?;
+        assert!(legacy_path.is_file());
+        let connection = Connection::open(db_path(&dir))?;
+        assert_eq!(
+            connection.query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name = 'legacy_data'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )?,
+            0
+        );
         assert_eq!(
             store.get(&"r:1".to_string()).await?.expect("entity").name,
             "n1"
@@ -1031,7 +1195,7 @@ mod tests {
     }
 
     fn db_path(dir: &PathBuf) -> PathBuf {
-        dir.join("test-inventory").join("records.sqlite3")
+        dir.join("test-inventory.sqlite3")
     }
 
     fn physical_index_exists(dir: &PathBuf, name: &str) -> bool {
@@ -1050,14 +1214,89 @@ mod tests {
     async fn removed_declared_index_is_dropped() -> anyhow::Result<()> {
         let dir = temp_dir("index-drop");
         drop(store(&dir, false).await?);
-        assert!(physical_index_exists(&dir, "idx_test-inventory_name"));
+        assert!(physical_index_exists(
+            &dir,
+            &index_name("test-inventory", "name")
+        ));
+        let database = SqliteDatabase::open(SqliteStoreConfig::new("test-inventory")?, &dir)?;
+        drop(database.table::<TestEntity>(PersistenceTableConfig::new(
+            "other-table",
+            TestEntity::schema(),
+        )?)?);
+        drop(
+            database.table::<TestEntityPlain>(PersistenceTableConfig::new(
+                "no-index",
+                TestEntityPlain::schema(),
+            )?)?,
+        );
+        assert!(physical_index_exists(
+            &dir,
+            &index_name("test-inventory", "name")
+        ));
+        assert!(physical_index_exists(
+            &dir,
+            &index_name("other-table", "name")
+        ));
+        #[derive(Clone)]
+        struct CollisionSchema;
+        impl PersistentEntity for CollisionSchema {
+            type Key = String;
+            fn key(&self) -> String {
+                unreachable!()
+            }
+            fn schema() -> EntitySchema {
+                EntitySchema::new()
+                    .primary_key(Field::string("authority"))
+                    .field(Field::string("b_name").indexed())
+            }
+            fn write_to(&self, _writer: &mut EntityWriter) -> anyhow::Result<()> {
+                unreachable!()
+            }
+            fn read_from(_reader: &EntityReader<'_>) -> anyhow::Result<Self> {
+                unreachable!()
+            }
+        }
+        // Both pairs previously generated idx_a_b_name in the shared database.
+        drop(
+            database
+                .table::<TestEntity>(PersistenceTableConfig::new("a_b", TestEntity::schema())?)?,
+        );
+        drop(
+            database.table::<CollisionSchema>(PersistenceTableConfig::new(
+                "a",
+                CollisionSchema::schema(),
+            )?)?,
+        );
+        assert!(physical_index_exists(&dir, "arachnea_idx_3_a_b_name"));
+        assert!(physical_index_exists(&dir, "arachnea_idx_1_a_b_name"));
+        drop(database);
+        let reopened = SqliteDatabase::open(SqliteStoreConfig::new("test-inventory")?, &dir)?;
+        drop(
+            reopened
+                .table::<TestEntity>(PersistenceTableConfig::new("a_b", TestEntity::schema())?)?,
+        );
+        drop(
+            reopened.table::<CollisionSchema>(PersistenceTableConfig::new(
+                "a",
+                CollisionSchema::schema(),
+            )?)?,
+        );
         // Reopening with the same columns but without the declared index on
         // `name` must drop the managed index while keeping the data usable.
         let store = SqliteEntityStore::<TestEntityPlain>::new(
             PersistenceStoreConfig::new("test-inventory", TestEntityPlain::schema())?,
             &dir,
         )?;
-        assert!(!physical_index_exists(&dir, "idx_test-inventory_name"));
+        assert!(!physical_index_exists(
+            &dir,
+            &index_name("test-inventory", "name")
+        ));
+        assert!(physical_index_exists(
+            &dir,
+            &index_name("other-table", "name")
+        ));
+        assert!(physical_index_exists(&dir, "arachnea_idx_3_a_b_name"));
+        assert!(physical_index_exists(&dir, "arachnea_idx_1_a_b_name"));
         store
             .put(&TestEntityPlain {
                 authority: "p:1".to_string(),
@@ -1080,15 +1319,29 @@ mod tests {
         }
         {
             let connection = Connection::open(db_path(&dir))?;
+            let managed_name = index_name("test-inventory", "name");
+            connection.execute(&format!("DROP INDEX \"{managed_name}\""), [])?;
+            connection.execute(
+                "CREATE INDEX \"idx_test-inventory_name\" ON \"test-inventory\" (\"name\")",
+                [],
+            )?;
+            connection.execute(
+                "UPDATE arachnea_indexes SET name = 'idx_test-inventory_name' WHERE table_name = 'test-inventory' AND name = ?1",
+                [&managed_name],
+            )?;
             connection.execute(
                 "CREATE INDEX \"external_custom\" ON \"test-inventory\" (\"port\")",
                 [],
             )?;
         }
-        // Reopening must keep the unmanaged external index and stay usable.
+        // Reopening replaces legacy managed names but preserves external indexes and data.
         let reopened = store(&dir, false).await?;
         assert!(physical_index_exists(&dir, "external_custom"));
-        assert!(physical_index_exists(&dir, "idx_test-inventory_name"));
+        assert!(!physical_index_exists(&dir, "idx_test-inventory_name"));
+        assert!(physical_index_exists(
+            &dir,
+            &index_name("test-inventory", "name")
+        ));
         assert!(reopened.get(&"e:1".to_string()).await?.is_some());
         let _ = std::fs::remove_dir_all(&dir);
         Ok(())

@@ -77,12 +77,18 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added two-level SQLite persistence: `SqliteStoreConfig` / `SqliteDatabase` own a physical database and shared connection, while `PersistenceTableConfig` / typed table views manage independent entity schemas. `PersistenceStoreConfig` remains a compatibility alias for table configuration.
+
 #### Changed
+
+- SQLite files now use flat `<data-root>/<STORENAME>.sqlite3*` paths instead of `<STORENAME>/records.sqlite3*`. Legacy data is not imported or automatically deleted; newly persisted data survives restarts.
 
 - `get_application_resource_path` now probes the release layouts (portable folder, macOS `Contents/Resources`, Linux system resource dir) for the requested relative path itself (file or directory) instead of resolving a cached resource root from a `services` directory check; `get_application_resource_root` was removed accordingly.
 
 #### Fixed
 
+- SQLite column/index metadata and managed-index cleanup are scoped to each table, preventing schema reconciliation from modifying other tables in a shared store. Schema changes commit transactionally.
+- Shared SQLite tables now use unambiguous, reserved-prefix managed index names: table `a_b` / column `name` no longer collides with table `a` / column `b_name`. Opening a table replaces its previous managed index names without changing records or external indexes; existing fixtures cover collision, reopening and reconciliation.
 - REST route registration now builds a balanced Warp filter tree instead of a linear chain. Registration priority and client ACL checks are preserved, while polling depth grows logarithmically; this reduces stack pressure during nested proxy/TLS operations implicated in macOS debug stack-overflow reports.
 
 - Linux resource probing now prefers the AppImage mount root (`$APPDIR/usr/lib/*/services`): the resolution previously derived `../lib` from the executable path alone, which resolved to `/tmp/.mount_.../usr/bin/services` (missing) instead of the Tauri bundler layout `$APPDIR/usr/lib/<product>/services`. deb/rpm probing via the executable path is unchanged.
@@ -90,6 +96,9 @@ All notable changes to the server workspace are recorded here.
 ### <u>arachnea-proxy</u>
 
 #### Added
+
+- Documented the proposed consolidation of inventory, failure and preference tables into the physical `proxy-inventory` SQLite store, including table-scoped schema metadata, legacy data migration and the distinction between shared storage and business transaction atomicity. Implementation is pending confirmation.
+- Revised the persistence analysis following user decisions: select the shared SQLite owner with typed table views, separate store and table configuration, use flat `<STORENAME>.sqlite3*` paths for all SQLite stores, and discard legacy data instead of migrating it. The revised analysis supersedes the earlier migration proposal; runtime implementation remains outstanding.
 
 - Localized proxy lot 3 introduces a shared side-effect-free response classifier, conservative 2xx acceptance, configurable status/403 policies, exact-token destination exclusions with optional cooldowns, and bounded non-destructive body-prefix inspection before media post-actions. YAML/media URL policies preserve explicit legacy rejection lists and FranceTV/TF1 activation; unclassified errors remain inconclusive.
 
@@ -112,6 +121,8 @@ All notable changes to the server workspace are recorded here.
 - Dynamic proxy records now preserve source declarations as persisted provenance metadata, including each provider identifier, advertised protocol and HTTPS hint. Refresh logs report endpoints with conflicting protocol declarations and runtime protocols recovered outside provider claims.
 
 #### Changed
+
+- Implemented the approved proxy persistence design: inventory, failures and accepted preferences share `proxy-inventory.sqlite3` through typed table views and one connection. Existing repositories, retention and separate business commits are preserved. Existing fixtures cover shared-table restoration and interrupted eviction; this completes the earlier analysis entries.
 
 - Localized proxy searches no longer stop at 64 TCP prechecks, 32 full validations or eight business endpoints. Dynamic connection retries also follow the shared deadline and candidate exhaustion instead of a fixed attempt count. Concurrency and replay protections remain unchanged; cancelled technical reservations are released for later selection in the same search.
 
@@ -174,6 +185,8 @@ All notable changes to the server workspace are recorded here.
 ### <u>arachnea-stream</u>
 
 #### Added
+
+- Application persistence now opens the shared proxy database and separate flat `cloudflare-session.sqlite3` / `arachnea-services.sqlite3` databases, ignoring old directory-based data. Legacy service activation overrides and stored credentials must be configured again. The obsolete destructive service-directory reset and schema marker were removed; new-format databases are retained across restarts.
 
 - RMC BFM Play now exposes a `search` query against the anonymous `recherche` BFF endpoint, returning the `mosaique` grid nested in the `onglet` tabs as landscape cards with player-page links consumable by `get_entry`; no pagination is advertised.
 - RMC BFM Play `get_entry` on episode `player` pages now keeps parent-programme episode rails titled "Episodes" without accent (for example "Episodes 1 à 39"), which the seasons label filter previously dropped, leaving those entries with no seasons.

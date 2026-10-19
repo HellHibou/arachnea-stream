@@ -201,26 +201,36 @@ impl Default for EntitySchema {
     }
 }
 
-/// Explicit identity and schema used to construct one typed persistence store.
+/// Explicit table identity and entity schema, independent of a physical database.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PersistenceStoreConfig {
-    /// Stable name used for diagnostics and file placement.
+pub struct PersistenceTableConfig {
+    /// Stable table name (also used for standalone memory/file stores).
     pub name: String,
-    /// The one entity schema accepted by this store.
+    /// The one entity schema accepted by this table.
     pub schema: EntitySchema,
 }
 
-impl PersistenceStoreConfig {
-    /// Creates validated configuration for one named store.
+impl PersistenceTableConfig {
+    /// Creates validated configuration for one named entity table.
+    ///
+    /// # Arguments
+    /// * `name` - Non-empty table name, independent of the physical SQLite store name.
+    /// * `schema` - Complete schema for the entity persisted in this table.
+    ///
+    /// # Errors
+    /// Returns an error when the name is empty or the entity schema is invalid.
     pub fn new(name: impl Into<String>, schema: EntitySchema) -> anyhow::Result<Self> {
         let name = name.into();
         if name.is_empty() {
-            anyhow::bail!("persistence store name must not be empty");
+            anyhow::bail!("persistence table name must not be empty");
         }
         schema.validate()?;
         Ok(Self { name, schema })
     }
 }
+
+/// Compatibility name for an entity table configuration, not a physical SQLite store.
+pub type PersistenceStoreConfig = PersistenceTableConfig;
 
 /// Stable typed identity used by an entity store.
 pub trait EntityKey: Clone + Eq + Hash + Debug + Send + Sync + 'static {

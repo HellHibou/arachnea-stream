@@ -27,13 +27,14 @@ pub use file_codec::{JsonPersistenceFileCodec, PersistenceFileCodec};
 pub use file_credentials_store::FileCredentialsStore;
 pub use typed_store::{
     EntityKey, EntityQuery, EntityReader, EntitySchema, EntityWriter, Field, FieldRole, FieldType,
-    FileEntityStore, MemoryEntityStore, PersistenceStoreConfig, PersistentEntity, TypedEntityStore,
+    FileEntityStore, MemoryEntityStore, PersistenceStoreConfig, PersistenceTableConfig,
+    PersistentEntity, TypedEntityStore,
 };
 pub use value_encryption::{decrypt_value, encrypt_value};
 
-/// Typed SQLite persistence store configured for exactly one entity schema.
+/// Physical SQLite database owners, configurations and typed entity table views.
 #[cfg(feature = "sqlite-persistence")]
-pub use sqlite_store::{SqlKey, SqliteEntityStore};
+pub use sqlite_store::{SqlKey, SqliteDatabase, SqliteEntityStore, SqliteStoreConfig};
 /// Typed SQLite persistence store configured for exactly one entity schema.
 #[cfg(feature = "sqlite-persistence")]
 pub type SqlitePersistenceStore<E> = SqliteEntityStore<E>;

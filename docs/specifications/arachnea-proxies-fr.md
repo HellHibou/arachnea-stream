@@ -23,8 +23,16 @@ les préférences/exclusions. Les budgets et retries communs restent au lot 5.
 
 ### Persistance runtime — lot 2
 
-Sans changement du YAML fournisseur, l’application injecte les stores typés
-`proxy-inventory`, `proxy-preferences` et `proxy-failures`. L’historique durable
+Sans changement du YAML fournisseur, l’application injecte les vues typées des
+tables `proxy-inventory`, `proxy-preferences` et `proxy-failures` d’un seul store
+SQLite physique, `<application-data>/data/proxy-inventory.sqlite3`, avec une
+connexion partagée et des métadonnées propres à chaque table. Les fichiers
+auxiliaires sont adjacents (`proxy-inventory.sqlite3-wal` et `-shm` si présents).
+Les anciennes bases `<STORENAME>/records.sqlite3*` ne sont pas reprises ; les
+nouvelles bases démarrent vides, puis persistent normalement entre redémarrages.
+Les autres stores SQLite utilisent aussi `<STORENAME>.sqlite3*` sans sous-dossier ;
+les sessions Cloudflare et les activations/credentials des anciens stores ne
+sont donc pas repris. L’historique durable
 conserve jusqu’à trois endpoints acceptés par schéma/hôte/port, sans pays dans la
 clé ni expiration par âge. Il est restauré avant découverte ; le succès éligible
 le plus récent gagne dans les pays autorisés, sans priorité liée à leur ordre.
@@ -34,10 +42,12 @@ une réussite technique ou une actualisation fournisseur.
 L’éviction globale exige un échec de connexion à l’endpoint après 24 heures depuis
 la dernière preuve positive, ou la découverte initiale sans preuve positive.
 `last_checked` n’est pas une preuve. Avant ce seuil, le cooldown global vaut
-15 minutes par défaut, configurable. Un store séparé conserve au maximum
+15 minutes par défaut, configurable. La table distincte `proxy-failures` conserve au maximum
 1 024 états d’éviction pendant 48 heures, nettoyés à la demande, pour préserver
 les temporisations lors d’une redécouverte. Aucun worker n’est ajouté. L’ordre
-du parcours des autres candidats reste à traiter au lot 4.
+du parcours des autres candidats reste à traiter au lot 4. Le regroupement
+physique ne rend pas atomiques les commits d’éviction et de nettoyage des
+préférences ; les références restaurées sont vérifiées avant utilisation.
 
 ## 1. Aperçu
 

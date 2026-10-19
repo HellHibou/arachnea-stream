@@ -39,6 +39,12 @@ their decisions remain absent, with a warning when a policy is configured.
 
 ## Main Capabilities
 
+When the application uses SQLite session persistence, the `cloudflare-session`
+table lives in `<application-data>/data/cloudflare-session.sqlite3`, with adjacent
+SQLite WAL/SHM files when present. Legacy `cloudflare-session/records.sqlite3*`
+databases are ignored without importing their sessions or deleting the old files.
+Sessions saved in the new layout survive subsequent restarts.
+
 - `ArachneaHttpClient` as the main request facade.
 - `ArachneaHttpClient::default().await?` as the default-configuration constructor.
 - Common HTTP methods, custom methods, request options, and typed responses.

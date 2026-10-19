@@ -23,8 +23,15 @@ preferences/exclusions. Common search deadlines and retries remain lot 5 work.
 
 ### Runtime persistence — lot 2
 
-Without changing provider YAML, the application injects `proxy-inventory`,
-`proxy-preferences` and `proxy-failures` typed stores. Durable histories retain
+Without changing provider YAML, the application injects typed views of the
+`proxy-inventory`, `proxy-preferences` and `proxy-failures` tables in one physical
+SQLite store, `<application-data>/data/proxy-inventory.sqlite3`, with a shared
+connection and table-scoped metadata. SQLite auxiliary files are adjacent
+(`proxy-inventory.sqlite3-wal` and `-shm` when present). Legacy
+`<STORENAME>/records.sqlite3*` databases are not imported; new databases start
+empty and then persist normally across restarts. Other SQLite stores also use
+flat `<STORENAME>.sqlite3*` paths; legacy Cloudflare sessions and stored service
+activation overrides/credentials are therefore not retained. Durable histories retain
 three accepted endpoints per scheme/host/port, without country in the key or
 age-based expiration. Restoration precedes discovery; the newest eligible success
 within the allowed countries wins independently of country-list order.
@@ -33,10 +40,11 @@ Destination exclusions survive technical successes and provider refreshes.
 Global eviction requires an endpoint connection failure after 24 hours from the
 latest positive evidence, or initial discovery without positive evidence.
 `last_checked` is not evidence. Before that threshold, global cooldown defaults
-to 15 minutes and is configurable. A separate failure store retains at most
+to 15 minutes and is configurable. The separate `proxy-failures` table retains at most
 1,024 evicted endpoints for 48 hours, cleaned on demand, preserving rediscovery
 cooldowns. No worker is introduced. Non-preferred candidate country ordering
-remains for lot 4.
+remains for lot 4. Physical consolidation does not make eviction and preference
+cleanup commits atomic; restored references are checked before use.
 
 ## 1. Overview
 

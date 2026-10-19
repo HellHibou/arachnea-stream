@@ -387,20 +387,19 @@ mod tests {
     }
 
     /// Item 5: a legacy `session TEXT NOT NULL` cache is strictly rejected and
-    /// a manual deletion of the store directory allows opening a fresh store.
+    /// a manual deletion of the closed database allows opening a fresh store.
     #[tokio::test]
     async fn legacy_cache_rejected_until_manual_deletion() -> anyhow::Result<()> {
         let root = temp_dir("sqlite-legacy");
-        let store_dir = root.join("cloudflare-session");
+        let database_path = root.join("cloudflare-session.sqlite3");
         // Establish the metadata layout with a fresh flattened store first.
         drop(SqliteEntityStore::<CachedChaserSession>::new(
             store_config(),
             &root,
         )?);
 
-        // Rewrite the database as the legacy cache: table plus managed-column
-        // metadata exactly as an older version would have left them.
-        let connection = rusqlite::Connection::open(store_dir.join("records.sqlite3"))?;
+        // Reproduce legacy entity columns using current table-scoped metadata.
+        let connection = rusqlite::Connection::open(&database_path)?;
         connection.execute("DROP TABLE \"cloudflare-session\"", [])?;
         connection.execute(
             "CREATE TABLE \"cloudflare-session\" (\
@@ -418,7 +417,7 @@ mod tests {
             ("session", "string"),
         ] {
             connection.execute(
-                "INSERT INTO arachnea_columns (name, logical_type) VALUES (?1, ?2)",
+                "INSERT INTO arachnea_columns (table_name, name, logical_type) VALUES ('cloudflare-session', ?1, ?2)",
                 rusqlite::params![name, logical_type],
             )?;
         }
@@ -463,9 +462,8 @@ mod tests {
         }
         drop(store);
 
-        // Manual deletion of the store directory (WAL/SHM included) allows
-        // opening a fresh store.
-        std::fs::remove_dir_all(&store_dir)?;
+        // Closing the last connection checkpoints the WAL before removing the database.
+        std::fs::remove_file(&database_path)?;
         let store = SqliteEntityStore::<CachedChaserSession>::new(store_config(), &root)?;
         let stored_at = unix_now();
         store
@@ -488,7 +486,7 @@ mod tests {
     async fn corrupted_fields_fail_without_leaking_values() -> anyhow::Result<()> {
         let root = temp_dir("sqlite-corrupt");
         let store = SqliteEntityStore::<CachedChaserSession>::new(store_config(), &root)?;
-        let db = root.join("cloudflare-session").join("records.sqlite3");
+        let db = root.join("cloudflare-session.sqlite3");
         let origin = "https://corrupt.example.com";
         store.put(&sample(origin, None, unix_now())).await?;
         drop(store);

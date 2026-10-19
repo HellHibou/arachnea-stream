@@ -411,9 +411,14 @@ complementary probe suspension operate without background maintenance.
 
 ### Durable preferences and endpoint eviction (lot 2)
 
-The application opens separate `proxy-preferences` and `proxy-failures` typed
-stores next to `proxy-inventory`, then injects shared repositories through
-Scrapyfy. Compatibility constructors retain memory-only stores.
+The application opens one physical `proxy-inventory` SQLite store with three
+typed table views: `proxy-inventory`, `proxy-preferences` and `proxy-failures`.
+They share a connection in `<application-data>/data/proxy-inventory.sqlite3`,
+with adjacent SQLite WAL/SHM files when present. Table schemas and metadata
+remain independent. Shared repositories are injected through Scrapyfy;
+compatibility constructors retain memory-only stores. Old directory-based
+databases are ignored without data import or automatic deletion. New-format
+records survive restarts.
 Custom `ProxyRepository` implementations must provide
 `clear_superseded_destination_failures`: read the latest record and clear only
 matching older `Other` failures under the same commit lock as ordinary writes.
@@ -428,7 +433,7 @@ Per-destination locks serialize history updates. Repository commit locks are
 shared by wrappers of the same typed-store `Arc`, including across application
 rebuilds, preventing file snapshots from committing out of order. Independent
 store objects targeting the same file and multiple processes are not coordinated.
-There is no cross-store transaction; restored references are checked against the
+There is no multi-table business transaction; restored references are checked against the
 inventory and orphans are cleaned on demand.
 
 Only a proven failure to connect to the proxy endpoint can evict it globally.
@@ -440,14 +445,15 @@ timer triggers a test or deletes a still-working endpoint. Authentication, proxy
 TLS security failures and remote failures do not independently trigger eviction.
 
 Eviction removes the available memory/persistent record, preference references
-and affinity bindings. A separate failure store retains at most 1,024 records
+and affinity bindings. The separate `proxy-failures` table retains at most 1,024 records
 for 48 hours from eviction; cleanup runs on demand. Rediscovery preserves the
 initial discovery, positive evidence, exclusions and active cooldown; it is not
 a success and cannot immediately revive the endpoint. Destination exclusions
 (24 hours by default, configurable) survive technical successes and provider
 refreshes, without an implicit early release when all candidates are excluded.
-Legacy records remain readable, but their attempt dates do not invent evidence
-or historical accepted preferences. Country selection is independent of input order.
+Within the new database, missing optional health fields remain readable, but
+attempt dates do not invent positive evidence or historical accepted preferences.
+Country selection is independent of input order.
 
 
 ### Shared localized search budget (lot 5)

@@ -20,9 +20,9 @@ use crate::core::{
     ProxyKey, ProxyProtocol, ProxyRecord, ProxyRuntimeStatus, PROXY_CACHE_TTL,
 };
 
-/// Stable store name for dynamic proxy records.
+/// Physical SQLite store and available-record table name for dynamic proxies.
 pub const PROXY_STORE_NAME: &str = "proxy-inventory";
-/// Bounded failure records kept outside the available inventory after eviction.
+/// Table name for bounded eviction records in the shared proxy SQLite store.
 pub const PROXY_FAILURE_STORE_NAME: &str = "proxy-failures";
 /// Repository used by [`crate::core::ProxyInventory`].
 #[async_trait]
@@ -73,7 +73,7 @@ impl TypedProxyRepository {
     ///
     /// # Arguments
     /// * `store` - Available inventory store.
-    /// * `failures` - Separate durable rediscovery-protection store.
+    /// * `failures` - Durable rediscovery-protection table, distinct from available records.
     pub fn with_failure_store(
         store: Arc<dyn TypedEntityStore<ProxyRecord>>,
         failures: Arc<dyn TypedEntityStore<ProxyRecord>>,
@@ -502,7 +502,9 @@ impl ProxyRecord {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arachnea_core::persistence::{FileEntityStore, SqliteEntityStore};
+    use arachnea_core::persistence::{
+        FileEntityStore, SqliteDatabase, SqliteEntityStore, SqliteStoreConfig,
+    };
     use std::{
         path::PathBuf,
         sync::atomic::{AtomicU64, Ordering},
@@ -634,21 +636,19 @@ mod tests {
             Some(preference.clone())
         );
         {
-            let preferences = Arc::new(SqliteEntityStore::new(
-                preference_config.clone(),
-                &sqlite_root,
-            )?);
+            let database =
+                SqliteDatabase::open(SqliteStoreConfig::new(PROXY_STORE_NAME)?, &sqlite_root)?;
+            let preferences = Arc::new(database.table(preference_config.clone())?);
             let repository = crate::core::TypedProxyPreferenceRepository::new(preferences);
             crate::core::ProxyPreferenceRepository::save(&repository, &preference).await?;
             let mut older = preference.clone();
             older.endpoints[0].accepted_at = now - Duration::from_secs(60);
             crate::core::ProxyPreferenceRepository::save(&repository, &older).await?;
         }
+        let database =
+            SqliteDatabase::open(SqliteStoreConfig::new(PROXY_STORE_NAME)?, &sqlite_root)?;
         let reopened_preferences =
-            SqliteEntityStore::<crate::core::ProxyDestinationPreference>::new(
-                preference_config,
-                &sqlite_root,
-            )?;
+            database.table::<crate::core::ProxyDestinationPreference>(preference_config)?;
         assert_eq!(
             reopened_preferences.get(&preference.destination).await?,
             Some(preference)
@@ -662,7 +662,8 @@ mod tests {
     #[tokio::test]
     async fn composite_sqlite_batch_is_atomic_and_stale_records_remain_available() -> Result<()> {
         let root = temp_dir("atomic-stale");
-        let store = SqliteEntityStore::<ProxyRecord>::new(config(), &root)?;
+        let database = SqliteDatabase::open(SqliteStoreConfig::new(PROXY_STORE_NAME)?, &root)?;
+        let store = database.table::<ProxyRecord>(config())?;
         let kept = record("kept.example", 8080, Some("BE"));
         store.put(&kept).await?;
 
@@ -682,10 +683,10 @@ mod tests {
         stale.health_evidence.last_positive_at = stale.last_validated_at;
         stale.health_evidence.first_discovered_at = stale.last_validated_at;
         let store = Arc::new(store);
-        let failures = Arc::new(SqliteEntityStore::new(
-            PersistenceStoreConfig::new(PROXY_FAILURE_STORE_NAME, ProxyRecord::schema())?,
-            &root,
-        )?);
+        let failures = Arc::new(database.table(PersistenceStoreConfig::new(
+            PROXY_FAILURE_STORE_NAME,
+            ProxyRecord::schema(),
+        )?)?);
         let repository = Arc::new(TypedProxyRepository::with_failure_store(
             store.clone(),
             failures.clone(),
@@ -715,9 +716,9 @@ mod tests {
     #[test]
     fn legacy_authority_key_sqlite_cache_is_rejected() -> Result<()> {
         let root = temp_dir("legacy-cache");
-        let store_directory = root.join(PROXY_STORE_NAME);
-        std::fs::create_dir_all(&store_directory)?;
-        let connection = rusqlite::Connection::open(store_directory.join("records.sqlite3"))?;
+        std::fs::create_dir_all(&root)?;
+        let database_path = root.join(format!("{PROXY_STORE_NAME}.sqlite3"));
+        let connection = rusqlite::Connection::open(&database_path)?;
         connection.execute_batch(
             "CREATE TABLE \"proxy-inventory\" (\
                 authority TEXT PRIMARY KEY, \
@@ -733,7 +734,7 @@ mod tests {
             .expect("legacy authority key must be rejected");
         assert!(error.to_string().contains("primary key"));
 
-        std::fs::remove_dir_all(&store_directory)?;
+        std::fs::remove_file(&database_path)?;
         assert!(SqliteEntityStore::<ProxyRecord>::new(config(), &root).is_ok());
 
         let _ = std::fs::remove_dir_all(&root);
@@ -743,20 +744,18 @@ mod tests {
     #[tokio::test]
     async fn interrupted_eviction_hides_available_record_and_orphan_preference() -> Result<()> {
         let root = temp_dir("interrupted-eviction");
-        let available = Arc::new(SqliteEntityStore::<ProxyRecord>::new(config(), &root)?);
-        let failures = Arc::new(SqliteEntityStore::<ProxyRecord>::new(
-            PersistenceStoreConfig::new(PROXY_FAILURE_STORE_NAME, ProxyRecord::schema())?,
-            &root,
-        )?);
-        let preferences = Arc::new(
-            SqliteEntityStore::<crate::core::ProxyDestinationPreference>::new(
-                PersistenceStoreConfig::new(
-                    crate::core::PROXY_PREFERENCE_STORE_NAME,
-                    crate::core::ProxyDestinationPreference::schema(),
-                )?,
-                &root,
+        let database = SqliteDatabase::open(SqliteStoreConfig::new(PROXY_STORE_NAME)?, &root)?;
+        let available = Arc::new(database.table::<ProxyRecord>(config())?);
+        let failures = Arc::new(database.table::<ProxyRecord>(PersistenceStoreConfig::new(
+            PROXY_FAILURE_STORE_NAME,
+            ProxyRecord::schema(),
+        )?)?);
+        let preferences = Arc::new(database.table::<crate::core::ProxyDestinationPreference>(
+            PersistenceStoreConfig::new(
+                crate::core::PROXY_PREFERENCE_STORE_NAME,
+                crate::core::ProxyDestinationPreference::schema(),
             )?,
-        );
+        )?);
         let mut proxy = record("interrupted.example", 8080, Some("BE"));
         proxy.health_evidence.first_discovered_at =
             Some(SystemTime::now() - PROXY_CACHE_TTL - Duration::from_secs(60));
@@ -777,19 +776,19 @@ mod tests {
         tombstone.status = ProxyRuntimeStatus::Ko;
         // Crash-equivalent state after tombstone commit, before available/history deletion.
         failures.put(&tombstone).await?;
-        drop((available, failures, preferences));
-        let available = Arc::new(SqliteEntityStore::<ProxyRecord>::new(config(), &root)?);
-        let failures = Arc::new(SqliteEntityStore::<ProxyRecord>::new(
-            PersistenceStoreConfig::new(PROXY_FAILURE_STORE_NAME, ProxyRecord::schema())?,
-            &root,
-        )?);
+        drop((available, failures, preferences, database));
+        let database = SqliteDatabase::open(SqliteStoreConfig::new(PROXY_STORE_NAME)?, &root)?;
+        let available = Arc::new(database.table::<ProxyRecord>(config())?);
+        let failures = Arc::new(database.table::<ProxyRecord>(PersistenceStoreConfig::new(
+            PROXY_FAILURE_STORE_NAME,
+            ProxyRecord::schema(),
+        )?)?);
         let preferences = Arc::new(crate::core::TypedProxyPreferenceRepository::new(Arc::new(
-            SqliteEntityStore::<crate::core::ProxyDestinationPreference>::new(
+            database.table::<crate::core::ProxyDestinationPreference>(
                 PersistenceStoreConfig::new(
                     crate::core::PROXY_PREFERENCE_STORE_NAME,
                     crate::core::ProxyDestinationPreference::schema(),
                 )?,
-                &root,
             )?,
         )));
         let repository = Arc::new(TypedProxyRepository::with_failure_store(
@@ -810,7 +809,7 @@ mod tests {
         assert!(inventory.is_empty().await);
         repository.evict(&tombstone).await?;
         assert!(available.get(&proxy.key()).await?.is_none());
-        drop((inventory, repository, available));
+        drop((inventory, repository, available, database));
         std::fs::remove_dir_all(root)?;
         Ok(())
     }
@@ -835,22 +834,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn eviction_recovery_handles_remaining_inter_store_commit_boundaries() -> Result<()> {
+    async fn eviction_recovery_handles_remaining_inter_table_commit_boundaries() -> Result<()> {
         use crate::core::ProxyPreferenceRepository;
         for stage in 0..4 {
             let root = temp_dir(&format!("eviction-boundary-{stage}"));
-            let available = SqliteEntityStore::<ProxyRecord>::new(config(), &root)?;
+            let database = SqliteDatabase::open(SqliteStoreConfig::new(PROXY_STORE_NAME)?, &root)?;
+            let available = database.table::<ProxyRecord>(config())?;
             let failure_config =
                 PersistenceStoreConfig::new(PROXY_FAILURE_STORE_NAME, ProxyRecord::schema())?;
             let preference_config = PersistenceStoreConfig::new(
                 crate::core::PROXY_PREFERENCE_STORE_NAME,
                 crate::core::ProxyDestinationPreference::schema(),
             )?;
-            let failures = SqliteEntityStore::<ProxyRecord>::new(failure_config.clone(), &root)?;
-            let preferences = SqliteEntityStore::<crate::core::ProxyDestinationPreference>::new(
-                preference_config.clone(),
-                &root,
-            )?;
+            let failures = database.table::<ProxyRecord>(failure_config.clone())?;
+            let preferences = database
+                .table::<crate::core::ProxyDestinationPreference>(preference_config.clone())?;
+            assert!(root.join("proxy-inventory.sqlite3").is_file());
+            assert!(!root.join("proxy-failures.sqlite3").exists());
+            assert!(!root.join("proxy-preferences.sqlite3").exists());
             let mut proxy = record("boundary.example", 8080, Some("BE"));
             proxy.health_evidence.first_discovered_at =
                 Some(SystemTime::now() - Duration::from_secs(25 * 3600));
@@ -876,15 +877,13 @@ mod tests {
             if stage >= 3 {
                 preferences.delete(&preference.destination).await?;
             }
-            drop((available, failures, preferences));
-            let available = Arc::new(SqliteEntityStore::<ProxyRecord>::new(config(), &root)?);
-            let failures = Arc::new(SqliteEntityStore::<ProxyRecord>::new(
-                failure_config,
-                &root,
-            )?);
-            let preference_store = Arc::new(SqliteEntityStore::<
-                crate::core::ProxyDestinationPreference,
-            >::new(preference_config, &root)?);
+            drop((available, failures, preferences, database));
+            let database = SqliteDatabase::open(SqliteStoreConfig::new(PROXY_STORE_NAME)?, &root)?;
+            let available = Arc::new(database.table::<ProxyRecord>(config())?);
+            let failures = Arc::new(database.table::<ProxyRecord>(failure_config)?);
+            let preference_store = Arc::new(
+                database.table::<crate::core::ProxyDestinationPreference>(preference_config)?,
+            );
             let repository = TypedProxyRepository::with_failure_store(available.clone(), failures);
             let histories = crate::core::TypedProxyPreferenceRepository::new(preference_store);
             assert_eq!(repository.get(&proxy.key()).await?.is_some(), stage == 0);
@@ -900,7 +899,7 @@ mod tests {
             histories.remove_endpoint(&proxy.key()).await?;
             assert!(repository.get(&proxy.key()).await?.is_none());
             assert!(histories.get(&preference.destination).await?.is_none());
-            drop((repository, histories, available));
+            drop((repository, histories, available, database));
             std::fs::remove_dir_all(root)?;
         }
         Ok(())

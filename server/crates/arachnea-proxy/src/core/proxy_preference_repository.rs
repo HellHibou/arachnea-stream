@@ -13,7 +13,7 @@ use tokio::sync::Mutex;
 
 use super::{ProxyDestinationPreference, ProxyKey};
 
-/// Separate namespace for exact-destination accepted histories.
+/// Table name for exact-destination histories in the shared proxy SQLite store.
 pub const PROXY_PREFERENCE_STORE_NAME: &str = "proxy-preferences";
 
 /// Persistence boundary for destination histories; implementations serialize commits.
