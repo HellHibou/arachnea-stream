@@ -39,12 +39,15 @@ queries:
           - type: format_text
             argument: "{url}"
     entries:
+      # Sendvid's `og:video` now points at `https://sendvid.com/<id>.mp4`, which
+      # HTTP-302s to the HTML watch page instead of the media; the player's own
+      # signed CDN source is the only usable stream URL.
       - name: stream_url
         type: string[]
-        selector: "meta[property='og:video']"
+        selector: "source#video_source"
         actions:
           - type: get_attribut
-            argument: content
+            argument: src
       - name: stream_headers
         type: object
         select: first
@@ -65,12 +68,14 @@ queries:
         actions:
           - type: get_attribut
             argument: content
+      # `og:image` is emitted with the site origin duplicated in front of the
+      # absolute thumbnail URL, so the player poster is read instead.
       - name: image/title > link
         type: string
-        selector: "meta[property='og:image']"
+        selector: "video[poster]"
         actions:
           - type: get_attribut
-            argument: content
+            argument: poster
       - name: storyboard
         type: object
         select: first

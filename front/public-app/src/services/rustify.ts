@@ -1820,7 +1820,7 @@ function normalizeMediaItem(
   const mediaTypeLabel = firstNonEmptyString(readStringList(record['media-type']).map(toDisplayMediaType))
   const themeLabels = dedupeDisplayStrings(readStringList(record.theme))
   const audioLabel = firstNonEmptyString([record.lang, record.audio, record.language])
-  const durationLabel = formatDurationLabel(firstNonEmptyString([record.duration]))
+  const durationLabel = formatDurationLabel(firstDurationInSeconds(record.duration))
   const rating = firstNumber(record.rating)
   const overview = firstNonEmptyString([record.description, record.overview])
   const episodeLabel = firstNonEmptyString([readPath(record, 'episode', 'label')])
@@ -1902,7 +1902,7 @@ function normalizeEntryDetails(entry: unknown, source: string, entryUrl: string)
     yearLabel: formatNumberLabel(firstNumber(record.year)),
     releaseDateLabel: formatReleaseDateLabel(firstNonEmptyString([record['release-date']])),
     expireLabel: formatReleaseDateLabel(firstNonEmptyString([record.expire])),
-    durationLabel: formatDurationLabel(firstNonEmptyString([record.duration])),
+    durationLabel: formatDurationLabel(firstDurationInSeconds(record.duration)),
     seasonCountLabel: formatSeasonCount(firstNumber(record['count-season'])),
     audioLanguageLabel: buildAudioLanguageLabel(record),
     subtitleLanguageLabel: buildSubtitleLanguageLabel(record),
@@ -2456,7 +2456,7 @@ function normalizeEntryEpisode(
   const previewEntries = readRecordList(readPath(entry, 'img/preview'))
   const imagePosterUrl = readFirstLink(entry, 'img/poster', ['img', 'poster'])
   const link = resolveEntryUrl(firstNonEmptyString([entry.link]), source)
-  const duration = firstNonEmptyString([entry.duration])
+  const duration = firstDurationInSeconds(entry.duration)
   const playersLink = link
   const players: Collection<EntryPlayer> = {
     entries: normalizePlayers(readRecordList(entry.players), source),
@@ -2870,6 +2870,29 @@ function firstNumber(value: unknown): number | null {
   }
 
   return null
+}
+
+/**
+ * Reads a backend duration expressed either as a seconds string or as a
+ * number of seconds, and returns the seconds count as a string suitable for
+ * `formatDurationLabel`.
+ *
+ * Backend scrapers may emit `duration` as a number (e.g. anime-sama via
+ * `normalize_duration`) or as a string (e.g. frenchanimes, papadustream).
+ * `firstNonEmptyString` only keeps strings, so a numeric value would be
+ * silently dropped and the duration would never display.
+ *
+ * @param value Raw backend duration node.
+ * @returns Seconds count as a string when valid.
+ */
+function firstDurationInSeconds(value: unknown): string | null {
+  const asNumber = firstNumber(value)
+
+  if (asNumber !== null && Number.isInteger(asNumber) && asNumber >= 0) {
+    return String(asNumber)
+  }
+
+  return firstNonEmptyString([value])
 }
 
 /**

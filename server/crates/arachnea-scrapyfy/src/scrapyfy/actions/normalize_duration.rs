@@ -2,7 +2,8 @@ use regex::Regex;
 use std::sync::OnceLock;
 
 /// Applies the `normalize_duration` scraper action by parsing human-readable
-/// duration strings (e.g. `39 min`, `1 h 05 min`) into a seconds count.
+/// duration strings (e.g. `39 min`, `1 h 05 min`, `1 h 05`) into a seconds
+/// count.
 ///
 /// # Arguments
 ///
@@ -26,7 +27,9 @@ pub(super) fn apply(texts: Vec<String>) -> Vec<String> {
 /// # Arguments
 ///
 /// * `value` - Raw text containing one or more `amount unit` tokens (e.g.
-///   `1 h 05 min 30 sec`). Supported units: `h`, `min`/`m`, `sec`/`s`.
+///   `1 h 05 min 30 sec`). Supported units: `h`, `min`/`m`, `sec`/`s`. A bare
+///   number directly following an hours token is read as minutes, so compact
+///   formats such as `1 h 05` resolve to one hour and five minutes.
 ///
 /// # Returns
 ///
@@ -51,17 +54,41 @@ fn parse_duration_seconds(value: &str) -> Option<u64> {
 
     let mut total_seconds: u64 = 0;
     let mut matched = false;
+    let mut after_hours = false;
 
     for captures in regex.captures_iter(value) {
         let amount = captures.get(1)?.as_str().parse::<u64>().ok()?;
-        let unit = captures.get(2)?.as_str().to_lowercase();
+        let unit = captures
+            .get(2)
+            .map(|capture| capture.as_str().to_lowercase());
 
-        matched = true;
-        match unit.as_str() {
-            "h" => total_seconds += amount * 3600,
-            "min" | "m" => total_seconds += amount * 60,
-            "sec" | "s" => total_seconds += amount,
-            _ => return None,
+        match unit.as_deref() {
+            Some("h") => {
+                total_seconds += amount * 3600;
+                after_hours = true;
+                matched = true;
+            }
+            Some("min" | "m") => {
+                total_seconds += amount * 60;
+                after_hours = false;
+                matched = true;
+            }
+            Some("sec" | "s") => {
+                total_seconds += amount;
+                after_hours = false;
+                matched = true;
+            }
+            // A unit-less number right after `h` is the minutes part of compact
+            // formats such as `1 h 05` or `1h05`, which omit the `min` unit.
+            None if after_hours => {
+                total_seconds += amount * 60;
+                after_hours = false;
+                matched = true;
+            }
+            // Unrelated numbers must not discard a duration that was already
+            // recognized earlier in the same text.
+            None => after_hours = false,
+            Some(_) => return None,
         }
     }
 

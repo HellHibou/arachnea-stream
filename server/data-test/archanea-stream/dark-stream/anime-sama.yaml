@@ -8,15 +8,12 @@ queries:
 
   - name: search
     fields_result:
-      - description
       - img/poster > link
       - lang
       - link
       - media-type
       - source
-      - theme
       - title
-      - title/alt
       - web-link
 
   - name: load_home
@@ -40,15 +37,12 @@ queries:
       - sections > subsections > entries > release-date
       - sections > subsections > entries > media-type
       - sections > subsections > entries > lang
-      - sections > entries > description
       - sections > entries > title
       - sections > entries > link
       - sections > entries > web-link
       - sections > entries > img/landscape > link
       - sections > entries > release-date
       - sections > entries > media-type
-      - sections > entries > theme
-      - sections > entries > title/alt
       - sections > entries > lang
 
   - name: get_entry
@@ -60,3 +54,10 @@ queries:
       - theme
       - title
       - title/alt
+    fields_optional:
+      - recommendations > entries > title
+      - recommendations > entries > media-type
+      - recommendations > entries > img/landscape > link
+      - recommendations > entries > link
+      - recommendations > entries > web-link
+      - recommendations > entries > lang

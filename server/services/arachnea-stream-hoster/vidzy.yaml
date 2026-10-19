@@ -1,7 +1,7 @@
 id: vidzy
 title: Vidzy
 description:
-  en: "Resolver for Vidzy embed pages (vidzy.cc, vidzy.live)"
+  en: "Resolver for Vidzy embed pages (vidzy.cc, vidzy.live, vidzy.com, vidzy.org)"
 http:
   mode: auto
 
@@ -14,7 +14,7 @@ queries:
         value: "{url}"
         actions:
           - type: regex_find_all
-            pattern: '^https?://(?:www\.)?vidzy\.(?:cc|live)/embed-[A-Za-z0-9]+\.html(?:[?#].*)?$'
+            pattern: '^https?://(?:www\.)?vidzy\.(?:cc|live|com|org)/embed-[A-Za-z0-9]+\.html(?:[?#].*)?$'
             format: "{service_id}"
 
   - name: resolve_stream
@@ -28,17 +28,21 @@ queries:
         actions:
           - type: get_response_body
           - type: regex_find_all
-            pattern: 'sources:\s*\[\{src:\s*\(function\(s\)\{[\s\S]*?\}\)\("([^"]+)"\)'
-            format: "{1}"
-          # The page decodes the payload at runtime with a key derived from
-          # `location.hostname` (base64, reverse, XOR). The hostname is
-          # extracted here from the request URL so a single resolver covers
-          # every Vidzy mirror domain. `document.write` is the string channel
-          # exposed by `exec_js`; the numeric globals it also returns are
+            pattern: 'sources:\s*\[\{src:\s*\(function\(s\)\{[\s\S]*?width:calc\(1in \+ (\d+)px\)[\s\S]*?width:calc\(100% - (\d+)px\)[\s\S]*?\}\)\("([^"]+)"\)'
+            format: "{1}|{2}|{3}"
+          # The page decodes the payload at runtime with base64 + reverse + XOR.
+          # The XOR key is derived from `location.hostname` plus a DOM layout
+          # measurement (`_ch.offsetWidth`). The probe element widths are
+          # randomized on every response (`calc(1in + A px)` container minus the
+          # `calc(100% - B px)` child), so both offsets are captured above and
+          # folded into `BC` below; `1in` is 96px, so `BC = 96 + A - B`. The
+          # hostname is extracted from the request URL so a single resolver
+          # covers every Vidzy mirror domain. `document.write` is the string
+          # channel exposed by `exec_js`; the numeric globals it also returns are
           # filtered out by the next `regex_find_all`.
           - type: format_text
             argument: >-
-              var s='{}',u='{request_url}',h=u.split('/')[2].split(':')[0].replace(/^www\./,''),H=0,b='',a='',r='';for(var j=0;j<h.length;j++)H=(H+h.charCodeAt(j))&255;for(var i=0;i<s.length;i+=4){var c1='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'.indexOf(s.charAt(i)),c2='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'.indexOf(s.charAt(i+1)),c3='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'.indexOf(s.charAt(i+2)),c4='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'.indexOf(s.charAt(i+3));b+=String.fromCharCode((c1<<2)|(c2>>4));if(c3>=0)b+=String.fromCharCode(((c2&15)<<4)|(c3>>2));if(c4>=0)b+=String.fromCharCode(((c3&3)<<6)|c4);}a=b.split('').reverse().join('');for(var k=0;k<a.length;k++)r+=String.fromCharCode(a.charCodeAt(k)^((61+k*89+H)&255));document.write(r);
+              var v='{}'.split('|'),u='{request_url}',h=u.split('/')[2].split(':')[0].replace(/^www\./,''),H=0,b='',a='',r='',s=v.slice(2).join(''),BC=96+(v[0]-0)-(v[1]-0);for(var j=0;j<h.length;j++)H=(H+h.charCodeAt(j))&255;for(var i=0;i<s.length;i+=4){var c1='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'.indexOf(s.charAt(i)),c2='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'.indexOf(s.charAt(i+1)),c3='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'.indexOf(s.charAt(i+2)),c4='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'.indexOf(s.charAt(i+3));b+=String.fromCharCode((c1<<2)|(c2>>4));if(c3>=0)b+=String.fromCharCode(((c2&15)<<4)|(c3>>2));if(c4>=0)b+=String.fromCharCode(((c3&3)<<6)|c4);}a=b.split('').reverse().join('');for(var k=0;k<a.length;k++)r+=String.fromCharCode(a.charCodeAt(k)^((61+k*89+H+BC)&255));document.write(r);
           - type: exec_js
           - type: regex_find_all
             pattern: '^document_write=(.+)$'

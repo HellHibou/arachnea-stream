@@ -1,14 +1,16 @@
 use anyhow::{Context, Result};
 use futures::stream::{self, StreamExt};
 use regex::Regex;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use super::super::actions::ScraperAction;
 use super::super::scraper_data_node::ScraperDataNode;
 use super::node_helpers::{get_node, get_node_mut, prepare_copy_fields, set_node, split_path};
 use super::regex_helpers::build_regex_items;
 use super::types::{ScraperFieldMapping, ScraperPostProcessContext, ScraperRegexItemEntry};
-use crate::scrapyfy::scraper::config::ScraperRequestMethod;
+use crate::scrapyfy::scraper::config::{
+    ScraperRequestHeader, ScraperRequestHeaderRaw, ScraperRequestMethod,
+};
 use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
 use crate::scrapyfy::scraper_json::entry::{json_value_to_strings, select_json_values};
 
@@ -25,16 +27,19 @@ const POST_PROCESS_FETCH_CONCURRENCY: usize = 8;
 /// * `entries` - Field definitions whose `actions` are recursively validated.
 /// * `request_actions` - Additional actions applied to the resolved request
 ///   URL; their validation is also performed.
+/// * `request_headers` - Additional headers attached to every fetch; their
+///   validation is also performed.
 ///
 /// # Errors
 ///
 /// Returns an error when `pattern` does not compile, or when one of the
-/// entry/request actions fails to validate.
+/// entry/request actions or request headers fails to validate.
 pub(super) fn validate(
     owner: &str,
     pattern: &str,
     entries: &[ScraperRegexItemEntry],
     request_actions: &[ScraperAction],
+    request_headers: &[ScraperRequestHeaderRaw],
 ) -> Result<()> {
     Regex::new(pattern).with_context(|| format!("Invalid post-process regex for {}", owner))?;
     for entry in entries {
@@ -64,7 +69,49 @@ pub(super) fn validate(
     for action in request_actions {
         action.validate(owner, "post-process request")?;
     }
+    for header in request_headers {
+        if header.name.trim().is_empty() {
+            anyhow::bail!(
+                "fetch_regex_items_from_items for {} has a request header with an empty name",
+                owner
+            );
+        }
+        ScraperRequestHeader::validate_actions(&header.name, &header.actions)?;
+    }
     Ok(())
+}
+
+/// Resolves the optional headers sent with every fetch.
+///
+/// Header values are resolved like query and sub-query `request_headers`: the
+/// runtime parameters seed the resolution context and each header's actions
+/// render the final value. Headers that resolve to an empty value are skipped.
+///
+/// # Arguments
+///
+/// * `headers` - Raw header definitions to resolve.
+/// * `params` - Runtime parameters used for pointer and template resolution.
+/// * `request_url` - URL of the parent request for action pipelines.
+fn resolve_request_headers(
+    headers: &[ScraperRequestHeaderRaw],
+    params: &HashMap<String, String>,
+    request_url: &str,
+) -> HashMap<String, String> {
+    if headers.is_empty() {
+        return HashMap::new();
+    }
+
+    let request_context = crate::scrapyfy::query_helpers::build_params_json_value(params);
+    let mut resolved = HashMap::new();
+    for header in headers {
+        let Ok(header) = ScraperRequestHeader::try_from(header.clone()) else {
+            continue;
+        };
+        if let Some((name, value)) = header.resolve(&request_context, params, request_url) {
+            resolved.insert(name, value);
+        }
+    }
+    resolved
 }
 
 /// Fetches one text payload per resolved request URL, applies a regex on each
@@ -84,6 +131,7 @@ pub(super) fn validate(
 /// * `request_field` - `>`-delimited path of the field whose values are used
 ///   to build the request URLs.
 /// * `request_actions` - Actions applied to the resolved request URLs.
+/// * `request_headers` - Headers attached to every request.
 /// * `target` - `>`-delimited path that receives the produced items.
 /// * `pattern` - Regular expression applied to every response body.
 /// * `entries` - Field definitions used to build each produced item.
@@ -100,6 +148,7 @@ pub(super) async fn apply(
     source: &str,
     request_field: &str,
     request_actions: &[ScraperAction],
+    request_headers: &[ScraperRequestHeaderRaw],
     request_method: ScraperRequestMethod,
     response_pointer: Option<&str>,
     target: &str,
@@ -165,10 +214,19 @@ pub(super) async fn apply(
         }
     }
 
+    let resolved_headers =
+        resolve_request_headers(request_headers, context.params, context.request_url);
+    let resolved_headers = &resolved_headers;
+
     let fetch_results = stream::iter(fetch_jobs.into_iter().map(|job| async move {
         let response_body = context
             .http_client
-            .query_http(request_method.as_http_method(), &job.request_url)
+            .query_http_for_request(
+                request_method.as_http_method(),
+                &job.request_url,
+                resolved_headers,
+                None,
+            )
             .await
             .with_context(|| format!("Failed to fetch post-process request {}", job.request_url))?;
 

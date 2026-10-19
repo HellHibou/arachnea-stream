@@ -86,7 +86,9 @@ pub(crate) fn default_source_params_target() -> String {
 /// One field definition for `set_nested_fields`, with one of:
 /// - `value` — a static string,
 /// - `copy_from` — copy from a sibling field,
-/// - `host_from` — extract the hostname from a URL in a sibling field.
+/// - `host_from` — extract the hostname from a URL in a sibling field,
+///
+/// plus an optional `lookup` that translates the copied or extracted value.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScraperNestedFieldDefinition {
     /// Target path (supports `>` nesting) where the value will be set.
@@ -101,6 +103,22 @@ pub struct ScraperNestedFieldDefinition {
     /// exclusive with `value` and `copy_from`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_from: Option<String>,
+    /// Optional key/value lookup applied to the `copy_from` or `host_from`
+    /// value. `host_from` lookups also try parent domains when the exact
+    /// hostname is absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lookup: Option<ScraperNestedFieldLookup>,
+}
+
+/// Key/value directory used to translate one nested field value.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScraperNestedFieldLookup {
+    /// Root group field holding the lookup items.
+    pub source: String,
+    /// Scalar field read from each lookup item as the key.
+    pub key: String,
+    /// Scalar field read from each lookup item as the value.
+    pub value: String,
 }
 
 /// Scope used to resolve one math expression variable.

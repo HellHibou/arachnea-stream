@@ -1181,7 +1181,7 @@ Supported formats (`GetDateSource`):
 ```
 
 ### `normalize_duration`
-Parses human-readable durations (e.g. `39 min`, `1 h 05 min`) into seconds.
+Parses human-readable durations (e.g. `39 min`, `1 h 05 min`, `1 h 05`) into seconds. A bare number directly following an hours token is read as minutes.
 
 ```yaml
 - type: normalize_duration
@@ -1444,6 +1444,7 @@ For each item in a group, makes an HTTP request, applies a regex on the response
 | `source` | string | Source group field |
 | `request_field` | string | Item field containing the URL to fetch |
 | `request_actions` | array | Actions applied to the URL before the request |
+| `request_headers` | array (opt.) | Headers attached to every request; same structure as the [`request_headers`](#request_headers) section |
 | `request_method` | `get` or `post` (opt.) | HTTP method; defaults to `get` |
 | `response_pointer` | string (opt.) | JSON pointer selecting response text before regex extraction |
 | `target` | string | Target path for extracted items |
@@ -1458,6 +1459,11 @@ For each item in a group, makes an HTTP request, applies a regex on the response
   request_field: "detail_url"
   request_actions:
     - type: resolve_url
+  request_headers:
+    - name: "Referer"
+      actions:
+        - type: format_text
+          argument: "{base_url}/"
   target: "episodes>sources"
   pattern: '<source src="(.*?)" type="(.*?)">'
   entries:
@@ -1608,8 +1614,9 @@ Adds static items to a group, with optional deduplication.
 ```
 
 ### `set_nested_fields`
-Sets one or more fields on every item of a sub-array, using either a static
-value or a copy from a sibling field.
+Sets one or more fields on every item of a sub-array, using a static value, a
+copy from a sibling field, or a hostname extraction optionally translated
+through a lookup group.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -1625,6 +1632,19 @@ value or a copy from a sibling field.
 | `value` | string (opt.) | Static value to write (mutually exclusive with `copy_from` and `host_from`) |
 | `copy_from` | string (opt.) | Source field to copy from the same item (mutually exclusive with `value` and `host_from`) |
 | `host_from` | string (opt.) | Extracts the hostname from the URL in this sibling field (mutually exclusive with `value` and `copy_from`) |
+| `lookup` | object (opt.) | Translates the `copy_from` or `host_from` value through a root group (not allowed with `value`) |
+
+`ScraperNestedFieldLookup` structure:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `source` | string | Root group field containing the lookup items |
+| `key` | string | Scalar field read from each lookup item as the key |
+| `value` | string | Scalar field read from each lookup item as the value |
+
+When `lookup` is combined with `host_from`, the exact hostname is tried first,
+then each parent domain (`video.sibnet.ru` → `sibnet.ru`). Unmatched values are
+written unchanged. `copy_from` lookups use exact key matches only.
 
 ```yaml
 - type: set_nested_fields
@@ -1637,6 +1657,10 @@ value or a copy from a sibling field.
       copy_from: web-link
     - target: name
       host_from: web-link
+      lookup:
+        source: "hosters"
+        key: "host"
+        value: "label"
 ```
 
 ---

@@ -21,8 +21,11 @@ queries:
         type: string
         value: "{html}"
         actions:
+          # A live LuluStream page carries the title marker; a mirror whose file
+          # expired or was deleted serves the shared XFileSharing error page,
+          # which has no title and no player, so its message is the only marker.
           - type: regex_find_all
-            pattern: '(?i)<title>[^<]*\s-\s*LuluStream</title>'
+            pattern: '(?i)<title>[^<]*\s-\s*LuluStream</title>|File is no longer available as it expired or has been deleted'
             format: "{service_id}"
 
 
@@ -68,6 +71,16 @@ queries:
           - type: format_text
             argument: "{request_origin}"
     entries:
+      # The dead-file page reports the reason in a plain <div>; exposing it as
+      # `error_message` turns the attempt into a terminal business error instead
+      # of an unusable empty result. Live pages never contain this marker.
+      - name: error_message
+        type: string
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: '>\s*([^<>]*File is no longer available[^<>]*?)\s*<'
+            format: "{1}"
       - name: stream_url
         type: string[]
         actions:
@@ -88,8 +101,22 @@ queries:
               Sec-Fetch-Mode: "cors"
               Sec-Fetch-Site: "cross-site"
             proxy_replace_all:
+              # Absolute references occupying a whole line (segments, child playlists).
               - pattern: '(?m)^(https?://[^\r\n]+)'
                 replacement: '{proxy_inherited}/$1'
+                content_types:
+                  - application/vnd.apple.mpegurl
+              # Absolute references carried by tag attributes (`#EXT-X-KEY`,
+              # `#EXT-X-MAP`, `#EXT-X-MEDIA`, `#EXT-X-I-FRAME-STREAM-INF`, …).
+              - pattern: '(URI=")(https?://[^"]+)(")'
+                replacement: '$1{proxy_inherited}/$2$3'
+                content_types:
+                  - application/vnd.apple.mpegurl
+              # Relative references carried by tag attributes, resolved against the
+              # manifest directory. Values holding a scheme (`data:`, `skd:`, …) or
+              # an absolute path are skipped so an already-rewritten URL never matches.
+              - pattern: '(URI=")([^":/][^":]*)(")'
+                replacement: '$1{proxy_inherited}/{base_url}{path_base}$2$3'
                 content_types:
                   - application/vnd.apple.mpegurl
       - name: manifest_type
