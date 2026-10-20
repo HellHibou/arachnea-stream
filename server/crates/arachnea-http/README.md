@@ -108,7 +108,15 @@ let config = ArachneaHttpConfig::builder()
     .build()?;
 ```
 
-Current upstream client APIs still expose proxy URLs rather than a stable public transport replacement hook, so the built-in `rquest` and Ghostwire engines both use the managed loopback compatibility helper when `proxy_core(...)` is selected. Chaser-CF receives a separate parameter-bound loopback listener so Chrome CONNECT requests use the same Arachnea proxy routing context as `rquest`.
+Current upstream client APIs still expose proxy URLs rather than a stable public transport replacement hook. Built-in Rquest, Ghostwire, Chaser-CF and Tauri/Wry therefore use routing leases on a shared HTTP loopback server when `proxy_core(...)` is selected. Pass an `Arc<arachnea_proxy::server::LoopbackProxyRuntime>` through `.proxy_runtime(runtime)` to share one listening port across multiple HTTP clients. Without an injected runtime, a standalone HTTP client owns its own runtime. Pinned attempts register their selected core on that same server; no additional listening socket is created per attempt or browser profile.
+
+Routing credentials distinguish concurrent client contexts even though the listener address is shared. Keep the HTTP client alive while its engines use their routing lease. Internal proxy URLs contain opaque credentials and must not be logged. Default routing parameters and `Proxy-Authorization` are consumed locally rather than forwarded to the destination. Custom parameter definitions retain their explicit `forward_header` policy.
+
+Tauri/Wry supports the shared routing credentials in both standalone Wry and application-owned Tauri windows. Proxy windows use isolated, non-persistent data stores. Native proxy configuration and authentication are installed before the first remote navigation; proxy credentials are kept separate from origin requests. Automatic browser selection follows the normal feature priority, including for proxy requests. Custom injected engines remain responsible for their transport.
+
+On macOS, proxy mode requires macOS 14 or later. The internal routing URL is adapted to authenticated SOCKS5 on the **same listening port**, so both HTTP and HTTPS pass through the selected core. Explicit network proxies must use SOCKS5 on macOS; an HTTP-only endpoint is rejected. Network.framework direct failover is disabled. The modern native API is loaded only when proxy mode is used, preserving direct-mode startup on older macOS. Windows uses WebView2 proxy authentication and Linux uses WebKitGTK proxy authentication; authenticated SOCKS5 is rejected on Windows, where an HTTP proxy is required instead.
+
+The HTTP facade supplies the effective routing URL automatically. Direct users of `TauriCloudflareSolverEngine` can pass it through `new_with_proxy_url(config, proxy_url)`; `new(config)` accepts explicit network proxies but cannot prepare an in-process core itself.
 
 The built-in `rquest` engine applies `request_timeout` to every request,
 including clients supplied by the loopback proxy helper. The deadline covers
@@ -258,7 +266,7 @@ cargo run -p arachnea-http --features ghostwire,chaser-cf,tauri-cloudflare-solve
 The built-in Rquest path resolves and pins the route before every attempt, including
 each redirect hop. Reusable clients are isolated by origin, endpoint and resolved
 route identity; the bounded cache holds at most 32 entries. Active attempts retain
-their loopback helper even if a concurrent cache replacement occurs.
+their routing lease on the shared loopback server even if a concurrent cache replacement occurs.
 `ArachneaResponse::proxy_selection()` exposes the exact dynamic selection.
 Rquest records response receipt before collecting the body, independently of the
 HTTP status. Lot 3 adds the injectable response classifier at this boundary;

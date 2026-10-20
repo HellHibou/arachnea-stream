@@ -38,12 +38,16 @@ const INVALID_JSON_LOG_PREVIEW_LIMIT: usize = 8_192;
 #[derive(Clone, Default)]
 pub struct SharedProxyConfigHandle {
     inner: Arc<RwLock<ProxyConfigState>>,
+    #[cfg(feature = "arachnea-proxy")]
+    runtime: Arc<arachnea_proxy::server::LoopbackProxyRuntime>,
 }
 
 #[derive(Clone, Default)]
 struct ProxyConfigState {
     version: u64,
     proxy: Option<HttpProxyConfig>,
+    #[cfg(feature = "arachnea-proxy")]
+    default_route: Option<Arc<arachnea_proxy::server::LoopbackRoute>>,
 }
 
 #[derive(Clone)]
@@ -59,10 +63,90 @@ impl SharedProxyConfigHandle {
         Self::default()
     }
 
+    /// Creates an independent routing configuration sharing an application listener.
+    ///
+    /// # Arguments
+    /// - `runtime`: Shared loopback listener, including provider bootstrap transports.
+    #[cfg(feature = "arachnea-proxy")]
+    pub fn with_runtime(runtime: Arc<arachnea_proxy::server::LoopbackProxyRuntime>) -> Self {
+        Self {
+            inner: Arc::default(),
+            runtime,
+        }
+    }
+
+    /// Returns the listener shared by clients using this handle.
+    #[cfg(feature = "arachnea-proxy")]
+    pub fn proxy_runtime(&self) -> Arc<arachnea_proxy::server::LoopbackProxyRuntime> {
+        self.runtime.clone()
+    }
+
+    /// Publishes the active core for external clients, preserving existing connections.
+    ///
+    /// # Errors
+    /// Returns an error when there is no active core or the registry is unavailable.
+    #[cfg(feature = "arachnea-proxy")]
+    pub fn publish_default_route(&self) -> Result<()> {
+        let mut state = self
+            .inner
+            .write()
+            .map_err(|_| anyhow::anyhow!("proxy configuration lock poisoned"))?;
+        let Some(HttpProxyConfig::Arachnea(core)) = &state.proxy else {
+            anyhow::bail!("cannot publish loopback server without an Arachnea proxy core");
+        };
+        let route = self.runtime.register(
+            core.clone(),
+            arachnea_proxy::core::ClientContext::new(),
+            true,
+        )?;
+        self.runtime.set_default_route(&route)?;
+        state.default_route = Some(route);
+        Ok(())
+    }
+
+    /// Publishes the current default route and binds the shared server before external use.
+    ///
+    /// # Errors
+    /// Returns a contextual error if the route cannot be published or the port cannot bind.
+    #[cfg(feature = "arachnea-proxy")]
+    pub async fn start_proxy_server(&self) -> Result<std::net::SocketAddr> {
+        self.publish_default_route()?;
+        self.runtime
+            .start()
+            .await
+            .context("Failed to bind shared loopback proxy server")
+    }
+
     /// Replaces the proxy configuration and increments the version.
     pub fn set_proxy(&self, proxy: HttpProxyConfig) {
         if let Ok(mut guard) = self.inner.write() {
             guard.version = guard.version.saturating_add(1);
+            #[cfg(feature = "arachnea-proxy")]
+            if guard.default_route.is_some() {
+                if let HttpProxyConfig::Arachnea(core) = &proxy {
+                    match self
+                        .runtime
+                        .register(
+                            core.clone(),
+                            arachnea_proxy::core::ClientContext::new(),
+                            true,
+                        )
+                        .and_then(|route| {
+                            self.runtime.set_default_route(&route)?;
+                            Ok(route)
+                        }) {
+                        Ok(route) => guard.default_route = Some(route),
+                        Err(error) => {
+                            if let Some(route) = guard.default_route.take() {
+                                let _ = self.runtime.clear_default_route(&route);
+                            }
+                            tracing::error!(%error, "failed to replace external loopback route");
+                        }
+                    }
+                } else if let Some(route) = guard.default_route.take() {
+                    let _ = self.runtime.clear_default_route(&route);
+                }
+            }
             guard.proxy = Some(proxy);
         }
     }
@@ -72,6 +156,12 @@ impl SharedProxyConfigHandle {
         if let Ok(mut guard) = self.inner.write() {
             guard.version = guard.version.saturating_add(1);
             guard.proxy = None;
+            #[cfg(feature = "arachnea-proxy")]
+            {
+                if let Some(route) = guard.default_route.take() {
+                    let _ = self.runtime.clear_default_route(&route);
+                }
+            }
         }
     }
 
@@ -919,7 +1009,9 @@ impl HttpClient {
                     &self.http_config.proxy_rejection_statuses,
                 )?,
             };
-            builder = builder.proxy_response_classifier(policy);
+            builder = builder
+                .proxy_response_classifier(policy)
+                .proxy_runtime(self.proxy_handle.proxy_runtime());
         }
         let proxy_transport_configured = proxy_state.proxy.is_some();
         if let Some(proxy) = proxy_state.proxy {

@@ -355,6 +355,8 @@ pub struct StreamScraperBuildOptions {
     pub stores: ApplicationStores,
     /// Optional explicit local country used for geo proxy decisions.
     pub current_country: Option<String>,
+    /// Shared loopback listener retained across validated scraper rebuilds.
+    pub proxy_runtime: Arc<arachnea_proxy::server::LoopbackProxyRuntime>,
 }
 
 impl StreamScraperBuildOptions {
@@ -369,6 +371,7 @@ impl StreamScraperBuildOptions {
             credentials_store,
             stores,
             current_country: None,
+            proxy_runtime: Arc::default(),
         }
     }
 
@@ -433,7 +436,16 @@ impl StreamScraper {
         credentials_store: Arc<dyn CredentialsStore>,
         stores: ApplicationStores,
     ) -> Self {
-        let mut agregator = Box::new(ScraperAgregator::new_with_typed_stores(
+        Self::new_with_stores_and_proxy_runtime(credentials_store, stores, Arc::default())
+    }
+
+    fn new_with_stores_and_proxy_runtime(
+        credentials_store: Arc<dyn CredentialsStore>,
+        stores: ApplicationStores,
+        proxy_runtime: Arc<arachnea_proxy::server::LoopbackProxyRuntime>,
+    ) -> Self {
+        let mut agregator = Box::new(ScraperAgregator::new_with_typed_stores_and_proxy_handle(
+            SharedProxyConfigHandle::with_runtime(proxy_runtime),
             Arc::clone(&stores.proxy_inventory),
             Arc::clone(&stores.cloudflare_session),
         ));
@@ -515,9 +527,10 @@ impl StreamScraper {
         options: &StreamScraperBuildOptions,
         synchronize_activation_defaults: bool,
     ) -> Result<Self> {
-        let mut instance = Self::new_with_typed_stores(
+        let mut instance = Self::new_with_stores_and_proxy_runtime(
             Arc::clone(&options.credentials_store),
             options.stores.clone(),
+            options.proxy_runtime.clone(),
         );
         let services_path = options.services_config_path.as_str();
         if synchronize_activation_defaults {
@@ -1710,6 +1723,7 @@ impl ScraperManager for StreamScraper {
             credentials_store: Arc::clone(&self.credentials_store),
             stores: self.stores.clone(),
             current_country: None,
+            proxy_runtime: self.proxy_handle.proxy_runtime(),
         };
         ReloadableStreamScraper::from_instance(self, options).register_service(controler);
     }

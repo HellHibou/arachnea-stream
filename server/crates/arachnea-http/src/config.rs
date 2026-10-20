@@ -455,6 +455,9 @@ pub struct ArachneaHttpConfig {
     pub user_agent_profile: BrowserProfile,
     /// Transport override applied to engines that support proxy configuration.
     pub proxy: HttpProxyConfig,
+    /// Shared loopback server for application-owned proxy transports.
+    #[cfg(feature = "arachnea-proxy")]
+    pub proxy_runtime: Option<Arc<arachnea_proxy::server::LoopbackProxyRuntime>>,
     /// Request routing parameters sent to proxy transports that support them.
     pub proxy_parameters: Vec<(String, String)>,
     /// Optional code-injected response policy; not part of serialized configuration.
@@ -509,6 +512,8 @@ impl Default for ArachneaHttpConfig {
             cloudflare_browser_solver: CloudflareBrowserSolverKind::Auto,
             user_agent_profile: BrowserProfile::default(),
             proxy: HttpProxyConfig::Disabled,
+            #[cfg(feature = "arachnea-proxy")]
+            proxy_runtime: None,
             proxy_parameters: Vec::new(),
             #[cfg(feature = "arachnea-proxy")]
             proxy_response_classifier: None,
@@ -700,6 +705,19 @@ impl ArachneaHttpConfigBuilder {
     /// The updated builder.
     pub fn proxy(mut self, proxy: HttpProxyConfig) -> Self {
         self.config.proxy = proxy;
+        self
+    }
+
+    /// Shares one application-owned loopback listener across HTTP clients.
+    ///
+    /// # Arguments
+    /// - `runtime`: Shared listener and connection-context registry.
+    #[cfg(feature = "arachnea-proxy")]
+    pub fn proxy_runtime(
+        mut self,
+        runtime: Arc<arachnea_proxy::server::LoopbackProxyRuntime>,
+    ) -> Self {
+        self.config.proxy_runtime = Some(runtime);
         self
     }
 

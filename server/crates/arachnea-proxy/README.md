@@ -582,13 +582,14 @@ boolean and survives redirect option rewriting. Inconclusive responses and body
 collection errors do not rotate. Rejections are recorded even when replay is
 unsafe. Search exhaustion is reported without silently switching to direct egress.
 
-Rquest loopback adapters for contextual searches are owned by the in-flight
-request and dropped on cancellation; their `JoinSet` also aborts active child
-connections. They are not placed in the cross-request pinned-client cache, so
-contextual calls currently reconnect even when the destination preference is
-reused. Ordinary non-search pinned clients retain their keep-alive behavior.
-This trades cross-call socket reuse for exact lifetime/deadline ownership with
-the current loopback connector API. External reverse proxies must allow the
+Rquest routing leases for contextual searches are owned by the in-flight
+request and released on cancellation. They use the application listener rather
+than owning a listener or a per-request accept task. Client disconnection cancels
+pending CONNECT establishment; accepted relays retain their context until they
+close. Contextual clients are not placed in the cross-request pinned-client cache,
+so these calls reconnect even when the destination preference is reused. Ordinary
+non-search pinned clients retain their keep-alive behavior. External reverse
+proxies must allow the
 135-second search horizon; their production settings are deployment-owned.
 
 ### Localized search diagnostics
@@ -631,3 +632,65 @@ it is not a production metric export or a public-provider benchmark. The full
 acceptance matrix, measurements and remaining production checks are recorded in
 `docs/dev-tracking/analyse-optimisation-proxies-localises.md`, section 21 at the
 repository root. No production thresholds were increased from these samples.
+
+## Shared embedded HTTP loopback runtime
+
+`server::LoopbackProxyRuntime::new(port)` owns one listening socket on
+`127.0.0.1`. `start().await` synchronizes concurrent initialization, returns the
+actual bound address and logs it at info level. The proxy service also prints
+`Proxy Server Application launched: http://127.0.0.1:<port>` once after binding,
+independently of tracing filters. Zero selects an OS-assigned port;
+a fixed port never silently falls back to another port. There is no embedded
+public-bind option or second SOCKS/IPv6 listener. Incoming peers must be loopback.
+The runtime caps concurrent connections at 1,024 and HTTP header reads at 16 KiB/30 s.
+The same socket also recognizes SOCKS5 for native macOS WebViews. This internal
+path requires username/password authentication with a live `arachnea-context`
+routing lease; anonymous access, public profiles, expired contexts, BIND and UDP
+are rejected. SOCKS negotiation is bounded to 30 seconds. HTTP and SOCKS5 share
+the same core, context registry, connection limits and shutdown lifecycle; no
+additional port is opened. External applications should keep using the HTTP
+profile protocol described below.
+
+Use `register(core, context, allow_parameter_headers)` for a connection-owned
+routing lease and keep the returned `Arc<LoopbackRoute>` alive. The weak registry
+removes expired entries on registration and allows at most 8,192 live contexts.
+`set_default_route(&lease)` publishes an externally usable core without owning
+it. The application must retain that lease. This avoids cycles through provider
+HTTP clients. `ArachneaRquestLoopback::start_on_runtime(...)` adapts Rquest and
+browser proxy URLs to such leases. The older standalone `start(...)` convenience
+constructor still creates an independent runtime; applications sharing a port
+must inject the same runtime explicitly.
+
+Internal URLs contain an opaque random credential. Unknown/expired contexts are
+rejected with `403`; they never fall back to the public default route. Pinned
+leases reject parameter overrides and their cores enforce destination identity.
+Dropping a helper releases its lease, not the shared listener. Dropping the last
+runtime reference aborts acceptance and all tracked connection tasks. Calling
+`shutdown()` explicitly does so even while clients retain runtime references;
+shutdown is terminal. A running
+connection retains its context until relay completion.
+
+The embedded listener alone supports routing profiles through HTTP Basic proxy
+credentials. Username `countries=BE,FR&proxy_affinity=session-1`, password `local`,
+selects the corresponding parameters; username `default` selects the default
+route. Names and values use URL form encoding; countries are comma-separated ISO
+alpha-2 codes, normalized into the core's JSON country set. Unknown parameters,
+malformed profiles, invalid country codes and conflicting duplicate values are
+rejected with `400`. Supported names come from the default core's parameter
+registry (including `fallback_direct` when registered).
+
+Without a profile or recognized parameter headers, the embedded listener returns
+`407 Proxy Authentication Required` before opening the destination. Clients
+capable of sending proxy headers can instead use `Arachnea-Proxy-Countries:
+["BE","FR"]`, `Arachnea-Proxy-Affinity`, and the other registered headers on the
+absolute-form HTTP request or HTTPS CONNECT. Conflicting values across channels
+are rejected. Routing headers are consumed locally unless a custom parameter
+definition explicitly enables forwarding; incoming proxy credentials are always
+removed.
+A browser must configure proxy credentials through its supported authentication
+flow; putting custom headers on an HTTPS origin request cannot configure CONNECT.
+
+The conventional password is a routing convention, not local-user access
+control. This behavior does not change the standalone server's existing optional
+static authentication. HTTPS is tunneled without interception; the embedded
+server cannot classify encrypted origin response statuses for external clients.

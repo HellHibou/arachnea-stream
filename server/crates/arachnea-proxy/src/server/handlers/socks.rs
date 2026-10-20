@@ -12,6 +12,81 @@ use tokio::net::{lookup_host, TcpStream, UdpSocket};
 
 use crate::server::ServerConfig;
 
+/// Handles an internal SOCKS5 CONNECT using a lease on the shared loopback port.
+///
+/// Unlike the standalone SOCKS server, this adapter requires opaque internal
+/// credentials and does not accept unauthenticated, public-profile or UDP requests.
+///
+/// # Arguments
+/// - `client`: Accepted loopback stream positioned before the SOCKS version byte.
+/// - `routes`: Weak registry shared with the HTTP loopback adapter.
+///
+/// # Errors
+/// Returns an error for invalid negotiation, expired contexts or outbound failures.
+pub(crate) async fn handle_loopback(
+    mut client: TcpStream,
+    routes: Arc<std::sync::RwLock<HashMap<String, std::sync::Weak<crate::server::LoopbackRoute>>>>,
+) -> Result<()> {
+    let (request, route) = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        if client.read_u8().await? != 5 {
+            return Err(ProxyError::Protocol(
+                "invalid loopback SOCKS version".into(),
+            ));
+        }
+        let count = client.read_u8().await?;
+        let mut methods = vec![0; usize::from(count)];
+        client.read_exact(&mut methods).await?;
+        if !methods.contains(&2) {
+            client.write_all(&[5, 255]).await?;
+            return Err(ProxyError::AccessDenied(
+                "loopback SOCKS requires routing credentials".into(),
+            ));
+        }
+        client.write_all(&[5, 2]).await?;
+        if client.read_u8().await? != 1 {
+            client.write_all(&[1, 1]).await?;
+            return Err(ProxyError::Protocol(
+                "invalid loopback SOCKS authentication version".into(),
+            ));
+        }
+        let username = read_socks_auth_string(&mut client).await?;
+        let password = read_socks_auth_string(&mut client).await?;
+        let route = if username == "arachnea-context" {
+            routes
+                .read()
+                .map_err(|_| ProxyError::Config("loopback registry lock poisoned".into()))?
+                .get(&password)
+                .and_then(std::sync::Weak::upgrade)
+        } else {
+            None
+        };
+        let Some(route) = route else {
+            client.write_all(&[1, 1]).await?;
+            return Err(ProxyError::AccessDenied(
+                "unknown or expired loopback SOCKS context".into(),
+            ));
+        };
+        client.write_all(&[1, 0]).await?;
+        let request = read_request(&mut client).await?;
+        if request.command != 1 {
+            write_reply(&mut client, 7).await?;
+            return Err(ProxyError::Unsupported(
+                "loopback SOCKS command other than CONNECT",
+            ));
+        }
+        Ok((request, route))
+    })
+    .await
+    .map_err(|_| ProxyError::Timeout("loopback SOCKS negotiation"))??;
+    handle_connect(
+        client,
+        request.destination,
+        route.context.clone(),
+        route.core.clone(),
+    )
+    .await
+}
+
 /// Handles one SOCKS TCP connection.
 pub async fn handle(
     mut client: TcpStream,

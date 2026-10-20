@@ -11,8 +11,6 @@ pub fn support_status() -> &'static str {
 }
 
 #[cfg(feature = "rquest")]
-use std::net::{Ipv4Addr, SocketAddr};
-#[cfg(feature = "rquest")]
 use std::sync::Arc;
 
 #[cfg(feature = "rquest")]
@@ -20,13 +18,9 @@ use crate::core::{
     context_from_parameter_pairs, ArachneaProxyCore, ClientContext, ParameterDefinition,
 };
 #[cfg(feature = "rquest")]
-use crate::server::{handlers, NetworkConfig, ProxyAuthConfig, ServerConfig};
+use crate::server::{LoopbackProxyRuntime, LoopbackRoute};
 #[cfg(feature = "rquest")]
 use rquest::header::{HeaderMap, HeaderName, HeaderValue};
-#[cfg(feature = "rquest")]
-use tokio::net::TcpListener;
-#[cfg(feature = "rquest")]
-use tokio::task::JoinHandle;
 
 #[cfg(feature = "rquest")]
 use crate::connectors::{ConnectorError, Result};
@@ -36,7 +30,8 @@ use crate::connectors::{ConnectorError, Result};
 pub struct ArachneaRquestLoopback {
     proxy_url: String,
     parameter_definitions: Vec<ParameterDefinition>,
-    task: JoinHandle<()>,
+    runtime: Arc<LoopbackProxyRuntime>,
+    _route: Arc<LoopbackRoute>,
 }
 
 #[cfg(feature = "rquest")]
@@ -49,7 +44,7 @@ impl ArachneaRquestLoopback {
     ///
     /// # Returns
     ///
-    /// Loopback helper containing the selected proxy URL and listener task.
+    /// Loopback helper retaining a routing lease on the shared listener.
     ///
     /// # Errors
     ///
@@ -59,7 +54,7 @@ impl ArachneaRquestLoopback {
         Self::start_with_client_context(core, parameter_definitions, ClientContext::new()).await
     }
 
-    /// Starts a loopback listener with fixed routing parameters for every connection.
+    /// Starts a loopback helper with fixed routing parameters for its connections.
     ///
     /// This is intended for clients such as Chrome that cannot attach custom
     /// headers to HTTP proxy CONNECT requests.
@@ -78,69 +73,47 @@ impl ArachneaRquestLoopback {
         parameter_definitions: Vec<ParameterDefinition>,
         client_context: ClientContext,
     ) -> Result<Self> {
-        let listener = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).await?;
-        let addr = listener.local_addr()?;
-        let context_parameter_names = client_context
-            .parameters
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>();
-        tracing::debug!(
-            proxy_url = %format!("http://{addr}"),
-            context_parameter_names = ?context_parameter_names,
-            "started rquest loopback proxy"
-        );
-        let config = Arc::new(ServerConfig {
-            listen_http: Some(addr),
-            listen_socks: None,
-            listen_https: None,
-            tls_cert_der_path: None,
-            tls_key_der_path: None,
-            tls_cert_pem_path: None,
-            tls_key_pem_path: None,
-            allow_unsafe_public_bind_without_acl: false,
-            max_http_header_bytes: 16 * 1024,
-            authentication: ProxyAuthConfig::default(),
-            network: NetworkConfig::default(),
-        });
-        let task = tokio::spawn(async move {
-            let mut connections = tokio::task::JoinSet::new();
-            loop {
-                let accepted = tokio::select! {
-                    accepted = listener.accept() => accepted,
-                    _ = connections.join_next(), if !connections.is_empty() => continue,
-                };
-                let Ok((stream, peer)) = accepted else {
-                    break;
-                };
-                let conn_config = Arc::clone(&config);
-                let conn_core = core.clone();
-                let conn_context = client_context.clone();
-                connections.spawn(async move {
-                    if let Err(error) = handlers::http::handle_with_client_context(
-                        stream,
-                        peer,
-                        conn_config,
-                        conn_core,
-                        conn_context,
-                    )
-                    .await
-                    {
-                        tracing::warn!(
-                            peer = %peer,
-                            %error,
-                            "rquest loopback proxy connection failed"
-                        );
-                    }
-                });
-            }
-        });
-
-        Ok(Self {
-            proxy_url: format!("http://{addr}"),
+        Self::start_on_runtime(
+            Arc::new(LoopbackProxyRuntime::default()),
+            core,
             parameter_definitions,
-            task,
+            client_context,
+            true,
+        )
+        .await
+    }
+
+    /// Registers a routing lease on an existing shared listener.
+    ///
+    /// # Arguments
+    /// - `runtime`: Application-owned listener shared by all derived clients.
+    /// - `core`: General or request-pinned routing core.
+    /// - `parameter_definitions`: Accepted parameter headers.
+    /// - `client_context`: Connection-local default routing parameters.
+    /// - `allow_parameter_headers`: Whether the lease accepts additional parameter headers.
+    ///
+    /// # Errors
+    /// Returns an error if binding or routing-context registration fails.
+    pub async fn start_on_runtime(
+        runtime: Arc<LoopbackProxyRuntime>,
+        core: ArachneaProxyCore,
+        parameter_definitions: Vec<ParameterDefinition>,
+        client_context: ClientContext,
+        allow_parameter_headers: bool,
+    ) -> Result<Self> {
+        let addr = runtime.start().await?;
+        let route = runtime.register(core, client_context, allow_parameter_headers)?;
+        Ok(Self {
+            proxy_url: format!("http://arachnea-context:{}@{addr}", route.credential()),
+            parameter_definitions,
+            runtime,
+            _route: route,
         })
+    }
+
+    /// Returns the shared listener used by this routing lease.
+    pub fn runtime(&self) -> Arc<LoopbackProxyRuntime> {
+        self.runtime.clone()
     }
 
     /// Returns the proxy URL usable with `rquest::Proxy`.
@@ -256,17 +229,5 @@ impl ArachneaRquestLoopback {
             .redirect(rquest::redirect::Policy::none())
             .build()
             .map_err(|error| ConnectorError::Rquest(error.to_string()))
-    }
-}
-
-#[cfg(feature = "rquest")]
-impl Drop for ArachneaRquestLoopback {
-    /// Stops the background loopback listener task.
-    ///
-    /// # Parameters
-    ///
-    /// - `self`: Loopback helper being dropped.
-    fn drop(&mut self) {
-        self.task.abort();
     }
 }

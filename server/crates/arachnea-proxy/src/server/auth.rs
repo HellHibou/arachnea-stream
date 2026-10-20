@@ -113,7 +113,7 @@ pub fn validate_http_basic_header(header: &str, credentials: &ProxyCredentials) 
 /// # Returns
 ///
 /// Decoded username and password when the header is valid Basic credentials.
-fn decode_http_basic_credentials(header: &str) -> Option<(String, String)> {
+pub(crate) fn decode_http_basic_credentials(header: &str) -> Option<(String, String)> {
     let Some(encoded) = header.trim().strip_prefix("Basic ") else {
         return None;
     };

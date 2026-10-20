@@ -16,6 +16,7 @@ async fn read_head(stream: &mut (impl AsyncRead + Unpin)) -> anyhow::Result<Stri
 #[tokio::test]
 async fn keep_alive_tls_503_keeps_exact_selection_and_positive_phases() -> anyhow::Result<()> {
     tokio::time::timeout(Duration::from_secs(25), async {
+        let shared_runtime = Arc::new(arachnea_proxy::server::LoopbackProxyRuntime::default());
         struct CountryProvider {
             client: crate::client::ArachneaHttpClient,
             url: String,
@@ -52,6 +53,7 @@ async fn keep_alive_tls_503_keeps_exact_selection_and_positive_phases() -> anyho
         });
         let country_client = crate::client::ArachneaHttpClient::new(
             ArachneaHttpConfig::builder()
+                .proxy_runtime(shared_runtime.clone())
                 .proxy(crate::config::HttpProxyConfig::Arachnea(
                     ArachneaProxyCore::new(UsageProfile::SystemRelay.config())?,
                 ))
@@ -276,7 +278,11 @@ async fn keep_alive_tls_503_keeps_exact_selection_and_positive_phases() -> anyho
         };
         let selected = core.select_for_request(select("BE")).await?;
         let token = selected.selection_token.clone().unwrap();
-        let loopback = arachnea_proxy::connectors::ArachneaRquestLoopback::start(selected.core).await?;
+        let loopback = arachnea_proxy::connectors::ArachneaRquestLoopback::start_on_runtime(
+            shared_runtime.clone(), selected.core.clone(), selected.core.parameter_definitions(),
+            ClientContext::new(), false,
+        ).await?;
+        assert_eq!(url::Url::parse(loopback.proxy_url())?.port(), shared_runtime.local_addr().map(|addr| addr.port()));
         let trusted = rquest::tls::CertStore::from_der_certs([ca.as_slice()])?;
         let client = rquest::Client::builder().cert_store(trusted)
             .proxy(rquest::Proxy::all(loopback.proxy_url())?)
@@ -371,7 +377,11 @@ async fn keep_alive_tls_503_keeps_exact_selection_and_positive_phases() -> anyho
         let body_search = ProxySearchContext::default();
         let selected = body_search.scope(core.select_for_request(body_request())).await?;
         let token = selected.selection_token.unwrap();
-        let loopback = arachnea_proxy::connectors::ArachneaRquestLoopback::start(selected.core).await?;
+        let loopback = arachnea_proxy::connectors::ArachneaRquestLoopback::start_on_runtime(
+            shared_runtime.clone(), selected.core.clone(), selected.core.parameter_definitions(),
+            ClientContext::new(), false,
+        ).await?;
+        assert_eq!(url::Url::parse(loopback.proxy_url())?.port(), shared_runtime.local_addr().map(|addr| addr.port()));
         let engine = RquestEngine::new(&ArachneaHttpConfig::default(), Some(loopback.proxy_url()), Some(loopback.client()?))?;
         let error = body_search.scope(engine.send_for_proxy(EngineRequest {
             method: ::http::Method::GET, url: "http://body.example/content".into(),

@@ -20,6 +20,18 @@ fn extracts_registered_parameter_headers() {
         context.get_string(PROXY_PARAMETER_COUNTRIES),
         Some(r#"["BE"]"#)
     );
+
+    let mut merged = ClientContext::new();
+    insert_loopback_parameter(&mut merged, "countries", r#"["FR", "be", "BE"]"#).unwrap();
+    insert_loopback_parameter(&mut merged, "countries", r#"["BE", "FR"]"#).unwrap();
+    assert_eq!(merged.get_string("countries"), Some(r#"["BE","FR"]"#));
+    assert!(insert_loopback_parameter(&mut merged, "countries", r#"["US"]"#).is_err());
+    assert!(
+        insert_loopback_parameter(&mut ClientContext::new(), "countries", r#"["bad"]"#).is_err()
+    );
+    assert!(
+        insert_loopback_parameter(&mut ClientContext::new(), "fallback_direct", "yes").is_err()
+    );
 }
 
 /// Verifies that non-forwarded parameter headers are stripped from HTTP relay requests.

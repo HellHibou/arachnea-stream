@@ -9,11 +9,13 @@ mod auth;
 mod config;
 pub mod handlers;
 pub mod listeners;
+mod loopback;
 mod server;
 
 pub use acl::ClientAcl;
 pub use auth::{validate_http_basic_header, ProxyAuthConfig, ProxyCredentials};
 pub use config::{FileConfig, NetworkConfig, ServerConfig};
+pub use loopback::{LoopbackProxyRuntime, LoopbackRoute};
 pub use server::ProxyServer;
 
 #[cfg(test)]

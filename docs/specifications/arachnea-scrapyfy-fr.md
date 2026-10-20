@@ -1856,3 +1856,19 @@ queries:
           - type: ratio
             argument: 60
 ```
+
+## Option applicative du proxy local
+
+Le listener partagé se configure hors du schéma YAML des requêtes via
+`--proxy-server-port` (clé persistée `proxy-server-port`). Absent ou nul, le port
+est choisi automatiquement et journalisé après le bind sur `127.0.0.1` ; un port
+non nul est imposé. Le rechargement des sources conserve le listener ; changer le
+port nécessite un redémarrage. Les contextes partagent le port d’écoute et gardent
+leurs paramètres indépendants. Les champs YAML `http.proxy_countries` et
+`http.proxy_affinity` sont inchangés. Un navigateur local utilise l’utilisateur
+proxy `countries=BE,FR` et le mot de passe `local`, avec un challenge `407` avant
+routage ; `default` / `local` sélectionne la route par défaut de l’application.
+Le README du crate précise le cycle de vie, l’encodage des paramètres et les
+limites des clients externes.
+
+Les fallbacks Tauri/Wry partagent également ce port et leur contexte de routage ; sur macOS 14+, ils utilisent SOCKS5 authentifié sur le même socket, sans listener supplémentaire.

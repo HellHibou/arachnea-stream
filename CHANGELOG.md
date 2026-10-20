@@ -97,6 +97,12 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- The shared proxy service now prints its effective loopback address and port once after binding, matching the web server startup announcement even when INFO tracing is filtered. The announcement is owned by the proxy runtime rather than the application entry point.
+
+- The shared loopback socket also accepts authenticated internal SOCKS5 CONNECT for native macOS WebViews. It reuses live routing leases and existing limits; anonymous requests, public profiles, UDP and BIND are rejected without opening another port.
+
+- Added `LoopbackProxyRuntime`: one configurable IPv4 loopback HTTP listener, weak routing leases, external routing profiles through a `407` Basic challenge, strict parameter merging, and bounded connection/context lifetimes. Standalone proxy authentication is unchanged.
+
 - Added a source-size audit and staged file-splitting proposal in `docs/dev-tracking/analyse-decoupage-arachnea-proxy.md`, covering existing test extraction, responsibility-based private modules, public import compatibility, and planned validation. Implementation remains pending confirmation; no Rust behavior changed.
 - Documented the proposed consolidation of inventory, failure and preference tables into the physical `proxy-inventory` SQLite store, including table-scoped schema metadata, legacy data migration and the distinction between shared storage and business transaction atomicity. Implementation is pending confirmation.
 - Revised the persistence analysis following user decisions: select the shared SQLite owner with typed table views, separate store and table configuration, use flat `<STORENAME>.sqlite3*` paths for all SQLite stores, and discard legacy data instead of migrating it. The revised analysis supersedes the earlier migration proposal; runtime implementation remains outstanding.
@@ -203,6 +209,8 @@ All notable changes to the server workspace are recorded here.
 ### <u>arachnea-stream</u>
 
 #### Added
+
+- Starts the shared Scrapyfy proxy before serving application requests and preserves its listening port through validated source reloads. New default routes are published after successful rebuilds while existing connections retain their original contexts.
 
 - Application persistence now opens the shared proxy database and separate flat `cloudflare-session.sqlite3` / `arachnea-services.sqlite3` databases, ignoring old directory-based data. Legacy service activation overrides and stored credentials must be configured again. The obsolete destructive service-directory reset and schema marker were removed; new-format databases are retained across restarts.
 
@@ -311,6 +319,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added `--proxy-server-port` / `proxy-server-port`: absent or zero allocates and logs an automatic port; a nonzero port is required exactly. Aggregator clients and provider snapshots share the runtime while keeping independent routing contexts. Port changes require restart.
+
 - Localized proxy lot 3 adds inherited `http.proxy_response_classifier` configuration and code injection, replacing duplicated status checks with the early correlated decision. Injected policies survive derived clients; unclassified 4xx/5xx no longer establish accepted preferences. Existing retry counts are unchanged.
 
 - Localized proxy lot 1 attributes accepted/rejected HTTP results to their request-owned selection, including redirects, and avoids transport rotation after response-body collection errors. No new YAML policy or retry expansion is introduced.
@@ -355,6 +365,10 @@ All notable changes to the server workspace are recorded here.
 ### <u>arachnea-http</u>
 
 #### Added
+
+- Tauri/Wry now applies prepared proxy contexts in both standalone WebViews and Tauri application windows, with isolated data stores and native authentication before navigation. macOS 14+ uses authenticated SOCKS5 on the shared port with direct failover disabled; Windows and Linux install proxy-scoped authentication handlers. Automatic proxy solver selection follows the normal feature priority. Unsupported platform/proxy combinations fail before navigation.
+
+- Built-in proxy engines and pinned Rquest attempts now share the injected loopback runtime. Browser page sessions retain their routing leases; Chaser-CF receives profile credentials on the same port. Tauri/Wry support is provided by the native adapter described above.
 
 - Localized proxy lot 3 exposes optional response policy injection and the early response decision, evaluated before Rquest body materialization with exact hop metadata and replayed prefixes up to 64 KiB. Existing Rquest streaming support is enabled; unsupported engines explicitly remain uncorrelated. Common search deadlines remain future work.
 
@@ -463,6 +477,8 @@ All notable changes to the server workspace are recorded here.
 ### <u>Other</u>
 
 #### Added
+
+- Documented the shared Scrapyfy loopback proxy server, configurable port, per-connection routing contexts, and browser profile negotiation. Recorded user approval of approach B and the `407` challenge; delivery and validation details are recorded in the development analysis.
 
 #### Changed
 

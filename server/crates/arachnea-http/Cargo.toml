@@ -10,7 +10,7 @@ default = []
 arachnea-proxy = ["dep:arachnea-proxy", "arachnea-proxy/rquest"]
 ghostwire = ["dep:ghostwire"]
 chaser-cf = ["dep:chaser-cf", "dep:chaser-oxide"]
-tauri-cloudflare-solver = ["dep:cookie", "dep:tao", "dep:tauri", "dep:wry"]
+tauri-cloudflare-solver = ["dep:cookie", "dep:tao", "dep:tauri", "dep:wry", "dep:urlencoding", "dep:objc2", "dep:objc2-foundation", "dep:objc2-web-kit", "dep:libloading", "dep:webview2-com", "dep:windows-core", "dep:webkit2gtk"]
 tauri-cloudflare-solver-devtools = ["tauri-cloudflare-solver", "wry/devtools"]
 
 [dependencies]
@@ -37,6 +37,7 @@ tracing.workspace = true
 tao = { workspace = true, optional = true }
 tauri = { workspace = true, features = [], optional = true }
 url.workspace = true
+urlencoding = { workspace = true, optional = true }
 wry = { workspace = true, optional = true }
 
 [[example]]
@@ -50,3 +51,16 @@ tokio-rustls.workspace = true
 # Enables the SQLite backend for typed-store validation tests.
 arachnea-core = { path = "../arachnea-core", features = ["sqlite-persistence"] }
 rusqlite = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libloading = { version = "0.8", optional = true }
+objc2-web-kit = { version = "0.3.2", optional = true, default-features = false, features = ["std", "WKWebViewConfiguration", "WKWebsiteDataStore"] }
+objc2 = { version = "0.6.4", optional = true }
+objc2-foundation = { version = "0.3.2", optional = true, default-features = false, features = ["std", "NSArray", "NSProcessInfo"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+webview2-com = { version = "0.38", optional = true }
+windows-core = { version = "0.61", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = { version = "=2.0.2", optional = true, features = ["v2_38"] }

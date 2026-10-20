@@ -61,7 +61,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let status = response.status();
     let body = response.text().await?;
 
-    println!("Loopback proxy: {}", loopback.proxy_url());
+    println!("Loopback proxy: {:?}", loopback.runtime().local_addr());
     println!("GET {url} with {PROXY_HEADER_PARAMETER_COUNTRIES}={countries} -> {status}");
     println!("{body}");
     Ok(())

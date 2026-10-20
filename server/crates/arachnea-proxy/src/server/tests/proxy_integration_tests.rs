@@ -40,6 +40,80 @@ async fn http_proxy_relays_absolute_request() {
     let text = String::from_utf8(response).unwrap();
     assert!(text.starts_with("HTTP/1.1 200 OK"));
     assert!(text.ends_with("proxied"));
+
+    let runtime = Arc::new(crate::server::LoopbackProxyRuntime::new(0));
+    let (first, second) = tokio::join!(runtime.start(), runtime.start());
+    let addr = first.unwrap();
+    assert_eq!(addr, second.unwrap());
+    assert!(addr.ip().is_loopback());
+    assert_ne!(addr.port(), 0);
+    let occupied = crate::server::LoopbackProxyRuntime::new(addr.port());
+    assert_eq!(
+        occupied.start().await.unwrap_err().kind(),
+        std::io::ErrorKind::AddrInUse
+    );
+    let lease = runtime
+        .register(
+            ArachneaProxyCore::new(ProxyConfig::default())
+                .unwrap()
+                .with_parameter_handler(crate::core::DynamicCountryRoutingProxyHandler::new(
+                    crate::core::CoexistencePolicy::StaticOnly,
+                )),
+            crate::core::ClientContext::new(),
+            true,
+        )
+        .unwrap();
+    runtime.set_default_route(&lease).unwrap();
+    for (authorization, expected) in [
+        (None, "407 Proxy Authentication Required"),
+        (Some("invalid:local"), "400 Bad Request"),
+        (Some("default:wrong"), "400 Bad Request"),
+        (Some("arachnea-context:expired"), "403 Forbidden"),
+        (Some("default:local"), "200 OK"),
+        (
+            Some("countries=be,FR&proxy_affinity=browser-session-1:local"),
+            "200 OK",
+        ),
+        (Some("countries=BE&countries=FR:local"), "400 Bad Request"),
+        (Some("countries=invalid:local"), "400 Bad Request"),
+    ] {
+        let target = if expected == "200 OK" {
+            spawn_http_target().await
+        } else {
+            target
+        };
+        let mut client = TcpStream::connect(addr).await.unwrap();
+        let auth = authorization
+            .map(|credentials| {
+                format!(
+                    "Proxy-Authorization: Basic {}\r\n",
+                    base64::engine::general_purpose::STANDARD.encode(credentials),
+                )
+            })
+            .unwrap_or_default();
+        client.write_all(format!(
+            "GET http://{target}/hello HTTP/1.1\r\nHost: {target}\r\n{auth}Connection: close\r\n\r\n",
+        ).as_bytes()).await.unwrap();
+        let mut response = Vec::new();
+        timeout(Duration::from_secs(5), client.read_to_end(&mut response))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            String::from_utf8_lossy(&response).starts_with(&format!("HTTP/1.1 {expected}")),
+            "expected {expected}, received {}",
+            String::from_utf8_lossy(&response)
+        );
+    }
+    runtime.shutdown();
+    assert!(runtime.start().await.is_err());
+    timeout(Duration::from_secs(5), async {
+        while TcpStream::connect(addr).await.is_ok() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
 }
 
 /// Verifies that HTTP proxy authentication is disabled when no password is configured.
@@ -129,6 +203,60 @@ async fn socks5_connect_relays_tcp_payloads_without_auth() {
     assert_eq!(&echoed, b"pong");
     drop(client);
     handler.await.unwrap().unwrap();
+
+    let runtime = crate::server::LoopbackProxyRuntime::new(0);
+    let addr = runtime.start().await.unwrap();
+    let lease = runtime
+        .register(
+            ArachneaProxyCore::new(ProxyConfig::default()).unwrap(),
+            crate::core::ClientContext::new(),
+            true,
+        )
+        .unwrap();
+    let mut anonymous = TcpStream::connect(addr).await.unwrap();
+    anonymous.write_all(&[5, 1, 0]).await.unwrap();
+    anonymous.read_exact(&mut method).await.unwrap();
+    assert_eq!(method, [5, 255]);
+    drop(anonymous);
+    let target = spawn_echo_target().await;
+    for (password, command) in [
+        ("expired", 1),
+        (lease.credential(), 3),
+        (lease.credential(), 1),
+    ] {
+        let mut client = TcpStream::connect(addr).await.unwrap();
+        client.write_all(&[5, 1, 2]).await.unwrap();
+        client.read_exact(&mut method).await.unwrap();
+        assert_eq!(method, [5, 2]);
+        let username = b"arachnea-context";
+        let mut auth = vec![1, username.len() as u8];
+        auth.extend_from_slice(username);
+        auth.push(password.len() as u8);
+        auth.extend_from_slice(password.as_bytes());
+        client.write_all(&auth).await.unwrap();
+        client.read_exact(&mut method).await.unwrap();
+        assert_eq!(method, [1, if password == "expired" { 1 } else { 0 }]);
+        if password == "expired" {
+            continue;
+        }
+        if command == 3 {
+            client
+                .write_all(&[5, 3, 0, 1, 0, 0, 0, 0, 0, 0])
+                .await
+                .unwrap();
+            client.read_exact(&mut reply).await.unwrap();
+            assert_eq!(reply[1], 7);
+            continue;
+        }
+        write_socks_connect_request(&mut client, target).await;
+        client.read_exact(&mut reply).await.unwrap();
+        assert_eq!(reply[1], 0);
+        client.write_all(b"ping").await.unwrap();
+        client.read_exact(&mut echoed).await.unwrap();
+        assert_eq!(&echoed, b"ping");
+    }
+    assert_eq!(runtime.local_addr(), Some(addr));
+    runtime.shutdown();
 }
 
 /// Verifies that SOCKS4 CONNECT relays TCP payloads.
@@ -314,9 +442,12 @@ async fn spawn_http_target() -> SocketAddr {
                 break;
             }
         }
-        assert!(String::from_utf8(request)
-            .unwrap()
-            .starts_with("GET /hello HTTP/1.1"));
+        let request = String::from_utf8(request).unwrap();
+        assert!(request.starts_with("GET /hello HTTP/1.1"));
+        assert!(!request
+            .to_ascii_lowercase()
+            .contains("proxy-authorization:"));
+        assert!(!request.to_ascii_lowercase().contains("arachnea-proxy-"));
         stream
             .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 7\r\nConnection: close\r\n\r\nproxied")
             .await

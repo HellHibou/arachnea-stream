@@ -31,6 +31,10 @@ use crate::{
     error::ArachneaHttpError,
 };
 
+#[path = "tauri_cloudflare_proxy.rs"]
+mod proxy;
+use proxy::WebviewProxy;
+
 /// Registry name for the interactive Tauri/Wry Cloudflare solver.
 pub const ENGINE_NAME: &str = "tauri-cloudflare-solver";
 
@@ -102,6 +106,8 @@ struct TauriAppSolveSession {
     page_state_result: Arc<Mutex<Option<Result<TauriAppPageState, String>>>>,
     /// Whether the window has been closed by the user.
     closed: Arc<AtomicBool>,
+    /// Completion of native proxy setup before the first external navigation.
+    proxy_ready: Option<tokio::sync::oneshot::Receiver<Result<(), String>>>,
 }
 
 /// Page state snapshot collected from the Tauri WebView via JavaScript.
@@ -140,6 +146,8 @@ enum MainThreadSolveStart {
 pub struct TauriCloudflareSolverEngine {
     /// Maximum time the user can spend solving the challenge.
     timeout: Duration,
+    /// Immutable routing endpoint; invalid standalone configurations fail before navigation.
+    proxy: Result<Option<WebviewProxy>, String>,
     /// Optional user-agent override configured in the WebView.
     user_agent: Option<String>,
     /// Interval between cookie jar inspections.
@@ -174,7 +182,10 @@ impl TauriCloudflareSolverEngine {
     ///
     /// # Parameters
     ///
-    /// - `config`: Client configuration used for timeout and user-agent.
+    /// - `config`: Client timing and explicit network-proxy configuration.
+    ///
+    /// Invalid proxy settings are reported before a request can navigate. An
+    /// in-process core requires the HTTP facade's prepared loopback URL.
     ///
     /// # Returns
     ///
@@ -182,6 +193,12 @@ impl TauriCloudflareSolverEngine {
     pub fn new(config: &ArachneaHttpConfig) -> Self {
         Self {
             timeout: config.request_timeout,
+            proxy: match &config.proxy {
+                crate::HttpProxyConfig::Disabled => Ok(None),
+                crate::HttpProxyConfig::Network(url) => WebviewProxy::parse(url).map(Some).map_err(|error| error.to_string()),
+                #[cfg(feature = "arachnea-proxy")]
+                crate::HttpProxyConfig::Arachnea(_) => Err("Tauri/Wry requires the prepared loopback URL; construct it through ArachneaHttpClient".into()),
+            },
             user_agent: None,
             poll_interval: DEFAULT_COOKIE_POLL_INTERVAL,
             clearance_stabilization: DEFAULT_CLEARANCE_STABILIZATION,
@@ -193,6 +210,29 @@ impl TauriCloudflareSolverEngine {
             refresh_cache: Arc::new(Mutex::new(HashMap::new())),
             latest_refresh: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// Creates a solver using the effective proxy URL prepared by the HTTP facade.
+    ///
+    /// # Arguments
+    /// - `config`: Solver timing and browser configuration.
+    /// - `proxy_url`: Network endpoint including optional proxy credentials.
+    ///
+    /// # Errors
+    /// Returns an error if the endpoint or native platform cannot support proxy routing.
+    pub fn new_with_proxy_url(
+        config: &ArachneaHttpConfig,
+        proxy_url: Option<&str>,
+    ) -> Result<Self, ArachneaHttpError> {
+        if proxy_url.is_none() && !matches!(config.proxy, crate::HttpProxyConfig::Disabled) {
+            return Err(ArachneaHttpError::InvalidConfiguration(
+                "Tauri/Wry requires the effective proxy URL before navigation".into(),
+            ));
+        }
+        let proxy = proxy_url.map(WebviewProxy::parse).transpose()?;
+        let mut engine = Self::new(config);
+        engine.proxy = Ok(proxy);
+        Ok(engine)
     }
 
     /// Creates an interactive Cloudflare solver with explicit timing values.
@@ -209,6 +249,7 @@ impl TauriCloudflareSolverEngine {
     pub fn with_options(timeout: Duration, user_agent: String, poll_interval: Duration) -> Self {
         Self {
             timeout,
+            proxy: Ok(None),
             user_agent: Some(user_agent),
             poll_interval,
             clearance_stabilization: DEFAULT_CLEARANCE_STABILIZATION,
@@ -350,6 +391,10 @@ impl HttpEngine for TauriCloudflareSolverEngine {
             self.auto_close_after_clearance,
             self.incognito,
             request.method == Method::GET,
+            self.proxy
+                .as_ref()
+                .map_err(|message| ArachneaHttpError::InvalidConfiguration(message.clone()))?
+                .as_ref(),
         )
         .await?;
         self.store_cached_headers(origin, result.headers.clone());
@@ -466,6 +511,10 @@ impl TauriCloudflareSolverEngine {
             self.auto_close_after_clearance,
             self.incognito,
             false,
+            self.proxy
+                .as_ref()
+                .map_err(|message| ArachneaHttpError::InvalidConfiguration(message.clone()))?
+                .as_ref(),
         )
         .await?
         .headers;
@@ -584,6 +633,7 @@ async fn solve_cloudflare_interactive(
     auto_close_after_clearance: bool,
     incognito: bool,
     collect_page_source: bool,
+    proxy: Option<&WebviewProxy>,
 ) -> Result<WrySolveResult, ArachneaHttpError> {
     if let Some(dispatcher) = global_main_thread_dispatcher() {
         let (sender, receiver) = tokio::sync::oneshot::channel();
@@ -591,6 +641,7 @@ async fn solve_cloudflare_interactive(
         let user_agent = user_agent.map(str::to_string);
         let task_user_agent = user_agent.clone();
         let task_url = url.clone();
+        let task_proxy = proxy.cloned();
         dispatcher
             .dispatch_main_thread_task(Box::new(move |context| {
                 let result = start_cloudflare_solve_on_main_thread(
@@ -606,6 +657,7 @@ async fn solve_cloudflare_interactive(
                     auto_close_after_clearance,
                     incognito,
                     collect_page_source,
+                    task_proxy.as_ref(),
                 );
                 let _ = sender.send(result);
             }))
@@ -645,6 +697,7 @@ async fn solve_cloudflare_interactive(
             auto_close_after_clearance,
             incognito,
             collect_page_source,
+            proxy,
         )
     }
 }
@@ -662,6 +715,7 @@ fn start_cloudflare_solve_on_main_thread(
     auto_close_after_clearance: bool,
     incognito: bool,
     collect_page_source: bool,
+    proxy: Option<&WebviewProxy>,
 ) -> Result<MainThreadSolveStart, ArachneaHttpError> {
     if let Some(app_handle) = context.resource::<tauri::AppHandle<tauri::Wry>>().cloned() {
         return create_tauri_app_solve_session(
@@ -672,6 +726,7 @@ fn start_cloudflare_solve_on_main_thread(
             window_height,
             devtools,
             incognito,
+            proxy,
         )
         .map(MainThreadSolveStart::TauriApp);
     }
@@ -688,6 +743,7 @@ fn start_cloudflare_solve_on_main_thread(
         auto_close_after_clearance,
         incognito,
         collect_page_source,
+        proxy,
     )
     .map(MainThreadSolveStart::Completed)
 }
@@ -700,6 +756,7 @@ fn create_tauri_app_solve_session(
     window_height: f64,
     devtools: bool,
     incognito: bool,
+    proxy: Option<&WebviewProxy>,
 ) -> Result<TauriAppSolveSession, ArachneaHttpError> {
     let parsed_url =
         Url::parse(url).map_err(|err| ArachneaHttpError::InvalidUrl(err.to_string()))?;
@@ -714,26 +771,19 @@ fn create_tauri_app_solve_session(
     let page_state_result: Arc<Mutex<Option<Result<TauriAppPageState, String>>>> =
         Arc::new(Mutex::new(None));
     let page_state_listener_result = Arc::clone(&page_state_result);
-    let page_state_event_id = {
-        use tauri::Listener;
-
-        app_handle.listen(page_state_event.clone(), move |event| {
-            let result = serde_json::from_str::<TauriAppPageState>(event.payload())
-                .map_err(|err| err.to_string());
-            if let Ok(mut value) = page_state_listener_result.lock() {
-                *value = Some(result);
-            }
-        })
-    };
     let mut builder = tauri::WebviewWindowBuilder::new(
         &app_handle,
         label,
-        tauri::WebviewUrl::External(parsed_url),
+        tauri::WebviewUrl::External(if proxy.is_some() {
+            Url::parse("about:blank").unwrap()
+        } else {
+            parsed_url.clone()
+        }),
     )
     .title("Arachnea Cloudflare verification")
     .inner_size(window_width, window_height)
     .min_inner_size(900.0, 650.0)
-    .incognito(incognito)
+    .incognito(incognito || proxy.is_some())
     .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
     .on_navigation(move |url| {
         if let Ok(mut current_url) = navigation_url.lock() {
@@ -753,6 +803,17 @@ fn create_tauri_app_solve_session(
         builder = builder.user_agent(user_agent);
     }
 
+    if let Some(proxy) = proxy {
+        #[cfg(target_os = "macos")]
+        {
+            builder = builder.with_webview_configuration(proxy.macos_configuration()?);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            builder = builder.proxy_url(proxy.endpoint());
+        }
+    }
+
     let window = builder
         .build()
         .map_err(|err| ArachneaHttpError::TauriCloudflareSolverFailure(err.to_string()))?;
@@ -766,6 +827,41 @@ fn create_tauri_app_solve_session(
             closed_for_event.store(true, Ordering::SeqCst);
         }
     });
+
+    let page_state_event_id = {
+        use tauri::Listener;
+
+        app_handle.listen(page_state_event.clone(), move |event| {
+            let result = serde_json::from_str::<TauriAppPageState>(event.payload())
+                .map_err(|err| err.to_string());
+            if let Ok(mut value) = page_state_listener_result.lock() {
+                *value = Some(result);
+            }
+        })
+    };
+
+    let proxy_ready = if let Some(proxy) = proxy.cloned() {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        if window
+            .with_webview(move |webview| {
+                let result = proxy
+                    .configure_tauri(webview)
+                    .map_err(|error| error.to_string());
+                let _ = sender.send(result);
+            })
+            .is_err()
+        {
+            let _ = window.close();
+            use tauri::Listener;
+            app_handle.unlisten(page_state_event_id);
+            return Err(ArachneaHttpError::TauriCloudflareSolverFailure(
+                "cannot configure proxy on the WebView thread".into(),
+            ));
+        }
+        Some(receiver)
+    } else {
+        None
+    };
 
     #[cfg(any(debug_assertions, feature = "tauri-cloudflare-solver-devtools"))]
     if devtools {
@@ -783,12 +879,13 @@ fn create_tauri_app_solve_session(
         page_state_event_id,
         page_state_result,
         closed,
+        proxy_ready,
     })
 }
 
 async fn solve_cloudflare_with_tauri_app_session(
     dispatcher: Arc<dyn arachnea_core::controler::MainThreadDispatcher>,
-    session: TauriAppSolveSession,
+    mut session: TauriAppSolveSession,
     url: &str,
     user_agent: Option<&str>,
     timeout: Duration,
@@ -798,6 +895,24 @@ async fn solve_cloudflare_with_tauri_app_session(
     collect_page_source: bool,
 ) -> Result<WrySolveResult, ArachneaHttpError> {
     let started_at = Instant::now();
+    if let Some(ready) = session.proxy_ready.take() {
+        let result = match tokio::time::timeout(timeout, ready).await {
+            Ok(Ok(result)) => result,
+            _ => Err("native proxy configuration did not complete".into()),
+        };
+        if let Err(error) = result {
+            close_tauri_solver_window(&dispatcher, &session).await;
+            return Err(ArachneaHttpError::TauriCloudflareSolverFailure(error));
+        }
+        let parsed_url = url::Url::parse(url)
+            .map_err(|error| ArachneaHttpError::TauriCloudflareSolverFailure(error.to_string()))?;
+        if session.window.navigate(parsed_url).is_err() {
+            close_tauri_solver_window(&dispatcher, &session).await;
+            return Err(ArachneaHttpError::TauriCloudflareSolverFailure(
+                "proxy WebView navigation failed".into(),
+            ));
+        }
+    }
     let mut clearance_seen_at: Option<Instant> = None;
     let mut clearance_headers: Option<HeaderMap> = None;
     let mut post_clearance_load_baseline: Option<u64> = None;
@@ -1063,6 +1178,7 @@ fn solve_cloudflare_with_wry_event_loop(
     auto_close_after_clearance: bool,
     incognito: bool,
     collect_page_source: bool,
+    proxy: Option<&WebviewProxy>,
 ) -> Result<WrySolveResult, ArachneaHttpError> {
     let mut event_loop = solver_event_loop();
     let window = WindowBuilder::new()
@@ -1075,7 +1191,7 @@ fn solve_cloudflare_with_wry_event_loop(
     let current_url = Arc::new(Mutex::new(url.to_string()));
     let navigation_url = current_url.clone();
     let mut builder = WebViewBuilder::new()
-        .with_incognito(incognito)
+        .with_incognito(incognito || proxy.is_some())
         .with_new_window_req_handler(|_, _| NewWindowResponse::Deny)
         .with_navigation_handler(move |url| {
             if let Ok(mut current_url) = navigation_url.lock() {
@@ -1085,6 +1201,18 @@ fn solve_cloudflare_with_wry_event_loop(
         });
     if let Some(user_agent) = user_agent {
         builder = builder.with_user_agent(user_agent.to_string());
+    }
+
+    if let Some(proxy) = proxy {
+        #[cfg(target_os = "macos")]
+        {
+            use wry::WebViewBuilderExtMacos;
+            builder = builder.with_webview_configuration(proxy.macos_configuration()?);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            builder = builder.with_proxy_config(proxy.wry_config());
+        }
     }
 
     #[cfg(any(
@@ -1116,6 +1244,10 @@ fn solve_cloudflare_with_wry_event_loop(
             .build_gtk(vbox)
             .map_err(|err| ArachneaHttpError::TauriCloudflareSolverFailure(err.to_string()))?
     };
+
+    if let Some(proxy) = proxy {
+        proxy.configure_wry(&webview)?;
+    }
 
     #[cfg(any(debug_assertions, feature = "tauri-cloudflare-solver-devtools"))]
     if devtools {

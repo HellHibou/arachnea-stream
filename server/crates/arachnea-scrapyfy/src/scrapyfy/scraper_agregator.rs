@@ -160,8 +160,25 @@ impl ScraperAgregator {
         #[cfg(feature = "arachnea-proxy")] proxy_store: Arc<dyn TypedEntityStore<ProxyRecord>>,
         session_store: Arc<dyn TypedEntityStore<CachedChaserSession>>,
     ) -> Self {
-        let proxy_handle = SharedProxyConfigHandle::new();
+        Self::new_with_typed_stores_and_proxy_handle(
+            SharedProxyConfigHandle::new(),
+            #[cfg(feature = "arachnea-proxy")]
+            proxy_store,
+            session_store,
+        )
+    }
 
+    /// Creates an aggregator using an application-owned listener and independent routing state.
+    ///
+    /// # Arguments
+    /// - `proxy_handle`: Transport handle shared with this aggregator's clients.
+    /// - `proxy_store`: Dynamic proxy persistence, when proxy support is enabled.
+    /// - `session_store`: Shared browser-session persistence.
+    pub fn new_with_typed_stores_and_proxy_handle(
+        proxy_handle: SharedProxyConfigHandle,
+        #[cfg(feature = "arachnea-proxy")] proxy_store: Arc<dyn TypedEntityStore<ProxyRecord>>,
+        session_store: Arc<dyn TypedEntityStore<CachedChaserSession>>,
+    ) -> Self {
         #[cfg(feature = "arachnea-proxy")]
         {
             if let Err(error) = proxy_handle.enable_system_proxy() {
@@ -229,7 +246,7 @@ impl ScraperAgregator {
     /// * `groups` - Loaded groups to copy into the provider runtime.
     #[cfg(feature = "arachnea-proxy")]
     pub(crate) fn provider_snapshot(&self, groups: &[&str]) -> Arc<Self> {
-        let proxy_handle = SharedProxyConfigHandle::new();
+        let proxy_handle = SharedProxyConfigHandle::with_runtime(self.proxy_handle.proxy_runtime());
         if let Err(error) = proxy_handle.enable_system_proxy() {
             tracing::warn!(error = %error, "failed to configure provider system proxy");
         }
@@ -430,7 +447,7 @@ impl ScraperAgregator {
     pub fn create_http_client(&self, http_config: ScraperHttpConfig) -> HttpClient {
         #[cfg(feature = "arachnea-proxy")]
         if let Some(proxy_core) = &self.proxy_core {
-            let handle = SharedProxyConfigHandle::new();
+            let handle = SharedProxyConfigHandle::with_runtime(self.proxy_handle.proxy_runtime());
             let proxy_core = if !http_config.proxy_countries.is_empty()
                 || http_config.proxy_affinity.is_some()
             {
@@ -1647,10 +1664,15 @@ pub(crate) mod tests {
                 SharedProxyConfigHandle::new(), store.clone(), session_store.clone(),
             );
             let mut replacement = ScraperAgregator::new_with_proxy_handle_and_typed_stores(
-                SharedProxyConfigHandle::new(), store, session_store,
+                SharedProxyConfigHandle::with_runtime(old.proxy_handle.proxy_runtime()), store, session_store,
             );
             replacement.set_proxy_repositories(old.proxy_repository.clone(), old.proxy_preferences.clone());
             let snapshot = old.provider_snapshot(&[]);
+            let runtime = old.proxy_handle.proxy_runtime();
+            assert!(Arc::ptr_eq(&runtime, &snapshot.proxy_handle.proxy_runtime()));
+            assert!(Arc::ptr_eq(&runtime, &replacement.proxy_handle.proxy_runtime()));
+            let client = old.create_http_client(ScraperHttpConfig::default());
+            assert!(Arc::ptr_eq(&runtime, &client.proxy_handle().proxy_runtime()));
             assert!(Arc::ptr_eq(&snapshot.proxy_preferences, &old.proxy_preferences));
             assert!(Arc::ptr_eq(&replacement.proxy_repository, &old.proxy_repository));
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
@@ -2147,7 +2169,8 @@ queries:
         #[cfg(feature = "arachnea-proxy")]
         {
             use arachnea_proxy::core::{
-                ArachneaProxyCore, CoexistencePolicy, DynamicCountryRoutingProxyHandler, ProxyConfig,
+                ArachneaProxyCore, CoexistencePolicy, DynamicCountryRoutingProxyHandler,
+                ProxyConfig,
             };
             use tokio::io::{AsyncReadExt, AsyncWriteExt};
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

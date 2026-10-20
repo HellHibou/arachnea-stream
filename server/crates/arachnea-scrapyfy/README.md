@@ -92,7 +92,7 @@ rotate. After accepted classification, the ordinary 25-second body transfer
 timeout applies separately. Ordinary requests retain their 25-second timeout.
 The search is per logical HTTP call, not an entire multi-query resolver sequence.
 
-Contextual Rquest loopbacks are owned by the active request rather than cached
+Contextual Rquest routing leases on the shared loopback server are owned by the active request rather than cached
 across requests, to preserve exact cancellation/deadline ownership. Destination
 preferences still provide fast selection, but these calls reconnect. Browser or
 custom engines lacking correlated early observation reject this search mode;
@@ -107,6 +107,8 @@ manifests and effective activation settings. They do not borrow the application
 aggregator, so replacing it cannot invalidate an in-flight provider request.
 Provider runtimes share persistence and local-country state, but use a separate
 system-proxy handle to avoid an ownership cycle with the dynamic proxy core.
+These independent routing handles share the application loopback runtime, so
+provider bootstrap does not open another listening port.
 Applications must publish a newly built core on reload to apply changed sources;
 proxy lists are still loaded lazily for country-based requests.
 
@@ -130,3 +132,48 @@ responses do not update dynamic proxy preferences or exclusions. Transport error
 after response headers preserve the proxy and do not trigger transport rotation.
 Legacy rejection-status configuration now adapts to the shared classifier above;
 safe sequential retries use the shared deadline and replay policy described above.
+
+## Shared local proxy server
+
+With `arachnea-proxy`, `SrcapyfyApplicationOptions` accepts `--proxy-server-port`
+(or `proxy-server-port` in the persisted application option map). Absent or zero
+selects a port automatically; a nonzero value requires that exact port. Values
+outside 0..65535 and explicit use without the proxy feature are rejected.
+
+Create a `LoopbackProxyRuntime::new(port)` before building the aggregator and
+inject it through `SharedProxyConfigHandle::with_runtime(runtime)` and
+`ScraperAgregator::new_with_typed_stores_and_proxy_handle(...)`. After installing
+the effective proxy core, call `proxy_handle.start_proxy_server().await` to
+publish the default route and bind before external clients connect. Stream
+performs these steps at startup. The effective `127.0.0.1:<port>` address is
+logged once at info level. A fixed port bind failure stops startup; changing the
+configured port requires restarting the application.
+
+Every HTTP client, pinned Rquest attempt, browser fallback and provider snapshot
+from the aggregator uses that runtime. Rebuilt aggregators must receive the same
+runtime and publish their new default route only after successful construction;
+Stream preserves the port across source reloads. Existing connections retain
+their routing lease. The server stops when the final runtime owner is released,
+terminating its accepted connections. An owner can call `runtime.shutdown()` to
+stop acceptance and connections explicitly even while clients retain references;
+the stopped runtime cannot restart.
+
+Tauri/Wry fallbacks also use this port and retain their request's routing context.
+On macOS 14 or later, native WebViews use authenticated SOCKS5 on the same socket;
+other clients continue to use HTTP/CONNECT. No separate browser listener is created.
+Proxy WebViews use isolated data stores and configure authentication before navigation.
+See the HTTP crate README for native platform constraints.
+
+For external applications, configure the logged address as an HTTP proxy
+(including for HTTPS destinations). A browser receives a `407` challenge before
+routing when it supplies neither a profile nor explicit proxy parameter headers.
+Use username `countries=BE,FR&proxy_affinity=browser-session-1` and password
+`local`, or `default` / `local` for the application's default route. Parameter
+values inside the username use URL form encoding. These credentials select a
+routing profile and do not authenticate a local user. The default route retains
+the application's direct-fallback policy.
+
+Only IPv4 loopback is bound; use `127.0.0.1`, not an assumed IPv6 `localhost`.
+In a container, the address is local to that container's network namespace.
+HTTPS tunnels remain opaque to the server, so external HTTPS response statuses
+cannot drive the scraper's correlated response classification.

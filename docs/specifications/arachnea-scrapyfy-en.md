@@ -200,7 +200,7 @@ may retry without this flag. Inconclusive results and body collection errors do
 not rotate. Browser/custom engines without early correlation reject the scoped
 localized HTTP search mode; explicit browser-page execution remains separate.
 Contextual Rquest calls retain destination preferences but reconnect between
-calls so each loopback has exact cancellation/deadline ownership.
+calls so each routing lease retains its cancellation/deadline ownership on the shared loopback listener.
 
 ### HTTP modes (`mode`)
 
@@ -1861,3 +1861,18 @@ queries:
           - type: ratio
             argument: 60
 ```
+
+## Application-level local proxy option
+
+The shared proxy listener is configured outside the YAML request schema through
+`--proxy-server-port` (persisted key `proxy-server-port`). Absent or zero selects
+an automatic port, logged after binding to `127.0.0.1`; a nonzero port is required
+exactly. Source reloads preserve the listener, and a port change requires restart.
+All scraper routing contexts share the listening port while retaining independent
+parameters. Existing YAML `http.proxy_countries` and `http.proxy_affinity` are
+unchanged. Local browser profiles use proxy username `countries=BE,FR` and
+password `local`, with a `407` challenge before routing; `default` / `local`
+selects the application's default route. See the crate README for lifecycle,
+parameter encoding and external-client limitations.
+
+Tauri/Wry fallbacks also share this port and retain their routing context; on macOS 14+, they use authenticated SOCKS5 on the same socket without an additional listener.

@@ -90,10 +90,6 @@ struct PreparedProxyRuntime {
     >,
     #[cfg(feature = "arachnea-proxy")]
     loopback_proxy: Option<Arc<ArachneaRquestLoopback>>,
-    /// Parameter-bound loopback proxy for browser clients that cannot attach
-    /// request-level proxy headers to CONNECT requests.
-    #[cfg(feature = "arachnea-proxy")]
-    chaser_cf_loopback_proxy: Option<Arc<ArachneaRquestLoopback>>,
 }
 
 impl PreparedProxyRuntime {
@@ -115,39 +111,37 @@ impl PreparedProxyRuntime {
         #[cfg(feature = "arachnea-proxy")]
         {
             let loopback_proxy = match &config.proxy {
-                HttpProxyConfig::Arachnea(core) => Some(Arc::new(
-                    ArachneaRquestLoopback::start(core.clone())
-                        .await
-                        .map_err(|err| {
-                            ArachneaHttpError::Proxy(format!(
-                                "failed to start arachnea-proxy loopback helper: {err}"
-                            ))
-                        })?,
-                )),
-                _ => None,
-            };
-            let chaser_cf_loopback_proxy = match &config.proxy {
-                HttpProxyConfig::Arachnea(core) => Some(Arc::new(
-                    ArachneaRquestLoopback::start_with_parameters(
-                        core.clone(),
+                HttpProxyConfig::Arachnea(core) => {
+                    let runtime = config.proxy_runtime.clone().unwrap_or_default();
+                    let definitions = core.parameter_definitions();
+                    let context = arachnea_proxy::core::context_from_parameter_pairs(
                         config
                             .proxy_parameters
                             .iter()
                             .map(|(name, value)| (name.as_str(), value.as_str())),
-                    )
-                    .await
-                    .map_err(|err| {
-                        ArachneaHttpError::Proxy(format!(
-                            "failed to start chaser-cf parameterized loopback helper: {err}"
-                        ))
-                    })?,
-                )),
+                        &definitions,
+                    );
+                    Some(Arc::new(
+                        ArachneaRquestLoopback::start_on_runtime(
+                            runtime,
+                            core.clone(),
+                            definitions,
+                            context,
+                            true,
+                        )
+                        .await
+                        .map_err(|error| {
+                            ArachneaHttpError::Proxy(format!(
+                                "failed to prepare shared loopback proxy: {error}"
+                            ))
+                        })?,
+                    ))
+                }
                 _ => None,
             };
             return Ok(Self {
                 pinned_clients: Default::default(),
                 loopback_proxy,
-                chaser_cf_loopback_proxy,
             });
         }
 
@@ -181,13 +175,13 @@ impl PreparedProxyRuntime {
     }
 
     /// Returns the proxy URL for chaser-cf, binding configured proxy parameters
-    /// into the dedicated loopback listener when Chrome cannot send them.
+    /// into its routing lease when Chrome cannot send them.
     fn chaser_cf_proxy_url<'a>(&'a self, config: &'a ArachneaHttpConfig) -> Option<&'a str> {
         match &config.proxy {
             HttpProxyConfig::Network(url) => Some(url.as_str()),
             #[cfg(feature = "arachnea-proxy")]
             HttpProxyConfig::Arachnea(_) => self
-                .chaser_cf_loopback_proxy
+                .loopback_proxy
                 .as_deref()
                 .map(|loopback| loopback.proxy_url()),
             HttpProxyConfig::Disabled => None,
@@ -243,6 +237,52 @@ impl PreparedProxyRuntime {
     }
 }
 
+/// Keeps the routing lease alive while a cached browser page can open subresources.
+struct RuntimeBoundBrowserPage {
+    page: Box<dyn crate::browser::BrowserPageSession>,
+    _runtime: Arc<PreparedProxyRuntime>,
+}
+
+#[async_trait::async_trait]
+impl crate::browser::BrowserPageSession for RuntimeBoundBrowserPage {
+    async fn navigate(
+        &mut self,
+        request: PageNavigationRequest,
+    ) -> Result<PageNavigationResponse, ArachneaHttpError> {
+        self.page.navigate(request).await
+    }
+
+    async fn fetch(
+        &mut self,
+        request: PageFetchRequest,
+    ) -> Result<PageFetchResponse, ArachneaHttpError> {
+        self.page.fetch(request).await
+    }
+
+    async fn click_and_wait(
+        &mut self,
+        request: PageClickRequest,
+    ) -> Result<PageClickResponse, ArachneaHttpError> {
+        self.page.click_and_wait(request).await
+    }
+
+    async fn metadata(&mut self) -> Result<BrowserSessionMetadata, ArachneaHttpError> {
+        self.page.metadata().await
+    }
+
+    async fn read_turnstile_token(&mut self) -> Result<Option<String>, ArachneaHttpError> {
+        self.page.read_turnstile_token().await
+    }
+
+    async fn clear_turnstile_token(&mut self) -> Result<(), ArachneaHttpError> {
+        self.page.clear_turnstile_token().await
+    }
+
+    async fn close(self: Box<Self>) {
+        self.page.close().await;
+    }
+}
+
 /// High-level outbound HTTP client facade.
 #[derive(Clone)]
 pub struct ArachneaHttpClient {
@@ -293,6 +333,16 @@ impl CloudflareRefreshStrategy {
 }
 
 impl ArachneaHttpClient {
+    async fn open_browser_page(
+        &self,
+        engine: &DynHttpEngine,
+    ) -> Result<Box<dyn crate::browser::BrowserPageSession>, ArachneaHttpError> {
+        Ok(Box::new(RuntimeBoundBrowserPage {
+            page: engine.open_browser_page_session().await?,
+            _runtime: self._proxy_runtime.clone(),
+        }))
+    }
+
     /// Builds a new HTTP client with the default configuration.
     ///
     /// This is a fallible async convenience constructor equivalent to:
@@ -443,7 +493,11 @@ impl ArachneaHttpClient {
             CloudflareSolverKind::Disabled => Ok(None),
             CloudflareSolverKind::Engine(engine) => Ok(Some(engine.clone())),
             CloudflareSolverKind::Auto => {
-                build_auto_smart_cloudflare_solver(config, proxy_runtime.proxy_url(config)).await
+                build_auto_smart_cloudflare_solver(
+                    config,
+                    proxy_runtime.chaser_cf_proxy_url(config),
+                )
+                .await
             }
         }
     }
@@ -629,7 +683,7 @@ impl ArachneaHttpClient {
                     .browser_cloudflare_engine
                     .as_ref()
                     .ok_or_else(|| ArachneaHttpError::CloudflareSolverUnavailable)?;
-                session.page = Some(engine.open_browser_page_session().await?);
+                session.page = Some(self.open_browser_page(engine).await?);
             }
             let page = session.page.as_mut().expect("browser page initialized");
             let response = page.navigate(navigation).await?;
@@ -691,7 +745,7 @@ impl ArachneaHttpClient {
                     .browser_cloudflare_engine
                     .as_ref()
                     .ok_or_else(|| ArachneaHttpError::CloudflareSolverUnavailable)?;
-                session.page = Some(engine.open_browser_page_session().await?);
+                session.page = Some(self.open_browser_page(engine).await?);
             }
             let page = session.page.as_mut().expect("browser page initialized");
             page.navigate(navigation).await?;
@@ -724,7 +778,7 @@ impl ArachneaHttpClient {
             .browser_cloudflare_engine
             .as_ref()
             .ok_or_else(|| ArachneaHttpError::CloudflareSolverUnavailable)?;
-        let mut page = engine.open_browser_page_session().await?;
+        let mut page = self.open_browser_page(engine).await?;
         let result = async {
             page.navigate(navigation).await?;
             self.store_browser_session_metadata(page.metadata().await?)
@@ -790,7 +844,7 @@ impl ArachneaHttpClient {
                     .browser_cloudflare_engine
                     .as_ref()
                     .ok_or_else(|| ArachneaHttpError::CloudflareSolverUnavailable)?;
-                session.page = Some(engine.open_browser_page_session().await?);
+                session.page = Some(self.open_browser_page(engine).await?);
             }
             let page = session.page.as_mut().expect("browser page initialized");
             page.navigate(navigation).await?;
@@ -1479,14 +1533,25 @@ impl ArachneaHttpClient {
             let (loopback, engine) = if let Some(cached) = cached {
                 cached
             } else {
-                let loopback =
-                    Arc::new(ArachneaRquestLoopback::start(selected.core).await.map_err(
-                        |error| ArachneaHttpError::ProxyAttempt {
-                            selection: selected.selection_token.clone(),
-                            delivery: arachnea_proxy::core::ProxyRequestDelivery::NotSent,
-                            source: Box::new(ArachneaHttpError::Proxy(error.to_string())),
-                        },
-                    )?);
+                let loopback = Arc::new(
+                    ArachneaRquestLoopback::start_on_runtime(
+                        self._proxy_runtime
+                            .loopback_proxy
+                            .as_ref()
+                            .expect("Arachnea transport has a shared runtime")
+                            .runtime(),
+                        selected.core.clone(),
+                        selected.core.parameter_definitions(),
+                        arachnea_proxy::core::ClientContext::new(),
+                        false,
+                    )
+                    .await
+                    .map_err(|error| ArachneaHttpError::ProxyAttempt {
+                        selection: selected.selection_token.clone(),
+                        delivery: arachnea_proxy::core::ProxyRequestDelivery::NotSent,
+                        source: Box::new(ArachneaHttpError::Proxy(error.to_string())),
+                    })?,
+                );
                 let engine = RquestEngine::new(
                     &self.config,
                     Some(loopback.proxy_url()),
