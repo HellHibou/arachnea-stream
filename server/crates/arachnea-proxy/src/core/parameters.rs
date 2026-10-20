@@ -6,25 +6,11 @@ use crate::core::{
     ClientContext, ClientParameter, CoexistencePolicy, ProxyError, ProxyNode, Result, TransportKind,
 };
 
-/// Proxy countries parameter header name. Its value is a JSON array of ISO
-/// alpha-2 country codes so comma-like values cannot be ambiguous.
-pub const PROXY_HEADER_PARAMETER_COUNTRIES: &str = "Arachnea-Proxy-Countries";
-
-/// Proxy affinity parameter header name. Its opaque value pins related
-/// requests to the same eligible dynamic proxy.
-pub const PROXY_HEADER_PARAMETER_AFFINITY: &str = "Arachnea-Proxy-Affinity";
-
-/// Proxy countries parameter name.
-pub const PROXY_PARAMETER_COUNTRIES: &str = "countries";
-
-/// Request override for direct fallback when no country proxy is available.
-pub const PROXY_PARAMETER_FALLBACK_DIRECT: &str = "fallback_direct";
-
-/// HTTP header carrying the boolean direct-fallback override.
-pub const PROXY_HEADER_PARAMETER_FALLBACK_DIRECT: &str = "Arachnea-Proxy-Fallback-Direct";
-
-/// Proxy affinity parameter name.
-pub const PROXY_PARAMETER_AFFINITY: &str = "proxy_affinity";
+pub use crate::{
+    PROXY_HEADER_PARAMETER_AFFINITY, PROXY_HEADER_PARAMETER_COUNTRIES,
+    PROXY_HEADER_PARAMETER_FALLBACK_DIRECT, PROXY_PARAMETER_AFFINITY, PROXY_PARAMETER_COUNTRIES,
+    PROXY_PARAMETER_FALLBACK_DIRECT,
+};
 
 /// One inbound parameter definition shared by servers and routing handlers.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

@@ -6,8 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{ApplicationProtocol, Destination, ProxyKey};
 
-/// Maximum number of distinct accepted endpoints retained per destination.
-pub const PROXY_PREFERENCE_HISTORY_LIMIT: usize = 3;
+pub use crate::PROXY_PREFERENCE_HISTORY_LIMIT;
 
 /// An endpoint accepted by the destination, not merely by a complementary probe.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

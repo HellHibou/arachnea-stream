@@ -7,10 +7,12 @@ use super::ProxyHttpActionConfig;
 use super::{ParsedProxyActionHeader, ProxyHttpRedirectActionConfig};
 
 /// Proxy action header that carries a JSON RemoveHeader rule.
-pub const REMOVE_HEADER_ACTION_HEADER: &str = "Arachnea-Proxy-RemoveHeader";
+///
+/// Defined in the crate root; re-exported here for path compatibility.
+pub use crate::REMOVE_HEADER_ACTION_HEADER;
 #[cfg(feature = "controller-service")]
-const REMOVE_HEADER_ACTION_HEADER_LOWER: &str = "arachnea-proxy-removeheader";
-const REMOVE_HEADER_TRIGGER_ON_HTTP_302: &str = "onHttp302";
+use crate::REMOVE_HEADER_ACTION_HEADER_LOWER;
+use crate::REMOVE_HEADER_TRIGGER_ON_HTTP_302;
 
 /// Redirect-time rule that removes a header from encoded proxy options.
 #[derive(Clone, Debug, Eq, PartialEq)]

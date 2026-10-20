@@ -2,14 +2,16 @@
 
 use std::time::Duration;
 
-pub(super) const PROXY_AFFINITY_TTL: Duration = Duration::from_secs(15 * 60);
+pub(crate) use crate::PROXY_AFFINITY_TTL;
 
 /// Default duration for excluding a proxy from one exact destination after a
 /// destination-scoped failure such as an HTTP 403 origin rejection.
-pub const PROXY_DESTINATION_FAILURE_COOLDOWN: Duration = Duration::from_secs(24 * 60 * 60);
-
+///
 /// Maximum suspension after an ambiguous transport failure for one destination.
-pub const PROXY_TRANSIENT_FAILURE_COOLDOWN: Duration = Duration::from_secs(30);
+///
+/// Both cooldown constants are defined in the crate root and re-exported here
+/// for path compatibility.
+pub use crate::{PROXY_DESTINATION_FAILURE_COOLDOWN, PROXY_TRANSIENT_FAILURE_COOLDOWN};
 
 /// Policy controlling how static and dynamic proxy pools coexist.
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -21,9 +21,11 @@ use crate::core::{
 };
 
 /// Physical SQLite store and available-record table name for dynamic proxies.
-pub const PROXY_STORE_NAME: &str = "proxy-inventory";
 /// Table name for bounded eviction records in the shared proxy SQLite store.
-pub const PROXY_FAILURE_STORE_NAME: &str = "proxy-failures";
+///
+/// Both store names are defined in the crate root and re-exported here for
+/// path compatibility.
+pub use crate::{PROXY_FAILURE_STORE_NAME, PROXY_STORE_NAME};
 /// Repository used by [`crate::core::ProxyInventory`].
 #[async_trait]
 pub trait ProxyRepository: Send + Sync {

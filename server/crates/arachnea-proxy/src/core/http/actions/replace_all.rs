@@ -13,9 +13,11 @@ use super::{PostActionContext, ProxyHttpActionConfig, ProxyHttpPostActionConfig}
 use crate::core::{ProxyError, Result};
 
 /// Proxy action header that carries a JSON ReplaceAll rule.
-pub const REPLACE_ALL_ACTION_HEADER: &str = "Arachnea-Proxy-ReplaceAll";
+///
+/// Defined in the crate root; re-exported here for path compatibility.
+pub use crate::REPLACE_ALL_ACTION_HEADER;
 #[cfg(feature = "controller-service")]
-const REPLACE_ALL_ACTION_HEADER_LOWER: &str = "arachnea-proxy-replaceall";
+use crate::REPLACE_ALL_ACTION_HEADER_LOWER;
 
 /// Constructor namespace for ReplaceAll proxy actions.
 pub struct ReplaceAll;

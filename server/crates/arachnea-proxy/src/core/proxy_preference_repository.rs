@@ -14,7 +14,9 @@ use tokio::sync::Mutex;
 use super::{ProxyDestinationPreference, ProxyKey};
 
 /// Table name for exact-destination histories in the shared proxy SQLite store.
-pub const PROXY_PREFERENCE_STORE_NAME: &str = "proxy-preferences";
+///
+/// Defined in the crate root; re-exported here for path compatibility.
+pub use crate::PROXY_PREFERENCE_STORE_NAME;
 
 /// Persistence boundary for destination histories; implementations serialize commits.
 #[async_trait]

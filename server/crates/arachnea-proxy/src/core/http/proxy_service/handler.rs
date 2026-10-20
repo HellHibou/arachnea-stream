@@ -19,8 +19,7 @@ use super::options::{
 };
 use super::redirects::{redirect_opts_encoded, rewrite_location_header};
 use super::urls::{build_target_url, parse_proxy_path};
-
-const MAX_LOCAL_URL_BYTES: usize = 8192;
+use crate::MAX_LOCAL_URL_BYTES;
 
 fn stream_error(status: u16, message: impl Into<String>) -> ControlerStreamOutput {
     ControlerStreamOutput {

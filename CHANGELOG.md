@@ -123,6 +123,9 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Consolidated the crate-wide constants of `arachnea-proxy` into `src/lib.rs`: connection budgets and cooldowns, request parameter/header wire-contract names, proxy HTTP service limits and action headers, pool-selection tuning values, preference limits, SQLite store names and the proxy protocol priority, each with a doc comment describing its purpose and gated by the feature owning the subsystem. Modules that previously owned a constant re-export it from the crate root so existing import paths (`arachnea_proxy::core::*` and module-scoped paths used by `arachnea-stream`, `arachnea-http` and `arachnea-scrapyfy`) keep working.
+- Renamed the private `src/core/core` module directory of `arachnea-proxy` to `src/core/proxy_core` for clarity. The module stays private; `ArachneaProxyCore` keeps its public re-export at `arachnea_proxy::core::ArachneaProxyCore`, so no public API path changed.
+
 - Added explicit `fallback_direct` configuration (default false), core default override, request parameter/header override, and a required web-proxy default with an optional boolean URL override. Missing dynamic country proxies now use the selected policy consistently with or without a search context; direct fallback removes all remote proxy hops and respects privacy restrictions. Source-scoped diagnostics preserve non-fatal selection errors.
 
 - Implemented the approved proxy persistence design: inventory, failures and accepted preferences share `proxy-inventory.sqlite3` through typed table views and one connection. Existing repositories, retention and separate business commits are preserved. Existing fixtures cover shared-table restoration and interrupted eviction; this completes the earlier analysis entries.

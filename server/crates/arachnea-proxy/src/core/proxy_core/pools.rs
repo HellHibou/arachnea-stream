@@ -8,12 +8,7 @@ use std::collections::BTreeMap;
 
 use super::dynamic_pools::{dynamic_pool_countries, is_dynamic_country_proxy_unavailable};
 use super::{ArachneaProxyCore, ProxyPoolCheckMode, ProxyPoolSelection, ResolvedProxyChain};
-
-/// Number of attempts before a pool member is considered incompatible.
-const PROXY_POOL_MEMBER_CHECK_ATTEMPTS: usize = 2;
-
-/// Maximum number of full proxy-pool scan passes before giving up.
-const PROXY_POOL_SELECTION_PASSES: usize = 2;
+use crate::{PROXY_POOL_MEMBER_CHECK_ATTEMPTS, PROXY_POOL_SELECTION_PASSES};
 
 /// Returns the target and check mode used to test a proxy pool marker.
 ///

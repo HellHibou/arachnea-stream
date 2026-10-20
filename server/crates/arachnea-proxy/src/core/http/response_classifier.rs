@@ -10,9 +10,10 @@ use serde::{Deserialize, Serialize};
 use crate::core::{ProxyError, ProxySelectionToken, Result};
 
 /// Maximum prefix exposed to response classifiers.
-pub const MAX_PROXY_RESPONSE_PREFIX: usize = 64 * 1024;
-/// Default maximum wait for optional prefix inspection, not a transfer timeout.
-pub const PROXY_RESPONSE_INSPECTION_TIMEOUT: Duration = Duration::from_secs(3);
+///
+/// Both inspection limits are defined in the crate root and re-exported here
+/// for path compatibility.
+pub use crate::{MAX_PROXY_RESPONSE_PREFIX, PROXY_RESPONSE_INSPECTION_TIMEOUT};
 
 /// Application acceptance is distinct from receiving an HTTP response.
 #[derive(Clone, Debug, Eq, PartialEq)]

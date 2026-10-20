@@ -10,19 +10,7 @@ use crate::core::http::actions::{
 };
 
 use super::headers::{filter_non_transferable, validate_cookies, validate_headers};
-
-/// Known option fields allowed in the `opts` JSON.
-const ALLOWED_OPTS_FIELDS: &[&str] = &[
-    "headers",
-    "cookies",
-    "proxy",
-    "insecure_tls",
-    "fallback_direct",
-    "follow_redirects",
-    "proxy_rejection_statuses",
-    "proxy_response_classifier",
-    "proxy_retry_replayable",
-];
+use crate::ALLOWED_OPTS_FIELDS;
 
 /// Parsed options from the `opts` segment of a proxy URL.
 #[derive(Clone)]

@@ -8,7 +8,9 @@ use super::ArachneaProxyCore;
 
 /// Prefix used for dynamic country pool markers emitted by
 /// [`crate::core::DynamicCountryRoutingProxyHandler`]. The suffix is a JSON country list.
-pub(super) const DYNAMIC_COUNTRY_POOL_PREFIX: &str = "dynamic-countries:";
+///
+/// Defined in the crate root; re-exported here for path compatibility.
+pub(crate) use crate::DYNAMIC_COUNTRY_POOL_PREFIX;
 
 fn parse_dynamic_country_pool(value: &str) -> Result<Vec<String>> {
     let countries: Vec<String> = serde_json::from_str(value)

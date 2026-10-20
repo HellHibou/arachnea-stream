@@ -1,15 +1,11 @@
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::core::{ProxyNameResolutionMode, ProxyNode, Result, TransportKind};
 
-/// Maximum age of a proxy validation before a subsequent failure removes it.
-///
-/// Stale proxies remain selectable: this is a conditional eviction threshold,
-/// not a hard expiration deadline.
-pub const PROXY_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
+pub use crate::{PROXY_CACHE_TTL, PROXY_PROTOCOL_PRIORITY};
 
 /// Proxy protocol variant advertised or detected for a record.
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
@@ -25,18 +21,6 @@ pub enum ProxyProtocol {
     /// SOCKS5 (TCP CONNECT with optional hostname forwarding).
     Socks5,
 }
-
-/// Preferred protocol order for source selection and runtime detection.
-///
-/// HTTP is intentionally last because it provides the weakest transport
-/// capabilities among the supported proxy protocols.
-pub const PROXY_PROTOCOL_PRIORITY: [ProxyProtocol; 5] = [
-    ProxyProtocol::Socks5,
-    ProxyProtocol::Socks4,
-    ProxyProtocol::Https,
-    ProxyProtocol::Socks4a,
-    ProxyProtocol::Http,
-];
 
 /// One source-level declaration attached to a dynamic proxy endpoint.
 ///
