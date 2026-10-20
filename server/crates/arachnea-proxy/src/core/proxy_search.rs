@@ -1,5 +1,7 @@
 //! Request-owned deadlines, work tracking and replay policy for localized proxies.
 
+use crate::{PROXY_SEARCH_DEFAULT_EXTENSION, PROXY_SEARCH_DEFAULT_TARGET};
+
 use super::{Destination, ProxyError, ProxyRequestDelivery, ProxySelectionProvenance, Result};
 use std::{
     collections::{HashMap, HashSet},
@@ -23,8 +25,8 @@ pub struct ProxySearchLimits {
 impl Default for ProxySearchLimits {
     fn default() -> Self {
         Self {
-            target: Duration::from_secs(120),
-            extension: Duration::from_secs(15),
+            target: PROXY_SEARCH_DEFAULT_TARGET,
+            extension: PROXY_SEARCH_DEFAULT_EXTENSION,
         }
     }
 }
@@ -48,6 +50,9 @@ struct Work {
 /// Cloneable request-local search. It is never persisted or sent over the wire.
 #[derive(Clone, Debug)]
 pub struct ProxySearchContext {
+    pub(crate) continuation: Option<Arc<super::proxy_inventory::preparation::ProbeContinuation>>,
+    pub(crate) speculative: bool,
+    pub(crate) preparation_exclusions: HashSet<String>,
     started: Instant,
     limits: ProxySearchLimits,
     replayable: bool,
@@ -78,6 +83,13 @@ impl ProxySearchContext {
     /// - `limits`: Duration limits, unchanged across retries.
     pub fn new(limits: ProxySearchLimits) -> Self {
         Self {
+            continuation: Some(Arc::new(
+                super::proxy_inventory::preparation::ProbeContinuation::new(
+                    Instant::now() + limits.target,
+                ),
+            )),
+            speculative: false,
+            preparation_exclusions: HashSet::new(),
             started: Instant::now(),
             limits,
             replayable: false,
@@ -90,6 +102,14 @@ impl ProxySearchContext {
             provider_slots: Arc::new(Semaphore::new(2)),
         }
     }
+    /// Keeps worker ownership outside the context captured by retained probes.
+    pub(crate) fn without_continuation(&self) -> Self {
+        let mut scoped = self.clone();
+        scoped.continuation = None;
+        scoped.target_key = None;
+        scoped
+    }
+
     /// Authorizes replay of this operation when its body can be reproduced.
     ///
     /// # Arguments

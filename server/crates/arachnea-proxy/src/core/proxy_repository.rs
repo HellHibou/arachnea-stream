@@ -101,6 +101,26 @@ impl TypedProxyRepository {
             commits,
         }
     }
+
+    /// Filters an already-read record against current durable eviction evidence.
+    async fn filter_available(&self, record: Option<ProxyRecord>) -> Result<Option<ProxyRecord>> {
+        let Some(record) = record else {
+            return Ok(None);
+        };
+        let key = record.key();
+        let record = Some(record);
+        if let Some(failure) = self.get_failure(&key).await? {
+            if record.as_ref().is_some_and(|record| {
+                record.health_evidence.last_positive_at <= failure.health_evidence.evicted_at
+                    && record.health_evidence.first_discovered_at
+                        <= failure.health_evidence.evicted_at
+                    && record.last_checked <= failure.health_evidence.evicted_at
+            }) {
+                return Ok(None);
+            }
+        }
+        Ok(record.filter(|record| record.health_evidence.evicted_at.is_none()))
+    }
 }
 
 /// Creates an in-memory typed proxy store used by compatibility constructors.
@@ -112,17 +132,7 @@ pub fn memory_proxy_store() -> Result<Arc<dyn TypedEntityStore<ProxyRecord>>> {
 impl ProxyRepository for TypedProxyRepository {
     async fn get(&self, key: &ProxyKey) -> Result<Option<ProxyRecord>> {
         let record = self.store.get(key).await?;
-        if let Some(failure) = self.get_failure(key).await? {
-            if record.as_ref().is_some_and(|record| {
-                record.health_evidence.last_positive_at <= failure.health_evidence.evicted_at
-                    && record.health_evidence.first_discovered_at
-                        <= failure.health_evidence.evicted_at
-                    && record.last_checked <= failure.health_evidence.evicted_at
-            }) {
-                return Ok(None);
-            }
-        }
-        Ok(record.filter(|record| record.health_evidence.evicted_at.is_none()))
+        self.filter_available(record).await
     }
     async fn get_failure(&self, key: &ProxyKey) -> Result<Option<ProxyRecord>> {
         Ok(self.failures.get(key).await?.filter(|record| {
@@ -151,13 +161,14 @@ impl ProxyRepository for TypedProxyRepository {
         self.store.delete(&record.key()).await
     }
     async fn find_by_country(&self, country: &str) -> Result<Vec<ProxyRecord>> {
+        let _guard = self.commits.lock().await;
         let records = self
             .store
             .find(&EntityQuery::new().where_string(&ProxyRecord::country_field(), country))
             .await?;
         let mut available = Vec::new();
         for record in records {
-            if let Some(record) = self.get(&record.key()).await? {
+            if let Some(record) = self.filter_available(Some(record)).await? {
                 available.push(record);
             }
         }

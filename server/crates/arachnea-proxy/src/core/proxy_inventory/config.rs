@@ -2,6 +2,16 @@
 
 use std::time::Duration;
 
+use crate::{
+    PROXY_INVENTORY_DEFAULT_EXPLORATION_BEFORE_REFRESH,
+    PROXY_INVENTORY_DEFAULT_FAILURES_BEFORE_REFRESH, PROXY_INVENTORY_DEFAULT_KO_COOLDOWN,
+    PROXY_INVENTORY_DEFAULT_MAX_DESTINATION_FAILURES_BEFORE_KO,
+    PROXY_INVENTORY_DEFAULT_PROBE_BATCH_SIZE, PROXY_INVENTORY_DEFAULT_PROBE_TTL,
+    PROXY_INVENTORY_DEFAULT_PROVIDER_MIN_REFRESH_INTERVAL,
+    PROXY_INVENTORY_DEFAULT_PROVIDER_REFRESH_COOLDOWN, PROXY_INVENTORY_DEFAULT_RESERVE_SIZE,
+    PROXY_INVENTORY_DEFAULT_RESERVE_TIMEOUT,
+};
+
 pub(crate) use crate::PROXY_AFFINITY_TTL;
 
 /// Default duration for excluding a proxy from one exact destination after a
@@ -45,6 +55,11 @@ pub struct InventoryConfig {
     /// TCP and validation stages are driven together; full validations retain
     /// their separate concurrency limit of two per search.
     pub probe_batch_size: usize,
+    /// Fresh technical fallback endpoints to prepare in addition to the accepted proxy.
+    /// Zero disables preparation after acceptance; at most two are prepared.
+    pub reserve_size: usize,
+    /// Independent deadline for preparation after business acceptance.
+    pub reserve_timeout: Duration,
     /// Minimum delay between provider refresh attempts for the same country.
     pub provider_refresh_cooldown: Duration,
     /// Lower bound retained when an observed endpoint failure requests early refresh.
@@ -58,15 +73,18 @@ pub struct InventoryConfig {
 impl Default for InventoryConfig {
     fn default() -> Self {
         Self {
-            probe_ttl: Duration::from_secs(600),
-            ko_cooldown: Duration::from_secs(900),
+            probe_ttl: PROXY_INVENTORY_DEFAULT_PROBE_TTL,
+            ko_cooldown: PROXY_INVENTORY_DEFAULT_KO_COOLDOWN,
             destination_failure_cooldown: PROXY_DESTINATION_FAILURE_COOLDOWN,
-            max_destination_failures_before_ko: 10,
-            probe_batch_size: 8,
-            provider_refresh_cooldown: Duration::from_secs(120),
-            provider_min_refresh_interval: Duration::from_secs(10),
-            exploration_before_refresh: Duration::from_secs(10),
-            failures_before_refresh: 8,
+            max_destination_failures_before_ko:
+                PROXY_INVENTORY_DEFAULT_MAX_DESTINATION_FAILURES_BEFORE_KO,
+            probe_batch_size: PROXY_INVENTORY_DEFAULT_PROBE_BATCH_SIZE,
+            reserve_size: PROXY_INVENTORY_DEFAULT_RESERVE_SIZE,
+            reserve_timeout: PROXY_INVENTORY_DEFAULT_RESERVE_TIMEOUT,
+            provider_refresh_cooldown: PROXY_INVENTORY_DEFAULT_PROVIDER_REFRESH_COOLDOWN,
+            provider_min_refresh_interval: PROXY_INVENTORY_DEFAULT_PROVIDER_MIN_REFRESH_INTERVAL,
+            exploration_before_refresh: PROXY_INVENTORY_DEFAULT_EXPLORATION_BEFORE_REFRESH,
+            failures_before_refresh: PROXY_INVENTORY_DEFAULT_FAILURES_BEFORE_REFRESH,
         }
     }
 }

@@ -212,7 +212,16 @@ impl ProxyInventory {
 
     async fn merge_provider_batch(&self, country: &str, records: Vec<ProxyRecord>) {
         let loaded_count = records.len();
-        let existing = self.inner.read().await.records.clone();
+        let existing = {
+            let inner = self.inner.read().await;
+            records
+                .iter()
+                .filter_map(|record| {
+                    let key = record.authority();
+                    inner.records.get(&key).map(|cached| (key, cached.clone()))
+                })
+                .collect()
+        };
         let (records, probe_indices, duplicate_count, cached_count) =
             prepare_provider_records(records, &existing, SystemTime::now(), self.config.probe_ttl);
         let pending_probe_count = probe_indices.len();

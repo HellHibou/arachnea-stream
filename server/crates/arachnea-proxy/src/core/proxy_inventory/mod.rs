@@ -19,6 +19,7 @@ mod observations;
 #[cfg(feature = "persistence")]
 mod persistence;
 mod preferences;
+pub(crate) mod preparation;
 mod probing;
 mod records;
 mod selection;
@@ -66,6 +67,7 @@ pub struct ProxyInventory {
     probe: Option<Arc<ProxyProbe>>,
     selection_probe_locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
     shared_work: Arc<Mutex<HashMap<String, SharedProbe>>>,
+    preparations: Arc<preparation::PreparationRuntime>,
     tcp_slots: Arc<Semaphore>,
     validation_slots: Arc<Semaphore>,
     provider_slots: Arc<Semaphore>,
@@ -117,6 +119,7 @@ impl ProxyInventory {
             probe,
             selection_probe_locks: Arc::new(Mutex::new(HashMap::new())),
             shared_work: Arc::new(Mutex::new(HashMap::new())),
+            preparations: Arc::new(preparation::PreparationRuntime::default()),
             tcp_slots: Arc::new(Semaphore::new(16)),
             validation_slots: Arc::new(Semaphore::new(4)),
             provider_slots: Arc::new(Semaphore::new(2)),

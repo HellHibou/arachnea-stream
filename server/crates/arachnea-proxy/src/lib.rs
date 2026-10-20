@@ -74,6 +74,17 @@ use std::time::Duration;
 
 // --- Connection budgets and timeouts ----------------------------------------
 
+/// Default target deadline for [`ProxySearchLimits::target`] (120 seconds).
+/// New technical work and business attempts cannot begin after this budget.
+#[cfg(feature = "core")]
+pub const PROXY_SEARCH_DEFAULT_TARGET: Duration = Duration::from_secs(120);
+
+/// Default grace period for [`ProxySearchLimits::extension`] (15 seconds).
+/// Only an already engaged business attempt may use this grace, giving a
+/// 135-second hard deadline with [`PROXY_SEARCH_DEFAULT_TARGET`].
+#[cfg(feature = "core")]
+pub const PROXY_SEARCH_DEFAULT_EXTENSION: Duration = Duration::from_secs(15);
+
 /// Overall HTTP CONNECT establishment budget, including route selection,
 /// provider loading, capability probes, and upstream connection attempts.
 /// Established tunnel relays are not subject to this budget.
@@ -202,6 +213,70 @@ pub(crate) const PROXY_POOL_SELECTION_PASSES: usize = 2;
 pub(crate) const DYNAMIC_COUNTRY_POOL_PREFIX: &str = "dynamic-countries:";
 
 // --- Inventory, preferences and persistence ---------------------------------
+
+/// Default for [`InventoryConfig::probe_ttl`].
+///
+/// Freshness window for completed proxy probes (600 seconds).
+#[cfg(feature = "core")]
+pub const PROXY_INVENTORY_DEFAULT_PROBE_TTL: Duration = Duration::from_secs(600);
+
+/// Default for [`InventoryConfig::ko_cooldown`].
+///
+/// Cooldown before retrying a globally failed proxy (900 seconds).
+#[cfg(feature = "core")]
+pub const PROXY_INVENTORY_DEFAULT_KO_COOLDOWN: Duration = Duration::from_secs(900);
+
+/// Default for [`InventoryConfig::max_destination_failures_before_ko`].
+///
+/// Legacy destination-failure threshold retained for configuration compatibility.
+/// Destination observations no longer promote a proxy to global failure.
+#[cfg(feature = "core")]
+pub const PROXY_INVENTORY_DEFAULT_MAX_DESTINATION_FAILURES_BEFORE_KO: usize = 10;
+
+/// Default for [`InventoryConfig::probe_batch_size`].
+///
+/// Concurrent candidate pipelines per inventory selection pass (eight).
+/// Full validations retain their separate per-search concurrency limit.
+#[cfg(feature = "core")]
+pub const PROXY_INVENTORY_DEFAULT_PROBE_BATCH_SIZE: usize = 8;
+
+/// Default for [`InventoryConfig::reserve_size`].
+///
+/// Fresh fallback endpoints prepared in addition to an accepted proxy (two).
+/// The configurable reserve size is capped at two; zero disables preparation.
+#[cfg(feature = "core")]
+pub const PROXY_INVENTORY_DEFAULT_RESERVE_SIZE: usize = 2;
+
+/// Default for [`InventoryConfig::reserve_timeout`].
+///
+/// Independent preparation deadline after business acceptance (15 seconds).
+/// This does not extend the business search budget or delay the accepted response.
+#[cfg(feature = "core")]
+pub const PROXY_INVENTORY_DEFAULT_RESERVE_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// Default for [`InventoryConfig::provider_refresh_cooldown`].
+///
+/// Minimum interval between ordinary provider refresh attempts per country (120 seconds).
+#[cfg(feature = "core")]
+pub const PROXY_INVENTORY_DEFAULT_PROVIDER_REFRESH_COOLDOWN: Duration = Duration::from_secs(120);
+
+/// Default for [`InventoryConfig::provider_min_refresh_interval`].
+///
+/// Refresh interval floor after an observed failure permits early refresh (10 seconds).
+#[cfg(feature = "core")]
+pub const PROXY_INVENTORY_DEFAULT_PROVIDER_MIN_REFRESH_INTERVAL: Duration = Duration::from_secs(10);
+
+/// Default for [`InventoryConfig::exploration_before_refresh`].
+///
+/// Cache exploration time before provider discovery overlaps selection (10 seconds).
+#[cfg(feature = "core")]
+pub const PROXY_INVENTORY_DEFAULT_EXPLORATION_BEFORE_REFRESH: Duration = Duration::from_secs(10);
+
+/// Default for [`InventoryConfig::failures_before_refresh`].
+///
+/// Unsuccessful validations before provider discovery overlaps cache exploration (eight).
+#[cfg(feature = "core")]
+pub const PROXY_INVENTORY_DEFAULT_FAILURES_BEFORE_REFRESH: usize = 8;
 
 /// Number of accepted exact-destination preferences kept per key.
 #[cfg(feature = "core")]

@@ -35,6 +35,7 @@ pub struct ProxySelectionToken {
     provenance: ProxySelectionProvenance,
     discovery: Arc<Mutex<Option<tokio::sync::OwnedMutexGuard<()>>>>,
     accepted: Arc<tokio::sync::OnceCell<()>>,
+    continuation: Option<Arc<super::proxy_inventory::preparation::ProbeContinuation>>,
 }
 
 impl std::fmt::Debug for ProxySelectionToken {
@@ -73,6 +74,9 @@ impl ProxySelectionToken {
             endpoint,
             destination,
             provenance,
+            continuation: search
+                .as_ref()
+                .and_then(|search| search.continuation.clone()),
             discovery: Arc::new(Mutex::new(
                 search.and_then(|search| search.take_discovery()),
             )),
@@ -149,6 +153,13 @@ impl ProxySelectionToken {
                 self.inventory
                     .record_validated_response(&self.endpoint, &self.destination)
                     .await;
+                if let Some(continuation) = &self.continuation {
+                    self.inventory.prepare_after_acceptance(
+                        continuation,
+                        &self.endpoint,
+                        &self.destination,
+                    );
+                }
             })
             .await;
         self.finish_discovery();

@@ -20,13 +20,14 @@ pub(super) type SharedProbe = WeakShared<BoxFuture<'static, Option<ProxyRecord>>
 struct SharedExecution {
     key: String,
     completed: bool,
+    started: std::time::Instant,
 }
 
 impl Drop for SharedExecution {
     fn drop(&mut self) {
-        if !self.completed {
-            tracing::debug!(work = %self.key, "cancelled shared proxy work after last subscriber departed");
-        }
+        tracing::debug!(work = %self.key, completed = self.completed,
+            elapsed_ms = self.started.elapsed().as_millis(),
+            "finished shared proxy operation");
     }
 }
 
@@ -48,6 +49,38 @@ impl Drop for SearchReservation {
 }
 
 impl ProxyInventory {
+    /// Atomically leaves spare shared capacity when admitting speculative work.
+    ///
+    /// # Arguments
+    /// - `validation`: Selects capability slots instead of TCP slots.
+    /// - `speculative`: Rejects admission immediately unless spare capacity remains.
+    pub(super) async fn acquire_probe_slot(
+        &self,
+        validation: bool,
+        speculative: bool,
+    ) -> Option<tokio::sync::OwnedSemaphorePermit> {
+        let slots = if validation {
+            self.validation_slots.clone()
+        } else {
+            self.tcp_slots.clone()
+        };
+        let queued = std::time::Instant::now();
+        let permit = if speculative {
+            let spare = if validation { 2 } else { 8 };
+            let mut permits = slots.try_acquire_many_owned(spare + 1).ok()?;
+            permits.split(1)?
+        } else {
+            slots.acquire_owned().await.ok()?
+        };
+        tracing::debug!(
+            validation,
+            speculative,
+            waiting_ms = queued.elapsed().as_millis(),
+            "acquired shared proxy probe slot"
+        );
+        Some(permit)
+    }
+
     /// Shares an owned probe task without extending the caller's polling stack.
     /// The last subscriber aborts the task; caller deadlines and slots stay local.
     pub(super) async fn shared_operation(
@@ -64,7 +97,7 @@ impl ProxyInventory {
                 } else {
                     &search.tcp_slots
                 };
-                Some(slots.acquire().await.ok()?)
+                Some(slots.clone().acquire_owned().await.ok()?)
             } else {
                 None
             };
@@ -75,7 +108,7 @@ impl ProxyInventory {
                 return None;
             }
             let mut reservation = search.as_ref().map(|search| SearchReservation {
-                search: search.clone(),
+                search: search.without_continuation(),
                 key: key.clone(),
                 validation,
                 completed: false,
@@ -84,8 +117,10 @@ impl ProxyInventory {
                 let mut registry = self.shared_work.lock().await;
                 registry.retain(|_, weak| weak.upgrade().is_some());
                 if let Some(existing) = registry.get(&key).and_then(WeakShared::upgrade) {
+                    tracing::debug!(work = %key, joined = true, "subscribed to shared proxy work");
                     existing
                 } else {
+                    tracing::debug!(work = %key, joined = false, "subscribed to shared proxy work");
                     let work_key = key.clone();
                     let future = async move {
                         let mut tasks = tokio::task::JoinSet::new();
@@ -93,7 +128,9 @@ impl ProxyInventory {
                             let mut execution = SharedExecution {
                                 key: work_key,
                                 completed: false,
+                                started: std::time::Instant::now(),
                             };
+                            tracing::debug!(work = %execution.key, "started shared proxy operation");
                             let result = operation.await;
                             execution.completed = true;
                             result
@@ -116,22 +153,35 @@ impl ProxyInventory {
                     future
                 }
             };
-            let result = shared.await;
-            if let Some(reservation) = &mut reservation {
-                reservation.completed = true;
-            }
-            if let Some(search) = &search {
-                search.completed_work(validation, result.is_some());
-                if validation {
-                    search.log_progress("capability validation completed");
+            let worker_search = search
+                .as_ref()
+                .map(ProxySearchContext::without_continuation);
+            let finish = async move {
+                let _local = _local;
+                let result = shared.await;
+                if let Some(reservation) = &mut reservation {
+                    reservation.completed = true;
                 }
-            }
-            if validation && result.is_none() {
-                if let Some(search) = &search {
-                    search.failed_validation();
+                if let Some(search) = &worker_search {
+                    search.completed_work(validation, result.is_some());
+                    if validation {
+                        search.log_progress("capability validation completed");
+                        if result.is_none() {
+                            search.failed_validation();
+                        }
+                    }
                 }
+                result
+            };
+            if let Some(owner) = search
+                .as_ref()
+                .and_then(|search| search.continuation.as_ref())
+                .filter(|owner| owner.is_routed())
+            {
+                owner.retain(finish).await.ok().flatten()
+            } else {
+                finish.await
             }
-            result
         };
         match &search {
             Some(search) => search.technical(wait).await.ok().flatten(),
@@ -241,6 +291,9 @@ impl ProxyInventory {
         {
             let phase = if require_https { "https" } else { "http" };
             if recent_probe_attempt(&record, phase, self.config.probe_ttl) {
+                tracing::debug!(proxy = %authority, source = "cache", require_https,
+                    capability_proven = !needs_capability_probe(&record, require_https),
+                    "reusing recent proxy capability attempt");
                 return (complementary_trial_allowed(&record, self.probe_mode())
                     && is_eligible(
                         &record,
@@ -255,8 +308,27 @@ impl ProxyInventory {
             let started = epoch_millis();
             tracing::info!(proxy = %authority, require_https, "probing proxy capabilities before selection");
             let result = probe.probe_required(&mut record, require_https).await;
+            for observation in &record.observations {
+                if observation
+                    .completed_at
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis()
+                    >= u128::from(started)
+                {
+                    if let crate::core::ProxyObservationOutcome::Failed { scope, cause } =
+                        &observation.outcome
+                    {
+                        tracing::info!(proxy = %authority, source = "exchange", phase = ?observation.context.phase,
+                            protocol = ?observation.context.protocol, target = ?observation.context.target,
+                            ?scope, %cause, "proxy capability probe observed failure");
+                    }
+                }
+            }
             tracing::info!(
                 proxy = %authority,
+                source = "exchange",
+                admissible = is_eligible(&record, &country, require_https, destination, SystemTime::now(), self.probe_mode()),
                 require_https,
                 http_forwarding = ?record.http_forwarding,
                 https_tunnel = ?record.https_tunnel,

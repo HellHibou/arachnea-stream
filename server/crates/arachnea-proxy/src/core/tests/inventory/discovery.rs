@@ -43,7 +43,10 @@ async fn concurrent_country_loads_wait_for_one_provider_refresh() -> AnyResult<(
         delay: Duration::from_millis(50),
     });
     let inventory = Arc::new(ProxyInventory::new(
-        InventoryConfig::default(),
+        InventoryConfig {
+            reserve_timeout: Duration::from_millis(200),
+            ..InventoryConfig::default()
+        },
         Some(provider.clone()),
         None,
     ));
@@ -153,43 +156,105 @@ async fn concurrent_country_loads_wait_for_one_provider_refresh() -> AnyResult<(
             )
             .await
             .is_some());
-        let key = format!("cancelled:{validation}");
-        let slots = if validation {
-            inventory.validation_slots.clone()
-        } else {
-            inventory.tcp_slots.clone()
-        };
-        let available = slots.available_permits();
-        let operation_slots = slots.clone();
-        let (started, running) = tokio::sync::oneshot::channel();
-        {
-            let pending = search.scope(
-                inventory.shared_operation(
-                    key.clone(),
-                    validation,
-                    async move {
-                        let _slot = operation_slots.acquire().await.ok()?;
-                        let _ = started.send(());
-                        futures::future::pending().await
-                    }
-                    .boxed(),
-                ),
+        for retained in [false, true] {
+            let work_search = if retained {
+                ProxySearchContext::default()
+            } else {
+                search.clone()
+            };
+            let owner = work_search.continuation.as_ref().unwrap();
+            owner.set_route(
+                vec!["BE".into()],
+                true,
+                retained.then(|| destination.clone()),
             );
-            tokio::pin!(pending);
-            tokio::select! {
-                _ = &mut pending => panic!("fixture work must remain pending"),
-                result = running => result.expect("owned probe task must start"),
+            let key = format!("cancelled:{validation}:{retained}");
+            let slots = if validation {
+                inventory.validation_slots.clone()
+            } else {
+                inventory.tcp_slots.clone()
+            };
+            let available = slots.available_permits();
+            let operation_slots = slots.clone();
+            let (started, running) = tokio::sync::oneshot::channel();
+            {
+                let pending = work_search.scope(
+                    inventory.shared_operation(
+                        key.clone(),
+                        validation,
+                        async move {
+                            let _slot = operation_slots.acquire().await.ok()?;
+                            let _ = started.send(());
+                            futures::future::pending().await
+                        }
+                        .boxed(),
+                    ),
+                );
+                tokio::pin!(pending);
+                tokio::select! {
+                    _ = &mut pending => panic!("fixture work must remain pending"),
+                    result = running => result.expect("owned probe task must start"),
+                }
+                assert!(!work_search.reserve(validation, &key));
             }
-            assert!(!search.reserve(validation, &key));
-        }
-        tokio::time::timeout(Duration::from_secs(1), async {
-            while slots.available_permits() != available {
+            if retained {
+                assert_eq!(
+                    slots.available_permits(),
+                    available - 1,
+                    "engaged work survives selection return"
+                );
+                assert!(!work_search.reserve(validation, &key));
+                let token = work_search
+                    .scope(async {
+                        crate::core::ProxySelectionToken::new(
+                            inventory.clone(),
+                            record(ProxyRuntimeStatus::Ok).authority(),
+                            destination.clone(),
+                        )
+                    })
+                    .await;
+                tokio::time::timeout(Duration::from_secs(1), token.record_accepted())
+                    .await
+                    .expect("acceptance must not await pending reserve work");
+                owner.cancel();
                 tokio::task::yield_now().await;
+                assert_eq!(
+                    slots.available_permits(),
+                    available - 1,
+                    "acceptance transfers subscriptions away from the request owner"
+                );
             }
-        })
-        .await
-        .expect("last-subscriber cancellation must release probe slots");
-        assert!(search.reserve(validation, &key));
+            tokio::time::timeout(Duration::from_secs(1), async {
+                while slots.available_permits() != available {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .expect("last-subscriber cancellation must release probe slots");
+            assert!(work_search.reserve(validation, &key));
+            owner.set_route(Vec::new(), true, None);
+        }
+    }
+    for (validation, slots, spare) in [
+        (false, inventory.tcp_slots.clone(), 8),
+        (true, inventory.validation_slots.clone(), 2),
+    ] {
+        let held = slots.clone().try_acquire_many_owned(spare)?;
+        assert!(
+            inventory
+                .acquire_probe_slot(validation, true)
+                .await
+                .is_none(),
+            "speculative work must leave capacity for active searches"
+        );
+        drop(held);
+        let available = slots.available_permits();
+        let admitted = inventory
+            .acquire_probe_slot(validation, true)
+            .await
+            .unwrap();
+        assert_eq!(slots.available_permits(), available - 1);
+        drop(admitted);
     }
     let tcp = search.tcp_slots.try_acquire_many(8)?;
     assert!(hop.tcp_slots.try_acquire().is_err());

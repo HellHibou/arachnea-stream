@@ -28,6 +28,9 @@ impl Drop for DiscoveryReservation {
     fn drop(&mut self) {
         if !self.selected {
             self.search.take_discovery();
+            if let Some(owner) = &self.search.continuation {
+                owner.cancel();
+            }
         }
     }
 }
@@ -169,6 +172,11 @@ impl ProxyInventory {
             ));
         }
 
+        if let Some(continuation) =
+            ProxySearchContext::current().and_then(|search| search.continuation)
+        {
+            continuation.set_route(attempted.clone(), require_https, destination.cloned());
+        }
         let affinity = affinity.map(str::trim).filter(|value| !value.is_empty());
         if let Some(record) = self
             .select_preferred_destination(&attempted, require_https, destination)
@@ -178,9 +186,15 @@ impl ProxyInventory {
             return Ok(record);
         }
         #[cfg(feature = "persistence")]
-        for country in &attempted {
-            self.load_cached_country(country).await;
-        }
+        stream::iter(
+            attempted
+                .clone()
+                .into_iter()
+                .map(|country| async move { self.load_cached_country(&country).await }),
+        )
+        .buffer_unordered(2)
+        .collect::<Vec<_>>()
+        .await;
         let search = ProxySearchContext::current().expect("selection is search scoped");
         if let Some(record) = self
             .select_redirect_destination(&attempted, require_https, destination)
@@ -362,7 +376,7 @@ impl ProxyInventory {
     }
 
     /// Ranks cached candidates across all allowed countries before any probes.
-    async fn select_cached_any(
+    pub(super) async fn select_cached_any(
         &self,
         countries: &[String],
         require_https: bool,
@@ -428,19 +442,21 @@ impl ProxyInventory {
             );
         }
 
+        let search = ProxySearchContext::current();
         let mut candidates: Vec<&ProxyRecord> = records
             .into_iter()
             .filter(|r| {
-                !ProxySearchContext::current()
-                    .is_some_and(|search| search.attempted(&r.authority(), destination))
-                    && is_selection_candidate(
-                        r,
-                        r.country.as_deref().unwrap_or_default(),
-                        require_https,
-                        destination,
-                        now,
-                        self.probe_mode(),
-                    )
+                !search.as_ref().is_some_and(|search| {
+                    search.attempted(&r.authority(), destination)
+                        || search.preparation_exclusions.contains(&r.authority())
+                }) && is_selection_candidate(
+                    r,
+                    r.country.as_deref().unwrap_or_default(),
+                    require_https,
+                    destination,
+                    now,
+                    self.probe_mode(),
+                )
             })
             .collect();
 
@@ -519,6 +535,7 @@ impl ProxyInventory {
         }
         // Poll both stages together: a suspended precheck can own a commit lock
         // needed by a validation, even while all validation slots are occupied.
+        let speculative = search.as_ref().is_some_and(|search| search.speculative);
         let validations = stream::iter(pending.into_iter().map(|candidate| async move {
             let candidate = async {
                 let Some(probe) = &self.probe else {
@@ -528,16 +545,20 @@ impl ProxyInventory {
                     return (candidate.tcp_reachable == Some(true)).then_some(candidate);
                 }
                 let key = format!("tcp:{}", candidate.authority());
-                let inventory = self.clone();
+                let inventory = self.clone_for_probe();
                 let probe = probe.clone();
                 self.shared_operation(
                     key,
                     false,
                     async move {
-                        let _slot = inventory.tcp_slots.acquire().await.ok()?;
+                        let _slot = inventory.acquire_probe_slot(false, speculative).await?;
                         let started = epoch_millis();
+                        let network_started = std::time::Instant::now();
+                        tracing::debug!(proxy = %candidate.authority(), "started proxy TCP network precheck");
                         let result = probe.precheck_endpoint(&candidate).await;
                         let reachable = result.is_ok();
+                        tracing::debug!(proxy = %candidate.authority(), reachable,
+                            duration_ms = network_started.elapsed().as_millis(), "completed proxy TCP network precheck");
                         inventory
                             .save_probe_attempt(
                                 &candidate.authority(),
@@ -567,13 +588,13 @@ impl ProxyInventory {
                     .map(|p| p.configuration_id())
                     .unwrap_or_default()
             );
-            let inventory = self.clone();
+            let inventory = self.clone_for_probe();
             let validated = self
                 .shared_operation(
                     key,
                     true,
                     async move {
-                        let _slot = inventory.validation_slots.acquire().await.ok()?;
+                        let _slot = inventory.acquire_probe_slot(true, speculative).await?;
                         inventory
                             .validate_selection_candidate(candidate, require_https, None)
                             .await
@@ -602,7 +623,11 @@ impl ProxyInventory {
                 ))
             .then_some(latest)
         }))
-        .buffer_unordered(self.config.probe_batch_size.clamp(1, 8));
+        .buffer_unordered(if speculative {
+            1
+        } else {
+            self.config.probe_batch_size.clamp(1, 8)
+        });
         futures::pin_mut!(validations);
         while let Some(result) = validations.next().await {
             if result.is_some() {

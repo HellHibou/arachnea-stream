@@ -312,11 +312,53 @@ polled by their subscribers. Provider refresh futures own a `JoinSet` child task
 so nested Scrapyfy/HTTP calls execute on a fresh polling stack. One caller's
 timeout drops only its subscription; dropping the last subscriber cancels the
 operation and aborts its owned child. Cancellation cleanup releases permits when
-the runtime processes the abort. There is no detached discovery task. Completed failure/inconclusive results retain
+the runtime processes the abort. Localized destination selections retain already
+subscribed TCP/capability operations while the business attempt runs; completed
+phases remain available to retries without starting further candidate pipelines
+through this retention alone. Request cancellation or the technical deadline
+releases this ownership. Completed failure/inconclusive results retain
 their existing contextual attribution and throttling. Certificate and country
 checks are retained before returning a shared result to each caller.
 The TCP precheck does not validate protocol or authentication; these remain
 part of full validation. Provider hints never become runtime capability facts.
+
+After final business acceptance and its existing awaited commits, the inventory
+can transfer these subscriptions to an owned fallback preparation without awaiting
+additional probes or commits. Preparation targets two distinct fresh technical
+fallbacks besides the accepted endpoint (`InventoryConfig::reserve_size`, clamped
+to two; zero disables preparation), with an independent 15-second deadline
+(`reserve_timeout`). Compatible exact destinations, canonical country sets,
+HTTP/HTTPS requirements and probe configurations share a preparation. At most two
+preparations run per inventory; a sufficient reserve or an existing preparation
+suppresses another task. Completed attempts also suppress the same preparation
+until their original preparation deadline, with at most 32 remembered keys, so
+an unfillable deficit does not create a task for every segment. Only existing
+inventory candidates are explored: no
+provider refresh, business request, cookie, authentication replay or idle tunnel
+is created. Candidates retain their ordinary `probe_ttl` (600 seconds by default),
+country and destination-exclusion checks; technical readiness is not business
+acceptance and unknown relaxed capabilities remain unknown.
+
+After retained phases finish, each preparation admits one candidate pipeline at a
+time. New speculative TCP work requires more than eight free shared TCP slots;
+validation requires more than two free validation slots. This leaves capacity for
+active searches, within the existing shared 16/4 limits. The two preparations
+therefore target at most four fallback endpoints in total, using the ordinary
+inventory records rather than a separate connection cache. Dropping the inventory
+supervisor aborts preparations; a replacement inventory uses its own supervisor.
+No periodic maintenance runs. A failed or abandoned selection before acceptance
+starts no autonomous preparation. If admission is unavailable, request-owned
+subscriptions are cancelled without synthetic health failures.
+
+Country-cache imports overlap with concurrency two and still reread persistent
+state on subsequent selections, preserving external-write visibility. Repository
+country queries reuse the records read by the query, filtering eviction evidence
+under the repository commit lock. Provider merges snapshot only endpoints present
+in the incoming batch. DEBUG traces distinguish shared network execution and
+cancellation, subscriber joins and inventory commit waits/durations; INFO probe
+failures retain phase, protocol, target, scope and cause even when permissive
+admissibility is allowed. Candidate ranking and provider refresh timing are
+unchanged.
 
 Shared TCP prechecks and capability validations own abort-on-drop child tasks,
 so TLS probing does not run on the media handler's native polling stack. Jobs
@@ -403,7 +445,7 @@ configured, both use that core; otherwise both fall back to
 - `src/core/config/`: one module per public configuration type with its defaults and associated methods, plus private validation and system-environment helpers. Existing configuration imports remain available through the core and crate reexports.
 - `src/core/core/`: `ArachneaProxyCore` facade and private modules for request routing, pool selection and state, dynamic country pools, TCP/HTTP connections, proxy hops, UDP, and DNS resolution.
 - `src/core/http/proxy_service/`: controller HTTP service facade and private modules for request handling, headers, options, URLs, and redirects, enabled by `controller-service`. The existing public service and URL-construction imports are preserved.
-- `src/core/proxy_inventory/`: inventory facade and private modules for configuration, records, discovery, eligibility, selection, preferences, probing, observations, and persistence. Public inventory imports remain available through `core::proxy_inventory` and the existing crate reexports.
+- `src/core/proxy_inventory/`: inventory facade and private modules for configuration, records, discovery, eligibility, selection, preferences, probing, observations, persistence, and bounded fallback preparation. Public inventory imports remain available through `core::proxy_inventory` and the existing crate reexports.
 - `src/core/proxy_probe/`: `ProxyProbe` facade and private modules for configuration, protocol detection, capability attempts, destination validation, HTTP/SOCKS exchanges, TLS, and results. Existing public probe imports are preserved through reexports.
 - `src/connectors/`: adapters for Rust HTTP client ecosystems.
 - `src/server/`: CLI, file configuration, listeners, handlers, ACLs, authentication, and safety checks.

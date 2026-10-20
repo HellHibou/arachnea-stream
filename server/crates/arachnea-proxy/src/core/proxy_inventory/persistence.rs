@@ -23,7 +23,10 @@ impl ProxyInventory {
         let Some(persistence) = &self.persistence else {
             return;
         };
+        let queued = std::time::Instant::now();
         let _guard = self.persistence_commits.lock().await;
+        let waiting_ms = queued.elapsed().as_millis();
+        let started = std::time::Instant::now();
         let current = {
             let inner = self.inner.read().await;
             records
@@ -34,6 +37,12 @@ impl ProxyInventory {
         if let Err(error) = persist_proxy_records(persistence, &current).await {
             tracing::warn!(%error, count = records.len(), "failed to persist proxy records");
         }
+        tracing::debug!(
+            waiting_ms,
+            duration_ms = started.elapsed().as_millis(),
+            count = current.len(),
+            "committed proxy inventory records"
+        );
     }
 
     /// Persists acceptance without letting the repository's conservative failure

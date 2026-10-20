@@ -14,6 +14,12 @@ Contrat courant (section 27) : recherche jusqu’au succès, épuisement des can
 ou échéance de 120 secondes, sans plafond de nombre de préchecks, validations ou
 endpoints métier. Les plafonds 64/32/8 des bilans antérieurs sont supprimés.
 
+Complément du 20 octobre 2026 : [optimisations restantes des appels et de la recherche](analyse-optimisations-restantes-proxies-localises.md). Ce document distingue les livraisons acquises des limites encore ouvertes, compare les approches de continuité d’exploration et complète les pistes de rafraîchissement et de coût local. Il ne modifie pas les contrats livrés.
+
+Le bilan des acquis de ce complément intègre également la liste de travaux terminés fournie par l’utilisateur : découpage du crate et des tests, repli direct explicite, regroupement SQLite et correctifs déjà livrés. Ces réalisations ne doivent pas être rouvertes à partir des propositions historiques ci-dessous ; leurs limites de recette restent applicables.
+
+Nouvelle orientation retenue le 20 octobre, documentée en section 3 du complément : conserver les sondes engagées pendant l’essai, puis compléter une réserve bornée après acceptation sans retarder la réponse. La préparation devient alors une tâche supervisée par le runtime, avec échéance indépendante et priorité aux appels actifs. Cette exception remplace, pour ce seul travail de réserve à venir, l’ancienne exigence d’arrêt de toute découverte à la fin de l’appel ; elle n’est pas encore implémentée. Les mentions historiques sans travail en arrière-plan restent les bilans des livraisons correspondantes.
+
 ## Suivi consolidé — 16 octobre 2026
 
 Les coches distinguent les livrables réalisés de la qualification exhaustive.
