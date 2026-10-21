@@ -38,13 +38,9 @@ pub struct ProbeTargetSuspension {
 impl Default for ProbeTargetSuspension {
     fn default() -> Self {
         Self {
-            distinct_endpoints: 3,
-            observation_window: Duration::from_secs(60),
-            backoff: [
-                Duration::from_secs(30),
-                Duration::from_secs(60),
-                Duration::from_secs(120),
-            ],
+            distinct_endpoints: crate::PROXY_PROBE_DEFAULT_SUSPENSION_DISTINCT_ENDPOINTS,
+            observation_window: crate::PROXY_PROBE_DEFAULT_SUSPENSION_OBSERVATION_WINDOW,
+            backoff: crate::PROXY_PROBE_DEFAULT_SUSPENSION_BACKOFF,
         }
     }
 }
@@ -71,8 +67,8 @@ impl Default for ProbeTargetPolicy {
         Self {
             method: ProbeHttpMethod::Get,
             response_policy: None,
-            identity: "conservative-v1".into(),
-            unavailable_statuses: vec![502, 503, 504],
+            identity: crate::PROXY_PROBE_DEFAULT_POLICY_IDENTITY.into(),
+            unavailable_statuses: crate::PROXY_PROBE_DEFAULT_UNAVAILABLE_STATUSES.to_vec(),
             fallback_url: None,
             suspension: ProbeTargetSuspension::default(),
         }

@@ -148,6 +148,14 @@ pub const PROXY_HEADER_PARAMETER_FALLBACK_DIRECT: &str = "Arachnea-Proxy-Fallbac
 #[cfg(feature = "core")]
 pub const PROXY_PARAMETER_AFFINITY: &str = "proxy_affinity";
 
+/// HTTP header carrying a Smart DNS route selector.
+#[cfg(feature = "core")]
+pub const PROXY_HEADER_PARAMETER_SMART_DNS: &str = "Arachnea-Proxy-Smart-Dns";
+
+/// Context parameter carrying a Smart DNS route selector.
+#[cfg(feature = "core")]
+pub const PROXY_PARAMETER_SMART_DNS: &str = "smart_dns";
+
 /// Parameter naming a smart-DNS chain to install on the selected route.
 #[cfg(feature = "core")]
 pub const PROXY_PARAMETER_SMART_DNS_CHAIN: &str = "smart_dns_chain";
@@ -310,6 +318,74 @@ pub const PROXY_PROTOCOL_PRIORITY: [crate::core::proxy_record::ProxyProtocol; 5]
 ];
 
 // --- Default values for `Default` implementations --------------------------
+
+/// Default TCP or upstream connect timeout in milliseconds for [`TimeoutConfig::connect_ms`].
+#[cfg(feature = "core")]
+pub const PROXY_DEFAULT_CONNECT_TIMEOUT_MS: u64 = 30_000;
+
+/// Default proxy handshake timeout in milliseconds for [`TimeoutConfig::handshake_ms`].
+#[cfg(feature = "core")]
+pub const PROXY_DEFAULT_HANDSHAKE_TIMEOUT_MS: u64 = 30_000;
+
+/// Default idle timeout in milliseconds for adapters that enforce [`TimeoutConfig::idle_ms`].
+#[cfg(feature = "core")]
+pub const PROXY_DEFAULT_IDLE_TIMEOUT_MS: u64 = 60_000;
+
+/// Default TCP connection timeout for [`ProbeTimeoutConfig::proxy_connect`].
+#[cfg(feature = "core")]
+pub const PROXY_PROBE_DEFAULT_PROXY_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// Default proxy exchange timeout for [`ProbeTimeoutConfig::proxy_handshake`].
+#[cfg(feature = "core")]
+pub const PROXY_PROBE_DEFAULT_PROXY_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Default target resolution or tunnel setup timeout for [`ProbeTimeoutConfig::target_connect`].
+#[cfg(feature = "core")]
+pub const PROXY_PROBE_DEFAULT_TARGET_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Default TLS handshake timeout for [`ProbeTimeoutConfig::tls_handshake`].
+#[cfg(feature = "core")]
+pub const PROXY_PROBE_DEFAULT_TLS_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Default overall probe attempt timeout for [`ProbeTimeoutConfig::attempt`].
+#[cfg(feature = "core")]
+pub const PROXY_PROBE_DEFAULT_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Default HTTP reachability URL for [`ProbeConfig::http_probe_url`].
+#[cfg(feature = "core")]
+pub const PROXY_PROBE_DEFAULT_HTTP_URL: &str = "http://example.com/";
+
+/// Default number of independent endpoint indications before suspending a complementary probe target.
+#[cfg(feature = "core")]
+pub const PROXY_PROBE_DEFAULT_SUSPENSION_DISTINCT_ENDPOINTS: usize = 3;
+
+/// Default validity window for complementary-target service-unavailability indications.
+#[cfg(feature = "core")]
+pub const PROXY_PROBE_DEFAULT_SUSPENSION_OBSERVATION_WINDOW: Duration = Duration::from_secs(60);
+
+/// Default complementary-target suspension and recovery backoffs; the last delay is the cap.
+#[cfg(feature = "core")]
+pub const PROXY_PROBE_DEFAULT_SUSPENSION_BACKOFF: [Duration; 3] = [
+    Duration::from_secs(30),
+    Duration::from_secs(60),
+    Duration::from_secs(120),
+];
+
+/// Default HTTP statuses indicating complementary-target service unavailability, without excluding a proxy.
+#[cfg(feature = "core")]
+pub const PROXY_PROBE_DEFAULT_UNAVAILABLE_STATUSES: &[u16] = &[502, 503, 504];
+
+/// Stable identity of the default complementary-target probe policy.
+#[cfg(feature = "core")]
+pub const PROXY_PROBE_DEFAULT_POLICY_IDENTITY: &str = "conservative-v1";
+
+/// Default timeout for a single IP-country provider resolution.
+#[cfg(feature = "core")]
+pub const PROXY_IP_COUNTRY_DEFAULT_RESOLVE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Default number of untested egress-pool members probed concurrently.
+#[cfg(feature = "core")]
+pub const PROXY_EGRESS_POOL_DEFAULT_TEST_BATCH_SIZE: usize = 8;
 
 /// Default route chain name for [`RoutePolicy::default_chain`] ("direct").
 #[cfg(feature = "core")]

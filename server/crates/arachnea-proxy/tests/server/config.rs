@@ -41,7 +41,7 @@ fn https_listener_rejects_partial_tls_pairs() {
 #[test]
 fn country_parameter_sample_is_valid() {
     let config: FileConfig = toml::from_str(include_str!(
-        "../../../config-sample/parameters-country-routing.toml"
+        "../../config-sample/parameters-country-routing.toml"
     ))
     .unwrap();
 
@@ -53,7 +53,7 @@ fn country_parameter_sample_is_valid() {
 #[test]
 fn smart_dns_parameter_sample_is_valid() {
     let config: FileConfig = toml::from_str(include_str!(
-        "../../../config-sample/parameters-smart-dns.toml"
+        "../../config-sample/parameters-smart-dns.toml"
     ))
     .unwrap();
 

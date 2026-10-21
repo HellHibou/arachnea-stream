@@ -147,7 +147,7 @@ impl Default for EgressPool {
 ///
 /// Default number of untested pool members probed concurrently.
 fn default_proxy_pool_test_batch_size() -> usize {
-    8
+    crate::PROXY_EGRESS_POOL_DEFAULT_TEST_BATCH_SIZE
 }
 
 /// Extension point for selecting an egress route from client context.

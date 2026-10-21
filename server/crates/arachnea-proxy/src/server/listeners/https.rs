@@ -189,5 +189,5 @@ fn pem_blocks(pem: &str, label: &str) -> Vec<Vec<u8>> {
 }
 
 #[cfg(test)]
-#[path = "tests/https_tests.rs"]
+#[path = "../../../tests/server/listeners/https.rs"]
 mod tests;

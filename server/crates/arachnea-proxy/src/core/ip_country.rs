@@ -225,7 +225,7 @@ pub struct IpCountryResolverConfig {
 impl Default for IpCountryResolverConfig {
     fn default() -> Self {
         Self {
-            resolve_timeout: Duration::from_secs(5),
+            resolve_timeout: crate::PROXY_IP_COUNTRY_DEFAULT_RESOLVE_TIMEOUT,
             persist_on_resolve: true,
         }
     }

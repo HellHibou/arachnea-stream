@@ -54,7 +54,7 @@ impl Default for ProxyConfig {
         Self {
             profile: ProxyProfile::Direct,
             name_resolution: NameResolutionMode::PreserveHostname,
-            upstreams: vec![ProxyNode::direct("direct")],
+            upstreams: vec![ProxyNode::direct(crate::PROXY_ROUTE_DEFAULT_CHAIN)],
             chains: vec![ProxyChain::direct()],
             egress_pools: Vec::new(),
             routing: RoutePolicy::default(),

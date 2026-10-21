@@ -452,5 +452,5 @@ fn detect_encoding(content_type: &str) -> &'static Encoding {
 }
 
 #[cfg(test)]
-#[path = "tests/replace_all_tests.rs"]
+#[path = "../../../../tests/core/http/actions/replace_all.rs"]
 mod tests;

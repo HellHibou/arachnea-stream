@@ -127,5 +127,5 @@ pub use stats::{ProxyStats, ProxyStatsSnapshot};
 pub use transport::{socks::Socks5UdpAssociation, OutboundTransport, UdpAssociation};
 
 #[cfg(test)]
-#[path = "tests/core_tests.rs"]
+#[path = "../../tests/core/mod.rs"]
 mod core_tests;

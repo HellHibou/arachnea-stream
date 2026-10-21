@@ -238,5 +238,5 @@ impl ProxyInventory {
 }
 
 #[cfg(test)]
-#[path = "../tests/proxy_inventory_tests.rs"]
+#[path = "../../../tests/core/proxy_inventory/mod.rs"]
 mod tests;

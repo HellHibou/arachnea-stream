@@ -19,9 +19,9 @@ impl Default for TimeoutConfig {
     /// Returns conservative core transport timeouts.
     fn default() -> Self {
         Self {
-            connect_ms: 30_000,
-            handshake_ms: 30_000,
-            idle_ms: 60_000,
+            connect_ms: crate::PROXY_DEFAULT_CONNECT_TIMEOUT_MS,
+            handshake_ms: crate::PROXY_DEFAULT_HANDSHAKE_TIMEOUT_MS,
+            idle_ms: crate::PROXY_DEFAULT_IDLE_TIMEOUT_MS,
         }
     }
 }

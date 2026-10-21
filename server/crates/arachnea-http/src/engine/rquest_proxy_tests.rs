@@ -125,8 +125,8 @@ async fn keep_alive_tls_503_keeps_exact_selection_and_positive_phases() -> anyho
                             .await?;
                         let tls = rustls::ServerConfig::builder_with_provider(Arc::new(rustls::crypto::aws_lc_rs::default_provider()))
                                     .with_safe_default_protocol_versions()?.with_no_client_auth().with_single_cert(
-                                        vec![rustls::pki_types::CertificateDer::from(include_bytes!("../../../arachnea-proxy/src/core/tests/fixtures/localhost-cert.der").to_vec())],
-                                        rustls::pki_types::PrivatePkcs8KeyDer::from(include_bytes!("../../../arachnea-proxy/src/core/tests/fixtures/localhost-key.der").to_vec()).into(),
+                                        vec![rustls::pki_types::CertificateDer::from(include_bytes!("../../../arachnea-proxy/tests/fixtures/localhost-cert.der").to_vec())],
+                                        rustls::pki_types::PrivatePkcs8KeyDer::from(include_bytes!("../../../arachnea-proxy/tests/fixtures/localhost-key.der").to_vec()).into(),
                                     )?;
                         if let Ok(mut tls) = tokio_rustls::TlsAcceptor::from(Arc::new(tls))
                             .accept(stream)
@@ -217,9 +217,9 @@ async fn keep_alive_tls_503_keeps_exact_selection_and_positive_phases() -> anyho
             }
             server.await??;
         }
-        let cert = include_bytes!("../../../arachnea-proxy/src/core/tests/fixtures/localhost-cert.der");
-        let key = include_bytes!("../../../arachnea-proxy/src/core/tests/fixtures/localhost-key.der");
-        let ca = include_bytes!("../../../arachnea-proxy/src/core/tests/fixtures/test-ca.der");
+        let cert = include_bytes!("../../../arachnea-proxy/tests/fixtures/localhost-cert.der");
+        let key = include_bytes!("../../../arachnea-proxy/tests/fixtures/localhost-key.der");
+        let ca = include_bytes!("../../../arachnea-proxy/tests/fixtures/test-ca.der");
         let tls = rustls::ServerConfig::builder_with_provider(Arc::new(
             rustls::crypto::aws_lc_rs::default_provider(),
         )).with_safe_default_protocol_versions()?.with_no_client_auth().with_single_cert(

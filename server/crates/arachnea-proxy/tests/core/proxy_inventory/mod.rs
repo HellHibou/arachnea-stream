@@ -23,19 +23,19 @@ use crate::core::PROXY_CACHE_TTL;
 
 use support::*;
 
-#[path = "inventory/discovery.rs"]
+#[path = "discovery.rs"]
 mod discovery;
-#[path = "inventory/observations.rs"]
+#[path = "observations.rs"]
 mod observations;
-#[path = "inventory/preferences.rs"]
+#[path = "preferences.rs"]
 mod preferences;
-#[path = "inventory/probing.rs"]
+#[path = "probing.rs"]
 mod probing;
-#[path = "inventory/records.rs"]
+#[path = "records.rs"]
 mod records;
-#[path = "inventory/selection.rs"]
+#[path = "selection.rs"]
 mod selection;
-#[path = "inventory/support.rs"]
+#[path = "../../support/inventory.rs"]
 mod support;
-#[path = "inventory/tokens.rs"]
+#[path = "../proxy_selection.rs"]
 mod tokens;

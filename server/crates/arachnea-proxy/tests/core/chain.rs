@@ -1,14 +1,5 @@
 use super::*;
 
-/// Verifies that destinations preserve hostnames instead of resolving early.
-#[test]
-fn destination_preserves_hostname() {
-    let destination =
-        Destination::from_authority("example.com:443", crate::core::ApplicationProtocol::Https)
-            .unwrap();
-    assert_eq!(destination.authority(), "example.com:443");
-}
-
 /// Verifies that proxy URL helpers create the expected proxy node.
 #[test]
 fn proxy_node_from_url_uses_scheme_defaults() {

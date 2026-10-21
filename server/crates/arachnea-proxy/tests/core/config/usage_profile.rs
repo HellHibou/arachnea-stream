@@ -1,29 +1,5 @@
 use super::*;
 
-/// Verifies that new profile names serialize while legacy names still parse.
-#[test]
-fn proxy_profile_accepts_new_and_legacy_names() {
-    let current = serde_json::to_string(&ProxyProfile::Direct).unwrap();
-    let legacy: ProxyProfile = serde_json::from_str("\"direct\"").unwrap();
-    let current_single: ProxyProfile = serde_json::from_str("\"single_forwarder\"").unwrap();
-    let legacy_single: ProxyProfile = serde_json::from_str("\"single_proxy\"").unwrap();
-
-    assert_eq!(current, "\"system_relay\"");
-    assert_eq!(legacy, ProxyProfile::Direct);
-    assert_eq!(current_single, ProxyProfile::SingleProxy);
-    assert_eq!(legacy_single, ProxyProfile::SingleProxy);
-}
-
-/// Verifies that the privacy profile disables direct fallback.
-#[test]
-fn privacy_profile_disables_direct_fallback() {
-    let config = ProxyConfig::builder()
-        .profile(ProxyProfile::Privacy)
-        .build()
-        .unwrap();
-    assert!(!config.as_config().routing.allow_direct_fallback);
-}
-
 /// Verifies that a single-forwarder usage profile builds one default proxy chain.
 #[test]
 fn usage_profile_single_forwarder_builds_default_chain() {

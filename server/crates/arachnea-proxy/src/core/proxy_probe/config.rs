@@ -35,11 +35,11 @@ pub struct ProbeTimeoutConfig {
 impl Default for ProbeTimeoutConfig {
     fn default() -> Self {
         Self {
-            proxy_connect: Duration::from_secs(3),
-            proxy_handshake: Duration::from_secs(5),
-            target_connect: Duration::from_secs(5),
-            tls_handshake: Duration::from_secs(5),
-            attempt: Duration::from_secs(10),
+            proxy_connect: crate::PROXY_PROBE_DEFAULT_PROXY_CONNECT_TIMEOUT,
+            proxy_handshake: crate::PROXY_PROBE_DEFAULT_PROXY_HANDSHAKE_TIMEOUT,
+            target_connect: crate::PROXY_PROBE_DEFAULT_TARGET_CONNECT_TIMEOUT,
+            tls_handshake: crate::PROXY_PROBE_DEFAULT_TLS_HANDSHAKE_TIMEOUT,
+            attempt: crate::PROXY_PROBE_DEFAULT_ATTEMPT_TIMEOUT,
         }
     }
 }
@@ -73,7 +73,7 @@ pub struct ProbeConfig {
 impl Default for ProbeConfig {
     fn default() -> Self {
         Self {
-            http_probe_url: Some("http://example.com/".to_string()),
+            http_probe_url: Some(crate::PROXY_PROBE_DEFAULT_HTTP_URL.to_string()),
             https_probe_url: None,
             http_policy: ProbeTargetPolicy::default(),
             https_policy: ProbeTargetPolicy {

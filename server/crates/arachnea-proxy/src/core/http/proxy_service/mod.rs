@@ -54,5 +54,5 @@ pub fn register_service(
 }
 
 #[cfg(test)]
-#[path = "../tests/proxy_service_tests.rs"]
+#[path = "../../../../tests/core/http/proxy_service/mod.rs"]
 mod tests;

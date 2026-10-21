@@ -513,5 +513,5 @@ impl ProxyRecord {
     }
 }
 #[cfg(test)]
-#[path = "tests/proxy_repository_tests.rs"]
+#[path = "../../tests/core/proxy_repository.rs"]
 mod tests;

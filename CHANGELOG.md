@@ -97,6 +97,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Exposed sixteen configuration default constants and the Smart DNS header/context parameter identifiers at the crate root, covering transport/probe timeouts, complementary-target suspension and policy, IP-country resolution, and egress-pool validation batches. Default initializers now use them, and direct node/chain construction reuses the existing default route name; all values and runtime behavior are preserved.
+
 - The shared proxy service now prints its effective loopback address and port once after binding, matching the web server startup announcement even when INFO tracing is filtered. The announcement is owned by the proxy runtime rather than the application entry point.
 
 - The shared loopback socket also accepts authenticated internal SOCKS5 CONNECT for native macOS WebViews. It reuses live routing leases and existing limits; anonymous requests, public profiles, UDP and BIND are rejected without opening another port.
@@ -128,6 +130,8 @@ All notable changes to the server workspace are recorded here.
 - Dynamic proxy records now preserve source declarations as persisted provenance metadata, including each provider identifier, advertised protocol and HTTPS hint. Refresh logs report endpoints with conflicting protocol declarations and runtime protocols recovered outside provider claims.
 
 #### Changed
+
+- Moved all `arachnea-proxy` test implementations into crate-root `tests/`, mirroring source paths and filenames, with shared helpers in `tests/support/` and TLS fixtures in `tests/fixtures/`. Updated HTTP fixture references; post-action pipeline scenarios now run as library tests. `server/AGENTS.md` defines this layout for every server crate, with the remaining migrations tracked in `docs/TODO.md`.
 
 - Centralized all `InventoryConfig` and `ProxySearchLimits` numeric defaults as documented, core-gated constants in `arachnea-proxy/src/lib.rs`, reusing the existing destination-failure cooldown constant. Defaults and configurable overrides are unchanged; the 135-second business deadline remains the sum of the 120-second target and 15-second grace.
 

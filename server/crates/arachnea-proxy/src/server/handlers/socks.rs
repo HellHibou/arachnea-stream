@@ -957,5 +957,5 @@ struct UdpDatagram<'a> {
 }
 
 #[cfg(test)]
-#[path = "tests/socks_tests.rs"]
+#[path = "../../../tests/server/handlers/socks.rs"]
 mod tests;

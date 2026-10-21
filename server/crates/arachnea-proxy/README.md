@@ -1,5 +1,16 @@
 # arachnea-proxy
 
+## Centralized defaults
+
+Crate-root constants in `src/lib.rs` collect transport and probe timeouts,
+complementary-probe suspension thresholds, the default probe URL and policy
+identity, the IP-country resolution timeout, and the egress-pool test batch size.
+These `core`-gated constants initialize the existing configuration defaults;
+callers can still override configuration fields at runtime. Changing a constant
+requires recompilation. Smart DNS header and context parameter names are also
+available at the crate root as `PROXY_HEADER_PARAMETER_SMART_DNS` and
+`PROXY_PARAMETER_SMART_DNS`.
+
 ## Shared response classification (localized proxy lot 3)
 
 `core::http::response_classifier` exposes a client-independent response view,
@@ -449,14 +460,15 @@ configured, both use that core; otherwise both fall back to
 
 - `src/core/`: routing, proxy chains, destinations, policies, transports, proxy pools, and errors.
 - `src/core/config/`: one module per public configuration type with its defaults and associated methods, plus private validation and system-environment helpers. Existing configuration imports remain available through the core and crate reexports.
-- `src/core/core/`: `ArachneaProxyCore` facade and private modules for request routing, pool selection and state, dynamic country pools, TCP/HTTP connections, proxy hops, UDP, and DNS resolution.
+- `src/core/proxy_core/`: `ArachneaProxyCore` facade and private modules for request routing, pool selection and state, dynamic country pools, TCP/HTTP connections, proxy hops, UDP, and DNS resolution.
 - `src/core/http/proxy_service/`: controller HTTP service facade and private modules for request handling, headers, options, URLs, and redirects, enabled by `controller-service`. The existing public service and URL-construction imports are preserved.
 - `src/core/proxy_inventory/`: inventory facade and private modules for configuration, records, discovery, eligibility, selection, preferences, probing, observations, persistence, and bounded fallback preparation. Public inventory imports remain available through `core::proxy_inventory` and the existing crate reexports.
 - `src/core/proxy_probe/`: `ProxyProbe` facade and private modules for configuration, protocol detection, capability attempts, destination validation, HTTP/SOCKS exchanges, TLS, and results. Existing public probe imports are preserved through reexports.
 - `src/connectors/`: adapters for Rust HTTP client ecosystems.
 - `src/server/`: CLI, file configuration, listeners, handlers, ACLs, authentication, and safety checks.
-- `src/**/tests/`: unit tests loaded as child modules with `#[cfg(test)]` and explicit paths, preserving access to private implementation details. `src/core/tests/core/` and `src/core/tests/inventory/` group scenarios by domain with test-only support modules; inventory lifecycle scenarios are distributed across those inventory domains. Qualified test names now include the domain; filters using the test function name still work.
-- `tests/`: integration tests using the public crate API.
+- `tests/`: all test implementations mirror the exact relative source path and filename (`src/core/http/client.rs` → `tests/core/http/client.rs`, including `mod.rs`). Unit tests are loaded with `#[cfg(test)]` and explicit paths to preserve private access and feature gates. Composed-module scenarios live in the corresponding mirrored module file. Qualified test module names may change; function-name filters still work.
+- `tests/support/`: shared test-only helpers; `tests/fixtures/`: test data, including TLS fixtures also used by `arachnea-http`. These support files do not mirror production sources.
+- The existing post-action pipeline scenarios are loaded from `tests/core/http/actions/mod.rs` as library tests. Run them with `cargo test -p arachnea-proxy --lib core::http::actions::tests`; they also run with the default feature set.
 - `config-sample/`: TOML examples for direct, upstream, routing, and listener configurations.
 - `examples/`: library and connector usage examples.
 
@@ -676,7 +688,7 @@ They complement local pinned HTTP/TLS, eviction and storage-failure fixtures.
 
 ```sh
 cargo test --offline -p arachnea-proxy -p arachnea-http --lib --features arachnea-proxy/persistence,arachnea-proxy/controller-service,arachnea-http/arachnea-proxy -- --nocapture
-cargo test --offline -p arachnea-proxy --test post_action_integration --features controller-service
+cargo test --offline -p arachnea-proxy --lib --features controller-service core::http::actions::tests
 ```
 
 Test-only `lot7` output reports local timing samples and existing fixture counters;

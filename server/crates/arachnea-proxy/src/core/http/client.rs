@@ -879,5 +879,5 @@ where
 }
 
 #[cfg(test)]
-#[path = "tests/client_tests.rs"]
+#[path = "../../../tests/core/http/client.rs"]
 mod tests;

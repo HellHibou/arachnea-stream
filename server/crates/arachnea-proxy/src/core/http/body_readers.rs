@@ -281,5 +281,5 @@ impl<R: AsyncRead + Unpin> ChunkedBodyReader<R> {
 }
 
 #[cfg(test)]
-#[path = "tests/body_readers_tests.rs"]
+#[path = "../../../tests/core/http/body_readers.rs"]
 mod tests;

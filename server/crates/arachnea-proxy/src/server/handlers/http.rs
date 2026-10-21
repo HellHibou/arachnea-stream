@@ -697,5 +697,5 @@ struct Header {
 }
 
 #[cfg(test)]
-#[path = "tests/http_tests.rs"]
+#[path = "../../../tests/server/handlers/http.rs"]
 mod tests;

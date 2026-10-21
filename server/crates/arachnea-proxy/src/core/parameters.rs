@@ -174,7 +174,11 @@ impl SmartDnsProxyHandler {
     /// Handler using `Arachnea-Proxy-Smart-Dns` and `smart_dns`.
     pub fn new() -> Self {
         Self {
-            definition: ParameterDefinition::new("Arachnea-Proxy-Smart-Dns", "smart_dns", false),
+            definition: ParameterDefinition::new(
+                crate::PROXY_HEADER_PARAMETER_SMART_DNS,
+                crate::PROXY_PARAMETER_SMART_DNS,
+                false,
+            ),
             routes: BTreeMap::new(),
             stop_on_match: true,
         }

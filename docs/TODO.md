@@ -14,6 +14,11 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 - Ajouter le support de diffusion ChromeCast et AirPlay.
 - Facultatif (frontend) : cesser d'envoyer `arachneaEtag` / `enableEtag` dans `front/src/services/rustify.ts` — l'en-tête `If-None-Match` suffit depuis la migration du contexte contrôleur (`docs/dev-tracking/request-context-query-parameters-analysis.md`).
 
+## Server/Test layout
+
+- [x] Move all existing `arachnea-proxy` test implementations and fixtures under the crate-root `tests/`, mirroring source paths and filenames; document the shared rule in `server/AGENTS.md`.
+- [ ] Apply the same test layout to the remaining server crates: `arachnea-core`, `arachnea-dns`, `arachnea-http`, `arachnea-scrapyfy`, and `arachnea-stream`.
+
 ## Server/DNS
 
 - Affiner les modes DNSSEC afin que `report_only`, `opportunistic` et `strict` aient des comportements distincts, au lieu d'envoyer tous les modes non `off` dans le même chemin de validation Hickory.

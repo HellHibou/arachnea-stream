@@ -19,9 +19,9 @@ pub use loopback::{LoopbackProxyRuntime, LoopbackRoute};
 pub use server::ProxyServer;
 
 #[cfg(test)]
-#[path = "tests/config_tests.rs"]
+#[path = "../../tests/server/config.rs"]
 mod config_tests;
 
 #[cfg(test)]
-#[path = "tests/proxy_integration_tests.rs"]
+#[path = "../../tests/server/mod.rs"]
 mod proxy_integration_tests;
