@@ -307,19 +307,21 @@ pub async fn handle_proxy_http(
                         ..
                     } = &error
                     {
-                        if *delivery != crate::core::ProxyRequestDelivery::ResponseReceived {
-                            token
-                                .record_failure(crate::core::ProxyDestinationFailureReason::Other)
-                                .await;
-                        }
+                        token
+                            .record_failure(crate::core::ProxyDestinationFailureReason::Other)
+                            .await;
                         if search.as_ref().is_some_and(|search| {
+                            let buffered_replay = proxy_request.buffer_response_body
+                                && *delivery == crate::core::ProxyRequestDelivery::ResponseReceived
+                                && (search.replayable() || method == "GET" || method == "HEAD");
                             search.can_start()
-                                && crate::core::proxy_retry_allowed(
-                                    &method,
-                                    search.replayable(),
-                                    *delivery,
-                                    false,
-                                )
+                                && (buffered_replay
+                                    || crate::core::proxy_retry_allowed(
+                                        &method,
+                                        search.replayable(),
+                                        *delivery,
+                                        false,
+                                    ))
                         }) {
                             search.as_ref().unwrap().end_attempt();
                             continue;

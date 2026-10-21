@@ -308,3 +308,45 @@ pub const PROXY_PROTOCOL_PRIORITY: [crate::core::proxy_record::ProxyProtocol; 5]
     crate::core::proxy_record::ProxyProtocol::Socks4a,
     crate::core::proxy_record::ProxyProtocol::Http,
 ];
+
+// --- Default values for `Default` implementations --------------------------
+
+/// Default route chain name for [`RoutePolicy::default_chain`] ("direct").
+#[cfg(feature = "core")]
+pub const PROXY_ROUTE_DEFAULT_CHAIN: &str = "direct";
+
+/// Whether direct fallback is allowed by default in [`RoutePolicy`].
+#[cfg(feature = "core")]
+pub const PROXY_ROUTE_DEFAULT_ALLOW_DIRECT_FALLBACK: bool = true;
+
+/// Default HTTP listener port for [`ServerConfig::listen_http`] (8080).
+#[cfg(feature = "server")]
+pub const PROXY_SERVER_DEFAULT_HTTP_PORT: u16 = 8080;
+
+/// Default SOCKS5 listener port for [`ServerConfig::listen_socks`] (1080).
+#[cfg(feature = "server")]
+pub const PROXY_SERVER_DEFAULT_SOCKS_PORT: u16 = 1080;
+
+/// Whether unsafe public binds without ACL are allowed by default in [`ServerConfig`].
+#[cfg(feature = "server")]
+pub const PROXY_SERVER_DEFAULT_ALLOW_UNSAFE_PUBLIC_BIND: bool = false;
+
+/// Default maximum HTTP header size in bytes for [`ServerConfig::max_http_header_bytes`].
+#[cfg(feature = "server")]
+pub const PROXY_SERVER_DEFAULT_MAX_HTTP_HEADER_BYTES: usize = 16 * 1024;
+
+/// Default authentication realm for [`ProxyAuthConfig::realm`].
+#[cfg(feature = "server")]
+pub const PROXY_AUTH_DEFAULT_REALM: &str = "Arachnea Proxy";
+
+/// Default advisory per-client request rate for [`NetworkConfig::rate_limit_per_client_per_second`].
+#[cfg(feature = "server")]
+pub const PROXY_NETWORK_DEFAULT_RATE_LIMIT: u32 = 50;
+
+/// Default maximum simultaneous connections for [`NetworkConfig::max_connections`].
+#[cfg(feature = "server")]
+pub const PROXY_NETWORK_DEFAULT_MAX_CONNECTIONS: u32 = 1024;
+
+/// Default port for [`LoopbackProxyRuntime`] (0 means OS-allocated).
+#[cfg(feature = "server")]
+pub const PROXY_LOOPBACK_DEFAULT_PORT: u16 = 0;

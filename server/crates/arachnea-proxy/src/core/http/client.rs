@@ -3,7 +3,7 @@ use std::pin::Pin;
 use std::time::Duration;
 
 use crate::core::http::body_readers::{
-    decode_chunked_body, ChunkedBodyReader, ContentLengthBodyReader, UntilEofBodyReader,
+    ChunkedBodyReader, ContentLengthBodyReader, UntilEofBodyReader,
 };
 use crate::core::{
     ArachneaProxyCore, ClientContext, ConnectRequest, Destination, HttpRequestTargetForm,
@@ -12,7 +12,7 @@ use crate::core::{
 use crate::http::actions::{apply_post_actions, PostActionContext, ProxyHttpPostActionConfig};
 use bytes::Bytes;
 use futures::StreamExt;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio_util::io::ReaderStream;
 
 /// Minimal HTTP response returned by the core convenience client.
@@ -67,7 +67,8 @@ pub struct ProxiedHttpRequest {
     pub post_actions: Vec<ProxyHttpPostActionConfig>,
     /// Whether the caller requires a fully buffered response body.
     ///
-    /// This must be enabled when `post_actions` is non-empty.
+    /// This must be enabled when `post_actions` is non-empty. Buffered response
+    /// acceptance is committed only after the complete body has been received.
     pub buffer_response_body: bool,
     /// Whether only response headers should be read (e.g. HEAD requests).
     pub headers_only: bool,
@@ -108,7 +109,8 @@ impl SimpleHttpClient {
     /// the `Transfer-Encoding: chunked` response header in place.
     ///
     /// When enabled (the default), buffered responses fall back to their raw
-    /// body when chunk decoding fails. Streaming responses remain strict.
+    /// body when the first line is not a chunk size. Once framing is detected,
+    /// truncated or malformed chunks remain errors. Streaming responses remain strict.
     pub fn with_dechunked_body_tolerance(mut self, enabled: bool) -> Self {
         self.tolerate_dechunked_bodies = enabled;
         self
@@ -166,6 +168,8 @@ impl SimpleHttpClient {
     /// # Errors
     ///
     /// Returns an error when URL parsing, connection, or HTTP I/O fails.
+    /// Buffered transfer failures retain the selected route and response-received
+    /// delivery evidence so callers can apply destination health and replay policy.
     pub async fn request_proxied(
         &self,
         request: ProxiedHttpRequest,
@@ -536,6 +540,7 @@ impl SimpleHttpClient {
         .await;
         if matches!(response_decision, ProxyResponseDecision::Accepted)
             && !(300..400).contains(&status_code)
+            && (!request.buffer_response_body || request.headers_only)
         {
             if let Some(search) = crate::core::ProxySearchContext::current() {
                 search.accept();
@@ -569,12 +574,26 @@ impl SimpleHttpClient {
                     }
                     Ok::<_, std::io::Error>(())
                 };
-                if crate::core::ProxySearchContext::current().is_some() {
+                let collected = if crate::core::ProxySearchContext::current().is_some() {
                     tokio::time::timeout(Duration::from_secs(30), collect)
                         .await
-                        .map_err(|_| ProxyError::Timeout("media response body transfer"))??;
+                        .map_err(|_| ProxyError::Timeout("media response body transfer"))
+                        .and_then(|result| result.map_err(ProxyError::from))
                 } else {
-                    collect.await?;
+                    collect.await.map_err(ProxyError::from)
+                };
+                collected.map_err(|error| ProxyError::RequestAttempt {
+                    selection: selected.selection_token.clone(),
+                    delivery: crate::core::ProxyRequestDelivery::ResponseReceived,
+                    source: Box::new(error),
+                })?;
+                if matches!(response_decision, ProxyResponseDecision::Accepted) {
+                    if let Some(search) = crate::core::ProxySearchContext::current() {
+                        search.accept();
+                    }
+                    if let Some(token) = &selected.selection_token {
+                        token.record_accepted().await;
+                    }
                 }
                 if is_chunked {
                     remove_header_case_insensitive(&mut headers, "transfer-encoding");
@@ -608,7 +627,7 @@ impl SimpleHttpClient {
 
 /// Reads a response body that must be buffered for post-response processing.
 async fn read_buffered_response_body<S>(
-    mut stream: S,
+    stream: S,
     headers: &HashMap<String, String>,
     is_chunked: bool,
     tolerate_dechunked_bodies: bool,
@@ -617,19 +636,41 @@ where
     S: AsyncRead + Send + Unpin + 'static,
 {
     if is_chunked && tolerate_dechunked_bodies {
-        let mut raw_body = Vec::new();
-        stream.read_to_end(&mut raw_body).await?;
-        return match decode_chunked_body(&raw_body) {
-            Ok(body) => Ok(body),
-            Err(error) => {
-                tracing::warn!(
-                    %error,
-                    body_len = raw_body.len(),
-                    "upstream retained Transfer-Encoding: chunked after dechunking the response; using raw body"
-                );
-                Ok(raw_body)
+        // Inspect only the first line before choosing strict framing or compatibility mode.
+        let mut reader = BufReader::new(stream);
+        let mut prefix = Vec::new();
+        while prefix.len() < 8192 {
+            let mut byte = [0];
+            if reader.read(&mut byte).await? == 0 {
+                break;
             }
-        };
+            prefix.push(byte[0]);
+            if byte[0] == b'\n' {
+                break;
+            }
+        }
+        let framed = prefix.strip_suffix(b"\r\n").is_some_and(|line| {
+            std::str::from_utf8(line)
+                .ok()
+                .and_then(|line| line.split(';').next())
+                .and_then(|size| usize::from_str_radix(size.trim(), 16).ok())
+                .is_some()
+        });
+        let stream = std::io::Cursor::new(prefix).chain(reader);
+        let mut body = Vec::new();
+        if framed {
+            ChunkedBodyReader::new(stream)
+                .read_to_end(&mut body)
+                .await?;
+        } else {
+            tracing::warn!(
+                "upstream retained Transfer-Encoding: chunked without chunk framing; using raw body"
+            );
+            UntilEofBodyReader::new(stream)
+                .read_to_end(&mut body)
+                .await?;
+        }
+        return Ok(body);
     }
 
     let reader = select_body_reader(stream, headers);

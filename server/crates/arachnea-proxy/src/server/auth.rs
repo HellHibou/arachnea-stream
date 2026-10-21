@@ -19,7 +19,7 @@ impl Default for ProxyAuthConfig {
         Self {
             username: None,
             password_env: None,
-            realm: "Arachnea Proxy".to_string(),
+            realm: crate::PROXY_AUTH_DEFAULT_REALM.to_string(),
         }
     }
 }

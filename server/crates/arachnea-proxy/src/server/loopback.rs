@@ -62,7 +62,7 @@ impl std::fmt::Debug for LoopbackProxyRuntime {
 
 impl Default for LoopbackProxyRuntime {
     fn default() -> Self {
-        Self::new(0)
+        Self::new(crate::PROXY_LOOPBACK_DEFAULT_PORT)
     }
 }
 

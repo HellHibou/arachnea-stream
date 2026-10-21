@@ -14,8 +14,9 @@ FranceTV and TF1 retain their existing explicit `[403]` activation.
 The same policy runs before media post-actions and Rquest body materialization.
 Only the orchestrator applies its decision to the exact selection token. Handler
 errors are logged and become inconclusive; they do not reject the endpoint.
-An accepted final response is committed before body collection; token clones
-share one awaited acceptance commit. An inconclusive response preserves the
+Streamed final responses are accepted before body transfer. The media client
+commits buffered final responses only after the complete body has been received;
+token clones share one awaited acceptance commit. An inconclusive response preserves the
 existing durable history. Redirect responses are classified with the actual hop's method, effective URL and token;
 a final accepted response never validates the original domain by inference.
 A followed 301/302/303/307/308 also records separate, persistent routing evidence
@@ -35,6 +36,11 @@ already need buffering. Content-prefix inspection uses the transfer-decoded
 stream; it cannot use the buffered compatibility fallback for upstreams sending
 already-dechunked data with a stale `Transfer-Encoding: chunked` header. This
 malformed-response tolerance remains available for header-only classifiers.
+Buffered chunked bodies stop at the final chunk and trailers, without waiting for
+TLS shutdown or requiring `close_notify` after a complete HTTP message. Compatibility
+fallback applies only when the first line is not a chunk size; once chunk framing
+is detected, truncated or malformed framing remains an error. Close-delimited
+bodies still require clean EOF; a TLS EOF error cannot prove their completeness.
 
 YAML HTTP options and media URL JSON options accept `proxy_response_classifier`:
 
@@ -93,7 +99,7 @@ This README is the design and usage home for the proxy crate. Remaining work is 
 - Public-bind safety checks, ACLs, optional HTTP/SOCKS authentication, connection limits, and typed errors.
 - Optional integration with `arachnea-dns` when local resolution or Smart DNS decisions are required.
 - Optional persistent cache for dynamic proxies (feature `persistence`): the inventory consults injected typed repositories before falling back to the provider. Available records use a composite host/port key in `proxy-inventory`, with country field queries. The 24-hour threshold is measured from the latest positive evidence, or initial discovery for never-validated records, not attempt dates; age alone never deletes a working endpoint. Accepted histories live in `proxy-preferences`, and bounded eviction protection in `proxy-failures`.
-- Dynamic provider refresh policy belongs to the shared inventory rather than HTTP clients. Refreshes are single-flight per country and normally suppressed for 120 seconds after every provider attempt, including failures and empty lists. An observed connection or tunnel failure shortens that cooldown to the configurable 10-second minimum without loading immediately, allowing the next exhausted-cache selection to discover new endpoints while preserving the failed endpoint's cached exclusion. HTTP engine failures observed before response headers remain destination-scoped. Correlated HTTP orchestration retries only under the common deadline and replay policy; body errors after headers never rotate. Configured origin-response rejections do not clear the provider cooldown. Multi-country selection imports every allowed country's persistent cache before exploring unknown memory candidates or consulting providers, then overlaps slow exploration with eligible country refreshes and ranks incrementally published results. Refreshed provider lists are deduplicated by endpoint and compared with the inventory before network probes: cached protocol, HTTPS capability, health and failure metadata are reused while `last_checked` remains within `probe_ttl`; provider records are stored without eager batch probing, and automatic selection validates unknown or expired required capabilities progressively within shared concurrency limits until a candidate works. Accepted origin responses update positive evidence and the durable history for that exact scheme, host and port, independently of country; the newest eligible accepted endpoint wins within the allowed countries. Optional affinity bindings are retained for 15 minutes and are reused only while the bound proxy still passes country, protocol, freshness, global cooldown, and destination-cooldown checks. Statuses listed in `proxy_rejection_statuses` persist a 24-hour destination rejection, make the recorded destination association ineligible without deleting its last success, and rotate without bypassing those checks.
+- Dynamic provider refresh policy belongs to the shared inventory rather than HTTP clients. Refreshes are single-flight per country and normally suppressed for 120 seconds after every provider attempt, including failures and empty lists. An observed connection or tunnel failure shortens that cooldown to the configurable 10-second minimum without loading immediately, allowing the next exhausted-cache selection to discover new endpoints while preserving the failed endpoint's cached exclusion. HTTP engine failures observed before response headers remain destination-scoped. Correlated HTTP orchestration retries only under the common deadline and replay policy; streamed body errors after headers never rotate. Failed buffered media transfers retain their exact selection token, temporarily exclude that endpoint for the destination, and can retry GET/HEAD or explicitly replayable operations before any response body reaches the caller. Configured origin-response rejections do not clear the provider cooldown. Multi-country selection imports every allowed country's persistent cache before exploring unknown memory candidates or consulting providers, then overlaps slow exploration with eligible country refreshes and ranks incrementally published results. Refreshed provider lists are deduplicated by endpoint and compared with the inventory before network probes: cached protocol, HTTPS capability, health and failure metadata are reused while `last_checked` remains within `probe_ttl`; provider records are stored without eager batch probing, and automatic selection validates unknown or expired required capabilities progressively within shared concurrency limits until a candidate works. Accepted origin responses update positive evidence and the durable history for that exact scheme, host and port, independently of country; the newest eligible accepted endpoint wins within the allowed countries. Optional affinity bindings are retained for 15 minutes and are reused only while the bound proxy still passes country, protocol, freshness, global cooldown, and destination-cooldown checks. Statuses listed in `proxy_rejection_statuses` persist a 24-hour destination rejection, make the recorded destination association ineligible without deleting its last success, and rotate without bypassing those checks.
 
 ## Profiles
 
@@ -559,9 +565,10 @@ Country selection is independent of input order.
 rotations. It has a monotonic 120-second target and a 15-second extension only
 for an already engaged business attempt. New probes, loads, endpoint selections
 and retries cannot start during that extension. No operation resets the clock.
-After an accepted final response, the search deadline is released: established
-media streams continue under their existing transfer policy. Buffered localized
-media bodies have a separate 30-second transfer timeout. Ordinary non-search
+After an accepted streamed final response, the search deadline is released:
+established media streams continue under their existing transfer policy. Buffered
+localized media bodies have a 30-second transfer timeout and remain bounded by
+the search hard deadline until complete collection commits acceptance. Ordinary non-search
 media behavior is unchanged. Plain tunnel establishment uses 120 seconds without
 an HTTP acceptance inference or extension.
 
@@ -587,8 +594,9 @@ own deadline and recheck shared evidence.
 A success also wakes discovery already waiting on probes or providers, including
 other allowed-country sets. Country sets with different permissions can explore
 independently; responses, cookies, bodies and replay guarantees are never shared.
-An accepted response or followed redirect releases ownership before transfer;
-failure or cancellation releases it so another waiter can continue. Warm callers
+An accepted streamed response or followed redirect releases ownership before transfer;
+buffered media responses release it after complete collection. Failure or
+cancellation releases it so another waiter can continue. Warm callers
 reuse eligible accepted or redirect evidence without serializing their transfers.
 
 The selection token records `Discovery`, `AcceptedDestination` or
@@ -620,8 +628,10 @@ a relevant transport failure or configured rejection. A modifying operation with
 uncertain delivery, including a received rejection, is not retried by default.
 An explicit `proxy_retry_replayable: true` media URL option authorizes replay when
 the caller guarantees safe effects and a reproducible body. The option is a
-boolean and survives redirect option rewriting. Inconclusive responses and body
-collection errors do not rotate. Rejections are recorded even when replay is
+boolean and survives redirect option rewriting. Inconclusive responses and streamed
+body errors do not rotate. Buffered media transfer errors can retry only for
+GET/HEAD or explicitly replayable operations, within the original search deadline;
+failed transfers do not commit acceptance. Rejections are recorded even when replay is
 unsafe. Search exhaustion is reported without silently switching to direct egress.
 
 Rquest routing leases for contextual searches are owned by the in-flight

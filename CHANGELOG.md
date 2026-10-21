@@ -178,6 +178,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Buffered proxy responses now finish chunked decoding at the final chunk and trailers instead of waiting for TLS shutdown, avoiding false `close_notify` failures. Compatibility fallback no longer hides truncated chunk framing. Buffered media acceptance waits for complete transfer; transfer failures retain the exact proxy selection, apply a destination-scoped exclusion, and allow GET/HEAD or explicitly replayable retries within the existing search deadline.
+
 - Coordinate cold localized discovery by exact destination and allowed-country set, wake pending discovery on business success, and release ownership on outcome/cancellation before media transfer. Preserve immutable selection provenance, allow longer connection budgets for known endpoints, cap ambiguous destination exclusions at 30 seconds even in existing caches, and persist followed-redirect evidence separately from final acceptance. Existing fixtures cover followers, cancellation, restored redirect evidence and transient exclusions.
 
 - Shared TCP prechecks and capability validations now own abort-on-drop child tasks, isolating probe TLS handshakes from the media handler's polling stack after the remaining FranceTV stack overflow. Work sharing, search deadlines and concurrency limits are preserved; existing fixtures verify task isolation and cancellation releasing inventory slots.
