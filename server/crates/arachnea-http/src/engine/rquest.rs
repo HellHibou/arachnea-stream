@@ -30,6 +30,10 @@ impl RquestEngine {
     ///
     /// # Errors
     /// Returns an attributed failure with conservative delivery evidence.
+    ///
+    /// # Returns
+    /// Materialized response, unchanged business decision and technical permission
+    /// to retain the transport if the redirect loop subsequently confirms following.
     #[cfg(feature = "arachnea-proxy")]
     pub(crate) async fn send_for_proxy(
         &self,
@@ -42,6 +46,7 @@ impl RquestEngine {
         (
             EngineResponse,
             arachnea_proxy::core::http::response_classifier::ProxyResponseDecision,
+            bool,
         ),
         ArachneaHttpError,
     > {
@@ -55,7 +60,7 @@ impl RquestEngine {
                 .as_ref()
                 .is_some_and(|token| token.reuses_destination())
         {
-            std::time::Duration::from_secs(60)
+            self.request_timeout.min(std::time::Duration::from_secs(60))
         } else {
             self.request_timeout
         };
@@ -79,11 +84,12 @@ impl RquestEngine {
             tokio::time::timeout(header_timeout, builder.send())
                 .await
                 .map_err(|_| {
-                    tracing::warn!(
+                    tracing::debug!(
                         search_id = search.as_ref().map(|search| search.id()),
                         proxy = selection.as_ref().map(|token| token.endpoint()),
                         failure_kind = "timeout",
                         phase = "response_headers",
+                        timeout_ms = header_timeout.as_millis(),
                         "localized proxy response headers timed out; delivery remains uncertain"
                     );
                     failure(
@@ -123,7 +129,7 @@ impl RquestEngine {
                         }
                         source = cause.source();
                     }
-                    tracing::warn!(
+                    tracing::debug!(
                         search_id = search.as_ref().map(|search| search.id()),
                         proxy = selection.as_ref().map(|token| token.endpoint()),
                         failure_kind = kind,
@@ -143,6 +149,16 @@ impl RquestEngine {
             send.await
         }?;
         let status = response.status();
+        #[cfg(feature = "performance-diagnostics")]
+        tracing::debug!(
+            search_id = search.as_ref().map(|search| search.id()),
+            destination = selection
+                .as_ref()
+                .map(|token| token.destination().to_string()),
+            status = status.as_u16(),
+            duration_ms = started.elapsed().as_millis(),
+            "received localized proxy HTTP response headers"
+        );
         let headers = response.headers().clone();
         let url = response.url().to_string();
         if let Some(token) = &selection {
@@ -162,26 +178,51 @@ impl RquestEngine {
                 .bytes_stream()
                 .map(|result| result.map_err(std::io::Error::other)),
         );
-        let inspection = inspect_proxy_response(
+        #[cfg(feature = "performance-diagnostics")]
+        let inspection_started = tokio::time::Instant::now();
+        let view = ProxyResponseView {
+            method: method.as_str(),
+            requested_url,
+            effective_url: &url,
+            redirect_urls,
+            status: status.as_u16(),
+            headers: &headers,
+            selection: selection.as_ref(),
+            body: &[],
+            body_state: ProxyBodyState::Unavailable,
+        };
+        let historical_requirement = policy
+            .map(|policy| policy.0.body_requirement())
+            .unwrap_or(ProxyBodyRequirement::None);
+        let requirement = policy
+            .map(|policy| policy.0.body_requirement_for_response(&view))
+            .unwrap_or(ProxyBodyRequirement::None);
+        let inspection_timeout = search
+            .as_ref()
+            .map(|search| search.origin_remaining())
+            .unwrap_or_else(|| self.request_timeout.saturating_sub(started.elapsed()));
+        let deferred_prefix = match (historical_requirement, requirement) {
+            (ProxyBodyRequirement::Prefix(bytes), ProxyBodyRequirement::None)
+                if bytes > 0
+                    && method != http::Method::HEAD
+                    && status.as_u16() >= 200
+                    && !matches!(status.as_u16(), 204 | 304) =>
+            {
+                Some((
+                    bytes.min(MAX_PROXY_RESPONSE_PREFIX),
+                    inspection_timeout.min(PROXY_RESPONSE_INSPECTION_TIMEOUT),
+                ))
+            }
+            _ => None,
+        };
+        let inspection = inspect_proxy_response_with_requirement(
             policy,
-            ProxyResponseView {
-                method: method.as_str(),
-                requested_url,
-                effective_url: &url,
-                redirect_urls,
-                status: status.as_u16(),
-                headers: &headers,
-                selection: selection.as_ref(),
-                body: &[],
-                body_state: ProxyBodyState::Unavailable,
-            },
+            view,
             stream,
-            search
-                .as_ref()
-                .map(|search| search.origin_remaining())
-                .unwrap_or_else(|| self.request_timeout.saturating_sub(started.elapsed())),
+            inspection_timeout,
+            requirement,
         );
-        let (decision, mut stream) = if let Some(search) = &search {
+        let (decision, stream, allow_redirect_transport) = if let Some(search) = &search {
             search.origin(inspection).await.map_err(|error| {
                 if let Some(token) = &selection {
                     token.finish_discovery();
@@ -195,6 +236,22 @@ impl RquestEngine {
         } else {
             inspection.await
         };
+        #[cfg(feature = "performance-diagnostics")]
+        tracing::debug!(
+            search_id = search.as_ref().map(|search| search.id()),
+            destination = selection
+                .as_ref()
+                .map(|token| token.destination().to_string()),
+            decision = match &decision {
+                ProxyResponseDecision::Accepted => "accepted",
+                ProxyResponseDecision::RejectedForDestination { .. } => "rejected_for_destination",
+                ProxyResponseDecision::Inconclusive => "inconclusive",
+            },
+            duration_ms = inspection_started.elapsed().as_millis(),
+            deferred_prefix_bytes = deferred_prefix.map(|(bytes, _)| bytes),
+            deferred_prefix_ms = deferred_prefix.map(|(_, timeout)| timeout.as_millis()),
+            "classified localized proxy HTTP response"
+        );
         let accepted =
             matches!(decision, ProxyResponseDecision::Accepted) && !status.is_redirection();
         if accepted {
@@ -217,15 +274,6 @@ impl RquestEngine {
                     true,
                 )
         });
-        let collect = async {
-            let mut body = Vec::new();
-            if !retry_rejection {
-                while let Some(chunk) = stream.next().await {
-                    body.extend_from_slice(&chunk?);
-                }
-            }
-            Ok::<_, std::io::Error>(body)
-        };
         let transfer_timeout = if accepted {
             self.request_timeout
         } else {
@@ -234,25 +282,44 @@ impl RquestEngine {
                 .map(|s| s.origin_remaining().min(self.request_timeout))
                 .unwrap_or(self.request_timeout)
         };
-        let body = tokio::time::timeout(transfer_timeout, collect)
-            .await
-            .map_err(|_| {
-                std::io::Error::new(
-                    std::io::ErrorKind::TimedOut,
-                    "response body transfer timed out",
-                )
-            })
-            .and_then(|result| result)
-            .map_err(|error| {
-                if let Some(token) = &selection {
-                    token.finish_discovery();
-                }
-                ArachneaHttpError::ProxyAttempt {
-                    selection: selection.clone(),
-                    delivery: arachnea_proxy::core::ProxyRequestDelivery::ResponseReceived,
-                    source: Box::new(ArachneaHttpError::Proxy(error.to_string())),
-                }
-            })?;
+        #[cfg(feature = "performance-diagnostics")]
+        let transfer_started = tokio::time::Instant::now();
+        let body = Box::pin(collect_proxy_body(
+            stream,
+            retry_rejection,
+            transfer_timeout,
+            deferred_prefix,
+            if accepted {
+                None
+            } else {
+                search
+                    .as_ref()
+                    .map(|search| tokio::time::Instant::now() + search.origin_remaining())
+            },
+        ))
+        .await
+        .map_err(|error| {
+            if let Some(token) = &selection {
+                token.finish_discovery();
+            }
+            ArachneaHttpError::ProxyAttempt {
+                selection: selection.clone(),
+                delivery: arachnea_proxy::core::ProxyRequestDelivery::ResponseReceived,
+                source: Box::new(ArachneaHttpError::Proxy(error.to_string())),
+            }
+        })?;
+        #[cfg(feature = "performance-diagnostics")]
+        tracing::debug!(
+            search_id = search.as_ref().map(|search| search.id()),
+            destination = selection
+                .as_ref()
+                .map(|token| token.destination().to_string()),
+            body_bytes = body.len(),
+            body_skipped = retry_rejection,
+            duration_ms = transfer_started.elapsed().as_millis(),
+            total_ms = started.elapsed().as_millis(),
+            "collected localized proxy HTTP response body"
+        );
         Ok((
             EngineResponse {
                 url,
@@ -261,6 +328,7 @@ impl RquestEngine {
                 body: body.into(),
             },
             decision,
+            allow_redirect_transport,
         ))
     }
 
@@ -387,4 +455,62 @@ impl HttpEngine for RquestEngine {
             body,
         })
     }
+}
+
+/// Collects once, preserving a skipped inspection's bounded reception window.
+/// The ordinary transfer timeout starts after the historical prefix byte/time
+/// boundary. EOF finishes immediately; failures and cancellation remain local.
+///
+/// # Arguments
+/// - `stream`: Decoded response body, including any replayed inspection bytes.
+/// - `skip`: Whether a retryable rejection must skip collection entirely.
+/// - `transfer_timeout`: Ordinary allowance after the initial reception boundary.
+/// - `deferred_prefix`: Historical byte/time bounds when preliminary inspection was skipped.
+/// - `search_deadline`: Additional absolute cap for a body that was not accepted.
+///
+/// # Errors
+/// Propagates body errors or reports expiration of the applicable transfer deadline.
+#[cfg(feature = "arachnea-proxy")]
+async fn collect_proxy_body(
+    mut stream: arachnea_proxy::core::http::response_classifier::ProxyResponseStream,
+    skip: bool,
+    transfer_timeout: std::time::Duration,
+    deferred_prefix: Option<(usize, std::time::Duration)>,
+    search_deadline: Option<tokio::time::Instant>,
+) -> std::io::Result<Vec<u8>> {
+    use futures::StreamExt;
+    let mut body = Vec::new();
+    if skip {
+        return Ok(body);
+    }
+    if let Some((bytes, allowance)) = deferred_prefix {
+        let deadline = tokio::time::Instant::now() + allowance;
+        let deadline = search_deadline.map_or(deadline, |search| deadline.min(search));
+        while body.len() < bytes {
+            if tokio::time::Instant::now() >= deadline {
+                break;
+            }
+            match tokio::time::timeout_at(deadline, stream.next()).await {
+                Err(_) => break,
+                Ok(None) => return Ok(body),
+                Ok(Some(chunk)) => body.extend_from_slice(&chunk?),
+            }
+        }
+    }
+    let transfer_timeout = search_deadline.map_or(transfer_timeout, |deadline| {
+        transfer_timeout.min(deadline.saturating_duration_since(tokio::time::Instant::now()))
+    });
+    tokio::time::timeout(transfer_timeout, async {
+        while let Some(chunk) = stream.next().await {
+            body.extend_from_slice(&chunk?);
+        }
+        Ok::<_, std::io::Error>(body)
+    })
+    .await
+    .map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "response body transfer timed out",
+        )
+    })?
 }

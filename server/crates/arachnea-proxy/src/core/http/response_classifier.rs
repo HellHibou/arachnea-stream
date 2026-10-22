@@ -82,6 +82,24 @@ pub trait ProxyResponseClassifier: Send + Sync {
         ProxyBodyRequirement::None
     }
 
+    /// Selects body inspection from original response metadata.
+    /// Existing callbacks retain their historical requirement by default.
+    ///
+    /// # Arguments
+    /// - `response`: Original metadata before body inspection or transformations.
+    fn body_requirement_for_response(
+        &self,
+        _response: &ProxyResponseView<'_>,
+    ) -> ProxyBodyRequirement {
+        self.body_requirement()
+    }
+
+    /// Opts into technical transport retention after an inconclusive redirect is followed.
+    /// This never accepts content or overrides a rejection. Custom policies opt out by default.
+    fn allows_redirect_transport_reuse(&self) -> bool {
+        false
+    }
+
     /// Classifies original metadata and an optional bounded prefix.
     ///
     /// # Arguments
@@ -214,6 +232,10 @@ impl HttpStatusProxyResponseClassifier {
 }
 
 impl ProxyResponseClassifier for HttpStatusProxyResponseClassifier {
+    fn allows_redirect_transport_reuse(&self) -> bool {
+        true
+    }
+
     fn classify(&self, response: &ProxyResponseView<'_>) -> Result<ProxyResponseDecision> {
         Ok(if self.rejected_statuses.contains(&response.status) {
             ProxyResponseDecision::RejectedForDestination {
@@ -270,12 +292,59 @@ pub type ProxyResponseStream = Pin<Box<dyn Stream<Item = std::io::Result<Bytes>>
 pub async fn inspect_proxy_response(
     policy: Option<&ProxyResponsePolicy>,
     view: ProxyResponseView<'_>,
-    mut stream: ProxyResponseStream,
+    stream: ProxyResponseStream,
     timeout: Duration,
 ) -> (ProxyResponseDecision, ProxyResponseStream) {
+    let (decision, stream, _) =
+        inspect_proxy_response_with_transport_policy(policy, view, stream, timeout).await;
+    (decision, stream)
+}
+
+/// Inspects a response while retaining permission for technical redirect transport reuse.
+/// The third result is true only for an explicitly permitted, inconclusive redirect
+/// without inspection or classifier failure. The caller must still consume the complete
+/// body successfully and confirm redirect following before admitting its transport.
+///
+/// # Arguments
+/// - `policy`: Selected policy, or conservative status defaults.
+/// - `view`: Original response metadata, before transformations.
+/// - `stream`: Decoded response body, replayed without losing consumed bytes or errors.
+/// - `timeout`: Inspection allowance, capped at three seconds.
+pub async fn inspect_proxy_response_with_transport_policy(
+    policy: Option<&ProxyResponsePolicy>,
+    view: ProxyResponseView<'_>,
+    stream: ProxyResponseStream,
+    timeout: Duration,
+) -> (ProxyResponseDecision, ProxyResponseStream, bool) {
     let default = ProxyResponsePolicy(Arc::new(HttpStatusProxyResponseClassifier::default()));
     let policy = policy.unwrap_or(&default);
-    let limit = match policy.0.body_requirement() {
+    let requirement = policy.0.body_requirement_for_response(&view);
+    inspect_proxy_response_with_requirement(Some(policy), view, stream, timeout, requirement).await
+}
+
+/// Inspects using a requirement already selected from original response metadata.
+/// This avoids evaluating the response-specific hook twice when the caller also
+/// needs its result to preserve transfer timing. Business classification remains authoritative.
+///
+/// # Arguments
+/// - `policy`: Selected policy, or conservative status defaults.
+/// - `view`: Original response metadata before inspection.
+/// - `stream`: Decoded body; consumed bytes and errors are replayed unchanged.
+/// - `timeout`: Inspection allowance, capped at three seconds.
+/// - `requirement`: Body requirement selected for this response.
+///
+/// # Returns
+/// Business decision, replayable stream and technical redirect-retention permission.
+pub async fn inspect_proxy_response_with_requirement(
+    policy: Option<&ProxyResponsePolicy>,
+    view: ProxyResponseView<'_>,
+    mut stream: ProxyResponseStream,
+    timeout: Duration,
+    requirement: ProxyBodyRequirement,
+) -> (ProxyResponseDecision, ProxyResponseStream, bool) {
+    let default = ProxyResponsePolicy(Arc::new(HttpStatusProxyResponseClassifier::default()));
+    let policy = policy.unwrap_or(&default);
+    let limit = match requirement {
         ProxyBodyRequirement::None => 0,
         ProxyBodyRequirement::Prefix(limit) => limit.min(MAX_PROXY_RESPONSE_PREFIX),
     };
@@ -327,15 +396,21 @@ pub async fn inspect_proxy_response(
         body_state: state,
         ..view
     };
-    let decision = match policy.0.classify(&view) {
-        Ok(decision) => decision,
+    let (decision, classified) = match policy.0.classify(&view) {
+        Ok(decision) => (decision, true),
         Err(error) => {
             tracing::warn!(%error, "proxy response classifier failed; result is inconclusive");
-            ProxyResponseDecision::Inconclusive
+            (ProxyResponseDecision::Inconclusive, false)
         }
     };
+    let allow_transport = classified
+        && policy.0.allows_redirect_transport_reuse()
+        && (limit == 0 || state != ProxyBodyState::Unavailable)
+        && matches!(view.status, 301 | 302 | 303 | 307 | 308)
+        && matches!(decision, ProxyResponseDecision::Inconclusive);
     (
         decision,
         Box::pin(futures::stream::iter(replay).chain(stream)),
+        allow_transport,
     )
 }

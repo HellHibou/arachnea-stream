@@ -29,6 +29,8 @@ use super::typed_store::{
 const COLUMNS_META_TABLE: &str = "arachnea_columns";
 /// Internal metadata table recording the signature of every managed index.
 const INDEXES_META_TABLE: &str = "arachnea_indexes";
+/// Bounds the connection-lock hold time of grouped primary-key reads.
+const SQLITE_READ_BATCH_KEYS: usize = 32;
 
 /// SQLite physical representation of an entity primary key.
 ///
@@ -699,6 +701,84 @@ where
         });
         task.await.map_err(join_error)?
     }
+    async fn get_many(&self, keys: &[E::Key]) -> anyhow::Result<Vec<Option<E>>> {
+        let width = self.config.schema.primary_key_fields().len();
+        if keys.len() <= 1 || width > 900 {
+            let mut results = Vec::with_capacity(keys.len());
+            for key in keys {
+                results.push(self.get(key).await?);
+            }
+            return Ok(results);
+        }
+        let mut results = Vec::with_capacity(keys.len());
+        for chunk in keys.chunks(SQLITE_READ_BATCH_KEYS.min(900 / width)) {
+            let connection = self.database.connection.clone();
+            let table = self.table.clone();
+            let config = self.config.clone();
+            let keys = chunk.to_vec();
+            let task = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<Option<E>>> {
+                let connection = connection.lock().map_err(|_| lock_poisoned())?;
+                let schema = &config.schema;
+                let mut values = Vec::with_capacity(keys.len() * width);
+                let mut predicates = Vec::with_capacity(keys.len());
+                for key in &keys {
+                    let fields = schema
+                        .primary_key_fields()
+                        .iter()
+                        .enumerate()
+                        .map(|(index, field)| {
+                            format!("\"{}\" = ?{}", field.name(), values.len() + index + 1)
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" AND ");
+                    let key_values = key.to_sql_values();
+                    anyhow::ensure!(
+                        key_values.len() == width,
+                        "sqlite table '{table}' primary key width mismatch"
+                    );
+                    values.extend(key_values);
+                    predicates.push(format!("({fields})"));
+                }
+                let mut statement = connection.prepare(&format!(
+                    "SELECT {} FROM \"{table}\" WHERE {}",
+                    column_list(schema),
+                    predicates.join(" OR ")
+                ))?;
+                let mut rows = statement.query(rusqlite::params_from_iter(values))?;
+                let mut found = HashMap::new();
+                let mut expired_keys = Vec::new();
+                while let Some(row) = rows.next()? {
+                    let document = read_row::<E>(schema, row)?;
+                    if expired(schema, &document)? {
+                        let values = schema
+                            .primary_key_fields()
+                            .iter()
+                            .map(|field| row.get::<_, SqlValue>(field.name()))
+                            .collect::<rusqlite::Result<Vec<_>>>()?;
+                        expired_keys.push(values);
+                    } else {
+                        let entity = decode::<E>(schema, &document)?;
+                        found.insert(entity.key(), entity);
+                    }
+                }
+                drop(rows);
+                drop(statement);
+                for key_values in expired_keys {
+                    connection.execute(
+                        &format!(
+                            "DELETE FROM \"{table}\" WHERE {}",
+                            primary_key_predicate(schema)
+                        ),
+                        rusqlite::params_from_iter(key_values),
+                    )?;
+                }
+                Ok(keys.iter().map(|key| found.get(key).cloned()).collect())
+            });
+            results.extend(task.await.map_err(join_error)??);
+            tokio::task::yield_now().await;
+        }
+        Ok(results)
+    }
     async fn put(&self, entity: &E) -> anyhow::Result<()> {
         let connection = self.database.connection.clone();
         let table = self.table.clone();
@@ -953,6 +1033,32 @@ mod tests {
         let store = store(&dir, false).await?;
         store.put(&entity("stale:1", "keep-name", 0)).await?;
         store.put(&entity("fresh:1", "keep-name", 60)).await?;
+        let keys = vec![
+            "stale:1".to_string(),
+            "fresh:1".to_string(),
+            "missing:1".to_string(),
+            "fresh:1".to_string(),
+        ];
+        let grouped = store.get_many(&keys).await?;
+        assert!(grouped[0].is_none());
+        assert!(grouped[2].is_none());
+        assert_eq!(grouped[1].as_ref().unwrap().authority, "fresh:1");
+        assert_eq!(grouped[3].as_ref().unwrap().authority, "fresh:1");
+        let connection = store
+            .database
+            .connection
+            .lock()
+            .map_err(|_| lock_poisoned())?;
+        let stale: i64 = connection.query_row(
+            &format!(
+                "SELECT COUNT(*) FROM \"{}\" WHERE authority = 'stale:1'",
+                store.table
+            ),
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(stale, 0);
+        drop(connection);
         assert!(store.get(&"stale:1".to_string()).await?.is_none());
         let found = store.find(&EntityQuery::<TestEntity>::new()).await?;
         assert_eq!(found.len(), 1);
@@ -964,6 +1070,43 @@ mod tests {
             ))
             .await?;
         assert_eq!(found.len(), 1);
+        store.put(&entity("cancelled:1", "keep-name", 0)).await?;
+        let mut cancelled_keys = vec!["fresh:1".to_string(); SQLITE_READ_BATCH_KEYS];
+        cancelled_keys.push("cancelled:1".to_string());
+        {
+            let connection = store
+                .database
+                .connection
+                .lock()
+                .map_err(|_| lock_poisoned())?;
+            let mut pending = Box::pin(store.get_many(&cancelled_keys));
+            assert!(futures::poll!(&mut pending).is_pending());
+            drop(pending);
+            drop(connection);
+        }
+        assert!(store.get(&"fresh:1".to_string()).await?.is_some());
+        {
+            let connection = store
+                .database
+                .connection
+                .lock()
+                .map_err(|_| lock_poisoned())?;
+            let retained: i64 = connection.query_row(
+                &format!(
+                    "SELECT COUNT(*) FROM \"{}\" WHERE authority = ?1",
+                    store.table
+                ),
+                ["cancelled:1"],
+                |row| row.get(0),
+            )?;
+            assert_eq!(
+                retained, 1,
+                "cancellation must not start the second batch or purge its expired row"
+            );
+            connection.execute(&format!("DROP TABLE \"{}\"", store.table), [])?;
+        }
+        assert!(store.get_many(&keys).await.is_err());
+        assert!(store.get_many(&[]).await?.is_empty());
         let _ = std::fs::remove_dir_all(&dir);
         Ok(())
     }

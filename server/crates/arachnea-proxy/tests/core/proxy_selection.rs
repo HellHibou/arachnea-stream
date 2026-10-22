@@ -83,6 +83,95 @@ async fn concurrent_http_responses_keep_endpoint_tokens_and_pinned_reconnects() 
                 .authority(),
             accepted.authority()
         );
+        let diagnostic_destination = Destination::host_port("diagnostic.example", 443)
+            .with_protocol(crate::core::ApplicationProtocol::Https);
+        let diagnostic = crate::core::ProxySelectionToken::new(
+            inventory.clone(), accepted.authority(), diagnostic_destination.clone(),
+        ).with_protocol(Some(crate::core::ProxyProtocol::Http));
+        for status in [400, 429, 502, 503, 407] {
+            let error = crate::core::ProxyError::HttpConnectRejected { status }
+                .at_phase(crate::core::ProxyObservationPhase::Tunnel);
+            diagnostic.record_transport_failure(&error).await;
+            let records = inventory.all_records().await;
+            let record = records.iter().find(|record| record.authority() == accepted.authority()).unwrap();
+            assert_eq!(record.status, ProxyRuntimeStatus::Ok);
+            let observation = record.observations.iter().find(|observation| {
+                observation.context.configuration == "business-transport-failure-v1"
+            }).unwrap();
+            assert_eq!(observation.context.phase, crate::core::ProxyObservationPhase::Tunnel);
+            assert_eq!(observation.context.protocol, Some(crate::core::ProxyProtocol::Http));
+            assert_eq!(observation.http_status, Some(status));
+            assert!(matches!(&observation.outcome, crate::core::ProxyObservationOutcome::Failed {
+                scope: crate::core::ProxyFailureScope::Destination, cause,
+            } if cause == "http_connect_rejected"));
+            let restored: crate::core::ProxyRecord = serde_json::from_value(serde_json::to_value(record)?)?;
+            assert_eq!(serde_json::to_value(&restored.observations)?, serde_json::to_value(&record.observations)?);
+            let failure = record.destination_failures.iter().find(|failure| failure.host == "diagnostic.example").unwrap();
+            assert_eq!(failure.reason, crate::core::ProxyDestinationFailureReason::Other);
+            assert!(failure.cooldown_until.unwrap().duration_since(SystemTime::now())? <= Duration::from_secs(30));
+        }
+        for (error, phase, cause) in [
+            (crate::core::ProxyError::Tls("secret certificate data".into()), crate::core::ProxyObservationPhase::ProxyTls, "tls"),
+            (crate::core::ProxyError::Io(std::io::Error::from(std::io::ErrorKind::ConnectionReset)), crate::core::ProxyObservationPhase::Tunnel, "connection_reset"),
+        ] {
+            let wrapped = crate::core::ProxyError::RequestAttempt {
+                selection: Some(diagnostic.clone()),
+                delivery: crate::core::ProxyRequestDelivery::NotSent,
+                source: Box::new(error.at_phase(phase)),
+            };
+            assert_eq!(wrapped.transport_failure_details(), (Some(phase), cause, None));
+        }
+        assert_eq!(crate::core::ProxyError::Tls("unknown layer".into()).transport_failure_details(), (None, "tls", None));
+        let timeout = crate::core::ProxyError::Timeout("secret target must not be retained")
+            .at_phase(crate::core::ProxyObservationPhase::Tunnel);
+        diagnostic.record_transport_failure(&timeout).await;
+        let records = inventory.all_records().await;
+        let record = records.iter().find(|record| record.authority() == accepted.authority()).unwrap();
+        let observation = record.observations.iter().find(|observation| {
+            observation.context.configuration == "business-transport-failure-v1"
+        }).unwrap();
+        assert_eq!(observation.http_status, None);
+        assert!(matches!(&observation.outcome, crate::core::ProxyObservationOutcome::Failed { cause, .. } if cause == "timeout"));
+        assert!(!serde_json::to_string(observation)?.contains("secret"));
+        let failure = record.destination_failures.iter().find(|failure| failure.host == "diagnostic.example").unwrap();
+        assert_eq!(failure.reason, crate::core::ProxyDestinationFailureReason::Timeout);
+        let until = failure.cooldown_until.unwrap();
+        assert!(until.duration_since(SystemTime::now())? > Duration::from_secs(119));
+        assert!(until.duration_since(SystemTime::now())? <= crate::PROXY_TUNNEL_TIMEOUT_COOLDOWN);
+        diagnostic.record_failure(crate::core::ProxyDestinationFailureReason::Other).await;
+        let records = inventory.all_records().await;
+        let record = records.iter().find(|record| record.authority() == accepted.authority()).unwrap();
+        let failure = record.destination_failures.iter().find(|failure| failure.host == "diagnostic.example").unwrap();
+        assert_eq!(failure.reason, crate::core::ProxyDestinationFailureReason::Timeout);
+        assert_eq!(failure.cooldown_until, Some(until), "generic adapter report must preserve the typed timeout exclusion");
+        assert_eq!(record.status, ProxyRuntimeStatus::Ok);
+        diagnostic.record_accepted().await;
+        let records = inventory.all_records().await;
+        assert!(records.iter().find(|record| record.authority() == accepted.authority()).unwrap().destination_failures.iter().all(|failure| failure.host != "diagnostic.example"));
+        for (index, error) in [
+            crate::core::ProxyError::Timeout("unattributed timeout"),
+            crate::core::ProxyError::Timeout("TCP timeout").at_phase(crate::core::ProxyObservationPhase::EndpointConnect),
+            crate::core::ProxyError::Timeout("TLS timeout").at_phase(crate::core::ProxyObservationPhase::ProxyTls),
+            crate::core::ProxyError::Tls("timeout text is not evidence".into()).at_phase(crate::core::ProxyObservationPhase::Tunnel),
+        ].into_iter().enumerate() {
+            let target = Destination::host_port(&format!("ambiguous-{index}.example"), 443).with_protocol(crate::core::ApplicationProtocol::Https);
+            let token = crate::core::ProxySelectionToken::new(inventory.clone(), accepted.authority(), target.clone());
+            token.record_transport_failure(&error).await;
+            let records = inventory.all_records().await;
+            let record = records.iter().find(|record| record.authority() == accepted.authority()).unwrap();
+            let failure = record.destination_failures.iter().find(|failure| failure.host == target.host_for_protocol()).unwrap();
+            assert_eq!(failure.reason, crate::core::ProxyDestinationFailureReason::Other);
+            assert!(failure.cooldown_until.unwrap().duration_since(SystemTime::now())? <= Duration::from_secs(30));
+        }
+        diagnostic.record_failure(crate::core::ProxyDestinationFailureReason::BlockedByOrigin).await;
+        diagnostic.record_transport_failure(&timeout).await;
+        diagnostic.record_failure(crate::core::ProxyDestinationFailureReason::Other).await;
+        let records = inventory.all_records().await;
+        let failure = records.iter().find(|record| record.authority() == accepted.authority()).unwrap().destination_failures.iter().find(|failure| failure.host == "diagnostic.example").unwrap();
+        assert_eq!(failure.reason, crate::core::ProxyDestinationFailureReason::BlockedByOrigin);
+        assert!(failure.cooldown_until.unwrap().duration_since(SystemTime::now())? > Duration::from_secs(23 * 3600));
+
+        assert_eq!(inventory.select_any_for_destination(&["BE".into()], false, Some(&destination)).await?.authority(), accepted.authority());
         assert_eq!(accepted_task.await??, 2);
         assert_eq!(rejected_task.await??, 2);
         Ok(())

@@ -17,16 +17,21 @@ use super::eligibility::{
 
 pub(super) type SharedProbe = WeakShared<BoxFuture<'static, Option<ProxyRecord>>>;
 
+#[cfg(feature = "performance-diagnostics")]
 struct SharedExecution {
     key: String,
+    operation_id: tokio::task::Id,
     completed: bool,
     started: std::time::Instant,
 }
 
+#[cfg(feature = "performance-diagnostics")]
 impl Drop for SharedExecution {
     fn drop(&mut self) {
         tracing::debug!(work = %self.key, completed = self.completed,
+            operation_id = %self.operation_id,
             elapsed_ms = self.started.elapsed().as_millis(),
+            elapsed_us = self.started.elapsed().as_micros(),
             "finished shared proxy operation");
     }
 }
@@ -64,6 +69,7 @@ impl ProxyInventory {
         } else {
             self.tcp_slots.clone()
         };
+        #[cfg(feature = "performance-diagnostics")]
         let queued = std::time::Instant::now();
         let permit = if speculative {
             let spare = if validation { 2 } else { 8 };
@@ -72,10 +78,12 @@ impl ProxyInventory {
         } else {
             slots.acquire_owned().await.ok()?
         };
+        #[cfg(feature = "performance-diagnostics")]
         tracing::debug!(
             validation,
             speculative,
             waiting_ms = queued.elapsed().as_millis(),
+            waiting_us = queued.elapsed().as_micros(),
             "acquired shared proxy probe slot"
         );
         Some(permit)
@@ -90,7 +98,11 @@ impl ProxyInventory {
         operation: BoxFuture<'static, Option<ProxyRecord>>,
     ) -> Option<ProxyRecord> {
         let search = ProxySearchContext::current();
+        #[cfg(feature = "performance-diagnostics")]
+        let search_id = search.as_ref().map(ProxySearchContext::id);
         let wait = async {
+            #[cfg(feature = "performance-diagnostics")]
+            let queued = std::time::Instant::now();
             let _local = if let Some(search) = &search {
                 let slots = if validation {
                     &search.validation_slots
@@ -101,6 +113,11 @@ impl ProxyInventory {
             } else {
                 None
             };
+            #[cfg(feature = "performance-diagnostics")]
+            tracing::debug!(search_id, work = %key, validation,
+                speculative = search.as_ref().is_some_and(|search| search.speculative),
+                waiting_us = queued.elapsed().as_micros(),
+                "acquired request-local proxy probe slot");
             if search
                 .as_ref()
                 .is_some_and(|search| !search.reserve(validation, &key))
@@ -117,22 +134,30 @@ impl ProxyInventory {
                 let mut registry = self.shared_work.lock().await;
                 registry.retain(|_, weak| weak.upgrade().is_some());
                 if let Some(existing) = registry.get(&key).and_then(WeakShared::upgrade) {
-                    tracing::debug!(work = %key, joined = true, "subscribed to shared proxy work");
+                    #[cfg(feature = "performance-diagnostics")]
+                    tracing::debug!(search_id, work = %key, validation, joined = true, "subscribed to shared proxy work");
                     existing
                 } else {
-                    tracing::debug!(work = %key, joined = false, "subscribed to shared proxy work");
+                    #[cfg(feature = "performance-diagnostics")]
+                    tracing::debug!(search_id, work = %key, validation, joined = false, "subscribed to shared proxy work");
+                    #[cfg(feature = "performance-diagnostics")]
                     let work_key = key.clone();
                     let future = async move {
                         let mut tasks = tokio::task::JoinSet::new();
                         tasks.spawn(ProxySearchContext::unscoped(async move {
+                            #[cfg(feature = "performance-diagnostics")]
                             let mut execution = SharedExecution {
                                 key: work_key,
+                                operation_id: tokio::task::id(),
                                 completed: false,
                                 started: std::time::Instant::now(),
                             };
-                            tracing::debug!(work = %execution.key, "started shared proxy operation");
+                            #[cfg(feature = "performance-diagnostics")]
+                            tracing::debug!(work = %execution.key, operation_id = %execution.operation_id,
+                                "started shared proxy operation");
                             let result = operation.await;
-                            execution.completed = true;
+                            #[cfg(feature = "performance-diagnostics")]
+                            { execution.completed = true; }
                             result
                         }));
                         match tasks.join_next().await {
@@ -163,8 +188,10 @@ impl ProxyInventory {
                     reservation.completed = true;
                 }
                 if let Some(search) = &worker_search {
+                    #[cfg(feature = "performance-diagnostics")]
                     search.completed_work(validation, result.is_some());
                     if validation {
+                        #[cfg(feature = "performance-diagnostics")]
                         search.log_progress("capability validation completed");
                         if result.is_none() {
                             search.failed_validation();
@@ -306,8 +333,9 @@ impl ProxyInventory {
                 .then_some(record);
             }
             let started = epoch_millis();
-            tracing::info!(proxy = %authority, require_https, "probing proxy capabilities before selection");
+            tracing::debug!(proxy = %authority, require_https, "probing proxy capabilities before selection");
             let result = probe.probe_required(&mut record, require_https).await;
+            #[cfg(feature = "performance-diagnostics")]
             for observation in &record.observations {
                 if observation
                     .completed_at
@@ -319,13 +347,13 @@ impl ProxyInventory {
                     if let crate::core::ProxyObservationOutcome::Failed { scope, cause } =
                         &observation.outcome
                     {
-                        tracing::info!(proxy = %authority, source = "exchange", phase = ?observation.context.phase,
+                        tracing::debug!(proxy = %authority, source = "exchange", phase = ?observation.context.phase,
                             protocol = ?observation.context.protocol, target = ?observation.context.target,
                             ?scope, %cause, "proxy capability probe observed failure");
                     }
                 }
             }
-            tracing::info!(
+            tracing::debug!(
                 proxy = %authority,
                 source = "exchange",
                 admissible = is_eligible(&record, &country, require_https, destination, SystemTime::now(), self.probe_mode()),

@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use tracing::{instrument::WithSubscriber, Instrument};
 use url::Url;
 
 use crate::core::http::actions::{post_actions_require_body_buffering, PostActionContext};
@@ -34,7 +35,8 @@ fn stream_error(status: u16, message: impl Into<String>) -> ControlerStreamOutpu
 ///
 /// This is the main entry point registered as a stream function. The
 /// entry-point URL used for rewriting `Location` headers in redirect responses
-/// is read from `input.entry_point`.
+/// is read from `input.entry_point`. An owned child task keeps media discovery
+/// off the controller polling stack while propagating the ambient search and tracing context.
 ///
 /// # Arguments
 /// - `proxy_core`: Routing core shared with the application.
@@ -43,8 +45,48 @@ fn stream_error(status: u16, message: impl Into<String>) -> ControlerStreamOutpu
 ///   URL option overrides the request header, which overrides this default.
 ///
 /// # Errors
-/// Returns controller stream errors; upstream failures produce an HTTP 502 response.
+/// Returns controller stream errors; upstream or child-task failures produce HTTP 502.
+/// Dropping the request aborts its owned child. Returned streams outlive that task.
 pub async fn handle_proxy_http(
+    proxy_core: Arc<ArachneaProxyCore>,
+    input: ControlerStreamInput,
+    fallback_direct: bool,
+) -> Result<ControlerStreamOutput, String> {
+    let inherited_search = crate::core::ProxySearchContext::current();
+    let mut tasks = tokio::task::JoinSet::new();
+    tasks.spawn(
+        async move {
+            let request = Box::pin(handle_proxy_http_inner(proxy_core, input, fallback_direct));
+            if let Some(search) = inherited_search {
+                search.scope(request).await
+            } else {
+                request.await
+            }
+        }
+        .instrument(tracing::Span::current())
+        .with_current_subscriber(),
+    );
+    match tasks.join_next().await {
+        Some(Ok(result)) => result,
+        failure => {
+            tracing::error!(
+                panicked = failure.as_ref().is_some_and(|result| {
+                    result.as_ref().err().is_some_and(|error| error.is_panic())
+                }),
+                "proxy HTTP request task failed"
+            );
+            Ok(stream_error(502, "Proxy request task failed"))
+        }
+    }
+}
+
+/// Runs the media request off the controller polling stack, keeping its original context.
+///
+/// # Arguments
+/// - `proxy_core`: Shared routing core for this request.
+/// - `input`: Owned controller request, including its streaming policy.
+/// - `fallback_direct`: Existing default for direct fallback.
+async fn handle_proxy_http_inner(
     proxy_core: Arc<ArachneaProxyCore>,
     input: ControlerStreamInput,
     fallback_direct: bool,
@@ -333,10 +375,11 @@ pub async fn handle_proxy_http(
         }
     };
     let result = if let Some(search) = &search {
-        search.scope(execute).await
+        search.scope(Box::pin(execute)).await
     } else {
-        execute.await
+        Box::pin(execute).await
     };
+    #[cfg(feature = "performance-diagnostics")]
     if let Some(search) = &search {
         search.log_progress(if result.is_ok() {
             "response received"

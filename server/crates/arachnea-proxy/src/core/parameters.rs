@@ -8,7 +8,8 @@ use crate::core::{
 
 pub use crate::{
     PROXY_HEADER_PARAMETER_AFFINITY, PROXY_HEADER_PARAMETER_COUNTRIES,
-    PROXY_HEADER_PARAMETER_FALLBACK_DIRECT, PROXY_PARAMETER_AFFINITY, PROXY_PARAMETER_COUNTRIES,
+    PROXY_HEADER_PARAMETER_DOMAIN_GROUP, PROXY_HEADER_PARAMETER_FALLBACK_DIRECT,
+    PROXY_PARAMETER_AFFINITY, PROXY_PARAMETER_COUNTRIES, PROXY_PARAMETER_DOMAIN_GROUP,
     PROXY_PARAMETER_FALLBACK_DIRECT,
 };
 
@@ -453,6 +454,11 @@ impl ProxyParameterHandler for DynamicCountryRoutingProxyHandler {
                 PROXY_PARAMETER_AFFINITY,
                 false,
             ),
+            ParameterDefinition::new(
+                PROXY_HEADER_PARAMETER_DOMAIN_GROUP,
+                PROXY_PARAMETER_DOMAIN_GROUP,
+                false,
+            ),
         ]
     }
 
@@ -661,6 +667,11 @@ pub fn normalize_parameter_value(name: &str, value: &str) -> String {
         parse_countries_parameter(value)
             .and_then(|countries| serde_json::to_string(&countries).ok())
             .unwrap_or_default()
+    } else if name == PROXY_PARAMETER_DOMAIN_GROUP {
+        serde_json::from_str::<Vec<String>>(value)
+            .ok()
+            .and_then(|domains| serde_json::to_string(&canonical_proxy_domain_group(&domains)).ok())
+            .unwrap_or_default()
     } else if name == PROXY_PARAMETER_AFFINITY {
         value
             .trim()
@@ -737,4 +748,53 @@ fn normalize_country(country: &str) -> String {
 /// Always returns `true`.
 fn default_true() -> bool {
     true
+}
+
+/// Normalizes a DNS hostname without consulting external suffix lists.
+///
+/// # Arguments
+/// - `domain`: A hostname, without scheme, port or wildcard.
+///
+/// # Returns
+/// Lowercase IDNA ASCII with one final dot removed, or `None` for invalid,
+/// single-label and IP hosts.
+pub(crate) fn normalize_proxy_domain(domain: &str) -> Option<String> {
+    let domain = domain.trim();
+    let url::Host::Domain(host) =
+        url::Host::parse(domain.strip_suffix('.').unwrap_or(domain)).ok()?
+    else {
+        return None;
+    };
+    let host = host.to_ascii_lowercase();
+    if !host.contains('.')
+        || host.len() > 253
+        || host.split('.').any(|label| {
+            label.is_empty()
+                || label.len() > 63
+                || label.starts_with('-')
+                || label.ends_with('-')
+                || !label
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || c == b'-')
+        })
+    {
+        return None;
+    }
+    Some(host)
+}
+
+/// Returns a canonical optional domain group; order does not imply priority.
+///
+/// # Arguments
+/// - `domains`: Domains whose accepted proxies may provide defaults to members.
+///
+/// Invalid names are ignored; matches include exact names and their subdomains.
+pub fn canonical_proxy_domain_group(domains: &[String]) -> Vec<String> {
+    let mut domains: Vec<_> = domains
+        .iter()
+        .filter_map(|domain| normalize_proxy_domain(domain))
+        .collect();
+    domains.sort();
+    domains.dedup();
+    domains
 }

@@ -9,6 +9,9 @@ use std::{
 
 use tokio::{sync::watch, task::JoinSet, time::Instant};
 
+#[cfg(feature = "persistence")]
+use futures::{stream, StreamExt};
+
 use super::{
     eligibility::{is_eligible, needs_capability_probe, probe_is_expired},
     ProxyInventory,
@@ -110,6 +113,25 @@ struct PreparationEntry {
     retry_at: Instant,
 }
 
+/// Reports cancellation separately from a preparation that reaches its deadline.
+#[cfg(feature = "performance-diagnostics")]
+struct PreparationExecution {
+    source_search_id: Option<usize>,
+    operation_id: tokio::task::Id,
+    started: std::time::Instant,
+    outcome: &'static str,
+}
+
+#[cfg(feature = "performance-diagnostics")]
+impl Drop for PreparationExecution {
+    fn drop(&mut self) {
+        tracing::debug!(source_search_id = self.source_search_id,
+            preparation_id = %self.operation_id, outcome = self.outcome,
+            duration_us = self.started.elapsed().as_micros(),
+            "finished bounded proxy reserve lifecycle");
+    }
+}
+
 fn ready_reserve(
     inventory: &ProxyInventory,
     inner: &super::InventoryInner,
@@ -161,7 +183,9 @@ impl ProxyInventory {
         inventory
     }
 
-    /// Transfers live subscriptions without awaiting probes or reserve commits.
+    /// Transfers live subscriptions without awaiting imports, probes or reserve commits.
+    /// A deficient reserve imports persistent country records once in its owned
+    /// task, including when the in-memory country inventory is partially loaded.
     ///
     /// # Arguments
     /// - `continuation`: Subscriptions owned by the accepted selection.
@@ -229,8 +253,22 @@ impl ProxyInventory {
         let mut inventory = self.clone();
         inventory.preparations = Arc::new(PreparationRuntime::default());
         let endpoint = endpoint.to_string();
+        #[cfg(feature = "performance-diagnostics")]
+        let source_search_id = ProxySearchContext::current().map(|search| search.id());
         let mut tasks = JoinSet::new();
         tasks.spawn(async move {
+            #[cfg(feature = "performance-diagnostics")]
+            let mut execution = PreparationExecution {
+                source_search_id,
+                operation_id: tokio::task::id(),
+                started: std::time::Instant::now(),
+                outcome: "cancelled",
+            };
+            #[cfg(feature = "performance-diagnostics")]
+            tracing::debug!(source_search_id, preparation_id = %execution.operation_id,
+                reserve_size = inventory.config.reserve_size.min(2),
+                timeout_ms = inventory.config.reserve_timeout.as_millis(),
+                "started bounded proxy reserve preparation");
             let work = async {
                 // Finish the subscriptions admitted by the active call before
                 // admitting any additional speculative work.
@@ -248,7 +286,12 @@ impl ProxyInventory {
                 search.speculative = true;
                 search.tcp_slots = Arc::new(tokio::sync::Semaphore::new(1));
                 search.validation_slots = Arc::new(tokio::sync::Semaphore::new(1));
+                #[cfg(feature = "performance-diagnostics")]
+                tracing::debug!(source_search_id, preparation_id = %execution.operation_id,
+                    search_id = search.id(), "started proxy reserve candidate search");
                 let mut tried = std::collections::HashSet::new();
+                #[cfg(feature = "persistence")]
+                let mut imported = inventory.persistence.is_none();
                 loop {
                     let mut ready = {
                         let inner = inventory.inner.read().await;
@@ -256,6 +299,37 @@ impl ProxyInventory {
                     };
                     if ready.len() >= inventory.config.reserve_size.min(2) || !search.can_start() {
                         break;
+                    }
+                    #[cfg(feature = "persistence")]
+                    if !imported {
+                        imported = true;
+                        #[cfg(feature = "performance-diagnostics")]
+                        let import_started = std::time::Instant::now();
+                        let _results = search
+                            .scope(async {
+                                let imports = route
+                                    .countries
+                                    .iter()
+                                    .cloned()
+                                    .map(|country| {
+                                        let inventory = inventory.clone();
+                                        async move { inventory.load_cached_country(&country).await }
+                                    })
+                                    .collect::<Vec<_>>();
+                                let imports = stream::iter(imports).buffer_unordered(2);
+                                #[cfg(feature = "performance-diagnostics")]
+                                { imports.collect::<Vec<_>>().await }
+                                #[cfg(not(feature = "performance-diagnostics"))]
+                                { imports.for_each(|_| async {}).await; }
+                            })
+                            .await;
+                        #[cfg(feature = "performance-diagnostics")]
+                        tracing::debug!(source_search_id, preparation_id = %execution.operation_id,
+                            search_id = search.id(), countries = route.countries.len(),
+                            imported_countries = _results.into_iter().filter(|imported| *imported).count(),
+                            duration_us = import_started.elapsed().as_micros(),
+                            "finished reserve persistent country imports");
+                        continue;
                     }
                     ready.insert(endpoint.clone());
                     ready.extend(tried.iter().cloned());
@@ -277,11 +351,14 @@ impl ProxyInventory {
                     }
                 }
             };
-            let result = tokio::time::timeout_at(deadline, work).await;
-            tracing::debug!(
-                timed_out = result.is_err(),
-                "finished bounded proxy reserve preparation"
-            );
+            let _result = tokio::time::timeout_at(deadline, work).await;
+            #[cfg(feature = "performance-diagnostics")]
+            { execution.outcome = if _result.is_err() {
+                "deadline"
+            } else {
+                "completed"
+            }; }
+
         });
         registry.insert(
             key,

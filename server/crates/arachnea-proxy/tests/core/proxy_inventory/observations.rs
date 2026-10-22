@@ -31,6 +31,31 @@ fn default_destination_failure_cooldown_is_24_hours() {
     );
     proxy.destination_failures[0].last_failed = now;
     assert!(has_active_destination_cooldown(&proxy, &destination, now));
+    proxy.destination_failures[0].reason = crate::core::ProxyDestinationFailureReason::Timeout;
+    proxy.destination_failures[0].cooldown_until = Some(now + crate::PROXY_TUNNEL_TIMEOUT_COOLDOWN);
+    assert_eq!(
+        crate::PROXY_TUNNEL_TIMEOUT_COOLDOWN,
+        Duration::from_secs(120)
+    );
+    assert!(has_active_destination_cooldown(
+        &proxy,
+        &destination,
+        now + Duration::from_secs(31)
+    ));
+    assert!(has_active_destination_cooldown(
+        &proxy,
+        &destination,
+        now + Duration::from_secs(119)
+    ));
+    assert!(!has_active_destination_cooldown(
+        &proxy,
+        &destination,
+        now + Duration::from_secs(120)
+    ));
+    let other = Destination::host_port("other.example", 443)
+        .with_protocol(crate::core::ApplicationProtocol::Https);
+    assert!(!has_active_destination_cooldown(&proxy, &other, now));
+    proxy.destination_failures[0].cooldown_until = Some(now + PROXY_DESTINATION_FAILURE_COOLDOWN);
     proxy.destination_failures[0].last_failed = now - Duration::from_secs(31);
     proxy.destination_failures[0].reason =
         crate::core::ProxyDestinationFailureReason::BlockedByOrigin;
@@ -93,6 +118,94 @@ async fn blocked_by_origin_remains_scoped_to_its_destination() {
 #[cfg(feature = "persistence")]
 #[tokio::test]
 async fn blocked_by_origin_is_restored_from_persistence() -> AnyResult<()> {
+    {
+        let repository = Arc::new(TypedProxyRepository::new(memory_proxy_store()?));
+        let preferences = Arc::new(crate::core::TypedProxyPreferenceRepository::new(
+            crate::core::proxy_preference_repository::memory_proxy_preference_store()?,
+        ));
+        let initial = ProxyInventory::new(InventoryConfig::default(), None, None)
+            .with_proxy_repository(repository.clone())
+            .with_preference_repository(preferences.clone());
+        let mut accepted = record(ProxyRuntimeStatus::Ok);
+        accepted.destination_tls = ProxyCapabilityStatus::Available;
+        accepted.last_checked =
+            Some(SystemTime::now() - InventoryConfig::default().probe_ttl - Duration::from_secs(1));
+        initial.add_or_update(vec![accepted.clone()]).await;
+        let source = Destination::host_port("www.tf1.fr", 443)
+            .with_protocol(crate::core::ApplicationProtocol::Https);
+        let target = Destination::host_port("mediainfo.tf1.fr", 443)
+            .with_protocol(crate::core::ApplicationProtocol::Https);
+        initial
+            .record_validated_response(&accepted.authority(), &source)
+            .await;
+        drop(initial);
+        let provider = Arc::new(CountingProvider {
+            records: Vec::new(),
+            calls: AtomicUsize::new(0),
+            delay: Duration::ZERO,
+        });
+        let restarted =
+            ProxyInventory::new(InventoryConfig::default(), Some(provider.clone()), None)
+                .with_proxy_repository(repository)
+                .with_preference_repository(preferences.clone());
+        let loading = restarted.related_origins_loaded.lock().await;
+        assert!(tokio::time::timeout(
+            Duration::from_millis(10),
+            restarted.select_for_destination("BE", true, Some(&target))
+        )
+        .await
+        .is_err());
+        drop(loading);
+        let started = Instant::now();
+        let selected = restarted
+            .select_for_destination("BE", true, Some(&target))
+            .await?;
+        eprintln!(
+            "related origin restart: first_select_us={}",
+            started.elapsed().as_micros()
+        );
+        assert_eq!(selected.authority(), accepted.authority());
+        assert_eq!(selected.last_checked, accepted.last_checked);
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 0);
+        assert!(preferences
+            .get(&crate::core::ProxyDestinationPreference::destination_key(
+                &target
+            ))
+            .await?
+            .is_none());
+        assert!(*restarted.related_origins_loaded.lock().await);
+        restarted
+            .record_validated_response(&selected.authority(), &target)
+            .await;
+        assert!(preferences
+            .get(&crate::core::ProxyDestinationPreference::destination_key(
+                &target
+            ))
+            .await?
+            .is_some());
+        let cross_domain = Destination::host_port("edge.6cloud.fr", 443)
+            .with_protocol(crate::core::ApplicationProtocol::Https);
+        assert!(restarted
+            .select_related_origin(&["BE".into()], true, Some(&cross_domain), &[])
+            .await
+            .is_none());
+        let hint = restarted
+            .select_related_origin(
+                &["BE".into()],
+                true,
+                Some(&cross_domain),
+                &["tf1.fr".into(), "6cloud.fr".into()],
+            )
+            .await
+            .unwrap();
+        assert_eq!(hint.0.authority(), accepted.authority());
+        assert_eq!(hint.2, "domain_group");
+        restarted.remove(&accepted.authority()).await;
+        assert!(restarted
+            .select_related_origin(&["BE".into()], true, Some(&source), &[])
+            .await
+            .is_none());
+    }
     let store = memory_proxy_store()?;
     let repository = Arc::new(TypedProxyRepository::new(Arc::clone(&store)));
     let preferences = Arc::new(crate::core::TypedProxyPreferenceRepository::new(
@@ -214,6 +327,14 @@ async fn blocked_by_origin_is_restored_from_persistence() -> AnyResult<()> {
             accepted_at + Duration::from_secs(1),
         ),
         (
+            crate::core::ProxyDestinationFailureReason::Timeout,
+            accepted_at,
+        ),
+        (
+            crate::core::ProxyDestinationFailureReason::Timeout,
+            accepted_at + Duration::from_secs(1),
+        ),
+        (
             crate::core::ProxyDestinationFailureReason::BlockedByOrigin,
             accepted_at - Duration::from_secs(1),
         ),
@@ -247,6 +368,84 @@ async fn blocked_by_origin_is_restored_from_persistence() -> AnyResult<()> {
                 .len(),
             4
         );
+    }
+    let mut timed_out = repaired.clone();
+    let mut failure = old_failure.clone();
+    failure.reason = crate::core::ProxyDestinationFailureReason::Timeout;
+    failure.last_failed = SystemTime::now();
+    failure.cooldown_until = Some(failure.last_failed + crate::PROXY_TUNNEL_TIMEOUT_COOLDOWN);
+    let timeout_until = failure.cooldown_until;
+    timed_out.destination_failures.push(failure);
+    store.put(&timed_out).await?;
+    let active_timeout_restart = ProxyInventory::new(InventoryConfig::default(), None, None)
+        .with_proxy_repository(repository.clone())
+        .with_preference_repository(preferences.clone());
+    assert_eq!(
+        active_timeout_restart
+            .select_for_destination("BE", true, Some(&destination))
+            .await?
+            .authority(),
+        fallback.authority()
+    );
+    let restored_timeout = repository.get(&legacy.key()).await?.unwrap();
+    let failure = restored_timeout
+        .destination_failures
+        .iter()
+        .find(|failure| {
+            failure.host == "origin.example" && failure.scheme == "https" && failure.port == 443
+        })
+        .unwrap();
+    assert_eq!(
+        failure.reason,
+        crate::core::ProxyDestinationFailureReason::Timeout
+    );
+    assert_eq!(failure.cooldown_until, timeout_until);
+    let failure = timed_out.destination_failures.last_mut().unwrap();
+    failure.last_failed = accepted_at - Duration::from_secs(1);
+    store.put(&timed_out).await?;
+    let timeout_restart = ProxyInventory::new(InventoryConfig::default(), None, None)
+        .with_proxy_repository(repository.clone())
+        .with_preference_repository(preferences.clone());
+    assert_eq!(
+        timeout_restart
+            .select_for_destination("BE", true, Some(&destination))
+            .await?
+            .authority(),
+        blocked_authority
+    );
+    assert_eq!(
+        repository
+            .get(&legacy.key())
+            .await?
+            .unwrap()
+            .destination_failures
+            .len(),
+        3
+    );
+    for reason in [
+        crate::core::ProxyDestinationFailureReason::Other,
+        crate::core::ProxyDestinationFailureReason::Timeout,
+    ] {
+        initial
+            .record_destination_failure_with_cooldown(
+                &blocked_authority,
+                &destination,
+                reason,
+                Some(Duration::from_secs(120)),
+            )
+            .await;
+        initial
+            .record_validated_response(&blocked_authority, &destination)
+            .await;
+        assert!(repository
+            .get(&legacy.key())
+            .await?
+            .unwrap()
+            .destination_failures
+            .iter()
+            .all(|failure| failure.host != "origin.example"
+                || failure.scheme != "https"
+                || failure.port != 443));
     }
     store.put(&repaired).await?;
     let warm_started = Instant::now();

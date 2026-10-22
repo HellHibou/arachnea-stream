@@ -39,7 +39,7 @@ pub trait ProxyRepository: Send + Sync {
     async fn find_by_country(&self, country: &str) -> Result<Vec<ProxyRecord>>;
     /// Persists a batch of records atomically.
     async fn save_many(&self, records: &[ProxyRecord]) -> Result<()>;
-    /// Clears strictly older ambiguous exclusions for an accepted exact destination.
+    /// Clears strictly older `Other`/`Timeout` exclusions for an accepted exact destination.
     /// Reads and updates the latest record under the repository commit lock.
     ///
     /// # Arguments
@@ -107,19 +107,35 @@ impl TypedProxyRepository {
         let Some(record) = record else {
             return Ok(None);
         };
-        let key = record.key();
-        let record = Some(record);
-        if let Some(failure) = self.get_failure(&key).await? {
-            if record.as_ref().is_some_and(|record| {
-                record.health_evidence.last_positive_at <= failure.health_evidence.evicted_at
-                    && record.health_evidence.first_discovered_at
-                        <= failure.health_evidence.evicted_at
-                    && record.last_checked <= failure.health_evidence.evicted_at
-            }) {
-                return Ok(None);
+        let failure = self.get_failure(&record.key()).await?;
+        Ok(Self::available_with_failure(record, failure))
+    }
+
+    /// Applies the same durable eviction rules to scalar and grouped reads.
+    fn available_with_failure(
+        record: ProxyRecord,
+        failure: Option<ProxyRecord>,
+    ) -> Option<ProxyRecord> {
+        if let Some(failure) = failure.filter(Self::failure_is_retained) {
+            if record.health_evidence.last_positive_at <= failure.health_evidence.evicted_at
+                && record.health_evidence.first_discovered_at <= failure.health_evidence.evicted_at
+                && record.last_checked <= failure.health_evidence.evicted_at
+            {
+                return None;
             }
         }
-        Ok(record.filter(|record| record.health_evidence.evicted_at.is_none()))
+        record
+            .health_evidence
+            .evicted_at
+            .is_none()
+            .then_some(record)
+    }
+
+    fn failure_is_retained(record: &ProxyRecord) -> bool {
+        record.health_evidence.evicted_at.is_some_and(|date| {
+            SystemTime::now().duration_since(date).unwrap_or_default()
+                < std::time::Duration::from_secs(48 * 3600)
+        })
     }
 }
 
@@ -135,13 +151,13 @@ impl ProxyRepository for TypedProxyRepository {
         self.filter_available(record).await
     }
     async fn get_failure(&self, key: &ProxyKey) -> Result<Option<ProxyRecord>> {
-        Ok(self.failures.get(key).await?.filter(|record| {
-            record.health_evidence.evicted_at.is_some_and(|date| {
-                SystemTime::now().duration_since(date).unwrap_or_default()
-                    < std::time::Duration::from_secs(48 * 3600)
-            })
-        }))
+        Ok(self
+            .failures
+            .get(key)
+            .await?
+            .filter(Self::failure_is_retained))
     }
+
     async fn evict(&self, record: &ProxyRecord) -> Result<()> {
         let _guard = self.commits.lock().await;
         let mut failures = self.failures.find(&EntityQuery::new()).await?;
@@ -166,14 +182,19 @@ impl ProxyRepository for TypedProxyRepository {
             .store
             .find(&EntityQuery::new().where_string(&ProxyRecord::country_field(), country))
             .await?;
-        let mut available = Vec::new();
-        for record in records {
-            if let Some(record) = self.filter_available(Some(record)).await? {
-                available.push(record);
-            }
-        }
-        Ok(available)
+        let keys = records.iter().map(ProxyRecord::key).collect::<Vec<_>>();
+        let failures = self.failures.get_many(&keys).await?;
+        anyhow::ensure!(
+            failures.len() == records.len(),
+            "proxy failure store returned an invalid batch length"
+        );
+        Ok(records
+            .into_iter()
+            .zip(failures)
+            .filter_map(|(record, failure)| Self::available_with_failure(record, failure))
+            .collect())
     }
+
     async fn save_many(&self, records: &[ProxyRecord]) -> Result<()> {
         let _guard = self.commits.lock().await;
         let mut merged = Vec::with_capacity(records.len());

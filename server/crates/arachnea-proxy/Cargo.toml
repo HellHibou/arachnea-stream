@@ -6,6 +6,7 @@ license.workspace = true
 autoexamples = false
 
 [features]
+performance-diagnostics = []
 default = ["core", "connectors", "tower", "hyper"]
 core = []
 server = ["core"]

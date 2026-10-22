@@ -22,6 +22,32 @@ use scraper_result::{
 
 static ERROR_CODE_GEN: LazyLock<ErrorCodeGenerator> = LazyLock::new(ErrorCodeGenerator::new);
 
+/// Observes one provider query without logging its parameters or response body.
+#[cfg(all(feature = "arachnea-proxy", feature = "performance-diagnostics"))]
+struct ProxySourceObservation<'a> {
+    source: &'a str,
+    query: &'a str,
+    country: Option<String>,
+    started: std::time::Instant,
+    outcome: &'static str,
+    rows: usize,
+}
+
+#[cfg(all(feature = "arachnea-proxy", feature = "performance-diagnostics"))]
+impl Drop for ProxySourceObservation<'_> {
+    fn drop(&mut self) {
+        tracing::debug!(
+            source = self.source,
+            query = self.query,
+            country = self.country.as_deref(),
+            outcome = self.outcome,
+            rows = self.rows,
+            duration_ms = self.started.elapsed().as_millis(),
+            "finished proxy provider source query"
+        );
+    }
+}
+
 use super::*;
 
 #[cfg(feature = "arachnea-proxy")]
@@ -447,7 +473,7 @@ impl ScraperAgregator {
     pub fn create_http_client(&self, http_config: ScraperHttpConfig) -> HttpClient {
         #[cfg(feature = "arachnea-proxy")]
         if let Some(proxy_core) = &self.proxy_core {
-            let handle = SharedProxyConfigHandle::with_runtime(self.proxy_handle.proxy_runtime());
+            let handle = self.proxy_handle.with_independent_config();
             let proxy_core = if !http_config.proxy_countries.is_empty()
                 || http_config.proxy_affinity.is_some()
             {
@@ -895,7 +921,16 @@ impl ScraperAgregator {
             let params = params.clone();
             pending.push(
                 async move {
-                    let (mut rows, _) = query
+                    #[cfg(feature = "performance-diagnostics")]
+                    let mut observation = ProxySourceObservation {
+                        source: query.name(),
+                        query: query_name,
+                        country: params.get("country").cloned(),
+                        started: std::time::Instant::now(),
+                        outcome: "cancelled",
+                        rows: 0,
+                    };
+                    let result = query
                         .execute_query_with_validation(
                             query_name,
                             &params,
@@ -904,10 +939,19 @@ impl ScraperAgregator {
                             None,
                             query.yaml_hash(),
                         )
-                        .await
-                        .map_err(|error| {
-                            error.context(format!("proxy source {} failed", query.name()))
-                        })?;
+                        .await;
+                    let (mut rows, _) = match result {
+                        Ok(result) => result,
+                        Err(error) => {
+                            #[cfg(feature = "performance-diagnostics")]
+                            {
+                                observation.outcome = "failed";
+                            }
+                            return Err(
+                                error.context(format!("proxy source {} failed", query.name()))
+                            );
+                        }
+                    };
                     for row in &mut rows {
                         row.insert(
                             "proxy_source".into(),
@@ -916,6 +960,14 @@ impl ScraperAgregator {
                                 ScraperOutputType::String,
                             ),
                         );
+                    }
+                    #[cfg(feature = "performance-diagnostics")]
+                    {
+                        observation.rows = rows.len();
+                    }
+                    #[cfg(feature = "performance-diagnostics")]
+                    {
+                        observation.outcome = "completed";
                     }
                     Ok(rows)
                 }

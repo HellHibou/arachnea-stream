@@ -513,6 +513,25 @@ where
 {
     /// Reads one non-expired entity by its primary key.
     async fn get(&self, key: &E::Key) -> anyhow::Result<Option<E>>;
+    /// Reads non-expired entities in input order, preserving duplicates and absences.
+    ///
+    /// Reads are not an atomic snapshot across keys. Implementations may purge
+    /// expired entries as `get` does, including before a later read fails.
+    /// Dropping the future stops further batches; an already started blocking
+    /// batch may finish. No results are cached between calls.
+    ///
+    /// # Arguments
+    /// * `keys` - Primary keys to read; an empty slice returns an empty vector.
+    ///
+    /// # Errors
+    /// Returns a backend read/decoding error without a partial result vector.
+    async fn get_many(&self, keys: &[E::Key]) -> anyhow::Result<Vec<Option<E>>> {
+        let mut results = Vec::with_capacity(keys.len());
+        for key in keys {
+            results.push(self.get(key).await?);
+        }
+        Ok(results)
+    }
     /// Validates and writes one entity.
     async fn put(&self, entity: &E) -> anyhow::Result<()>;
     /// Validates all entities before committing the complete batch atomically.

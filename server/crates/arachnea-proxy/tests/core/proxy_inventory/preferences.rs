@@ -2,6 +2,395 @@ use super::*;
 
 #[tokio::test]
 async fn validated_proxy_is_preferred_only_for_its_destination() {
+    {
+        let inventory = ProxyInventory::new(InventoryConfig::default(), None, None);
+        let mut near = record(ProxyRuntimeStatus::Ok);
+        near.host = "near.example".into();
+        near.destination_tls = ProxyCapabilityStatus::Available;
+        let mut far = near.clone();
+        far.host = "far.example".into();
+        let mut grouped = near.clone();
+        grouped.host = "grouped.example".into();
+        inventory
+            .add_or_update(vec![near.clone(), far.clone(), grouped.clone()])
+            .await;
+        let target = Destination::host_port("abcd.mediainfo.tf1.fr", 443)
+            .with_protocol(crate::core::ApplicationProtocol::Https);
+        let near_origin = Destination::host_port("mediainfo.tf1.fr", 443)
+            .with_protocol(crate::core::ApplicationProtocol::Https);
+        let far_origin = Destination::host_port("www.tf1.fr", 443)
+            .with_protocol(crate::core::ApplicationProtocol::Https);
+        let group_origin = Destination::host_port("android.middleware.6play.fr", 443)
+            .with_protocol(crate::core::ApplicationProtocol::Https);
+        inventory
+            .record_validated_response(&near.authority(), &near_origin)
+            .await;
+        tokio::time::sleep(Duration::from_millis(2)).await;
+        inventory
+            .record_validated_response(&far.authority(), &far_origin)
+            .await;
+        inventory
+            .record_validated_response(&grouped.authority(), &group_origin)
+            .await;
+        assert_eq!(
+            inventory
+                .select_for_destination("BE", true, Some(&target))
+                .await
+                .unwrap()
+                .authority(),
+            near.authority(),
+            "nearest suffix precedes a more recent broad suffix"
+        );
+        let group = vec!["tf1.fr".into(), "6play.fr".into()];
+        assert_eq!(
+            inventory
+                .select_any_for_destination_with_domain_group(
+                    &["BE".into()],
+                    true,
+                    Some(&target),
+                    None,
+                    &group
+                )
+                .await
+                .unwrap()
+                .authority(),
+            grouped.authority(),
+            "configured group precedes hierarchy"
+        );
+        let unrelated_group = vec!["m6.fr".into(), "6play.fr".into()];
+        assert_eq!(
+            inventory
+                .select_any_for_destination_with_domain_group(
+                    &["BE".into()],
+                    true,
+                    Some(&target),
+                    None,
+                    &unrelated_group
+                )
+                .await
+                .unwrap()
+                .authority(),
+            near.authority(),
+            "a group must contain the target domain"
+        );
+        inventory
+            .record_destination_failure(
+                &near.authority(),
+                &target,
+                crate::core::ProxyDestinationFailureReason::BlockedByOrigin,
+            )
+            .await;
+        assert_eq!(
+            inventory
+                .select_for_destination("BE", true, Some(&target))
+                .await
+                .unwrap()
+                .authority(),
+            far.authority(),
+            "ineligible nearer candidates allow broader suffixes"
+        );
+        inventory
+            .record_destination_failure(
+                &grouped.authority(),
+                &target,
+                crate::core::ProxyDestinationFailureReason::BlockedByOrigin,
+            )
+            .await;
+        assert_eq!(
+            inventory
+                .select_any_for_destination_with_domain_group(
+                    &["BE".into()],
+                    true,
+                    Some(&target),
+                    None,
+                    &group
+                )
+                .await
+                .unwrap()
+                .authority(),
+            far.authority(),
+            "group exclusions preserve hierarchical fallback"
+        );
+        let exact_target = Destination::host_port("second.mediainfo.tf1.fr", 443)
+            .with_protocol(crate::core::ApplicationProtocol::Https);
+        inventory
+            .record_validated_response(&near.authority(), &exact_target)
+            .await;
+        assert_eq!(
+            inventory
+                .select_any_for_destination_with_domain_group(
+                    &["BE".into()],
+                    true,
+                    Some(&exact_target),
+                    None,
+                    &group
+                )
+                .await
+                .unwrap()
+                .authority(),
+            near.authority(),
+            "exact acceptance keeps priority over the group"
+        );
+        let other = Destination::host_port("api.bedrock.tech", 443)
+            .with_protocol(crate::core::ApplicationProtocol::Https);
+        let m6_group = vec![
+            "m6.fr".into(),
+            "6play.fr".into(),
+            "6cloud.fr".into(),
+            "bedrock.tech".into(),
+        ];
+        assert_eq!(
+            inventory
+                .select_related_origin(&["BE".into()], true, Some(&other), &m6_group)
+                .await
+                .unwrap()
+                .0
+                .authority(),
+            grouped.authority()
+        );
+        assert!(inventory
+            .select_related_origin(&["FR".into()], true, Some(&other), &m6_group)
+            .await
+            .is_none());
+        let deceptive = Destination::host_port("evilbedrock.tech", 443)
+            .with_protocol(crate::core::ApplicationProtocol::Https);
+        assert!(inventory
+            .select_related_origin(&["BE".into()], true, Some(&deceptive), &m6_group)
+            .await
+            .is_none());
+        let http = other
+            .clone()
+            .with_protocol(crate::core::ApplicationProtocol::Http);
+        assert!(inventory
+            .select_related_origin(&["BE".into()], false, Some(&http), &m6_group)
+            .await
+            .is_none());
+    }
+    for (source, target, related) in [
+        ("www.tf1.fr", "mediainfo.tf1.fr", true),
+        ("WWW.TF1.FR.", "compte.tf1.fr", true),
+        ("front-auth.6cloud.fr", "drm.6cloud.fr", true),
+        ("android.middleware.6play.fr", "www.6play.fr", true),
+        ("a.example.co.uk", "b.example.co.uk", true),
+        ("a.example.co.uk", "b.other.co.uk", true),
+        ("alice.github.io", "bob.github.io", true),
+        ("one.alice.github.io", "two.alice.github.io", true),
+        ("www.6play.fr", "front-auth.6cloud.fr", false),
+        ("www.m6.fr", "www.6play.fr", false),
+        ("a.example", "b.example", false),
+        ("a.localhost", "b.localhost", false),
+        ("127.0.0.1", "127.0.0.2", false),
+        ("co.uk", "example.co.uk", true),
+        ("-invalid.tf1.fr", "www.tf1.fr", false),
+        ("a.bücher.de", "b.xn--bcher-kva.de", true),
+        ("a.project.internal", "b.project.internal", true),
+        ("a.tf1.fr", "b.othertf1.fr", false),
+    ] {
+        let inventory = ProxyInventory::new(InventoryConfig::default(), None, None);
+        let mut ordinary = record(ProxyRuntimeStatus::Ok);
+        ordinary.host = "ordinary.example".into();
+        ordinary.latency_ms = Some(1);
+        ordinary.destination_tls = ProxyCapabilityStatus::Available;
+        let mut accepted = ordinary.clone();
+        accepted.host = "accepted.example".into();
+        accepted.latency_ms = Some(100);
+        inventory
+            .add_or_update(vec![ordinary.clone(), accepted.clone()])
+            .await;
+        let source = Destination::host_port(source, 443)
+            .with_protocol(crate::core::ApplicationProtocol::Https);
+        let target = Destination::host_port(target, 443)
+            .with_protocol(crate::core::ApplicationProtocol::Https);
+        inventory
+            .record_validated_response(&accepted.authority(), &source)
+            .await;
+        let search = ProxySearchContext::default();
+        let selected = search
+            .scope(inventory.select_for_destination("BE", true, Some(&target)))
+            .await
+            .unwrap();
+        assert_eq!(
+            selected.authority(),
+            if related {
+                accepted.authority()
+            } else {
+                ordinary.authority()
+            },
+            "{source} -> {target}"
+        );
+        assert_eq!(
+            search.selection_provenance(&selected.authority(), &target),
+            crate::core::ProxySelectionProvenance::Discovery
+        );
+        assert!(!inventory
+            .inner
+            .read()
+            .await
+            .preferred_by_destination
+            .contains_key(&crate::core::ProxyDestinationPreference::destination_key(
+                &target
+            )));
+        if related {
+            accepted.last_checked = Some(
+                SystemTime::now() - InventoryConfig::default().probe_ttl - Duration::from_secs(1),
+            );
+            inventory.add_or_update(vec![accepted.clone()]).await;
+            assert_eq!(
+                inventory
+                    .select_for_destination("BE", true, Some(&target))
+                    .await
+                    .unwrap()
+                    .authority(),
+                accepted.authority(),
+                "probe age alone must not invalidate a related-origin hint"
+            );
+            for separated in [
+                Destination::host_port(&target.host_for_protocol(), 8443)
+                    .with_protocol(crate::core::ApplicationProtocol::Https),
+                Destination::host_port(&target.host_for_protocol(), 443)
+                    .with_protocol(crate::core::ApplicationProtocol::Http),
+            ] {
+                assert!(inventory
+                    .select_related_origin(&["BE".into()], true, Some(&separated), &[])
+                    .await
+                    .is_none());
+            }
+            assert!(inventory
+                .select_related_origin(&["FR".into()], true, Some(&target), &[])
+                .await
+                .is_none());
+            inventory
+                .record_destination_failure(
+                    &accepted.authority(),
+                    &target,
+                    crate::core::ProxyDestinationFailureReason::BlockedByOrigin,
+                )
+                .await;
+            inventory
+                .record_validated_response(&accepted.authority(), &source)
+                .await;
+            assert!(
+                inventory
+                    .select_related_origin(&["BE".into()], true, Some(&target), &[])
+                    .await
+                    .is_none(),
+                "sibling success must not clear target exclusion"
+            );
+        }
+    }
+    {
+        let inventory = ProxyInventory::new(InventoryConfig::default(), None, None);
+        let mut older = record(ProxyRuntimeStatus::Ok);
+        older.host = "older.example".into();
+        older.destination_tls = ProxyCapabilityStatus::Available;
+        let mut newer = older.clone();
+        newer.host = "newer.example".into();
+        inventory
+            .add_or_update(vec![older.clone(), newer.clone()])
+            .await;
+        let source = Destination::host_port("www.tf1.fr", 443)
+            .with_protocol(crate::core::ApplicationProtocol::Https);
+        let target = Destination::host_port("mediainfo.tf1.fr", 443)
+            .with_protocol(crate::core::ApplicationProtocol::Https);
+        inventory
+            .record_validated_response(&older.authority(), &source)
+            .await;
+        tokio::time::sleep(Duration::from_millis(2)).await;
+        inventory
+            .record_validated_response(&newer.authority(), &source)
+            .await;
+        assert_eq!(
+            inventory
+                .select_for_destination("BE", true, Some(&target))
+                .await
+                .unwrap()
+                .authority(),
+            newer.authority()
+        );
+        let search = ProxySearchContext::default();
+        search.start_origin(&newer.authority(), &target).unwrap();
+        assert_eq!(
+            search
+                .scope(inventory.select_for_destination("BE", true, Some(&target)))
+                .await
+                .unwrap()
+                .authority(),
+            older.authority(),
+            "already tried sibling candidates must rotate"
+        );
+        inventory
+            .bind_affinity(Some("explicit-priority"), &older)
+            .await;
+        assert_eq!(
+            inventory
+                .select_any_for_destination_with_affinity(
+                    &["BE".into()],
+                    true,
+                    Some(&target),
+                    Some("explicit-priority")
+                )
+                .await
+                .unwrap()
+                .authority(),
+            older.authority()
+        );
+        let token = crate::core::ProxySelectionToken::new(
+            Arc::new(inventory.clone()),
+            older.authority(),
+            target.clone(),
+        );
+        token.record_redirect(302).await;
+        assert_eq!(
+            inventory
+                .select_for_destination("BE", true, Some(&target))
+                .await
+                .unwrap()
+                .authority(),
+            older.authority(),
+            "exact redirect evidence precedes related history"
+        );
+        inventory
+            .record_validated_response(&older.authority(), &target)
+            .await;
+        let exact = ProxySearchContext::default();
+        let selected = exact
+            .scope(inventory.select_for_destination("BE", true, Some(&target)))
+            .await
+            .unwrap();
+        assert_eq!(
+            selected.authority(),
+            older.authority(),
+            "exact preference precedes newer related history"
+        );
+        assert_eq!(
+            exact.selection_provenance(&selected.authority(), &target),
+            crate::core::ProxySelectionProvenance::AcceptedDestination
+        );
+        for state in [
+            "unknown_capability",
+            "global_cooldown",
+            "authentication",
+            "unavailable_tls",
+        ] {
+            let mut ineligible = newer.clone();
+            match state {
+                "unknown_capability" => ineligible.destination_tls = ProxyCapabilityStatus::Unknown,
+                "global_cooldown" => {
+                    ineligible.cooldown_until = Some(SystemTime::now() + Duration::from_secs(30))
+                }
+                "authentication" => ineligible.authentication_required = Some(true),
+                _ => ineligible.destination_tls = ProxyCapabilityStatus::Unavailable,
+            }
+            let mut inner = inventory.inner.write().await;
+            inner.records.insert(newer.authority(), ineligible);
+            drop(inner);
+            let candidate = inventory
+                .select_related_origin(&["BE".into()], true, Some(&target), &[])
+                .await
+                .unwrap();
+            assert_eq!(candidate.0.authority(), older.authority(), "{state}");
+        }
+    }
     let inventory = ProxyInventory::new(InventoryConfig::default(), None, None);
     let mut fastest = record(ProxyRuntimeStatus::Ok);
     fastest.host = "fastest.example".to_string();
@@ -24,6 +413,7 @@ async fn validated_proxy_is_preferred_only_for_its_destination() {
     validated.last_checked =
         Some(SystemTime::now() - InventoryConfig::default().probe_ttl - Duration::from_secs(1));
     inventory.add_or_update(vec![validated.clone()]).await;
+    let preferred_started = Instant::now();
     assert_eq!(
         inventory
             .select_any_for_destination(&["BE".to_string()], true, Some(&preferred_destination))
@@ -32,6 +422,7 @@ async fn validated_proxy_is_preferred_only_for_its_destination() {
             .authority(),
         validated.authority()
     );
+    eprintln!("lot0 preferred memory: select_us={}, inventory_records=2, provider_calls=0, probe_configured=false", preferred_started.elapsed().as_micros());
 
     assert_eq!(
         inventory
@@ -274,6 +665,7 @@ async fn validated_proxy_preference_never_bypasses_eligibility() {
             .get_mut(&validated_authority)
             .unwrap()
             .proxy_tls_certificate = certificate;
+        let select_started = Instant::now();
         let selected = inventory
             .select_for_destination("BE", true, Some(&destination))
             .await
@@ -285,6 +677,11 @@ async fn validated_proxy_preference_never_bypasses_eligibility() {
             } else {
                 validated_authority.clone()
             }
+        );
+        eprintln!(
+            "lot0 eligibility selection: select_us={}, preferred_rejected={}",
+            select_started.elapsed().as_micros(),
+            certificate == ProxyCapabilityStatus::Unavailable
         );
     }
     let other_destination = Destination::host_port("other.example", 443)

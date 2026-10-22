@@ -23,7 +23,7 @@ fn proxy_validation_is_stale(record: &ProxyRecord, now: SystemTime) -> bool {
         .unwrap_or(false)
 }
 
-/// Removes only ambiguous failures strictly older than acceptance by the same origin.
+/// Removes ambiguous or timeout failures strictly older than same-origin acceptance.
 pub(in crate::core) fn clear_superseded_destination_failures(
     record: &mut ProxyRecord,
     destination: &Destination,
@@ -33,8 +33,11 @@ pub(in crate::core) fn clear_superseded_destination_failures(
     let scheme = destination_scheme(destination);
     let host = destination.host_for_protocol();
     record.destination_failures.retain(|failure| {
-        !(failure.reason == crate::core::ProxyDestinationFailureReason::Other
-            && failure.scheme == scheme
+        !(matches!(
+            failure.reason,
+            crate::core::ProxyDestinationFailureReason::Other
+                | crate::core::ProxyDestinationFailureReason::Timeout
+        ) && failure.scheme == scheme
             && failure.host == host
             && failure.port == destination.port
             && failure.last_failed < accepted_at)
@@ -104,6 +107,26 @@ impl ProxyInventory {
         reason: crate::core::ProxyDestinationFailureReason,
         cooldown: Option<Duration>,
     ) -> bool {
+        self.record_destination_failure_observation(authority, destination, reason, cooldown, None)
+            .await
+    }
+
+    /// Commits optional transport diagnostics alongside the existing destination exclusion.
+    ///
+    /// # Arguments
+    /// - `authority`: Selected endpoint without credentials.
+    /// - `destination`: Exact destination of the attempt.
+    /// - `reason`: Existing exclusion category, independent of diagnostic detail.
+    /// - `cooldown`: Existing optional policy override.
+    /// - `observation`: Bounded diagnostic fact; does not promote global failure.
+    pub(crate) async fn record_destination_failure_observation(
+        &self,
+        authority: &str,
+        destination: &Destination,
+        reason: crate::core::ProxyDestinationFailureReason,
+        cooldown: Option<Duration>,
+        observation: Option<crate::core::ProxyObservation>,
+    ) -> bool {
         let cooldown = cooldown.unwrap_or(self.config.destination_failure_cooldown);
         let cooldown = if reason == crate::core::ProxyDestinationFailureReason::Other {
             cooldown.min(PROXY_TRANSIENT_FAILURE_COOLDOWN)
@@ -115,6 +138,9 @@ impl ProxyInventory {
             let Some(record) = inner.records.get_mut(authority) else {
                 return false;
             };
+            if let Some(observation) = observation {
+                record.record_observation(observation);
+            }
             let now = SystemTime::now();
             let host = destination.host_for_protocol();
             let scheme = destination_scheme(destination);
@@ -123,8 +149,10 @@ impl ProxyInventory {
             }) {
                 failure.failure_count = failure.failure_count.saturating_add(1);
                 failure.last_failed = now;
-                if failure.reason != crate::core::ProxyDestinationFailureReason::BlockedByOrigin
-                    || reason == crate::core::ProxyDestinationFailureReason::BlockedByOrigin
+                if !(failure.reason == crate::core::ProxyDestinationFailureReason::BlockedByOrigin
+                    && reason != crate::core::ProxyDestinationFailureReason::BlockedByOrigin
+                    || failure.reason == crate::core::ProxyDestinationFailureReason::Timeout
+                        && reason == crate::core::ProxyDestinationFailureReason::Other)
                 {
                     failure.reason = reason;
                 }
@@ -291,6 +319,9 @@ impl ProxyInventory {
                     })
                     .record_success(record.key(), accepted_at);
             }
+            if let Some(preference) = inner.preferred_by_destination.get(&key).cloned() {
+                inner.related_origins.merge(&preference);
+            }
             updated
         };
         if let Some(record) = updated {
@@ -360,6 +391,7 @@ impl ProxyInventory {
                         inner.evicted.remove(&oldest);
                     }
                 }
+                inner.related_origins.remove_endpoint(&record.key());
                 for preference in inner.preferred_by_destination.values_mut() {
                     preference
                         .endpoints

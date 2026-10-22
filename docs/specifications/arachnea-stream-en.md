@@ -706,6 +706,14 @@ A player is either a `direct-link` or a `{ resolver, target }` descriptor resolv
 The `resolver` and `target` fields can use the flat form above or the legacy object form
 (`resolver > kind`, `resolver > target_id`).
 
+For `m6play-video` and `m6play-live`, optional Gigya API-key preparation has a
+five-second total budget for the login page and JavaScript bundle, then uses the
+bundled fallback key if needed. A shared memory cache retains an extracted key
+for 15 minutes, or the fallback key for one minute before retrying discovery.
+A Gigya JSONP response with a nonzero numeric `errorCode` invalidates the submitted
+key's cache entry for the next attempt, without replaying the POST. This budget
+does not bound the complete `get_stream` operation or change subsequent routing.
+
 Example with the generic resolver (flat form):
 
 ```yaml
@@ -938,14 +946,21 @@ them as proxy countries to retry a geo-blocked negotiation before evaluating
 `delivery.code >= 400`, the resolver also installs a mediainfo response
 classifier that rejects the current proxy for the destination and lets the
 localized proxy search retry another eligible candidate; HTTP `403` remains a
-rejection. This routing also applies when resolving the final manifest URL.
+rejection. Content inspection is requested when the original or effective URL
+identifies mediainfo, preserving checks across redirects. Non-mediainfo responses,
+including CDN manifests, keep status-based classification without a preliminary
+prefix read. The Rquest collector preserves the skipped inspection's bounded
+reception window before starting its ordinary body-transfer timeout; it still
+returns the complete manifest. Callback priority, content rejections and the
+overall proxy-search budget remain unchanged. This routing also applies when
+resolving the final manifest URL.
 The `stream_url` returned by `get_stream` keeps the local HTTP proxy wrapper but
 does not carry proxy countries or geo-proxy rejection statuses, so playback no
 longer uses a geolocated proxy. The territory list is retained for the storyboard
 and deferred Widevine license request, without a local retry or direct fallback.
 The storyboard `/api/proxy` URL encodes HTTP `403` as a rejection status, causing
 safe sequential retries within the shared 120-second search target, 15-second
-engaged-attempt grace and eight-endpoint limit. Modifying operations are not
+engaged-attempt grace, without a fixed endpoint-attempt cap. Modifying operations are not
 replayed after uncertain sending without an explicit `proxy_retry_replayable`
 boolean in the proxy URL options. Accepted media streams retain their existing
 transfer policy; buffered localized bodies use a separate 30-second transfer

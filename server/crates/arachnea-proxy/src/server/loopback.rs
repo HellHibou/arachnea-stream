@@ -214,6 +214,44 @@ impl LoopbackProxyRuntime {
         Ok(route)
     }
 
+    /// Rebinds an exclusively checked-out internal transport before a new request.
+    /// Existing tunnels retain their original route; reconnects use the new core.
+    ///
+    /// # Arguments
+    /// - `previous`: Current internal routing lease, with parameter overrides disabled.
+    /// - `core`: Newly selected core for the same transport policy and destination.
+    ///
+    /// # Errors
+    /// Returns an error for a stale, external or unavailable routing lease.
+    pub fn rebind_internal_route(
+        &self,
+        previous: &Arc<LoopbackRoute>,
+        core: ArachneaProxyCore,
+    ) -> Result<Arc<LoopbackRoute>> {
+        let mut routes = self
+            .routes
+            .write()
+            .map_err(|_| ProxyError::Config("loopback registry lock poisoned".into()))?;
+        if self.stopped.load(Ordering::Acquire)
+            || previous.allow_parameter_headers
+            || !routes
+                .get(previous.credential())
+                .is_some_and(|route| route.ptr_eq(&Arc::downgrade(previous)))
+        {
+            return Err(ProxyError::Config(
+                "cannot rebind inactive or external loopback route".into(),
+            ));
+        }
+        let route = Arc::new(LoopbackRoute {
+            core,
+            context: previous.context.clone(),
+            allow_parameter_headers: false,
+            id: previous.id.clone(),
+        });
+        routes.insert(route.id.clone(), Arc::downgrade(&route));
+        Ok(route)
+    }
+
     /// Publishes the route for external clients, retaining no strong reference to it.
     ///
     /// # Arguments

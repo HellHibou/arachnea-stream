@@ -23,6 +23,8 @@ pub use crate::PROXY_PREFERENCE_STORE_NAME;
 pub trait ProxyPreferenceRepository: Send + Sync {
     /// Loads an exact destination without requiring provider discovery.
     async fn get(&self, destination: &str) -> Result<Option<ProxyDestinationPreference>>;
+    /// Loads accepted histories once to derive the related-origin candidate index.
+    async fn load_all(&self) -> Result<Vec<ProxyDestinationPreference>>;
     /// Merges and commits history, preserving newer durable observations.
     async fn save(&self, preference: &ProxyDestinationPreference) -> Result<()>;
     /// Removes orphan references after an endpoint is evicted.
@@ -78,6 +80,11 @@ pub fn memory_proxy_preference_store(
 impl ProxyPreferenceRepository for TypedProxyPreferenceRepository {
     async fn get(&self, destination: &str) -> Result<Option<ProxyDestinationPreference>> {
         self.store.get(&destination.to_string()).await
+    }
+
+    async fn load_all(&self) -> Result<Vec<ProxyDestinationPreference>> {
+        let _guard = self.commits.lock().await;
+        self.store.find(&EntityQuery::new()).await
     }
 
     async fn save(&self, preference: &ProxyDestinationPreference) -> Result<()> {

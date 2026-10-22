@@ -110,7 +110,7 @@ This README is the design and usage home for the proxy crate. Remaining work is 
 - Public-bind safety checks, ACLs, optional HTTP/SOCKS authentication, connection limits, and typed errors.
 - Optional integration with `arachnea-dns` when local resolution or Smart DNS decisions are required.
 - Optional persistent cache for dynamic proxies (feature `persistence`): the inventory consults injected typed repositories before falling back to the provider. Available records use a composite host/port key in `proxy-inventory`, with country field queries. The 24-hour threshold is measured from the latest positive evidence, or initial discovery for never-validated records, not attempt dates; age alone never deletes a working endpoint. Accepted histories live in `proxy-preferences`, and bounded eviction protection in `proxy-failures`.
-- Dynamic provider refresh policy belongs to the shared inventory rather than HTTP clients. Refreshes are single-flight per country and normally suppressed for 120 seconds after every provider attempt, including failures and empty lists. An observed connection or tunnel failure shortens that cooldown to the configurable 10-second minimum without loading immediately, allowing the next exhausted-cache selection to discover new endpoints while preserving the failed endpoint's cached exclusion. HTTP engine failures observed before response headers remain destination-scoped. Correlated HTTP orchestration retries only under the common deadline and replay policy; streamed body errors after headers never rotate. Failed buffered media transfers retain their exact selection token, temporarily exclude that endpoint for the destination, and can retry GET/HEAD or explicitly replayable operations before any response body reaches the caller. Configured origin-response rejections do not clear the provider cooldown. Multi-country selection imports every allowed country's persistent cache before exploring unknown memory candidates or consulting providers, then overlaps slow exploration with eligible country refreshes and ranks incrementally published results. Refreshed provider lists are deduplicated by endpoint and compared with the inventory before network probes: cached protocol, HTTPS capability, health and failure metadata are reused while `last_checked` remains within `probe_ttl`; provider records are stored without eager batch probing, and automatic selection validates unknown or expired required capabilities progressively within shared concurrency limits until a candidate works. Accepted origin responses update positive evidence and the durable history for that exact scheme, host and port, independently of country; the newest eligible accepted endpoint wins within the allowed countries. Optional affinity bindings are retained for 15 minutes and are reused only while the bound proxy still passes country, protocol, freshness, global cooldown, and destination-cooldown checks. Statuses listed in `proxy_rejection_statuses` persist a 24-hour destination rejection, make the recorded destination association ineligible without deleting its last success, and rotate without bypassing those checks.
+- Dynamic provider refresh policy belongs to the shared inventory rather than HTTP clients. Refreshes are single-flight per country and normally suppressed for 120 seconds after every provider attempt, including failures and empty lists. An observed connection or tunnel failure shortens that cooldown to the configurable 10-second minimum without loading immediately, allowing the next exhausted-cache selection to discover new endpoints while preserving the failed endpoint's cached exclusion. HTTP engine failures observed before response headers remain destination-scoped. Correlated HTTP orchestration retries only under the common deadline and replay policy; streamed body errors after headers never rotate. Failed buffered media transfers retain their exact selection token, temporarily exclude that endpoint for the destination, and can retry GET/HEAD or explicitly replayable operations before any response body reaches the caller. Configured origin-response rejections do not clear the provider cooldown. After exact preferences and eligible related-origin hints, multi-country selection imports every allowed country's persistent cache before exploring unknown memory candidates or consulting providers, then overlaps slow exploration with eligible country refreshes and ranks incrementally published results. The refresh trigger retains its exploration clock, failed capability-validation count and exhausted-cache state across selections within one logical search and exact destination (scheme, host and port). The clock starts at the first selection for that origin, including preferred reuse; time spent on business attempts counts toward the default 10-second exploration window. Eight failed capability validations or cache exhaustion also enable refresh. Different origins and independent searches retain separate progression; originless selections use a separate entry. Refresh remains demand-driven during discovery, respects existing provider cooldowns and cancellation, and does not interrupt an active business attempt or shorten the overall search deadline. An enabled trigger does not guarantee a provider network request if cooldowns suppress it. Refreshed provider lists are deduplicated by endpoint and compared with the inventory before network probes: cached protocol, HTTPS capability, health and failure metadata are reused while `last_checked` remains within `probe_ttl`; provider records are stored without eager batch probing, and automatic selection validates unknown or expired required capabilities progressively within shared concurrency limits until a candidate works. Accepted origin responses update positive evidence and the durable history for that exact scheme, host and port, independently of country; the newest eligible accepted endpoint wins within the allowed countries. Optional affinity bindings are retained for 15 minutes and are reused only while the bound proxy still passes country, protocol, freshness, global cooldown, and destination-cooldown checks. Statuses listed in `proxy_rejection_statuses` persist a 24-hour destination rejection, make the recorded destination association ineligible without deleting its last success, and rotate without bypassing those checks.
 
 ## Profiles
 
@@ -144,7 +144,7 @@ The retired design notes also reserved `censorship_resistance`; it remains track
 - SOCKS4 uses local IPv4 resolution by default; `socks4a://` uses proxy-side hostname transmission.
 - SOCKS5 supports `local`, `proxy_then_local_fallback`, and `proxy_only` DNS strategies; `proxy_then_local_fallback` is the default and is used only after SOCKS5 reports a remote hostname-resolution failure.
 - `arachnea-dns` should be called only when the proxy truly needs local resolution or a precomputed Smart DNS route decision.
-- Directly observed endpoint connection failures can suspend global availability. Tunnel and destination TLS failures remain scoped to the exact destination: ambiguous failures suspend reuse for at most 30 seconds, whereas configured origin rejections retain their explicit cooldown (24 hours by default).
+- Directly observed endpoint connection failures can suspend global availability. Tunnel and destination TLS failures remain scoped to the exact destination: ambiguous failures suspend reuse for at most 30 seconds, proven tunnel-establishment timeouts suspend the endpoint/origin association for 120 seconds, and configured origin rejections retain their explicit cooldown (24 hours by default).
 - The proxy should consume DNS decisions; it should not redefine DNS security, privacy, cache, DNSSEC, or anti-censorship policy.
 
 ## Security and Privacy
@@ -165,6 +165,32 @@ and selected candidate authority and country. Routine route evaluation,
 local-country mismatch, selected route transport, and reuse of the proxy validated
 for an origin are logged at DEBUG. Route selection logs include the destination
 authority; unavailable geo-proxy warnings also include it.
+Enable `arachnea_proxy::core::proxy_inventory::selection=debug` for bounded
+exploration-ranking diagnostics. Each ranking has a process-local `ranking_id`,
+its search identity, destination and candidate count. Up to eight sorted candidate
+snapshots include original one-based position, capability/freshness rank, probe
+configuration identity, protocol/capabilities, probe age, stored `latency_ms` and
+failure count. Snapshot rank 0 is ready/fresh, 1 known but expired, 2 partially
+proven, and 3 otherwise unqualified, after the ordinary eligibility filters.
+
+For sampled positions only, pipeline start and completion/drop events carry the
+same ranking identity. Completion order counts all pipeline results in that
+ranking, including unsampled ones; gaps are expected. `not_eligible` means no
+admissible result, not necessarily a network failure. `dropped_before_completion`
+can follow another candidate winning or request cancellation and does not mark
+the endpoint unhealthy. Unpolled work has no start/drop event. A winner event is
+emitted even outside the sample and distinguishes `ready_cache` from
+`validation_pipeline`; the latter may reuse evidence refreshed while queued and
+does not prove a new probe ran. Pipeline duration includes waiting, shared work
+and persistence, and is not the stored probe latency or business response time.
+
+The existing comparator, unordered validation concurrency and first-admissible
+return remain unchanged. Snapshots are not frozen inventory transactions: queued
+records are still rechecked before selection. Ranking-duration diagnostics can
+include the cost of emitting the snapshots. No URLs, credentials or response
+payloads are added. Requests satisfied by destination history can bypass ranking
+entirely; use their existing provenance events to distinguish this case.
+
 A local country matching any requested country skips the dynamic geo-proxy.
 When no usable country proxy is available, `ProxyConfig.fallback_direct` defaults
 to `false` (return the selection error). Set it to `true`, or call
@@ -321,8 +347,13 @@ validations begin progressively and return as soon as one candidate works.
 `probe_batch_size` bounds the concurrent candidate pipelines in one selection
 pass, clamped to 1..=8. Each pipeline advances from precheck to validation; all
 in-flight stages keep being polled, including awaited persistence. Full
-validations are limited separately to two per search. Shared inventory limits
-are 16 TCP prechecks and four validations. Saturating validation slots must not
+validations are limited separately to three per active search. Shared inventory
+limits remain 16 TCP prechecks and four validations. A search can occupy three
+of the four shared validation slots, reducing its own queue when capacity is
+available while leaving less capacity for other searches. Speculative candidate
+pipelines remain serial, with their existing spare-capacity admission rules.
+Search budgets and the eight-second targeted probe limit are unchanged.
+Saturating validation slots must not
 park a precheck holding a commit lock needed by a validator.
 Endpoint/phase/configuration operations use weakly registered shared futures,
 polled by their subscribers. Provider refresh futures own a `JoinSet` child task
@@ -367,10 +398,45 @@ No periodic maintenance runs. A failed or abandoned selection before acceptance
 starts no autonomous preparation. If admission is unavailable, request-owned
 subscriptions are cancelled without synthetic health failures.
 
+After retained subscriptions finish, a deficient reserve imports the allowed
+countries from the injected persistent repository once per preparation, with at
+most two country imports in flight. This also completes partially loaded memory
+inventories; it rereads and merges the country's available records rather than
+querying only missing keys. The import runs inside the owned preparation's
+existing deadline and uses the shared country-import operation. After import,
+readiness is checked again before any speculative probe. A sufficient reserve or
+disabled preparation starts no import. Import errors leave existing memory
+candidates usable, and deadline expiry or supervisor cancellation drops the
+subscription without a provider refresh. Accepted-destination reuse still returns
+before normal discovery imports; the active response never awaits this reserve
+work. A completed preparation does not imply that the reserve target was filled.
+
+Disabling reserve preparation also cancels transferable subscriptions already
+started by the active search; comparisons must distinguish those continuations
+from newly admitted speculative probes. The existing discovery scenario compares
+sizes 0/1/2 with independent in-memory inventories and a 200 ms fixture deadline,
+checking non-waiting acceptance and slot release. This does not benchmark network
+cost or fallback utility, and does not change the 15-second production default.
+
+Existing core scenarios also verify shared-read and shared-probe cancellation:
+the first subscriber leaving keeps the operation alive, while the last one
+leaving releases its permit. Transferred reserves outlive accepted request tokens;
+dropping their supervisor only cancels their own shared-read subscription.
+Controlled admission checks fill at most eight speculative TCP slots and two
+validation slots, then allow active searches to fill the remaining eight/two up
+to totals of sixteen/four. A queued active search resumes on release and all
+permits are restored. These are core fixture checks, not HTTP disconnect or
+production-throughput measurements; the fixture read permit is not a native
+SQLite capacity limit.
+
 Country-cache imports overlap with concurrency two and still reread persistent
 state on subsequent selections, preserving external-write visibility. Repository
 country queries reuse the records read by the query, filtering eviction evidence
-under the repository commit lock. Provider merges snapshot only endpoints present
+under the repository commit lock. First insertion into memory can still restore
+current persistent health per endpoint in `add_or_update`, including eviction
+filtering. Query-level record reuse does not eliminate these merge reads: they
+protect newer state between country query and insertion, and are skipped for
+endpoints already in memory. Provider merges snapshot only endpoints present
 in the incoming batch. DEBUG traces distinguish shared network execution and
 cancellation, subscriber joins and inventory commit waits/durations; INFO probe
 failures retain phase, protocol, target, scope and cause even when permissive
@@ -393,21 +459,77 @@ restored lazily before discovery. The newest eligible success within the allowed
 countries wins regardless of country-list order; a disallowed association is
 ignored without deletion. Histories do not expire on age alone.
 Health, authentication, capability failures, country restrictions and destination
-cooldowns still apply. An accepted response clears strictly older `Other` failures
+cooldowns still apply. An accepted response clears strictly older `Other` and `Timeout` failures
 for the same endpoint, scheme, host and port. Preferred selection also reconciles
 legacy exclusions against the stored acceptance date and persists repaired records,
 so existing caches do not need to be deleted. Equal-date or newer failures, explicit
 origin rejections and unrelated exclusions remain intact. Other observed destination
 failures temporarily make the association ineligible without deleting its last success;
 configured origin rejections remain destination-scoped.
+When an exact accepted preference is unavailable, selection can offer an eligible
+endpoint accepted by another HTTP(S) origin, retaining scheme and port isolation.
+Exact followed-redirect evidence and an eligible explicit affinity binding take
+priority. Two candidate mechanisms precede ordinary country imports and exploration:
+
+- An optional `proxy_domain_group` JSON array provides defaults across the listed
+  domains and their subdomains. It applies only if the target belongs to the group;
+  unrelated requests are unaffected. For example,
+  `["m6.fr", "6play.fr", "6cloud.fr", "bedrock.tech"]` can reuse an accepted endpoint
+  across those domains. Use `Arachnea-Proxy-Domain-Group` for HTTP proxy clients or
+  `proxy_domain_group` in client context/parameterized SOCKS credentials. This
+  internal header is extracted and never forwarded to the destination.
+- Hostname hierarchy removes one leading label at a time. For
+  `abcd.mediainfo.tf1.fr`, first consult accepted hosts equal to or below
+  `mediainfo.tf1.fr`, then hosts equal to or below `tf1.fr`. Stop after the
+  two-label level; never consult `*.fr`. A two-label target can consult its own
+  subdomains. Exhausting or rejecting all candidates at a level permits the next
+  broader level. Nearer levels win over more recent successes at broader levels.
+
+Within an explicit group or one hierarchy level, successes are ordered newest
+first, with endpoints deduplicated across all levels. Hostnames use IDNA ASCII,
+case folding, DNS label validation and removal of one final dot; group entries
+are sorted and deduplicated. IPs and single-label hosts do not participate.
+Group entries are domain names without schemes, ports or wildcards; invalid
+entries are ignored. Matching always uses DNS label boundaries, so `evilm6.fr`
+does not match `m6.fr`. There is no embedded or downloaded suffix/domain list.
+The two-label limit is syntactic: `co.uk` and `github.io` are possible shared
+levels, and unknown suffixes such as `project.internal` are supported.
+
+The endpoint must satisfy the requested countries, current probe configuration,
+known required capabilities, global health, authentication and target exclusions;
+endpoints already tried for this target are skipped. Probe age alone does not
+trigger a new capability probe for these hints. The new target retains `Discovery`
+provenance and its existing attempt deadlines; only its actual accepted response
+creates an exact preference. Content classifiers, including custom callbacks,
+still decide acceptance and rotation. Direct fallback and redirects alone never
+seed accepted histories. Transport routes, TLS sessions, cookies and tokens are
+not shared across origins by these mechanisms. A group supplies a default,
+not a mandatory IP: an eligible exact preference keeps priority, and failures can
+rotate to another endpoint.
+
+A shared in-memory suffix index is derived from exact accepted histories, down
+to two labels. With persistence, `ProxyPreferenceRepository::load_all` loads a
+snapshot once on the first eligible lookup; later lookups use only the relevant
+suffix/group entries and restore referenced inventory records lazily. Snapshot
+loading is serialized with inventory removals and merges concurrent in-memory
+successes. Cancellation leaves loading retryable. Accepted responses update the
+index incrementally; eviction/removal prunes endpoints. The initial snapshot has
+a local cost, but there is no full history scan per successful lookup, schema
+migration or cache reset. Custom preference repositories must implement `load_all`
+as a consistent snapshot. INFO `candidate_source` distinguishes `domain_group`
+from `related_origin`; both keep `Discovery` business provenance.
+
 Other candidates from all allowed countries are ranked together for HTTP and HTTPS:
 fully validated fresh capabilities first, complete capabilities requiring revalidation
 next, then partial relevant capabilities and unknown candidates. Latency, failure
 count and stable endpoint identity break ties within a category. Fresh candidates
 are tried before any precheck window. An eligible accepted destination history
-retains its fast path before country cache imports. Followed-redirect evidence is checked after country cache imports;
-affinity reuse without business evidence waits for cold-discovery ownership so
-parallel requests cannot bypass coordination through a newly created binding.
+retains its fast path before country cache imports. Domain-group and hierarchical candidates also
+precede country imports, after checking in-memory exact redirect evidence and
+explicit affinity. Without such a candidate, followed-redirect evidence is checked
+after country imports, and affinity reuse without business evidence waits for
+cold-discovery ownership so parallel requests cannot bypass coordination through
+a newly created binding.
 The persistent cache is imported before unknown candidates are probed. Discovery
 starts after cache exhaustion, 10 seconds of exploration or eight unsuccessful
 completed validations, without dropping active cache exploration. Country loads
@@ -418,6 +540,22 @@ and the refresh floor are configurable through `InventoryConfig`.
 batches directly to selection; the default adapter preserves list-only providers.
 A useful batch may win while other sources are still pending. Last-subscriber
 cancellation drops unfinished source work. No search budget is reset by discovery.
+Queued candidates are re-read before their pipeline starts and between TCP and
+capability validation. Removed, currently excluded or already attempted candidates
+are skipped; candidates whose capabilities became fresh while waiting avoid
+redundant checks. TCP workers also recheck the inventory after shared admission.
+Shared capability probes are still destination-independent: a failure on one
+business origin does not cancel a probe needed by another caller.
+
+Provider refresh termination logs distinguish `completed`, `failed` and `cancelled`,
+with elapsed time, received/merged batches and records, and time to first memory
+merge. `partial` reports retained batches after an error or cancellation; `empty`
+only denotes a normally completed refresh receiving no records. It does not prove
+that every underlying source succeeded. Batch logs distinguish endpoints absent
+from the current inventory snapshot and previously unseen source declarations;
+these counts are not acceptance or health evidence. First merge is not a durable
+commit or business-success timestamp. Cooldowns and refresh overlap thresholds
+are unchanged.
 Probe validation concerns the configured probe destination and does not guarantee
 acceptance by every origin. Explicitly unavailable capabilities and invalid proxy
 certificates remain ineligible, including on the preference fast path.
@@ -478,6 +616,40 @@ With `controller-service`, `core::http::proxy_service::register_service` registe
 the HTTP stream handler under the supplied `name`. The request entry-point URL
 comes from `ControlerStreamInput::entry_point`.
 
+The media handler uses `SimpleHttpClient`, independently of the Rquest transport
+pool in `arachnea-http`. Each upstream request opens a connection and sends
+HTTP/1.1 with `Connection: close`; this path currently has no keep-alive pool or
+HTTP/2 multiplexing. Reusing a validated destination proxy does not reuse its
+socket. For streamed responses, the search's `response received` diagnostic can
+precede completion of the body sent to the player.
+
+Build with the optional `performance-diagnostics` feature and enable
+`arachnea_proxy::core::http::client=debug` to diagnose the media path. Without
+the feature, the body observer, its allocation and per-chunk counters are absent.
+Each upstream attempt/hop has a process-local `media_request_id`, independent of
+search-context identities, and logs only its origin, method, Range presence and
+buffering mode. Phase events cover selection, connection (including proxy chain
+setup), destination TLS when applicable, request/header exchange and response
+setup. Header status and classification duration are reported separately.
+
+The owned body observer records first nonempty bytes, decoded byte counts and
+`eof`, `body_error` or `interrupted` on drop. Timing stops at observed EOF or
+the first body error, even when the stream is dropped later. `interrupted` means dropped before
+observed EOF, including cancellation, skipped bodies or early errors; it does not
+identify the cause. Body timing includes inspection and consumer backpressure,
+and byte counts are upstream bytes consumed before post-actions, not bytes
+confirmed delivered to the player. The observer neither prefetches nor spawns a
+task, and preserves streaming errors and cancellation. Classification time can
+overlap body reception and must not be added to it. Paths, queries, headers and
+payloads are omitted from these diagnostics. Existing unrelated traces may still
+contain full URLs. In the buffered dechunking-compatibility path, the inner reader can yield the
+entire body as one item: first-observed-byte time is then collection completion,
+not network TTFB, and zero observed bytes on interruption do not prove zero wire
+bytes. Any post-action currently forces buffering before its response MIME filter
+is evaluated; a MIME-restricted action can therefore buffer an otherwise
+unmodified binary response. No connection reuse, HTTP version or timeout rule
+changes.
+
 Request paths accept
 `/<API_PREFIX>/[opts_<BASE64>]/<PROTOCOL>[:<PORT>]/<HOST>/<PATH>[?<QUERY>]`,
 for example `/api/proxy/https:8080/example.test/resource`. The optional port in
@@ -507,6 +679,12 @@ exchange. A received HTTP status proves transport, not business acceptance.
 Probe configuration identities invalidate legacy aggregate results and recent
 http/https attempt timestamps when the URL, mode or timeout policy changes; TCP
 attempts remain reusable. Historical contextual facts remain available.
+Each cached-candidate ranking computes the probe context identity and key once
+for its matching records; scalar preparation uses the same invalidation rules.
+An empty batch does not compute a key, and records already in the current
+context keep their capabilities and technical timestamps. The key is local to
+that invocation, so subsequent rankings re-evaluate the probe configuration.
+
 
 `ArachneaProxyCore::select_for_request` returns a concrete pinned core and an opaque
 `ProxySelectionToken`. Reconnects cannot silently select another endpoint. Responses
@@ -515,6 +693,44 @@ Pinned routes reject another authority; HTTP CONNECT may describe that same
 authority as TCP instead of HTTPS. Tokens are not serialized or sent to origins.
 Legacy destination-only observation APIs remain compatibility helpers and are not
 safe for concurrent attribution; Scrapyfy and the media route use tokens instead.
+
+Pinned transport failures retain their directly observed phase, selected route
+protocol (when unambiguous), bounded cause and optional upstream CONNECT status
+in the existing observation contexts (`business-transport-failure-v1`). They are
+committed alongside the existing destination exclusion, without an additional
+repository write. Repeated failures replace the latest result for that context;
+this is bounded diagnostic evidence, not an unbounded attempt journal. CONNECT
+rejections use `ProxyError::HttpConnectRejected { status }`; the status belongs to
+the proxy and does not imply that an origin request was sent. Diagnostic causes
+never copy peer text, credentials, request bodies or signed URLs.
+
+Only a typed timeout whose proven phase is tunnel establishment records a
+`Timeout` destination failure with a 120-second suspension
+(`PROXY_TUNNEL_TIMEOUT_COOLDOWN`). A subsequent generic HTTP error preserves
+that classification and its existing expiry. Other diagnostics keep the `Other`
+exclusion, capped at 30 seconds; CONNECT refusals, unphased timeouts and TLS/error
+text heuristics do not acquire the longer suspension. Global-health rules and
+replay policy are unchanged. Unknown phases are logged without inventing a persisted
+phase. Proxy TLS failures are attributed at their handshake boundary. Opaque
+errors from the outer HTTP engine, including its heuristic destination-TLS
+categories, remain adapter diagnostics; they are not converted into proven core
+phase observations. No cache reset or database migration is required.
+
+Controller media requests execute in one owned child task per request. The router
+awaits the task result rather than polling media discovery on its own stack. A
+request-owned `JoinSet` aborts the child when the caller disappears; no task is
+detached. The ambient search context (including its original deadline), tracing
+span and subscriber are explicitly propagated. Request-local country routing,
+replay and timeout policies are unchanged. Ordinary child-task failures return
+HTTP 502 without exposing the panic payload.
+
+The child returns the existing buffered or streamed response. A streamed body owns
+its upstream connection after header handling finishes; completing the child does
+not close that body. Dropping the body closes its connection normally. Candidate
+pipelines, the core HTTP request, the media retry loop and discovery before its
+generic search wrappers use boxed futures to limit state copies on the native
+polling stack. Future-size diagnostics and native prologues remain useful checks;
+they do not by themselves establish a maximum stack peak for every runtime path.
 
 Shared response classifiers, search budgets, replay safety and target-scoped
 complementary probe suspension operate without background maintenance.
@@ -529,9 +745,16 @@ remain independent. Shared repositories are injected through Scrapyfy;
 compatibility constructors retain memory-only stores. Old directory-based
 databases are ignored without data import or automatic deletion. New-format
 records survive restarts.
+Country reads group durable eviction lookups by composite host/port keys through
+`TypedEntityStore::get_many`. The repository commit lock and the same scalar
+comparison rules protect current positive evidence, discovery/check dates and
+the 48-hour eviction horizon. Country results are not memoized between calls.
+Initial in-memory restoration still rereads current state and eviction evidence;
+a country read does not replace those later safety checks.
+
 Custom `ProxyRepository` implementations must provide
 `clear_superseded_destination_failures`: read the latest record and clear only
-matching older `Other` failures under the same commit lock as ordinary writes.
+matching older `Other`/`Timeout` failures under the same commit lock as ordinary writes.
 This explicit operation prevents conservative `save_many` merges from reviving
 an exclusion removed after acceptance. Accepted-history
 commits are awaited in the success path; a failed write preserves the response
@@ -566,6 +789,14 @@ preserving shorter configured limits. Eligibility applies this cap to old stored
 `Other` exclusions too, without clearing the cache or shortening explicit origin
 rejections. Historical expiry fields may retain their old value; selection uses
 the capped effective expiry.
+Proven tunnel timeouts use the already supported `Timeout` reason and an explicit
+120-second expiry; they are not capped as `Other` when restored. A strictly newer
+accepted response clears older transport failures on the same exact origin both
+in memory and durably. Explicit rejection, equal-date/newer failures and other
+origins remain protected. A suspended endpoint may recover before its retry time;
+if all candidates are ineligible, ordinary route exhaustion and the already
+configured fallback rules still apply. Search budgets and per-attempt timeouts
+are unchanged. No cache reset, new persistent field or migration is required.
 Within the new database, missing optional health fields remain readable, but
 attempt dates do not invent positive evidence or historical accepted preferences.
 Country selection is independent of input order.
@@ -617,8 +848,12 @@ The selection token records `Discovery`, `AcceptedDestination` or
 each phase, preserving shorter configured transport limits. The media client
 allows 30 s for destination TLS, a 60 s establishment envelope and 60 s for
 response headers. Rquest application-created localized clients use a 60 s native
-connection envelope and a 60 s send/header timeout for reused evidence; its TLS
-phase is covered by that envelope, without an independent TLS-only timer. New
+connection envelope for reused evidence, with the send/header timeout capped at
+the smaller of the configured HTTP timeout and 60 s (25 s for Scrapyfy). This
+outer timer includes connection and can interrupt the native envelope earlier;
+TLS has no independent timer here. A previously known proxy can therefore be
+abandoned before 60 s, leaving search time for other eligible candidates when
+replay is permitted. New
 Rquest candidates retain the 15 s connection cap. Accepted-body policies do not
 change. These profiles do not extend the shared 120/135 s search horizon.
 Selection provenance, preferred-endpoint ineligibility, followed redirects and
@@ -650,15 +885,25 @@ Rquest routing leases for contextual searches are owned by the in-flight
 request and released on cancellation. They use the application listener rather
 than owning a listener or a per-request accept task. Client disconnection cancels
 pending CONNECT establishment; accepted relays retain their context until they
-close. Contextual clients are not placed in the cross-request pinned-client cache,
-so these calls reconnect even when the destination preference is reused. Ordinary
-non-search pinned clients retain their keep-alive behavior. External reverse
+close. The HTTP facade can retain complete, accepted contextual transports in a
+bounded idle pool. Before reuse it selects the route again and exclusively rebinds
+the internal loopback lease to the current core, token and search. Existing tunnels
+can remain open; reconnects use the new lease. Pool identity includes origin,
+endpoint and transport policy; previous deadlines or outcomes never govern the
+next request. External reverse
 proxies must allow the
 135-second search horizon; their production settings are deployment-owned.
 
 ### Localized search diagnostics
 
-`ProxySearchContext::log_progress()` emits INFO snapshots at validation completion,
+Concurrent persistent country imports on the same inventory/repository share one
+read and merge. Completed results are not memoized between selections; an error
+or the cancellation of the last subscriber permits a new read. Cancelling one
+subscriber preserves the import awaited by others. This optimization does not
+alter discovery deadlines, provider policy, candidate ranking or eviction checks.
+
+With `performance-diagnostics`, `ProxySearchContext::log_progress()` emits DEBUG
+snapshots at validation completion,
 origin attempt start, retry and logical response/failure. `search_id` correlates
 one call without exposing its URLs or body. The snapshots distinguish reserved
 TCP/validation work, completed work, reachable TCP endpoints, eligible validation
@@ -669,11 +914,37 @@ for each interested search. Cached phase results may be reused without new TCP
 work. An eligible relaxed result can still have unknown capabilities: the probe
 log's `capability_proven` field distinguishes this from a complete technical proof.
 
+`accepted=true` describes an accepted logical response, including one obtained
+after an explicitly enabled direct fallback. Correlate it with the route and
+fallback events before counting a geolocated-proxy success. The Stream application
+enables direct fallback on its shared scraper core; the crate default remains
+disabled. Search IDs may be reused after their contexts are dropped, so combine
+them with the process, time window and destination when analyzing successive calls.
+
 Provider `loaded_count`/`pending_probe_count` describe inventory contents, not how
 many endpoints were tested. A search does not eagerly validate an entire list:
 it advances progressively through candidates within the shared deadline, with
-only two full validations in flight per search. TCP prechecks were already performed before the full-validation INFO
-messages; two visible validation messages do not imply two TCP attempts.
+three full validations in flight per search, within four shared slots. TCP
+prechecks precede full-validation DEBUG messages; their count is not inferred
+from the number of visible validation messages.
+
+Build with `performance-diagnostics` and enable
+`RUST_LOG=info,arachnea_proxy::core::proxy_inventory=debug` for focused measurement. Selection, candidate preparation, persistent country reads/imports,
+probe-slot waits and inventory commits report microsecond durations. Shared probe
+subscriptions include the request `search_id`; task `operation_id` identifies an
+execution, whose duration also includes queued work and commits rather than only
+network time. Reserve lifecycle events link the accepting `source_search_id`,
+`preparation_id` and subsequent technical search, and distinguish completion,
+deadline and cancellation. A completed preparation does not prove that its
+fallbacks will be accepted by the origin. Optional provider lifecycle summaries report completion, failure or cancellation,
+including progress already merged before cancellation.
+
+Keep identifiers with their process and time window. Shared subscription keys
+alone do not disambiguate different inventory instances in the same process.
+These DEBUG events add no request bodies, cookies or full business URLs. Use the
+same logging filter when comparing variants. The October 21 baseline, raw samples,
+measurement protocol and remaining server-side evidence are recorded in
+[`docs/dev-tracking/proxy/bilan-lot0-mesures-reference-proxies-localises.md`](../../../docs/dev-tracking/proxy/bilan-lot0-mesures-reference-proxies-localises.md).
 
 ### Localized proxy acceptance checks
 
@@ -694,7 +965,7 @@ cargo test --offline -p arachnea-proxy --lib --features controller-service core:
 Test-only `lot7` output reports local timing samples and existing fixture counters;
 it is not a production metric export or a public-provider benchmark. The full
 acceptance matrix, measurements and remaining production checks are recorded in
-`docs/dev-tracking/analyse-optimisation-proxies-localises.md`, section 21 at the
+`docs/dev-tracking/proxy/analyse-optimisation-proxies-localises.md`, section 21 at the
 repository root. No production thresholds were increased from these samples.
 
 ## Shared embedded HTTP loopback runtime
@@ -758,3 +1029,78 @@ The conventional password is a routing convention, not local-user access
 control. This behavior does not change the standalone server's existing optional
 static authentication. HTTPS is tunneled without interception; the embedded
 server cannot classify encrypted origin response statuses for external clients.
+
+### Redirect transport retention policies
+
+`ProxyResponseClassifier::allows_redirect_transport_reuse()` defaults to `false`
+for custom callbacks. The generic status classifier opts in, while configured
+rejections remain authoritative. `inspect_proxy_response` preserves its existing
+return contract; `inspect_proxy_response_with_transport_policy` additionally
+reports permission for a supported inconclusive redirect only when inspection
+and classification succeeded. This permission does not accept content or a
+proxy endpoint: the HTTP caller must still read the entire body successfully
+and confirm a valid redirect within its existing follow policy before pooling
+the transport. Classifier failures remain inconclusive and never grant this
+permission. Bounded-prefix inspection and byte/error replay remain unchanged.
+
+
+### Response-specific body inspection
+
+`ProxyResponseClassifier::body_requirement_for_response(view)` selects inspection
+from original response metadata. Its default delegates to `body_requirement()`,
+so existing callbacks keep their previous body needs. The HTTP adapter snapshots
+this requirement once; `inspect_proxy_response_with_requirement` accepts that
+snapshot while preserving classification, body-byte replay and error handling.
+Existing inspection entry points retain their return contracts and select the
+response-specific requirement internally. This hook does not change callback
+priority or opt a custom classifier into redirect transport retention.
+
+
+## Optional performance diagnostics and log levels
+
+`performance-diagnostics` is disabled by default. It compiles in the owned media
+body observer, sampled candidate-ranking identities/completion counters, search
+progress counters, shared-work and reserve lifecycle observers, provider progress
+snapshots and timing-only measurements for selection, persistence and CONNECT.
+Without it, these diagnostic structures, allocations, mutexes and counters are
+excluded; enabling DEBUG alone does not restore them. Existing unit scenarios
+that inspect diagnostic-only body state run that portion only with the feature.
+
+Ordinary DEBUG remains useful without the feature: exact/hierarchical/group
+selection, redirect reuse, capability-validation decisions and recoverable
+connection failures still provide operational context. Technical probe outcomes,
+transport pool state, replay/delivery evidence, provider refresh progression,
+search deadlines, cooldowns and cancellation owners remain functional in both
+modes. The response classifiers and body inspection are never disabled.
+
+| Level | Proxy/HTTP policy |
+| --- | --- |
+| INFO | Listener startup and initialization summaries. Routine requests, preferred selections and successful tunnels do not emit INFO. |
+| DEBUG | Per-attempt routing/probing, recoverable failures and expected connection interruptions; detailed timings/counters require the feature. |
+| WARN | Terminal localized HTTP request failure, degraded direct fallback, persistence/provider failures and unexpected tunnel relay errors. |
+| ERROR | Listener/runtime failures and failures committing accepted preferences or endpoint eviction. |
+
+A failed attempt that can rotate is DEBUG; the HTTP facade reports terminal
+failure once at WARN, with origin/method/delivery rather than a signed request
+URL. CONNECT resets, aborted connections, broken pipes and unexpected EOF are
+DEBUG interruptions; the original errors still propagate. Configuration and
+classifier errors keep their existing handling.
+
+From `server/`, run the application normally with:
+
+```sh
+RUST_LOG=info cargo run -p arachnea-stream --bin arachnea
+```
+
+For a targeted performance investigation:
+
+```sh
+RUST_LOG='info,arachnea_proxy=debug,arachnea_http=debug,arachnea_scrapyfy::scrapyfy::scraper_agregator=debug' cargo run -p arachnea-stream --bin arachnea --features performance-diagnostics
+```
+
+The application forwards the feature through HTTP/Scrapyfy to the proxy crate;
+no dependency enables it by default. Cargo features are additive, so
+`--all-features` also enables diagnostics. Keep the same feature set and logging
+filter when comparing captures. The duplicate `finished progressive proxy provider
+load` and `finished bounded proxy reserve preparation` summaries were removed;
+owned lifecycle summaries provide their outcome and duration.

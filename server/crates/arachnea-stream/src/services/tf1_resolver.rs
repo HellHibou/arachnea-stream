@@ -328,6 +328,19 @@ impl ProxyResponseClassifier for Tf1MediainfoResponseClassifier {
         ProxyBodyRequirement::Prefix(MAX_PROXY_RESPONSE_PREFIX)
     }
 
+    fn body_requirement_for_response(
+        &self,
+        response: &ProxyResponseView<'_>,
+    ) -> ProxyBodyRequirement {
+        if is_tf1_mediainfo_url(response.requested_url)
+            || is_tf1_mediainfo_url(response.effective_url)
+        {
+            self.body_requirement()
+        } else {
+            ProxyBodyRequirement::None
+        }
+    }
+
     fn classify(
         &self,
         response: &ProxyResponseView<'_>,

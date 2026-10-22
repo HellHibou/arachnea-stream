@@ -7,6 +7,7 @@ use crate::core::{
     Destination, ProbeMode, ProxyCapabilityStatus, ProxyProtocol, ProxyRecord, ProxyRuntimeStatus,
 };
 
+#[cfg(feature = "performance-diagnostics")]
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct SelectionStats {
     pub(super) total: usize,
@@ -34,6 +35,7 @@ pub(super) struct SelectionStats {
     pub(super) eligible: usize,
 }
 
+#[cfg(feature = "performance-diagnostics")]
 pub(super) fn selection_stats<'a>(
     records: impl IntoIterator<Item = &'a ProxyRecord>,
     country: &str,

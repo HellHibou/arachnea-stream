@@ -116,6 +116,19 @@ impl ArachneaRquestLoopback {
         self.runtime.clone()
     }
 
+    /// Rebinds an idle, exclusively owned transport to the current request's core.
+    /// Callers must validate route compatibility before reusing its HTTP client.
+    ///
+    /// # Arguments
+    /// - `core`: Fresh selection carrying the current request's token and deadline.
+    ///
+    /// # Errors
+    /// Returns an error if the internal routing lease can no longer be rebound.
+    pub fn rebind(&mut self, core: ArachneaProxyCore) -> Result<()> {
+        self._route = self.runtime.rebind_internal_route(&self._route, core)?;
+        Ok(())
+    }
+
     /// Returns the proxy URL usable with `rquest::Proxy`.
     ///
     /// # Returns

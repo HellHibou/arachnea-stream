@@ -6,6 +6,7 @@ license.workspace = true
 autoexamples = false
 
 [features]
+performance-diagnostics = ["arachnea-proxy?/performance-diagnostics"]
 default = []
 arachnea-proxy = ["dep:arachnea-proxy", "arachnea-proxy/rquest"]
 ghostwire = ["dep:ghostwire"]

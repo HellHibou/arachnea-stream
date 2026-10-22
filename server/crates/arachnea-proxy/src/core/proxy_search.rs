@@ -41,10 +41,22 @@ struct Work {
     reused_origin: bool,
     active: bool,
     accepted: bool,
+    #[cfg(feature = "performance-diagnostics")]
     prechecks_completed: usize,
+    #[cfg(feature = "performance-diagnostics")]
     prechecks_reachable: usize,
+    #[cfg(feature = "performance-diagnostics")]
     validations_completed: usize,
+    #[cfg(feature = "performance-diagnostics")]
     validations_eligible: usize,
+    provider_refresh: HashMap<Option<String>, ProviderRefreshProgress>,
+}
+
+#[derive(Debug)]
+struct ProviderRefreshProgress {
+    started: Instant,
+    failures: usize,
+    ready: bool,
 }
 
 /// Cloneable request-local search. It is never persisted or sent over the wire.
@@ -57,12 +69,13 @@ pub struct ProxySearchContext {
     limits: ProxySearchLimits,
     replayable: bool,
     target_key: Option<String>,
+    refresh_destination: Option<String>,
     work: Arc<Mutex<Work>>,
     accepted: watch::Sender<bool>,
     validation_failures: watch::Sender<usize>,
     /// Per-search TCP concurrency; waiting consumes the target deadline.
     pub(crate) tcp_slots: Arc<Semaphore>,
-    /// Per-search full-validation concurrency.
+    /// Three full validations per search, within the shared inventory limit of four.
     pub(crate) validation_slots: Arc<Semaphore>,
     /// Per-search provider concurrency.
     pub(crate) provider_slots: Arc<Semaphore>,
@@ -94,11 +107,12 @@ impl ProxySearchContext {
             limits,
             replayable: false,
             target_key: None,
+            refresh_destination: None,
             work: Arc::new(Mutex::new(Work::default())),
             accepted: watch::channel(false).0,
             validation_failures: watch::channel(0).0,
             tcp_slots: Arc::new(Semaphore::new(8)),
-            validation_slots: Arc::new(Semaphore::new(2)),
+            validation_slots: Arc::new(Semaphore::new(3)),
             provider_slots: Arc::new(Semaphore::new(2)),
         }
     }
@@ -321,6 +335,7 @@ impl ProxySearchContext {
         }
         timeouts
     }
+    #[cfg(feature = "performance-diagnostics")]
     pub(crate) fn completed_work(&self, validation: bool, usable: bool) {
         let mut work = self.work.lock().unwrap();
         if validation {
@@ -331,12 +346,18 @@ impl ProxySearchContext {
             work.prechecks_reachable += usize::from(usable);
         }
     }
-    /// Logs bounded search counters without URLs, cookies or request bodies.
+    /// Logs optional bounded DEBUG counters without URLs, cookies or bodies.
+    /// Available only with `performance-diagnostics`; a disabled DEBUG filter
+    /// avoids locking and counting reserved work.
     /// Reservations include queued and completed work; cancelled reservations are released.
     ///
     /// # Arguments
     /// - `stage`: Static lifecycle description supplied by the orchestration layer.
+    #[cfg(feature = "performance-diagnostics")]
     pub fn log_progress(&self, stage: &'static str) {
+        if !tracing::enabled!(tracing::Level::DEBUG) {
+            return;
+        }
         let work = self.work.lock().unwrap();
         let prechecks_reserved = work
             .technical
@@ -344,7 +365,7 @@ impl ProxySearchContext {
             .filter(|(validation, _)| !validation)
             .count();
         let validations_reserved = work.technical.len() - prechecks_reserved;
-        tracing::info!(
+        tracing::debug!(
             search_id = self.id(),
             stage,
             elapsed_ms = self.started.elapsed().as_millis(),
@@ -363,7 +384,68 @@ impl ProxySearchContext {
         );
     }
     pub(crate) fn failed_validation(&self) {
+        if let Some(progress) = self
+            .work
+            .lock()
+            .expect("search work poisoned")
+            .provider_refresh
+            .get_mut(&self.refresh_destination)
+        {
+            progress.failures += 1;
+        }
         self.validation_failures.send_modify(|count| *count += 1);
+    }
+    /// Starts or resumes exploration for one exact origin, independently of URL paths.
+    ///
+    /// # Arguments
+    /// - `destination`: Origin being selected; originless selections share a separate entry.
+    pub(crate) fn for_refresh_destination(&self, destination: Option<&Destination>) -> Self {
+        let mut scoped = self.clone();
+        scoped.refresh_destination =
+            destination.map(super::ProxyDestinationPreference::destination_key);
+        scoped
+            .work
+            .lock()
+            .expect("search work poisoned")
+            .provider_refresh
+            .entry(scoped.refresh_destination.clone())
+            .or_insert_with(|| ProviderRefreshProgress {
+                started: Instant::now(),
+                failures: 0,
+                ready: false,
+            });
+        scoped
+    }
+    /// Reads the retained trigger state without changing provider cooldowns.
+    ///
+    /// # Arguments
+    /// - `exploration`: Delay from the first selection for this origin.
+    /// - `failures`: Failed capability validations required to trigger refresh.
+    pub(crate) fn provider_refresh_progress(
+        &self,
+        exploration: Duration,
+        failures: usize,
+    ) -> (Instant, bool) {
+        let mut work = self.work.lock().expect("search work poisoned");
+        let progress = work
+            .provider_refresh
+            .get_mut(&self.refresh_destination)
+            .expect("provider exploration must be initialized before selection");
+        let deadline = progress.started + exploration;
+        progress.ready |= Instant::now() >= deadline || progress.failures >= failures.max(1);
+        (deadline, progress.ready)
+    }
+    /// Retains exhaustion as a refresh trigger across subsequent proxy selections.
+    pub(crate) fn allow_provider_refresh(&self) {
+        if let Some(progress) = self
+            .work
+            .lock()
+            .expect("search work poisoned")
+            .provider_refresh
+            .get_mut(&self.refresh_destination)
+        {
+            progress.ready = true;
+        }
     }
     pub(crate) fn validation_failures(&self) -> watch::Receiver<usize> {
         self.validation_failures.subscribe()
@@ -409,7 +491,7 @@ impl ProxySearchContext {
                 super::ProxyDestinationPreference::destination_key(destination),
             ))
             .is_some_and(|source| *source != ProxySelectionProvenance::Discovery);
-        tracing::info!(search_id = self.id(), proxy = endpoint, %destination,
+        tracing::debug!(search_id = self.id(), proxy = endpoint, %destination,
             provenance = ?work.provenance.get(&(endpoint.into(), super::ProxyDestinationPreference::destination_key(destination))).copied().unwrap_or(ProxySelectionProvenance::Discovery),
             "localized proxy origin selected");
         Ok(())

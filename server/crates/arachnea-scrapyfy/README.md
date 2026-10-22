@@ -92,15 +92,29 @@ rotate. After accepted classification, the ordinary 25-second body transfer
 timeout applies separately. Ordinary requests retain their 25-second timeout.
 The search is per logical HTTP call, not an entire multi-query resolver sequence.
 
-Contextual Rquest routing leases on the shared loopback server are owned by the active request rather than cached
-across requests, to preserve exact cancellation/deadline ownership. Destination
-preferences still provide fast selection, but these calls reconnect. Browser or
+Derived clients share a bounded pool of idle Rquest transports as well as the
+application loopback listener, while their mutable routing handles remain independent.
+Each call selects its route again and exclusively rebinds any compatible idle
+transport to the current token and deadline before reuse. Up to two idle transports
+per route and 32 transports globally are retained; entries idle for 60 seconds are rejected on access. Only complete,
+accepted attempts or explicitly permitted followed redirects return to the pool. Connection reuse depends on server keep-alive;
+closed connections reconnect under the current request's context. Cookies and
+HTTP responses are not shared by this transport pool. Browser or
 custom engines lacking correlated early observation reject this search mode;
 explicit browser-page APIs remain separate from the correlated HTTP contract.
 
 `arachnea-scrapyfy` contains the generic scraping engine used by Arachnea.
 
 ## Proxy Provider Lifetime
+
+With `performance-diagnostics` and DEBUG enabled, each polled provider source
+query logs its source identifier, query name, optional
+requested country, elapsed time, output row count and termination outcome
+(`completed`, `failed` or `cancelled`). Parameters, URLs, response bodies and
+credentials are not added to these diagnostics. A completed source query is
+separate from downstream country filtering, geolocation, inventory merge and
+business acceptance. Other sources and already published batches remain available
+after a source failure; the refresh-attempt cooldown is unchanged.
 
 Proxy and IP-country data providers own independent snapshots of their source
 manifests and effective activation settings. They do not borrow the application
@@ -177,3 +191,34 @@ Only IPv4 loopback is bound; use `127.0.0.1`, not an assumed IPv6 `localhost`.
 In a container, the address is local to that container's network namespace.
 HTTPS tunnels remain opaque to the server, so external HTTPS response statuses
 cannot drive the scraper's correlated response classification.
+
+
+### Optional proxy domain groups
+
+`http.proxy_domain_group` is an optional list of domain names whose accepted
+proxies can supply defaults to each other, including their subdomains:
+
+```yaml
+http:
+  proxy_countries: ["FR"]
+  proxy_domain_group: ["m6.fr", "6play.fr", "6cloud.fr", "bedrock.tech"]
+```
+
+The list is passed through the generic proxy parameters. An empty child list
+inherits its parent, as with `proxy_countries`; a nonempty child replaces it.
+It affects proxy selection only for group members. Exact accepted preferences,
+explicit affinity, allowed countries, target exclusions and content callbacks
+remain effective. The list does not force proxy use for returned media URLs or
+share cookies, tokens or connections between hosts. Without a dynamic proxy route
+it has no routing effect.
+
+
+## Optional performance diagnostics
+
+`performance-diagnostics` is disabled by default and forwards to HTTP and to an
+already enabled optional proxy dependency. Provider source-query observers are
+compiled only with both proxy support and this feature. Disabling it removes
+their timing/outcome state; progressive publication, failure handling and
+cancellation continue unchanged. Country-hint forwarding is logged at DEBUG.
+The Stream application's feature enables all relevant diagnostics together;
+setting `RUST_LOG` alone does not compile them back in.

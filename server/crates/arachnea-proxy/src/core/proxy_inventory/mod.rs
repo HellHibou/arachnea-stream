@@ -22,6 +22,7 @@ mod preferences;
 pub(crate) mod preparation;
 mod probing;
 mod records;
+mod related_origins;
 mod selection;
 
 pub use config::{
@@ -37,6 +38,8 @@ struct InventoryInner {
     country_load_locks: HashMap<String, Arc<Mutex<()>>>,
     country_last_refresh_attempts: HashMap<String, Instant>,
     country_early_refresh: std::collections::HashSet<String>,
+    /// Derived candidate hints indexed by scheme, hostname suffix and port.
+    related_origins: related_origins::RelatedOrigins,
     /// Bounded accepted histories per exact destination, independent of countries.
     preferred_by_destination: HashMap<String, crate::core::ProxyDestinationPreference>,
     evicted: HashMap<String, ProxyRecord>,
@@ -75,8 +78,17 @@ pub struct ProxyInventory {
     /// Persistent cache for dynamic proxy records, when configured.
     #[cfg(feature = "persistence")]
     persistence: Option<Arc<dyn ProxyRepository>>,
+    /// Only in-flight country imports are shared; completed results are not cached.
+    #[cfg(feature = "persistence")]
+    country_imports: Arc<
+        Mutex<
+            HashMap<String, futures::future::WeakShared<futures::future::BoxFuture<'static, bool>>>,
+        >,
+    >,
     #[cfg(feature = "persistence")]
     preferences: Option<Arc<dyn crate::core::ProxyPreferenceRepository>>,
+    #[cfg(feature = "persistence")]
+    related_origins_loaded: Arc<Mutex<bool>>,
     destination_locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
     destination_searches: Arc<Mutex<HashMap<String, std::sync::Weak<Mutex<()>>>>>,
     persistence_commits: Arc<Mutex<()>>,
@@ -111,6 +123,7 @@ impl ProxyInventory {
                 country_load_locks: HashMap::new(),
                 country_last_refresh_attempts: HashMap::new(),
                 country_early_refresh: Default::default(),
+                related_origins: Default::default(),
                 preferred_by_destination: HashMap::new(),
                 evicted: HashMap::new(),
                 affinity_bindings: HashMap::new(),
@@ -128,7 +141,11 @@ impl ProxyInventory {
             #[cfg(feature = "persistence")]
             persistence: None,
             #[cfg(feature = "persistence")]
+            country_imports: Arc::default(),
+            #[cfg(feature = "persistence")]
             preferences: None,
+            #[cfg(feature = "persistence")]
+            related_origins_loaded: Arc::default(),
             destination_locks: Arc::new(Mutex::new(HashMap::new())),
             persistence_commits: Arc::new(Mutex::new(())),
             preference_persistence_failures: Arc::new(AtomicU64::new(0)),
@@ -146,6 +163,7 @@ impl ProxyInventory {
     #[cfg(feature = "persistence")]
     pub fn with_proxy_repository(mut self, persistence: Arc<dyn ProxyRepository>) -> Self {
         self.persistence = Some(persistence);
+        self.country_imports = Arc::default();
         self
     }
 
@@ -159,6 +177,7 @@ impl ProxyInventory {
         repository: Arc<dyn crate::core::ProxyPreferenceRepository>,
     ) -> Self {
         self.preferences = Some(repository);
+        self.related_origins_loaded = Arc::default();
         self
     }
 

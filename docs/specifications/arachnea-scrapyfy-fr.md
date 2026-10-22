@@ -123,6 +123,7 @@ http:
   user_agent_profile: chrome    # chrome | chrome_stable | firefox | firefox_stable
   user_agent: "Custom UA"       # optionnel : surcharge complète du User-Agent
   proxy_countries: ["US", "CA"] # optionnel : pays proxy ordonnés
+  proxy_domain_group: ["m6.fr", "6play.fr", "6cloud.fr", "bedrock.tech"] # groupe optionnel de domaines
   proxy_affinity: "opaque-session-id" # optionnel : conserve le même proxy admissible
   proxy_rejection_statuses: [403] # optionnel : change de proxy et réessaie une fois
   max_redirects: 16             # optionnel : nombre max de redirections (défaut global: 16)
@@ -134,6 +135,17 @@ template runtime. Une liste JSON runtime peut être développée avec
 statiques. Un pays unique doit aussi employer une liste à un élément, par exemple
 `http.proxy_countries: ["US"]`. Le champ singulier `proxy_country` n'est pas
 accepté.
+
+`proxy_domain_group` est une liste statique optionnelle de noms de domaines.
+Le proxy normalise la casse, IDNA et le point final, ignore les entrées invalides
+et déduplique les noms. Le groupe ne s’applique qu’à ses domaines et sous-domaines :
+un proxy accepté par un autre membre admissible fournit un candidat par défaut
+avant la recherche hiérarchique et l’exploration générale. Préférences exactes et
+affinité explicite admissible restent prioritaires. Pays, capacités, exclusions de
+cible, callbacks et budgets restent applicables. Une liste enfant vide hérite du
+parent ; une liste non vide le remplace. Ce paramètre n’impose ni une IP commune ni
+un changement du routage des URL média retournées ; il est sans effet sans routage
+proxy dynamique.
 
 `proxy_affinity` est un identifiant opaque limité au processus. Les requêtes qui
 partagent cet identifiant réutilisent le même proxy dynamique tant qu'il reste
@@ -183,6 +195,16 @@ du handler sont journalisées et inconclusives. Les moteurs sans observation
 précoce corrélée ne produisent pas de préférence ou d’exclusion par déduction.
 La réponse publique HTTP reste matérialisée ; les budgets communs et règles
 de rejeu du lot 5 ne sont pas introduits par cette option.
+
+Les appels Rquest géolocalisés peuvent réutiliser un transport inactif compatible
+entre clients dérivés. Chaque appel sélectionne à nouveau sa route et réassocie
+exclusivement le transport au jeton et à l'échéance de la requête courante. Le pool
+conserve au plus 32 transports inactifs et écarte à l'accès ceux qui sont inactifs
+depuis 60 secondes. Seules les tentatives complètes et acceptées y retournent.
+Cookies et configurations de routage mutables restent indépendants. La connexion
+est réutilisée si le serveur la conserve ; sinon elle est rétablie sous le contexte
+courant. Les budgets de recherche et règles de rejeu restent inchangés ; aucune
+nouvelle option YAML n'est introduite.
 
 ### Modes HTTP (`mode`)
 

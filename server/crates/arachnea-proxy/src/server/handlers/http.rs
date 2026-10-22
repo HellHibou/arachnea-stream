@@ -293,6 +293,7 @@ where
         context_parameter_names = ?context_parameter_names,
         "http proxy CONNECT route context resolved"
     );
+    #[cfg(feature = "performance-diagnostics")]
     let connect_started = std::time::Instant::now();
     let mut pending_client_bytes = Vec::new();
     let connect_result = {
@@ -311,7 +312,8 @@ where
                 read = client.read(&mut buffer) => {
                     match read {
                         Ok(0) => {
-                            tracing::info!(
+                            #[cfg(feature = "performance-diagnostics")]
+                            tracing::debug!(
                                 target = %request.target,
                                 elapsed_ms = connect_started.elapsed().as_millis(),
                                 "cancelled HTTP CONNECT establishment because client disconnected"
@@ -325,7 +327,7 @@ where
                             pending_client_bytes.extend_from_slice(&buffer[..count]);
                         }
                         Err(error) => {
-                            tracing::warn!(target = %request.target, %error, "cancelled HTTP CONNECT establishment after client read failure");
+                            tracing::debug!(target = %request.target, %error, "cancelled HTTP CONNECT establishment after client read failure");
                             return Err(error.into());
                         }
                     }
@@ -336,7 +338,7 @@ where
     let mut upstream = match connect_result {
         Ok(stream) => stream,
         Err(error) => {
-            tracing::warn!(
+            tracing::debug!(
                 method = "CONNECT",
                 target = %request.target,
                 %error,
@@ -346,7 +348,7 @@ where
             return Err(error);
         }
     };
-    tracing::info!(
+    tracing::debug!(
         target = %request.target,
         "HTTP CONNECT upstream tunnel established"
     );
@@ -354,33 +356,45 @@ where
         .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
         .await
         .map_err(|error| {
-            tracing::warn!(
+            tracing::debug!(
                 target = %request.target,
                 %error,
                 "failed to acknowledge HTTP CONNECT tunnel to client"
             );
             error
         })?;
+    #[cfg(feature = "performance-diagnostics")]
     let relay_started = std::time::Instant::now();
     upstream.write_all(&pending_client_bytes).await?;
-    let (client_to_upstream_bytes, upstream_to_client_bytes) =
+    let (_client_to_upstream_bytes, _upstream_to_client_bytes) =
         io::copy_bidirectional(&mut client, &mut upstream)
             .await
             .map_err(|error| {
-                tracing::warn!(
-                    target = %request.target,
-                    elapsed_ms = relay_started.elapsed().as_millis(),
-                    error_kind = ?error.kind(),
-                    %error,
-                    "HTTP CONNECT tunnel relay failed after establishment"
-                );
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::ConnectionReset
+                        | std::io::ErrorKind::ConnectionAborted
+                        | std::io::ErrorKind::BrokenPipe
+                        | std::io::ErrorKind::UnexpectedEof
+                ) {
+                    tracing::debug!(target = %request.target, error_kind = ?error.kind(),
+                        "HTTP CONNECT tunnel relay interrupted");
+                } else {
+                    tracing::warn!(
+                        target = %request.target,
+                        error_kind = ?error.kind(),
+                        %error,
+                        "HTTP CONNECT tunnel relay failed after establishment"
+                    );
+                }
                 error
             })?;
-    tracing::info!(
+    #[cfg(feature = "performance-diagnostics")]
+    tracing::debug!(
         target = %request.target,
         elapsed_ms = relay_started.elapsed().as_millis(),
-        client_to_upstream_bytes,
-        upstream_to_client_bytes,
+        client_to_upstream_bytes = _client_to_upstream_bytes,
+        upstream_to_client_bytes = _upstream_to_client_bytes,
         "HTTP CONNECT tunnel relay completed"
     );
     Ok(())

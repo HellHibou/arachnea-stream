@@ -33,6 +33,7 @@ pub struct ProxySelectionToken {
     endpoint: String,
     destination: Destination,
     provenance: ProxySelectionProvenance,
+    protocol: Option<super::ProxyProtocol>,
     discovery: Arc<Mutex<Option<tokio::sync::OwnedMutexGuard<()>>>>,
     accepted: Arc<tokio::sync::OnceCell<()>>,
     continuation: Option<Arc<super::proxy_inventory::preparation::ProbeContinuation>>,
@@ -74,6 +75,7 @@ impl ProxySelectionToken {
             endpoint,
             destination,
             provenance,
+            protocol: None,
             continuation: search
                 .as_ref()
                 .and_then(|search| search.continuation.clone()),
@@ -82,6 +84,15 @@ impl ProxySelectionToken {
             )),
             accepted: Arc::new(tokio::sync::OnceCell::new()),
         }
+    }
+
+    /// Attaches the protocol of the selected route, independent of provider claims.
+    ///
+    /// # Arguments
+    /// - `protocol`: Protocol identified from the selected node, otherwise absent.
+    pub(crate) fn with_protocol(mut self, protocol: Option<super::ProxyProtocol>) -> Self {
+        self.protocol = protocol;
+        self
     }
 
     /// Returns the exact destination selected for this route generation.
@@ -139,7 +150,7 @@ impl ProxySelectionToken {
             )
             .await;
         self.inventory.notify_destination_success();
-        tracing::info!(search_id = super::ProxySearchContext::current().map(|search| search.id()),
+        tracing::debug!(search_id = super::ProxySearchContext::current().map(|search| search.id()),
             proxy = self.endpoint(), destination = %self.destination, status,
             "recorded followed proxy redirect without final content acceptance");
         self.finish_discovery();
@@ -203,15 +214,56 @@ impl ProxySelectionToken {
         self.finish_discovery();
     }
 
-    /// Records the remaining destination failure without guessing its endpoint.
+    /// Retains phase diagnostics and suspends proven tunnel timeouts for 120 seconds.
+    /// Other transport failures retain their short destination exclusion.
     /// Global failures are applied at the core's directly observed endpoint boundary.
     ///
     /// # Arguments
     /// - `error`: Failure returned by the pinned core before business delivery.
     pub async fn record_transport_failure(&self, error: &super::ProxyError) {
-        let _ = error;
-        self.record_failure(ProxyDestinationFailureReason::Other)
+        let (phase, cause, status) = error.transport_failure_details();
+        tracing::debug!(
+            search_id = super::ProxySearchContext::current().map(|search| search.id()),
+            selection_id = self.id,
+            proxy = %self.endpoint,
+            destination = %self.destination.authority(),
+            protocol = ?self.protocol,
+            ?phase,
+            failure_kind = cause,
+            connect_status = status,
+            "recorded localized proxy transport failure"
+        );
+        let observation = phase.map(|phase| ProxyObservation {
+            context: ProxyProbeContext {
+                phase,
+                protocol: self.protocol.clone(),
+                target: Some(self.destination.to_string()),
+                method: None,
+                configuration: "business-transport-failure-v1".into(),
+            },
+            outcome: ProxyObservationOutcome::Failed {
+                scope: super::ProxyFailureScope::Destination,
+                cause: cause.into(),
+            },
+            completed_at: SystemTime::now(),
+            last_succeeded_at: None,
+            http_status: status,
+        });
+        let tunnel_timeout = phase == Some(ProxyObservationPhase::Tunnel) && cause == "timeout";
+        self.inventory
+            .record_destination_failure_observation(
+                &self.endpoint,
+                &self.destination,
+                if tunnel_timeout {
+                    ProxyDestinationFailureReason::Timeout
+                } else {
+                    ProxyDestinationFailureReason::Other
+                },
+                tunnel_timeout.then_some(crate::PROXY_TUNNEL_TIMEOUT_COOLDOWN),
+                observation,
+            )
             .await;
+        self.finish_discovery();
     }
 
     /// Records response receipt independently of its application status.

@@ -278,7 +278,7 @@ async fn keep_alive_tls_503_keeps_exact_selection_and_positive_phases() -> anyho
         };
         let selected = core.select_for_request(select("BE")).await?;
         let token = selected.selection_token.clone().unwrap();
-        let loopback = arachnea_proxy::connectors::ArachneaRquestLoopback::start_on_runtime(
+        let mut loopback = arachnea_proxy::connectors::ArachneaRquestLoopback::start_on_runtime(
             shared_runtime.clone(), selected.core.clone(), selected.core.parameter_definitions(),
             ClientContext::new(), false,
         ).await?;
@@ -298,7 +298,7 @@ async fn keep_alive_tls_503_keeps_exact_selection_and_positive_phases() -> anyho
             target: Duration::from_millis(100), extension: Duration::from_millis(300), ..Default::default()
         });
         search.start_origin(token.endpoint(), token.destination())?;
-        let (first, first_decision) = search.scope(search.origin(engine.send_for_proxy(request(), Some(token.clone()), None, "https://localhost/content", &[]))).await??;
+        let (first, first_decision, _) = search.scope(search.origin(engine.send_for_proxy(request(), Some(token.clone()), None, "https://localhost/content", &[]))).await??;
         assert!(!search.can_start());
         assert!(search.remaining().is_zero());
         assert!(!proxy_retry_allowed("POST", false, ProxyRequestDelivery::PossiblySent, false));
@@ -328,11 +328,16 @@ async fn keep_alive_tls_503_keeps_exact_selection_and_positive_phases() -> anyho
         let policy = arachnea_proxy::core::http::response_classifier::ProxyResponsePolicy(std::sync::Arc::new(PrefixPolicy));
         let reuse_search = ProxySearchContext::default();
         let reused = reuse_search.scope(core.select_for_request(select("BE"))).await?;
+        let credential = loopback.proxy_url().to_string();
+        loopback.rebind(reused.core.clone())?;
+        assert_eq!(loopback.proxy_url(), credential, "rebinding must preserve the live connection's proxy identity");
+        assert_eq!(reused.route_generation, selected.route_generation, "compatible selections retain their transport generation");
         let reused_token = reused.selection_token.unwrap();
+        assert_ne!(reused_token, token, "each request must retain independent outcome attribution");
         assert!(reused_token.reuses_destination());
         assert_eq!(reused_token.provenance(), arachnea_proxy::core::ProxySelectionProvenance::AcceptedDestination);
-        let short_engine = RquestEngine { request_timeout: Duration::from_millis(50), ..engine.clone() };
-        let (second, second_decision) = reuse_search.scope(short_engine.send_for_proxy(request(), Some(reused_token), Some(&policy), "https://localhost/content", &[])).await?;
+        let short_engine = RquestEngine { request_timeout: Duration::from_millis(250), ..engine.clone() };
+        let (second, second_decision, _) = reuse_search.scope(short_engine.send_for_proxy(request(), Some(reused_token), Some(&policy), "https://localhost/content", &[])).await?;
         assert_eq!(second_decision, arachnea_proxy::core::http::response_classifier::ProxyResponseDecision::Inconclusive);
         assert_eq!(second.status.as_u16(), 503);
         assert_eq!(second.body.as_ref(), b"down");
@@ -394,6 +399,53 @@ async fn keep_alive_tls_503_keeps_exact_selection_and_positive_phases() -> anyho
         assert_eq!(next.selection_token.as_ref().unwrap().endpoint(), token.endpoint(), "retaining a body error must not retain discovery ownership");
         server.await??;
         drop((error, token, next, engine, loopback));
+
+        use futures::StreamExt;
+        use arachnea_proxy::core::http::response_classifier::ProxyResponseStream;
+        let delayed = || Box::pin(futures::stream::iter([
+            (Duration::from_millis(70), bytes::Bytes::from_static(b"a")),
+            (Duration::from_millis(30), bytes::Bytes::from_static(b"b")),
+        ]).then(|(delay, bytes)| async move {
+            tokio::time::sleep(delay).await;
+            Ok(bytes)
+        })) as ProxyResponseStream;
+        let body = collect_proxy_body(delayed(), false, Duration::from_millis(50),
+            Some((3, Duration::from_millis(80))), None).await?;
+        assert_eq!(body, b"ab", "deferred reception must preserve the historical time window and bytes");
+        assert_eq!(collect_proxy_body(delayed(), false, Duration::from_millis(40), None, None)
+            .await.unwrap_err().kind(), std::io::ErrorKind::TimedOut);
+        let limited = collect_proxy_body(delayed(), false, Duration::from_millis(50),
+            Some((3, Duration::from_millis(80))), Some(tokio::time::Instant::now() + Duration::from_millis(20)));
+        assert_eq!(tokio::time::timeout(Duration::from_millis(50), limited).await?.unwrap_err().kind(), std::io::ErrorKind::TimedOut);
+        let crossed = Box::pin(futures::stream::iter([
+            (Duration::from_millis(10), bytes::Bytes::from_static(b"abc")),
+            (Duration::from_millis(70), bytes::Bytes::from_static(b"d")),
+        ]).then(|(delay, bytes)| async move { tokio::time::sleep(delay).await; Ok(bytes) }));
+        assert_eq!(collect_proxy_body(crossed, false, Duration::from_millis(30),
+            Some((3, Duration::from_millis(80))), None).await.unwrap_err().kind(), std::io::ErrorKind::TimedOut,
+            "reaching the byte limit must start the ordinary timer without granting the whole allowance");
+        let empty = collect_proxy_body(Box::pin(futures::stream::empty()), false, Duration::from_secs(1),
+            Some((65536, Duration::from_secs(3))), None);
+        tokio::pin!(empty);
+        assert!(matches!(futures::poll!(&mut empty), std::task::Poll::Ready(Ok(body)) if body.is_empty()),
+            "EOF must complete without waiting for the unused initial window");
+        let broken = Box::pin(futures::stream::iter(vec![Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData, "fixture body failure"))]));
+        assert_eq!(collect_proxy_body(broken, false, Duration::from_secs(1),
+            Some((3, Duration::from_secs(1))), None).await.unwrap_err().kind(), std::io::ErrorKind::InvalidData);
+        struct BodyOwner(Arc<std::sync::atomic::AtomicBool>);
+        impl Drop for BodyOwner { fn drop(&mut self) { self.0.store(true, std::sync::atomic::Ordering::SeqCst); } }
+        let dropped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let owner = BodyOwner(dropped.clone());
+        let pending = Box::pin(futures::stream::once(async move {
+            let _owner = owner;
+            futures::future::pending::<std::io::Result<bytes::Bytes>>().await
+        }));
+        let mut cancelled = Box::pin(collect_proxy_body(pending, false, Duration::from_secs(1),
+            Some((3, Duration::from_secs(1))), None));
+        assert!(futures::poll!(&mut cancelled).is_pending());
+        drop(cancelled);
+        assert!(dropped.load(std::sync::atomic::Ordering::SeqCst));
         Ok(())
     }).await?
 }

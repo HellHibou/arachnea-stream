@@ -40,6 +40,8 @@ pub struct SharedProxyConfigHandle {
     inner: Arc<RwLock<ProxyConfigState>>,
     #[cfg(feature = "arachnea-proxy")]
     runtime: Arc<arachnea_proxy::server::LoopbackProxyRuntime>,
+    #[cfg(feature = "arachnea-proxy")]
+    transports: Arc<arachnea_http::client::ProxyTransportPool>,
 }
 
 #[derive(Clone, Default)]
@@ -72,6 +74,17 @@ impl SharedProxyConfigHandle {
         Self {
             inner: Arc::default(),
             runtime,
+            transports: Arc::default(),
+        }
+    }
+
+    /// Creates an independent routing handle sharing this family's listener and idle transports.
+    #[cfg(feature = "arachnea-proxy")]
+    pub fn with_independent_config(&self) -> Self {
+        Self {
+            inner: Arc::default(),
+            runtime: self.runtime.clone(),
+            transports: self.transports.clone(),
         }
     }
 
@@ -361,6 +374,9 @@ pub struct ScraperHttpConfig {
     /// Ordered proxy country hints for geo-targeted requests.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub proxy_countries: Vec<String>,
+    /// Optional domains sharing an eligible default proxy, including their subdomains.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub proxy_domain_group: Vec<String>,
     /// Opaque affinity key used to keep related requests on the same eligible proxy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proxy_affinity: Option<String>,
@@ -408,6 +424,7 @@ impl ScraperHttpConfig {
             && self.user_agent_profile.is_none()
             && self.user_agent.is_none()
             && self.proxy_countries.is_empty()
+            && self.proxy_domain_group.is_empty()
             && self.proxy_affinity.is_none()
             && self.proxy_rejection_statuses.is_empty()
             && self.proxy_retry_replayable.is_none()
@@ -441,6 +458,11 @@ impl ScraperHttpConfig {
                 self.proxy_countries.clone()
             } else {
                 child.proxy_countries.clone()
+            },
+            proxy_domain_group: if child.proxy_domain_group.is_empty() {
+                self.proxy_domain_group.clone()
+            } else {
+                child.proxy_domain_group.clone()
             },
             proxy_affinity: child
                 .proxy_affinity
@@ -477,6 +499,15 @@ impl ScraperHttpConfig {
     /// Sets allowed proxy countries in canonical order after normalization and deduplication.
     pub fn proxy_countries(mut self, countries: impl IntoIterator<Item = String>) -> Self {
         self.proxy_countries = normalize_proxy_countries(countries);
+        self
+    }
+
+    /// Sets an optional domain group passed to the generic proxy selector.
+    ///
+    /// # Arguments
+    /// - `domains`: Domain names; matching includes their subdomains.
+    pub fn proxy_domain_group(mut self, domains: impl IntoIterator<Item = String>) -> Self {
+        self.proxy_domain_group = domains.into_iter().collect();
         self
     }
 
@@ -621,8 +652,38 @@ mod tests {
 
         assert_eq!(config.proxy_countries, vec!["BE", "FR"]);
         assert_eq!(config.proxy_countries_hint(), vec!["BE", "FR"]);
+        let grouped =
+            ScraperHttpConfig::default().proxy_domain_group(["m6.fr".into(), "6play.fr".into()]);
+        assert!(!grouped.is_empty());
+        assert_eq!(
+            grouped
+                .merge(&ScraperHttpConfig::default())
+                .proxy_domain_group,
+            grouped.proxy_domain_group
+        );
+        let child: ScraperHttpConfig = serde_json::from_value(
+            serde_json::json!({"proxy_domain_group": ["6cloud.fr", "bedrock.tech"]}),
+        )
+        .unwrap();
+        assert_eq!(
+            grouped.merge(&child).proxy_domain_group,
+            child.proxy_domain_group
+        );
+        assert_eq!(
+            serde_json::to_value(&child).unwrap()["proxy_domain_group"],
+            serde_json::json!(["6cloud.fr", "bedrock.tech"])
+        );
         #[cfg(feature = "arachnea-proxy")]
         {
+            let handle = SharedProxyConfigHandle::new();
+            let independent = handle.with_independent_config();
+            assert!(Arc::ptr_eq(&handle.runtime, &independent.runtime));
+            assert!(Arc::ptr_eq(&handle.transports, &independent.transports));
+            handle.set_proxy(HttpProxyConfig::Disabled);
+            assert!(
+                independent.snapshot().proxy.is_none(),
+                "sharing transports must not share mutable routing overrides"
+            );
             use arachnea_proxy::core::http::response_classifier::*;
             let parent = ScraperHttpConfig {
                 proxy_response_classifier: Some(ProxyResponseClassifierConfig::Http403),
@@ -840,6 +901,7 @@ impl HttpClient {
             && http_config.request_mode() == self.http_config.request_mode()
             && http_config.browser_profile() == self.http_config.browser_profile()
             && http_config.proxy_countries_hint() == self.http_config.proxy_countries_hint()
+            && http_config.proxy_domain_group == self.http_config.proxy_domain_group
             && http_config.proxy_affinity == self.http_config.proxy_affinity
             && http_config.proxy_rejection_statuses == self.http_config.proxy_rejection_statuses
             && http_config.max_redirects == self.http_config.max_redirects
@@ -1011,14 +1073,15 @@ impl HttpClient {
             };
             builder = builder
                 .proxy_response_classifier(policy)
-                .proxy_runtime(self.proxy_handle.proxy_runtime());
+                .proxy_runtime(self.proxy_handle.proxy_runtime())
+                .proxy_transport_pool(self.proxy_handle.transports.clone());
         }
         let proxy_transport_configured = proxy_state.proxy.is_some();
         if let Some(proxy) = proxy_state.proxy {
             builder = builder.proxy(proxy);
         }
         if !proxy_countries.is_empty() {
-            tracing::info!(
+            tracing::debug!(
                 requested_proxy_countries = ?proxy_countries,
                 proxy_transport_configured,
                 request_timeout_seconds = request_timeout.as_secs(),
@@ -1037,6 +1100,13 @@ impl HttpClient {
             .filter(|value| !value.is_empty())
         {
             builder = builder.proxy_parameter("proxy_affinity", proxy_affinity.to_string());
+        }
+        if !self.http_config.proxy_domain_group.is_empty() {
+            builder = builder.proxy_parameter(
+                "proxy_domain_group",
+                serde_json::to_string(&self.http_config.proxy_domain_group)
+                    .expect("domain group serializes"),
+            );
         }
         let config = builder.build()?;
         let client = Arc::new(

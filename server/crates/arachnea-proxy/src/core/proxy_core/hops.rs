@@ -167,7 +167,8 @@ impl ArachneaProxyCore {
             self.proxy_timeouts(node).handshake_duration(),
             node.verify_tls,
         )
-        .await?;
+        .await
+        .map_err(|error| error.at_phase(crate::core::ProxyObservationPhase::ProxyTls))?;
         Ok(ProxyStream::new(tls_stream, metadata))
     }
 
@@ -242,7 +243,7 @@ impl ArachneaProxyCore {
                 );
             }
             Err(error) => {
-                tracing::warn!(
+                tracing::debug!(
                     node = %node.name,
                     target = %target.authority(),
                     transport = ?node.kind,

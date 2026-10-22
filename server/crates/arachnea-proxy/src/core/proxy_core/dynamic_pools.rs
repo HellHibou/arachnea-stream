@@ -55,6 +55,8 @@ impl ArachneaProxyCore {
     /// - `require_https`: Whether the destination requires HTTPS support.
     /// - `destination`: Original destination used for destination-specific
     ///   cooldown filtering.
+    /// - `affinity`: Optional opaque request affinity.
+    /// - `domain_group`: Optional domain group supplying default proxies.
     /// # Returns
     ///
     /// Concrete proxy node selected from the inventory.
@@ -69,6 +71,7 @@ impl ArachneaProxyCore {
         require_https: bool,
         destination: &Destination,
         affinity: Option<&str>,
+        domain_group: &[String],
     ) -> Result<ProxyNode> {
         let inventory = self.proxy_inventory.as_ref().ok_or_else(|| {
             ProxyError::RouteUnavailable(format!(
@@ -76,11 +79,12 @@ impl ArachneaProxyCore {
             ))
         })?;
         let record = inventory
-            .select_any_for_destination_with_affinity(
+            .select_any_for_destination_with_domain_group(
                 countries,
                 require_https,
                 Some(destination),
                 affinity,
+                domain_group,
             )
             .await?;
         if let Some(search) = crate::core::ProxySearchContext::current() {
@@ -114,7 +118,7 @@ impl ArachneaProxyCore {
         let current_country = resolver.resolve_current_country().await.ok().flatten();
         match current_country.as_deref() {
             Some(local_country) if countries.iter().any(|country| country == local_country) => {
-                tracing::info!(
+                tracing::debug!(
                     requested_proxy_countries = ?countries,
                     local_country = %local_country,
                     bypass = true,
@@ -132,7 +136,7 @@ impl ArachneaProxyCore {
                 false
             }
             None => {
-                tracing::info!(
+                tracing::debug!(
                     requested_proxy_countries = ?countries,
                     bypass = false,
                     "dynamic country proxy retained because current country is unknown"

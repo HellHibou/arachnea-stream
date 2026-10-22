@@ -94,7 +94,7 @@ impl ArachneaProxyCore {
                         "evaluating dynamic country proxy route"
                     );
                     if self.should_bypass_dynamic_country_pools(&countries).await {
-                        tracing::info!(
+                        tracing::debug!(
                             destination = %request.destination,
                             requested_proxy_countries = ?countries,
                             "continuing route without geo proxy because local country is allowed"
@@ -107,12 +107,28 @@ impl ArachneaProxyCore {
                         .client_context
                         .get_string(PROXY_PARAMETER_AFFINITY)
                         .map(str::to_string);
+                    let domain_group = request
+                        .client_context
+                        .get_string(crate::core::PROXY_PARAMETER_DOMAIN_GROUP)
+                        .filter(|value| !value.is_empty())
+                        .map(|value| {
+                            serde_json::from_str::<Vec<String>>(value)
+                                .map(|domains| crate::core::canonical_proxy_domain_group(&domains))
+                                .map_err(|error| {
+                                    ProxyError::Config(format!(
+                                        "invalid proxy domain group: {error}"
+                                    ))
+                                })
+                        })
+                        .transpose()?
+                        .unwrap_or_default();
                     let selected = match self
                         .resolve_dynamic_country_pool(
                             &countries,
                             require_https,
                             &request.destination,
                             affinity.as_deref(),
+                            &domain_group,
                         )
                         .await
                     {

@@ -46,6 +46,7 @@ pub struct InventoryConfig {
     /// How long a failed proxy must wait before it can be retried.
     pub ko_cooldown: Duration,
     /// Origin rejection cooldown; ambiguous failures are capped at 30 seconds.
+    /// Proven tunnel timeouts use their explicit 120-second destination suspension.
     pub destination_failure_cooldown: Duration,
     /// Maximum number of active non-origin-block destination failures before
     /// the proxy was formerly marked globally KO. Retained for configuration

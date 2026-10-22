@@ -107,6 +107,10 @@ pub const PROXY_DESTINATION_FAILURE_COOLDOWN: Duration = Duration::from_secs(24 
 #[cfg(feature = "core")]
 pub const PROXY_TRANSIENT_FAILURE_COOLDOWN: Duration = Duration::from_secs(30);
 
+/// Exact-destination suspension after a timeout proven during tunnel establishment.
+#[cfg(feature = "core")]
+pub const PROXY_TUNNEL_TIMEOUT_COOLDOWN: Duration = Duration::from_secs(120);
+
 /// Lifetime of one recorded affinity binding between a request key and an
 /// eligible dynamic proxy in the inventory preference cache.
 #[cfg(feature = "core")]
@@ -131,6 +135,14 @@ pub const PROXY_HEADER_PARAMETER_COUNTRIES: &str = "Arachnea-Proxy-Countries";
 /// requests to the same eligible dynamic proxy.
 #[cfg(feature = "core")]
 pub const PROXY_HEADER_PARAMETER_AFFINITY: &str = "Arachnea-Proxy-Affinity";
+
+/// Optional JSON domain group used as a default dynamic proxy preference.
+#[cfg(feature = "core")]
+pub const PROXY_HEADER_PARAMETER_DOMAIN_GROUP: &str = "Arachnea-Proxy-Domain-Group";
+
+/// Context parameter carrying an optional JSON array of related domains.
+#[cfg(feature = "core")]
+pub const PROXY_PARAMETER_DOMAIN_GROUP: &str = "proxy_domain_group";
 
 /// Proxy countries parameter name.
 #[cfg(feature = "core")]

@@ -1,4 +1,5 @@
 use super::*;
+use std::time::Duration;
 
 /// Verifies absolute-form forwarding for HTTP upstream proxy requests.
 #[tokio::test]
@@ -77,6 +78,30 @@ async fn http_upstream_without_password_does_not_send_proxy_authorization() {
     assert!(stream.is_ok());
     let request = accept.await.unwrap();
     assert!(!request.to_ascii_lowercase().contains("proxy-authorization"));
+    for status in [400, 407, 429, 502, 503] {
+        let (mut client, mut peer) = tokio::io::duplex(4096);
+        let rejected = tokio::spawn(async move {
+            let mut request = Vec::new();
+            while !request.ends_with(b"\r\n\r\n") {
+                request.push(peer.read_u8().await.unwrap());
+            }
+            peer.write_all(format!("HTTP/1.1 {status} Rejected\r\n\r\n").as_bytes())
+                .await
+                .unwrap();
+        });
+        let error = crate::core::transport::http::connect_tunnel(
+            &mut client,
+            &Destination::host_port("example.com", 443),
+            Duration::from_secs(1),
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(error, crate::core::ProxyError::HttpConnectRejected { status: actual } if actual == status)
+        );
+        rejected.await.unwrap();
+    }
 }
 
 /// Verifies that SOCKS5 upstreams use no-auth when no password is defined.

@@ -159,7 +159,9 @@ pub(super) fn failed_capability_status(error: &ProxyError) -> ProxyCapabilitySta
         | ProxyError::RouteUnavailable(_)
         | ProxyError::Dns(_)
         | ProxyError::Unsupported(_) => ProxyCapabilityStatus::Unknown,
-        ProxyError::Tls(_) | ProxyError::UpstreamRejected(_) => ProxyCapabilityStatus::Unknown,
+        ProxyError::Tls(_)
+        | ProxyError::UpstreamRejected(_)
+        | ProxyError::HttpConnectRejected { .. } => ProxyCapabilityStatus::Unknown,
         ProxyError::Protocol(_)
         | ProxyError::InvalidDestination(_)
         | ProxyError::AccessDenied(_) => ProxyCapabilityStatus::Unavailable,

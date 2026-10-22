@@ -500,7 +500,8 @@ impl ArachneaProxyCore {
                     self.proxy_timeouts(node).handshake_duration(),
                     node.verify_tls,
                 )
-                .await?;
+                .await
+                .map_err(|error| error.at_phase(crate::core::ProxyObservationPhase::ProxyTls))?;
                 stream = ProxyStream::new(tls_stream, metadata);
                 if let Some(token) = self
                     .pinned_route

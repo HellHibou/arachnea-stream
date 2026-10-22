@@ -75,26 +75,76 @@ async fn composite_proxy_key_roundtrips_on_all_backends() -> Result<()> {
     let memory = MemoryEntityStore::<ProxyRecord>::new(config())?;
     memory.put(&proxy).await?;
     assert_eq!(memory.get(&key).await?, Some(proxy.clone()));
+    let missing = ProxyKey {
+        host: key.host.clone(),
+        port: 1081,
+    };
+    let inputs = vec![key.clone(), missing.clone(), key.clone()];
+    let expected = vec![Some(proxy.clone()), None, Some(proxy.clone())];
+    assert_eq!(memory.get_many(&inputs).await?, expected);
 
     let file_root = temp_dir("file-roundtrip");
     let file = FileEntityStore::<ProxyRecord>::new(file_root.clone(), config())?;
     file.put(&proxy).await?;
     assert_eq!(file.get(&key).await?, Some(proxy.clone()));
+    assert_eq!(file.get_many(&inputs).await?, expected);
 
     let sqlite_root = temp_dir("sqlite-roundtrip");
     {
         let sqlite = SqliteEntityStore::<ProxyRecord>::new(config(), &sqlite_root)?;
         sqlite.put(&proxy).await?;
         assert_eq!(sqlite.get(&key).await?, Some(proxy.clone()));
+        assert!(sqlite.get_many(&[]).await?.is_empty());
+        assert_eq!(sqlite.get_many(&inputs).await?, expected);
+        let many = (0..100).flat_map(|_| inputs.clone()).collect::<Vec<_>>();
+        assert_eq!(
+            sqlite.get_many(&many).await?,
+            (0..100).flat_map(|_| expected.clone()).collect::<Vec<_>>()
+        );
+
         assert_eq!(
             sqlite
                 .find(&EntityQuery::new().where_string(&ProxyRecord::country_field(), "BE"))
                 .await?,
             vec![proxy.clone()]
         );
+        let external = SqliteEntityStore::<ProxyRecord>::new(config(), &sqlite_root)?;
+        let mut updated = record("external.example", 8082, Some("FR"));
+        let reads = inputs
+            .iter()
+            .cycle()
+            .take(4096)
+            .cloned()
+            .collect::<Vec<_>>();
+        let (read, write) = tokio::time::timeout(Duration::from_secs(10), async {
+            tokio::join!(sqlite.get_many(&reads), async {
+                for index in 0..16 {
+                    updated.latency_ms = Some(index);
+                    external.put(&updated).await?;
+                }
+                anyhow::Ok(())
+            })
+        })
+        .await?;
+        assert_eq!(
+            read?,
+            (0..4096)
+                .map(|index| expected[index % 3].clone())
+                .collect::<Vec<_>>()
+        );
+        write?;
+        assert_eq!(
+            sqlite.get_many(&[updated.key(), key.clone()]).await?,
+            vec![Some(updated.clone()), Some(proxy.clone())]
+        );
     }
+    let reopen_started = std::time::Instant::now();
     let reopened = SqliteEntityStore::<ProxyRecord>::new(config(), &sqlite_root)?;
     assert_eq!(reopened.get(&key).await?, Some(proxy));
+    eprintln!(
+        "lot0 sqlite reopen: reopen_and_get_us={}, inventory_records=1, process_restarted=false",
+        reopen_started.elapsed().as_micros()
+    );
 
     let preference_config = PersistenceStoreConfig::new(
         crate::core::PROXY_PREFERENCE_STORE_NAME,
@@ -118,18 +168,31 @@ async fn composite_proxy_key_roundtrips_on_all_backends() -> Result<()> {
         );
     }
     assert_eq!(preference.endpoints.len(), 3);
-    let preference_memory = MemoryEntityStore::new(preference_config.clone())?;
+    let preference_memory = Arc::new(MemoryEntityStore::new(preference_config.clone())?);
     preference_memory.put(&preference).await?;
     assert_eq!(
         preference_memory.get(&preference.destination).await?,
         Some(preference.clone())
     );
-    let preference_file = FileEntityStore::new(file_root.clone(), preference_config.clone())?;
+    let preference_file = Arc::new(FileEntityStore::new(
+        file_root.clone(),
+        preference_config.clone(),
+    )?);
     preference_file.put(&preference).await?;
     assert_eq!(
         preference_file.get(&preference.destination).await?,
         Some(preference.clone())
     );
+    for store in [
+        preference_memory as Arc<dyn TypedEntityStore<crate::core::ProxyDestinationPreference>>,
+        preference_file as Arc<dyn TypedEntityStore<crate::core::ProxyDestinationPreference>>,
+    ] {
+        let repository = crate::core::TypedProxyPreferenceRepository::new(store);
+        assert_eq!(
+            crate::core::ProxyPreferenceRepository::load_all(&repository).await?,
+            vec![preference.clone()]
+        );
+    }
     {
         let database =
             SqliteDatabase::open(SqliteStoreConfig::new(PROXY_STORE_NAME)?, &sqlite_root)?;
@@ -139,13 +202,23 @@ async fn composite_proxy_key_roundtrips_on_all_backends() -> Result<()> {
         let mut older = preference.clone();
         older.endpoints[0].accepted_at = now - Duration::from_secs(60);
         crate::core::ProxyPreferenceRepository::save(&repository, &older).await?;
+        assert_eq!(
+            crate::core::ProxyPreferenceRepository::load_all(&repository).await?,
+            vec![preference.clone()]
+        );
     }
     let database = SqliteDatabase::open(SqliteStoreConfig::new(PROXY_STORE_NAME)?, &sqlite_root)?;
     let reopened_preferences =
         database.table::<crate::core::ProxyDestinationPreference>(preference_config)?;
     assert_eq!(
         reopened_preferences.get(&preference.destination).await?,
-        Some(preference)
+        Some(preference.clone())
+    );
+    let reopened_repository =
+        crate::core::TypedProxyPreferenceRepository::new(Arc::new(reopened_preferences));
+    assert_eq!(
+        crate::core::ProxyPreferenceRepository::load_all(&reopened_repository).await?,
+        vec![preference]
     );
 
     let _ = std::fs::remove_dir_all(&file_root);
@@ -284,10 +357,59 @@ async fn interrupted_eviction_hides_available_record_and_orphan_preference() -> 
     )));
     let repository = Arc::new(TypedProxyRepository::with_failure_store(
         available.clone(),
-        failures,
+        failures.clone(),
     ));
     assert!(available.get(&proxy.key()).await?.is_some());
     assert!(repository.get(&proxy.key()).await?.is_none());
+    assert!(repository.find_by_country("BE").await?.is_empty());
+    let mut excluded = record("already-evicted.example", 8080, Some("BE"));
+    excluded.health_evidence.evicted_at = Some(SystemTime::now());
+    available.put(&excluded).await?;
+    // Check current durable evidence after every externally committed update.
+    let at = std::time::UNIX_EPOCH
+        + Duration::from_millis(
+            SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_millis() as u64,
+        );
+    for (age_hours, positive_offset, discovered_offset, checked_offset, hidden) in [
+        (0, -1, -1, -1, true),
+        (0, 0, 0, 0, true),
+        (0, 1, -1, -1, false),
+        (0, -1, 1, -1, false),
+        (0, -1, -1, 1, false),
+        (49, -1, -1, -1, false),
+        (-1, -1, -1, -1, true),
+    ] {
+        let eviction = if age_hours >= 0 {
+            at - Duration::from_secs(age_hours as u64 * 3600)
+        } else {
+            at + Duration::from_secs(3600)
+        };
+        let shifted = |offset: i32| {
+            if offset >= 0 {
+                eviction + Duration::from_secs(offset as u64)
+            } else {
+                eviction - Duration::from_secs((-offset) as u64)
+            }
+        };
+        let mut candidate = proxy.clone();
+        candidate.health_evidence.last_positive_at = Some(shifted(positive_offset));
+        candidate.health_evidence.first_discovered_at = Some(shifted(discovered_offset));
+        candidate.last_checked = Some(shifted(checked_offset));
+        let mut failure = candidate.clone();
+        failure.health_evidence.evicted_at = Some(eviction);
+        available.put(&candidate).await?;
+        failures.put(&failure).await?;
+        let expected = repository.get(&candidate.key()).await?;
+        let records = repository.find_by_country("BE").await?;
+        assert_eq!(expected.is_none(), hidden, "age={age_hours} positive={positive_offset} discovered={discovered_offset} checked={checked_offset}");
+        assert_eq!(records, expected.into_iter().collect::<Vec<_>>());
+    }
+    available.delete(&excluded.key()).await?;
+    available.put(&proxy).await?;
+    failures.put(&tombstone).await?;
+
     let inventory =
         crate::core::ProxyInventory::new(crate::core::InventoryConfig::default(), None, None)
             .with_proxy_repository(repository.clone())

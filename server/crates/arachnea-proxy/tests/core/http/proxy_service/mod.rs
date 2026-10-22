@@ -82,8 +82,8 @@ fn proxied_url_encodes_remove_header_action() {
     );
 }
 
-#[test]
-fn remove_header_updates_redirect_opts_on_http_302() {
+#[tokio::test]
+async fn remove_header_updates_redirect_opts_on_http_302() {
     let opts = ProxyHttpOpts {
             headers: vec![
                 (
@@ -192,6 +192,158 @@ fn remove_header_updates_redirect_opts_on_http_302() {
             ProxyResponseDecision::Inconclusive => "inconclusive",
         };
         assert_eq!(actual, expected);
+    }
+
+    use crate::core::{ArachneaProxyCore, ProxyConfig, ProxySearchContext, ProxySearchLimits};
+    use arachnea_core::controler::{ControlerStreamInput, ResponseBody};
+    use futures::StreamExt;
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[derive(Debug)]
+    struct CaptureContext(tokio::sync::mpsc::UnboundedSender<(tokio::task::Id, usize)>);
+    impl crate::core::ProxyParameterHandler for CaptureContext {
+        fn parameter_definitions(&self) -> Vec<crate::core::ParameterDefinition> {
+            Vec::new()
+        }
+        fn proxy_from_parameters(
+            &self,
+            _: &crate::core::ClientContext,
+        ) -> crate::core::Result<crate::core::ParameterHandlerDecision> {
+            let current = ProxySearchContext::current().expect("inherited search context");
+            let _ = self.0.send((tokio::task::id(), current.id()));
+            Ok(crate::core::ParameterHandlerDecision::continue_without_proxy())
+        }
+    }
+
+    for mode in [
+        "redirect",
+        "stream",
+        "buffer",
+        "cancel",
+        "deadline",
+        "drop_stream",
+    ] {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (release, ready) = tokio::sync::oneshot::channel::<()>();
+        let (request_seen, on_request) = tokio::sync::oneshot::channel::<()>();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            while !request.ends_with(b"\r\n\r\n") {
+                request.push(socket.read_u8().await.unwrap());
+            }
+            request_seen.send(()).unwrap();
+            if mode == "cancel" || mode == "deadline" {
+                assert_eq!(socket.read(&mut [0u8; 1]).await.unwrap(), 0);
+            } else if mode == "redirect" {
+                socket.write_all(b"HTTP/1.1 302 Found\r\nLocation: https://media.example/next\r\nContent-Length: 0\r\n\r\n").await.unwrap();
+            } else {
+                socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: 4\r\n\r\n").await.unwrap();
+                if mode == "drop_stream" {
+                    assert_eq!(socket.read(&mut [0u8; 1]).await.unwrap(), 0);
+                } else {
+                    if mode == "stream" {
+                        ready.await.unwrap();
+                    }
+                    socket.write_all(b"body").await.unwrap();
+                }
+            }
+        });
+        let search = ProxySearchContext::new(ProxySearchLimits {
+            target: if mode == "deadline" {
+                Duration::from_millis(150)
+            } else {
+                Duration::from_secs(5)
+            },
+            extension: Duration::ZERO,
+        });
+        let search_id = search.id();
+        let (seen, mut contexts) = tokio::sync::mpsc::unbounded_channel();
+        let core = Arc::new(
+            ArachneaProxyCore::new(ProxyConfig::default())
+                .unwrap()
+                .with_parameter_handler(CaptureContext(seen)),
+        );
+        let input = ControlerStreamInput {
+            path: format!("http:{}/127.0.0.1/start", address.port()),
+            query: String::new(),
+            method: "GET".into(),
+            headers: HashMap::new(),
+            body: Vec::new(),
+            entry_point: "/api/proxy".into(),
+            force_buffer_response: mode == "buffer",
+        };
+        let parent = tokio::spawn(async move {
+            let id = tokio::task::id();
+            let response = search
+                .scope(Box::pin(super::handle_proxy_http(core, input, true)))
+                .await;
+            (id, response)
+        });
+        let (child_id, observed_search) =
+            tokio::time::timeout(Duration::from_secs(2), contexts.recv())
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(observed_search, search_id);
+        tokio::time::timeout(Duration::from_secs(2), on_request)
+            .await
+            .unwrap()
+            .unwrap();
+        if mode == "cancel" {
+            assert_ne!(child_id, parent.id());
+            parent.abort();
+            assert!(matches!(parent.await, Err(error) if error.is_cancelled()));
+        } else {
+            let (parent_id, response) = tokio::time::timeout(Duration::from_secs(2), parent)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_ne!(child_id, parent_id);
+            let response = response.unwrap();
+            assert_eq!(
+                response.status,
+                if mode == "redirect" {
+                    302
+                } else if mode == "deadline" {
+                    502
+                } else {
+                    200
+                }
+            );
+            if mode == "redirect" {
+                assert!(response
+                    .headers
+                    .iter()
+                    .any(|(key, value)| key.eq_ignore_ascii_case("location")
+                        && value.starts_with("/api/proxy/")
+                        && value.contains("media.example/next")));
+            } else if mode == "stream" {
+                release.send(()).unwrap();
+                let ResponseBody::Streamed(mut body) = response.body else {
+                    panic!("stream must outlive its request task")
+                };
+                let mut bytes = Vec::new();
+                while let Some(chunk) = body.next().await {
+                    bytes.extend_from_slice(&chunk.unwrap());
+                }
+                assert_eq!(bytes, b"body");
+            } else if mode == "drop_stream" {
+                assert!(matches!(&response.body, ResponseBody::Streamed(_)));
+                drop(response);
+            } else if mode == "buffer" {
+                assert!(
+                    matches!(response.body, ResponseBody::Buffered(ref bytes) if bytes == b"body")
+                );
+            }
+        }
+        tokio::time::timeout(Duration::from_secs(2), server)
+            .await
+            .unwrap()
+            .unwrap();
     }
 }
 

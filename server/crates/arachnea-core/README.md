@@ -6,7 +6,7 @@
 
 - Define controller abstractions and the REST/Tauri controller backends under `src/controler/`.
 - Provide a main-thread dispatcher abstraction for native UI/event-loop work shared by controller backends.
-- Define credentials persistence and runtime resource helpers under `src/persistence/`. `TypedEntityStore<E>` provides typed `get`/`put`/`put_all`/`delete`/`find` operations over declared entity schemas. File stores persist snapshots through the configured codec.
+- Define credentials persistence and runtime resource helpers under `src/persistence/`. `TypedEntityStore<E>` provides typed `get`/`get_many`/`put`/`put_all`/`delete`/`find` operations over declared entity schemas. File stores persist snapshots through the configured codec.
 - Provide small shared utilities that are useful across backend crates and do not belong to the scraper engine or stream service.
 
 ## Notes
@@ -23,6 +23,17 @@ pairs containing underscores, and use the reserved `arachnea_idx_` prefix.
 Previously generated managed names are replaced on table opening without
 changing rows or external indexes.
 The `arachnea_` and `sqlite_` table prefixes are reserved.
+
+`get_many(keys)` preserves input order, duplicate keys and missing/expired
+entries (`None`). The default implementation uses scalar reads. SQLite groups
+up to 32 keys and 900 bound parameters per SELECT; single-key requests and
+keys wider than that parameter budget use scalar reads. The connection lock is
+released between groups, with an asynchronous yield. Reads are not an atomic
+snapshot across groups and do not cache results between calls. Expired rows
+are checked before entity decoding and purged using their physical primary key.
+An error returns no partial vector, but earlier expiration purges may remain.
+Dropping the future prevents further groups; an already started blocking group
+can complete, including expiration cleanup.
 
 Files use `<data-root>/<STORENAME>.sqlite3` with SQLite's adjacent `-wal`/`-shm`
 files when present. Old `<STORENAME>/records.sqlite3*` databases are ignored;

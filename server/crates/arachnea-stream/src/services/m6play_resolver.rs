@@ -41,11 +41,18 @@ const SIXPLAY_CUSTOMER_NAME: &str = "m6web";
 const SIXPLAY_CALLBACK_NAME: &str = "jsonp_arachnea";
 const SIXPLAY_DEVICE_ID: &str = "_luid_arachnea";
 const SIXPLAY_SESSION_TTL: Duration = Duration::from_secs(15 * 60);
+/// Total optional API-key lookup budget, shared by the page and bundle requests.
+const SIXPLAY_API_KEY_LOOKUP_TIMEOUT: Duration = Duration::from_secs(5);
+/// Lifetime of a key extracted from the public web bundle.
+const SIXPLAY_API_KEY_TTL: Duration = Duration::from_secs(15 * 60);
+/// Delay before retrying web discovery after falling back to the bundled key.
+const SIXPLAY_API_KEY_FALLBACK_TTL: Duration = Duration::from_secs(60);
 const M6PLAY_SERVICE_ID: &str = "m6play-fr";
 const M6PLAY_PROXY_REJECTION_STATUS: u16 = 403;
 
 static SIXPLAY_JS_ID_REGEX: OnceLock<Regex> = OnceLock::new();
 static SIXPLAY_API_KEY_REGEX: OnceLock<Regex> = OnceLock::new();
+static SIXPLAY_API_KEY_CACHE: OnceLock<Mutex<Option<CachedSixPlayApiKey>>> = OnceLock::new();
 static SIXPLAY_SESSION_CACHE: OnceLock<Mutex<HashMap<String, CachedSixPlaySession>>> =
     OnceLock::new();
 static SIXPLAY_LOGIN_LOCK: OnceLock<AsyncMutex<()>> = OnceLock::new();
@@ -58,6 +65,14 @@ struct SixPlaySession {
 
 struct CachedSixPlaySession {
     session: SixPlaySession,
+    expires_at: Instant,
+}
+
+/// Process-local public API key; contains no account credentials or session token.
+struct CachedSixPlayApiKey {
+    /// Discovered key or existing bundled fallback.
+    key: String,
+    /// Monotonic expiry controlling the next optional web lookup.
     expires_at: Instant,
 }
 
@@ -299,7 +314,13 @@ async fn resolve_live_stream(
 fn m6play_http_config(proxy_countries: &[String]) -> ScraperHttpConfig {
     ScraperHttpConfig {
         proxy_rejection_statuses: vec![M6PLAY_PROXY_REJECTION_STATUS],
-        ..ScraperHttpConfig::default().proxy_countries(proxy_countries.to_vec())
+        ..ScraperHttpConfig::default()
+            .proxy_countries(proxy_countries.to_vec())
+            .proxy_domain_group(
+                ["m6.fr", "6play.fr", "6cloud.fr", "bedrock.tech"]
+                    .into_iter()
+                    .map(str::to_string),
+            )
     }
 }
 
@@ -341,9 +362,7 @@ async fn get_or_login_session(
         return Ok(session);
     }
 
-    let api_key = fetch_api_key(http_client)
-        .await
-        .unwrap_or_else(|_| SIXPLAY_API_KEY_FALLBACK.to_string());
+    let api_key = resolve_api_key(http_client).await;
 
     let payload = serde_urlencoded::to_string([
         ("loginID", login.as_str()),
@@ -372,6 +391,13 @@ async fn get_or_login_session(
         .context("Failed to submit 6play credentials to Gigya.")?;
 
     let login_payload = parse_jsonp_payload(&login_response)?;
+    if login_payload
+        .get("errorCode")
+        .and_then(Value::as_i64)
+        .is_some_and(|code| code != 0)
+    {
+        invalidate_api_key(&api_key);
+    }
     let account_id = read_json_string(
         &login_payload,
         &["UID"],
@@ -455,6 +481,78 @@ async fn fetch_sixplay_front_auth_json(
             preview_error_body(&body)
         )
     })
+}
+
+/// Reuses a public key or bounds the complete optional lookup before falling back.
+/// Called under the login lock, so concurrent logins cannot duplicate discovery.
+///
+/// # Arguments
+/// - `http_client`: Client retaining the caller's configured transport and TLS policy.
+async fn resolve_api_key(http_client: &HttpClient) -> String {
+    let cache = SIXPLAY_API_KEY_CACHE.get_or_init(|| Mutex::new(None));
+    if let Some(key) = cache.lock().ok().and_then(|entry| {
+        entry
+            .as_ref()
+            .filter(|entry| entry.expires_at > Instant::now())
+            .map(|entry| entry.key.clone())
+    }) {
+        tracing::debug!("reusing cached M6 API key");
+        return key;
+    }
+
+    let started = Instant::now();
+    let (key, ttl, source) = match tokio::time::timeout(
+        SIXPLAY_API_KEY_LOOKUP_TIMEOUT,
+        Box::pin(fetch_api_key(http_client)),
+    )
+    .await
+    {
+        Ok(Ok(key)) => (key, SIXPLAY_API_KEY_TTL, "web"),
+        result => {
+            tracing::warn!(
+                failure_kind = if result.is_err() { "timeout" } else { "lookup" },
+                timeout_ms = SIXPLAY_API_KEY_LOOKUP_TIMEOUT.as_millis(),
+                "M6 API key lookup did not complete successfully; using bundled fallback"
+            );
+            (
+                SIXPLAY_API_KEY_FALLBACK.to_string(),
+                SIXPLAY_API_KEY_FALLBACK_TTL,
+                "bundled_fallback",
+            )
+        }
+    };
+    if let Ok(mut entry) = cache.lock() {
+        *entry = Some(CachedSixPlayApiKey {
+            key: key.clone(),
+            expires_at: Instant::now() + ttl,
+        });
+    }
+    tracing::info!(
+        source,
+        duration_ms = started.elapsed().as_millis(),
+        ttl_seconds = ttl.as_secs(),
+        "resolved M6 API key"
+    );
+    key
+}
+
+/// Clears only the key used by a rejected login, without replaying the POST.
+///
+/// # Arguments
+/// - `rejected_key`: Key submitted in the completed Gigya request.
+fn invalidate_api_key(rejected_key: &str) {
+    let Some(cache) = SIXPLAY_API_KEY_CACHE.get() else {
+        return;
+    };
+    if let Ok(mut entry) = cache.lock() {
+        if entry
+            .as_ref()
+            .is_some_and(|entry| entry.key == rejected_key)
+        {
+            *entry = None;
+            tracing::debug!("invalidated cached M6 API key after Gigya login rejection");
+        }
+    }
 }
 
 async fn fetch_api_key(http_client: &HttpClient) -> Result<String> {

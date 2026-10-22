@@ -155,7 +155,7 @@ impl ProxyInventory {
                         crate::core::ProxySelectionProvenance::AcceptedDestination,
                     );
                 }
-                tracing::info!(
+                tracing::debug!(
                     search_id = ProxySearchContext::current().map(|search| search.id()),
                     provenance = "accepted_destination",
                     destination = %destination,
@@ -165,7 +165,7 @@ impl ProxyInventory {
                 );
                 return Some(record.clone());
             }
-            tracing::info!(search_id = ProxySearchContext::current().map(|search| search.id()),
+            tracing::debug!(search_id = ProxySearchContext::current().map(|search| search.id()),
                 %destination, proxy = %record.authority(),
                 destination_cooldown = has_active_destination_cooldown(record, destination, SystemTime::now()),
                 status = ?record.status,
@@ -230,7 +230,7 @@ impl ProxyInventory {
                 crate::core::ProxySelectionProvenance::RedirectDestination,
             );
         }
-        tracing::info!(search_id = search.map(|search| search.id()), %destination, proxy = %record.authority(), provenance = "redirect_destination", "reusing proxy with followed redirect evidence");
+        tracing::debug!(search_id = search.map(|search| search.id()), %destination, proxy = %record.authority(), provenance = "redirect_destination", "reusing proxy with followed redirect evidence");
         Some(record.clone())
     }
 

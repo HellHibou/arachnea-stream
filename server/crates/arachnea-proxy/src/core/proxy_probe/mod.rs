@@ -102,17 +102,33 @@ impl ProxyProbe {
     /// # Arguments
     /// - `record`: Record whose contextual results must match this probe.
     pub(crate) fn prepare_context(&self, record: &mut ProxyRecord) {
-        let identity = self.configuration_id();
-        let key = format!("context:{identity}");
-        if record.probe_attempts.contains_key(&key) {
+        self.prepare_contexts(std::iter::once(record));
+    }
+
+    /// Prepares records using one context key computed for this invocation.
+    ///
+    /// # Arguments
+    /// - `records`: Records to align with the current immutable probe configuration.
+    pub(crate) fn prepare_contexts<'a>(
+        &self,
+        records: impl IntoIterator<Item = &'a mut ProxyRecord>,
+    ) {
+        let mut records = records.into_iter().peekable();
+        if records.peek().is_none() {
             return;
         }
-        record.probe_attempts.retain(|phase, _| phase == "tcp");
-        record.probe_attempts.insert(key, 0);
-        record.http_forwarding = ProxyCapabilityStatus::Unknown;
-        record.https_tunnel = ProxyCapabilityStatus::Unknown;
-        record.destination_tls = ProxyCapabilityStatus::Unknown;
-        record.last_checked = None;
+        let key = format!("context:{}", self.configuration_id());
+        for record in records {
+            if record.probe_attempts.contains_key(&key) {
+                continue;
+            }
+            record.probe_attempts.retain(|phase, _| phase == "tcp");
+            record.probe_attempts.insert(key.clone(), 0);
+            record.http_forwarding = ProxyCapabilityStatus::Unknown;
+            record.https_tunnel = ProxyCapabilityStatus::Unknown;
+            record.destination_tls = ProxyCapabilityStatus::Unknown;
+            record.last_checked = None;
+        }
     }
 
     fn observe(

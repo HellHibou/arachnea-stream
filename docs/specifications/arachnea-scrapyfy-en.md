@@ -123,6 +123,7 @@ http:
   user_agent_profile: chrome    # chrome | chrome_stable | firefox | firefox_stable
   user_agent: "Custom UA"       # optional: complete User-Agent override
   proxy_countries: ["US", "CA"] # optional: allowed proxy countries
+  proxy_domain_group: ["m6.fr", "6play.fr", "6cloud.fr", "bedrock.tech"] # optional domain defaults
   proxy_affinity: "opaque-session-id" # optional: retain the same eligible proxy
   proxy_rejection_statuses: [403] # optional: destination rejection; safe retries share one budget
   proxy_retry_replayable: false # optional: explicit safe-replay guarantee for modifying operations
@@ -140,6 +141,16 @@ expanded with `http.proxy_countries: ["{proxy_countries}"]`; static entries can
 be combined with it. A single country must also use a one-item list, for example
 `http.proxy_countries: ["US"]`. The singular `proxy_country` field is not
 accepted.
+
+`proxy_domain_group` is an optional static list of domain names. The proxy
+normalizes case/IDNA/final dots, ignores invalid entries and deduplicates names.
+It applies only to those domains and their subdomains: an eligible proxy accepted
+by another group member can supply a default before hostname hierarchy and
+ordinary discovery. Exact preferences and eligible explicit affinity retain
+priority. Countries, capabilities, target exclusions, content callbacks and
+attempt/search budgets remain unchanged. An empty child list inherits its parent;
+a nonempty child replaces it. It neither forces a common IP nor changes returned
+media URL routing, and has no effect without dynamic proxy routing.
 
 `proxy_affinity` is an opaque process-local identifier. Requests sharing it
 reuse the same dynamic proxy while that proxy remains eligible for the country,
@@ -187,8 +198,8 @@ Handler errors are logged and inconclusive. Engines without early correlated
 observation do not infer preferences or exclusions. The public HTTP response
 remains materialized. Localized HTTP calls share a 120-second acceptance target,
 with at most 15 seconds to finish an already engaged business attempt. All retry
-layers share limits of 64 precheck reservations, 32 validation reservations and
-eight distinct business endpoints. No new work begins during grace. Accepted
+layers share the same deadline without count caps on prechecks, validations or
+distinct business endpoints; concurrency remains bounded. No new work begins during grace. Accepted
 body collection uses the separate ordinary HTTP timeout (25 seconds in Scrapyfy).
 
 GET/HEAD may retry relevant transport failures or configured rejections.
@@ -199,8 +210,14 @@ optional HTTP settings, and `false` overrides a parent. Proven pre-send failures
 may retry without this flag. Inconclusive results and body collection errors do
 not rotate. Browser/custom engines without early correlation reject the scoped
 localized HTTP search mode; explicit browser-page execution remains separate.
-Contextual Rquest calls retain destination preferences but reconnect between
-calls so each routing lease retains its cancellation/deadline ownership on the shared loopback listener.
+Contextual Rquest calls retain destination preferences and may reuse compatible
+idle transports across derived clients. Every call reselects its route and
+exclusively rebinds the lease to its fresh token and deadline. The pool keeps at
+most two idle transports per route and 32 globally, rejects entries idle for
+60 seconds on access, and only
+retains complete accepted attempts or explicitly permitted followed redirects. Cookies and mutable routing handles remain
+independent. Keep-alive depends on the server; reconnects use the current context.
+Search budgets and replay rules are unchanged; no new YAML setting is introduced.
 
 ### HTTP modes (`mode`)
 

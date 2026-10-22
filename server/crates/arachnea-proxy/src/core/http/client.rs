@@ -15,6 +15,128 @@ use futures::StreamExt;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio_util::io::ReaderStream;
 
+/// Monotonic diagnostic identity independent of reusable search-context addresses.
+#[cfg(feature = "performance-diagnostics")]
+static NEXT_MEDIA_REQUEST_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// Owns bounded diagnostics through response-body consumption or early drop.
+#[cfg(feature = "performance-diagnostics")]
+struct MediaRequestDiagnostics {
+    id: u64,
+    search_id: Option<usize>,
+    origin: String,
+    started: std::time::Instant,
+    phase_started: std::time::Instant,
+    phase: &'static str,
+    finished: Option<std::time::Instant>,
+    bytes: u64,
+    outcome: &'static str,
+}
+
+#[cfg(feature = "performance-diagnostics")]
+impl MediaRequestDiagnostics {
+    fn new(origin: String, method: &str, range_requested: bool, buffered: bool) -> Box<Self> {
+        let started = std::time::Instant::now();
+        let diagnostics = Box::new(Self {
+            id: NEXT_MEDIA_REQUEST_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            search_id: crate::core::ProxySearchContext::current().map(|search| search.id()),
+            origin,
+            started,
+            phase_started: started,
+            phase: "selection",
+            finished: None,
+            bytes: 0,
+            outcome: "interrupted",
+        });
+        tracing::debug!(
+            media_request_id = diagnostics.id,
+            search_id = diagnostics.search_id,
+            origin = %diagnostics.origin,
+            method,
+            range_requested,
+            buffered,
+            "started media upstream request"
+        );
+        diagnostics
+    }
+
+    fn next_phase(&mut self, phase: &'static str) {
+        tracing::debug!(
+            media_request_id = self.id,
+            search_id = self.search_id,
+            origin = %self.origin,
+            phase = self.phase,
+            duration_ms = self.phase_started.elapsed().as_millis() as u64,
+            "completed media upstream phase"
+        );
+        self.phase = phase;
+        self.phase_started = std::time::Instant::now();
+    }
+}
+
+#[cfg(feature = "performance-diagnostics")]
+impl Drop for MediaRequestDiagnostics {
+    fn drop(&mut self) {
+        let finished = self.finished.unwrap_or_else(std::time::Instant::now);
+        tracing::debug!(
+            media_request_id = self.id,
+            search_id = self.search_id,
+            origin = %self.origin,
+            phase = self.phase,
+            outcome = self.outcome,
+            body_bytes = self.bytes,
+            phase_ms = finished.duration_since(self.phase_started).as_millis() as u64,
+            total_ms = finished.duration_since(self.started).as_millis() as u64,
+            "finished media upstream observation"
+        );
+    }
+}
+
+/// Counts decoded upstream bytes without prefetching or changing stream ownership.
+#[cfg(feature = "performance-diagnostics")]
+struct ObservedMediaBody {
+    inner: super::response_classifier::ProxyResponseStream,
+    diagnostics: Box<MediaRequestDiagnostics>,
+}
+
+#[cfg(feature = "performance-diagnostics")]
+impl futures::Stream for ObservedMediaBody {
+    type Item = std::io::Result<Bytes>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        let result = self.inner.as_mut().poll_next(cx);
+        match &result {
+            std::task::Poll::Ready(Some(Ok(bytes))) => {
+                if self.diagnostics.bytes == 0 && !bytes.is_empty() {
+                    tracing::debug!(
+                        media_request_id = self.diagnostics.id,
+                        body_wait_ms = self.diagnostics.phase_started.elapsed().as_millis() as u64,
+                        "received first media upstream body bytes"
+                    );
+                }
+                self.diagnostics.bytes = self.diagnostics.bytes.saturating_add(bytes.len() as u64);
+            }
+            std::task::Poll::Ready(Some(Err(_))) => {
+                self.diagnostics.outcome = "body_error";
+                self.diagnostics
+                    .finished
+                    .get_or_insert_with(std::time::Instant::now);
+            }
+            std::task::Poll::Ready(None) if self.diagnostics.outcome != "body_error" => {
+                self.diagnostics.outcome = "eof";
+                self.diagnostics
+                    .finished
+                    .get_or_insert_with(std::time::Instant::now);
+            }
+            _ => {}
+        }
+        result
+    }
+}
+
 /// Minimal HTTP response returned by the core convenience client.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SimpleHttpResponse {
@@ -245,15 +367,14 @@ impl SimpleHttpClient {
         if let Some(search) = crate::core::ProxySearchContext::current() {
             return search
                 .for_url(&request.url)
-                .scope(search.origin(self.request_proxied_once_inner(
+                .scope(search.origin(Box::pin(self.request_proxied_once_inner(
                     request,
                     requested_url,
                     redirect_urls,
-                )))
+                ))))
                 .await?;
         }
-        self.request_proxied_once_inner(request, requested_url, redirect_urls)
-            .await
+        Box::pin(self.request_proxied_once_inner(request, requested_url, redirect_urls)).await
     }
 
     async fn request_proxied_once_inner(
@@ -299,6 +420,16 @@ impl SimpleHttpClient {
         };
         let is_https = protocol == crate::core::ApplicationProtocol::Https;
 
+        #[cfg(feature = "performance-diagnostics")]
+        let mut diagnostics = MediaRequestDiagnostics::new(
+            url.origin().ascii_serialization(),
+            &request.method,
+            request
+                .headers
+                .keys()
+                .any(|name| name.eq_ignore_ascii_case("range")),
+            request.buffer_response_body,
+        );
         let destination = Destination::host_port(host, port).with_protocol(protocol);
         let selected = self
             .core
@@ -311,6 +442,8 @@ impl SimpleHttpClient {
             .selection_token
             .as_ref()
             .is_some_and(|token| token.reuses_destination());
+        #[cfg(feature = "performance-diagnostics")]
+        diagnostics.next_phase("connection");
         let connection_deadline = tokio::time::Instant::now() + Duration::from_secs(60);
         let connect = selected.core.connect_http_request(
             ConnectRequest::new(destination).with_client_context(request.client_context.clone()),
@@ -330,6 +463,8 @@ impl SimpleHttpClient {
             source: Box::new(error),
         })?;
 
+        #[cfg(feature = "performance-diagnostics")]
+        diagnostics.next_phase("request_preparation");
         // Build request headers
         let mut header_lines = Vec::new();
         let method = request.method.to_ascii_uppercase();
@@ -409,6 +544,8 @@ impl SimpleHttpClient {
 
         let mut unified_stream =
             if is_https && stream.target_form == HttpRequestTargetForm::OriginForm {
+                #[cfg(feature = "performance-diagnostics")]
+                diagnostics.next_phase("destination_tls");
                 let handshake = crate::core::transport::tls::client_tls(
                     stream.stream,
                     host,
@@ -447,6 +584,8 @@ impl SimpleHttpClient {
                 stream.stream
             };
 
+        #[cfg(feature = "performance-diagnostics")]
+        diagnostics.next_phase("send_and_headers");
         let head = send_request_and_read_head(
             &mut unified_stream,
             &request_to_send,
@@ -469,6 +608,16 @@ impl SimpleHttpClient {
             source: Box::new(error),
         })?;
 
+        #[cfg(feature = "performance-diagnostics")]
+        diagnostics.next_phase("response_setup");
+        #[cfg(feature = "performance-diagnostics")]
+        tracing::debug!(
+            media_request_id = diagnostics.id,
+            search_id = diagnostics.search_id,
+            origin = %diagnostics.origin,
+            status = status_code,
+            "received media upstream headers"
+        );
         if let Some(token) = &selected.selection_token {
             token.record_http_response(status_code).await;
         }
@@ -515,6 +664,17 @@ impl SimpleHttpClient {
                     &headers,
                 )))
             };
+        #[cfg(feature = "performance-diagnostics")]
+        diagnostics.next_phase("body");
+        #[cfg(feature = "performance-diagnostics")]
+        let media_request_id = diagnostics.id;
+        #[cfg(feature = "performance-diagnostics")]
+        let stream: ProxyResponseStream = Box::pin(ObservedMediaBody {
+            inner: stream,
+            diagnostics,
+        });
+        #[cfg(feature = "performance-diagnostics")]
+        let classification_started = std::time::Instant::now();
         let (response_decision, mut inspected_stream) = inspect_proxy_response(
             request.response_classifier.as_ref(),
             ProxyResponseView {
@@ -538,6 +698,17 @@ impl SimpleHttpClient {
                 .unwrap_or(PROXY_RESPONSE_INSPECTION_TIMEOUT),
         )
         .await;
+        #[cfg(feature = "performance-diagnostics")]
+        tracing::debug!(
+            media_request_id,
+            decision = match &response_decision {
+                ProxyResponseDecision::Accepted => "accepted",
+                ProxyResponseDecision::RejectedForDestination { .. } => "rejected",
+                ProxyResponseDecision::Inconclusive => "inconclusive",
+            },
+            duration_ms = classification_started.elapsed().as_millis() as u64,
+            "classified media upstream response"
+        );
         if matches!(response_decision, ProxyResponseDecision::Accepted)
             && !(300..400).contains(&status_code)
             && (!request.buffer_response_body || request.headers_only)

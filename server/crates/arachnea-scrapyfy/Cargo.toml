@@ -4,6 +4,7 @@ version = "0.1.1"
 edition = "2021"
 
 [features]
+performance-diagnostics = ["arachnea-http/performance-diagnostics", "arachnea-proxy?/performance-diagnostics"]
 test-support = []
 default = []
 sqlite-persistence = ["arachnea-core/sqlite-persistence", "dep:rusqlite"]

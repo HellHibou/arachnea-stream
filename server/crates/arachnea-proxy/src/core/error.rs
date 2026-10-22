@@ -41,6 +41,12 @@ pub enum ProxyError {
     /// The remote proxy rejected a request.
     #[error("upstream proxy rejected request: {0}")]
     UpstreamRejected(String),
+    /// An HTTP proxy rejected CONNECT before business-request delivery.
+    #[error("upstream proxy rejected request: http connect returned status {status}")]
+    HttpConnectRejected {
+        /// Status received from the upstream proxy, not the destination server.
+        status: u16,
+    },
     /// The peer sent invalid proxy protocol data.
     #[error("proxy protocol error: {0}")]
     Protocol(String),
@@ -62,6 +68,51 @@ pub enum ProxyError {
 }
 
 impl ProxyError {
+    /// Extracts bounded diagnostics without inspecting remote text or changing retry policy.
+    ///
+    /// Unknown phases remain absent; CONNECT statuses never describe origin responses.
+    pub(crate) fn transport_failure_details(
+        &self,
+    ) -> (
+        Option<super::ProxyObservationPhase>,
+        &'static str,
+        Option<u16>,
+    ) {
+        match self {
+            Self::Observation { phase, source } => {
+                let (inner_phase, cause, status) = source.transport_failure_details();
+                (inner_phase.or(Some(*phase)), cause, status)
+            }
+            Self::RequestAttempt { source, .. } => source.transport_failure_details(),
+            Self::HttpConnectRejected { status } => (
+                Some(super::ProxyObservationPhase::Tunnel),
+                "http_connect_rejected",
+                Some(*status),
+            ),
+            Self::Timeout(_) => (None, "timeout", None),
+            Self::Tls(_) => (None, "tls", None),
+            Self::Io(error) => (
+                None,
+                match error.kind() {
+                    io::ErrorKind::ConnectionReset => "connection_reset",
+                    io::ErrorKind::ConnectionRefused => "connection_refused",
+                    io::ErrorKind::TimedOut => "timeout",
+                    io::ErrorKind::UnexpectedEof => "unexpected_eof",
+                    _ => "io",
+                },
+                None,
+            ),
+            Self::UpstreamRejected(_) => (None, "upstream_rejected", None),
+            Self::Protocol(_) => (None, "protocol", None),
+            Self::Dns(_) => (None, "dns", None),
+            Self::AccessDenied(_) => (None, "access_denied", None),
+            Self::Config(_) => (None, "configuration", None),
+            Self::InvalidDestination(_) => (None, "invalid_destination", None),
+            Self::RouteUnavailable(_) => (None, "route_unavailable", None),
+            Self::Unsupported(_) => (None, "unsupported", None),
+        }
+    }
+
     /// Attaches a known phase without replacing an already precise attribution.
     ///
     /// # Arguments

@@ -458,6 +458,9 @@ pub struct ArachneaHttpConfig {
     /// Shared loopback server for application-owned proxy transports.
     #[cfg(feature = "arachnea-proxy")]
     pub proxy_runtime: Option<Arc<arachnea_proxy::server::LoopbackProxyRuntime>>,
+    /// Optional caller-owned pool of idle, request-rebound proxy transports.
+    #[cfg(feature = "arachnea-proxy")]
+    pub proxy_transport_pool: Option<Arc<crate::client::ProxyTransportPool>>,
     /// Request routing parameters sent to proxy transports that support them.
     pub proxy_parameters: Vec<(String, String)>,
     /// Optional code-injected response policy; not part of serialized configuration.
@@ -468,6 +471,8 @@ pub struct ArachneaHttpConfig {
     pub cookie_refresh_margin: Duration,
     /// Ordinary total timeout. Localized searches use it separately for origin
     /// response headers and accepted-body transfer within their shared search budget.
+    /// Reused proxy evidence caps the header allowance at 60 seconds without
+    /// increasing a shorter configured timeout.
     pub request_timeout: Duration,
     /// Explicit operation-level authorization to replay a reproducible modifying request.
     pub proxy_retry_replayable: bool,
@@ -514,6 +519,8 @@ impl Default for ArachneaHttpConfig {
             proxy: HttpProxyConfig::Disabled,
             #[cfg(feature = "arachnea-proxy")]
             proxy_runtime: None,
+            #[cfg(feature = "arachnea-proxy")]
+            proxy_transport_pool: None,
             proxy_parameters: Vec::new(),
             #[cfg(feature = "arachnea-proxy")]
             proxy_response_classifier: None,
@@ -718,6 +725,16 @@ impl ArachneaHttpConfigBuilder {
         runtime: Arc<arachnea_proxy::server::LoopbackProxyRuntime>,
     ) -> Self {
         self.config.proxy_runtime = Some(runtime);
+        self
+    }
+
+    /// Shares idle proxy connections across a family of compatible HTTP clients.
+    ///
+    /// # Arguments
+    /// - `pool`: Caller-owned bounded transport pool, independent of cookies and requests.
+    #[cfg(feature = "arachnea-proxy")]
+    pub fn proxy_transport_pool(mut self, pool: Arc<crate::client::ProxyTransportPool>) -> Self {
+        self.config.proxy_transport_pool = Some(pool);
         self
     }
 

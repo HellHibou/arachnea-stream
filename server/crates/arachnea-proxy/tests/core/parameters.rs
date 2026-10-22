@@ -36,6 +36,27 @@ fn country_parameter_handler_selects_extra_proxy() {
     let dynamic = crate::core::DynamicCountryRoutingProxyHandler::new(
         crate::core::CoexistencePolicy::DynamicOnly,
     );
+    let definitions = dynamic.parameter_definitions();
+    let definition = definitions
+        .iter()
+        .find(|definition| definition.name == crate::core::PROXY_PARAMETER_DOMAIN_GROUP)
+        .unwrap();
+    assert_eq!(
+        definition.http_header,
+        crate::core::PROXY_HEADER_PARAMETER_DOMAIN_GROUP
+    );
+    assert!(!definition.forward_header);
+    let context = crate::core::context_from_parameter_pairs(
+        [(
+            crate::core::PROXY_PARAMETER_DOMAIN_GROUP,
+            r#"["M6.FR.","6play.fr","m6.fr","https://bad.fr","127.0.0.1"]"#,
+        )],
+        &definitions,
+    );
+    assert_eq!(
+        context.get_string(crate::core::PROXY_PARAMETER_DOMAIN_GROUP),
+        Some(r#"["6play.fr","m6.fr"]"#)
+    );
     for countries in [r#"["CA", "US", "US"]"#, r#"["us", " ca "]"#] {
         let mut context = ClientContext::new();
         context.insert(

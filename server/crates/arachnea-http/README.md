@@ -283,8 +283,9 @@ must not create a dynamic preference or exclusion by destination-map inference.
 ## Localized proxy search and safe retries
 
 Localized Rquest attempts log the selected proxy endpoint, destination origin and
-search identity before sending. Failures log delivery evidence and replay
-eligibility, followed by bounded search counters at retry/final completion.
+search identity at DEBUG before sending. Recoverable failures log delivery
+evidence and replay eligibility at DEBUG; terminal localized request failure is
+WARN. Bounded search counters require `performance-diagnostics` and DEBUG.
 These diagnostics distinguish selection/probing from the business request;
 no request body, cookies or additional full URL is logged by these events.
 
@@ -300,14 +301,21 @@ New localized Rquest candidates cap complete connection establishment (including
 the loopback proxy and destination TLS) at 15 seconds, or a shorter configured
 request timeout. For an exact endpoint/origin with prior acceptance or followed
 redirect evidence, application-created pinned clients use a 60-second connection
-envelope and a 60-second send/header timeout. The latter includes connection
-establishment; Rquest has no separate TLS-only timer here. The token carries
-immutable provenance, so another request cannot change this profile. The longer
-profile replaces ordinary localized header limits; accepted-body collection
-still uses the configured `request_timeout`. Native connector timeouts preserve
+envelope. Their send/header timeout is the smaller of the configured
+`request_timeout` and 60 seconds (25 seconds for Scrapyfy clients). This outer
+timer includes connection establishment and can stop the native connection
+envelope earlier; Rquest has no separate TLS-only timer here. The token carries
+immutable provenance, so another request cannot change this profile. Discovery
+keeps its configured send/header timeout. Accepted-body collection still uses
+its existing configured `request_timeout` and inspection allowances. The shared
+120/135-second search horizon is unchanged. A known proxy that would respond
+after the configured header deadline can therefore be abandoned earlier, leaving
+the remaining search time for other eligible candidates when replay is allowed.
+Native connector timeouts preserve
 `NotSent` evidence on the first hop;
 the outer response-header timeout remains conservative after possible sending.
-It emits a correlated `timeout` diagnostic with `phase=response_headers`.
+It emits a correlated `timeout` diagnostic with `phase=response_headers` and
+`timeout_ms` reporting the effective per-attempt allowance.
 
 Cold discovery is coordinated by exact origin and canonical allowed-country set;
 waiting consumes each caller's own search budget. Shared success notifications
@@ -316,7 +324,12 @@ remain request-specific, and warm reuse does not serialize transfers. Followed
 redirects store separate routing evidence for intermediate origins; they never
 attribute final-content acceptance to the starting domain. Ambiguous correlated
 transport failures suspend the association for at most 30 seconds, including old
-stored `Other` exclusions, while explicit origin rejection cooldowns remain intact.
+stored `Other` exclusions. Proven tunnel-establishment timeouts use a 120-second
+exact-endpoint/origin suspension; a later generic adapter report does not downgrade
+it. These rules preserve global endpoint availability and explicit origin rejection
+cooldowns. Strictly newer same-origin acceptance clears older `Other`/`Timeout`
+exclusions, including restored records. Engine timeout/TLS text heuristics alone
+do not enable the longer suspension. Search and per-attempt budgets are unchanged.
 
 Rquest header/prefix observation uses the remaining origin deadline. Final
 acceptance is committed once per token before body collection and wakes waiting
@@ -346,10 +359,103 @@ reproduced from owned bytes. Rejection status alone does not authorize replay.
 Inconclusive results return without rotation. Destination observations remain
 attached to the exact token and never establish global proxy failure.
 
-Contextual loopbacks live only as long as the call; they are excluded from the
-cross-call pinned-client cache, so these calls reconnect while still reusing
-accepted destination preferences. Ordinary non-search keep-alive clients are
-unchanged. Browser/custom engines without early route correlation return
+Completed, accepted Rquest attempts may retain an idle transport for subsequent
+compatible calls. A fully consumed 301/302/303/307/308 response classified as
+inconclusive can additionally retain its transport only when the active policy
+explicitly permits redirect transport reuse and the redirect loop confirms a
+valid HTTP(S) target within its quota. The default status classifier permits
+this; custom `ProxyResponseClassifier` implementations opt out through the
+default `allows_redirect_transport_reuse() == false`. A configured rejection,
+classifier/inspection error, incomplete transfer, missing/invalid target or
+unfollowed redirect does not qualify. Retaining a redirect transport never
+accepts its content or creates a final-content preference. The unchanged TF1
+content callback therefore retains its previous behavior, including rejection
+of HTTP 200 geo-block responses.
+
+A private, non-cloneable step envelope owns the pending transport until redirect
+following is confirmed; the public `ArachneaResponse` remains cloneable without
+owning it. Cancellation before admission drops that transport. After admission,
+it follows the normal pool lifetime even if a later request to another origin
+fails or is cancelled. Idle age starts at complete body collection; limits remain
+32 idle entries and 60 seconds. DEBUG `retaining HTTP transport after followed
+proxy redirect` records admission without signed URL paths.
+
+Every call first selects and validates its route again, then
+exclusively checks out and rebinds the transport to its fresh selection token and
+search deadline. Existing tunnels can be reused; reconnects use the current core.
+Concurrent calls never share a checked-out transport or wait for it: they can
+create separate transports within the existing resource limits. Errors,
+inconclusive responses outside the explicitly permitted followed-redirect case,
+rejections and incomplete bodies are not returned to the pool.
+
+The pool retains at most two idle transports per route key, with at most 32 idle
+transports globally, and rejects entries idle for 60 seconds on access. Checkout
+exclusively takes the newest compatible idle transport; a third concurrent borrower
+creates its own transport immediately when both retained transports are checked out.
+Returning a third idle transport for one route evicts that route's oldest transport.
+Exceeding the global limit evicts the oldest individual idle transport across all routes,
+keeping other entries for its route. No preconnections or waits for active borrowers
+are introduced. Its identity includes the exact origin, endpoint, concrete route and
+core policy, HTTP profile, routing parameters, configured timeout, connector
+profile and shared listener. Changed TLS/DNS/core policy isolates old entries.
+The connector profile remains distinct for discovery and prior-destination reuse;
+the first preferred call may therefore establish a new connection before later
+preferred calls reuse it. Cache reuse is not proof that the server kept a socket
+open: a closed connection reconnects through the newly rebound route.
+
+By default the pool belongs to one HTTP client family. Applications can share an
+`Arc<arachnea_http::client::ProxyTransportPool>` using
+`.proxy_transport_pool(pool)` alongside `.proxy_runtime(runtime)` across derived
+clients. Cookies and request headers stay outside the transport pool. DEBUG
+`reusing selected proxy HTTP transport` records a checkout without URL paths or
+credentials; it does not claim physical socket reuse. The request-debug path
+reports body length rather than raw payloads and does not dump the shared cookie
+cache; configured headers continue through the existing redaction helper.
+
+With `performance-diagnostics`, targeted DEBUG qualification also reports `checked localized proxy HTTP transport
+pool` for every checkout (`reused`, idle age, expired entries, remaining idle
+entries and checkout duration), followed by `prepared localized proxy HTTP
+transport` for rebinding or creation time. The Rquest adapter reports
+`received localized proxy HTTP response headers`, `classified localized proxy
+HTTP response` and `collected localized proxy HTTP response body`, correlated by
+search and destination. Header time includes connection/tunnel/TLS establishment
+when needed, request sending and waiting for headers; it does not isolate those
+network stages. Classification can read a prefix, and collection includes any
+replayed prefix; `body_bytes` is the materialized response size, not network
+traffic. `body_skipped` identifies a retryable rejection whose body was skipped.
+When a response-specific policy replaces its historical prefix requirement with
+no inspection, classification no longer waits for those body bytes. Collection
+preserves the skipped prefix's bounded reception window (byte limit, up to three
+seconds within the original inspection allowance, or EOF), then starts the
+ordinary transfer timeout. EOF completes immediately, and reaching the byte
+limit starts the ordinary timer without granting unused initial time. This is
+not a fixed three-second timeout increase. Non-accepted responses remain capped
+by the search deadline; accepted bodies retain their independent transfer policy.
+DEBUG `deferred_prefix_bytes` and `deferred_prefix_ms` describe the preserved
+bounds; their reception time now belongs to collection rather than classification.
+The response-specific hook defaults to historical behavior for existing callbacks.
+
+Stage times exclude some observation/persistence work, so their sum is not a
+complete API duration. These events contain no signed URL paths or response
+contents. Compare checkout events with new CONNECT establishment events to
+qualify physical reuse; checkout alone remains insufficient.
+
+
+Browser/custom engines without early route correlation return
 `UnsupportedEngineOperation` within this scoped search, rather than bypassing
 its limits or inferring a proxy result. External API gateways must allow the
 135-second search horizon plus the separate accepted-body transfer policy.
+
+
+## Optional performance diagnostics
+
+The `performance-diagnostics` feature is disabled by default. It gates localized
+transport-checkout/preparation timers and response header/classification/body
+phase measurements. It forwards to `arachnea-proxy` only when that optional
+dependency is already enabled; it does not enable proxy transport by itself.
+The real request/inspection/body deadlines, replay evidence, pool TTL/ownership
+and callbacks remain active without it. Ordinary request-send and recoverable
+per-attempt failure logs are DEBUG; the localized retry facade emits a terminal
+WARN containing origin, method and delivery evidence. Normal startup and
+persistence failure handling are unchanged. For the application command and
+log policy, see the proxy crate README.

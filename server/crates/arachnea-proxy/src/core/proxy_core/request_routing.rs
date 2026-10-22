@@ -126,15 +126,52 @@ impl ArachneaProxyCore {
                 dynamic_pool_countries(&selection.pool_name)
                     .ok()
                     .flatten()?;
-                Some(crate::core::ProxySelectionToken::new(
-                    self.proxy_inventory.clone()?,
-                    selection.endpoint.clone()?,
-                    request.destination.clone(),
-                ))
+                Some(
+                    crate::core::ProxySelectionToken::new(
+                        self.proxy_inventory.clone()?,
+                        selection.endpoint.clone()?,
+                        request.destination.clone(),
+                    )
+                    .with_protocol(
+                        resolved
+                            .chain
+                            .nodes
+                            .iter()
+                            .find(|node| node.endpoint.as_deref() == selection.endpoint.as_deref())
+                            .and_then(|node| match node.kind {
+                                crate::core::TransportKind::HttpProxy => {
+                                    Some(crate::core::ProxyProtocol::Http)
+                                }
+                                crate::core::TransportKind::HttpsProxy => {
+                                    Some(crate::core::ProxyProtocol::Https)
+                                }
+                                crate::core::TransportKind::Socks5
+                                | crate::core::TransportKind::TorSocks => {
+                                    Some(crate::core::ProxyProtocol::Socks5)
+                                }
+                                _ => None,
+                            }),
+                    ),
+                )
             });
             use std::hash::{Hash, Hasher};
             let mut route_hash = std::collections::hash_map::DefaultHasher::new();
             format!("{:?}", resolved.chain).hash(&mut route_hash);
+            Arc::as_ptr(&self.config).hash(&mut route_hash);
+            Arc::as_ptr(&self.parameter_handlers).hash(&mut route_hash);
+            self.proxy_inventory
+                .as_ref()
+                .map(Arc::as_ptr)
+                .hash(&mut route_hash);
+            self.dns_resolver.transport_identity().hash(&mut route_hash);
+            for hosts in [&self.insecure_tls_hosts, &self.socks5_local_dns_nodes] {
+                let hosts = hosts.read().map_err(|_| {
+                    crate::core::ProxyError::Config("transport policy lock poisoned".into())
+                })?;
+                let mut hosts = hosts.iter().collect::<Vec<_>>();
+                hosts.sort();
+                hosts.hash(&mut route_hash);
+            }
             let route_generation = route_hash.finish();
             let mut scoped = self.clone();
             scoped.dynamic_proxy_selections = None;

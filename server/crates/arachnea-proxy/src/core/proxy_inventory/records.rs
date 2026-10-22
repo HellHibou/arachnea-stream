@@ -28,7 +28,8 @@ fn has_fresh_runtime_update(record: &ProxyRecord) -> bool {
 ///
 /// A cached endpoint whose last probe is still within `probe_ttl` retains all
 /// runtime-derived fields. Provider-owned metadata such as country and
-/// availability still comes from the refreshed source record.
+/// availability still comes from the refreshed source record. Probe-position and
+/// cached-count metadata is collected only for performance diagnostics or tests.
 pub(super) fn prepare_provider_records(
     records: Vec<ProxyRecord>,
     existing: &HashMap<String, ProxyRecord>,
@@ -50,20 +51,31 @@ pub(super) fn prepare_provider_records(
     }
 
     let mut prepared = Vec::with_capacity(grouped.len());
+    #[cfg(any(test, feature = "performance-diagnostics"))]
     let mut probe_indices = Vec::new();
+    #[cfg(not(any(test, feature = "performance-diagnostics")))]
+    let probe_indices = Vec::new();
     let duplicate_count = loaded_count.saturating_sub(grouped.len());
+    #[cfg(any(test, feature = "performance-diagnostics"))]
     let mut cached_count = 0;
+    #[cfg(not(any(test, feature = "performance-diagnostics")))]
+    let cached_count = 0;
 
     for mut record in grouped {
         let authority = record.authority();
         if let Some(cached) = existing.get(&authority) {
             if !probe_is_expired(cached, now, probe_ttl) {
                 retain_cached_runtime(&mut record, cached);
-                cached_count += 1;
+                #[cfg(any(test, feature = "performance-diagnostics"))]
+                {
+                    cached_count += 1;
+                }
             } else {
+                #[cfg(any(test, feature = "performance-diagnostics"))]
                 probe_indices.push(prepared.len());
             }
         } else {
+            #[cfg(any(test, feature = "performance-diagnostics"))]
             probe_indices.push(prepared.len());
         }
         prepared.push(record);
@@ -128,6 +140,7 @@ fn preferred_declared_protocol(declarations: &[ProxyDeclaration]) -> Option<Prox
     })
 }
 
+#[cfg(feature = "performance-diagnostics")]
 pub(super) fn declared_protocol_count(record: &ProxyRecord) -> usize {
     let mut protocols = record
         .declarations
@@ -139,6 +152,7 @@ pub(super) fn declared_protocol_count(record: &ProxyRecord) -> usize {
     protocols.len()
 }
 
+#[cfg(feature = "performance-diagnostics")]
 pub(super) fn runtime_protocol_is_undeclared(record: &ProxyRecord) -> bool {
     let Some(protocol) = &record.protocol else {
         return false;
@@ -408,7 +422,7 @@ impl ProxyInventory {
         }
 
         if resolved_any {
-            tracing::info!(
+            tracing::debug!(
                 total = records.len(),
                 "completed IP-country resolution for proxy records during add_or_update"
             );
@@ -431,6 +445,7 @@ impl ProxyInventory {
                         keys.retain(|k| k != authority);
                     }
                 }
+                inner.related_origins.remove_endpoint(&record.key());
                 for preference in inner.preferred_by_destination.values_mut() {
                     preference
                         .endpoints
