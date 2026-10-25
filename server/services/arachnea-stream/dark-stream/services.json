@@ -24,5 +24,15 @@
   {
     "path": "papadustream-v2.yaml",
     "enabled": false
+  },
+  {
+    "path": "wiflix.yaml",
+    "enabled": false,
+    "parameters": [
+      {
+        "name": "base_url",
+        "value": "https://flemmix.studio"
+      }
+    ]
   }
 ]

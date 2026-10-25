@@ -1275,6 +1275,21 @@ async fn fetch_responses(
 // Row extraction
 // ---------------------------------------------------------------------------
 
+/// Resolves runtime placeholders in an HTML row selector.
+///
+/// Row selectors are templates so a query can scope its rows with runtime
+/// parameters, typically `{url_fragment}` when the caller's link carries a
+/// fragment (`page.html#ep3`). Unknown placeholders are kept verbatim, which
+/// leaves the selector matching nothing instead of failing the whole query.
+///
+/// # Arguments
+///
+/// * `selector` - Selector template coming from the query configuration.
+/// * `params` - Runtime template parameters.
+fn resolve_html_selector(selector: &str, params: &HashMap<String, String>) -> String {
+    query_helpers::replace_template_placeholders(selector, params).0
+}
+
 /// Extracts items by applying entries to each row from the fetched response.
 ///
 /// Returns owned [`ScraperDataNode`] items (HTML rows own their data; JSON
@@ -1321,6 +1336,7 @@ fn extract_items(
                 RowLocator::Selector { selector, .. } => selector.clone(),
                 _ => return Ok(Vec::new()),
             };
+            let compiled = resolve_html_selector(&compiled, context.params);
             let selector = match ::scraper::Selector::parse(&compiled) {
                 Ok(sel) => sel,
                 Err(_) => return Ok(Vec::new()),
@@ -2175,7 +2191,8 @@ async fn fetch_and_extract_for_entry_sub_query(
                     ref selector,
                     select,
                 } => {
-                    let sel = match ::scraper::Selector::parse(selector) {
+                    let selector = resolve_html_selector(selector, context.params);
+                    let sel = match ::scraper::Selector::parse(&selector) {
                         Ok(s) => s,
                         Err(_) => return Ok(()),
                     };

@@ -1,0 +1,979 @@
+id: wiflix
+title: Wiflix
+logo: "{base_url}/templates/flemmixnew/images/favicon.png"
+description:
+  fr: "Films et Séries en streaming VF et VOSTFR en HD."
+http:
+  mode: auto
+
+parameters:
+  - name: base_url
+    value: https://flemmix.studio
+    description: "Base URL — update on domain change"
+
+shared:
+  media_types: &media_types
+    - video/movie
+    - video/show/serie
+
+  poster_actions: &poster_actions
+    - type: get_attribut
+      argument: src
+    - type: resolve_url
+
+  link_actions: &link_actions
+    - type: get_attribut
+      argument: href
+    - type: resolve_url
+
+  # Derives a card media type from its URL instead of a hardcoded section
+  # label: serie containers (`/serie-en-streaming/`, `/saison-complete/`, `/vf/`)
+  # map to a show, every other catalogue path to a movie. The `~` key keeps the
+  # movie fallback when the URL does not match a serie path.
+  media_type_actions: &media_type_actions
+    - type: get_attribut
+      argument: href
+    - type: regex_find_all
+      pattern: "/(?:serie-en-streaming|saison-complete|vf)/"
+      format: serie
+    - type: map
+      argument:
+        serie: video/show/serie
+        ~: video/movie
+
+  catalog_card: &catalog_card
+    - name: source
+      type: string
+      actions:
+        - type: format_text
+          argument: "{source}"
+    - name: title
+      type: string
+      select: first
+      selector: "a[rel=\"nofollow\"] > img"
+      actions:
+        - type: get_attribut
+          argument: alt
+        - type: regex_find_all
+          pattern: "^(.+) flemmix$"
+          format: "{1}"
+    - name: link
+      type: string
+      select: first
+      selector: "a[rel=\"nofollow\"]"
+      actions: *link_actions
+    - name: web-link
+      type: string
+      select: first
+      selector: "a[rel=\"nofollow\"]"
+      actions: *link_actions
+    - name: img/poster > link
+      type: string
+      select: first
+      selector: "a[rel=\"nofollow\"] > img"
+      actions: *poster_actions
+    - name: media-type
+      type: string[]
+      select: first
+      selector: "a[rel=\"nofollow\"]"
+      actions: *media_type_actions
+
+  # Card used by the home `block-main` rails (poster, title, link and metadata).
+  block_card: &block_card
+    - name: source
+      type: string
+      actions:
+        - type: format_text
+          argument: "{source}"
+    - name: title
+      type: string
+      select: first
+      selector: "a.mov-t"
+      actions:
+        - type: get_text
+    - name: link
+      type: string
+      select: first
+      selector: "a.mov-t"
+      actions: *link_actions
+    - name: web-link
+      type: string
+      select: first
+      selector: "a.mov-t"
+      actions: *link_actions
+    - name: img/poster > link
+      type: string
+      select: first
+      selector: ".mov-i img"
+      actions: *poster_actions
+    - name: media-type
+      type: string[]
+      select: first
+      selector: "a.mov-t"
+      actions: *media_type_actions
+    - name: year
+      type: number
+      select: first
+      selector: ".movie-lines > li:nth-of-type(1) .ml-desc"
+      actions:
+        - type: get_text
+        - type: regex_find_all
+          pattern: "(\\d{4})"
+          format: "{1}"
+    - name: season
+      type: string
+      select: first
+      selector: ".block-sai"
+      actions:
+        - type: get_text
+        - type: regex_find_all
+          pattern: "Saison\\s*(\\d+)"
+          format: "{1}"
+    - name: episode > label
+      type: string
+      select: first
+      selector: ".block-ep"
+      actions:
+        - type: get_text
+    - name: lang
+      type: string[]
+      select: first
+      selector: ".block-sai"
+      actions:
+        - type: get_text
+        - type: regex_find_all
+          pattern: "(French|VF|VOSTFR)"
+          format: "{1}"
+        - type: map
+          argument:
+            French: vf
+            VF: vf
+            VOSTFR: vostfr
+
+  # Card used by the sidebar rails: the row anchor itself carries the URL.
+  side_card: &side_card
+    - name: source
+      type: string
+      actions:
+        - type: format_text
+          argument: "{source}"
+    - name: title
+      type: string
+      select: first
+      selector: ".mov-side-title"
+      actions:
+        - type: get_text
+    - name: link
+      type: string
+      actions: *link_actions
+    - name: web-link
+      type: string
+      actions: *link_actions
+    - name: img/poster > link
+      type: string
+      select: first
+      selector: ".mov-side-img img"
+      actions: *poster_actions
+    - name: media-type
+      type: string[]
+      actions: *media_type_actions
+
+  # Episode rows listed by the "latest additions" block (list layout, no poster).
+  latest_entry: &latest_entry
+    - name: source
+      type: string
+      actions:
+        - type: format_text
+          argument: "{source}"
+    - name: title
+      type: string
+      actions:
+        - type: get_attribut
+          argument: title
+    - name: link
+      type: string
+      actions: *link_actions
+    - name: web-link
+      type: string
+      actions: *link_actions
+    - name: media-type
+      type: string[]
+      actions: *media_type_actions
+    - name: season
+      type: string
+      actions:
+        - type: get_attribut
+          argument: title
+        - type: regex_find_all
+          pattern: "Saison\\s*(\\d+)"
+          format: "{1}"
+    - name: episode > label
+      type: string
+      actions:
+        - type: get_text
+        - type: regex_find_all
+          pattern: "Ep\\s*([0-9-]+)"
+          format: "{1}"
+    - name: lang
+      type: string[]
+      selector: "i.langue"
+      select: all
+      actions:
+        - type: get_attribut
+          argument: class
+        - type: regex_find_all
+          pattern: "langue (\\w+)"
+          format: "{1}"
+
+  # Episode number and language are encoded in the language block class
+  # (`ep1vs`, `ep1vf`); the block markup itself only repeats the episode label.
+  # Both values are also stored as dynamic variables so the entries applied
+  # inside that block (player language, deferred players link) inherit them.
+  actions_episode_title: &actions_episode_title
+    - type: get_attribut
+      argument: class
+    - type: regex_find_all
+      pattern: "ep(\\d+)(vs|vf)"
+      format: "Episode {1}"
+
+  actions_episode_number: &actions_episode_number
+    - type: get_attribut
+      argument: class
+    - type: regex_find_all
+      pattern: "ep(\\d+)(vs|vf)"
+      format: "{1}"
+    - type: extract_variables
+      pattern: "^(\\d+)$"
+      name: "@wiflix_episode_number"
+      value: "{1}"
+      on_duplicate: replace
+
+  actions_episode_lang: &actions_episode_lang
+    - type: get_attribut
+      argument: class
+    - type: regex_find_all
+      pattern: "ep(\\d+)(vs|vf)"
+      format: "{2}"
+    - type: map
+      argument:
+        vs: vostfr
+        vf: vf
+    - type: extract_variables
+      pattern: '^([a-z]+)$'
+      name: "@wiflix_episode_lang"
+      value: "{1}"
+      on_duplicate: replace
+
+  # Player anchor. `data-v` is a per-load token that `ajax_player.php` exchanges
+  # for the real embed URL, so it is resolved per player instead of leaking
+  # every page player into every episode.
+  #
+  # The endpoint only answers the real URL for the request built by the page's
+  # own script: `v` (the token), `k` (a per-load key XOR-hidden in that script),
+  # `b=1`, `s` (a polynomial hash of `v|k|sl` with the script parameters) and
+  # `t=1`, plus the page as `Referer`. Any other body answers a decoy URL that
+  # leads to a 404 player page. The script inputs therefore travel in the request
+  # URL fragment (`...#<array>-<mask>-<hash-start>-<hash-multiplier>`), which is
+  # never sent to the server, and the sub-query rebuilds and signs the real body
+  # per token.
+  actions_wiflix_player_link: &actions_wiflix_player_link
+    - type: get_response_body
+    - type: regex_find_all
+      pattern: '_a=\[([0-9,]+)\],_m=(\d+),_in=(\d+),_mu=(\d+)'
+      format: "{1}-{2}-{3}-{4}"
+    - type: extract_variables
+      pattern: '^([0-9,\-]+)$'
+      name: "@wiflix_sign"
+      value: "{1}"
+      on_duplicate: replace
+    - type: get_attribut
+      argument: data-v
+    - type: format_text
+      argument: "{base_url}/ajax_player.php?v={}#{@wiflix_sign}"
+    - type: replace_variables
+    - type: regex_find_all
+      pattern: '^https://[^#]+ajax_player\.php\?v=fx1_[A-Za-z0-9_-]+#[0-9,\-]+$'
+      format: "{0}"
+
+  sub_queries_wiflix_player_ajax: &sub_queries_wiflix_player_ajax
+    - scraper_type: json
+      request_method: post
+      request_headers:
+        - name: "Content-Type"
+          actions:
+            - type: format_text
+              argument: "application/x-www-form-urlencoded"
+        - name: "Referer"
+          actions:
+            - type: format_text
+              argument: "{query_url}"
+      request_body_actions:
+        - type: format_text
+          argument: "{request_url}"
+        - type: regex_find_all
+          pattern: '\?v=([^#]+)#([0-9,]+)-(\d+)-(\d+)-(\d+)$'
+          format: "{1}|{2}|{3}|{4}|{5}"
+        - type: format_text
+          argument: >-
+            var p='{}'.split('|'),v=p[0],A=p[1].split(','),M=+p[2],I=+p[3],U=+p[4],d='';
+            for(var i=0;i<A.length;i++) d+=String.fromCharCode(A[i]^M);
+            var q=d.split('|'),k=q[0],sl=q[1],str=v+'|'+k+'|'+sl,h=I;
+            for(var c=0;c<str.length;c++) h=(h*U+str.charCodeAt(c))&0x7fffffff;
+            document.write('v='+v+'&k='+k+'&b=1&s='+('00000000'+h.toString(16)).slice(-8)+'&t=1');
+        - type: exec_js
+          timeout_ms: 500
+        - type: regex_find_all
+          pattern: '^document_write=(.+)$'
+          format: "{1}"
+      row_pointer: "/"
+      entries:
+        - name: embed-link
+          type: string
+          pointer: "/u"
+
+  entries_wiflix_player: &entries_wiflix_player
+    - name: name
+      type: string
+      select: first
+      selector: "span.clichost"
+      actions:
+        - type: get_text
+    # Series players inherit the language of the episode block that contains
+    # them (`entries_wiflix_episode` stores it as a dynamic variable). Film
+    # pages and flat player lists never set that variable, so the final filter
+    # drops the unresolved placeholder instead of exposing it.
+    - name: lang
+      type: string
+      actions:
+        - type: format_text
+          argument: "{@wiflix_episode_lang}"
+        - type: replace_variables
+        - type: regex_find_all
+          pattern: '^(vostfr|vf)$'
+          format: "{1}"
+    - name: embed-link
+      type: string
+      select: first
+      actions: *actions_wiflix_player_link
+      sub_queries: *sub_queries_wiflix_player_ajax
+
+  # Film pages expose a single flat player list under `.tabs-sel.linkstab`
+  # instead of per-episode blocks. HD links carry their host name base64-encoded
+  # in `span[data-n]`, while VOSTFR links only carry their visible label, so the
+  # name is read from the anchor markup and decoded when a `data-n` is present.
+  entries_wiflix_film_player: &entries_wiflix_film_player
+    - name: name
+      type: string
+      actions:
+        - type: get_html
+        - type: regex_find_all
+          pattern: 'data-n="([^"]+)"|<span>([^<]+)</span>'
+          format: "{1}{2}"
+        - type: base64_decode
+    - name: embed-link
+      type: string
+      select: first
+      actions: *actions_wiflix_player_link
+      sub_queries: *sub_queries_wiflix_player_ajax
+
+  # Episodes are extracted per language block so each row carries the language
+  # of its own block. `get_entry` folds the blocks of one episode together.
+  # Players are not resolved here: every episode exposes a deferred link
+  # (`<page>#ep<N>`) that `get_players` uses to load only that episode's
+  # players when the frontend selects it.
+  entries_wiflix_episode: &entries_wiflix_episode
+    - name: label
+      type: string
+      actions: *actions_episode_title
+    - name: title
+      type: string
+      actions: *actions_episode_title
+    - name: lang
+      type: string[]
+      actions: *actions_episode_lang
+    - name: episode-number
+      type: number
+      actions: *actions_episode_number
+    # The fragment is never sent to the site; it only tells `get_players` which
+    # language blocks belong to the selected episode.
+    - name: link
+      type: string
+      actions:
+        - type: format_text
+          argument: "{query_url}#ep{@wiflix_episode_number}"
+        - type: replace_variables
+    - name: web-link
+      type: string
+      actions:
+        - type: format_text
+          argument: "{query_url}"
+
+queries:
+  # --------------------------------------------------------------------------
+  # Service metadata (static — no HTTP call).
+  # --------------------------------------------------------------------------
+  - name: service_stream_metadata
+    scraper_type: static
+    entries:
+      - name: id
+        type: string
+        value: "{service_id}"
+      - name: title
+        type: string
+        value: "{service_title}"
+      - name: logo
+        type: string
+        value: "{service_logo}"
+        actions:
+          - type: resolve_url
+      - name: description
+        type: object
+        value: "{service_description}"
+
+  # --------------------------------------------------------------------------
+  # Home page — catalogue of latest movies and series.
+  # --------------------------------------------------------------------------
+  - name: load_home
+    scraper_type: html
+    base_url: "{base_url}"
+    query_url: "{base_url}/"
+    media_types: *media_types
+    row_selector: html
+    entries:
+      - name: source
+        type: string
+        actions:
+          - type: format_text
+            argument: "{source}"
+      # ---- Categories: links of the "Catégories" sidebar block ----
+      - name: categories
+        type: object[]
+        selector: "#ext-cat-list > li > a"
+        select: all
+        entries:
+          - name: key
+            type: string
+            select: first
+            actions:
+              - type: get_attribut
+                argument: href
+              - type: regex_find_all
+                pattern: "([^/]+)/?$"
+                format: "{1}"
+          - name: label
+            type: string
+            select: first
+            actions:
+              - type: get_text
+          - name: request > query_url
+            type: string
+            select: first
+            actions:
+              - type: get_attribut
+                argument: href
+              - type: resolve_url
+      # ---- Featured hero carousel ----
+      - name: sections
+        type: object[]
+        selector: ".related.newcarusel .owl-carousel.caroustyle"
+        select: all
+        entries:
+          - name: entries
+            type: object[]
+            selector: ".item"
+            select: all
+            entries: *catalog_card
+      # ---- Latest additions (episodes and complete seasons) ----
+      - name: sections
+        type: object[]
+        selector: ".blocklastadded"
+        select: all
+        entries:
+          - name: key
+            type: string
+            actions:
+              - type: format_text
+                argument: "latest-added"
+          - name: label
+            type: string
+            select: first
+            selector: ".t-b-recent"
+            actions:
+              - type: get_text
+          - name: entries
+            type: object[]
+            selector: "ul > li > a.full-link"
+            select: all
+            entries: *latest_entry
+      # ---- Main content rails: key and label are read from the markup ----
+      - name: sections
+        type: object[]
+        selector: ".block-main"
+        select: all
+        entries:
+          - name: key
+            type: string
+            select: first
+            selector: ".block-title a"
+            actions:
+              - type: get_attribut
+                argument: href
+              - type: regex_find_all
+                pattern: "([^/]+)/?$"
+                format: "{1}"
+          - name: label
+            type: string
+            select: first
+            selector: ".block-title .left-ma"
+            actions:
+              - type: get_text
+          - name: link
+            type: string
+            select: first
+            selector: ".block-title a"
+            actions:
+              - type: get_attribut
+                argument: href
+              - type: resolve_url
+          - name: entries
+            type: object[]
+            selector: ".mov"
+            select: all
+            entries: *block_card
+      # ---- Sidebar rails (Prochainement, Populaires, Films Anciens...) ----
+      - name: sections
+        type: object[]
+        selector: ".sidebar .side-b.fx-side-has-content:has(.mov-side)"
+        select: all
+        entries:
+          - name: label
+            type: string
+            select: first
+            selector: ".side-t b"
+            actions:
+              - type: get_text
+          - name: entries
+            type: object[]
+            selector: ".mov-side"
+            select: all
+            entries: *side_card
+
+  # --------------------------------------------------------------------------
+  # Category listing — paginated grid reached from a load_home category
+  # descriptor (`request > query_url`). The site appends `page/{page}/` to the
+  # category URL (DLE pagination); cards use the same markup as the home
+  # `block-main` rails, so `block_card` is reused. "Next page exists" is read
+  # from the `.pnext a[href]` affordance, which degrades to a bare `<span>`
+  # on the last page.
+  # --------------------------------------------------------------------------
+  - name: get_category
+    scraper_type: html
+    base_url: "{base_url}"
+    query_url: "{query_url}page/{page}/"
+    media_types: *media_types
+    row_selector: html
+    entries:
+      - name: source
+        type: string
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: sections
+        type: object[]
+        entries:
+          - name: current_page
+            type: number
+            actions:
+              - type: format_text
+                argument: "{page}"
+          - name: page_size
+            type: number
+            actions:
+              - type: format_text
+                argument: "20"
+          - name: next_page
+            type: string
+            select: first
+            selector: ".pnext a"
+            actions:
+              - type: get_attribut
+                argument: href
+              - type: regex_find_all
+                pattern: "page/(\\d+)/"
+                format: "{1}"
+          - name: link
+            type: string
+            actions:
+              - type: format_text
+                argument: "{query_url}"
+          - name: entries
+            type: object[]
+            selector: "#grid .mov"
+            select: all
+            entries: *block_card
+    post_process:
+      - type: derive_pagination
+        source: sections
+        next_value_field: next_page
+
+  # --------------------------------------------------------------------------
+  # Section listing — the on-demand follow-up pages of a load_home /
+  # get_category rail. Receives the section `link` and a one-based `page`.
+  # --------------------------------------------------------------------------
+  - name: get_section
+    scraper_type: html
+    base_url: "{base_url}"
+    query_url: "{query_url}page/{page}/"
+    media_types: *media_types
+    row_selector: html
+    entries:
+      - name: source
+        type: string
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: current_page
+        type: number
+        actions:
+          - type: format_text
+            argument: "{page}"
+      - name: page_size
+        type: number
+        actions:
+          - type: format_text
+            argument: "20"
+      - name: next_page
+        type: string
+        select: first
+        selector: ".pnext a"
+        actions:
+          - type: get_attribut
+            argument: href
+          - type: regex_find_all
+            pattern: "page/(\\d+)/"
+            format: "{1}"
+      - name: link
+        type: string
+        actions:
+          - type: format_text
+            argument: "{query_url}"
+      - name: entries
+        type: object[]
+        selector: "#grid .mov"
+        select: all
+        entries: *block_card
+    post_process:
+      - type: derive_pagination
+        next_value_field: next_page
+
+  # --------------------------------------------------------------------------
+  # Search results — endpoint AJAX (POST), remplace l'ancienne query
+  # ?do=search&subaction=search&story= bloquée par le WAF.
+  # --------------------------------------------------------------------------
+  - name: search
+    scraper_type: html
+    base_url: "{base_url}"
+    query_url: "{base_url}/index.php?controller=ajax&mod=search"
+    request_method: post
+    # The AJAX search endpoint is guarded by a JavaScript bot shield: the
+    # homepage executes `document.cookie = "h_check=" + (10+15)`, so the
+    # request must carry `h_check=25` by itself (the value is never sent
+    # server-side as a Set-Cookie). A non-empty `Accept-Language` header is
+    # also required, otherwise the endpoint answers 403 with an empty body.
+    request_headers:
+      - name: "Content-Type"
+        actions:
+          - type: format_text
+            argument: "application/x-www-form-urlencoded; charset=UTF-8"
+      - name: "X-Requested-With"
+        actions:
+          - type: format_text
+            argument: "XMLHttpRequest"
+      - name: "Accept-Language"
+        actions:
+          - type: format_text
+            argument: "fr,fr-FR;q=0.8,en-US;q=0.5,en;q=0.3"
+      - name: "Cookie"
+        actions:
+          - type: format_text
+            argument: "h_check=25"
+      - name: "Referer"
+        actions:
+          - type: format_text
+            argument: "{base_url}/"
+      - name: "Origin"
+        actions:
+          - type: format_text
+            argument: "{base_url}"
+      - name: "User-Agent"
+        actions:
+          - type: format_text
+            argument: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:158.0) Gecko/20100101 Firefox/158.0"
+    request_body_actions:
+      - type: format_text
+        argument: "query={search_terms}&skin=flemmixnew"
+    media_types: *media_types
+    row_selector: html
+    entries:
+      - name: source
+        type: string
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: current_page
+        type: number
+        actions:
+          - type: format_text
+            argument: "1"
+      - name: have_more
+        type: boolean
+        actions:
+          - type: format_text
+            argument: "false"
+      - name: entries
+        type: object[]
+        selector: "div.fast-search-result"
+        select: all
+        entries:
+          - name: link
+            type: string
+            select: first
+            selector: "a.fsr-wrap"
+            actions:
+              - type: get_attribut
+                argument: href
+              - type: resolve_url
+          - name: web-link
+            type: string
+            select: first
+            selector: "a.fsr-wrap"
+            actions:
+              - type: get_attribut
+                argument: href
+              - type: resolve_url
+          - name: title
+            type: string
+            select: first
+            selector: "span.fsr-title"
+            actions:
+              - type: get_text
+          - name: year
+            type: number
+            select: first
+            selector: "span.fsr-year"
+            actions:
+              - type: get_text
+              - type: regex_find_all
+                pattern: "(\\d{4})"
+                format: "{1}"
+          - name: lang
+            type: string[]
+            select: first
+            selector: "span.fsr-badge.fsr-lang"
+            actions:
+              - type: get_text
+              - type: map
+                argument:
+                  TrueFrench: vf
+                  French: vf
+                  VOSTFR: vostfr
+          - name: quality
+            type: string
+            select: first
+            selector: "span.fsr-badge.fsr-qual"
+            actions:
+              - type: get_text
+          - name: img/poster > link
+            type: string
+            select: first
+            selector: ".fsr-poster img"
+            actions:
+              - type: get_attribut
+                argument: src
+              - type: resolve_url
+          - name: media-type
+            type: string[]
+            select: first
+            selector: "a.fsr-wrap"
+            actions: *media_type_actions
+
+  # --------------------------------------------------------------------------
+  # Entry detail page (film or série).
+  # --------------------------------------------------------------------------
+  - name: get_entry
+    scraper_type: html
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    media_types: *media_types
+    row_selector: html
+    entries:
+      - name: source
+        type: string
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: title
+        type: string
+        select: first
+        selector: "header.full-title h1[itemprop=\"name\"]"
+        actions:
+          - type: get_text
+      - name: description
+        type: string
+        select: first
+        selector: "div.fx-syn-text[itemprop=\"description\"]"
+        actions:
+          - type: get_text
+      - name: img/poster > link
+        type: string
+        select: first
+        selector: "div.mov-img[itemprop=\"image\"] img[itemprop=\"thumbnailUrl\"]"
+        actions: *poster_actions
+      - name: year
+        type: number
+        select: first
+        selector: "li:nth-of-type(2) > .mov-desc"
+        actions:
+          - type: get_text
+          - type: regex_find_all
+            pattern: "(\\d{4})"
+            format: "{1}"
+      - name: theme
+        type: string[]
+        selector: "li:nth-of-type(3) > .mov-desc a"
+        select: all
+        actions:
+          - type: get_text
+      - name: director
+        type: string[]
+        select: first
+        selector: "li:nth-of-type(5) > .mov-desc[itemprop=\"director\"]"
+        actions:
+          - type: get_text
+      - name: casting
+        type: string[]
+        select: first
+        selector: "li:nth-of-type(6) > .mov-desc[itemprop=\"actor\"]"
+        actions:
+          - type: get_text
+          - type: split
+            argument: ", "
+      - name: lang
+        type: string[]
+        select: first
+        selector: "li:nth-of-type(7) > .mov-desc"
+        actions:
+          - type: get_text
+          - type: map
+            argument:
+              French: vf
+              TrueFrench: vf
+              VF: vf
+              VOSTFR: vostfr
+      # Series pages have no Qualité row, while films do, so a fixed position
+      # would read the duration as the quality on series. Both fields are read
+      # from their own row label instead. `normalize_duration` converts the
+      # site's human-readable text (`2h`, `60 mn`, `1 h 40 mn`) into seconds,
+      # which the frontend renders as `h:mm:ss`.
+      - name: quality
+        type: string[]
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: 'Qualité\s*:\s*</div>\s*<div class="mov-desc"[^>]*>\s*(?:<span[^>]*>)?\s*([^<]+?)\s*<'
+            format: "{1}"
+      - name: duration
+        type: string
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: 'Durée\s*:\s*</div>\s*<div class="mov-desc"[^>]*>\s*(?:<span[^>]*>)?\s*([^<]+?)\s*<'
+            format: "{1}"
+          - type: normalize_duration
+      # Film pages have no episode blocks: their players live in one flat
+      # `.tabs-sel.linkstab` list exposed at entry level. Series pages do not
+      # use that container, and their episode players are resolved on demand by
+      # `get_players`, so only the film list is extracted here.
+      - name: players
+        type: object[]
+        selector: ".tabs-sel.linkstab a[onclick=\"playSafe(this)\"]"
+        select: all
+        entries: *entries_wiflix_film_player
+      # Every language block is one episode row. The post-process below folds
+      # the rows into a single season labeled `Episodes`, so the page never
+      # exposes page-wide players.
+      - name: episodes
+        type: object[]
+        selector: ".hostsblock div[class^=\"ep\"]:has(a[onclick=\"playSafe(this)\"])"
+        select: all
+        entries: *entries_wiflix_episode
+    post_process:
+      - type: sort_items
+        source: episodes
+        field: episode-number
+        method: asc
+      # The page repeats every episode once per language block (`ep1vs`,
+      # `ep1vf`). Each row carries the language of its own block, so the rows
+      # are folded into one episode each and the frontend keeps both languages.
+      - type: merge_items_by_field
+        source: episodes
+        field: episode-number
+        merge_fields:
+          - lang
+      # Each film player exposes its resolved hoster URL as both `embed-link`
+      # (used by the player surface) and `web-link` (opened externally by the
+      # frontend). Series players are built by `get_players` with the same
+      # duplication.
+      - type: copy_item_fields
+        source: players
+        fields:
+          - source: embed-link
+            target: web-link
+      # The season wrapper is only created when at least one episode exists,
+      # so film pages do not expose an empty season.
+      - type: group_items_by_header
+        source: episodes
+        target: seasons
+        is_header_field: _is_header
+        label_field: label
+        entries_field: episodes
+        first_label: Episodes
+        remove_source: true
+
+  # --------------------------------------------------------------------------
+  # Player resolution — POST /ajax_player.php with the page-signed body per
+  # player entry (see `sub_queries_wiflix_player_ajax`).
+  # --------------------------------------------------------------------------
+  # The frontend calls this query with one episode's deferred link
+  # (`<page>#ep<N>`). The fragment, exposed by the engine as `{url_fragment}`,
+  # scopes the rows to that episode's VOSTFR and VF blocks, so only their
+  # anchors are resolved instead of the whole page. The block class also drives
+  # the per-player language through `@wiflix_episode_lang`.
+  - name: get_players
+    scraper_type: html
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    media_types: *media_types
+    http:
+      mode: direct
+    row_selector: "div[class~=\"{url_fragment}vs\"], div[class~=\"{url_fragment}vf\"]"
+    entries:
+      - name: source
+        type: string
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: lang
+        type: string[]
+        actions: *actions_episode_lang
+      - name: players
+        type: object[]
+        selector: "a[onclick=\"playSafe(this)\"]"
+        select: all
+        entries: *entries_wiflix_player
+    post_process:
+      - type: copy_item_fields
+        source: players
+        fields:
+          - source: embed-link
+            target: web-link

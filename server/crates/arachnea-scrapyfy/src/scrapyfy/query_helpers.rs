@@ -395,6 +395,10 @@ pub fn format_query_template(
 /// Builds the runtime template map used by query URLs and actions.
 ///
 /// This applies query-specific param mappings and always exposes `{base_url}`.
+/// When the resolved `query_url` carries a fragment (`page.html#ep3`), the part
+/// after `#` is also exposed as `{url_fragment}`, so a selector can be scoped to
+/// one client-side tab or block even though the fragment is never sent to the
+/// server.
 ///
 /// # Arguments
 ///
@@ -410,7 +414,19 @@ pub fn build_query_execution_params(
     resolved
         .entry("base_url".to_string())
         .or_insert_with(|| base_url.to_string());
-    resolve_nested_template_params(&resolved)
+    let mut resolved = resolve_nested_template_params(&resolved);
+
+    let url_fragment = resolved
+        .get("query_url")
+        .and_then(|query_url| query_url.split_once('#'))
+        .map(|(_, fragment)| fragment.to_string())
+        .filter(|fragment| !fragment.is_empty());
+
+    if let Some(fragment) = url_fragment {
+        resolved.insert("url_fragment".to_string(), fragment);
+    }
+
+    resolved
 }
 
 /// Converts runtime query parameters into a JSON object made of string values.

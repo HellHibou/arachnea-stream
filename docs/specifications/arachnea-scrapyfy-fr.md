@@ -110,6 +110,7 @@ parameters:
 - `page_index` — dérivé de `page` (`page - 1`)
 - `offset` — dérivé de `page * page_size`
 - `query_separator` — `?`, `&` ou `""` selon l'URL
+- `url_fragment` — partie après `#` dans le `query_url` résolu, définie uniquement quand l'URL porte un fragment non vide (elle n'est jamais envoyée au serveur)
 
 ---
 
@@ -328,6 +329,16 @@ d'exécution, le chemin de récupération HTTP normal est utilisé.
 
 `input_html` nécessite au moins un `query_url` ou un paramètre d'exécution
 `{url}` pour la résolution de l'URL de contexte.
+
+`row_selector` est résolu comme un modèle avec les paramètres d'exécution avant
+l'extraction des lignes, ce qui permet à une valeur fournie par l'appelant de
+restreindre l'extraction. C'est le rôle de `{url_fragment}` : un lien tel que
+`https://example.com/page.html#ep3` sélectionne les lignes de cet onglet ou de
+ce bloc alors que la source n'expose aucune URL pour celui-ci. Le sélecteur doit
+rester analysable tel quel (par exemple
+`div[class~="{url_fragment}vs"]`) : la configuration est validée au chargement,
+et un sélecteur dont les placeholders restent non résolus ne correspond à
+aucune ligne.
 
 ### Entrées HTML (`entries`)
 
@@ -1622,6 +1633,36 @@ valeurs sans correspondance sont écrites telles quelles. Les lookups
         source: "hosters"
         key: "host"
         value: "label"
+```
+
+### `merge_items_by_field`
+Fusionne les items voisins qui partagent la même valeur de champ scalaire. Utile
+lorsqu'une même ligne logique est répétée dans le balisage une fois par variante
+(par exemple un bloc d'épisode par langue) et que les variantes ne diffèrent que
+par les champs listés dans `merge_fields`.
+
+| Champ | Type | Description |
+|-------|------|-------------|
+| `source` | string | Champ groupe contenant les items à fusionner |
+| `field` | string | Champ scalaire lu sur chaque item comme clé de fusion |
+| `merge_fields` | array (opt.) | Chemins de champs ajoutés depuis les items en doublon vers le premier item de la même clé |
+
+Les items sont parcourus dans l'ordre d'extraction. Le premier item d'une clé est
+conservé ; les items suivants ayant la même clé ajoutent les nœuds nommés par
+`merge_fields` : les valeurs scalaires sont ajoutées une seule fois (les valeurs
+identiques sont ignorées), les nœuds enfants sont fusionnés récursivement et les
+listes d'items imbriqués sont concaténées. Les items sans valeur pour `field`
+sont conservés tels quels. Le groupe fusionné remplace le groupe source et
+conserve son ordre d'extraction, ce qui suppose que `sort_items` soit exécuté
+avant lui.
+
+```yaml
+- type: merge_items_by_field
+  source: "episodes"
+  field: episode-number
+  merge_fields:
+    - players
+    - lang
 ```
 
 ---

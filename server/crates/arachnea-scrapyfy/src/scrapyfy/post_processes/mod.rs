@@ -18,6 +18,7 @@ mod filter_fields;
 mod filter_items;
 mod group_items_by_header;
 mod math_helpers;
+mod merge_items_by_field;
 mod node_helpers;
 mod pivot_items_by_index;
 mod regex_helpers;
@@ -288,6 +289,18 @@ pub enum ScraperPostProcess {
         remove_source: bool,
     },
 
+    /// Merges sibling items that share the same scalar field value.
+    MergeItemsByField {
+        /// `>`-delimited path of the group whose items are merged.
+        source: String,
+        /// Scalar field read from each item as the merge key.
+        field: String,
+        /// Field paths appended from duplicate items into the first item of
+        /// the same key. Scalar values are deduplicated during the merge.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        merge_fields: Vec<String>,
+    },
+
     /// Sets one or more fields on every nested item inside every source item.
     /// Each field can be either a static value or a copy from a sibling field.
     SetNestedFields {
@@ -418,6 +431,11 @@ impl ScraperPostProcess {
                 items,
                 unique_field,
             } => append_static_items::validate(owner, target, items, unique_field.as_deref()),
+            ScraperPostProcess::MergeItemsByField {
+                source,
+                field,
+                merge_fields,
+            } => merge_items_by_field::validate(owner, source, field, merge_fields),
             ScraperPostProcess::SetNestedFields {
                 source,
                 nested_source,
@@ -645,6 +663,14 @@ impl ScraperPostProcess {
                 unique_field,
             } => {
                 append_static_items::apply(root, context, target, items, unique_field.as_deref());
+                Ok(())
+            }
+            ScraperPostProcess::MergeItemsByField {
+                source,
+                field,
+                merge_fields,
+            } => {
+                merge_items_by_field::apply(root, source, field, merge_fields);
                 Ok(())
             }
             ScraperPostProcess::SetNestedFields {

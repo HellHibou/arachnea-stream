@@ -110,6 +110,7 @@ parameters:
 - `page_index` — derived from `page` (`page - 1`)
 - `offset` — derived from `page * page_size`
 - `query_separator` — `?`, `&` or `""` depending on the URL
+- `url_fragment` — part after `#` in the resolved `query_url`, only set when the URL carries a non-empty fragment (it is never sent to the server)
 
 ---
 
@@ -325,6 +326,15 @@ parameters, the normal HTTP fetch path is used.
 
 `input_html` requires at least a `query_url` or a runtime `{url}` parameter
 for context URL resolution.
+
+`row_selector` is resolved as a template with the runtime parameters before
+rows are extracted, so a caller-supplied value can scope the extraction. This
+is what `{url_fragment}` is for: a link such as
+`https://example.com/page.html#ep3` selects the rows of that tab or block even
+though the source has no URL for it. Keep the selector parseable as written
+(for example `div[class~="{url_fragment}vs"]`): the configuration is validated
+at load time, and a selector whose placeholders stay unresolved simply matches
+nothing.
 
 ### HTML entries (`entries`)
 
@@ -1609,6 +1619,35 @@ written unchanged. `copy_from` lookups use exact key matches only.
         source: "hosters"
         key: "host"
         value: "label"
+```
+
+### `merge_items_by_field`
+Merges sibling items that share the same scalar field value. This is useful when
+one logical row is repeated in the markup once per variant (for example one
+episode block per language) and the variants only differ by the fields listed in
+`merge_fields`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `source` | string | Group field containing the items to merge |
+| `field` | string | Scalar field read from each item as the merge key |
+| `merge_fields` | array (opt.) | Field paths appended from duplicate items into the first item of the same key |
+
+Items are visited in extraction order. The first item of a key is kept as the
+output item; later items with the same key append the nodes named by
+`merge_fields`: scalar values are appended once (identical values are skipped),
+child nodes are merged recursively, and nested item lists are concatenated.
+Items without a value for `field` are kept unchanged. The merged group replaces
+the source group and keeps its extracted order, so `sort_items` normally runs
+before it.
+
+```yaml
+- type: merge_items_by_field
+  source: "episodes"
+  field: episode-number
+  merge_fields:
+    - players
+    - lang
 ```
 
 ---
